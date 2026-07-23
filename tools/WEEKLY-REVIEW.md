@@ -21,7 +21,7 @@
    a because: clause (founder's underlying reason); false positives get deleted.
    Confirm or retire provisional laws against execution evidence (Voyager gating:
    a law unconfirmed by a later run stays provisional; 60d unconfirmed demotes).
-6. Read <vault>/50-Reference/brothermode-pending-amendments.md; land EXACTLY ONE
+6. Read <vault>/50-Reference/pending-amendments.md; land EXACTLY ONE
    consolidation commit to SKILL.md (delta edits only, never a rewrite: ACE context
    collapse, arxiv.org/abs/2510.04618) or record an explicit no-change with reason.
    FIRST verify last review's amendment against the signal it named and revert
