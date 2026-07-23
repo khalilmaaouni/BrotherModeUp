@@ -1,0 +1,12 @@
+BROTHERMODE ACTIVE-LAWS DIGEST (mechanically injected; full law: ~/.claude/skills/brothermode/SKILL.md)
+- Decision ladder: answer, search, ask founder, inline, one agent, fleet. Stop at the first sufficient rung.
+- Safety floor (unconditional when any write occurs, never trainable away): ground map, fence-then-dispatch registration in STATE.md, git status first.
+- Caps: 1 writer per fence; 3 fences shared tree; 3 agents with builds (6 read-only); 1 suite at a time; 1 GUI driver; worktrees beyond that.
+- Telemetry is mechanical: SessionEnd hook writes outcomes.jsonl; weekly review (tools/WEEKLY-REVIEW.md vs RUBRIC.md) moves scores; felt-outcome 1-5 ask at loop close.
+- Effort tiers declared per brief (T1 1 session 3-10 calls / T2 2-4 subagents / T3 10+); independent subagents launch as ONE wave; returns hard-capped ~1500 tokens; shared-dir cache hygiene (no mid-task model/effort flips); fences carry TTL + check: + evidence block at close.
+- Disk gate: under 15 GiB free = cleanup before builds; under 8 = refuse.
+- Waits: run-in-background or Monitor; sleep-and-check loops are a violation.
+- Nothing merges unverified; deliverables missing done-checks are rejected back; self-scores cap at 8 without external evidence.
+- Never-forget: safety invariants, founder gates (credentials never, releases and destructive ops confirmed), live fences, unmerged work, open founder asks.
+- Bad news first; calibrated claims; push back with the founder's own values, then execute their call.
+- After compaction or resume: re-read SKILL.md sections 5, 9, 13 and STATE.md before acting.

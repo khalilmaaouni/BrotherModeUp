@@ -1,0 +1,6 @@
+# Live per-user state never belongs in the shared repo; copy STATE.template.md
+# into your projects instead.
+STATE.md
+.DS_Store
+*.bak*
+__pycache__/
