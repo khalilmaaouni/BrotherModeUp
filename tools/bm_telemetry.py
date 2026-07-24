@@ -19,6 +19,9 @@ Subcommands:
   fence-lint        Dispatch aid: prints live fences from the project's STATE.md
                     and the BROTHERMODE_REGISTRIES globs before a writer launches.
   prediction-audit  Counts sealed predictions in the founder model ledger.
+  purge-corrections Deletes captured correction candidates (excerpts of your own
+                    messages, secret-redacted and owner-only, but still yours to
+                    delete). Shows the count first; --yes to confirm.
   speed             Wall-clock view for rubric metric 3: last 7d vs prior 7d,
                     span-hours per OUTCOMES line (labeled proxy, never invented).
   dedup             One-time cleanup of duplicate hook flushes (backup + count
@@ -78,10 +81,10 @@ def now_iso():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def atomic_append(path, obj):
+def atomic_append(path, obj, mode=0o644):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     line = (json.dumps(obj, separators=(",", ":")) + "\n").encode()
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, mode)
     try:
         os.write(fd, line)
     finally:
@@ -160,6 +163,42 @@ def parse_transcript(path, collect_user_texts=False):
     return agg
 
 
+# Correction candidates are excerpts of YOUR OWN messages, so they can carry
+# secrets you typed. Redact secret-shaped substrings before anything is written,
+# and keep the file owner-only. This is best-effort pattern matching, not a
+# guarantee: treat the file as sensitive and purge it when you no longer need it
+# (tools/bm_telemetry.py purge-corrections).
+SECRET_PATTERNS = [
+    re.compile(r"\b(sk|rk)[-_][A-Za-z0-9_-]{12,}", re.I),           # api keys
+    re.compile(r"\bgh[oprsu]_[A-Za-z0-9]{16,}"),                     # github tokens
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),                            # aws key id
+    re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}", re.I),             # slack
+    re.compile(r"\b[Bb]earer\s+[A-Za-z0-9._~+/=-]{16,}"),
+    re.compile(r"-----BEGIN[ A-Z]*PRIVATE KEY-----"),
+    re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),      # jwt
+    # key=value and key: value where the key names a secret
+    # key=value, key: value, and the natural-language "the password is hunter2".
+    # Over-redaction is deliberate here: a masked non-secret costs nothing, a
+    # stored secret costs a lot.
+    # Leading [A-Za-z0-9_]* so PROD_DB_PASSWORD= matches as well as password=.
+    re.compile(r"(?i)[A-Za-z0-9_]*(?:pass(?:word|wd|phrase)?|secret|token"
+               r"|api[_-]?key|access[_-]?key|private[_-]?key|credential)s?"
+               r"\s*(?:[:=]|\s+(?:is|was)\s+)\s*\S+"),
+    re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),                          # us ssn shape
+    re.compile(r"\b(?:\d[ -]?){13,16}\b"),                          # card-ish digits
+]
+
+
+def redact(text):
+    """Mask secret-shaped substrings. Returns (clean_text, n_redactions)."""
+    n = 0
+    for pat in SECRET_PATTERNS:
+        text, k = pat.subn("[REDACTED]", text)
+        n += k
+    return text, n
+
+
 def scan_corrections(sid, project, user_texts):
     """Correction CANDIDATES from short founder messages in the MAIN transcript
     only (subagent transcripts quote law text and would flood this). Human filter
@@ -175,11 +214,15 @@ def scan_corrections(sid, project, user_texts):
         if len(txt) > 400:
             continue
         if CORRECTION_RE.search(txt):
-            if (sid, txt[:400]) in seen:
+            clean, nred = redact(txt[:400])
+            if (sid, clean) in seen:
                 continue
-            atomic_append(CORRECTIONS, {"ts": now_iso(), "session_id": sid,
-                                        "project": project, "text": txt[:400]})
-            seen.add((sid, txt[:400]))
+            rec = {"ts": now_iso(), "session_id": sid,
+                   "project": project, "text": clean}
+            if nred:
+                rec["redactions"] = nred
+            atomic_append(CORRECTIONS, rec, mode=0o600)
+            seen.add((sid, clean))
             found += 1
     return found
 
@@ -613,6 +656,26 @@ def cmd_fence_lint(argv):
         print("fence-lint: no live fences found under %s" % cwd)
 
 
+def cmd_purge_corrections(argv):
+    """Delete captured correction candidates. They are excerpts of your own
+    messages; purge them once the weekly review has distilled what it needs, or
+    at any time. Prints exactly what it will remove before removing it."""
+    rows = read_jsonl(CORRECTIONS)
+    if not rows:
+        print("purge-corrections: nothing to purge (%s)" % CORRECTIONS)
+        return
+    if "--yes" not in argv:
+        print("purge-corrections: %d candidate(s) in %s" % (len(rows), CORRECTIONS))
+        print("  oldest: %s   newest: %s" % (rows[0].get("ts", "?"), rows[-1].get("ts", "?")))
+        print("  re-run with --yes to delete the file.")
+        return
+    try:
+        os.remove(CORRECTIONS)
+        print("purge-corrections: removed %d candidate(s) from %s" % (len(rows), CORRECTIONS))
+    except OSError as e:
+        print("purge-corrections: could not remove (%r)" % (e,))
+
+
 def cmd_prediction_audit():
     c = prediction_counts()
     print("prediction ledger: %d sealed, %d scored, %d hits (%s)"
@@ -643,6 +706,8 @@ def main():
             cmd_registry_check(argv)
         elif cmd == "fence-lint":
             cmd_fence_lint(argv)
+        elif cmd == "purge-corrections":
+            cmd_purge_corrections(argv)
         elif cmd == "prediction-audit":
             cmd_prediction_audit()
         elif cmd == "speed":
