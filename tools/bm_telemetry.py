@@ -50,7 +50,7 @@ absent; nothing is invented. Token counts are labeled as-flushed (the transcript
 may lag the final turn). Old (schema 1) and new lines are both readable: use
 fld() everywhere.
 """
-import json, os, sys, glob, re, datetime
+import json, os, sys, glob, re, datetime, hashlib
 
 # ---------------------------------------------------------------------------
 # Configuration. The vault is the durable memory folder every ledger lives in.
@@ -788,7 +788,7 @@ def cmd_intent(argv):
 def atomic_append_text(path, line):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     data = (line.rstrip("\n") + "\n").encode()
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     try:
         os.write(fd, data)
     finally:
@@ -804,7 +804,12 @@ def _last_intent(cwd):
 
 
 def _project_of(cwd):
-    return re.sub(r"[^A-Za-z0-9_.-]", "_", os.path.basename(cwd.rstrip("/"))) or "session"
+    # basename ALONE collides across ~/client-a/backend and ~/client-b/backend, which
+    # would let one project's resume/intent files be read as another's. Suffix a short
+    # hash of the absolute path so the identity is unique per repository root.
+    base = re.sub(r"[^A-Za-z0-9_.-]", "_", os.path.basename(cwd.rstrip("/"))) or "session"
+    h = hashlib.sha1(os.path.abspath(cwd).encode("utf-8", "replace")).hexdigest()[:6]
+    return "%s-%s" % (base, h)
 
 
 def _resume_path(cwd):
@@ -867,10 +872,15 @@ def cmd_precompact_brief():
                         else:
                             desc = name
                         tools.append(desc)
-    # Keep only the recent tail of each stream.
-    assistant_text = assistant_text[-4:]
-    tools = tools[-10:]
-    last_intent = _last_intent(cwd)
+    # Keep only the recent tail of each stream, and REDACT every stream: this file
+    # holds your own recent words and commands, which can carry a pasted secret, a
+    # token in a command, or a customer name. Same discipline as corrections.jsonl;
+    # the earlier fix there had to be applied here too (a fix in one place must be
+    # grepped for everywhere with the same shape).
+    assistant_text = [redact(a)[0] for a in assistant_text[-4:]]
+    tools = [redact(d)[0] for d in tools[-10:]]
+    last_user = redact(last_user)[0]
+    last_intent = redact(_last_intent(cwd))[0]
     lines = ["# Resume brief (auto-written before compaction)",
              "",
              "A compaction just erased the working context. The git autosave holds your",
@@ -891,10 +901,15 @@ def cmd_precompact_brief():
     for d in tools:
         lines.append("- " + d)
     lines.append("")
+    # Owner-only: this is sensitive recent context, like corrections.jsonl.
     try:
         os.makedirs(TEL_DIR, exist_ok=True)
-        with open(_resume_path(cwd), "w") as out:
-            out.write("\n".join(lines) + "\n")
+        rp = _resume_path(cwd)
+        fd = os.open(rp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, ("\n".join(lines) + "\n").encode())
+        finally:
+            os.close(fd)
     except OSError:
         pass
 

@@ -22,6 +22,7 @@ Most agent setups fail the same way. The model over-delivers ceremony on small t
 | `tools/bm_score.py` | Code-graded weekly checks, so the LLM judge only scores what code cannot decide |
 | `tools/bm_sessionstart.sh` | Session-start hook: injects the digest, overdue-review nags, the offline update check, and a recovery pointer after a compaction |
 | `tools/bm_autosave.sh` | Mechanical work-preservation: on the PreCompact hook it snapshots your whole working tree (untracked files included) to a private git ref so token-death never erases progress. Local git only, never pushes. `recover` restores it |
+| `tools/test_bm.py` | Regression tests (stdlib only): secret redaction, owner-only files, project-identity collisions, non-invasive autosave. Run `python3 tools/test_bm.py`; CI runs them on every push |
 | `tools/WEEKLY-REVIEW.md` | The 11-step weekly self-review procedure |
 | `docs/HOW-IT-WORKS.md` | The full mechanics, explained exactly |
 | `docs/BrotherMode-Design-Document.pdf` | The whitepaper: philosophy, all 16 laws, the code, data flow and cost, benchmarks, and a quick start. Start here if you are deciding whether to adopt |

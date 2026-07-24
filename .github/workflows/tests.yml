@@ -1,0 +1,23 @@
+# Runs the BrotherMode regression tests on every push and pull request. A failing
+# test exits nonzero and fails the check, so the mechanisms the project claims
+# (secret redaction, owner-only sensitive files, no project-identity collision,
+# non-invasive autosave) are enforced at merge time, not merely asserted in prose.
+name: tests
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Configure git (autosave test needs an identity)
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name ci
+      - name: Run tests
+        run: python3 tools/test_bm.py
