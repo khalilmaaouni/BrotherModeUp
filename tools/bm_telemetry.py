@@ -23,6 +23,16 @@ Subcommands:
                     fetched update is waiting, when the copy has gone stale, and
                     once when the law itself changed under you. Reads git refs as
                     plain files: no network call, no subprocess, ever.
+  intent            Write-ahead intent log. `intent "next: X, because Y"` appends
+                    one line to a per-project log BEFORE a risky/long action, so a
+                    death always leaves a forward-looking record (the write-ahead
+                    log pattern: log the intent before the action, like a database).
+                    The resume brief surfaces the last intent first.
+  precompact-brief  PreCompact hook helper. Reads the hook JSON on stdin, extracts
+                    the TAIL of the dying session's transcript (last instruction,
+                    recent decisions, recent commands) and writes a resume brief to
+                    the vault, so a resumed session recovers the THREAD, not just the
+                    files the git autosave saved. Pure: reads/writes files only.
   compact-hint      SessionStart(source=compact) helper. Reads the hook JSON on
                     stdin; if the session just resumed from a compaction, prints a
                     one-line pointer to the autosave recovery command. Pure: reads
@@ -759,6 +769,136 @@ def cmd_check_update():
             pass
 
 
+def _intent_path(cwd):
+    return os.path.join(TEL_DIR, "intent-%s.log" % _project_of(cwd))
+
+
+def cmd_intent(argv):
+    """Append one write-ahead intent line. Called by the session BEFORE a risky or
+    long action so that if the session dies mid-action, the intent is already on
+    disk. Pure: appends to a file, nothing else."""
+    text = " ".join(argv).strip()
+    if not text:
+        print("usage: intent \"next: <what>, because <why>\"")
+        return
+    atomic_append_text(_intent_path(os.getcwd()), now_iso() + "  " + text)
+    print("intent logged")
+
+
+def atomic_append_text(path, line):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    data = (line.rstrip("\n") + "\n").encode()
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    try:
+        os.write(fd, data)
+    finally:
+        os.close(fd)
+
+
+def _last_intent(cwd):
+    try:
+        lines = [l.rstrip("\n") for l in open(_intent_path(cwd), errors="replace") if l.strip()]
+        return lines[-1] if lines else ""
+    except OSError:
+        return ""
+
+
+def _project_of(cwd):
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", os.path.basename(cwd.rstrip("/"))) or "session"
+
+
+def _resume_path(cwd):
+    return os.path.join(TEL_DIR, "last-resume-%s.md" % _project_of(cwd))
+
+
+def cmd_precompact_brief():
+    """Distill the dying session into a forward-looking resume brief. The git
+    autosave preserves WHAT you had (files); this preserves WHERE you were and
+    WHY, which is the part a resumed model would otherwise have to re-derive.
+    Mechanical extraction, not synthesis: it hands the next session the raw recent
+    history so the model reconstructs the thread from complete material instead of
+    a stale note. Pure python: reads the transcript file, writes one markdown file;
+    no subprocess, no network."""
+    try:
+        payload = json.load(sys.stdin)
+    except Exception:
+        return
+    tp = payload.get("transcript_path") or ""
+    cwd = payload.get("cwd") or os.getcwd()
+    if not tp or not os.path.isfile(tp):
+        return
+    last_user = ""
+    assistant_text = []   # recent reasoning/decision snippets
+    tools = []            # recent tool actions, as short descriptors
+    try:
+        f = open(tp, "r", errors="replace")
+    except OSError:
+        return
+    with f:
+        for raw in f:
+            try:
+                o = json.loads(raw)
+            except Exception:
+                continue
+            t = o.get("type")
+            m = o.get("message") or {}
+            if t == "user" and not o.get("isMeta"):
+                c = m.get("content")
+                txt = c if isinstance(c, str) else None
+                if isinstance(c, list):
+                    if not any(isinstance(b, dict) and b.get("type") == "tool_result" for b in c):
+                        txt = "\n".join(b.get("text", "") for b in c
+                                        if isinstance(b, dict) and b.get("type") == "text")
+                if txt and txt.strip() and "<system-reminder>" not in txt:
+                    last_user = txt.strip()
+            elif t == "assistant":
+                for b in (m.get("content") or []):
+                    if not isinstance(b, dict):
+                        continue
+                    if b.get("type") == "text" and b.get("text", "").strip():
+                        assistant_text.append(b["text"].strip())
+                    elif b.get("type") == "tool_use":
+                        name = b.get("name", "")
+                        inp = b.get("input") or {}
+                        if name == "Bash":
+                            desc = "Bash: " + (inp.get("command", "")[:100])
+                        elif name in ("Edit", "Write", "Read"):
+                            desc = name + ": " + str(inp.get("file_path", ""))
+                        else:
+                            desc = name
+                        tools.append(desc)
+    # Keep only the recent tail of each stream.
+    assistant_text = assistant_text[-4:]
+    tools = tools[-10:]
+    last_intent = _last_intent(cwd)
+    lines = ["# Resume brief (auto-written before compaction)",
+             "",
+             "A compaction just erased the working context. The git autosave holds your",
+             "files (refs/brothermode/autosave); this holds the THREAD. Read it, re-read",
+             "STATE.md, then continue where this leaves off.",
+             "",
+             "## Next intent (write-ahead: what this session was about to do)",
+             (last_intent or "(no write-ahead intent was logged)"),
+             "",
+             "## The last thing the founder asked",
+             (last_user[:600] or "(none captured)"),
+             "",
+             "## What was being done (recent reasoning)"]
+    for a in assistant_text:
+        lines.append("- " + a[:300].replace("\n", " "))
+    lines.append("")
+    lines.append("## Recent actions (last %d)" % len(tools))
+    for d in tools:
+        lines.append("- " + d)
+    lines.append("")
+    try:
+        os.makedirs(TEL_DIR, exist_ok=True)
+        with open(_resume_path(cwd), "w") as out:
+            out.write("\n".join(lines) + "\n")
+    except OSError:
+        pass
+
+
 def cmd_compact_hint():
     """Read the SessionStart hook payload from stdin. When the session resumed
     from a context compaction (source == "compact"), the model has just lost the
@@ -773,11 +913,18 @@ def cmd_compact_hint():
     if (payload or {}).get("source") != "compact":
         return
     skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    print("BROTHERMODE: resumed after a compaction. Your pre-compaction working "
-          "tree was autosaved. If anything is missing, recover it with:")
-    print("  sh %s/tools/bm_autosave.sh recover" % skill_dir)
-    print("  then re-read STATE.md and git status before continuing (laws live on "
-          "disk, not in the summary).")
+    print("BROTHERMODE: resumed after a compaction. Your files are autosaved "
+          "(sh %s/tools/bm_autosave.sh recover) and the thread is below. Read it, "
+          "re-read STATE.md and git status, then continue." % skill_dir)
+    # The thread: the resume brief written at the moment of death (the WHY/where),
+    # which the git snapshot does not carry.
+    rp = _resume_path((payload or {}).get("cwd") or os.getcwd())
+    try:
+        with open(rp, "r", errors="replace") as f:
+            print("")
+            print(f.read().strip())
+    except OSError:
+        pass
 
 
 def cmd_purge_corrections(argv):
@@ -830,6 +977,10 @@ def main():
             cmd_registry_check(argv)
         elif cmd == "fence-lint":
             cmd_fence_lint(argv)
+        elif cmd == "intent":
+            cmd_intent(argv)
+        elif cmd == "precompact-brief":
+            cmd_precompact_brief()
         elif cmd == "compact-hint":
             cmd_compact_hint()
         elif cmd == "check-update":

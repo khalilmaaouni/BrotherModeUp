@@ -45,7 +45,7 @@ Hooks make the learning loop mechanical: the model cannot forget to write teleme
       { "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py stop-warn" } ] }
     ],
     "PreCompact": [
-      { "hooks": [ { "type": "command", "command": "sh ~/.claude/skills/brothermode/tools/bm_autosave.sh precompact" } ] }
+      { "hooks": [ { "type": "command", "command": "sh -c 'p=$(cat); printf %s \"$p\" | sh ~/.claude/skills/brothermode/tools/bm_autosave.sh precompact; printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py precompact-brief' " } ] }
     ]
   }
 }
@@ -56,7 +56,7 @@ What each hook does:
 - **SessionStart** injects `DIGEST.md` (the 12-line law summary) plus any overdue-review nag into every new session's context.
 - **SessionEnd** parses the finished session's transcript and appends one telemetry line to the ledger: tokens, tool calls, agents spawned, duration, models used. It also scans your short messages for correction candidates.
 - **Stop** warns (never blocks) when a substantial session ends the day without a vault session log.
-- **PreCompact** snapshots your working tree to a private git ref right before Claude Code compacts context (the token-death moment), so progress survives. Local git only, never pushes; recover with `sh tools/bm_autosave.sh recover`. Optional: also add a `PostToolUse` hook running `bm_autosave.sh tick` and set `BROTHERMODE_AUTOSAVE=1` for continuous autosave between compactions (costs a hook per tool call).
+- **PreCompact** snapshots your working tree to a private git ref right before Claude Code compacts context (the token-death moment), so progress survives. Local git only, never pushes; recover with `sh tools/bm_autosave.sh recover`. It also writes a resume brief distilling the dying transcript (the last instruction, recent decisions, recent commands) so a resumed session recovers the thread, not just the files. Before a long or risky action you can log `python3 tools/bm_telemetry.py intent "next: X, because Y"` so a death leaves a forward-looking record. Optional: also add a `PostToolUse` hook running `bm_autosave.sh tick` and set `BROTHERMODE_AUTOSAVE=1` for continuous autosave between compactions (costs a hook per tool call).
 
 Every hook is built to fail silent and exit 0. A broken hook can cost you a telemetry line; it can never cost you a work session.
 

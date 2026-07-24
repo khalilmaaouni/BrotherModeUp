@@ -397,7 +397,10 @@ or contradicts, so recall follows edges instead of scanning folders.
   and because disk-first is prose the DYING context cannot be trusted to run, a
   PreCompact hook (tools/bm_autosave.sh) snapshots the whole tree, untracked files
   included, to refs/brothermode/autosave (local git only, never pushed) at the
-  token-death moment, and `bm_autosave.sh recover` restores it.
+  token-death moment, and `bm_autosave.sh recover` restores it. A resumed session gets the THREAD back too: a PreCompact brief
+  (bm_telemetry.py precompact-brief) distills the dying transcript tail, and a
+  write-ahead intent line (bm_telemetry.py intent) logged BEFORE a risky action
+  means death leaves a forward-looking record, not just files.
 - Compilers catch what reading misses: build after every edit, even one line.
 - This machine's disk fills mid-build: clear DerivedData and stale simulators before
   large builds; never let ENOSPC kill a gate run.
