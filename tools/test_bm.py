@@ -110,6 +110,12 @@ class TestAutosave(unittest.TestCase):
             self.assertEqual(ref.returncode, 0, "autosave ref was not created")
             shown = git("show", "refs/brothermode/autosave:untracked_new.txt").stdout
             self.assertIn("WIP-WORK", shown, "autosave did not capture the untracked file")
+            # secret-shaped files must NOT enter the snapshot
+            io.open(os.path.join(repo, ".env"), "w").write("SECRET=leak")
+            subprocess.run(["sh", sh, "precompact"], input=json.dumps({"cwd": repo}),
+                           text=True, env=env)
+            envobj = git("cat-file", "-e", "refs/brothermode/autosave:.env")
+            self.assertNotEqual(envobj.returncode, 0, ".env leaked into the autosave snapshot")
 
 
 if __name__ == "__main__":

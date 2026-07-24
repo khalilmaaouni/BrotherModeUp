@@ -64,7 +64,15 @@ snapshot() {
   tmpidx="$(mktemp 2>/dev/null)" || return 0
   rm -f "$tmpidx"
   GIT_INDEX_FILE="$tmpidx"; export GIT_INDEX_FILE
-  git add -A 2>/dev/null
+  # Stage everything EXCEPT secret-shaped files. A solo founder has no teammate to
+  # catch a stray .env or private key before it becomes a git object; these path
+  # patterns are excluded from the snapshot so credentials never enter the autosave
+  # ref. Already-tracked files are unaffected (that is a pre-existing repo choice).
+  git add -A -- '.' \
+    ':(exclude,glob)**/.env' ':(exclude).env' ':(exclude,glob)**/.env.*' \
+    ':(exclude,glob)**/*.pem' ':(exclude,glob)**/*.key' ':(exclude,glob)**/*.p12' \
+    ':(exclude,glob)**/*.keystore' ':(exclude,glob)**/id_rsa' ':(exclude,glob)**/id_dsa' \
+    ':(exclude,glob)**/*.pfx' 2>/dev/null
   tree="$(git write-tree 2>/dev/null)"
   parent="$(git rev-parse --verify -q HEAD 2>/dev/null)"
 
