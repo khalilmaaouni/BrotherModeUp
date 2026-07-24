@@ -23,6 +23,10 @@ Subcommands:
                     fetched update is waiting, when the copy has gone stale, and
                     once when the law itself changed under you. Reads git refs as
                     plain files: no network call, no subprocess, ever.
+  compact-hint      SessionStart(source=compact) helper. Reads the hook JSON on
+                    stdin; if the session just resumed from a compaction, prints a
+                    one-line pointer to the autosave recovery command. Pure: reads
+                    stdin and prints, no subprocess, no network.
   purge-corrections Deletes captured correction candidates (excerpts of your own
                     messages, secret-redacted and owner-only, but still yours to
                     delete). Shows the count first; --yes to confirm.
@@ -755,6 +759,27 @@ def cmd_check_update():
             pass
 
 
+def cmd_compact_hint():
+    """Read the SessionStart hook payload from stdin. When the session resumed
+    from a context compaction (source == "compact"), the model has just lost the
+    detail of what it was doing, so point it at the autosave and at STATE.md. This
+    is the READ side of work-preservation; bm_autosave.sh is the write side. Pure
+    by design: this never runs git (that would break the audited no-subprocess
+    property); it only prints the recovery command for the model or human to run."""
+    try:
+        payload = json.load(sys.stdin)
+    except Exception:
+        return
+    if (payload or {}).get("source") != "compact":
+        return
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    print("BROTHERMODE: resumed after a compaction. Your pre-compaction working "
+          "tree was autosaved. If anything is missing, recover it with:")
+    print("  sh %s/tools/bm_autosave.sh recover" % skill_dir)
+    print("  then re-read STATE.md and git status before continuing (laws live on "
+          "disk, not in the summary).")
+
+
 def cmd_purge_corrections(argv):
     """Delete captured correction candidates. They are excerpts of your own
     messages; purge them once the weekly review has distilled what it needs, or
@@ -805,6 +830,8 @@ def main():
             cmd_registry_check(argv)
         elif cmd == "fence-lint":
             cmd_fence_lint(argv)
+        elif cmd == "compact-hint":
+            cmd_compact_hint()
         elif cmd == "check-update":
             cmd_check_update()
         elif cmd == "purge-corrections":
