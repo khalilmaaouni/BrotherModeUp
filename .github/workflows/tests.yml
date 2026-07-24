@@ -21,3 +21,5 @@ jobs:
           git config --global user.name ci
       - name: Run tests
         run: python3 tools/test_bm.py
+      - name: Score checks (strict)
+        run: python3 tools/bm_score.py --strict

@@ -2,6 +2,8 @@
 
 **A Claude skill that turns the model from a tool that waits for instructions into a colleague that owns outcomes.**
 
+**Built for the solo founder and the individual top performer.** A company has a security officer, a data scientist, a project lead, and someone who remembers what you decided last month. Working alone, you have none of them. BrotherMode gives you the specialists you cannot hire and a memory that survives every interruption. It scales *down* to one person, on purpose, not up to an org. Occasionally sharing with a small team is supported (`bm_telemetry.py handoff`); running a multi-team control plane is not what this is for, and pairing it with GitHub protected branches and CI is the right way to get mechanical enforcement.
+
 Created by Khalil Maaouni. MIT licensed. Built for [Claude Code](https://claude.com/claude-code); the ideas port to any agent harness.
 
 ## What this is
@@ -22,6 +24,7 @@ Most agent setups fail the same way. The model over-delivers ceremony on small t
 | `tools/bm_score.py` | Code-graded weekly checks, so the LLM judge only scores what code cannot decide |
 | `tools/bm_sessionstart.sh` | Session-start hook: injects the digest, overdue-review nags, the offline update check, and a recovery pointer after a compaction |
 | `tools/bm_autosave.sh` | Mechanical work-preservation: on the PreCompact hook it snapshots your whole working tree (untracked files included) to a private git ref so token-death never erases progress. Local git only, never pushes. `recover` restores it |
+| `tools/bm_score.py` runs advisory locally; `bm_score.py --strict` exits nonzero on any FAIL so CI can block a merge (the two-mode design). `bm_telemetry.py handoff <project>` writes one redacted, shareable markdown for handing a project to a teammate. |
 | `tools/test_bm.py` | Regression tests (stdlib only): secret redaction, owner-only files, project-identity collisions, non-invasive autosave. Run `python3 tools/test_bm.py`; CI runs them on every push |
 | `tools/WEEKLY-REVIEW.md` | The 11-step weekly self-review procedure |
 | `docs/HOW-IT-WORKS.md` | The full mechanics, explained exactly |
@@ -54,7 +57,7 @@ Then follow `docs/SETUP.md` to wire the three hooks and create your vault. Invok
 
 ## What is deliberately not here
 
-Personal memory. The vault (session logs, findings, the founder model, telemetry ledgers) lives outside this repo, on your machine, and is never committed to it. The repo ships an empty vault-template you copy once; what grows inside your copy stays yours. This repo is the machinery. The memory is yours and stays yours.
+Enterprise control-plane machinery. There is no distributed lock service, no multi-machine coordination, no org governance layer, and that is deliberate: those serve a user this project is not built for, and adding them would cost the solo founder the very simplicity that makes this useful. For mechanical enforcement at merge time, pair it with GitHub protected branches, required status checks, and the CI workflow shipped here. And personal memory: the vault (session logs, findings, the founder model, telemetry ledgers) lives outside this repo, on your machine, and is never committed to it. The repo ships an empty vault-template you copy once; what grows inside your copy stays yours. This repo is the machinery. The memory is yours and stays yours.
 
 ## Requirements
 

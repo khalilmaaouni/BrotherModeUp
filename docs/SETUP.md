@@ -116,6 +116,10 @@ tail -1 ~/BrotherModeVault/99-System/telemetry/outcomes.jsonl
 3. Work normally for a week. Let the ledger fill.
 4. Run the weekly review (`tools/WEEKLY-REVIEW.md`). Your first review will be mostly NO-DATA. The second one is where the loop starts to pay.
 
+## Sharing with a teammate
+
+Working mostly alone but need to hand a project to someone occasionally? `python3 tools/bm_telemetry.py handoff <project>` assembles one shareable markdown (overview, open items, latest session, recent outcomes) from your vault, secret-redacted, so you can send context without sending your whole vault. Review it before sharing; redaction is best-effort.
+
 ## Uninstall
 
 Remove the three hook entries, delete `~/.claude/skills/brothermode`, and keep or delete your vault. The vault is yours; nothing else stores state.

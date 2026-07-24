@@ -118,5 +118,49 @@ class TestAutosave(unittest.TestCase):
             self.assertNotEqual(envobj.returncode, 0, ".env leaked into the autosave snapshot")
 
 
+class TestHandoff(unittest.TestCase):
+    def test_handoff_redacts_and_preserves(self):
+        with tempfile.TemporaryDirectory() as v:
+            base = os.path.join(v, "10-Projects", "demo", "Sessions")
+            os.makedirs(base)
+            proj = os.path.dirname(base)
+            io.open(os.path.join(proj, "Overview.md"), "w").write(
+                "builds X. the prod password is hunter2")
+            io.open(os.path.join(base, "s.md"), "w").write("used DB_PASSWORD=s3cr3t here")
+            env = dict(os.environ, BROTHERMODE_VAULT=v)
+            with tempfile.TemporaryDirectory() as cwd:
+                r = subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
+                                    "handoff", "demo"], env=env, cwd=cwd,
+                                   capture_output=True, text=True)
+                out = os.path.join(cwd, "handoff-demo.md")
+                self.assertTrue(os.path.exists(out), "handoff file not written")
+                body = io.open(out).read()
+                self.assertNotIn("hunter2", body)
+                self.assertNotIn("s3cr3t", body)
+                self.assertIn("builds X", body)
+                self.assertIn("[REDACTED]", body)
+
+
+class TestStrictMode(unittest.TestCase):
+    def test_strict_exits_nonzero_on_fail(self):
+        # A vault with an active session but no session log forces a FAIL check.
+        import datetime
+        with tempfile.TemporaryDirectory() as v:
+            teld = os.path.join(v, "99-System", "telemetry")
+            os.makedirs(teld)
+            now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            io.open(os.path.join(teld, "outcomes.jsonl"), "w").write(
+                json.dumps({"schema": 2, "ts": now, "session_id": "x", "project": "p",
+                            "tool_calls": 5, "api_msgs": 9}) + "\n")
+            env = dict(os.environ, BROTHERMODE_VAULT=v)
+            score = os.path.join(HERE, "bm_score.py")
+            strict = subprocess.run([sys.executable, score, "--strict"], env=env,
+                                    capture_output=True, text=True)
+            advisory = subprocess.run([sys.executable, score], env=env,
+                                      capture_output=True, text=True)
+            self.assertEqual(strict.returncode, 1, "--strict must exit nonzero on a FAIL")
+            self.assertEqual(advisory.returncode, 0, "advisory mode must never block (exit 0)")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

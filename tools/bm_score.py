@@ -154,6 +154,12 @@ def main():
     print("\n%d checks: %d PASS, %d FAIL, %d NO-DATA. LLM judge scores only the residue."
           % (len(results), sum(1 for _, v, _ in results if v == "PASS"), fails,
              sum(1 for _, v, _ in results if v == "NO-DATA")))
+    # Two modes, same checks: the local hook stays advisory (exit 0, never blocks a
+    # session), but `--strict` exits nonzero on any FAIL so CI can block a merge.
+    # This is how "advisory" and "enforced" coexist without contradiction.
+    if "--strict" in sys.argv and fails:
+        print("STRICT: %d check(s) failed; exiting nonzero to fail the CI gate." % fails)
+        sys.exit(1)
     sys.exit(0)
 
 

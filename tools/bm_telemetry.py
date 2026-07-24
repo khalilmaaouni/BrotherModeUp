@@ -37,6 +37,10 @@ Subcommands:
                     stdin; if the session just resumed from a compaction, prints a
                     one-line pointer to the autosave recovery command. Pure: reads
                     stdin and prints, no subprocess, no network.
+  handoff           One shareable, SECRET-REDACTED markdown for handing a project
+                    to a small team: overview + open items + latest session + recent
+                    outcomes, assembled from the vault. Pure: reads vault files,
+                    redacts, writes one file. No subprocess, no network.
   purge-corrections Deletes captured correction candidates (excerpts of your own
                     messages, secret-redacted and owner-only, but still yours to
                     delete). Shows the count first; --yes to confirm.
@@ -942,6 +946,63 @@ def cmd_compact_hint():
         pass
 
 
+def _read_head(path, limit_chars=6000):
+    try:
+        return open(path, errors="replace").read()[:limit_chars]
+    except OSError:
+        return ""
+
+
+def cmd_handoff(argv):
+    """Assemble a single shareable markdown for the solo founder's occasional
+    hand-off to a small teammate. It is teammate-facing, so EVERY section is run
+    through redact() before it is written: a handoff is exactly where a stray
+    secret would travel furthest. Pure python (reads vault files, writes one file);
+    no subprocess, no network, preserving the audited properties."""
+    projects_dir = os.path.join(VAULT, "10-Projects")
+    name = argv[0] if argv else ""
+    if not name:
+        try:
+            avail = sorted(d for d in os.listdir(projects_dir)
+                           if os.path.isdir(os.path.join(projects_dir, d)))
+        except OSError:
+            avail = []
+        print("usage: handoff <project>. available: %s" % (", ".join(avail) or "(none)"))
+        return
+    base = os.path.join(projects_dir, name)
+    if not os.path.isdir(base):
+        print("handoff: no vault project named %r under %s" % (name, projects_dir))
+        return
+    parts = ["# Handoff: %s" % name, "",
+             "A shareable summary of this project for a teammate. Assembled from the",
+             "vault and secret-redacted. It is a snapshot, not the living record.", ""]
+    overview = _read_head(os.path.join(base, "Overview.md"))
+    if overview:
+        parts += ["## Overview", redact(overview)[0], ""]
+    openitems = _read_head(os.path.join(base, "Open-Items.md"))
+    if openitems:
+        parts += ["## Open items", redact(openitems)[0], ""]
+    # latest session log by mtime
+    sessions = glob.glob(os.path.join(base, "Sessions", "*.md"))
+    if sessions:
+        latest = max(sessions, key=lambda f: os.path.getmtime(f))
+        parts += ["## Most recent session (%s)" % os.path.basename(latest),
+                  redact(_read_head(latest, 4000))[0], ""]
+    # last few outcome lines
+    oc = _read_head(os.path.join(base, "OUTCOMES.md"), 20000)
+    if oc:
+        tail = [l for l in oc.splitlines() if l.strip()][-6:]
+        parts += ["## Recent outcomes", redact("\n".join(tail))[0], ""]
+    out = os.path.join(os.getcwd(), "handoff-%s.md" % re.sub(r"[^A-Za-z0-9_.-]", "_", name))
+    try:
+        with open(out, "w") as f:
+            f.write("\n".join(parts) + "\n")
+        print("handoff written (secret-redacted): %s" % out)
+        print("review it before sharing; it is a snapshot, redaction is best-effort.")
+    except OSError as e:
+        print("handoff: could not write (%r)" % (e,))
+
+
 def cmd_purge_corrections(argv):
     """Delete captured correction candidates. They are excerpts of your own
     messages; purge them once the weekly review has distilled what it needs, or
@@ -1000,6 +1061,8 @@ def main():
             cmd_compact_hint()
         elif cmd == "check-update":
             cmd_check_update()
+        elif cmd == "handoff":
+            cmd_handoff(argv)
         elif cmd == "purge-corrections":
             cmd_purge_corrections(argv)
         elif cmd == "prediction-audit":
