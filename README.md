@@ -14,7 +14,7 @@ Most agent setups fail the same way. The model over-delivers ceremony on small t
 
 | File | What it does |
 |---|---|
-| `SKILL.md` | The law: 15 sections covering classification, delegation, fences, budgets, research, honesty, memory, scoring |
+| `SKILL.md` | The law: 16 numbered sections (0 through 15) covering classification, delegation, fences, budgets, research, honesty, memory, scoring |
 | `DIGEST.md` | A 12-line compression of the law, injected at every session start so the rules survive context loss |
 | `RUBRIC.md` | A template for the 9 frozen metrics your weekly review scores against |
 | `STATE.template.md` | The running state file format: fences, decisions, the never-forget list |
