@@ -39,6 +39,18 @@ python3 tools/bm_telemetry.py purge-corrections --yes  # deletes it
 To disable correction capture entirely, remove the `SessionEnd` hook. You lose
 the automatic capture half of the learning loop; everything else keeps working.
 
+## The update check makes no network call
+
+`tools/bm_telemetry.py check-update` runs at session start and tells you when your
+installed copy differs from an already-fetched origin, when it has gone stale, and
+once when the law itself changed under you. It does this by reading git ref files
+directly. It never runs `git`, never opens a socket, and never contacts a server, so
+the zero-network property above still holds with the check enabled. The cost of that
+choice: it can only see an update that something else already fetched, which is why
+it also warns when your copy is simply old.
+
+To disable it, remove the `check-update` line from `tools/bm_sessionstart.sh`.
+
 ## Scope note
 
 This project governs how a Claude Code session behaves. It does not change what

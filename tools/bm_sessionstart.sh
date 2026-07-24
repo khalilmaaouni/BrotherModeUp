@@ -6,4 +6,5 @@
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cat "$DIR/DIGEST.md" 2>/dev/null
 python3 "$DIR/tools/bm_telemetry.py" startup-nags 2>/dev/null
+python3 "$DIR/tools/bm_telemetry.py" check-update 2>/dev/null
 exit 0

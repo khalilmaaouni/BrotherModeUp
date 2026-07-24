@@ -20,9 +20,10 @@ Most agent setups fail the same way. The model over-delivers ceremony on small t
 | `STATE.template.md` | The running state file format: fences, decisions, the never-forget list |
 | `tools/bm_telemetry.py` | The mechanical half of the learning loop: session telemetry, corrections capture, scorecard, nags |
 | `tools/bm_score.py` | Code-graded weekly checks, so the LLM judge only scores what code cannot decide |
-| `tools/bm_sessionstart.sh` | Session-start hook: injects the digest and any overdue-review nags |
+| `tools/bm_sessionstart.sh` | Session-start hook: injects the digest, overdue-review nags, and the offline update check |
 | `tools/WEEKLY-REVIEW.md` | The 11-step weekly self-review procedure |
 | `docs/HOW-IT-WORKS.md` | The full mechanics, explained exactly |
+| `docs/BrotherMode-Design-Document.pdf` | The whitepaper: philosophy, all 16 laws, the code, data flow and cost, benchmarks, and a quick start. Start here if you are deciding whether to adopt |
 | `docs/SETUP.md` | Installation, hooks, and first-week checklist |
 | `vault-template/` | A ready-made Obsidian-compatible memory vault: copy it, open it in Obsidian, start working |
 
@@ -33,6 +34,13 @@ Most agent setups fail the same way. The model over-delivers ceremony on small t
 3. **Nothing merges unverified.** Agents self-report; the orchestrator re-runs the check against the actual files before accepting anything. A deliverable arriving without its done-check satisfied goes back with the gap named.
 4. **The skill learns from measured outcomes only.** A session-end hook writes real token counts, tool calls, and durations to a ledger. Absent telemetry, a field says "not measured". Fiction is banned. A weekly review moves scores; corrections from the human become laws, each carrying the reason behind it.
 5. **Honesty is a gate, not a virtue.** Bad news travels first. Every claim carries its calibration: verified by command, verified by inspection, likely, or assumed. Self-scores cap at 8; a 9 or 10 requires named external evidence.
+
+## Read this first
+
+[**The design document**](docs/BrotherMode-Design-Document.pdf) (36 pages) explains
+the philosophy, every law, the code, exactly what data goes where, what it costs,
+and when not to use this. It is written to be read by someone who has never used an
+AI agent, and to be checked by someone who will read the source.
 
 ## Quick start
 

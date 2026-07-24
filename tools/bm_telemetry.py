@@ -19,6 +19,10 @@ Subcommands:
   fence-lint        Dispatch aid: prints live fences from the project's STATE.md
                     and the BROTHERMODE_REGISTRIES globs before a writer launches.
   prediction-audit  Counts sealed predictions in the founder model ledger.
+  check-update      OFFLINE check of your installed copy: warns when an already
+                    fetched update is waiting, when the copy has gone stale, and
+                    once when the law itself changed under you. Reads git refs as
+                    plain files: no network call, no subprocess, ever.
   purge-corrections Deletes captured correction candidates (excerpts of your own
                     messages, secret-redacted and owner-only, but still yours to
                     delete). Shows the count first; --yes to confirm.
@@ -656,6 +660,101 @@ def cmd_fence_lint(argv):
         print("fence-lint: no live fences found under %s" % cwd)
 
 
+# ---------------------------------------------------------------------------
+# Update awareness. This skill is a LAW: when it changes, the change has to be
+# read, not silently absorbed. So the notifier does two jobs: tell you an update
+# exists, and tell you once when your installed law actually changed.
+#
+# HARD CONSTRAINT: no network call and no subprocess, ever. Both properties are
+# audited and are claimed publicly in SECURITY.md. So this reads git refs as
+# ordinary files and never runs git itself. The cost is that "an update exists"
+# is only known after something else has fetched; the staleness warning covers
+# the rest, by telling you when your copy is simply old.
+# ---------------------------------------------------------------------------
+SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STALE_AFTER_DAYS = 30
+VERSION_MARK = os.path.join(TEL_DIR, "installed-skill-version")
+
+
+def _read_first_line(path):
+    try:
+        with open(path, "r", errors="replace") as f:
+            return f.readline().strip()
+    except OSError:
+        return ""
+
+
+def _git_ref(git_dir, ref):
+    """Resolve a ref to a sha by reading files only: loose ref first, then
+    packed-refs. Returns "" when the ref cannot be resolved."""
+    sha = _read_first_line(os.path.join(git_dir, ref))
+    if sha and not sha.startswith("ref:"):
+        return sha
+    packed = os.path.join(git_dir, "packed-refs")
+    try:
+        for line in open(packed, "r", errors="replace"):
+            if line.startswith("#") or not line.strip():
+                continue
+            parts = line.split()
+            if len(parts) == 2 and parts[1] == ref:
+                return parts[0]
+    except OSError:
+        pass
+    return ""
+
+
+def cmd_check_update():
+    git_dir = os.path.join(SKILL_DIR, ".git")
+    if not os.path.isdir(git_dir):
+        return                      # not a git install; nothing to compare
+    head = _read_first_line(os.path.join(git_dir, "HEAD"))
+    branch = head[5:].strip() if head.startswith("ref:") else ""
+    local = _git_ref(git_dir, branch) if branch else head
+    if not local:
+        return
+    remote = ""
+    if branch.startswith("refs/heads/"):
+        name = branch[len("refs/heads/"):]
+        remote = _git_ref(git_dir, "refs/remotes/origin/" + name)
+
+    # (a) an update is already fetched and waiting
+    if remote and remote != local:
+        # Direction is not knowable without reading git objects, so the message
+        # and the command are both symmetric: left-right marks which side each
+        # commit is on, and works whether you are behind, ahead, or diverged.
+        print("BROTHERMODE UPDATE: installed copy (%s) and fetched origin (%s) "
+              "differ. See which side each commit is on, then update:"
+              % (local[:7], remote[:7]))
+        print("  git -C %s log --oneline --left-right %s...%s"
+              % (SKILL_DIR, local[:7], remote[:7]))
+        print("  git -C %s pull    # then re-read the sections that changed" % SKILL_DIR)
+    else:
+        # (b) no fetched update, but the copy may simply be old
+        try:
+            age = (datetime.datetime.now().timestamp()
+                   - os.path.getmtime(os.path.join(SKILL_DIR, "SKILL.md"))) / 86400
+        except OSError:
+            age = 0
+        if age > STALE_AFTER_DAYS:
+            print("BROTHERMODE UPDATE: your copy of the law is %d days old. Check "
+                  "for updates: git -C %s pull" % (age, SKILL_DIR))
+
+    # (c) the law changed under you since the last session that looked: say so
+    # ONCE, because a changed law must be read, not silently inherited.
+    known = _read_first_line(VERSION_MARK)
+    if known and known != local:
+        print("BROTHERMODE: the skill changed since your last session (%s -> %s). "
+              "Read the diff before relying on it:" % (known[:7], local[:7]))
+        print("  git -C %s log --oneline %s..%s" % (SKILL_DIR, known[:7], local[:7]))
+    if known != local:
+        try:
+            os.makedirs(TEL_DIR, exist_ok=True)
+            with open(VERSION_MARK, "w") as f:
+                f.write(local + "\n")
+        except OSError:
+            pass
+
+
 def cmd_purge_corrections(argv):
     """Delete captured correction candidates. They are excerpts of your own
     messages; purge them once the weekly review has distilled what it needs, or
@@ -706,6 +805,8 @@ def main():
             cmd_registry_check(argv)
         elif cmd == "fence-lint":
             cmd_fence_lint(argv)
+        elif cmd == "check-update":
+            cmd_check_update()
         elif cmd == "purge-corrections":
             cmd_purge_corrections(argv)
         elif cmd == "prediction-audit":
