@@ -39,6 +39,24 @@ python3 tools/bm_telemetry.py purge-corrections --yes  # deletes it
 To disable correction capture entirely, remove the `SessionEnd` hook. You lose
 the automatic capture half of the learning loop; everything else keeps working.
 
+## The autosave makes no network call either
+
+`tools/bm_autosave.sh` runs on the PreCompact hook (right before Claude Code
+compacts context, which is what happens when you run low on tokens). It snapshots
+your entire working tree, including untracked files, into a private git ref
+`refs/brothermode/autosave`, using a throwaway index so your real branch, index,
+and working tree are never touched. It runs git **locally only and never pushes**,
+so the zero-network property above still holds with autosave enabled. Recover a
+snapshot with:
+
+```bash
+sh tools/bm_autosave.sh recover
+```
+
+An optional continuous mode (`bm_autosave.sh tick`, off unless you set
+`BROTHERMODE_AUTOSAVE`) also snapshots every N tool calls, for a crash that is not
+a compaction. To disable autosave entirely, remove the PreCompact hook.
+
 ## The update check makes no network call
 
 `tools/bm_telemetry.py check-update` runs at session start and tells you when your

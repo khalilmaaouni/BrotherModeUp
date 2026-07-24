@@ -393,7 +393,11 @@ or contradicts, so recall follows edges instead of scanning folders.
   and is first choice (proven repeatedly); when resume fails, the TREE is the truth:
   diff the fence set, distill into STATE.md, relaunch fresh from there; never
   duplicate a possibly-live writer.
-- Scratchpads are wiped: durable path under home the moment a deliverable exists.
+- Scratchpads are wiped: durable path under home the moment a deliverable exists;
+  and because disk-first is prose the DYING context cannot be trusted to run, a
+  PreCompact hook (tools/bm_autosave.sh) snapshots the whole tree, untracked files
+  included, to refs/brothermode/autosave (local git only, never pushed) at the
+  token-death moment, and `bm_autosave.sh recover` restores it.
 - Compilers catch what reading misses: build after every edit, even one line.
 - This machine's disk fills mid-build: clear DerivedData and stale simulators before
   large builds; never let ENOSPC kill a gate run.

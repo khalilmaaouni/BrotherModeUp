@@ -106,6 +106,8 @@ Finally, the same command scans the main transcript's short human messages again
 
 **`fence-lint`** is a dispatch aid: it prints the live fences from the project's STATE.md and the BROTHERMODE_REGISTRIES globs so no writer launches into an occupied file set, and flags any fence line missing its tier tag.
 
+**`bm_autosave.sh`** is a separate shell hook, not part of the telemetry tool, because it runs git and the telemetry tool is deliberately subprocess-free. On the PreCompact hook (which fires right before Claude Code compacts context, the thing that happens when you run low on tokens) it snapshots your entire working tree, untracked files included, into a private git ref `refs/brothermode/autosave`, using a throwaway index so your branch, index, and working tree are never touched. It runs git locally only and never pushes. This is the same "the model is not the one writing it" philosophy applied to your work rather than only to telemetry: the rule "save before you die" cannot be trusted to the dying context, so a hook runs it instead. `bm_autosave.sh recover` prints exactly how to restore a snapshot, and an opt-in `tick` mode (off unless `BROTHERMODE_AUTOSAVE` is set) autosaves every N tool calls for a crash that is not a compaction.
+
 **`prediction-audit`** counts sealed predictions in the founder model's prediction ledger. Zero sealed predictions is reported as a red flag: predictions must be sealed before recommendations are formed, or the alignment metric rewards hindsight.
 
 **`speed`**, **`migrate`**, and **`dedup`** are maintenance views and one-time cleanups; each prints exactly what it did, backs up before rewriting, and rechecks line counts after.
