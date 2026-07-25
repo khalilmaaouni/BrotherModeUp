@@ -2,17 +2,29 @@
 # test exits nonzero and fails the check, so the mechanisms the project claims
 # (secret redaction, owner-only sensitive files, no project-identity collision,
 # non-invasive autosave) are enforced at merge time, not merely asserted in prose.
+#
+# Two jobs on purpose. The legacy V1 suite still contains platform assumptions
+# (shell scripts, POSIX file modes), so it runs where those hold: Linux and macOS.
+# The V2 engine is cross-platform from birth, so its suite runs on all three
+# platforms including Windows, on the oldest supported Python and the newest.
+# Actions are pinned to full commit SHAs (verified 2026-07-26 against the GitHub
+# API) so a moved tag cannot change what runs here.
 name: tests
+permissions:
+  contents: read
 on:
   push:
-    branches: [ main ]
+    branches: [ main, v2 ]
   pull_request:
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  suite:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.x"
       - name: Configure git (autosave test needs an identity)
@@ -22,4 +34,18 @@ jobs:
       - name: Run tests
         run: python3 tools/test_bm.py
       - name: Score checks (strict)
+        if: matrix.os == 'ubuntu-latest'
         run: python3 tools/bm_score.py --strict
+  store:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.9", "3.x"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run V2 store tests
+        run: python tools/test_bm_store.py
