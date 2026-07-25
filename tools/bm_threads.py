@@ -252,6 +252,13 @@ def cmd_start(argv):
     def _register():
         # Re-read INSIDE the lock: any copy loaded before the lock may be stale.
         dd = load_mode()
+        # Mode is rechecked HERE, not only before the lock. A start that queued
+        # behind a concurrent `off` would otherwise wake up and create an ACTIVE
+        # record and thread files in a system that is now OFF, so the record
+        # would never be absorbed and its digest would be lost.
+        if dd.get("mode") != "on":
+            outcome["mode_off"] = True
+            return False
         act = [n for n, m in dd.get("threads", {}).items()
                if isinstance(m, dict) and m.get("state") == "active"]
         if name not in act and len(act) >= MAX_ACTIVE:
@@ -285,6 +292,11 @@ def cmd_start(argv):
         return True
     if not _with_mode_lock(_register):
         conflict = outcome.get("conflict")
+        if outcome.get("mode_off"):
+            print("thread mode went OFF while this start was waiting for the lock.")
+            print("  Nothing was created, so nothing is stranded outside the drain.")
+            print("  Run `on` again if you still want this thread.")
+            return
         if conflict is not None:
             # files_line, not a bare join: the conflicting record comes off disk
             # and a malformed files field there must not swallow the refusal.
@@ -420,43 +432,44 @@ def cmd_off(argv):
     continue solo with zero re-exploration, every thread is marked parked (NOT
     deleted, so it can be resumed if thread mode is switched back on), and nothing
     in-flight is discarded."""
-    d = load_mode()
-    if d.get("mode") != "on":
-        print("thread mode is already OFF.")
-        return
-    names = sorted(d.get("threads", {}))
     target = os.path.join(os.getcwd(), "STATE.md")
-    # The registry owns the lossless handover (digest plus decisions) and is
-    # the one place that writes it into STATE.md; drain through it, not a
-    # second digest-collection loop here.
     reg = _registry()
-    # Snapshot what the registry is ABOUT to drain. absorb() returns an empty
-    # list both when there was nothing to absorb and when the handover write
-    # failed, and those two need opposite words: reporting a failed handover as
-    # "nothing to absorb" tells the founder the exact opposite of the truth on
-    # the one path where the truth matters most.
-    pending = sorted(rid for rid, rec in (reg.load().get("records") or {}).items()
-                     if isinstance(rec, dict) and rec.get("state") == "active")
-    absorbed = [rid for rid, _ in reg.absorb()]
-    failed = [rid for rid in pending if rid not in absorbed]
-    if failed:
-        print("HANDOVER WRITE FAILED: %d record(s) could not be absorbed into %s"
-              % (len(failed), target))
-        for n in failed:
-            print("    - %s" % n)
-        print("  Thread mode stays ON and every record stays ACTIVE, so nothing is lost.")
-        print("  Fix that file (permissions or disk), then run `off` again.")
-        return
-    missing = [n for n in names if n not in absorbed]
+    outcome = {}
 
-    # The mode read-modify-write goes under the mode lock, and ONLY it. absorb()
-    # above already took the REGISTRY lock and released it, so the order here is
-    # registry-then-mode, the same order `start` uses. Holding the mode lock
-    # across absorb would invert that and two concurrent commands could deadlock.
-    # Re-read inside the lock: `d` was loaded before absorb ran and is stale.
-    def _park_and_close():
+    # ONE mode-locked transaction: check the mode, drain the registry, and write
+    # the mode file without ever releasing the lock in between.
+    #
+    # This used to drain OUTSIDE the lock, and the gap was not theoretical: a
+    # `start` running concurrently was granted after absorb had already drained,
+    # so its record stayed ACTIVE while the mode file recorded it as parked and
+    # its digest was never absorbed. Measured at 28 of 30 trials. That is exactly
+    # the lossless-exit guarantee thread mode exists to provide.
+    #
+    # Lock order is MODE then REGISTRY, which is the order `start` already uses:
+    # cmd_start calls reg.claim() INSIDE _with_mode_lock(_register). An earlier
+    # comment here claimed the opposite and used it to justify the gap. It was
+    # wrong, and the ordering below is what makes holding both safe.
+    def _drain_and_close():
         dd = load_mode()
-        for name in sorted(dd.get("threads", {})):
+        if dd.get("mode") != "on":
+            outcome["already_off"] = True
+            return
+        names = sorted(dd.get("threads", {}))
+        # Snapshot what the registry is ABOUT to drain. absorb() returns an empty
+        # list both when there was nothing to absorb and when the handover write
+        # failed, and those two need opposite words: reporting a failed handover
+        # as "nothing to absorb" tells the founder the exact opposite of the
+        # truth on the one path where the truth matters most.
+        pending = sorted(rid for rid, rec in (reg.load().get("records") or {}).items()
+                         if isinstance(rec, dict) and rec.get("state") == "active")
+        absorbed = [rid for rid, _ in reg.absorb()]
+        failed = [rid for rid in pending if rid not in absorbed]
+        if failed:
+            outcome["failed"] = failed
+            return
+        outcome["absorbed"] = absorbed
+        outcome["missing"] = [n for n in names if n not in absorbed]
+        for name in names:
             meta = dd["threads"].get(name)
             # Defensive: a hand-edited entry that is not an object carries no
             # state to park. Skipping it matters here more than anywhere else:
@@ -468,9 +481,24 @@ def cmd_off(argv):
             meta["parked_at"] = now()
         dd["mode"] = "off"
         _history(dd).append({"ts": now(), "event": "off",
-                             "absorbed": absorbed, "empty": missing})
+                             "absorbed": absorbed, "empty": outcome["missing"]})
         save_mode(dd)
-    _with_mode_lock(_park_and_close)
+
+    _with_mode_lock(_drain_and_close)
+
+    if outcome.get("already_off"):
+        print("thread mode is already OFF.")
+        return
+    if outcome.get("failed"):
+        print("HANDOVER WRITE FAILED: %d record(s) could not be absorbed into %s"
+              % (len(outcome["failed"]), target))
+        for n in outcome["failed"]:
+            print("    - %s" % n)
+        print("  Thread mode stays ON and every record stays ACTIVE, so nothing is lost.")
+        print("  Fix that file (permissions or disk), then run `off` again.")
+        return
+    absorbed = outcome.get("absorbed", [])
+    missing = outcome.get("missing", [])
     print("thread mode OFF (drained and parked, nothing deleted).")
     print("  absorbed %d digest(s) via the registry into %s" % (len(absorbed), target))
     for n in absorbed:
@@ -498,20 +526,23 @@ def cmd_adopt(argv):
     # STATE.md is hand-written by a working session and can hold anything it
     # was told; the project STATE.md it lands in is committed into a git ref by
     # tools/bm_autosave.sh, so an unredacted secret persists durably.
-    dg = reg.redact_text(read(os.path.join(base, "digest.md"), DIGEST_CAP))
-    st = reg.redact_text(read(os.path.join(base, "STATE.md"), 2000))
-    append(os.path.join(os.getcwd(), "STATE.md"),
-           "\n## Adopted from dead/stalled thread '%s' (%s)\n%s\n\n<!-- thread STATE at adoption -->\n%s\n"
-           % (name, now(), dg.strip(), st.strip()))
-    # The handover now lives in the chief's STATE.md, so close the registry
-    # record in the same operation: leaving it active would make `off` absorb
-    # this digest a second time and would keep the thread's files fenced by an
-    # owner that is gone.
-    reg.close(name, state="adopted")
-    # Under the mode lock like every other mutation. The registry record above
-    # is already closed and its lock released, so the order stays
-    # registry-then-mode and matches `start` and `off`.
-    def _mark_adopted():
+    # ONE mode-locked transaction, same as `off`: write the handover, close the
+    # registry record, and update the mode file without releasing the lock.
+    # Splitting these left a window where the record was closed but the mode
+    # file still called the thread active, and a concurrent start or off could
+    # act on either half of a half-applied adoption.
+    # Lock order MODE then REGISTRY, matching cmd_start and cmd_off.
+    def _adopt():
+        dg = reg.redact_text(read(os.path.join(base, "digest.md"), DIGEST_CAP))
+        st = reg.redact_text(read(os.path.join(base, "STATE.md"), 2000))
+        append(os.path.join(os.getcwd(), "STATE.md"),
+               "\n## Adopted from dead/stalled thread '%s' (%s)\n%s\n\n<!-- thread STATE at adoption -->\n%s\n"
+               % (name, now(), dg.strip(), st.strip()))
+        # The handover now lives in the chief's STATE.md, so close the registry
+        # record in the same operation: leaving it active would make `off`
+        # absorb this digest a second time and would keep the thread's files
+        # fenced by an owner that is gone.
+        reg.close(name, state="adopted")
         d = load_mode()
         # isinstance, not `in`: a malformed entry cannot be assigned into.
         if isinstance(d.get("threads", {}).get(name), dict):
@@ -519,7 +550,7 @@ def cmd_adopt(argv):
             d["threads"][name]["adopted_at"] = now()
             _history(d).append({"ts": now(), "event": "adopt", "thread": name})
             save_mode(d)
-    _with_mode_lock(_mark_adopted)
+    _with_mode_lock(_adopt)
     print("adopted '%s': its digest and fence are now in the chief's STATE.md." % name)
     print("  DECIDE: respawn the thread, or continue this work solo. Nothing is orphaned.")
 

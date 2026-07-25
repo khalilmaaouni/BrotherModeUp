@@ -1283,6 +1283,75 @@ class TestRegistryAbsorbAndView(unittest.TestCase):
             if os.path.exists(mode):
                 json.load(io.open(mode, encoding="utf-8"))
 
+    def test_off_and_start_leave_a_transactionally_consistent_state(self):
+        """The two files must agree after a concurrent start and off.
+
+        The earlier version of `off` drained the registry OUTSIDE the mode lock,
+        so a `start` granted in the gap created an ACTIVE record while the mode
+        file recorded the thread as parked, and that record's digest was never
+        absorbed: silent context loss, which is the one thing thread mode exists
+        to prevent. Measured at 28 of 30 trials before the fix, 0 of 40 after.
+
+        Repeated, because a race that reproduces sometimes proves nothing when
+        it happens to pass once. Asserts STATE, not just liveness and valid JSON:
+        an OFF system must hold no active persistent record."""
+        import threading
+        tool = os.path.join(HERE, "bm_threads.py")
+        trials = 12
+        inconsistent, hangs = [], []
+        with tempfile.TemporaryDirectory() as base:
+            for trial in range(trials):
+                d = os.path.join(base, "t%d" % trial)
+                os.makedirs(d)
+                subprocess.run([sys.executable, tool, "on"], cwd=d,
+                               capture_output=True, timeout=30)
+                subprocess.run([sys.executable, tool, "start", "seed", "seed obj",
+                                "--files", "seed.py"], cwd=d,
+                               capture_output=True, timeout=30)
+
+                def run(args, tag):
+                    try:
+                        subprocess.run([sys.executable, tool] + args, cwd=d,
+                                       capture_output=True, timeout=30)
+                    except subprocess.TimeoutExpired:
+                        hangs.append(tag)
+
+                workers = [
+                    threading.Thread(target=run, args=(
+                        ["start", "late", "late obj", "--files", "late.py"], "start")),
+                    threading.Thread(target=run, args=(["off"], "off")),
+                ]
+                for w in workers:
+                    w.start()
+                for w in workers:
+                    w.join()
+
+                mode_p = os.path.join(d, "threads", "thread-mode.json")
+                reg_p = os.path.join(d, "threads", "registry.json")
+                if not (os.path.exists(mode_p) and os.path.exists(reg_p)):
+                    continue
+                mode = json.load(io.open(mode_p, encoding="utf-8"))
+                reg = json.load(io.open(reg_p, encoding="utf-8"))
+                records = reg.get("records") or {}
+                if mode.get("mode") == "off":
+                    still_active = [rid for rid, rec in records.items()
+                                    if isinstance(rec, dict)
+                                    and rec.get("state") == "active"
+                                    and rec.get("lifetime") == "persistent"]
+                    if still_active:
+                        inconsistent.append((trial, still_active))
+                # Every thread the mode file knows must exist in the registry:
+                # a thread with no record can never be drained.
+                for tname, meta in (mode.get("threads") or {}).items():
+                    if isinstance(meta, dict) and tname not in records:
+                        inconsistent.append((trial, "thread %s has no record" % tname))
+
+            self.assertEqual(hangs, [], "commands deadlocked: %s" % hangs)
+            self.assertEqual(inconsistent, [],
+                             "mode file and registry disagreed after a concurrent "
+                             "start/off, which means a digest was never absorbed: %s"
+                             % inconsistent)
+
     def test_thread_mode_lock_uses_the_one_registry_primitive(self):
         """bm_threads used to carry its OWN mode-file lock that swallowed every
         failure, so on a platform without fcntl the registry warned while

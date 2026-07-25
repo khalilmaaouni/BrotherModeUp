@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-07-26 (final): the off transition is now atomic
+
+A follow-up review found a real transactional race between `start` and `off`,
+and it also corrected a mistake in the previous entry.
+
+`off` drained the registry OUTSIDE the mode lock and only took that lock
+afterwards. A `start` running concurrently could be granted in the gap, so its
+record stayed ACTIVE while the mode file recorded the thread as parked, and its
+digest was never absorbed. That is silent context loss, the exact thing thread
+mode exists to prevent. Reproduced before fixing: **28 of 30 trials**. After:
+**0 of 40**.
+
+`off` and `adopt` are now each ONE mode-locked transaction, and `start`
+rechecks the mode inside the lock so a start that queued behind an `off` refuses
+instead of creating a thread nobody will drain.
+
+The previous entry claimed holding the mode lock across `absorb` would invert
+the lock order and risk deadlock. That was wrong. `cmd_start` calls
+`reg.claim()` INSIDE the mode lock, so the order has always been mode then
+registry, and `off` now matches it rather than inverting it. The wrong comment
+had been used to justify leaving the gap open.
+
+The concurrency test now asserts STATE, not only liveness: an OFF system must
+hold no active persistent record, and every thread in the mode file must have a
+record. It runs repeatedly, because a race that reproduces sometimes proves
+nothing when it happens to pass once.
+
+108 tests.
+
+---
+
 ## 2026-07-26 (later still): one lock for the whole system
 
 A follow-up review found the locking fix from the previous entry was applied in
