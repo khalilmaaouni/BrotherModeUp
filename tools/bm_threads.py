@@ -482,7 +482,12 @@ def cmd_off(argv):
         dd["mode"] = "off"
         _history(dd).append({"ts": now(), "event": "off",
                              "absorbed": absorbed, "empty": outcome["missing"]})
-        save_mode(dd)
+        # Checked, not fired and forgotten. The digests are already safely in
+        # STATE.md at this point, so nothing is lost either way, but reporting
+        # "mode OFF" when the file still says ON would send the founder back
+        # into a system whose two halves disagree.
+        if not save_mode(dd):
+            outcome["mode_write_failed"] = True
 
     _with_mode_lock(_drain_and_close)
 
@@ -499,6 +504,13 @@ def cmd_off(argv):
         return
     absorbed = outcome.get("absorbed", [])
     missing = outcome.get("missing", [])
+    if outcome.get("mode_write_failed"):
+        print("HANDOVER SAFE, MODE FILE NOT UPDATED: %d digest(s) were absorbed "
+              "into %s, so nothing is lost, but thread-mode.json could not be "
+              "written and still says ON." % (len(absorbed), target))
+        print("  Fix that file (permissions or disk), then run `off` again; "
+              "re-absorbing is a no-op because the records are already parked.")
+        return
     print("thread mode OFF (drained and parked, nothing deleted).")
     print("  absorbed %d digest(s) via the registry into %s" % (len(absorbed), target))
     for n in absorbed:
@@ -532,25 +544,61 @@ def cmd_adopt(argv):
     # file still called the thread active, and a concurrent start or off could
     # act on either half of a half-applied adoption.
     # Lock order MODE then REGISTRY, matching cmd_start and cmd_off.
+    outcome = {}
+    target = os.path.join(os.getcwd(), "STATE.md")
+
     def _adopt():
         dg = reg.redact_text(read(os.path.join(base, "digest.md"), DIGEST_CAP))
         st = reg.redact_text(read(os.path.join(base, "STATE.md"), 2000))
-        append(os.path.join(os.getcwd(), "STATE.md"),
-               "\n## Adopted from dead/stalled thread '%s' (%s)\n%s\n\n<!-- thread STATE at adoption -->\n%s\n"
-               % (name, now(), dg.strip(), st.strip()))
-        # The handover now lives in the chief's STATE.md, so close the registry
-        # record in the same operation: leaving it active would make `off`
-        # absorb this digest a second time and would keep the thread's files
-        # fenced by an owner that is gone.
-        reg.close(name, state="adopted")
+        # ORDER IS THE ATOMICITY. The handover is written FIRST, so a failure
+        # here changes nothing at all and the thread stays adoptable. Closing
+        # the record before securing the handover was a silent total loss: the
+        # record was closed so `off` would never drain it, the digest never
+        # reached STATE.md, and the command printed "Nothing is orphaned".
+        if not append(target,
+                      "\n## Adopted from dead/stalled thread '%s' (%s)\n%s\n\n"
+                      "<!-- thread STATE at adoption -->\n%s\n"
+                      % (name, now(), dg.strip(), st.strip())):
+            outcome["handover_failed"] = True
+            return
+        # The handover is safe on disk now, so close the record. Leaving it
+        # active would make absorb() drain the same digest a second time and
+        # keep the files fenced by an owner that is gone.
+        if not reg.close(name, state="adopted"):
+            outcome["registry_failed"] = True
+            return
         d = load_mode()
         # isinstance, not `in`: a malformed entry cannot be assigned into.
         if isinstance(d.get("threads", {}).get(name), dict):
             d["threads"][name]["state"] = "adopted"
             d["threads"][name]["adopted_at"] = now()
             _history(d).append({"ts": now(), "event": "adopt", "thread": name})
-            save_mode(d)
+            if not save_mode(d):
+                outcome["mode_failed"] = True
+                return
+        outcome["ok"] = True
+
     _with_mode_lock(_adopt)
+
+    if outcome.get("handover_failed"):
+        print("ADOPT FAILED: could not write the handover into %s" % target)
+        print("  Nothing changed: the record is still ACTIVE and the thread is "
+              "untouched, so no context was lost.")
+        print("  Fix that file (permissions or disk), then run `adopt` again.")
+        return
+    if outcome.get("registry_failed"):
+        print("ADOPT PARTIALLY APPLIED: the handover IS in %s, but the registry "
+              "record could not be closed." % target)
+        print("  Nothing is lost, but the record is still active, so a later "
+              "`off` will absorb this same digest a second time.")
+        print("  Fix the registry file, then run `adopt` again to close it.")
+        return
+    if outcome.get("mode_failed"):
+        print("ADOPT PARTIALLY APPLIED: the handover is in %s and the record is "
+              "closed, but the mode file could not be updated." % target)
+        print("  Nothing is lost. The dashboard will still show this thread as "
+              "active until that file is writable again.")
+        return
     print("adopted '%s': its digest and fence are now in the chief's STATE.md." % name)
     print("  DECIDE: respawn the thread, or continue this work solo. Nothing is orphaned.")
 

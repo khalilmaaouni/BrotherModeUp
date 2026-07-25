@@ -598,8 +598,11 @@ def close(rid, state="parked", cwd=None):
             return False
         rec["state"] = state
         rec["closed_at"] = now()
-        save(d, cwd)
-        return True
+        # Return what the SAVE did, not what the in-memory edit did. Returning
+        # True after a failed write is the same defect this project already had
+        # to fix in absorb(): the caller sees success, tells the founder the
+        # record is closed, and the record is still active on disk.
+        return save(d, cwd)
     return with_lock(_do, cwd)
 
 

@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-07-26: a failed write can no longer be reported as success
+
+The concurrency work was done, so the next review looked at failure paths and
+found the worst remaining case. `adopt` ignored the return value of every write
+it made and always printed success. With an unwritable project `STATE.md`:
+
+- the handover never landed,
+- the registry record was closed anyway, so `off` would never drain it,
+- the thread was marked adopted,
+- and the command printed "Nothing is orphaned".
+
+Total silent context loss, reported as a clean adoption. Reproduced before the
+fix, and the message was exactly that.
+
+`adopt` now writes the handover FIRST, so a failure there changes nothing and
+the thread stays adoptable, then checks every subsequent write and names the
+exact partial state if one fails. `off` checks its final mode-file write for the
+same reason. `bm_registry.close()` was returning True regardless of whether its
+save reached disk, which would have made adopt's new check meaningless; it now
+returns what the save did.
+
+This is the same defect this project already fixed once inside `absorb()`, where
+the bug had moved one call later. It is the third appearance of the class.
+
+110 tests.
+
+---
+
 ## 2026-07-26 (final): the off transition is now atomic
 
 A follow-up review found a real transactional race between `start` and `off`,

@@ -1352,6 +1352,72 @@ class TestRegistryAbsorbAndView(unittest.TestCase):
                              "start/off, which means a digest was never absorbed: %s"
                              % inconsistent)
 
+    def test_adopt_reports_a_failed_handover_and_loses_nothing(self):
+        """adopt ignored the return value of every write and always printed
+        success. With an unwritable project STATE.md the handover never landed,
+        yet the record was closed and the thread marked adopted, so `off` would
+        never drain it either: total silent context loss reported as
+        'Nothing is orphaned'.
+
+        The handover is written FIRST now, so a failure there changes nothing
+        and the thread stays adoptable."""
+        if os.geteuid() == 0:
+            self.skipTest("running as root: chmod cannot make a file unwritable")
+        tool = os.path.join(HERE, "bm_threads.py")
+        with tempfile.TemporaryDirectory() as d:
+            for args in (["on"],
+                         ["start", "pay", "wire it", "--files", "api/pay.py"],
+                         ["checkpoint", "pay", "--next", "next: must survive"]):
+                subprocess.run([sys.executable, tool] + args, cwd=d,
+                               capture_output=True, timeout=30)
+            state = os.path.join(d, "STATE.md")
+            io.open(state, "w").write("# S\n")
+            os.chmod(state, 0o444)
+            try:
+                r = subprocess.run([sys.executable, tool, "adopt", "pay"], cwd=d,
+                                   capture_output=True, text=True, timeout=30)
+            finally:
+                os.chmod(state, 0o644)
+            self.assertEqual(r.returncode, 0, "never-block: adopt must still exit 0")
+            self.assertIn("ADOPT FAILED", r.stdout,
+                          "a failed handover must be reported, not called success")
+            reg = json.load(io.open(os.path.join(d, "threads", "registry.json"),
+                                    encoding="utf-8"))
+            self.assertEqual(reg["records"]["pay"]["state"], "active",
+                             "a failed adopt must leave the record ADOPTABLE, not closed")
+            # And the retry must work once the file is writable again.
+            r2 = subprocess.run([sys.executable, tool, "adopt", "pay"], cwd=d,
+                                capture_output=True, text=True, timeout=30)
+            self.assertIn("adopted", r2.stdout)
+            self.assertIn("must survive", io.open(state, encoding="utf-8").read(),
+                          "the retry must actually deliver the handover")
+
+    def test_registry_close_reports_a_failed_save(self):
+        """close() edited the record in memory and returned True regardless of
+        whether the save reached disk, so adopt's new check would have been
+        meaningless. Same defect this project already fixed once in absorb()."""
+        if os.geteuid() == 0:
+            self.skipTest("running as root: chmod cannot make a directory read-only")
+        reg = load_registry_module()
+        with tempfile.TemporaryDirectory() as d:
+            reg.claim("pay", "persistent", "obj", ["api/pay.py"], cwd=d)
+            # The FILE, not the directory: save() rewrites registry.json in
+            # place, and a read-only directory does not stop an existing file
+            # being written. An earlier version of this test chmod'ed the
+            # directory, so save never actually failed and the test proved
+            # nothing about the return value it claimed to check.
+            rpath = reg.registry_path(cwd=d)
+            os.chmod(rpath, 0o444)
+            try:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    ok = reg.close("pay", state="adopted", cwd=d)
+            finally:
+                os.chmod(rpath, 0o644)
+            self.assertFalse(ok, "close must report False when the save failed")
+            data = reg.load(cwd=d)
+            self.assertEqual(data["records"]["pay"]["state"], "active",
+                             "the on-disk record must match what close reported")
+
     def test_thread_mode_lock_uses_the_one_registry_primitive(self):
         """bm_threads used to carry its OWN mode-file lock that swallowed every
         failure, so on a platform without fcntl the registry warned while
