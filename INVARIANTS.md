@@ -43,6 +43,29 @@ belonging to a later lifecycle of that same id.
 Thread names are reusable. A second `payments` thread is a different piece of
 work and must not inherit the first one's digest, decisions, evidence or spend.
 
+## I8. The two files agree
+
+For every thread the mode file knows, its state there matches the state of its
+record in the registry.
+
+This is the invariant whose absence let a real defect through. A partial `off`
+parked one record in the registry, releasing its fence, while the mode file
+still showed it active: the dashboard said the thread was running, its files
+were claimable by someone else, and the command reported that every record
+stayed active. Nothing checked that the halves agreed, so nothing complained.
+
+A lifecycle transition that touches both files is all-or-nothing. If any part
+fails, neither file moves.
+
+## I9. Working files are never silently destroyed
+
+Re-running `start` on a live thread does not overwrite its STATE.md, inbox,
+outbox or digest.
+
+A persistent thread accumulates a working plan, directives from the chief and
+an advancement history. A command whose purpose is to CREATE a thread must not
+erase one.
+
 ## I4. Never block
 
 Every command exits 0, whatever the state of the disk, the files, or the
@@ -103,8 +126,11 @@ known defect and confirm the suite fails. Current measured result:
 | `start` reports created without checking its files | yes |
 | `checkpoint` hides a failed registry mirror | yes |
 | `claim` returns success after a failed save | yes |
+| A partial `off` parks some records and not others | yes |
+| `start` overwrites a live thread's working files | yes |
+| `off` parks threads the registry already adopted | yes |
 
-Seven of seven.
+Ten of ten.
 
 ## What each style of test is for, learned the hard way
 
@@ -125,3 +151,15 @@ One defect stopped being observable during this work rather than being caught:
 `start` overwriting an existing digest file no longer loses a handover, because
 `adopt` now prefers the registry digest. Verified by execution, not assumed. The
 guard on the file write stays as a second layer.
+
+
+## What I8 caught on its first run
+
+I8 was added because a partial `off` had released one fence while the mode file
+still showed the thread running, and nothing checked that the two halves agreed.
+On its very first run it found a SECOND, unreported disagreement: `off` stamped
+"parked" over every mode entry including threads the registry had already
+recorded as adopted.
+
+That is the argument for writing invariants down rather than only fixing bugs.
+The defect it found was not the one it was written for.

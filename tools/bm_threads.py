@@ -284,14 +284,23 @@ def cmd_start(argv):
         # Every one of these is checked. A start that reports success with a
         # missing digest.md has created a thread whose handover is empty, so
         # `off` would drain nothing and the work would vanish at the exit.
+        # CREATE, never overwrite. Re-running `start` on a live thread erased
+        # its working plan, the chief's directives in the inbox, and the
+        # advancement history in the outbox. The registry digest protected the
+        # formal handover, but the thread's own working context was gone. Only
+        # digest.md was guarded before; all four are now.
+        def create(path, text):
+            if os.path.exists(path):
+                return True
+            return write(path, text)
         wrote = []
-        wrote.append(write(os.path.join(base, "STATE.md"),
+        wrote.append(create(os.path.join(base, "STATE.md"),
               "# Thread: %s\n\n## Objective\n%s\n\n## Fence (files this thread may write)\n"
               "(declare before writing; single-writer law applies per file)\n\n"
               "## Plan and next intent\n- next: (write the next intent BEFORE acting)\n" % (name, obj)))
-        wrote.append(write(os.path.join(base, "inbox.md"),
+        wrote.append(create(os.path.join(base, "inbox.md"),
               "# Inbox for %s\nDirectives from the chief. ONLY the chief writes here.\n\n" % name))
-        wrote.append(write(os.path.join(base, "outbox.md"),
+        wrote.append(create(os.path.join(base, "outbox.md"),
               "# Outbox from %s\nAdvancement for the chief. ONLY this thread writes here.\n\n" % name))
         # The digest exists from minute one, so an exit is lossless even
         # immediately. But it is only CREATED, never overwritten: re-running
@@ -300,8 +309,8 @@ def cmd_start(argv):
         # blank one. A new life gets a fresh directory state via the registry
         # reconstruction, so a surviving file here always belongs to live work.
         digest_path = os.path.join(base, "digest.md")
-        if not os.path.exists(digest_path):
-            wrote.append(write(digest_path,
+        if True:
+            wrote.append(create(digest_path,
                   "# Handover digest: %s\n_updated %s_\n\n## Objective\n%s\n\n## Decisions\n(none yet)\n\n"
                   "## Files touched\n(none yet)\n\n## Next intent\n(not yet stated)\n" % (name, now(), obj)))
         if not all(wrote):
@@ -543,6 +552,12 @@ def cmd_off(argv):
             # absorb has already drained and parked the RECORDS, so raising at
             # this point left the mode file unsaved and the halves disagreeing.
             if not isinstance(meta, dict):
+                continue
+            # Park only what is still RUNNING. Parking every entry stamped
+            # "parked" over threads the registry had already recorded as
+            # adopted, so the two files disagreed about the same thread: the
+            # exact class I8 exists to catch, found by it on its first run.
+            if meta.get("state") not in (None, "active"):
                 continue
             meta["state"] = "parked"
             meta["parked_at"] = now()

@@ -817,18 +817,28 @@ def absorb(cwd=None):
         # lifecycle: if the append succeeded but the registry save below failed,
         # the retry finds its own tag and parks the records without writing the
         # handover a second time.
-        delivered_ok = []
-        for rid, rec, body in candidates:
-            identity = "%s#%s" % (rid, (rec or {}).get("lifecycle", 1))
-            if deliver_handover(target, identity, body,
-                                payload=record_payload(rec)) is False:
-                print("bm_registry: warning: %s left ACTIVE so nothing is lost, "
-                      "retry absorb later" % rid, file=sys.stderr)
-                continue
-            delivered_ok.append((rid, rec))
-        candidates = delivered_ok
-        if not candidates:
+        # ALL OR NOTHING. Delivering per record fixed a duplicate-identity bug
+        # and introduced a worse one: a record whose handover succeeded was
+        # parked immediately, so when a sibling's delivery failed the registry
+        # had it parked (fence RELEASED) while the mode file still showed it
+        # active. Another thread could then claim its files while the dashboard
+        # said it was running, and `off` reported that every record stayed
+        # active, which was false.
+        #
+        # So deliver everything first and park nothing until all of it is on
+        # disk. A retry is safe because each delivery carries its own tag and
+        # recognises its earlier write.
+        failures = [rid for rid, rec, body in candidates
+                    if deliver_handover(target,
+                                        "%s#%s" % (rid, (rec or {}).get("lifecycle", 1)),
+                                        body, payload=record_payload(rec)) is False]
+        if failures:
+            print("bm_registry: warning: %s could not be delivered; NOTHING was "
+                  "parked, every record stays ACTIVE and nothing is lost. Retry "
+                  "absorb after fixing the target file."
+                  % ", ".join(failures), file=sys.stderr)
             return []
+        candidates = [(rid, rec) for rid, rec, body in candidates]
         out = []
         for rid, rec in candidates:
             rec["state"] = "parked"

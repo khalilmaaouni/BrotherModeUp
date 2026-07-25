@@ -2272,6 +2272,95 @@ class TestI6HonestReportingUnderForcedFailure(unittest.TestCase):
                           "I6: a failed mirror must be named, got: %r" % out.strip()[:160])
 
 
+class TestLifecycleTransitionsAreAllOrNothing(unittest.TestCase):
+    """I8 and I9: a transition touching both files moves both or neither, and a
+    create command never destroys working context."""
+
+    def _mod(self, tag):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "bm_threads_tx_%s" % tag, os.path.join(HERE, "bm_threads.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_a_partial_off_parks_nothing_and_holds_every_fence(self):
+        """One handover succeeds, the other fails. Parking the successful one
+        released its fence while the mode file still showed it active, so its
+        files were claimable by someone else while the dashboard said it was
+        running, and `off` reported that every record stayed active."""
+        with tempfile.TemporaryDirectory() as d:
+            mod = self._mod("partial")
+            old = os.getcwd()
+            os.chdir(d)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    mod.cmd_on([])
+                    mod.cmd_start(["alpha", "a", "--files", "api/a.py"])
+                    mod.cmd_start(["beta", "b", "--files", "api/b.py"])
+                    mod.cmd_checkpoint(["alpha", "--next", "next: A"])
+                    mod.cmd_checkpoint(["beta", "--next", "next: B"])
+                reg = mod._registry()
+                real = reg.deliver_handover
+
+                def beta_fails(target, identity, body, payload=None):
+                    if identity.startswith("beta"):
+                        return False
+                    return real(target, identity, body, payload=payload)
+                reg.deliver_handover = beta_fails
+                try:
+                    with contextlib.redirect_stdout(io.StringIO()), \
+                         contextlib.redirect_stderr(io.StringIO()):
+                        mod.cmd_off([])
+                finally:
+                    reg.deliver_handover = real
+                records = reg.load().get("records") or {}
+                with io.open(os.path.join("threads", "thread-mode.json"),
+                             encoding="utf-8") as fh:
+                    mode = json.load(fh)
+            finally:
+                os.chdir(old)
+
+            for rid in ("alpha", "beta"):
+                self.assertEqual(
+                    (records.get(rid) or {}).get("state"), "active",
+                    "I8: %s must stay ACTIVE when a sibling's handover failed, "
+                    "so its fence is still held" % rid)
+            for tname, meta in (mode.get("threads") or {}).items():
+                rec = records.get(tname) or {}
+                self.assertEqual(meta.get("state"), rec.get("state"),
+                                 "I8: %s disagrees between the two files" % tname)
+
+    def test_restarting_a_live_thread_preserves_every_working_file(self):
+        """A persistent thread accumulates a plan, the chief's directives and an
+        advancement history. Re-running `start` used to erase all three."""
+        tool = os.path.join(HERE, "bm_threads.py")
+        with tempfile.TemporaryDirectory() as d:
+            def run(*args):
+                return subprocess.run([sys.executable, tool] + list(args), cwd=d,
+                                      capture_output=True, text=True, timeout=30)
+            run("on")
+            run("start", "alpha", "objective", "--files", "api/a.py")
+            base = os.path.join(d, "threads", "alpha")
+            marks = {"STATE.md": "MY-WORKING-PLAN",
+                     "inbox.md": "CHIEF-DIRECTIVE",
+                     "outbox.md": "ADVANCEMENT-LOG",
+                     "digest.md": "HANDOVER-CONTENT"}
+            before = {}
+            for fname, mark in marks.items():
+                with io.open(os.path.join(base, fname), "a", encoding="utf-8") as fh:
+                    fh.write("\n%s\n" % mark)
+                with io.open(os.path.join(base, fname), encoding="utf-8") as fh:
+                    before[fname] = fh.read()
+            run("start", "alpha", "different objective", "--files", "api/a.py")
+            for fname, mark in marks.items():
+                with io.open(os.path.join(base, fname), encoding="utf-8") as fh:
+                    after = fh.read()
+                self.assertEqual(after, before[fname],
+                                 "I9: re-running start changed %s and lost %s"
+                                 % (fname, mark))
+
+
 class TestInvariantsUnderRandomSequences(unittest.TestCase):
     """The answer to a testing defect, not to a bug.
 
@@ -2411,6 +2500,27 @@ class TestInvariantsUnderRandomSequences(unittest.TestCase):
                     cur.get("lifecycle", 1), life,
                     "I3 lifecycle isolation broken (%s): %r from life %s of %s "
                     "leaked into a later life" % (where, token, life, rid))
+
+        # I8: the mode file and the registry must agree on every thread. This
+        # is the check whose absence let a partial `off` release one fence while
+        # the dashboard still showed the thread running.
+        mp = os.path.join(d, "threads", "thread-mode.json")
+        if os.path.exists(mp):
+            try:
+                with io.open(mp, encoding="utf-8") as fh:
+                    mode_threads = (json.load(fh) or {}).get("threads") or {}
+            except ValueError:
+                mode_threads = {}
+            for tname, meta in mode_threads.items():
+                if not isinstance(meta, dict):
+                    continue
+                rec = records.get(tname)
+                if not isinstance(rec, dict):
+                    continue
+                self.assertEqual(
+                    meta.get("state"), rec.get("state"),
+                    "I8 broken (%s): %s is %r in the mode file and %r in the "
+                    "registry" % (where, tname, meta.get("state"), rec.get("state")))
 
         # I7: temp files never survive a write.
         tdir = os.path.join(d, "threads")
