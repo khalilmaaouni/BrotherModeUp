@@ -82,6 +82,94 @@ def append(path, text):
         return False
 
 
+
+# ---------------------------------------------------------------------------
+# REDACTION. Thread digests carry decisions and file paths written by a working
+# session, so they can carry a secret the same way a correction or a resume brief
+# can. This is the third place this bug class appeared in one week; the lesson is
+# that ANY file holding model or human text gets redacted at the write, not later.
+# Reuse bm_telemetry.redact when available so there is one pattern set; fall back
+# to a compact inline set rather than ever writing unredacted text.
+# ---------------------------------------------------------------------------
+def _load_redactor():
+    try:
+        import importlib.util
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location(
+            "bm_telemetry_for_threads", os.path.join(here, "bm_telemetry.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        if hasattr(mod, "redact"):
+            return mod.redact
+    except Exception:
+        pass
+    pats = [
+        re.compile(r"\b(sk|rk)[-_][A-Za-z0-9_-]{12,}", re.I),
+        re.compile(r"\bgh[oprsu]_[A-Za-z0-9]{16,}"),
+        re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+        re.compile(r"\b[Bb]earer\s+[A-Za-z0-9._~+/=-]{16,}"),
+        re.compile(r"-----BEGIN[ A-Z]*PRIVATE KEY-----"),
+        re.compile(r"(?i)[A-Za-z0-9_]*(?:pass(?:word|wd|phrase)?|secret|token"
+                   r"|api[_-]?key|access[_-]?key|private[_-]?key|credential)s?"
+                   r"\s*(?:[:=]|\s+(?:is|was)\s+)\s*\S+"),
+        re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
+    ]
+
+    def _fallback(text):
+        n = 0
+        for p in pats:
+            text, k = p.subn("[REDACTED]", text)
+            n += k
+        return text, n
+    return _fallback
+
+
+_REDACT = _load_redactor()
+
+
+def redact_text(t):
+    """Always returns redacted text. Never returns the raw string."""
+    try:
+        return _REDACT(t or "")[0]
+    except Exception:
+        return "(redaction failed; text withheld)"
+
+
+
+def _with_mode_lock(fn, cwd=None):
+    """Mutual exclusion around every read-modify-write of the mode file.
+
+    Without this, two threads starting at once each read the old file and the
+    second write wins, so a thread exists on disk but is missing from the
+    registry: invisible to the dashboard and, worse, skipped by `off`, which
+    would silently lose its context. That is the one guarantee thread mode must
+    not break, so the registry update is locked, not hoped over.
+    """
+    lockdir = root(cwd)
+    try:
+        os.makedirs(lockdir, exist_ok=True)
+    except OSError:
+        return fn()
+    lockpath = os.path.join(lockdir, ".mode.lock")
+    fh = None
+    try:
+        fh = open(lockpath, "w")
+        try:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        except Exception:
+            pass          # no flock available: proceed, still better than nothing
+        return fn()
+    finally:
+        if fh is not None:
+            try:
+                import fcntl
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
+            fh.close()
+
+
 def load_mode(cwd=None):
     p = os.path.join(root(cwd), MODE_FILE)
     try:
@@ -175,10 +263,20 @@ def cmd_start(argv):
     write(os.path.join(base, "digest.md"),
           "# Handover digest: %s\n_updated %s_\n\n## Objective\n%s\n\n## Decisions\n(none yet)\n\n"
           "## Files touched\n(none yet)\n\n## Next intent\n(not yet stated)\n" % (name, now(), objective))
-    d.setdefault("threads", {})[name] = {"state": "active", "objective": objective,
-                                         "started": now()}
-    d.setdefault("history", []).append({"ts": now(), "event": "start", "thread": name})
-    save_mode(d)
+    def _register():
+        # Re-read INSIDE the lock: the copy loaded before the lock may be stale.
+        dd = load_mode()
+        act = [n for n, m in dd.get("threads", {}).items() if m.get("state") == "active"]
+        if name not in act and len(act) >= MAX_ACTIVE:
+            return False
+        dd.setdefault("threads", {})[name] = {"state": "active", "objective": objective,
+                                              "started": now()}
+        dd.setdefault("history", []).append({"ts": now(), "event": "start", "thread": name})
+        save_mode(dd)
+        return True
+    if not _with_mode_lock(_register):
+        print("CAP: %d active threads already; not registered." % MAX_ACTIVE)
+        return
     print("thread '%s' created at %s" % (name, base))
     print("  the thread session should read STATE.md + inbox.md, and write outbox.md + digest.md")
 
@@ -202,9 +300,11 @@ def cmd_checkpoint(argv):
             kv[key] = []
         elif key:
             kv[key].append(a)
-    dec = " ".join(kv.get("decision", []))
-    files = " ".join(kv.get("files", []))
-    nxt = " ".join(kv.get("next", []))
+    # Redact at the WRITE. A digest is absorbed into STATE.md on exit, so an
+    # unredacted secret here would propagate into the project's permanent record.
+    dec = redact_text(" ".join(kv.get("decision", [])))
+    files = redact_text(" ".join(kv.get("files", [])))
+    nxt = redact_text(" ".join(kv.get("next", [])))
     cur = read(os.path.join(base, "digest.md"))
     obj = ""
     m = re.search(r"## Objective\n(.+?)\n", cur, re.S)
@@ -239,7 +339,8 @@ def cmd_send(argv):
     if not os.path.isdir(base):
         print("send: no thread %r" % name)
         return
-    append(os.path.join(base, "inbox.md"), "- [%s] %s" % (now()[:16], " ".join(argv[1:])))
+    append(os.path.join(base, "inbox.md"),
+           "- [%s] %s" % (now()[:16], redact_text(" ".join(argv[1:]))))
     print("sent to '%s'" % name)
 
 

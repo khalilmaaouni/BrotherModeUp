@@ -195,6 +195,40 @@ class TestThreadMode(unittest.TestCase):
             self.assertIn("use trigram index", state, "adopted thread's context was orphaned")
 
 
+class TestThreadSafety(unittest.TestCase):
+    """The two defects a self-review found in thread mode, now permanent tests."""
+
+    def _run(self, cwd, *a):
+        return subprocess.run([sys.executable, os.path.join(HERE, "bm_threads.py"), *a],
+                              cwd=cwd, capture_output=True, text=True)
+
+    def test_secrets_never_reach_digest_or_absorbed_state(self):
+        with tempfile.TemporaryDirectory() as d:
+            io.open(os.path.join(d, "STATE.md"), "w").write("# S\n")
+            self._run(d, "on"); self._run(d, "start", "pay", "build pay")
+            self._run(d, "checkpoint", "pay", "--decision",
+                      "used PROD_DB_PASSWORD=hunter2 to test", "--next", "rotate it")
+            dig = io.open(os.path.join(d, "threads", "pay", "digest.md")).read()
+            self.assertNotIn("hunter2", dig, "secret leaked into the thread digest")
+            self._run(d, "off")
+            st = io.open(os.path.join(d, "STATE.md")).read()
+            self.assertNotIn("hunter2", st, "secret propagated into the project STATE.md")
+            self.assertIn("rotate it", st, "redaction destroyed the real content")
+
+    def test_concurrent_starts_all_register(self):
+        # A thread on disk but missing from the registry is invisible to the
+        # dashboard AND skipped by `off`, which would silently lose its context.
+        import threading as th
+        with tempfile.TemporaryDirectory() as d:
+            io.open(os.path.join(d, "STATE.md"), "w").write("# S\n")
+            self._run(d, "on")
+            ts = [th.Thread(target=self._run, args=(d, "start", n, "obj")) for n in "abc"]
+            [t.start() for t in ts]; [t.join() for t in ts]
+            mode = json.load(io.open(os.path.join(d, "threads", "thread-mode.json")))
+            self.assertEqual(sorted(mode["threads"]), ["a", "b", "c"],
+                             "a concurrent start was lost from the registry")
+
+
 class TestStrictMode(unittest.TestCase):
     def test_strict_exits_nonzero_on_fail(self):
         # A vault with an active session but no session log forces a FAIL check.
