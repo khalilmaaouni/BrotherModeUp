@@ -20,9 +20,21 @@ find it there too:
   `digest.md`, plus a `threads/.mode.lock`. Everything written there is redacted
   at the write, the same as everything else.
 - `absorb` appends a handover section to your project's `STATE.md`.
+- The V2 store (`tools/bm_store.py`, arriving module by module) writes
+  `.brothermode/store.sqlite3` under your project root. That database holds your
+  objectives, decisions, digests, and directives AS YOU TYPED THEM: redaction in
+  V2 applies at every exit (generated `STATE.md` views, rendered digests,
+  dashboard output), while the database itself is the raw, sensitive artifact.
+  Treat it like the corrections file below. If the database is ever corrupt it
+  is renamed to `store.sqlite3.quarantine-<timestamp>` and never deleted, so a
+  quarantine file is exactly as sensitive as the store. `bm_store.py init` adds
+  `.brothermode/`, `threads/`, and `STATE.md` to your repo's `.git/info/exclude`
+  so none of this reaches version control by accident. File permissions are
+  owner-only where the platform supports it (on Windows this is best-effort;
+  rely on your user profile's access control).
 
-You can verify both claims yourself; the tools are about 5,300 lines of
-standard-library Python and shell (measured 2026-07-25; a test fails if this
+You can verify both claims yourself; the tools are about 8,400 lines of
+standard-library Python and shell (measured 2026-07-26; a test fails if this
 figure drifts more than 15 percent from what the command below returns):
 
 ```bash

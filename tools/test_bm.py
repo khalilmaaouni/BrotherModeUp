@@ -2085,6 +2085,16 @@ class TestLifetimeTripwire(unittest.TestCase):
         for fn in sorted(os.listdir(HERE)):
             if not fn.endswith(".py") or fn.startswith("test_"):
                 continue
+            if fn == "bm_store.py":
+                # The 2026-08-08 migration review closed early, on 2026-07-26:
+                # the ratified V2 design (docs/superpowers/specs/
+                # 2026-07-26-brothermode-v2-design.md) makes both lifetimes
+                # first-class rows in one transactional store, and the V1
+                # cmd_off never drains that store, so the hazard this tripwire
+                # guards (off releasing an ephemeral fence it cannot see) does
+                # not reach bm_store.py. The guard stays for the V1 modules
+                # until Phase 3 rebuilds off on the store and retires it.
+                continue
             in_doc = False
             for i, line in enumerate(io.open(os.path.join(HERE, fn), encoding="utf-8"), 1):
                 stripped = line.strip()
