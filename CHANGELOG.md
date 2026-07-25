@@ -188,7 +188,14 @@ reverted for not having moved the signals it named.
 python3 tools/test_bm.py
 ```
 
-101 tests, up from 12.
+102 tests, up from 12.
+
+CI runs the same suite on Linux. One test in the first cut of this release was
+platform dependent (it relied on Python overflowing its stack at a given JSON
+nesting depth, which macOS did and Linux did not) and it failed the public
+build. It is split into two tests that each assert something true on every
+platform, and the stderr warning path now has deterministic coverage it did not
+have before.
 
 Then watch the central behavior work, in a throwaway directory:
 
