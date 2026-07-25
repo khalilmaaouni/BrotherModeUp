@@ -293,10 +293,17 @@ def cmd_start(argv):
               "# Inbox for %s\nDirectives from the chief. ONLY the chief writes here.\n\n" % name))
         wrote.append(write(os.path.join(base, "outbox.md"),
               "# Outbox from %s\nAdvancement for the chief. ONLY this thread writes here.\n\n" % name))
-        # The digest exists from minute one, so an exit is lossless even immediately.
-        wrote.append(write(os.path.join(base, "digest.md"),
-              "# Handover digest: %s\n_updated %s_\n\n## Objective\n%s\n\n## Decisions\n(none yet)\n\n"
-              "## Files touched\n(none yet)\n\n## Next intent\n(not yet stated)\n" % (name, now(), obj)))
+        # The digest exists from minute one, so an exit is lossless even
+        # immediately. But it is only CREATED, never overwritten: re-running
+        # `start` on a live thread used to stamp a blank template over a digest
+        # that already held checkpointed work, and adopt then delivered the
+        # blank one. A new life gets a fresh directory state via the registry
+        # reconstruction, so a surviving file here always belongs to live work.
+        digest_path = os.path.join(base, "digest.md")
+        if not os.path.exists(digest_path):
+            wrote.append(write(digest_path,
+                  "# Handover digest: %s\n_updated %s_\n\n## Objective\n%s\n\n## Decisions\n(none yet)\n\n"
+                  "## Files touched\n(none yet)\n\n## Next intent\n(not yet stated)\n" % (name, now(), obj)))
         if not all(wrote):
             # Release the fence: a record pointing at thread files that do not
             # exist would keep those paths claimed by a thread nobody can use.
@@ -615,14 +622,27 @@ def cmd_adopt(argv):
         # was silently discarded. The proof now lives inside the delivered text,
         # so it cannot outlive the content it vouches for.
         rec = (reg.load().get("records") or {}).get(name)
-        tag = reg.handover_tag(name, (rec or {}).get("lifecycle", 1))
-        dg = reg.redact_text(read(os.path.join(base, "digest.md"), DIGEST_CAP))
+        # A record that is already closed has had its handover drained by `off`
+        # (which parks it) or by an earlier adopt. Delivering again would put
+        # the same words in STATE.md twice, so this is a no-op that says so.
+        if isinstance(rec, dict) and rec.get("state") in (
+                "parked", "adopted", "landed", "failed-start"):
+            outcome["already_closed"] = rec.get("state")
+            return
+        identity = "%s#%s" % (name, (rec or {}).get("lifecycle", 1))
+        # The REGISTRY digest is the source of truth for a handover: it is what
+        # `off` drains, it is kept current by every checkpoint, and it cannot be
+        # clobbered by a thread-local file write. Prefer it, and fall back to
+        # the thread's own file only when the registry has nothing.
+        stored = (rec or {}).get("digest") if isinstance(rec, dict) else ""
+        dg = reg.redact_text(stored if isinstance(stored, str) and stored.strip()
+                             else read(os.path.join(base, "digest.md"), DIGEST_CAP))
         st = reg.redact_text(read(os.path.join(base, "STATE.md"), 2000))
         # ORDER IS THE ATOMICITY. The handover goes first, so a failure here
         # changes nothing and the thread stays adoptable. Closing the record
         # before securing the handover was a silent total loss.
         result = reg.deliver_handover(
-            target, tag,
+            target, identity, payload=reg.record_payload(rec), body=
             "\n## Adopted from dead/stalled thread '%s' (%s)\n%s\n\n"
             "<!-- thread STATE at adoption -->\n%s\n"
             % (name, now(), dg.strip(), st.strip()))
@@ -669,6 +689,11 @@ def cmd_adopt(argv):
         print("  Nothing is lost. The dashboard will still show this thread as "
               "active until that file is writable again.")
         print("  Re-running `adopt` is safe: the handover will not be written twice.")
+        return
+    if outcome.get("already_closed"):
+        print("adopt: '%s' is already %s, so its handover is already in %s."
+              % (name, outcome["already_closed"], target))
+        print("  Nothing to do. Delivering it again would duplicate it.")
         return
     if outcome.get("resumed"):
         print("adopted '%s' (resumed): the handover was already in %s from an "

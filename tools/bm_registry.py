@@ -8,7 +8,7 @@ truth for who owns what work, so the two registries can no longer disagree.
 Pure file I/O. No network, no subprocess. Every text field is redacted at the
 write, so no caller can forget. Every path returns rather than raises.
 """
-import copy, io, json, os, re, sys, fnmatch, posixpath, datetime
+import copy, io, json, os, re, sys, fnmatch, posixpath, datetime, hashlib
 
 SCHEMA = 1
 REGISTRY_DIRNAME = "threads"
@@ -83,16 +83,45 @@ def durable_append(path, text):
     return True
 
 
-def handover_tag(rid, lifecycle):
-    """The identity of ONE lifecycle of one record.
+def handover_tag(identity, body):
+    """The identity of one DELIVERY: which life of which record, plus what was
+    actually said.
 
-    Keyed on the lifecycle, not the name, because a thread name is REUSABLE: a
-    marker keyed on the name alone made a second `payments` thread inherit the
-    first one's delivery proof, and its handover was silently discarded."""
-    return "<!-- brothermode-handover:%s#%s -->" % (rid, lifecycle)
+    Two things must both be true and they pull in opposite directions. A retry
+    of the SAME handover must not duplicate it, and a handover whose CONTENT has
+    changed must still be delivered. Keying on the lifecycle alone gave the
+    first and broke the second: after a partial failure the thread checkpointed
+    new work, the retry matched the old tag, and the newer handover was silently
+    discarded while the record was closed.
+
+    So the tag carries a fingerprint of the exact bytes being delivered. Same
+    life and same words is a retry; same life and different words is a new
+    revision."""
+    digest = hashlib.sha256((body or "").encode("utf-8")).hexdigest()[:12]
+    return "<!-- brothermode-handover:%s:%s -->" % (identity, digest)
 
 
-def deliver_handover(target, tag, body):
+def record_payload(rec):
+    """The handover CONTENT of a record, independent of how any command chooses
+    to format it around the edges.
+
+    The fingerprint must describe what is being handed over, not the prose the
+    caller wrapped it in: absorb and adopt render the same digest differently,
+    so hashing the rendered text made one record's handover look like two
+    different ones and it was delivered twice."""
+    if not isinstance(rec, dict):
+        return ""
+    decisions = rec.get("decisions")
+    parts = [safe_str(rec.get("digest"))]
+    if isinstance(decisions, list):
+        for dec in decisions:
+            if isinstance(dec, dict):
+                parts.append("%s=%s" % (safe_str(dec.get("topic")),
+                                        safe_str(dec.get("text"))))
+    return "\n".join(parts)
+
+
+def deliver_handover(target, identity, body, payload=None):
     """Append a handover EXACTLY once per lifecycle. The one place any handover
     reaches the project STATE.md, used by both absorb() and adopt().
 
@@ -102,6 +131,9 @@ def deliver_handover(target, tag, body):
     can survive content that a crash destroyed, which is the worse direction.
 
     Returns "delivered", "already", or False when the write failed."""
+    # Fingerprint the PAYLOAD when the caller names one, so two commands that
+    # render the same handover differently still recognise each other's delivery.
+    tag = handover_tag(identity, body if payload is None else payload)
     try:
         with io.open(target, encoding="utf-8", errors="replace") as f:
             existing = f.read()
@@ -583,21 +615,30 @@ def claim(rid, lifetime, objective, files, tier=None, owner=None, cwd=None):
                 return (False, rec)
         rec = d["records"].get(rid)
         if rec:
-            # Reusing a CLOSED id starts a new life, so it gets a new lifecycle
-            # number and therefore a new delivery identity. Re-claiming an
-            # already-active record is the same owner re-declaring, not a new
-            # life, so the number is left alone.
-            if rec.get("state") in ("parked", "adopted", "landed", "failed-start"):
+            closed = rec.get("state") in ("parked", "adopted", "landed", "failed-start")
+            if closed:
+                # A new life gets a NEWLY CONSTRUCTED record, not a partial
+                # reset. Listing the fields to clear (digest, decisions, check,
+                # evidence, spend, lease) has the same defect as the marker file
+                # it replaced: the list rots the moment someone adds a field,
+                # and the stale value then leaks into a life it never belonged
+                # to. Reconstruction is correct for fields that do not exist yet.
+                # Proven case: life 1's digest and decisions were delivered again
+                # under life 2 as if they were that thread's work.
                 try:
-                    rec["lifecycle"] = int(rec.get("lifecycle", 1)) + 1
+                    nxt = int(rec.get("lifecycle", 1)) + 1
                 except (TypeError, ValueError):
-                    rec["lifecycle"] = 2
-            rec.setdefault("lifecycle", 1)
-            rec["objective"] = redact_text(objective)
-            rec["files"] = _stored_files(files)
-            rec["state"] = "active"
-            if tier:
-                rec["tier"] = tier
+                    nxt = 2
+                rec = new_record(rid, lifetime, objective, files, tier, owner)
+                rec["lifecycle"] = nxt
+                d["records"][rid] = rec
+            else:
+                rec.setdefault("lifecycle", 1)
+                rec["objective"] = redact_text(objective)
+                rec["files"] = _stored_files(files)
+                rec["state"] = "active"
+                if tier:
+                    rec["tier"] = tier
         else:
             d["records"][rid] = new_record(rid, lifetime, objective, files, tier, owner)
         # Report what the SAVE did. Returning True after a failed write tells
@@ -728,12 +769,13 @@ def absorb(cwd=None):
     the owning session to still be alive."""
     def _do():
         d = load(cwd)
-        candidates, lines = [], []
-        lines.append("")
-        lines.append("## Registry handover (absorbed %s)" % now())
-        lines.append("Work records were drained and parked. Nothing was deleted; each")
-        lines.append("record below can be resumed. Continue from these without re-exploring.")
-        lines.append("")
+        # PER RECORD, not one combined block. Identity must describe WHAT is
+        # delivered, not WHO delivered it: absorb used to tag the whole batch
+        # under "absorb:<ids>" while adopt tagged the same digest under
+        # "<id>#<life>", so a handover delivered by a failed `off` was delivered
+        # AGAIN by a later adopt, twice in STATE.md. One record, one identity,
+        # whichever command happens to drain it.
+        candidates = []
         for rid in sorted(d.get("records", {})):
             rec = d["records"][rid]
             # Defensive: skip records that are not dicts.
@@ -742,6 +784,11 @@ def absorb(cwd=None):
             # Skip records that are not active.
             if rec.get("state") != "active":
                 continue
+            lines = []
+            lines.append("")
+            lines.append("## Registry handover: %s (absorbed %s)" % (rid, now()))
+            lines.append("Drained and parked, not deleted; this record can be resumed.")
+            lines.append("")
             lines.append("### Record: %s (%s)" % (rid, rec.get("lifetime", "?")))
             lines.append("- objective: %s" % rec.get("objective", ""))
             # Defensive: a files field that is not a list, or that holds
@@ -757,7 +804,7 @@ def absorb(cwd=None):
             if rec.get("digest"):
                 lines.append("- digest: %s" % rec["digest"])
             lines.append("")
-            candidates.append((rid, rec))
+            candidates.append((rid, rec, "\n".join(lines)))
         if not candidates:
             return []
         # Write the handover FIRST. Only once STATE.md actually has the words on
@@ -770,12 +817,17 @@ def absorb(cwd=None):
         # lifecycle: if the append succeeded but the registry save below failed,
         # the retry finds its own tag and parks the records without writing the
         # handover a second time.
-        tag = handover_tag("absorb", "+".join(
-            "%s#%s" % (rid, (rec or {}).get("lifecycle", 1)) for rid, rec in candidates))
-        result = deliver_handover(target, tag, "\n".join(lines))
-        if result is False:
-            print("bm_registry: warning: records left ACTIVE so nothing is lost, "
-                  "retry absorb later", file=sys.stderr)
+        delivered_ok = []
+        for rid, rec, body in candidates:
+            identity = "%s#%s" % (rid, (rec or {}).get("lifecycle", 1))
+            if deliver_handover(target, identity, body,
+                                payload=record_payload(rec)) is False:
+                print("bm_registry: warning: %s left ACTIVE so nothing is lost, "
+                      "retry absorb later" % rid, file=sys.stderr)
+                continue
+            delivered_ok.append((rid, rec))
+        candidates = delivered_ok
+        if not candidates:
             return []
         out = []
         for rid, rec in candidates:

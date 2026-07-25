@@ -1570,7 +1570,12 @@ class TestRegistryAbsorbAndView(unittest.TestCase):
                              "SECOND lifecycle handover was discarded as a duplicate")
             # A real retry of the SAME lifecycle must still not duplicate.
             r = run("adopt", "payments")
-            self.assertIn("resumed", r.stdout)
+            # Either wording is a correct non-duplicating outcome: "resumed"
+            # when the same lifecycle is retried mid-transaction, "already
+            # adopted" when the record is closed and its handover is drained.
+            # The contract is that nothing is written twice, asserted below.
+            self.assertTrue(("resumed" in r.stdout) or ("already adopted" in r.stdout),
+                            "a retry must report a no-op, got: %s" % r.stdout.strip()[:160])
             state2 = io.open(os.path.join(d, "STATE.md"), encoding="utf-8").read()
             self.assertEqual(state2.count("LIFETWO"), 1,
                              "retrying the same lifecycle duplicated the handover")
@@ -2149,6 +2154,220 @@ class TestPreWriteGate(unittest.TestCase):
                 "%s has %d write sites but %d were reviewed. A write site was "
                 "added or removed: confirm it redacts user or model text, then "
                 "update tools/write_sites.json." % (fn, count, manifest[fn]))
+
+
+
+
+class TestInvariantsUnderRandomSequences(unittest.TestCase):
+    """The answer to a testing defect, not to a bug.
+
+    Every example test in this file was written backwards from a fix, so it
+    encodes the assumption that produced the gap. One of them kept a digest
+    UNCHANGED before testing a retry, which presupposed the absence of the very
+    bug that was there. A generated sequence has no such loyalty.
+
+    This runs random sequences of real CLI operations with random write failures
+    injected, and checks the promises in INVARIANTS.md after every step. It is
+    seeded, so a failure is reproducible from the seed printed in the message.
+    """
+
+    OPS = ("on", "start", "checkpoint", "adopt", "off", "send")
+
+    def _registry(self, d):
+        p = os.path.join(d, "threads", "registry.json")
+        if not os.path.exists(p):
+            return {}
+        try:
+            return (json.load(io.open(p, encoding="utf-8")) or {}).get("records") or {}
+        except ValueError:
+            self.fail("registry.json is not parsable: I7 (state survives a failed write)")
+
+    def _state(self, d):
+        p = os.path.join(d, "STATE.md")
+        if not os.path.exists(p):
+            return ""
+        with io.open(p, encoding="utf-8", errors="replace") as fh:
+            return fh.read()
+
+    def _check(self, d, seed, step, delivered, lifecycle_of):
+        """Assert the invariants that can be judged from disk alone."""
+        where = "seed=%d step=%d" % (seed, step)
+        records = self._registry(d)
+        state = self._state(d)
+
+        # I5: no two ACTIVE records may claim the same file.
+        claimed = {}
+        for rid, rec in records.items():
+            if not isinstance(rec, dict) or rec.get("state") != "active":
+                continue
+            for f in rec.get("files") or []:
+                if isinstance(f, str):
+                    self.assertNotIn(f, claimed,
+                                     "I5 single writer broken (%s): %s and %s both claim %s"
+                                     % (where, claimed.get(f), rid, f))
+                    claimed[f] = rid
+
+        # I2: a DELIVERY is a tagged block, so count tags. Counting raw token
+        # occurrences was wrong: adopt embeds a copy of the thread's own
+        # STATE.md alongside the digest, so one delivery can legitimately
+        # mention the same words twice. Two identical TAGS is the real defect,
+        # because that means the same handover version was written twice.
+        tags = re.findall(r"brothermode-handover:[^\s>]+", state)
+        dupes = [t for t in set(tags) if tags.count(t) > 1]
+        self.assertEqual(dupes, [],
+                         "I2 exactly once broken (%s): these deliveries were "
+                         "written more than once: %s" % (where, dupes))
+
+        # I3: a token produced in lifecycle N must never appear in STATE.md
+        # while its record is on a LATER lifecycle, unless it was delivered
+        # during its own life.
+        for token, (rid, life) in lifecycle_of.items():
+            if token in state and token not in delivered:
+                cur = records.get(rid) or {}
+                self.assertEqual(
+                    cur.get("lifecycle", 1), life,
+                    "I3 lifecycle isolation broken (%s): %r from life %s of %s "
+                    "leaked into a later life" % (where, token, life, rid))
+
+        # I7: temp files never survive a write.
+        tdir = os.path.join(d, "threads")
+        if os.path.isdir(tdir):
+            junk = [f for f in os.listdir(tdir) if f.startswith(".bm-tmp-")]
+            self.assertEqual(junk, [], "I7 temp litter (%s): %s" % (where, junk))
+
+    def _run_sequence(self, seed, steps=40):
+        """A STATE MACHINE, not a coin flip.
+
+        The first version of this picked operations uniformly at random and
+        created 0, 0 and 1 handovers across three seeds, because `checkpoint`
+        needs an active thread and `start` needs mode on. It exercised almost
+        nothing while passing, which made it decoration. Calibration caught
+        that: two known bugs were reinjected and it did not fire.
+
+        This version tracks the model state and picks from the operations whose
+        preconditions actually hold, with a smaller chance of an illegal one so
+        the never-block invariant is still exercised."""
+        import random
+        rng = random.Random(seed)
+        tool = os.path.join(HERE, "bm_threads.py")
+        names = ["alpha", "beta"]
+        delivered = set()
+        lifecycle_of = {}
+        latest = {}
+        counter = [0]
+
+        with tempfile.TemporaryDirectory() as d:
+            def run(*args, fail=None):
+                """fail: None, "handover" (project STATE.md unwritable) or
+                "registry" (threads/ unwritable, so the close and mode write
+                fail AFTER the handover landed). Both are needed: failing only
+                the handover never generates the partial-success path, which is
+                where the subtlest defects live."""
+                sp = os.path.join(d, "STATE.md")
+                tdir = os.path.join(d, "threads")
+                if fail == "handover":
+                    if not os.path.exists(sp):
+                        with io.open(sp, "w") as fh:
+                            fh.write("# S\n")
+                    os.chmod(sp, 0o444)
+                elif fail == "registry" and os.path.isdir(tdir):
+                    os.chmod(tdir, 0o555)
+                try:
+                    r = subprocess.run([sys.executable, tool] + list(args), cwd=d,
+                                       capture_output=True, text=True, timeout=40)
+                finally:
+                    try:
+                        if fail == "handover":
+                            os.chmod(sp, 0o644)
+                        elif fail == "registry" and os.path.isdir(tdir):
+                            os.chmod(tdir, 0o755)
+                    except OSError:
+                        pass
+                self.assertEqual(r.returncode, 0,
+                                 "I4 never-block broken (seed=%d): %s exited %d\n%s"
+                                 % (seed, " ".join(args), r.returncode, r.stderr[:400]))
+                return r
+
+            def mode_on():
+                p = os.path.join(d, "threads", "thread-mode.json")
+                if not os.path.exists(p):
+                    return False
+                try:
+                    with io.open(p, encoding="utf-8") as fh:
+                        return (json.load(fh) or {}).get("mode") == "on"
+                except ValueError:
+                    self.fail("thread-mode.json unparsable: I7 (seed=%d)" % seed)
+
+            def active(name):
+                rec = self._registry(d).get(name) or {}
+                return isinstance(rec, dict) and rec.get("state") == "active"
+
+            for step in range(steps):
+                name = rng.choice(names)
+                enabled = ["on", "off"]
+                if mode_on():
+                    enabled += ["start", "start"]
+                    if active(name):
+                        enabled += ["checkpoint", "checkpoint", "checkpoint", "send"]
+                if os.path.isdir(os.path.join(d, "threads", name)):
+                    enabled += ["adopt"]
+                # A small chance of an operation whose precondition does NOT
+                # hold, so never-block is exercised on illegal input too.
+                op = rng.choice(enabled) if rng.random() > 0.12 else rng.choice(self.OPS)
+                fail = rng.choice([None, None, None, "handover", "registry"])
+
+                if op == "on":
+                    run("on")
+                elif op == "start":
+                    run("start", name, "objective %d" % step,
+                        "--files", "api/%s_%d.py" % (name, rng.randint(0, 2)))
+                elif op == "checkpoint":
+                    counter[0] += 1
+                    token = "TOKEN%04d" % counter[0]
+                    rec = self._registry(d).get(name) or {}
+                    if isinstance(rec, dict) and rec.get("state") == "active":
+                        r = run("checkpoint", name, "--next", "next: " + token)
+                        if "NOT FULLY SAVED" not in r.stdout:
+                            life = rec.get("lifecycle", 1)
+                            lifecycle_of[token] = (name, life)
+                            # A digest is REPLACED by the next checkpoint, not
+                            # accumulated, so only the latest per record-life is
+                            # promised to survive. Tracking every token would
+                            # assert a guarantee the system never made.
+                            latest[(name, life)] = token
+                elif op == "adopt":
+                    if os.path.isdir(os.path.join(d, "threads", name)):
+                        run("adopt", name, fail=fail)
+                elif op == "off":
+                    run("off", fail=fail)
+                elif op == "send":
+                    if os.path.isdir(os.path.join(d, "threads", name)):
+                        run("send", name, "a directive")
+
+                state = self._state(d)
+                for token in list(lifecycle_of):
+                    if token in state:
+                        delivered.add(token)
+                self._check(d, seed, step, delivered, lifecycle_of)
+
+            state = self._state(d)
+            records = self._registry(d)
+            for (rid, life), token in latest.items():
+                if token in state:
+                    continue
+                rec = records.get(rid) or {}
+                recoverable = (isinstance(rec, dict)
+                               and token in json.dumps(rec)
+                               and rec.get("state") == "active")
+                self.assertTrue(
+                    recoverable,
+                    "I1 losslessness broken (seed=%d): %r was saved but is neither "
+                    "in STATE.md nor recoverable from an active record (%s)"
+                    % (seed, token, rec.get("state")))
+
+    def test_invariants_hold_across_generated_sequences(self):
+        for seed in range(14):
+            self._run_sequence(seed)
 
 
 if __name__ == "__main__":

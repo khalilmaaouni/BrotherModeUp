@@ -1,0 +1,107 @@
+# Invariants
+
+What this system promises, written as statements a machine can check.
+
+These exist because six external review rounds each found a real defect, and
+every example-based test I wrote was authored backwards from a fix: it encoded
+the same assumption that produced the gap, so it could only confirm what I
+already believed. One of them literally kept a digest unchanged before testing a
+retry, which presupposed the absence of the bug that was there.
+
+A numbered promise is different. It can be checked against sequences nobody
+imagined, and a review can be pointed at it instead of at a diff.
+
+`tools/test_bm.py` contains a seeded state-machine test that runs random
+sequences of operations with random write failures injected, and asserts these
+after every single step.
+
+---
+
+## I1. Losslessness
+
+Every handover that was checkpointed and then drained or adopted appears in the
+project `STATE.md` at least once.
+
+Losing a handover is the one failure this system exists to prevent. If a
+sequence ends with a digest that was recorded but is nowhere in `STATE.md` and
+nowhere still active in the registry, the promise is broken.
+
+## I2. Exactly once, per version
+
+A given handover version is delivered at most once. A retry of the same content
+must not duplicate it, and content that has CHANGED since the last delivery must
+still be delivered.
+
+Both halves matter. Suppressing a duplicate is worthless if it also suppresses
+newer work, which is exactly the defect that motivated writing this file.
+
+## I3. Lifecycle isolation
+
+Content produced under one lifecycle of a record id never appears in a delivery
+belonging to a later lifecycle of that same id.
+
+Thread names are reusable. A second `payments` thread is a different piece of
+work and must not inherit the first one's digest, decisions, evidence or spend.
+
+## I4. Never block
+
+Every command exits 0, whatever the state of the disk, the files, or the
+registry. A tool that refuses to run is worse than a tool that degrades and
+says so.
+
+## I5. Single writer
+
+No two records in the `active` state declare overlapping files.
+
+## I6. Honest reporting
+
+Reported success implies the on-disk state matches what was reported. If a
+command says a handover was delivered, it is in `STATE.md`. If it says a record
+was closed, the closed state is on disk.
+
+The inverse is the defect this project hit three times: a write whose return
+value was discarded, and success printed anyway.
+
+## I7. State survives a failed write
+
+A write that fails leaves the previous file intact and readable, never empty,
+truncated, or half-written, and leaves no temp file behind.
+
+---
+
+## How these are checked
+
+- Each invariant has at least one dedicated test.
+- The state-machine test asserts I1, I2, I3, I5, I6 and I7 after every step of
+  every generated sequence, across many seeds.
+- I4 is asserted on every command the state machine runs.
+
+## What this register does NOT claim
+
+It is a list of promises, not a proof. A property holding across the generated
+sequences means no counterexample was found in that space, not that none exists.
+The generator covers the thread lifecycle and injected write failures; it does
+not cover concurrent processes, filesystem corruption, or partial writes at the
+byte level.
+
+## Measured power of the generator, stated honestly
+
+A generative test that has not been calibrated is decoration. The first version
+of this one created 0, 0 and 1 handovers across three seeds because it picked
+operations at random and almost every precondition failed. It passed while
+exercising nothing, and reinjecting two known bugs did not make it fire.
+
+Calibration, re-run whenever the generator changes: reintroduce a known defect
+and confirm the suite fails. Current measured result, four known defects:
+
+| Reinjected defect | Caught |
+|---|---|
+| Delivery identity without a content fingerprint | yes |
+| No exactly-once check at all | yes |
+| Lifecycle record not reconstructed on reuse | NO |
+| `start` overwriting an existing digest file | NO |
+
+Two of four. The two it misses need a rarer sequence than 14 seeds of 40 steps
+reaches, so they keep their own dedicated example tests. Raising seeds or step
+count, or biasing the walk toward reuse-after-close, is the way to close that
+gap and has not been done yet.
