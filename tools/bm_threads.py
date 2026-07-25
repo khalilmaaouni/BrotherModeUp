@@ -34,6 +34,23 @@ INVARIANTS
 """
 import io, json, os, re, sys, datetime
 
+_REG_MOD = None
+
+
+def _registry():
+    """Load bm_registry.py by path (cached) so bm_threads works from any cwd."""
+    global _REG_MOD
+    if _REG_MOD is None:
+        import importlib.util
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location(
+            "bm_registry_for_threads", os.path.join(here, "bm_registry.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _REG_MOD = mod
+    return _REG_MOD
+
+
 THREADS_DIRNAME = "threads"
 MODE_FILE = "thread-mode.json"          # lives in threads/, records mode + history
 MAX_ACTIVE = int(os.environ.get("BROTHERMODE_MAX_THREADS", "3"))
@@ -82,58 +99,9 @@ def append(path, text):
         return False
 
 
-
-# ---------------------------------------------------------------------------
-# REDACTION. Thread digests carry decisions and file paths written by a working
-# session, so they can carry a secret the same way a correction or a resume brief
-# can. This is the third place this bug class appeared in one week; the lesson is
-# that ANY file holding model or human text gets redacted at the write, not later.
-# Reuse bm_telemetry.redact when available so there is one pattern set; fall back
-# to a compact inline set rather than ever writing unredacted text.
-# ---------------------------------------------------------------------------
-def _load_redactor():
-    try:
-        import importlib.util
-        here = os.path.dirname(os.path.abspath(__file__))
-        spec = importlib.util.spec_from_file_location(
-            "bm_telemetry_for_threads", os.path.join(here, "bm_telemetry.py"))
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        if hasattr(mod, "redact"):
-            return mod.redact
-    except Exception:
-        pass
-    pats = [
-        re.compile(r"\b(sk|rk)[-_][A-Za-z0-9_-]{12,}", re.I),
-        re.compile(r"\bgh[oprsu]_[A-Za-z0-9]{16,}"),
-        re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-        re.compile(r"\b[Bb]earer\s+[A-Za-z0-9._~+/=-]{16,}"),
-        re.compile(r"-----BEGIN[ A-Z]*PRIVATE KEY-----"),
-        re.compile(r"(?i)[A-Za-z0-9_]*(?:pass(?:word|wd|phrase)?|secret|token"
-                   r"|api[_-]?key|access[_-]?key|private[_-]?key|credential)s?"
-                   r"\s*(?:[:=]|\s+(?:is|was)\s+)\s*\S+"),
-        re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
-    ]
-
-    def _fallback(text):
-        n = 0
-        for p in pats:
-            text, k = p.subn("[REDACTED]", text)
-            n += k
-        return text, n
-    return _fallback
-
-
-_REDACT = _load_redactor()
-
-
-def redact_text(t):
-    """Always returns redacted text. Never returns the raw string."""
-    try:
-        return _REDACT(t or "")[0]
-    except Exception:
-        return "(redaction failed; text withheld)"
-
+# REDACTION. bm_registry.py is the single owner of the redaction fallback now
+# (this used to be a duplicated pattern set here); every use below calls
+# _registry().redact_text(...) so a secret is caught at the write, not later.
 
 
 def _with_mode_lock(fn, cwd=None):
@@ -171,11 +139,19 @@ def _with_mode_lock(fn, cwd=None):
 
 
 def load_mode(cwd=None):
+    """Read the mode file. Anything unreadable, unparsable, or not a JSON object
+    is an empty mode, so a hand-edited file cannot make every command raise on
+    the first .get() it tries."""
     p = os.path.join(root(cwd), MODE_FILE)
     try:
-        return json.loads(read(p) or "{}")
+        d = json.loads(read(p) or "{}")
     except Exception:
         return {}
+    if not isinstance(d, dict):
+        return {}
+    if not isinstance(d.get("threads"), dict):
+        d.pop("threads", None)
+    return d
 
 
 def save_mode(d, cwd=None):
@@ -183,12 +159,24 @@ def save_mode(d, cwd=None):
                  json.dumps(d, indent=2, sort_keys=True) + "\n")
 
 
+def _history(d):
+    """The mode file's history list, repaired if a hand edit left it something
+    else. Appending to a non-list raised out of every command that records an
+    event, which is the same defect shape as a malformed record in the
+    registry: stored data must never crash a tool."""
+    if not isinstance(d.get("history"), list):
+        d["history"] = []
+    return d["history"]
+
+
 def threads(cwd=None, state=None):
     """List thread names, optionally filtered by state (active|parked)."""
     m = load_mode(cwd).get("threads", {})
     names = sorted(m)
     if state:
-        names = [n for n in names if m[n].get("state") == state]
+        # Defensive: an entry that is not a dict has no state and is never
+        # counted as active, rather than raising here.
+        names = [n for n in names if isinstance(m[n], dict) and m[n].get("state") == state]
     return names
 
 
@@ -228,7 +216,7 @@ def cmd_on(argv):
     d["mode"] = "on"
     d["since"] = now()
     d.setdefault("threads", {})
-    d.setdefault("history", []).append({"ts": now(), "event": "on"})
+    _history(d).append({"ts": now(), "event": "on"})
     save_mode(d)
     print("thread mode ON. Cap: %d active threads." % MAX_ACTIVE)
     print("  start one:  python3 tools/bm_threads.py start <feature> \"<objective>\"")
@@ -242,40 +230,70 @@ def cmd_start(argv):
         return
     name = safe_name(argv[0] if argv else "")
     if not name:
-        print("usage: start <feature-name> \"<objective>\"")
+        print("usage: start <feature-name> \"<objective>\" [--files <path> ...]")
         return
-    active = threads(state="active")
-    if name not in active and len(active) >= MAX_ACTIVE:
-        print("CAP: %d active threads already (%s). Park one before starting another; "
-              "your review capacity is the real constraint." % (MAX_ACTIVE, ", ".join(active)))
-        return
-    objective = " ".join(argv[1:]).strip() or "(objective not stated)"
+    files, end = [], len(argv)
+    if "--files" in argv:
+        end = argv.index("--files")
+        files = [a for a in argv[end + 1:] if not a.startswith("--")]
+    objective = " ".join(argv[1:end]).strip() or "(objective not stated)"
+    reg = _registry()
     base = os.path.join(root(), name)
-    write(os.path.join(base, "STATE.md"),
-          "# Thread: %s\n\n## Objective\n%s\n\n## Fence (files this thread may write)\n"
-          "(declare before writing; single-writer law applies per file)\n\n"
-          "## Plan and next intent\n- next: (write the next intent BEFORE acting)\n" % (name, objective))
-    write(os.path.join(base, "inbox.md"),
-          "# Inbox for %s\nDirectives from the chief. ONLY the chief writes here.\n\n" % name)
-    write(os.path.join(base, "outbox.md"),
-          "# Outbox from %s\nAdvancement for the chief. ONLY this thread writes here.\n\n" % name)
-    # The digest exists from minute one, so an exit is lossless even immediately.
-    write(os.path.join(base, "digest.md"),
-          "# Handover digest: %s\n_updated %s_\n\n## Objective\n%s\n\n## Decisions\n(none yet)\n\n"
-          "## Files touched\n(none yet)\n\n## Next intent\n(not yet stated)\n" % (name, now(), objective))
+    # EVERYTHING happens under the mode lock, cap check FIRST. The cap used to
+    # be re-checked after the claim, so a refused start printed "not registered"
+    # and still left an ACTIVE record behind: files fenced by a thread that does
+    # not exist, refusing later claims in the name of an owner the dashboard
+    # never shows. The outcome must be atomic: either the record and the thread
+    # both exist, or neither does.
+    outcome = {}
     def _register():
-        # Re-read INSIDE the lock: the copy loaded before the lock may be stale.
+        # Re-read INSIDE the lock: any copy loaded before the lock may be stale.
         dd = load_mode()
-        act = [n for n, m in dd.get("threads", {}).items() if m.get("state") == "active"]
+        act = [n for n, m in dd.get("threads", {}).items()
+               if isinstance(m, dict) and m.get("state") == "active"]
         if name not in act and len(act) >= MAX_ACTIVE:
+            outcome["cap"] = act
             return False
-        dd.setdefault("threads", {})[name] = {"state": "active", "objective": objective,
+        ok, conflict = reg.claim(name, "persistent", objective, files, tier="T2")
+        if not ok:
+            outcome["conflict"] = conflict
+            return False
+        # reg.claim() redacts its OWN stored copy of the objective, but that does
+        # not touch these thread-local files: redact once here so STATE.md,
+        # digest.md, and the mode file (and everything derived from them: the
+        # dashboard, adopt, off) never hold the raw text either.
+        obj = reg.redact_text(objective)
+        write(os.path.join(base, "STATE.md"),
+              "# Thread: %s\n\n## Objective\n%s\n\n## Fence (files this thread may write)\n"
+              "(declare before writing; single-writer law applies per file)\n\n"
+              "## Plan and next intent\n- next: (write the next intent BEFORE acting)\n" % (name, obj))
+        write(os.path.join(base, "inbox.md"),
+              "# Inbox for %s\nDirectives from the chief. ONLY the chief writes here.\n\n" % name)
+        write(os.path.join(base, "outbox.md"),
+              "# Outbox from %s\nAdvancement for the chief. ONLY this thread writes here.\n\n" % name)
+        # The digest exists from minute one, so an exit is lossless even immediately.
+        write(os.path.join(base, "digest.md"),
+              "# Handover digest: %s\n_updated %s_\n\n## Objective\n%s\n\n## Decisions\n(none yet)\n\n"
+              "## Files touched\n(none yet)\n\n## Next intent\n(not yet stated)\n" % (name, now(), obj))
+        dd.setdefault("threads", {})[name] = {"state": "active", "objective": obj,
                                               "started": now()}
-        dd.setdefault("history", []).append({"ts": now(), "event": "start", "thread": name})
+        _history(dd).append({"ts": now(), "event": "start", "thread": name})
         save_mode(dd)
         return True
     if not _with_mode_lock(_register):
-        print("CAP: %d active threads already; not registered." % MAX_ACTIVE)
+        conflict = outcome.get("conflict")
+        if conflict is not None:
+            # files_line, not a bare join: the conflicting record comes off disk
+            # and a malformed files field there must not swallow the refusal.
+            print("OVERLAP: '%s' declares files already claimed by record '%s' (%s)."
+                  % (name, conflict.get("id"), reg.files_line(conflict.get("files", []))))
+            print("  Park or narrow that record first; two writers on one file is the "
+                  "one thing the single-writer law forbids.")
+        else:
+            print("CAP: %d active threads already (%s). Park one before starting another; "
+                  "your review capacity is the real constraint."
+                  % (MAX_ACTIVE, ", ".join(outcome.get("cap", []))))
+        print("  Nothing was created: no thread files, no work record.")
         return
     print("thread '%s' created at %s" % (name, base))
     print("  the thread session should read STATE.md + inbox.md, and write outbox.md + digest.md")
@@ -286,7 +304,7 @@ def cmd_checkpoint(argv):
     switching thread mode off is instant and lossless at any moment. Cheap by
     design: a few hundred characters to disk, nothing added to any context."""
     if not argv:
-        print("usage: checkpoint <thread> [--decision X] [--files Y] [--next Z]")
+        print("usage: checkpoint <thread> [--topic T] [--decision X] [--files Y] [--next Z]")
         return
     name = safe_name(argv[0])
     base = os.path.join(root(), name)
@@ -300,11 +318,20 @@ def cmd_checkpoint(argv):
             kv[key] = []
         elif key:
             kv[key].append(a)
-    # Redact at the WRITE. A digest is absorbed into STATE.md on exit, so an
-    # unredacted secret here would propagate into the project's permanent record.
-    dec = redact_text(" ".join(kv.get("decision", [])))
-    files = redact_text(" ".join(kv.get("files", [])))
-    nxt = redact_text(" ".join(kv.get("next", [])))
+    reg = _registry()
+    # Redact at the WRITE: a digest is absorbed into STATE.md on exit.
+    dec = reg.redact_text(" ".join(kv.get("decision", [])))
+    files = reg.redact_text(" ".join(kv.get("files", [])))
+    nxt = reg.redact_text(" ".join(kv.get("next", [])))
+    topic = reg.redact_text(" ".join(kv.get("topic", [])))
+    if dec and topic:
+        # Cross-record clash: two threads deciding the same topic differently
+        # must be surfaced, not silently overwritten.
+        _, clash = reg.decide(name, topic, dec)
+        if clash:
+            print("CLASH on topic '%s': record '%s' already decided: %s"
+                  % (topic, clash["record"], clash["text"]))
+            print("  Both decisions are recorded. Reconcile before building further.")
     cur = read(os.path.join(base, "digest.md"))
     obj = ""
     m = re.search(r"## Objective\n(.+?)\n", cur, re.S)
@@ -322,7 +349,9 @@ def cmd_checkpoint(argv):
     body += ["- " + p for p in prior[-20:]] or ["(none yet)"]
     body += ["", "## Files touched", files or "(unchanged)", "",
              "## Next intent", nxt or "(not yet stated)", ""]
-    write(os.path.join(base, "digest.md"), "\n".join(body)[:DIGEST_CAP])
+    digest_text = "\n".join(body)[:DIGEST_CAP]
+    write(os.path.join(base, "digest.md"), digest_text)
+    reg.set_digest(name, digest_text)  # mirrored so `off` can absorb losslessly
     if nxt or dec:
         append(os.path.join(base, "outbox.md"),
                "- %s %s%s" % (now()[:16], (dec + " | " if dec else ""), ("next: " + nxt) if nxt else ""))
@@ -340,7 +369,7 @@ def cmd_send(argv):
         print("send: no thread %r" % name)
         return
     append(os.path.join(base, "inbox.md"),
-           "- [%s] %s" % (now()[:16], redact_text(" ".join(argv[1:]))))
+           "- [%s] %s" % (now()[:16], _registry().redact_text(" ".join(argv[1:]))))
     print("sent to '%s'" % name)
 
 
@@ -350,13 +379,20 @@ def cmd_dashboard(argv):
     d = load_mode()
     mode = d.get("mode", "off")
     tmap = d.get("threads", {})
+    reg = _registry()
+    # safe_str: a hand-edited mode value that is not a string has no .upper(),
+    # and the header is the first thing printed, so it took the whole dashboard
+    # down with it.
     print("BROTHERMODE THREADS  mode=%s  cap=%d  (%s)"
-          % (mode.upper(), MAX_ACTIVE, os.getcwd()))
+          % (reg.safe_str(mode).upper(), MAX_ACTIVE, os.getcwd()))
     if not tmap:
         print("  no threads. `recommend <n>` for advice, `on` then `start <feature>` to begin.")
         return
     for name in sorted(tmap):
-        meta = tmap[name]
+        # Defensive: the mode file is JSON on disk, so an entry can be any type
+        # after a hand edit. One malformed entry used to raise here and stop the
+        # whole dashboard, hiding every thread listed after it.
+        meta = tmap[name] if isinstance(tmap[name], dict) else {}
         base = os.path.join(root(), name)
         dg = read(os.path.join(base, "digest.md"))
         nxt = ""
@@ -365,11 +401,13 @@ def cmd_dashboard(argv):
             nxt = m.group(1).strip()
         outs = [l for l in read(os.path.join(base, "outbox.md")).splitlines() if l.startswith("- ")]
         inbox_open = len([l for l in read(os.path.join(base, "inbox.md")).splitlines() if l.startswith("- ")])
-        print("\n  [%s] %s" % (meta.get("state", "?").upper(), name))
-        print("      objective : %s" % (meta.get("objective", "")[:90]))
+        print("\n  [%s] %s" % (reg.safe_str(meta.get("state", "?")).upper(), name))
+        print("      objective : %s" % (reg.safe_str(meta.get("objective", ""))[:90]))
         print("      last move : %s" % (outs[-1][2:110] if outs else "(nothing reported yet)"))
         print("      next      : %s" % (nxt[:100] or "(not stated)"))
         print("      traffic   : %d advancement(s), %d directive(s) in inbox" % (len(outs), inbox_open))
+    _registry().render()  # regenerate the registry's own generated human view too
+    print("\n  generated view: %s/REGISTRY.md" % THREADS_DIRNAME)
     print("\n  open one:  claude --resume <session>   |   detail: cat %s/<name>/digest.md" % THREADS_DIRNAME)
 
 
@@ -383,32 +421,52 @@ def cmd_off(argv):
     if d.get("mode") != "on":
         print("thread mode is already OFF.")
         return
-    absorbed, missing = [], []
-    lines = ["", "## Thread-mode handover (absorbed %s)" % now(),
-             "Thread mode was switched off. The digests below are the accumulated context",
-             "of each thread, absorbed so this session continues without re-exploring.",
-             "Threads are PARKED, not deleted: `bm_threads.py on` resumes them.", ""]
-    for name in sorted(d.get("threads", {})):
-        dg = read(os.path.join(root(), name, "digest.md"), DIGEST_CAP)
-        if dg.strip():
-            lines += ["### Thread: %s" % name, dg.strip(), ""]
-            absorbed.append(name)
-        else:
-            missing.append(name)
-        d["threads"][name]["state"] = "parked"
-        d["threads"][name]["parked_at"] = now()
+    names = sorted(d.get("threads", {}))
     target = os.path.join(os.getcwd(), "STATE.md")
-    ok = append(target, "\n".join(lines))
+    # The registry owns the lossless handover (digest plus decisions) and is
+    # the one place that writes it into STATE.md; drain through it, not a
+    # second digest-collection loop here.
+    reg = _registry()
+    # Snapshot what the registry is ABOUT to drain. absorb() returns an empty
+    # list both when there was nothing to absorb and when the handover write
+    # failed, and those two need opposite words: reporting a failed handover as
+    # "nothing to absorb" tells the founder the exact opposite of the truth on
+    # the one path where the truth matters most.
+    pending = sorted(rid for rid, rec in (reg.load().get("records") or {}).items()
+                     if isinstance(rec, dict) and rec.get("state") == "active")
+    absorbed = [rid for rid, _ in reg.absorb()]
+    failed = [rid for rid in pending if rid not in absorbed]
+    if failed:
+        print("HANDOVER WRITE FAILED: %d record(s) could not be absorbed into %s"
+              % (len(failed), target))
+        for n in failed:
+            print("    - %s" % n)
+        print("  Thread mode stays ON and every record stays ACTIVE, so nothing is lost.")
+        print("  Fix that file (permissions or disk), then run `off` again.")
+        return
+    missing = [n for n in names if n not in absorbed]
+    for name in names:
+        meta = d["threads"].get(name)
+        # Defensive: a hand-edited entry that is not an object carries no state
+        # to park. Skipping it matters here more than anywhere else: absorb has
+        # already drained and parked the RECORDS, so raising at this point left
+        # the mode file unsaved and the two halves disagreeing.
+        if not isinstance(meta, dict):
+            continue
+        meta["state"] = "parked"
+        meta["parked_at"] = now()
     d["mode"] = "off"
-    d.setdefault("history", []).append({"ts": now(), "event": "off",
-                                        "absorbed": absorbed, "empty": missing})
+    _history(d).append({"ts": now(), "event": "off",
+                        "absorbed": absorbed, "empty": missing})
     save_mode(d)
     print("thread mode OFF (drained and parked, nothing deleted).")
-    print("  absorbed %d digest(s) into %s%s" % (len(absorbed), target, "" if ok else " (WRITE FAILED)"))
+    print("  absorbed %d digest(s) via the registry into %s" % (len(absorbed), target))
     for n in absorbed:
         print("    - %s" % n)
     if missing:
-        print("  no digest yet (nothing to absorb): %s" % ", ".join(missing))
+        # These threads had no ACTIVE record at all, so there was genuinely
+        # nothing to drain: already adopted, or never registered.
+        print("  no record left (nothing to absorb): %s" % ", ".join(missing))
     print("  threads remain on disk under %s/ and are resumable." % THREADS_DIRNAME)
 
 
@@ -423,16 +481,28 @@ def cmd_adopt(argv):
     if not os.path.isdir(base):
         print("adopt: no thread %r" % name)
         return
-    dg = read(os.path.join(base, "digest.md"), DIGEST_CAP)
-    st = read(os.path.join(base, "STATE.md"), 2000)
+    reg = _registry()
+    # Redact at THIS write boundary, like every sibling path here. A thread's
+    # STATE.md is hand-written by a working session and can hold anything it
+    # was told; the project STATE.md it lands in is committed into a git ref by
+    # tools/bm_autosave.sh, so an unredacted secret persists durably.
+    dg = reg.redact_text(read(os.path.join(base, "digest.md"), DIGEST_CAP))
+    st = reg.redact_text(read(os.path.join(base, "STATE.md"), 2000))
     append(os.path.join(os.getcwd(), "STATE.md"),
            "\n## Adopted from dead/stalled thread '%s' (%s)\n%s\n\n<!-- thread STATE at adoption -->\n%s\n"
            % (name, now(), dg.strip(), st.strip()))
+    # The handover now lives in the chief's STATE.md, so close the registry
+    # record in the same operation: leaving it active would make `off` absorb
+    # this digest a second time and would keep the thread's files fenced by an
+    # owner that is gone.
+    reg.close(name, state="adopted")
     d = load_mode()
-    if name in d.get("threads", {}):
+    # isinstance, not `in`: a malformed entry cannot be assigned into, and the
+    # registry record above is already closed by this point.
+    if isinstance(d.get("threads", {}).get(name), dict):
         d["threads"][name]["state"] = "adopted"
         d["threads"][name]["adopted_at"] = now()
-        d.setdefault("history", []).append({"ts": now(), "event": "adopt", "thread": name})
+        _history(d).append({"ts": now(), "event": "adopt", "thread": name})
         save_mode(d)
     print("adopted '%s': its digest and fence are now in the chief's STATE.md." % name)
     print("  DECIDE: respawn the thread, or continue this work solo. Nothing is orphaned.")

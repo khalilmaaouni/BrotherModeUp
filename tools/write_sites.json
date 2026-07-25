@@ -1,0 +1,8 @@
+{
+  "_comment": "Reviewed write sites. If this test fails, a write site was added or removed. Confirm the new site redacts any user or model text before updating these counts.",
+  "reviewed": {
+    "bm_registry.py": 4,
+    "bm_telemetry.py": 19,
+    "bm_threads.py": 4
+  }
+}

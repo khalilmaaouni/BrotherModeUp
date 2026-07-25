@@ -41,6 +41,8 @@ Subcommands:
                     to a small team: overview + open items + latest session + recent
                     outcomes, assembled from the vault. Pure: reads vault files,
                     redacts, writes one file. No subprocess, no network.
+  attribute         Adds a session's output tokens to a work record's spend, so
+                    per-record cost can be compared against the baseline.
   purge-corrections Deletes captured correction candidates (excerpts of your own
                     messages, secret-redacted and owner-only, but still yours to
                     delete). Shows the count first; --yes to confirm.
@@ -111,6 +113,16 @@ def atomic_append(path, obj, mode=0o644):
         os.write(fd, line)
     finally:
         os.close(fd)
+    if mode == 0o600:
+        # os.open only applies its mode when it CREATES the file, so a file
+        # that already exists from an earlier, laxer default would stay
+        # world-readable forever. Tighten it, and only ever tighten: shared
+        # files keep the 0644 default and are never touched here.
+        try:
+            os.chmod(path, 0o600)
+        except OSError as e:
+            print("bm_telemetry: warning: could not make %s owner-only (%s)"
+                  % (path, e), file=sys.stderr)
 
 
 def parse_transcript(path, collect_user_texts=False):
@@ -197,7 +209,15 @@ SECRET_PATTERNS = [
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),                            # aws key id
     re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}", re.I),             # slack
     re.compile(r"\b[Bb]earer\s+[A-Za-z0-9._~+/=-]{16,}"),
-    re.compile(r"-----BEGIN[ A-Z]*PRIVATE KEY-----"),
+    # A private key is a BLOCK, not a line. Matching only the -----BEGIN-----
+    # header left every line of base64 key material after it going to disk,
+    # while SECURITY.md claims private keys are redacted. Prefer the real
+    # BEGIN..END span; when there is no END marker (a truncated paste), take
+    # the base64-looking lines that follow and stop there, so ordinary prose
+    # after a mentioned header is never swallowed.
+    re.compile(r"-----BEGIN[ A-Z]*PRIVATE KEY-----"
+               r"(?:[\s\S]*?-----END[ A-Z]*PRIVATE KEY-----"
+               r"|(?:\s*[A-Za-z0-9+/=]{16,})*)"),
     re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),      # jwt
     # key=value and key: value where the key names a secret
     # key=value, key: value, and the natural-language "the password is hunter2".
@@ -539,12 +559,19 @@ def cmd_rate(argv):
     if score is None or not (1 <= score <= 5):
         print("usage: rate --score 1..5 --task \"...\" [--note \"...\"]")
         return
-    atomic_append(RATINGS, {"ts": now_iso(), "score": score, "task": task, "note": note})
+    task = redact(task)[0]
+    note = redact(note)[0]
+    # Owner-only: the note is founder-written prose, as sensitive as the
+    # correction candidates in CORRECTIONS, which have been 0600 all along.
+    atomic_append(RATINGS, {"ts": now_iso(), "score": score, "task": task, "note": note},
+                  mode=0o600)
     print("bm_telemetry: rating %.1f recorded for '%s'" % (score, task))
 
 
 def cmd_review_mark(argv):
-    atomic_append(REVIEWS, {"ts": now_iso(), "note": " ".join(argv)})
+    note = redact(" ".join(argv))[0]
+    # Owner-only for the same reason as RATINGS above.
+    atomic_append(REVIEWS, {"ts": now_iso(), "note": note}, mode=0o600)
     print("bm_telemetry: weekly review marked")
 
 
@@ -785,6 +812,7 @@ def cmd_intent(argv):
     if not text:
         print("usage: intent \"next: <what>, because <why>\"")
         return
+    text = redact(text)[0]
     atomic_append_text(_intent_path(os.getcwd()), now_iso() + "  " + text)
     print("intent logged")
 
@@ -1031,6 +1059,54 @@ def cmd_prediction_audit():
         print("AUDIT FLAG: zero sealed predictions; section 14 requires sealing BEFORE recommendations.")
 
 
+def cmd_attribute(argv):
+    """Attribute a session's output tokens to a work record, so per-record spend
+    can be compared against the pre-thread baseline. Pure file I/O through the
+    registry module; this function adds no network and no subprocess."""
+    if len(argv) < 2:
+        print("usage: attribute <record_id> <output_tokens>")
+        return
+    rid = argv[0]
+    try:
+        tokens = int(argv[1])
+    except ValueError:
+        print("attribute: token count must be an integer")
+        return
+    if tokens < 0:
+        print("attribute: token count must not be negative")
+        return
+    try:
+        import importlib.util
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location(
+            "bm_registry_for_telemetry", os.path.join(here, "bm_registry.py"))
+        reg = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reg)
+    except Exception:
+        return
+
+    def _do():
+        d = reg.load()
+        rec = d["records"].get(rid)
+        if rec is None:
+            return False
+        if not isinstance(rec, dict):
+            return False
+        sp = rec.setdefault("spend", {"output_tokens": 0, "sessions": 0})
+        if not isinstance(sp, dict):
+            sp = {"output_tokens": 0, "sessions": 0}
+            rec["spend"] = sp
+        sp["output_tokens"] = sp.get("output_tokens", 0) + tokens
+        sp["sessions"] = sp.get("sessions", 0) + 1
+        reg.save(d)
+        return True
+    try:
+        if reg.with_lock(_do):
+            print("attributed %d output tokens to record '%s'" % (tokens, rid))
+    except Exception:
+        pass
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     argv = sys.argv[2:]
@@ -1063,6 +1139,8 @@ def main():
             cmd_check_update()
         elif cmd == "handoff":
             cmd_handoff(argv)
+        elif cmd == "attribute":
+            cmd_attribute(argv)
         elif cmd == "purge-corrections":
             cmd_purge_corrections(argv)
         elif cmd == "prediction-audit":

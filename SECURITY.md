@@ -9,11 +9,24 @@ details and ask for a private channel first.
 ## What this software does with your data
 
 BrotherMode makes no network calls. It has no analytics, no account, and no
-server. Everything it writes goes to your vault folder, which you choose with
-`BROTHERMODE_VAULT` (default `~/BrotherModeVault`). You can verify both claims
-yourself; the tools are about 834 lines of standard-library Python and shell:
+server. Most of what it writes goes to your vault folder, which you choose with
+`BROTHERMODE_VAULT` (default `~/BrotherModeVault`). The work registry is the
+exception: it writes inside your project directory, not the vault, so you can
+find it there too:
+
+- `threads/registry.json`, `threads/REGISTRY.md`, `threads/.registry.lock`, and
+  `threads/thread-mode.json` live under your project root.
+- Each thread also gets `threads/<name>/STATE.md`, `inbox.md`, `outbox.md`, and
+  `digest.md`, plus a `threads/.mode.lock`. Everything written there is redacted
+  at the write, the same as everything else.
+- `absorb` appends a handover section to your project's `STATE.md`.
+
+You can verify both claims yourself; the tools are about 4,400 lines of
+standard-library Python and shell (measured 2026-07-25; a test fails if this
+figure drifts more than 15 percent from what the command below returns):
 
 ```bash
+find tools -type f \( -name "*.py" -o -name "*.sh" \) | xargs wc -l
 grep -rnE "urllib|requests|socket|http|curl|wget|subprocess" tools/
 ```
 

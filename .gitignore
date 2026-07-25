@@ -1,6 +1,10 @@
 # Live per-user state never belongs in the shared repo; copy STATE.template.md
 # into your projects instead.
 STATE.md
+# Same reason: the work registry records real working paths, which can be
+# home directories or client and project names on someone's machine.
+threads/
 .DS_Store
 *.bak*
 __pycache__/
+.superpowers/

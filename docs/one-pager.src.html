@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BrotherMode</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root{
+    --ink:#14181f;
+    --ink-soft:#3d4753;
+    --ink-faint:#6b7684;
+    --rule:#dfe3e8;
+    --paper:#ffffff;
+    --wash:#f6f7f9;
+    --accent:#8a2f2f;
+    --accent-soft:#b8674f;
+    --gold:#9a7b3f;
+  }
+
+  body{
+    zoom:0.97;
+    width:210mm;
+    font-family: "Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    color:var(--ink);
+    background:var(--paper);
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+    padding:9mm 12mm 6mm 12mm;
+  }
+
+  .sans{ font-family:"Inter","Helvetica Neue",Arial,sans-serif; }
+
+  /* ---------- masthead ---------- */
+  header{ border-bottom:1.6pt solid var(--ink); padding-bottom:2.8mm; }
+  .kicker{
+    font-family:"Inter","Helvetica Neue",Arial,sans-serif;
+    font-size:6.3pt; letter-spacing:.24em; text-transform:uppercase;
+    color:var(--accent); font-weight:650; margin-bottom:1.6mm;
+    display:flex; justify-content:space-between;
+  }
+  h1{
+    font-size:28pt; line-height:.96; letter-spacing:-.018em; font-weight:600;
+  }
+  h1 .mode{ color:var(--accent); }
+  .deck{
+    margin-top:2.2mm; font-size:8.7pt; line-height:1.33; color:var(--ink-soft);
+    max-width:150mm;
+  }
+  .deck b{ color:var(--ink); font-weight:600; }
+
+  /* ---------- band ---------- */
+  .band{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:0;
+    border-bottom:.6pt solid var(--rule);
+    margin-top:0;
+  }
+  .band div{
+    padding:2.2mm 3mm 2.2mm 0; border-right:.6pt solid var(--rule);
+  }
+  .band div:last-child{ border-right:none; padding-right:0; }
+  .band div:not(:first-child){ padding-left:3mm; }
+  .band .n{
+    font-family:"Inter",Arial,sans-serif; font-size:13.5pt; font-weight:680;
+    letter-spacing:-.02em; color:var(--ink); line-height:1;
+  }
+  .band .l{
+    font-family:"Inter",Arial,sans-serif; font-size:5.9pt; letter-spacing:.11em;
+    text-transform:uppercase; color:var(--ink-faint); margin-top:1.1mm; line-height:1.25;
+  }
+
+  /* ---------- body grid ---------- */
+  main{ display:grid; grid-template-columns:1fr 1fr; gap:0 7mm; padding-top:2.8mm; align-items:start; }
+  .col{ }
+
+  h2{
+    font-family:"Inter",Arial,sans-serif;
+    font-size:6.6pt; letter-spacing:.19em; text-transform:uppercase;
+    font-weight:680; color:var(--accent);
+    padding-bottom:1.1mm; margin-bottom:2.1mm;
+    border-bottom:.6pt solid var(--rule);
+  }
+  h2 span{ color:var(--ink-faint); font-weight:500; letter-spacing:.1em; }
+  section{ margin-bottom:2.5mm; }
+  p{ font-size:8.3pt; line-height:1.4; color:var(--ink-soft); }
+  p + p{ margin-top:1.5mm; }
+  p b, li b{ color:var(--ink); font-weight:600; }
+
+  .lede{ font-size:8.6pt; color:var(--ink); }
+
+  ul{ list-style:none; }
+  li{
+    font-size:8.15pt; line-height:1.33; color:var(--ink-soft);
+    padding-left:3.6mm; position:relative; margin-bottom:1.15mm;
+  }
+  li:before{
+    content:""; position:absolute; left:0; top:1.45mm;
+    width:1.35mm; height:1.35mm; background:var(--accent-soft); border-radius:50%;
+  }
+
+  /* laws */
+  .laws{ display:grid; grid-template-columns:1fr 1fr; gap:0 4mm; }
+  .law{ margin-bottom:1.35mm; }
+  .law .t{
+    font-family:"Inter",Arial,sans-serif; font-size:7.15pt; font-weight:660;
+    color:var(--ink); line-height:1.2;
+  }
+  .law .t i{
+    font-style:normal; color:var(--gold); font-size:6.4pt; margin-right:1.1mm;
+    font-variant-numeric:tabular-nums;
+  }
+  .law .d{ font-size:7.15pt; line-height:1.29; color:var(--ink-faint); margin-top:.5mm; }
+
+  /* pull quote */
+  .pull{
+    border-left:1.6pt solid var(--accent); padding:1.6mm 0 1.6mm 3.4mm;
+    margin:.5mm 0 2.4mm 0;
+  }
+  .pull p{ font-size:8.9pt; line-height:1.33; color:var(--ink); font-style:italic; }
+  .pull .attr{
+    font-family:"Inter",Arial,sans-serif; font-size:6.1pt; letter-spacing:.13em;
+    text-transform:uppercase; color:var(--ink-faint); margin-top:1.4mm; font-style:normal;
+  }
+
+  /* day flow */
+  .flow{ background:var(--wash); padding:2.6mm 3mm; border-radius:1mm; }
+  .step{ display:flex; gap:2.4mm; margin-bottom:1.35mm; }
+  .step:last-child{ margin-bottom:0; }
+  .step .k{
+    font-family:"Inter",Arial,sans-serif; font-size:6.2pt; font-weight:700;
+    color:var(--paper); background:var(--ink); min-width:4.6mm; height:4.6mm;
+    border-radius:50%; display:flex; align-items:center; justify-content:center;
+    flex-shrink:0; margin-top:.2mm;
+  }
+  .step .x{ font-size:7.6pt; line-height:1.3; color:var(--ink-soft); }
+  .step .x b{ color:var(--ink); }
+  code{
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:6.9pt;
+    background:#eceef1; padding:.15mm .8mm; border-radius:.5mm; color:var(--ink);
+  }
+
+  /* honest box */
+  .honest{ border:.6pt solid var(--rule); border-top:1.4pt solid var(--gold); padding:2.4mm 3mm; }
+  .honest li{ font-size:7.5pt; margin-bottom:1.2mm; }
+  .honest li:before{ background:var(--gold); }
+
+  footer{
+    border-top:.6pt solid var(--ink); margin-top:2.2mm; padding-top:1.9mm;
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-family:"Inter",Arial,sans-serif; font-size:6.2pt;
+    letter-spacing:.09em; text-transform:uppercase; color:var(--ink-faint);
+  }
+  footer b{ color:var(--ink); font-weight:640; letter-spacing:.11em; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="kicker"><span>An operating law for working with Claude</span><span>Version 2026.07 &nbsp;/&nbsp; MIT</span></div>
+  <h1>Brother<span class="mode">Mode</span></h1>
+  <p class="deck"><b>A Claude skill that turns the model from a tool that waits for instructions into a colleague that owns outcomes.</b> Not a prompt. A written constitution a session loads before any sizable task, plus the small mechanical toolchain that holds it to that constitution. A prompt tells the model what to do once; the law tells it how to work every time, and the telemetry proves whether it actually did.</p>
+</header>
+
+<div class="band">
+  <div><div class="n">16</div><div class="l">Numbered laws</div></div>
+  <div><div class="n">101</div><div class="l">Regression tests</div></div>
+  <div><div class="n">0</div><div class="l">Network calls, ever</div></div>
+  <div><div class="n">1</div><div class="l">Writer per file</div></div>
+</div>
+
+<main>
+  <!-- ================= LEFT ================= -->
+  <div class="col">
+
+    <section>
+      <h2>Who it is for</h2>
+      <p class="lede"><b>The solo founder and the individual top performer.</b> A company has a security officer, a data scientist, a project lead, and someone who remembers what you decided last month. Working alone, you have none of them.</p>
+      <p>BrotherMode gives you the specialists you cannot hire and a memory that survives every interruption. It scales <b>down</b> to one person on purpose, not up to an org. Sharing occasionally with a small team is supported; running a multi-team control plane is not what this is for.</p>
+    </section>
+
+    <section>
+      <h2>The philosophy</h2>
+      <div class="pull">
+        <p>Prove what you claim. Never perform confidence you have not earned with a passing command run after your last edit.</p>
+        <div class="attr">Section 0, the first rule</div>
+      </div>
+      <p>Most agent setups fail the same way: ceremony on small tasks, no verification on big ones, a killed session that forgets what it was doing, two subagents overwriting each other, and success reported that was never earned.</p>
+      <p>BrotherMode closes those structurally rather than by hoping the model behaves. Every law exists because something went wrong once and got written down. <b>Laws live on disk, not in recollection</b>, so a compaction cannot quietly repeal them.</p>
+    </section>
+
+    <section>
+      <h2>The laws <span>/ 16 sections</span></h2>
+      <div class="laws">
+        <div class="law"><div class="t"><i>0</i>Invocation</div><div class="d">Classify, assign roles, read memory, map the ground, set the loop, open the state file.</div></div>
+        <div class="law"><div class="t"><i>1</i>Profiles</div><div class="d">Build, data, research, content, design, ops each get their own gates.</div></div>
+        <div class="law"><div class="t"><i>2</i>Roles</div><div class="d">Only the hats the work needs, named out loud.</div></div>
+        <div class="law"><div class="t"><i>3</i>Decision ladder</div><div class="d">Answer, search, ask, inline, one agent, fleet. Stop at the first that suffices.</div></div>
+        <div class="law"><div class="t"><i>4</i>Budgets</div><div class="d">Effort tiers declared per brief; spend measured, never estimated.</div></div>
+        <div class="law"><div class="t"><i>5</i>Single writer</div><div class="d">One writer per file, ever. Fence before dispatch, never after.</div></div>
+        <div class="law"><div class="t"><i>6</i>Research</div><div class="d">Never from memory. Primary sources, cross-checked, cited.</div></div>
+        <div class="law"><div class="t"><i>7</i>Circuit breakers</div><div class="d">Two failures revert, three stop and report. No third identical retry.</div></div>
+        <div class="law"><div class="t"><i>8</i>Self-improvement</div><div class="d">Rubric before scoring. Findings go to refuters who try to kill them.</div></div>
+        <div class="law"><div class="t"><i>9</i>Context hygiene</div><div class="d">Artifacts move as files, never pasted through the orchestrator.</div></div>
+        <div class="law"><div class="t"><i>10</i>Honesty</div><div class="d">Bad news first. Push back with your values, then execute your call.</div></div>
+        <div class="law"><div class="t"><i>11</i>Founder gates</div><div class="d">Credentials never typed. Releases and destructive acts confirmed.</div></div>
+        <div class="law"><div class="t"><i>12</i>Memory</div><div class="d">A structured vault written at every milestone, not at the end.</div></div>
+        <div class="law"><div class="t"><i>13</i>Known mistakes</div><div class="d">A ledger of what already went wrong, read before acting.</div></div>
+        <div class="law"><div class="t"><i>14</i>Founder model</div><div class="d">Think alike, think against, stay objective.</div></div>
+        <div class="law"><div class="t"><i>15</i>Scoring</div><div class="d">Every run closes with a scorecard and an honest Remaining list.</div></div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ================= RIGHT ================= -->
+  <div class="col">
+
+    <section>
+      <h2>What it does for you</h2>
+      <ul>
+        <li><b>Nothing is silently lost.</b> A snapshot is taken before every context compaction, including untracked files, into a private local git ref. A killed session resumes from disk.</li>
+        <li><b>Two agents cannot overwrite each other.</b> Work is claimed as a record with a real file list, so a collision is computed and refused by name, not noticed later by you.</li>
+        <li><b>Secrets never reach disk.</b> Redaction runs at the write boundary, so no code path can forget it, and a gate fails the build when a new write site appears unreviewed.</li>
+        <li><b>Effort matches the task.</b> A one-line fix does not get a ten-agent audit, and an audit does not get one hurried pass.</li>
+        <li><b>Claims are checked before you see them.</b> Findings go to reviewers whose job is to refute them, on different angles, and the ones that die stay dead.</li>
+        <li><b>It learns.</b> Corrections you give become written laws with the reason attached, and a weekly review reverts any change that did not measurably help.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>A day with it</h2>
+      <div class="flow">
+        <div class="step"><div class="k">1</div><div class="x">Say <code>/brothermode</code> with your task. It classifies the work and says which specialists it is putting on.</div></div>
+        <div class="step"><div class="k">2</div><div class="x">It reads memory and maps the ground before touching anything: what changed, who else is writing, what failed here before.</div></div>
+        <div class="step"><div class="k">3</div><div class="x">It states the plan with a <b>done-check per step</b>: a command that must pass, not a promise.</div></div>
+        <div class="step"><div class="k">4</div><div class="x">Work happens behind fences. Independent pieces run at once; nothing merges unverified.</div></div>
+        <div class="step"><div class="k">5</div><div class="x">It closes with the scorecard, the proof, and the honest list of what is still missing.</div></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Getting the most from it</h2>
+      <ul>
+        <li><b>Correct it out loud.</b> A correction becomes a written law with its reason, so you never give it twice.</li>
+        <li><b>Rate the outcome, 1 to 5.</b> Fifteen seconds. Without it the learning loop is blind and says so.</li>
+        <li><b>Let it push back.</b> Disagreement that cites your own stated values is the point, not friction.</li>
+        <li><b>Read the Remaining list.</b> That is where the honest gaps live, and it is never allowed to be empty by omission.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>What it is not</h2>
+      <div class="honest">
+        <ul>
+          <li>Not enforcement. Most laws are followed by the model, not compelled by the machine. Pair it with CI and protected branches for hard gates.</li>
+          <li>Not multi-user. No distributed locking, no org governance. One person, occasionally sharing.</li>
+          <li>Not a substitute for reading the diff. It makes verification cheap; it does not make you unnecessary.</li>
+        </ul>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<footer>
+  <span><b>BrotherMode</b> &nbsp;/&nbsp; github.com/khalilmaaouni/BrotherModeUp</span>
+  <span>Created by Khalil Maaouni &nbsp;/&nbsp; MIT</span>
+</footer>
+
+</body>
+</html>
