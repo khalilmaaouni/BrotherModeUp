@@ -56,7 +56,7 @@ absent; nothing is invented. Token counts are labeled as-flushed (the transcript
 may lag the final turn). Old (schema 1) and new lines are both readable: use
 fld() everywhere.
 """
-import json, os, sys, glob, re, datetime, hashlib
+import json, os, sys, glob, re, datetime, hashlib, tempfile, io
 
 # ---------------------------------------------------------------------------
 # Configuration. The vault is the durable memory folder every ledger lives in.
@@ -103,6 +103,55 @@ def fld(rec, keys, default=0):
 
 def now_iso():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def atomic_write(path, text, mode=0o644):
+    """Replace a file's entire contents crash-atomically.
+
+    The plain `open(path, "w")` used everywhere else TRUNCATES first, so a
+    crash, a full disk, or a killed process between truncate and write leaves
+    the file empty or half-written. For a state file that is not an
+    inconvenience, it is the whole registry or the whole mode file gone, and
+    the tools would then read an empty object and believe there was no work.
+
+    Write to a temp file in the SAME directory (so the rename cannot cross a
+    filesystem), flush and fsync it so the bytes are really on the medium, then
+    os.replace, which is atomic: a reader sees either the entire old file or
+    the entire new one, never a partial one. Finally fsync the directory so the
+    rename itself survives a power loss.
+
+    Raises OSError on failure, deliberately: every caller already catches and
+    reports write failures, and swallowing here would recreate the
+    success-reported-on-an-unchecked-write defect this project keeps hitting.
+    """
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".bm-tmp-")
+    try:
+        with io.open(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        # Leave no litter behind on any failure path, including KeyboardInterrupt.
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    # Best effort: the data and the rename are already durable on every
+    # filesystem that matters, and some platforms refuse to fsync a directory.
+    try:
+        dfd = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(dfd)
+        finally:
+            os.close(dfd)
+    except OSError:
+        pass
+    return True
 
 
 def atomic_append(path, obj, mode=0o644):
@@ -1098,8 +1147,10 @@ def cmd_attribute(argv):
             rec["spend"] = sp
         sp["output_tokens"] = sp.get("output_tokens", 0) + tokens
         sp["sessions"] = sp.get("sessions", 0) + 1
-        reg.save(d)
-        return True
+        # Report what the save did: printing "attributed N tokens" when the
+        # write failed puts a number in the founder's head that is not on disk,
+        # and the whole point of attribution is that spend is measured.
+        return reg.save(d)
     try:
         if reg.with_lock(_do):
             print("attributed %d output tokens to record '%s'" % (tokens, rid))

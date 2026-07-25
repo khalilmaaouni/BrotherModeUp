@@ -82,8 +82,11 @@ def write(path, text):
     coordination file failing to write must not take down a work session."""
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with io.open(path, "w", encoding="utf-8") as f:
-            f.write(text)
+        # Crash-atomic via the registry, which owns the primitive. This covers
+        # thread-mode.json (through save_mode) and every thread file: a
+        # truncating write here could empty the mode file, and an empty mode
+        # file reads as "thread mode was never on", stranding live threads.
+        _registry().atomic_write(path, text)
         return True
     except OSError:
         return False
@@ -215,9 +218,14 @@ def cmd_on(argv):
         d["since"] = now()
         d.setdefault("threads", {})
         _history(d).append({"ts": now(), "event": "on"})
-        save_mode(d)
+        if not save_mode(d):
+            return "WRITE_FAILED"
         return None
     already = _with_mode_lock(_flip)
+    if already == "WRITE_FAILED":
+        print("COULD NOT TURN THREAD MODE ON: thread-mode.json is not writable.")
+        print("  Nothing changed. Fix that file (permissions or disk), then retry.")
+        return
     if already is not None:
         print("thread mode already ON since %s" % already)
         return
@@ -273,25 +281,53 @@ def cmd_start(argv):
         # digest.md, and the mode file (and everything derived from them: the
         # dashboard, adopt, off) never hold the raw text either.
         obj = reg.redact_text(objective)
-        write(os.path.join(base, "STATE.md"),
+        # Every one of these is checked. A start that reports success with a
+        # missing digest.md has created a thread whose handover is empty, so
+        # `off` would drain nothing and the work would vanish at the exit.
+        wrote = []
+        wrote.append(write(os.path.join(base, "STATE.md"),
               "# Thread: %s\n\n## Objective\n%s\n\n## Fence (files this thread may write)\n"
               "(declare before writing; single-writer law applies per file)\n\n"
-              "## Plan and next intent\n- next: (write the next intent BEFORE acting)\n" % (name, obj))
-        write(os.path.join(base, "inbox.md"),
-              "# Inbox for %s\nDirectives from the chief. ONLY the chief writes here.\n\n" % name)
-        write(os.path.join(base, "outbox.md"),
-              "# Outbox from %s\nAdvancement for the chief. ONLY this thread writes here.\n\n" % name)
+              "## Plan and next intent\n- next: (write the next intent BEFORE acting)\n" % (name, obj)))
+        wrote.append(write(os.path.join(base, "inbox.md"),
+              "# Inbox for %s\nDirectives from the chief. ONLY the chief writes here.\n\n" % name))
+        wrote.append(write(os.path.join(base, "outbox.md"),
+              "# Outbox from %s\nAdvancement for the chief. ONLY this thread writes here.\n\n" % name))
         # The digest exists from minute one, so an exit is lossless even immediately.
-        write(os.path.join(base, "digest.md"),
+        wrote.append(write(os.path.join(base, "digest.md"),
               "# Handover digest: %s\n_updated %s_\n\n## Objective\n%s\n\n## Decisions\n(none yet)\n\n"
-              "## Files touched\n(none yet)\n\n## Next intent\n(not yet stated)\n" % (name, now(), obj))
+              "## Files touched\n(none yet)\n\n## Next intent\n(not yet stated)\n" % (name, now(), obj)))
+        if not all(wrote):
+            # Release the fence: a record pointing at thread files that do not
+            # exist would keep those paths claimed by a thread nobody can use.
+            # Return DELIBERATELY unchecked: this is best-effort cleanup on a
+            # path that already reports failure to the founder, and a second
+            # error message about the cleanup of a failure helps nobody.
+            reg.close(name, state="failed-start")
+            outcome["files_failed"] = True
+            return False
         dd.setdefault("threads", {})[name] = {"state": "active", "objective": obj,
                                               "started": now()}
         _history(dd).append({"ts": now(), "event": "start", "thread": name})
-        save_mode(dd)
+        if not save_mode(dd):
+            reg.close(name, state="failed-start")
+            outcome["mode_failed"] = True
+            return False
         return True
     if not _with_mode_lock(_register):
         conflict = outcome.get("conflict")
+        if outcome.get("files_failed"):
+            print("START FAILED: could not write this thread's files (permissions "
+                  "or disk).")
+            print("  The work record was released, so no files stay fenced by a "
+                  "thread that does not exist. Nothing else changed.")
+            return
+        if outcome.get("mode_failed"):
+            print("START FAILED: the thread files were written but thread-mode.json "
+                  "could not be updated.")
+            print("  The work record was released so nothing stays half-claimed. "
+                  "Fix that file, then run `start` again.")
+            return
         if outcome.get("mode_off"):
             print("thread mode went OFF while this start was waiting for the lock.")
             print("  Nothing was created, so nothing is stranded outside the drain.")
@@ -365,11 +401,32 @@ def cmd_checkpoint(argv):
     body += ["", "## Files touched", files or "(unchanged)", "",
              "## Next intent", nxt or "(not yet stated)", ""]
     digest_text = "\n".join(body)[:DIGEST_CAP]
-    write(os.path.join(base, "digest.md"), digest_text)
-    reg.set_digest(name, digest_text)  # mirrored so `off` can absorb losslessly
+    # The digest is the handover. Both copies are checked: the thread-local file
+    # a human reads, and the registry mirror that `off` actually drains. A
+    # checkpoint that reports success while the mirror never landed is how a
+    # lossless exit quietly stops being lossless.
+    file_ok = write(os.path.join(base, "digest.md"), digest_text)
+    mirror_ok = reg.set_digest(name, digest_text)
+    outbox_ok = True
     if nxt or dec:
-        append(os.path.join(base, "outbox.md"),
+        outbox_ok = append(os.path.join(base, "outbox.md"),
                "- %s %s%s" % (now()[:16], (dec + " | " if dec else ""), ("next: " + nxt) if nxt else ""))
+    if not mirror_ok:
+        print("CHECKPOINT NOT FULLY SAVED: the registry mirror of this digest could "
+              "not be written, so `off` would NOT absorb this handover.")
+        print("  The thread's own digest.md %s. Fix the registry file and run "
+              "`checkpoint` again." % ("was written" if file_ok else "also failed"))
+        return
+    if not file_ok:
+        print("checkpoint recorded in the registry, but this thread's digest.md "
+              "could not be written.")
+        print("  The handover is safe (`off` drains the registry), only the local "
+              "copy is stale.")
+        return
+    if not outbox_ok:
+        print("checkpoint saved, but the outbox line could not be written: the "
+              "chief's dashboard will not show this advancement.")
+        return
     print("checkpoint written for '%s'" % name)
 
 
@@ -383,8 +440,11 @@ def cmd_send(argv):
     if not os.path.isdir(base):
         print("send: no thread %r" % name)
         return
-    append(os.path.join(base, "inbox.md"),
-           "- [%s] %s" % (now()[:16], _registry().redact_text(" ".join(argv[1:]))))
+    if not append(os.path.join(base, "inbox.md"),
+                  "- [%s] %s" % (now()[:16], _registry().redact_text(" ".join(argv[1:])))):
+        print("SEND FAILED: could not write to %s's inbox." % name)
+        print("  The thread has NOT received this. Fix that file, then send again.")
+        return
     print("sent to '%s'" % name)
 
 
@@ -547,20 +607,37 @@ def cmd_adopt(argv):
     outcome = {}
     target = os.path.join(os.getcwd(), "STATE.md")
 
+    # Idempotency marker. adopt has three writes and can fail between any two,
+    # so a retry is expected and must not duplicate the handover. This file
+    # records that the handover already reached STATE.md; a retry then skips
+    # straight to the steps that did not finish.
+    marker = os.path.join(base, ".handover-delivered")
+
     def _adopt():
-        dg = reg.redact_text(read(os.path.join(base, "digest.md"), DIGEST_CAP))
-        st = reg.redact_text(read(os.path.join(base, "STATE.md"), 2000))
-        # ORDER IS THE ATOMICITY. The handover is written FIRST, so a failure
-        # here changes nothing at all and the thread stays adoptable. Closing
-        # the record before securing the handover was a silent total loss: the
-        # record was closed so `off` would never drain it, the digest never
-        # reached STATE.md, and the command printed "Nothing is orphaned".
-        if not append(target,
-                      "\n## Adopted from dead/stalled thread '%s' (%s)\n%s\n\n"
-                      "<!-- thread STATE at adoption -->\n%s\n"
-                      % (name, now(), dg.strip(), st.strip())):
-            outcome["handover_failed"] = True
-            return
+        already = os.path.exists(marker)
+        if not already:
+            dg = reg.redact_text(read(os.path.join(base, "digest.md"), DIGEST_CAP))
+            st = reg.redact_text(read(os.path.join(base, "STATE.md"), 2000))
+            # ORDER IS THE ATOMICITY. The handover is written FIRST, so a
+            # failure here changes nothing at all and the thread stays
+            # adoptable. Closing the record before securing the handover was a
+            # silent total loss: the record was closed so `off` would never
+            # drain it, the digest never reached STATE.md, and the command
+            # printed "Nothing is orphaned".
+            if not append(target,
+                          "\n## Adopted from dead/stalled thread '%s' (%s)\n%s\n\n"
+                          "<!-- thread STATE at adoption -->\n%s\n"
+                          % (name, now(), dg.strip(), st.strip())):
+                outcome["handover_failed"] = True
+                return
+            # Marker written only AFTER the handover is on disk, so a failed
+            # append never leaves a marker claiming delivery that did not happen.
+            # A failed marker write is not fatal: the handover IS delivered, and
+            # the only cost is that a later retry would append it twice, so say so.
+            if not write(marker, "%s\n" % now()):
+                outcome["marker_failed"] = True
+        else:
+            outcome["resumed"] = True
         # The handover is safe on disk now, so close the record. Leaving it
         # active would make absorb() drain the same digest a second time and
         # keep the files fenced by an owner that is gone.
@@ -598,6 +675,18 @@ def cmd_adopt(argv):
               "closed, but the mode file could not be updated." % target)
         print("  Nothing is lost. The dashboard will still show this thread as "
               "active until that file is writable again.")
+        print("  Re-running `adopt` is safe: the handover will not be written twice.")
+        return
+    if outcome.get("resumed"):
+        print("adopted '%s' (resumed): the handover was already in %s from an "
+              "earlier attempt, so it was NOT written again." % (name, target))
+        print("  The remaining steps completed. Nothing is duplicated.")
+        return
+    if outcome.get("marker_failed"):
+        print("adopted '%s': the handover is in %s and everything completed."
+              % (name, target))
+        print("  One caveat: the retry marker could not be written, so running "
+              "`adopt` on this thread again WOULD append the handover a second time.")
         return
     print("adopted '%s': its digest and fence are now in the chief's STATE.md." % name)
     print("  DECIDE: respawn the thread, or continue this work solo. Nothing is orphaned.")

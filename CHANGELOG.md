@@ -1,5 +1,43 @@
 # Changelog
 
+## 2026-07-26: durable writes, closed as a class rather than case by case
+
+The previous three entries each fixed one reported instance of the same defect.
+This entry closes the class, by audit rather than by report.
+
+**Crash atomicity.** State was written with a plain truncating `open(path, "w")`,
+so a crash, a full disk or a killed process between truncate and write could
+leave `registry.json` or `thread-mode.json` empty. An empty registry reads as
+"no work in progress", which would let a second writer claim files someone is
+already editing. There is now ONE primitive, `bm_telemetry.atomic_write`: temp
+file in the same directory, flush, fsync, `os.replace`, then fsync the
+directory. The registry and every thread file go through it. Proven: a failed
+write leaves the previous file byte-identical and no temp file behind.
+
+**Idempotent adoption.** `adopt` has three writes and can fail between any two,
+so a retry is expected. A marker records that the handover already reached
+`STATE.md`, and a retry resumes the unfinished steps instead of appending the
+handover a second time. Proven by forcing a mid-transaction failure and retrying.
+
+**The audit.** Rather than wait for the next report, every durable write in
+`tools/` was enumerated and checked for a discarded return value. That found ten
+more instances the reviews had not reached: `claim`, `decide` and `set_digest`
+all reported success without checking their save; `start` ignored all four
+thread-file writes and its mode write; `on`, `checkpoint`, `send` and
+`attribute` the same. All now report honestly, and `start` releases its fence
+when its files cannot be written so no paths stay claimed by a thread that does
+not exist. The audit was repeated until two consecutive rounds turned up nothing
+new; the four remaining unchecked calls are documented as deliberate.
+
+One consequence worth knowing: because replacement is now atomic, a read-only
+target FILE no longer blocks a write (rename needs directory permission, not
+file permission). Tests that simulate a failed write make the DIRECTORY
+read-only instead.
+
+113 tests.
+
+---
+
 ## 2026-07-26: a failed write can no longer be reported as success
 
 The concurrency work was done, so the next review looked at failure paths and

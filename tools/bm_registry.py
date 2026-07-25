@@ -29,6 +29,45 @@ def registry_path(cwd=None):
     return os.path.join(registry_dir(cwd), REGISTRY_FILE)
 
 
+_WARNED_NONATOMIC = []
+
+
+def atomic_write(path, text, mode=0o644):
+    """Crash-atomic whole-file replacement, borrowed from bm_telemetry so there
+    is exactly ONE implementation, the same rule the redactor and the lock
+    follow. A plain truncating write can leave the registry empty after a crash,
+    and an empty registry reads as "no work in progress", which is the most
+    dangerous thing this file can say.
+
+    If the shared primitive cannot be loaded, fall back to a plain write and say
+    so once, rather than pretending the guarantee holds."""
+    try:
+        import importlib.util
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location(
+            "bm_telemetry_for_atomic", os.path.join(here, "bm_telemetry.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        fn = getattr(mod, "atomic_write", None)
+        if fn is not None:
+            return fn(path, text, mode)
+        reason = "bm_telemetry.py has no atomic_write()"
+    except OSError:
+        # A real write failure from the primitive must propagate, not be
+        # retried non-atomically: the caller decides what a failed write means.
+        raise
+    except Exception as e:
+        reason = repr(e)
+    if not _WARNED_NONATOMIC:
+        _WARNED_NONATOMIC.append(True)
+        print("bm_registry: WARNING: writing state NON-atomically (%s). A crash "
+              "mid-write can leave a state file empty or truncated." % reason,
+              file=sys.stderr)
+    with io.open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    return True
+
+
 def _load_redactor():
     """Reuse bm_telemetry's pattern set so there is exactly one definition of
     what a secret looks like. Fall back to a compact inline set rather than ever
@@ -152,8 +191,11 @@ def save(d, cwd=None):
             for rec in records.values():
                 _redact_record_fields(rec)
         os.makedirs(registry_dir(cwd), exist_ok=True)
-        with io.open(registry_path(cwd), "w", encoding="utf-8") as f:
-            f.write(json.dumps(redacted, indent=2, sort_keys=True) + "\n")
+        # Crash-atomic: a truncating write here can empty the registry, and an
+        # empty registry reads as "no work in progress", which would let a
+        # second writer claim files someone is already editing.
+        atomic_write(registry_path(cwd),
+                     json.dumps(redacted, indent=2, sort_keys=True) + "\n")
         return True
     # TypeError and ValueError as well as OSError: a caller that declares a file
     # as a pathlib.Path (an obvious thing to do) makes json.dumps raise, and a
@@ -493,7 +535,11 @@ def claim(rid, lifetime, objective, files, tier=None, owner=None, cwd=None):
                 rec["tier"] = tier
         else:
             d["records"][rid] = new_record(rid, lifetime, objective, files, tier, owner)
-        save(d, cwd)
+        # Report what the SAVE did. Returning True after a failed write tells
+        # the caller a fence exists that is not on disk, so a second writer is
+        # granted the same files: the exact collision this module prevents.
+        if not save(d, cwd):
+            return (False, None)
         return (True, None)
     return with_lock(_do, cwd)
 
@@ -559,7 +605,10 @@ def decide(rid, topic, text, cwd=None):
             rec["decisions"] = []
         rec["decisions"].append(
             {"topic": redact_text(topic), "text": redact_text(text), "ts": now()})
-        save(d, cwd)
+        # A decision the caller believes is recorded but that never reached disk
+        # is worse than no decision: it will be made again, differently.
+        if not save(d, cwd):
+            return (False, clash)
         return (True, clash)
     return with_lock(_do, cwd)
 
@@ -576,8 +625,9 @@ def set_digest(rid, text, cwd=None):
         if not isinstance(rec, dict):
             return False
         rec["digest"] = redact_text(text)[:DIGEST_CAP]
-        save(d, cwd)
-        return True
+        # The digest IS the handover. Reporting it stored when the write failed
+        # is how a lossless exit silently stops being lossless.
+        return save(d, cwd)
     return with_lock(_do, cwd)
 
 
@@ -729,8 +779,7 @@ def render(cwd=None):
         md = "\n".join(lines) + "\n"
         try:
             os.makedirs(registry_dir(cwd), exist_ok=True)
-            with io.open(os.path.join(registry_dir(cwd), VIEW_FILE), "w", encoding="utf-8") as f:
-                f.write(md)
+            atomic_write(os.path.join(registry_dir(cwd), VIEW_FILE), md)
         except OSError:
             pass
         return md

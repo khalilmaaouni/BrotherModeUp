@@ -1406,17 +1406,119 @@ class TestRegistryAbsorbAndView(unittest.TestCase):
             # being written. An earlier version of this test chmod'ed the
             # directory, so save never actually failed and the test proved
             # nothing about the return value it claimed to check.
-            rpath = reg.registry_path(cwd=d)
-            os.chmod(rpath, 0o444)
+            # The DIRECTORY, not the file. save() is crash-atomic now: it
+            # writes a temp file and os.replace()s it, and rename needs write
+            # permission on the directory, NOT on the target. A read-only target
+            # file no longer blocks the write at all, so chmod'ing the file here
+            # would make this test pass while never failing a save.
+            rdir = reg.registry_dir(cwd=d)
+            os.chmod(rdir, 0o555)
             try:
                 with contextlib.redirect_stderr(io.StringIO()):
                     ok = reg.close("pay", state="adopted", cwd=d)
             finally:
-                os.chmod(rpath, 0o644)
+                os.chmod(rdir, 0o755)
             self.assertFalse(ok, "close must report False when the save failed")
             data = reg.load(cwd=d)
             self.assertEqual(data["records"]["pay"]["state"], "active",
                              "the on-disk record must match what close reported")
+
+    def test_state_writes_are_crash_atomic(self):
+        """A plain truncating write can leave the registry EMPTY after a crash,
+        and an empty registry reads as 'no work in progress', which would let a
+        second writer claim files someone is already editing. The replacement
+        must be all-or-nothing: on failure the previous file survives byte for
+        byte, and no temp file is left behind."""
+        reg = load_registry_module()
+        with tempfile.TemporaryDirectory() as d:
+            reg.claim("pay", "persistent", "original objective", ["api/pay.py"], cwd=d)
+            path = reg.registry_path(cwd=d)
+            before = io.open(path, encoding="utf-8").read()
+            self.assertIn("original objective", before)
+            rdir = reg.registry_dir(cwd=d)
+            os.chmod(rdir, 0o555)          # temp file cannot be created here
+            try:
+                data = reg.load(cwd=d)
+                data["records"]["pay"]["objective"] = "SHOULD NEVER LAND"
+                with contextlib.redirect_stderr(io.StringIO()):
+                    ok = reg.save(data, cwd=d)
+            finally:
+                os.chmod(rdir, 0o755)
+            self.assertFalse(ok, "a failed atomic write must report failure")
+            self.assertEqual(io.open(path, encoding="utf-8").read(), before,
+                             "the previous registry must survive a failed write intact")
+            leftovers = [f for f in os.listdir(rdir) if f.startswith(".bm-tmp-")]
+            self.assertEqual(leftovers, [], "a failed write left temp files: %s" % leftovers)
+
+    def test_adopt_retry_does_not_duplicate_the_handover(self):
+        """adopt has three writes and can fail between any two, so a retry is
+        expected. Without a marker the retry appends the same handover again:
+        nothing is lost but STATE.md accumulates duplicate sections."""
+        if os.geteuid() == 0:
+            self.skipTest("running as root: chmod cannot make a directory read-only")
+        tool = os.path.join(HERE, "bm_threads.py")
+        with tempfile.TemporaryDirectory() as d:
+            for args in (["on"],
+                         ["start", "pay", "wire it", "--files", "api/pay.py"],
+                         ["checkpoint", "pay", "--next", "next: UNIQUEMARKER42"]):
+                subprocess.run([sys.executable, tool] + args, cwd=d,
+                               capture_output=True, timeout=30)
+            tdir = os.path.join(d, "threads")
+            os.chmod(tdir, 0o555)          # registry close will fail
+            try:
+                r1 = subprocess.run([sys.executable, tool, "adopt", "pay"], cwd=d,
+                                    capture_output=True, text=True, timeout=30)
+            finally:
+                os.chmod(tdir, 0o755)
+            self.assertIn("PARTIALLY APPLIED", r1.stdout,
+                          "a failed close must be reported as partial, not success")
+            state = io.open(os.path.join(d, "STATE.md"), encoding="utf-8").read()
+            self.assertEqual(state.count("UNIQUEMARKER42"), 1)
+            r2 = subprocess.run([sys.executable, tool, "adopt", "pay"], cwd=d,
+                                capture_output=True, text=True, timeout=30)
+            self.assertIn("resumed", r2.stdout,
+                          "the retry must recognise the handover was already delivered")
+            state2 = io.open(os.path.join(d, "STATE.md"), encoding="utf-8").read()
+            self.assertEqual(state2.count("UNIQUEMARKER42"), 1,
+                             "the retry duplicated the handover in STATE.md")
+
+    def test_off_and_adopt_report_a_failed_final_mode_write(self):
+        """The LAST write in each lifecycle transition is the easiest to leave
+        unchecked, because by then the important data is already safe. But
+        printing 'thread mode OFF' when the file still says ON sends the founder
+        back into a system whose two halves disagree. Both commands are driven
+        here with save_mode forced to fail."""
+        import importlib.util
+        for command, expect in (("off", "MODE FILE NOT UPDATED"),
+                                ("adopt", "PARTIALLY APPLIED")):
+            with tempfile.TemporaryDirectory() as d:
+                spec = importlib.util.spec_from_file_location(
+                    "bm_threads_modefail_%s" % command, os.path.join(HERE, "bm_threads.py"))
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                cwd0 = os.getcwd()
+                os.chdir(d)
+                try:
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        mod.cmd_on([])
+                        mod.cmd_start(["pay", "wire it", "--files", "api/pay.py"])
+                        mod.cmd_checkpoint(["pay", "--next", "next: keep me"])
+                    mod.save_mode = lambda *a, **k: False   # the final write fails
+                    buf = io.StringIO()
+                    with contextlib.redirect_stdout(buf):
+                        if command == "off":
+                            mod.cmd_off([])
+                        else:
+                            mod.cmd_adopt(["pay"])
+                    out = buf.getvalue()
+                finally:
+                    os.chdir(cwd0)
+                self.assertIn(expect, out,
+                              "%s must report a failed final mode write, got: %s"
+                              % (command, out.strip()[:200]))
+                self.assertIn("keep me",
+                              io.open(os.path.join(d, "STATE.md"), encoding="utf-8").read(),
+                              "%s must still have secured the handover first" % command)
 
     def test_thread_mode_lock_uses_the_one_registry_primitive(self):
         """bm_threads used to carry its OWN mode-file lock that swallowed every
