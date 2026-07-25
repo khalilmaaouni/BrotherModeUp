@@ -2158,6 +2158,120 @@ class TestPreWriteGate(unittest.TestCase):
 
 
 
+class TestI6HonestReportingUnderForcedFailure(unittest.TestCase):
+    """I6 checked by failing ONE write at a time.
+
+    Permissions cannot express this. Making a directory read-only fails the
+    FIRST write in a command, so `start` never reaches its file writes and the
+    defect being tested never gets a chance to manifest: calibration showed
+    three report-vs-disk defects surviving a permission-based test. Patching the
+    single function under test is the only injection precise enough.
+    """
+
+    def _mod(self, tag):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "bm_threads_i6_%s" % tag, os.path.join(HERE, "bm_threads.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    @contextlib.contextmanager
+    def _in(self, d):
+        old = os.getcwd()
+        os.chdir(d)
+        try:
+            yield
+        finally:
+            os.chdir(old)
+
+    def test_on_does_not_report_success_when_the_mode_write_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            mod = self._mod("on")
+            with self._in(d):
+                mod.save_mode = lambda *a, **k: False
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    mod.cmd_on([])
+                out = buf.getvalue()
+            self.assertNotIn("thread mode ON.", out,
+                             "I6: reported ON while the mode write failed: %r"
+                             % out.strip()[:160])
+
+    def test_start_does_not_report_success_when_a_thread_file_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            mod = self._mod("start")
+            with self._in(d):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    mod.cmd_on([])
+                real = mod.write
+
+                def only_digest_fails(path, text):
+                    if path.endswith("digest.md"):
+                        return False
+                    return real(path, text)
+                mod.write = only_digest_fails
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    mod.cmd_start(["alpha", "obj", "--files", "api/a.py"])
+                out = buf.getvalue()
+                digest_exists = os.path.exists(os.path.join("threads", "alpha", "digest.md"))
+            if "created at" in out:
+                self.assertTrue(digest_exists,
+                                "I6: reported the thread created while its digest "
+                                "file was never written: %r" % out.strip()[:160])
+
+    def test_start_does_not_report_created_when_the_record_never_saved(self):
+        """claim() returning True after a failed save is the worst version of
+        this: start reports a thread created and a fence held, while the
+        registry on disk has neither, so a second writer is granted the same
+        files. Injected at the registry save, so the thread FILE writes still
+        succeed and the lie is the only thing under test."""
+        with tempfile.TemporaryDirectory() as d:
+            mod = self._mod("claim")
+            with self._in(d):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    mod.cmd_on([])
+                reg = mod._registry()
+                real_save = reg.save
+                reg.save = lambda *a, **k: False
+                try:
+                    buf = io.StringIO()
+                    with contextlib.redirect_stdout(buf):
+                        mod.cmd_start(["alpha", "obj", "--files", "api/a.py"])
+                    out = buf.getvalue()
+                finally:
+                    reg.save = real_save
+                on_disk = (reg.load().get("records") or {}).get("alpha") or {}
+            if "created at" in out:
+                self.assertEqual(on_disk.get("state"), "active",
+                                 "I6: reported the thread created while the record "
+                                 "never reached disk: %r" % out.strip()[:160])
+
+    def test_checkpoint_does_not_report_saved_when_the_registry_mirror_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            mod = self._mod("cp")
+            with self._in(d):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    mod.cmd_on([])
+                    mod.cmd_start(["alpha", "obj", "--files", "api/a.py"])
+                reg = mod._registry()
+                real_set = reg.set_digest
+                reg.set_digest = lambda *a, **k: False
+                try:
+                    buf = io.StringIO()
+                    with contextlib.redirect_stdout(buf):
+                        mod.cmd_checkpoint(["alpha", "--next", "next: LIETOKEN"])
+                    out = buf.getvalue()
+                finally:
+                    reg.set_digest = real_set
+            self.assertNotIn("checkpoint written", out,
+                             "I6: reported the checkpoint saved while the registry "
+                             "mirror failed: %r" % out.strip()[:160])
+            self.assertIn("NOT FULLY SAVED", out,
+                          "I6: a failed mirror must be named, got: %r" % out.strip()[:160])
+
+
 class TestInvariantsUnderRandomSequences(unittest.TestCase):
     """The answer to a testing defect, not to a bug.
 
@@ -2188,6 +2302,75 @@ class TestInvariantsUnderRandomSequences(unittest.TestCase):
             return ""
         with io.open(p, encoding="utf-8", errors="replace") as fh:
             return fh.read()
+
+    def _check_i6(self, d, seed, args, r):
+        """I6 honest reporting: a reported success must match the disk.
+
+        This was a promise in INVARIANTS.md that nothing verified, which is the
+        same failure as a self-score without evidence. It is checked here on
+        EVERY command the state machine runs, because this project has already
+        shipped three separate defects whose whole shape was 'printed success,
+        wrote nothing'."""
+        out = r.stdout
+        where = "seed=%d cmd=%s" % (seed, " ".join(args))
+        records = self._registry(d)
+        state = self._state(d)
+
+        def mode():
+            p = os.path.join(d, "threads", "thread-mode.json")
+            if not os.path.exists(p):
+                return None
+            try:
+                with io.open(p, encoding="utf-8") as fh:
+                    return (json.load(fh) or {}).get("mode")
+            except ValueError:
+                return None
+
+        if "thread mode OFF (drained" in out:
+            self.assertEqual(mode(), "off",
+                             "I6 broken (%s): reported OFF, file says %r" % (where, mode()))
+        if "thread mode ON." in out:
+            self.assertEqual(mode(), "on",
+                             "I6 broken (%s): reported ON, file says %r" % (where, mode()))
+        if out.startswith("thread '") and "created at" in out:
+            name = args[1]
+            rec = records.get(name) or {}
+            self.assertEqual(rec.get("state"), "active",
+                             "I6 broken (%s): reported created, record is %r"
+                             % (where, rec.get("state")))
+            self.assertTrue(os.path.isdir(os.path.join(d, "threads", name)),
+                            "I6 broken (%s): reported created, no thread directory" % where)
+            # The directory alone is not the thread. A start that reported
+            # success with no digest.md has created something whose handover is
+            # empty, so `off` would drain nothing.
+            for f in ("STATE.md", "inbox.md", "outbox.md", "digest.md"):
+                self.assertTrue(
+                    os.path.exists(os.path.join(d, "threads", name, f)),
+                    "I6 broken (%s): reported created, %s missing" % (where, f))
+        if out.startswith("adopted '") and "resumed" not in out:
+            name = args[1]
+            rec = records.get(name) or {}
+            self.assertEqual(rec.get("state"), "adopted",
+                             "I6 broken (%s): reported adopted, record is %r"
+                             % (where, rec.get("state")))
+            self.assertIn("brothermode-handover:%s#" % name, state,
+                          "I6 broken (%s): reported adopted, no delivery in STATE.md" % where)
+        # Both success wordings are covered. Checking only "checkpoint written"
+        # missed a lie: when the local digest.md write fails the command prints
+        # "recorded in the registry" instead, and that claim needs the same
+        # verification or set_digest can report a save that never landed.
+        if out.startswith("checkpoint written") or "recorded in the registry" in out:
+            name = args[1]
+            token = args[-1].replace("next: ", "")
+            rec = records.get(name) or {}
+            self.assertIn(token, json.dumps(rec),
+                          "I6 broken (%s): reported the checkpoint saved, the "
+                          "registry does not hold it" % where)
+        if out.startswith("sent to '"):
+            name = args[1]
+            inbox = os.path.join(d, "threads", name, "inbox.md")
+            self.assertTrue(os.path.exists(inbox),
+                            "I6 broken (%s): reported sent, no inbox" % where)
 
     def _check(self, d, seed, step, delivered, lifecycle_of):
         """Assert the invariants that can be judged from disk alone."""
@@ -2286,6 +2469,7 @@ class TestInvariantsUnderRandomSequences(unittest.TestCase):
                 self.assertEqual(r.returncode, 0,
                                  "I4 never-block broken (seed=%d): %s exited %d\n%s"
                                  % (seed, " ".join(args), r.returncode, r.stderr[:400]))
+                self._check_i6(d, seed, args, r)
                 return r
 
             def mode_on():
@@ -2298,17 +2482,32 @@ class TestInvariantsUnderRandomSequences(unittest.TestCase):
                 except ValueError:
                     self.fail("thread-mode.json unparsable: I7 (seed=%d)" % seed)
 
+            def closed_state(name):
+                rec = self._registry(d).get(name) or {}
+                return rec.get("state") if isinstance(rec, dict) else None
+
             def active(name):
                 rec = self._registry(d).get(name) or {}
                 return isinstance(rec, dict) and rec.get("state") == "active"
 
             for step in range(steps):
                 name = rng.choice(names)
+                closed = closed_state(name) in ("parked", "adopted", "landed", "failed-start")
                 enabled = ["on", "off"]
                 if mode_on():
                     enabled += ["start", "start"]
+                    # REUSE-AFTER-CLOSE and RESTART-WHILE-ACTIVE are weighted up
+                    # deliberately. Calibration showed the uniform walk caught
+                    # only 2 of 4 known defects: the two it missed both need a
+                    # name to be started again, one after it was closed and one
+                    # while it was still live. A generator has to be steered at
+                    # the shapes where the bugs live, and that steering is a
+                    # claim to re-measure, not to assume.
+                    if closed:
+                        enabled += ["start"] * 4
                     if active(name):
-                        enabled += ["checkpoint", "checkpoint", "checkpoint", "send"]
+                        enabled += ["checkpoint", "checkpoint", "checkpoint",
+                                    "send", "start", "start"]
                 if os.path.isdir(os.path.join(d, "threads", name)):
                     enabled += ["adopt"]
                 # A small chance of an operation whose precondition does NOT
@@ -2316,17 +2515,24 @@ class TestInvariantsUnderRandomSequences(unittest.TestCase):
                 op = rng.choice(enabled) if rng.random() > 0.12 else rng.choice(self.OPS)
                 fail = rng.choice([None, None, None, "handover", "registry"])
 
+                # Failures are injected on EVERY op, not just adopt and off.
+                # I6 (honest reporting) is only meaningful on the paths where a
+                # write fails, and calibration showed those paths were never
+                # reached: reporting "thread mode ON" without checking the write
+                # went undetected because the mode write never failed.
                 if op == "on":
-                    run("on")
+                    run("on", fail=fail)
                 elif op == "start":
                     run("start", name, "objective %d" % step,
-                        "--files", "api/%s_%d.py" % (name, rng.randint(0, 2)))
+                        "--files", "api/%s_%d.py" % (name, rng.randint(0, 2)),
+                        fail=fail)
                 elif op == "checkpoint":
                     counter[0] += 1
                     token = "TOKEN%04d" % counter[0]
                     rec = self._registry(d).get(name) or {}
                     if isinstance(rec, dict) and rec.get("state") == "active":
-                        r = run("checkpoint", name, "--next", "next: " + token)
+                        r = run("checkpoint", name, "--next", "next: " + token,
+                                fail=fail)
                         if "NOT FULLY SAVED" not in r.stdout:
                             life = rec.get("lifecycle", 1)
                             lifecycle_of[token] = (name, life)
@@ -2342,7 +2548,7 @@ class TestInvariantsUnderRandomSequences(unittest.TestCase):
                     run("off", fail=fail)
                 elif op == "send":
                     if os.path.isdir(os.path.join(d, "threads", name)):
-                        run("send", name, "a directive")
+                        run("send", name, "a directive", fail=fail)
 
                 state = self._state(d)
                 for token in list(lifecycle_of):

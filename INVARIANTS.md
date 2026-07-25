@@ -84,24 +84,44 @@ The generator covers the thread lifecycle and injected write failures; it does
 not cover concurrent processes, filesystem corruption, or partial writes at the
 byte level.
 
-## Measured power of the generator, stated honestly
+## Measured power of the tests, stated honestly
 
-A generative test that has not been calibrated is decoration. The first version
-of this one created 0, 0 and 1 handovers across three seeds because it picked
+A test suite that has not been calibrated is decoration. The first generative
+test here created 0, 0 and 1 handovers across three seeds because it picked
 operations at random and almost every precondition failed. It passed while
 exercising nothing, and reinjecting two known bugs did not make it fire.
 
-Calibration, re-run whenever the generator changes: reintroduce a known defect
-and confirm the suite fails. Current measured result, four known defects:
+Calibration, re-run whenever a test or the generator changes: reintroduce a
+known defect and confirm the suite fails. Current measured result:
 
 | Reinjected defect | Caught |
 |---|---|
 | Delivery identity without a content fingerprint | yes |
+| Lifecycle record not reconstructed on reuse | yes |
 | No exactly-once check at all | yes |
-| Lifecycle record not reconstructed on reuse | NO |
-| `start` overwriting an existing digest file | NO |
+| `on` reports mode ON without checking the write | yes |
+| `start` reports created without checking its files | yes |
+| `checkpoint` hides a failed registry mirror | yes |
+| `claim` returns success after a failed save | yes |
 
-Two of four. The two it misses need a rarer sequence than 14 seeds of 40 steps
-reaches, so they keep their own dedicated example tests. Raising seeds or step
-count, or biasing the walk toward reuse-after-close, is the way to close that
-gap and has not been done yet.
+Seven of seven.
+
+## What each style of test is for, learned the hard way
+
+Neither style alone was enough, and the reason is worth keeping.
+
+**The generated walk** finds sequences nobody imagined. It found a real defect
+on its own: re-running `start` on a live thread stamped a blank template over a
+digest holding checkpointed work. No human wrote that case down first.
+
+**Deterministic tests with surgical injection** are needed where a specific
+write must fail while others succeed. Permissions cannot express that: making a
+directory read-only fails the FIRST write in a command, so `start` never reaches
+its file writes and the defect under test never gets a chance to appear. Three
+report-vs-disk defects survived a permission-based test and were only caught by
+patching the single function under test.
+
+One defect stopped being observable during this work rather than being caught:
+`start` overwriting an existing digest file no longer loses a handover, because
+`adopt` now prefers the registry digest. Verified by execution, not assumed. The
+guard on the file write stays as a second layer.
