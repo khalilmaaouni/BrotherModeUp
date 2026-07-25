@@ -141,6 +141,60 @@ class TestHandoff(unittest.TestCase):
                 self.assertIn("[REDACTED]", body)
 
 
+class TestThreadMode(unittest.TestCase):
+    """Thread mode's contract: nothing auto-flips, the cap holds, and switching
+    OFF mid-project is LOSSLESS (the founder's hard requirement)."""
+
+    def _run(self, cwd, *args):
+        return subprocess.run([sys.executable, os.path.join(HERE, "bm_threads.py"), *args],
+                              cwd=cwd, capture_output=True, text=True)
+
+    def test_recommend_never_flips_mode(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = self._run(d, "recommend", "5")
+            self.assertIn("RECOMMENDATION", r.stdout)
+            # advice only: no mode file may be created by recommending
+            self.assertFalse(os.path.exists(os.path.join(d, "threads", "thread-mode.json")),
+                             "recommend must never flip or create mode state")
+
+    def test_cap_is_enforced(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._run(d, "on")
+            for n in ("a", "b", "c"):
+                self._run(d, "start", n, "obj " + n)
+            r = self._run(d, "start", "dee", "one too many")
+            self.assertIn("CAP", r.stdout, "the 3-active cap must refuse a 4th thread")
+
+    def test_off_is_lossless_and_parks(self):
+        with tempfile.TemporaryDirectory() as d:
+            io.open(os.path.join(d, "STATE.md"), "w").write("# Project STATE\n")
+            self._run(d, "on")
+            self._run(d, "start", "payments", "build payments")
+            self._run(d, "checkpoint", "payments", "--decision", "chose Stripe",
+                      "--next", "wire webhook")
+            self._run(d, "off")
+            state = io.open(os.path.join(d, "STATE.md")).read()
+            # the expensive-to-re-derive context must survive the switch
+            self.assertIn("chose Stripe", state, "decision lost when thread mode was turned off")
+            self.assertIn("wire webhook", state, "next intent lost when thread mode was turned off")
+            # and the thread must be parked, not deleted
+            self.assertTrue(os.path.isdir(os.path.join(d, "threads", "payments")),
+                            "thread directory was deleted; it must stay resumable")
+            mode = json.load(io.open(os.path.join(d, "threads", "thread-mode.json")))
+            self.assertEqual(mode["mode"], "off")
+            self.assertEqual(mode["threads"]["payments"]["state"], "parked")
+
+    def test_adopt_absorbs_a_dead_thread(self):
+        with tempfile.TemporaryDirectory() as d:
+            io.open(os.path.join(d, "STATE.md"), "w").write("# Project STATE\n")
+            self._run(d, "on")
+            self._run(d, "start", "search", "build search")
+            self._run(d, "checkpoint", "search", "--decision", "use trigram index")
+            self._run(d, "adopt", "search")
+            state = io.open(os.path.join(d, "STATE.md")).read()
+            self.assertIn("use trigram index", state, "adopted thread's context was orphaned")
+
+
 class TestStrictMode(unittest.TestCase):
     def test_strict_exits_nonzero_on_fail(self):
         # A vault with an active session but no session log forces a FAIL check.

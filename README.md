@@ -25,6 +25,7 @@ Most agent setups fail the same way. The model over-delivers ceremony on small t
 | `tools/bm_sessionstart.sh` | Session-start hook: injects the digest, overdue-review nags, the offline update check, and a recovery pointer after a compaction |
 | `tools/bm_autosave.sh` | Mechanical work-preservation: on the PreCompact hook it snapshots your whole working tree (untracked files included) to a private git ref so token-death never erases progress. Local git only, never pushes. `recover` restores it |
 | `tools/bm_score.py` runs advisory locally; `bm_score.py --strict` exits nonzero on any FAIL so CI can block a merge (the two-mode design). `bm_telemetry.py handoff <project>` writes one redacted, shareable markdown for handing a project to a teammate. |
+| `tools/bm_threads.py` | Thread mode (opt-in): one persistent thread per key feature, each with its own context, plus a chief dashboard as command center. Switching it off drains every thread's handover into your STATE.md and parks the threads, so it is reversible mid-project with no lost context |
 | `tools/test_bm.py` | Regression tests (stdlib only): secret redaction, owner-only files, project-identity collisions, non-invasive autosave. Run `python3 tools/test_bm.py`; CI runs them on every push |
 | `tools/WEEKLY-REVIEW.md` | The 11-step weekly self-review procedure |
 | `docs/HOW-IT-WORKS.md` | The full mechanics, explained exactly |
