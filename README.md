@@ -31,6 +31,7 @@ Most agent setups fail the same way. The model over-delivers ceremony on small t
 | `docs/HOW-IT-WORKS.md` | The full mechanics, explained exactly |
 | `docs/BrotherMode-Design-Document.pdf` | The whitepaper: philosophy, all 16 laws, the code, data flow and cost, benchmarks, and a quick start. Start here if you are deciding whether to adopt |
 | `docs/BrotherMode-One-Page.pdf` | The one-page overview: purpose, target user, philosophy, the 16 laws, and how to use it well. Print it, or send it to someone in thirty seconds. Source: `docs/one-pager.src.html` |
+| `CHANGELOG.md` | What existed before each release and what was added, with the known limits of every new part |
 | `docs/SETUP.md` | Installation, hooks, and first-week checklist |
 | `vault-template/` | A ready-made Obsidian-compatible memory vault: copy it, open it in Obsidian, start working |
 
