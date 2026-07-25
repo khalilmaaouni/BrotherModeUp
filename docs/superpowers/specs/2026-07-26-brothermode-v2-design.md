@@ -117,10 +117,25 @@ name, lifecycle uuid, and the overlapping pair of paths.
 
 ### API (all mutations inside one transaction, all timestamps UTC)
 
-Store(root) constructor opens or creates the db; on sqlite3.DatabaseError during
-open or any read: QUARANTINE: close, rename store.sqlite3 to
-store.sqlite3.quarantine-<UTCstamp>, raise StoreCorrupt telling the user the
-quarantine path and the recover command. Never auto-recreate over damage (fixes F9).
+Store(root) constructor opens or creates the db. Failure split (amended 2026-07-26,
+the first draft quarantined too eagerly): sqlite3.OperationalError (a busy or locked
+database, a transient condition) REFUSES fail-closed with a clear retry message and
+NEVER quarantines, because renaming a healthy database out from under a concurrent
+writer is itself data loss. Any other sqlite3.DatabaseError (corruption class):
+QUARANTINE: close, rename store.sqlite3 to store.sqlite3.quarantine-<UTCstamp>,
+raise StoreCorrupt telling the user the quarantine path and the recover command.
+Never auto-recreate over damage (fixes F9).
+
+REDACTION (amended 2026-07-26, the first draft omitted it): secret redaction has
+exactly one owner in this codebase, bm_telemetry.redact, reused by bm_registry for
+every text it emits including terminal output. bm_store follows the same law: every
+founder-typed text (objective, decisions, digest sections, notes) passes through
+that same redact function whenever it leaves the store as a generated view
+(STATE.md), a rendered digest, a dashboard line, or any other stdout emission.
+Raw text lives only inside the sqlite file itself, which SECURITY.md documents as
+sensitive. Import it the same way bm_registry does; if the import fails, degrade
+LOUDLY (a one-line warning) and refuse to write generated views rather than writing
+them unredacted.
 
 claim(name, lifetime, objective, files, owner='', session_id='', tier='',
       check_cmd='', ttl_hours=None) -> Record
