@@ -37,7 +37,7 @@ Most agent setups fail the same way. The model over-delivers ceremony on small t
 
 ## The five ideas that carry the system
 
-1. **Fence then dispatch.** One writer per file, ever. Before any agent launches, its file set is written to a registry on disk. Overlap means queue, never parallel. Collisions stop being possible instead of being cleaned up.
+1. **Fence then dispatch.** One writer per file, ever. Before any agent launches, its file set is written to a registry on disk. Overlap between two declared file sets is computed and refused by name, so a collision is caught before the work starts instead of cleaned up afterwards. The guarantee is exactly as good as the declaration: a file an agent never declared is not protected, so this converts collisions from silent into detectable, not from possible into impossible.
 2. **The safety floor is unconditional.** Whenever anything writes, three things happen first: map the ground (git status), register the fence, keep state on disk. The learning loop is explicitly forbidden from training this away.
 3. **Nothing merges unverified.** Agents self-report; the orchestrator re-runs the check against the actual files before accepting anything. A deliverable arriving without its done-check satisfied goes back with the gap named.
 4. **The skill learns from measured outcomes only.** A session-end hook writes real token counts, tool calls, and durations to a ledger. Absent telemetry, a field says "not measured". Fiction is banned. A weekly review moves scores; corrections from the human become laws, each carrying the reason behind it.

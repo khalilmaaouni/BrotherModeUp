@@ -167,5 +167,13 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
+        # Never-block is a promise to the LOCAL session, not to CI. Swallowing a
+        # crash and exiting 0 in --strict made the gate worthless: a checker that
+        # died on its own bug reported success, so CI could go green having
+        # verified nothing. Local runs still degrade quietly; --strict fails loud.
         print("bm_score: swallowed error (never blocks): %r" % (e,))
+        if "--strict" in sys.argv:
+            print("STRICT: the checker itself failed, so nothing was verified. "
+                  "Exiting nonzero rather than reporting a pass it did not earn.")
+            sys.exit(1)
         sys.exit(0)

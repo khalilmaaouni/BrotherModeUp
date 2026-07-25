@@ -164,6 +164,25 @@ def save(d, cwd=None):
         return False
 
 
+_WARNED_UNLOCKED = []
+
+
+def _warn_unlocked(err):
+    """Report once per process that the registry is running without a lock.
+
+    Once, not every call: a per-call warning on a platform that simply has no
+    fcntl would bury every other message the session prints, and a warning
+    nobody reads is the same as no warning."""
+    if _WARNED_UNLOCKED:
+        return
+    _WARNED_UNLOCKED.append(True)
+    print("bm_registry: WARNING: file locking is unavailable on this platform (%s). "
+          "The registry still works for a single session, but concurrent claims are "
+          "NOT serialized: two sessions writing at once can lose a record. Treat "
+          "coordination as degraded and avoid running parallel writers here."
+          % (err,), file=sys.stderr)
+
+
 def with_lock(fn, cwd=None):
     """Exclusive lock around any read-modify-write. Without it, two concurrent
     claims each read the old registry and the second write wins, losing a record:
@@ -176,19 +195,27 @@ def with_lock(fn, cwd=None):
         fh = open(os.path.join(registry_dir(cwd), ".registry.lock"), "w")
     except OSError:
         return fn()
+    locked = False
     try:
         try:
             import fcntl
             fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-        except Exception:
-            pass
+            locked = True
+        except Exception as e:
+            # fcntl is POSIX only, so this is the Windows path. Continuing
+            # unlocked is right (never block a session), but doing it SILENTLY
+            # was wrong: the caller believes concurrent claims are serialized
+            # when they are not, and a lost record is invisible by definition.
+            # Say it once per process so degraded coordination is a known state.
+            _warn_unlocked(e)
         return fn()
     finally:
-        try:
-            import fcntl
-            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-        except Exception:
-            pass
+        if locked:
+            try:
+                import fcntl
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
         fh.close()
 
 

@@ -650,6 +650,34 @@ class TestStrictMode(unittest.TestCase):
                                       capture_output=True, text=True)
             self.assertEqual(strict.returncode, 1, "--strict must exit nonzero on a FAIL")
             self.assertEqual(advisory.returncode, 0, "advisory mode must never block (exit 0)")
+
+    def test_strict_exits_nonzero_when_the_checker_itself_crashes(self):
+        """A crashed checker verified NOTHING, so it must not report a pass.
+
+        The top-level handler caught every exception and exited 0 even under
+        --strict, which made the CI gate worthless: any bug inside bm_score
+        turned into a green build. Local runs still degrade quietly, because
+        never-block is a promise to the session, not to CI."""
+        with tempfile.TemporaryDirectory() as d:
+            broken = os.path.join(d, "bm_score.py")
+            src = io.open(os.path.join(HERE, "bm_score.py"), encoding="utf-8").read()
+            src = src.replace("def main():",
+                              "def main():\n    raise RuntimeError('simulated checker crash')", 1)
+            io.open(broken, "w", encoding="utf-8").write(src)
+            # PYTHONPATH must reach the real tools dir: bm_score imports
+            # bm_telemetry as a sibling, and without this the copy dies at
+            # IMPORT time with exit 1, which would make this test pass for the
+            # wrong reason and prove nothing about the handler under test.
+            env = dict(os.environ, BROTHERMODE_VAULT=os.path.join(d, "vault"),
+                       PYTHONPATH=HERE)
+            strict = subprocess.run([sys.executable, broken, "--strict"], env=env,
+                                    capture_output=True, text=True)
+            advisory = subprocess.run([sys.executable, broken], env=env,
+                                      capture_output=True, text=True)
+            self.assertEqual(strict.returncode, 1,
+                             "a checker that crashed must FAIL the CI gate, not pass it")
+            self.assertEqual(advisory.returncode, 0,
+                             "a local advisory run must still never block")
 import importlib.util as _ilu
 _rspec = _ilu.spec_from_file_location("bm_registry", os.path.join(HERE, "bm_registry.py"))
 _reg = _ilu.module_from_spec(_rspec)
@@ -1153,6 +1181,33 @@ class TestRegistryAbsorbAndView(unittest.TestCase):
         self.assertLess(drift, 0.15,
                         "SECURITY.md claims about %d lines but the tools are %d. "
                         "Update the figure in SECURITY.md." % (claimed, actual))
+
+    def test_missing_fcntl_degrades_loudly_and_still_works(self):
+        """fcntl is POSIX only, so on Windows there is no lock. Continuing is
+        right (never block a session) but doing it silently was not: the caller
+        believes concurrent claims are serialized when they are not, and a lost
+        record is invisible by definition. Simulated by shadowing fcntl with a
+        module that refuses to import, which is what Windows looks like here."""
+        with tempfile.TemporaryDirectory() as d:
+            shadow = os.path.join(d, "shadow")
+            os.makedirs(shadow)
+            io.open(os.path.join(shadow, "fcntl.py"), "w").write(
+                "raise ImportError('no fcntl on this platform (simulated)')\n")
+            work = os.path.join(d, "work")
+            os.makedirs(work)
+            env = dict(os.environ, PYTHONPATH=shadow)
+            script = (
+                "import sys, os\n"
+                "sys.path.insert(0, %r)\n"
+                "import bm_registry as r\n"
+                "ok, _ = r.claim('pay', 'persistent', 'x', ['api/pay.py'], cwd=os.getcwd())\n"
+                "print('CLAIM_OK' if ok else 'CLAIM_FAILED')\n" % HERE)
+            r = subprocess.run([sys.executable, "-c", script], env=env, cwd=work,
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, "a missing lock must never crash the session")
+            self.assertIn("CLAIM_OK", r.stdout, "work must still proceed without a lock")
+            self.assertIn("locking is unavailable", r.stderr,
+                          "degraded coordination must be reported, never silent")
 
     def test_view_warns_when_a_record_guards_less_than_it_declared(self):
         """An unreadable files entry is DROPPED, never guessed at, so the record

@@ -100,7 +100,7 @@ Honest framing first: BrotherMode adds no intelligence. Fable and Opus with no s
 | Dimension | Baseline model session | With BrotherMode |
 |---|---|---|
 | Memory across sessions | Starts near zero each time | Vault read at start, written at close |
-| Multi-agent writes | Collisions possible, silent | Fences make them structurally impossible |
+| Multi-agent writes | Collisions possible, silent | Overlap between declared file sets refused by name; an undeclared file is still unprotected |
 | Effort calibration | Model judgment per prompt | Declared tiers, scored proportionality |
 | Verification | Whatever the prompt demands | Done-checks and evidence blocks by law |
 | Honest claims | Persuasive by training | Calibration labels, self-score cap, refuters |

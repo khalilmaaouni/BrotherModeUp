@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-07-26 (later): the CI gate could pass on a crashed checker
+
+Three findings from an external source review, each confirmed by running the
+code before it was changed.
+
+- **`bm_score.py --strict` exited 0 when the checker itself crashed.** The
+  top-level handler caught every exception and exited 0, so any bug inside the
+  checker turned into a green build that had verified nothing. Reproduced by
+  injecting a crash and watching `--strict` report success. Strict mode now
+  exits nonzero and says the checker failed; local runs still degrade quietly,
+  because never-block is a promise to the session, not to CI.
+- **Missing file locking was silent.** `fcntl` is POSIX only, so on Windows the
+  registry ran with no lock at all while callers believed concurrent claims were
+  serialized. Work still proceeds, but it now says once per process that
+  coordination is degraded. Tested by shadowing `fcntl` with a module that
+  refuses to import.
+- **The collision claim was stronger than the code.** The README said collisions
+  "stop being possible". They do not: the guarantee is exactly as good as the
+  declaration, and a file an agent never declared is not protected. Both the
+  README and the design doc now say that plainly.
+
+104 tests.
+
+---
+
 ## 2026-07-26: one work record for threads and fences
 
 BrotherMode was keeping two separate records of the same fact. Threads lived in
