@@ -21,7 +21,7 @@ find it there too:
   at the write, the same as everything else.
 - `absorb` appends a handover section to your project's `STATE.md`.
 
-You can verify both claims yourself; the tools are about 4,400 lines of
+You can verify both claims yourself; the tools are about 5,300 lines of
 standard-library Python and shell (measured 2026-07-25; a test fails if this
 figure drifts more than 15 percent from what the command below returns):
 

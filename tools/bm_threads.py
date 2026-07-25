@@ -607,36 +607,29 @@ def cmd_adopt(argv):
     outcome = {}
     target = os.path.join(os.getcwd(), "STATE.md")
 
-    # Idempotency marker. adopt has three writes and can fail between any two,
-    # so a retry is expected and must not duplicate the handover. This file
-    # records that the handover already reached STATE.md; a retry then skips
-    # straight to the steps that did not finish.
-    marker = os.path.join(base, ".handover-delivered")
-
     def _adopt():
-        already = os.path.exists(marker)
-        if not already:
-            dg = reg.redact_text(read(os.path.join(base, "digest.md"), DIGEST_CAP))
-            st = reg.redact_text(read(os.path.join(base, "STATE.md"), 2000))
-            # ORDER IS THE ATOMICITY. The handover is written FIRST, so a
-            # failure here changes nothing at all and the thread stays
-            # adoptable. Closing the record before securing the handover was a
-            # silent total loss: the record was closed so `off` would never
-            # drain it, the digest never reached STATE.md, and the command
-            # printed "Nothing is orphaned".
-            if not append(target,
-                          "\n## Adopted from dead/stalled thread '%s' (%s)\n%s\n\n"
-                          "<!-- thread STATE at adoption -->\n%s\n"
-                          % (name, now(), dg.strip(), st.strip())):
-                outcome["handover_failed"] = True
-                return
-            # Marker written only AFTER the handover is on disk, so a failed
-            # append never leaves a marker claiming delivery that did not happen.
-            # A failed marker write is not fatal: the handover IS delivered, and
-            # the only cost is that a later retry would append it twice, so say so.
-            if not write(marker, "%s\n" % now()):
-                outcome["marker_failed"] = True
-        else:
+        # Delivery goes through the ONE handover primitive, keyed on this
+        # record's LIFECYCLE. The previous design used a marker FILE named after
+        # the thread, and a thread name is reusable: starting a second
+        # "payments" thread inherited the first one's marker and its handover
+        # was silently discarded. The proof now lives inside the delivered text,
+        # so it cannot outlive the content it vouches for.
+        rec = (reg.load().get("records") or {}).get(name)
+        tag = reg.handover_tag(name, (rec or {}).get("lifecycle", 1))
+        dg = reg.redact_text(read(os.path.join(base, "digest.md"), DIGEST_CAP))
+        st = reg.redact_text(read(os.path.join(base, "STATE.md"), 2000))
+        # ORDER IS THE ATOMICITY. The handover goes first, so a failure here
+        # changes nothing and the thread stays adoptable. Closing the record
+        # before securing the handover was a silent total loss.
+        result = reg.deliver_handover(
+            target, tag,
+            "\n## Adopted from dead/stalled thread '%s' (%s)\n%s\n\n"
+            "<!-- thread STATE at adoption -->\n%s\n"
+            % (name, now(), dg.strip(), st.strip()))
+        if result is False:
+            outcome["handover_failed"] = True
+            return
+        if result == "already":
             outcome["resumed"] = True
         # The handover is safe on disk now, so close the record. Leaving it
         # active would make absorb() drain the same digest a second time and
@@ -681,12 +674,6 @@ def cmd_adopt(argv):
         print("adopted '%s' (resumed): the handover was already in %s from an "
               "earlier attempt, so it was NOT written again." % (name, target))
         print("  The remaining steps completed. Nothing is duplicated.")
-        return
-    if outcome.get("marker_failed"):
-        print("adopted '%s': the handover is in %s and everything completed."
-              % (name, target))
-        print("  One caveat: the retry marker could not be written, so running "
-              "`adopt` on this thread again WOULD append the handover a second time.")
         return
     print("adopted '%s': its digest and fence are now in the chief's STATE.md." % name)
     print("  DECIDE: respawn the thread, or continue this work solo. Nothing is orphaned.")

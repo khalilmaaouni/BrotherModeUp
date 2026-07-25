@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026-07-26: handover delivery gets an owner, and the pattern gets a stop
+
+A reviewer found that the retry marker added in the previous entry was keyed on
+the thread NAME, and a thread name is reusable. Reproduced: adopt "payments",
+start "payments" again for new work, adopt again, and the second lifecycle's
+handover was silently discarded while the tool printed "Nothing is duplicated".
+
+The fix is not another marker. Delivering a handover into the project
+`STATE.md` now has exactly ONE owner, `deliver_handover`, used by both `absorb`
+and `adopt`:
+
+- **Identity is per lifecycle, not per name.** Every record carries a
+  `lifecycle` number, incremented when a closed id is reused, so a second
+  `payments` thread has its own delivery identity.
+- **The proof of delivery lives inside the delivered text**, as a
+  `<!-- brothermode-handover:id#n -->` tag, not in a side file. A separate
+  marker can survive content a crash destroyed, which is the worse direction;
+  a tag cannot outlive the bytes it is written with.
+- **The append is durable.** `durable_append` flushes and fsyncs before
+  returning, so a crash cannot leave a delivery proof more durable than the
+  handover it vouches for.
+- **`absorb` is now idempotent too.** It appended and then saved the registry;
+  if the save failed, the retry appended the same handover again. It now
+  recognises its own tag.
+
+**The part that matters most.** Four cross-cutting concerns in this project have
+now followed the identical arc: locking, redaction, durable writes, and handover
+delivery were each implemented per call site, diverged, and were unified into a
+primitive only after someone found the divergence. A fifth was always going to
+happen, because nothing stopped the next call site improvising.
+
+So this release adds the stop, not just the primitive: a test asserts that
+`durable_append` has exactly one caller and that no other code appends a
+handover by hand. A future writer that invents its own delivery fails the suite
+instead of shipping and waiting to be caught.
+
+116 tests.
+
+---
+
 ## 2026-07-26: durable writes, closed as a class rather than case by case
 
 The previous three entries each fixed one reported instance of the same defect.

@@ -68,6 +68,56 @@ def atomic_write(path, text, mode=0o644):
     return True
 
 
+def durable_append(path, text):
+    """Append and make the bytes durable BEFORE returning.
+
+    A plain append returns as soon as the data is in the page cache. A crash
+    then loses the handover while anything written afterwards (a marker, a
+    record state change) may already be on disk, so the system believes a
+    handover was delivered that no longer exists. fsync closes that window.
+    Raises OSError; the caller decides what a failed handover means."""
+    with io.open(path, "a", encoding="utf-8") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    return True
+
+
+def handover_tag(rid, lifecycle):
+    """The identity of ONE lifecycle of one record.
+
+    Keyed on the lifecycle, not the name, because a thread name is REUSABLE: a
+    marker keyed on the name alone made a second `payments` thread inherit the
+    first one's delivery proof, and its handover was silently discarded."""
+    return "<!-- brothermode-handover:%s#%s -->" % (rid, lifecycle)
+
+
+def deliver_handover(target, tag, body):
+    """Append a handover EXACTLY once per lifecycle. The one place any handover
+    reaches the project STATE.md, used by both absorb() and adopt().
+
+    The proof of delivery is the tag INSIDE the delivered text, not a separate
+    marker file, so the two can never disagree: if the content is there the
+    proof is there, and if the append was lost so was the proof. A side marker
+    can survive content that a crash destroyed, which is the worse direction.
+
+    Returns "delivered", "already", or False when the write failed."""
+    try:
+        with io.open(target, encoding="utf-8", errors="replace") as f:
+            existing = f.read()
+    except OSError:
+        existing = ""
+    if tag and tag in existing:
+        return "already"
+    try:
+        durable_append(target, body.rstrip("\n") + "\n" + tag + "\n")
+    except OSError as e:
+        print("bm_registry: warning: could not write the handover to %s (%s)"
+              % (target, e), file=sys.stderr)
+        return False
+    return "delivered"
+
+
 def _load_redactor():
     """Reuse bm_telemetry's pattern set so there is exactly one definition of
     what a secret looks like. Fall back to a compact inline set rather than ever
@@ -317,6 +367,11 @@ def new_record(rid, lifetime, objective, files, tier=None, owner=None, ttl_days=
         "decisions": [],
         "digest": "",
         "spend": {"output_tokens": 0, "sessions": 0},
+        # Which LIFE of this id this is. A thread name is reusable, so delivery
+        # proof must be keyed on the lifecycle: without this, a second thread
+        # called "payments" inherits the first one's handover proof and its own
+        # handover is silently discarded.
+        "lifecycle": 1,
     }
 
 
@@ -528,6 +583,16 @@ def claim(rid, lifetime, objective, files, tier=None, owner=None, cwd=None):
                 return (False, rec)
         rec = d["records"].get(rid)
         if rec:
+            # Reusing a CLOSED id starts a new life, so it gets a new lifecycle
+            # number and therefore a new delivery identity. Re-claiming an
+            # already-active record is the same owner re-declaring, not a new
+            # life, so the number is left alone.
+            if rec.get("state") in ("parked", "adopted", "landed", "failed-start"):
+                try:
+                    rec["lifecycle"] = int(rec.get("lifecycle", 1)) + 1
+                except (TypeError, ValueError):
+                    rec["lifecycle"] = 2
+            rec.setdefault("lifecycle", 1)
             rec["objective"] = redact_text(objective)
             rec["files"] = _stored_files(files)
             rec["state"] = "active"
@@ -700,13 +765,17 @@ def absorb(cwd=None):
         # fails, the records must stay active and unreported, or the context
         # they describe is gone with no signal that it ever existed.
         target = os.path.join(cwd or os.getcwd(), "STATE.md")
-        try:
-            with io.open(target, "a", encoding="utf-8") as f:
-                f.write("\n".join(lines) + "\n")
-        except OSError as e:
-            print("bm_registry: warning: could not write handover to %s (%s); "
-                  "records left ACTIVE so nothing is lost, retry absorb later"
-                  % (target, e), file=sys.stderr)
+        # Delivered through the ONE handover primitive, the same one adopt()
+        # uses. It is durable (fsync before returning) and idempotent per
+        # lifecycle: if the append succeeded but the registry save below failed,
+        # the retry finds its own tag and parks the records without writing the
+        # handover a second time.
+        tag = handover_tag("absorb", "+".join(
+            "%s#%s" % (rid, (rec or {}).get("lifecycle", 1)) for rid, rec in candidates))
+        result = deliver_handover(target, tag, "\n".join(lines))
+        if result is False:
+            print("bm_registry: warning: records left ACTIVE so nothing is lost, "
+                  "retry absorb later", file=sys.stderr)
             return []
         out = []
         for rid, rec in candidates:

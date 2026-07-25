@@ -1520,6 +1520,84 @@ class TestRegistryAbsorbAndView(unittest.TestCase):
                               io.open(os.path.join(d, "STATE.md"), encoding="utf-8").read(),
                               "%s must still have secured the handover first" % command)
 
+    def test_handover_delivery_has_exactly_one_owner(self):
+        """THE ARCHITECTURAL GUARD, and the reason this class should now stop.
+
+        Four cross-cutting concerns in this project were implemented per call
+        site and unified only after a reviewer found the divergence: locking,
+        redaction, durable writes, and handover delivery. Each time the fix was
+        a primitive; each time nothing stopped the NEXT call site improvising
+        again. This test is that stop: delivering a handover into the project
+        STATE.md may happen in exactly one place. A new writer that appends its
+        own fails here rather than shipping and waiting to be caught."""
+        reg_src = io.open(os.path.join(HERE, "bm_registry.py"), encoding="utf-8").read()
+        thr_src = io.open(os.path.join(HERE, "bm_threads.py"), encoding="utf-8").read()
+        # Only deliver_handover may call the durable append.
+        callers = [ln.strip() for ln in (reg_src + thr_src).splitlines()
+                   if "durable_append(" in ln
+                   and not ln.strip().startswith("#")
+                   and "def durable_append" not in ln]
+        self.assertEqual(len(callers), 1,
+                         "durable_append must have exactly ONE caller "
+                         "(deliver_handover); found: %s" % callers)
+        # And bm_threads must not append to the project STATE.md by hand.
+        self.assertNotIn('append(target,', thr_src,
+                         "bm_threads must deliver handovers through "
+                         "reg.deliver_handover, not its own append")
+        self.assertIn("deliver_handover", thr_src)
+        self.assertIn("deliver_handover", reg_src)
+
+    def test_a_reused_thread_name_gets_its_own_handover(self):
+        """A thread name is REUSABLE. Idempotency keyed on the name alone made a
+        second 'payments' thread inherit the first one's delivery proof, so its
+        handover was silently discarded while the tool printed 'Nothing is
+        duplicated'. Identity must be per LIFECYCLE, not per name."""
+        tool = os.path.join(HERE, "bm_threads.py")
+        with tempfile.TemporaryDirectory() as d:
+            def run(*args):
+                return subprocess.run([sys.executable, tool] + list(args), cwd=d,
+                                      capture_output=True, text=True, timeout=30)
+            run("on")
+            run("start", "payments", "first life", "--files", "api/pay.py")
+            run("checkpoint", "payments", "--next", "next: LIFEONE")
+            run("adopt", "payments")
+            run("start", "payments", "second life", "--files", "api/pay2.py")
+            run("checkpoint", "payments", "--next", "next: LIFETWO")
+            run("adopt", "payments")
+            state = io.open(os.path.join(d, "STATE.md"), encoding="utf-8").read()
+            self.assertEqual(state.count("LIFEONE"), 1, "first lifecycle handover lost")
+            self.assertEqual(state.count("LIFETWO"), 1,
+                             "SECOND lifecycle handover was discarded as a duplicate")
+            # A real retry of the SAME lifecycle must still not duplicate.
+            r = run("adopt", "payments")
+            self.assertIn("resumed", r.stdout)
+            state2 = io.open(os.path.join(d, "STATE.md"), encoding="utf-8").read()
+            self.assertEqual(state2.count("LIFETWO"), 1,
+                             "retrying the same lifecycle duplicated the handover")
+
+    def test_absorb_is_idempotent_when_the_registry_save_fails(self):
+        """absorb appended the handover and then saved the registry. If the save
+        failed the records stayed active, so the retry appended the SAME
+        handover again. Honest but not idempotent. The delivery tag now makes
+        the retry recognise its own earlier write."""
+        reg = load_registry_module()
+        with tempfile.TemporaryDirectory() as d:
+            reg.claim("pay", "persistent", "obj", ["api/pay.py"], cwd=d)
+            reg.set_digest("pay", "next: ABSORBONCE", cwd=d)
+            target = os.path.join(d, "STATE.md")
+            first = reg.absorb(cwd=d)
+            self.assertEqual([r[0] for r in first], ["pay"])
+            body = io.open(target, encoding="utf-8").read()
+            self.assertEqual(body.count("ABSORBONCE"), 1)
+            # Re-activate the record to mimic "the save never landed", then retry.
+            data = reg.load(cwd=d)
+            data["records"]["pay"]["state"] = "active"
+            reg.save(data, cwd=d)
+            reg.absorb(cwd=d)
+            body2 = io.open(target, encoding="utf-8").read()
+            self.assertEqual(body2.count("ABSORBONCE"), 1,
+                             "absorb duplicated the handover on retry")
+
     def test_thread_mode_lock_uses_the_one_registry_primitive(self):
         """bm_threads used to carry its OWN mode-file lock that swallowed every
         failure, so on a platform without fcntl the registry warned while
