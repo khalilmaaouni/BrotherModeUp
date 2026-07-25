@@ -1209,6 +1209,91 @@ class TestRegistryAbsorbAndView(unittest.TestCase):
             self.assertIn("locking is unavailable", r.stderr,
                           "degraded coordination must be reported, never silent")
 
+    def test_every_degraded_lock_path_warns_and_still_runs(self):
+        """There are three ways to fail to acquire the lock, and ALL of them used
+        to be silent in at least one caller. A silent degrade is worse than no
+        lock at all, because it is indistinguishable from working correctly
+        until work has already been lost. Each path must run the work anyway
+        (never-block) and each must say so."""
+        reg = load_registry_module()
+        cases = []
+
+        # 1. lock file cannot be opened: the lock PATH is a directory.
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "lockdir", ".registry.lock"))
+            cap = io.StringIO()
+            with contextlib.redirect_stderr(cap):
+                out = reg.locked_call(os.path.join(d, "lockdir", ".registry.lock"),
+                                      lambda: "ran")
+            cases.append(("unopenable lock file", out, cap.getvalue()))
+
+        # 2. lock directory cannot be created: a FILE sits where the dir must go.
+        with tempfile.TemporaryDirectory() as d:
+            io.open(os.path.join(d, "blocked"), "w").write("i am a file\n")
+            reg._WARNED_UNLOCKED[:] = []
+            cap = io.StringIO()
+            with contextlib.redirect_stderr(cap):
+                out = reg.locked_call(os.path.join(d, "blocked", "x.lock"),
+                                      lambda: "ran")
+            cases.append(("uncreatable lock dir", out, cap.getvalue()))
+
+        for label, out, err in cases:
+            self.assertEqual(out, "ran", "%s must still run the work" % label)
+            self.assertIn("WITHOUT a file lock", err,
+                          "%s must warn, never degrade silently" % label)
+
+    def test_concurrent_starts_and_offs_do_not_deadlock(self):
+        """`off` takes the REGISTRY lock (via absorb) and then the MODE lock, and
+        `start` takes them in that same order. Holding the mode lock across
+        absorb would invert it, and two concurrent commands could then wait on
+        each other forever. A deadlock is worse than the lost update the lock
+        exists to prevent, because the session hangs with no error at all."""
+        import threading
+        threads_dir = os.path.join(HERE, "bm_threads.py")
+        with tempfile.TemporaryDirectory() as d:
+            subprocess.run([sys.executable, threads_dir, "on"], cwd=d,
+                           capture_output=True, timeout=30)
+            outcomes = []
+
+            def run(args, tag):
+                try:
+                    r = subprocess.run([sys.executable, threads_dir] + args, cwd=d,
+                                       capture_output=True, text=True, timeout=30)
+                    outcomes.append((tag, r.returncode))
+                except subprocess.TimeoutExpired:
+                    outcomes.append((tag, "DEADLOCK"))
+
+            workers = []
+            for i in range(4):
+                workers.append(threading.Thread(target=run, args=(
+                    ["start", "t%d" % i, "obj", "--files", "f%d.py" % i], "start%d" % i)))
+            for i in range(2):
+                workers.append(threading.Thread(target=run, args=(["off"], "off%d" % i)))
+            for w in workers:
+                w.start()
+            for w in workers:
+                w.join()
+
+            stuck = [t for t, rc in outcomes if rc == "DEADLOCK"]
+            self.assertEqual(stuck, [], "commands deadlocked on the two locks: %s" % stuck)
+            nonzero = [(t, rc) for t, rc in outcomes if rc != 0]
+            self.assertEqual(nonzero, [], "every path must exit 0: %s" % nonzero)
+            # The mode file must still be readable JSON, not a half-written mess.
+            mode = os.path.join(d, "threads", "thread-mode.json")
+            if os.path.exists(mode):
+                json.load(io.open(mode, encoding="utf-8"))
+
+    def test_thread_mode_lock_uses_the_one_registry_primitive(self):
+        """bm_threads used to carry its OWN mode-file lock that swallowed every
+        failure, so on a platform without fcntl the registry warned while
+        thread-mode updates raced on quietly: two half-truths instead of one
+        behaviour. It must now delegate to the single primitive."""
+        src = io.open(os.path.join(HERE, "bm_threads.py"), encoding="utf-8").read()
+        self.assertIn("locked_call", src,
+                      "the mode lock must delegate to bm_registry.locked_call")
+        self.assertNotIn("fcntl.flock", src,
+                         "bm_threads must not hold a second, separate lock implementation")
+
     def test_view_warns_when_a_record_guards_less_than_it_declared(self):
         """An unreadable files entry is DROPPED, never guessed at, so the record
         guards fewer paths than its owner thinks and a second writer can be

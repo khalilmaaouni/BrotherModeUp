@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-07-26 (later still): one lock for the whole system
+
+A follow-up review found the locking fix from the previous entry was applied in
+one place and not the others. Three silent paths remained, all confirmed by
+reading the code before changing it.
+
+- `bm_threads.py` carried its OWN mode-file lock that swallowed every failure,
+  so on a platform without `fcntl` the registry warned that coordination was
+  degraded while thread-mode updates raced on quietly. Two half-truths instead
+  of one behaviour.
+- `bm_registry.with_lock` proceeded unlocked and silent when the lock directory
+  could not be created, and again when the lock file could not be opened.
+
+Locking is now a single primitive, `bm_registry.locked_call`, used by both
+files. Every way it can fail to acquire still runs the work, because never-block
+outranks coordination, and every one of them warns once per process.
+
+Found while fixing this, and not in the review: three of the four writes to
+`thread-mode.json` were not locked at all. Only thread creation was. The one
+that mattered was `off` racing a `start`, which loses a thread. All four are now
+inside the lock, in a consistent registry-then-mode order so the two locks
+cannot deadlock against each other. That ordering is covered by a test that runs
+four starts and two offs at once and fails on a hang.
+
+107 tests.
+
+---
+
 ## 2026-07-26 (later): the CI gate could pass on a crashed checker
 
 Three findings from an external source review, each confirmed by running the

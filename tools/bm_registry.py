@@ -167,33 +167,49 @@ def save(d, cwd=None):
 _WARNED_UNLOCKED = []
 
 
-def _warn_unlocked(err):
-    """Report once per process that the registry is running without a lock.
+def warn_unlocked(reason):
+    """Report once per process that something ran without its lock.
 
     Once, not every call: a per-call warning on a platform that simply has no
     fcntl would bury every other message the session prints, and a warning
-    nobody reads is the same as no warning."""
+    nobody reads is the same as no warning.
+
+    Public because bm_threads locks its own mode file through locked_call, and
+    every degraded path in this system must speak with one voice. A second
+    silent fallback elsewhere would put the founder right back where they
+    started: believing writes are serialized when they are not."""
     if _WARNED_UNLOCKED:
         return
     _WARNED_UNLOCKED.append(True)
-    print("bm_registry: WARNING: file locking is unavailable on this platform (%s). "
-          "The registry still works for a single session, but concurrent claims are "
-          "NOT serialized: two sessions writing at once can lose a record. Treat "
-          "coordination as degraded and avoid running parallel writers here."
-          % (err,), file=sys.stderr)
+    # The reason carries a filesystem path and an OS error string, so it goes
+    # through redaction like every other text this module emits. A terminal is
+    # not a file, but terminals get logged, and "it is only a warning" is the
+    # reasoning behind every leak this project has had to fix.
+    print("bm_registry: WARNING: running WITHOUT a file lock (%s). Work still "
+          "proceeds for a single session, but concurrent writes are NOT "
+          "serialized: two sessions at once can lose a record or a thread. "
+          "Treat coordination as degraded and avoid parallel writers here."
+          % (redact_text(str(reason)),), file=sys.stderr)
 
 
-def with_lock(fn, cwd=None):
-    """Exclusive lock around any read-modify-write. Without it, two concurrent
-    claims each read the old registry and the second write wins, losing a record:
-    invisible to the dashboard and skipped by absorb, which silently loses work."""
+def locked_call(lock_path, fn):
+    """Run fn holding an exclusive lock on lock_path, or say why it could not.
+
+    The single locking primitive for the whole system. Every way this can fail
+    to acquire (no fcntl on this platform, an uncreatable directory, an
+    unopenable lock file) still runs fn, because never-block outranks
+    coordination, and every one of them warns, because a silent degrade is
+    indistinguishable from working correctly until work is already lost."""
+    lock_dir = os.path.dirname(lock_path)
     try:
-        os.makedirs(registry_dir(cwd), exist_ok=True)
-    except OSError:
+        os.makedirs(lock_dir, exist_ok=True)
+    except OSError as e:
+        warn_unlocked("cannot create the lock directory %s (%s)" % (lock_dir, e))
         return fn()
     try:
-        fh = open(os.path.join(registry_dir(cwd), ".registry.lock"), "w")
-    except OSError:
+        fh = open(lock_path, "w")
+    except OSError as e:
+        warn_unlocked("cannot open the lock file %s (%s)" % (lock_path, e))
         return fn()
     locked = False
     try:
@@ -202,12 +218,8 @@ def with_lock(fn, cwd=None):
             fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
             locked = True
         except Exception as e:
-            # fcntl is POSIX only, so this is the Windows path. Continuing
-            # unlocked is right (never block a session), but doing it SILENTLY
-            # was wrong: the caller believes concurrent claims are serialized
-            # when they are not, and a lost record is invisible by definition.
-            # Say it once per process so degraded coordination is a known state.
-            _warn_unlocked(e)
+            # fcntl is POSIX only, so this is the Windows path.
+            warn_unlocked("file locking is unavailable on this platform (%s)" % (e,))
         return fn()
     finally:
         if locked:
@@ -217,6 +229,14 @@ def with_lock(fn, cwd=None):
             except Exception:
                 pass
         fh.close()
+
+
+def with_lock(fn, cwd=None):
+    """Exclusive lock around any read-modify-write of the registry. Without it,
+    two concurrent claims each read the old registry and the second write wins,
+    losing a record: invisible to the dashboard and skipped by absorb, which
+    silently loses work."""
+    return locked_call(os.path.join(registry_dir(cwd), ".registry.lock"), fn)
 
 
 def _stored_files(files):

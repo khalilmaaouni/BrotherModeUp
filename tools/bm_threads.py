@@ -112,30 +112,25 @@ def _with_mode_lock(fn, cwd=None):
     registry: invisible to the dashboard and, worse, skipped by `off`, which
     would silently lose its context. That is the one guarantee thread mode must
     not break, so the registry update is locked, not hoped over.
+
+    Locking is DELEGATED to bm_registry.locked_call, the one locking primitive
+    in the system, for the same reason redaction was: this file used to carry
+    its own copy that swallowed every failure silently, so on a platform
+    without fcntl the registry warned that coordination was degraded while
+    thread-mode updates raced on quietly. One primitive means one behaviour and
+    one warning, instead of two half-truths.
     """
-    lockdir = root(cwd)
+    lockpath = os.path.join(root(cwd), ".mode.lock")
     try:
-        os.makedirs(lockdir, exist_ok=True)
-    except OSError:
+        reg = _registry()
+    except Exception as e:
+        # The registry is how we lock AND how we warn, so if it cannot load we
+        # have neither. Say so directly and still run: never block a session.
+        sys.stderr.write("bm_threads: WARNING: running WITHOUT a mode-file lock "
+                         "(registry unavailable: %r). Concurrent thread starts "
+                         "can race.\n" % (e,))
         return fn()
-    lockpath = os.path.join(lockdir, ".mode.lock")
-    fh = None
-    try:
-        fh = open(lockpath, "w")
-        try:
-            import fcntl
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-        except Exception:
-            pass          # no flock available: proceed, still better than nothing
-        return fn()
-    finally:
-        if fh is not None:
-            try:
-                import fcntl
-                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-            except Exception:
-                pass
-            fh.close()
+    return reg.locked_call(lockpath, fn)
 
 
 def load_mode(cwd=None):
@@ -209,15 +204,23 @@ def cmd_recommend(argv):
 
 
 def cmd_on(argv):
-    d = load_mode()
-    if d.get("mode") == "on":
-        print("thread mode already ON since %s" % d.get("since", "?"))
+    # Read-modify-write under the lock, like every other mutation of this file.
+    # Unlocked, this raced with a concurrent `start` or `off` and the loser's
+    # write vanished, which is the lost-thread case the lock exists to prevent.
+    def _flip():
+        d = load_mode()
+        if d.get("mode") == "on":
+            return d.get("since", "?")
+        d["mode"] = "on"
+        d["since"] = now()
+        d.setdefault("threads", {})
+        _history(d).append({"ts": now(), "event": "on"})
+        save_mode(d)
+        return None
+    already = _with_mode_lock(_flip)
+    if already is not None:
+        print("thread mode already ON since %s" % already)
         return
-    d["mode"] = "on"
-    d["since"] = now()
-    d.setdefault("threads", {})
-    _history(d).append({"ts": now(), "event": "on"})
-    save_mode(d)
     print("thread mode ON. Cap: %d active threads." % MAX_ACTIVE)
     print("  start one:  python3 tools/bm_threads.py start <feature> \"<objective>\"")
     print("  review all: python3 tools/bm_threads.py dashboard")
@@ -445,20 +448,29 @@ def cmd_off(argv):
         print("  Fix that file (permissions or disk), then run `off` again.")
         return
     missing = [n for n in names if n not in absorbed]
-    for name in names:
-        meta = d["threads"].get(name)
-        # Defensive: a hand-edited entry that is not an object carries no state
-        # to park. Skipping it matters here more than anywhere else: absorb has
-        # already drained and parked the RECORDS, so raising at this point left
-        # the mode file unsaved and the two halves disagreeing.
-        if not isinstance(meta, dict):
-            continue
-        meta["state"] = "parked"
-        meta["parked_at"] = now()
-    d["mode"] = "off"
-    _history(d).append({"ts": now(), "event": "off",
-                        "absorbed": absorbed, "empty": missing})
-    save_mode(d)
+
+    # The mode read-modify-write goes under the mode lock, and ONLY it. absorb()
+    # above already took the REGISTRY lock and released it, so the order here is
+    # registry-then-mode, the same order `start` uses. Holding the mode lock
+    # across absorb would invert that and two concurrent commands could deadlock.
+    # Re-read inside the lock: `d` was loaded before absorb ran and is stale.
+    def _park_and_close():
+        dd = load_mode()
+        for name in sorted(dd.get("threads", {})):
+            meta = dd["threads"].get(name)
+            # Defensive: a hand-edited entry that is not an object carries no
+            # state to park. Skipping it matters here more than anywhere else:
+            # absorb has already drained and parked the RECORDS, so raising at
+            # this point left the mode file unsaved and the halves disagreeing.
+            if not isinstance(meta, dict):
+                continue
+            meta["state"] = "parked"
+            meta["parked_at"] = now()
+        dd["mode"] = "off"
+        _history(dd).append({"ts": now(), "event": "off",
+                             "absorbed": absorbed, "empty": missing})
+        save_mode(dd)
+    _with_mode_lock(_park_and_close)
     print("thread mode OFF (drained and parked, nothing deleted).")
     print("  absorbed %d digest(s) via the registry into %s" % (len(absorbed), target))
     for n in absorbed:
@@ -496,14 +508,18 @@ def cmd_adopt(argv):
     # this digest a second time and would keep the thread's files fenced by an
     # owner that is gone.
     reg.close(name, state="adopted")
-    d = load_mode()
-    # isinstance, not `in`: a malformed entry cannot be assigned into, and the
-    # registry record above is already closed by this point.
-    if isinstance(d.get("threads", {}).get(name), dict):
-        d["threads"][name]["state"] = "adopted"
-        d["threads"][name]["adopted_at"] = now()
-        _history(d).append({"ts": now(), "event": "adopt", "thread": name})
-        save_mode(d)
+    # Under the mode lock like every other mutation. The registry record above
+    # is already closed and its lock released, so the order stays
+    # registry-then-mode and matches `start` and `off`.
+    def _mark_adopted():
+        d = load_mode()
+        # isinstance, not `in`: a malformed entry cannot be assigned into.
+        if isinstance(d.get("threads", {}).get(name), dict):
+            d["threads"][name]["state"] = "adopted"
+            d["threads"][name]["adopted_at"] = now()
+            _history(d).append({"ts": now(), "event": "adopt", "thread": name})
+            save_mode(d)
+    _with_mode_lock(_mark_adopted)
     print("adopted '%s': its digest and fence are now in the chief's STATE.md." % name)
     print("  DECIDE: respawn the thread, or continue this work solo. Nothing is orphaned.")
 
