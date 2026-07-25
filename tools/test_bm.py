@@ -713,22 +713,48 @@ class TestRegistryStorage(unittest.TestCase):
                             "a failed save must warn on stderr, never fail silently")
 
     def test_load_does_not_raise_on_deeply_nested_json(self):
-        # load() caught only ValueError, so a pathological file raised
-        # RecursionError out of a function documented to never raise.
+        """load() caught only ValueError, so a pathological file raised
+        RecursionError out of a function documented to never raise.
+
+        This asserts ONLY that load survives, because that is the part that is
+        true everywhere. Whether the parse actually fails at a given nesting
+        depth is PLATFORM DEPENDENT: 20000 levels overflowed the stack on macOS
+        and parsed cleanly on the Linux CI runner, so an earlier version of this
+        test also demanded a stderr warning and passed locally while failing in
+        CI. The warning is now covered by its own deterministic test below."""
         reg = load_registry_module()
         with tempfile.TemporaryDirectory() as d:
             path = reg.registry_path(cwd=d)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             io.open(path, "w").write('{"a":' * 20000 + "1" + "}" * 20000)
+            try:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    back = reg.load(cwd=d)
+            except Exception as e:
+                self.fail("load() raised on deeply nested JSON: %r" % (e,))
+            self.assertEqual(back["records"], {},
+                             "a registry that is not a usable record set must load as empty")
+
+    def test_load_warns_on_an_unparsable_registry(self):
+        """A corrupt registry must degrade to empty AND say so. Silence would
+        let a session run with no fences while believing it had them.
+
+        Uses plainly invalid JSON rather than deep nesting, so the parse fails
+        identically on every platform and stack size."""
+        reg = load_registry_module()
+        with tempfile.TemporaryDirectory() as d:
+            path = reg.registry_path(cwd=d)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            io.open(path, "w").write("{ this is not json at all")
             stderr_capture = io.StringIO()
             try:
                 with contextlib.redirect_stderr(stderr_capture):
                     back = reg.load(cwd=d)
             except Exception as e:
-                self.fail("load() raised on deeply nested JSON: %r" % (e,))
+                self.fail("load() raised on an unparsable registry: %r" % (e,))
             self.assertEqual(back["records"], {}, "an unparsable registry must load as empty")
             self.assertTrue(stderr_capture.getvalue().strip(),
-                            "an unparsable registry must warn on stderr")
+                            "an unparsable registry must warn on stderr, never fail silently")
 
     def test_unknown_fields_and_newer_schema_do_not_crash(self):
         reg = load_registry_module()
