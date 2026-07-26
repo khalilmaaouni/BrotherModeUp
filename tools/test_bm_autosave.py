@@ -279,17 +279,45 @@ class TestCalibratedBlocker1RecoveryPermissions(unittest.TestCase):
             try:
                 self.assertTrue(os.path.isdir(recovered_dir), printed)
                 mode = stat.S_IMODE(os.stat(recovered_dir).st_mode)
-                self.assertEqual(
-                    mode, 0o700,
-                    "recovered worktree dir must be owner-only (0700); got %04o "
-                    "(BLOCKER 1: mkdtemp's 0700 must survive, never be discarded "
-                    "and recreated at the process umask)" % mode)
                 secret_path = os.path.join(recovered_dir, "secret.txt")
                 self.assertTrue(os.path.exists(secret_path))
-                # The printed output must STATE the mode, not just achieve it.
-                self.assertIn("0700", printed,
-                              "the recovery output must state the permissions it gave "
-                              "the recovered directory")
+                if os.name == "posix":
+                    # The load-bearing guarantee, asserted at full strength on
+                    # the platforms where a POSIX mode actually controls access.
+                    self.assertEqual(
+                        mode, 0o700,
+                        "recovered worktree dir must be owner-only (0700); got %04o "
+                        "(BLOCKER 1: mkdtemp's 0700 must survive, never be discarded "
+                        "and recreated at the process umask)" % mode)
+                    self.assertIn("0700", printed,
+                                  "the recovery output must state the permissions it gave "
+                                  "the recovered directory")
+                else:
+                    # Windows does not have POSIX modes: access is governed by
+                    # ACLs, and os.chmod there can only toggle a read-only bit,
+                    # which _chmod_best_effort's own docstring in bm_store.py
+                    # already says. Asserting 0700 here would not be a stricter
+                    # test, it would be a FALSE one, and it was: adding this
+                    # suite to CI (audit finding 14) failed on both Windows legs
+                    # for exactly this reason while passing on all four POSIX
+                    # legs.
+                    #
+                    # So this asserts the two things that remain true and
+                    # meaningful on Windows: the recovered work is there, and
+                    # the tool REPORTS the protection it actually achieved
+                    # rather than claiming one it did not. The product prints
+                    # the real mode, so honesty is testable even where the
+                    # guarantee is not available.
+                    #
+                    # The gap itself is not hidden by this branch: it is written
+                    # down in docs/KNOWN-LIMITS.md, because "recovered work is
+                    # owner-only" is a POSIX-only promise and a Windows user
+                    # relying on it would be relying on nothing.
+                    self.assertRegex(
+                        printed, r"0[0-7]{3}",
+                        "even where the mode cannot be enforced, the recovery "
+                        "output must STATE the mode actually achieved, so a "
+                        "founder can see what protection this platform gave")
             finally:
                 _git(toplevel, "worktree", "remove", "--force", recovered_dir)
 

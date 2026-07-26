@@ -57,6 +57,53 @@ one's check passes.
 - **Loop G, RE-AUDIT.** Independent adversarial pass against all 17 original
   findings plus whatever the fixes introduced.
 
+## Loop A result, 2026-07-27: every finding CONFIRMED, several worse than reported
+
+Six read-only agents, one per cluster, each required to quote file:line and to RUN
+the attack rather than argue it. Zero refuted. What the executions actually showed:
+
+- **2A** a handover block was written into a file OUTSIDE the project root.
+- **2B** an external file's contents were copied INTO the repo as `STATE.md.bak-*`.
+  Correction to the audit: the final write uses `os.replace`, so it replaces the
+  symlink rather than writing through it. The escape is read-and-copy-inward, not
+  overwrite-outward. It is still a disclosure, and in a user project
+  `STATE.md.bak-*` is untracked, so a routine `git add -A` commits it.
+- **2C** thread files landed outside the root, and a symlinked `outbox.md` gave a
+  general-purpose append primitive (`checkpoint --next "PWNED-APPEND"` exited 0).
+- **3** the MCP server, asked ONLY about project B, returned project A's records
+  and fences with `isError=False`.
+- **4** the install verifier passed with a planted unmanifested `tools/json.py`
+  symlink, run against a real throwaway install.
+- **8B, NOT in the original audit and worse than what was reported:** session
+  identity is a caller-supplied string AND the owning value is printed in
+  plaintext into the file every session reads. The ownership guard compares a
+  public value against itself.
+
+Two nuances that change the fix, and would have caused a regression if missed:
+
+1. **Finding 11 is a trap.** The "distant marker beats a closer `.git`" precedence
+   is DELIBERATE and fixes an earlier bug class (F2 / F42 / F2b): it stops a
+   vendored submodule shadowing the real project root. Inverting it would reopen
+   that. The fix is to move the containment check into `resolve_root` as an
+   opt-in, not to flip precedence.
+2. **The primitives already exist and are correct.** `_refuse_if_symlink_escape`
+   and `_refuse_if_hardlinked` are sound; they are simply never called for
+   `STATE.md`, backups, `threads/`, or the MCP copy. So R1 is enforcement and
+   routing, not new security code. Writing a second symlink checker beside a
+   working one would itself be the defect this project keeps hitting.
+
+## Fence registry, wave 1 (disjoint files, three writers)
+
+| Fence | Files | Scope |
+|---|---|---|
+| W1-scripts | `scripts/verify-install.sh`, `scripts/checksums.sh`, add-only in `tools/test_bm.py` | findings 4, 4B |
+| W1-mcp | `mcp/bm_mcp_server.py`, `mcp/README.md`, add-only in `tools/test_bm.py` | findings 3, 3b, 3c |
+| W1-store | `tools/bm_store.py`, `tools/test_bm_store.py` | findings 2B (funnel), 7 |
+
+Wave 2, after W1-store lands and exports the funnel: `bm_threads.py` (2A, 2C, 9,
+10, 12, 8), `bm_autosave.py` (1, 13, 16), then root containment (11), git-tracked
+refusal (5), release identity (6), Windows hook dispatcher (15), docs (17).
+
 ## Standing constraints
 
 - No em dashes or en dashes anywhere.
