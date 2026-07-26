@@ -14,6 +14,7 @@ import io
 import json
 import ntpath
 import os
+import pathlib
 import re
 import sqlite3
 import stat
@@ -711,6 +712,190 @@ class TestFixRoundGates(unittest.TestCase):
                 self.assertEqual(parked.state, "parked")
             finally:
                 store.close()
+
+
+# ---------------------------------------------------------------------------
+# Fix-round 2 (2026-07-26): claim() silently dropped a non-str file entry
+# (pathlib.Path being the obvious case) and still reported success with a
+# record holding no claims at all. checkpoint()'s decisions loop had the
+# identical shape of bug.
+# ---------------------------------------------------------------------------
+
+class TestFixRound2SilentDrop(unittest.TestCase):
+    def test_calibrated_pathlib_path_is_accepted_and_stored_as_string(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("t", "ephemeral", "obj",
+                                   [pathlib.Path("api/pay.py")], session_id="s1")
+                self.assertEqual(rec.files, ["api/pay.py"])
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.claim("other", "ephemeral", "obj", ["api/pay.py"],
+                                session_id="s2")
+                self.assertEqual(ctx.exception.reason, "overlap")
+            finally:
+                store.close()
+
+    def test_calibrated_int_entry_raises_bad_path_and_creates_no_record(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.claim("t", "ephemeral", "obj", [123], session_id="s1")
+                self.assertEqual(ctx.exception.reason, "bad-path")
+                data = store.dump()
+                self.assertEqual(data["records"], [], "the transaction must not have run at all")
+            finally:
+                store.close()
+
+    def test_calibrated_none_entry_raises_bad_path_and_creates_no_record(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.claim("t", "ephemeral", "obj", [None], session_id="s1")
+                self.assertEqual(ctx.exception.reason, "bad-path")
+                self.assertEqual(store.dump()["records"], [])
+            finally:
+                store.close()
+
+    def test_calibrated_mixed_valid_and_invalid_stores_neither_atomicity(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.claim("t", "ephemeral", "obj", ["ok.py", 123], session_id="s1")
+                self.assertEqual(ctx.exception.reason, "bad-path")
+                data = store.dump()
+                self.assertEqual(data["records"], [])
+                self.assertEqual(data["claims"], [])
+                # A later, entirely separate claim on ok.py must be free:
+                # nothing from the failed attempt survived.
+                rec = store.claim("second", "ephemeral", "obj", ["ok.py"], session_id="s2")
+                self.assertEqual(rec.files, ["ok.py"])
+            finally:
+                store.close()
+
+    def test_calibrated_blank_only_files_list_raises_not_silently_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.claim("t", "ephemeral", "obj", ["   ", ""], session_id="s1")
+                self.assertEqual(ctx.exception.reason, "bad-path")
+                self.assertEqual(store.dump()["records"], [])
+            finally:
+                store.close()
+
+    def test_calibrated_non_iterable_files_raises_bad_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.claim("t", "ephemeral", "obj", 42, session_id="s1")
+                self.assertEqual(ctx.exception.reason, "bad-path")
+            finally:
+                store.close()
+
+    def test_calibrated_empty_files_list_stays_legal(self):
+        # Rule: an empty list is a real, legal "no claims" record. Only a
+        # NON-empty input that yields zero stored claims must raise.
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("t", "ephemeral", "obj", [], session_id="s1")
+                self.assertEqual(rec.files, [])
+            finally:
+                store.close()
+
+    def test_structural_coerce_path_entry_is_total(self):
+        # Every input either returns a string or raises OwnershipRefused
+        # 'bad-path'; nothing else (None, a silent skip, a different
+        # exception type) is an acceptable outcome.
+        for entry in ("plain.py", pathlib.Path("a/b.py"), 123, None, 3.14,
+                      [], {}, object(), b"bytes.py", True):
+            try:
+                result = bs._coerce_path_entry(entry)
+            except bs.OwnershipRefused as e:
+                self.assertEqual(e.reason, "bad-path")
+            else:
+                self.assertIsInstance(result, str,
+                                      "%r returned %r, neither a string nor a raise"
+                                      % (entry, result))
+
+    def test_calibrated_reinject_silent_drop_would_fail_every_test_above(self):
+        # The calibration pattern: reproduce the OLD behavior (silently
+        # filter to only str entries, like round 1's _normalize_files did)
+        # and confirm each test above's core assertion would have failed.
+        def old_normalize_files(files, root, cwd=None):
+            if files is None:
+                raw = []
+            elif isinstance(files, str):
+                raw = [files]
+            else:
+                try:
+                    raw = [f for f in files if isinstance(f, str)]
+                except TypeError:
+                    raw = []
+            out = []
+            for f in raw:
+                if not (f or "").strip():
+                    continue
+                canon = bs.canonicalize_path(root, f, cwd)
+                out.append((canon, bs._has_glob(canon)))
+            return out
+
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                with mock.patch.object(bs, "_normalize_files", old_normalize_files):
+                    # Path silently dropped: old code stores zero claims,
+                    # not ['api/pay.py'], and raises nothing.
+                    rec = store.claim("t", "ephemeral", "obj",
+                                       [pathlib.Path("api/pay.py")], session_id="s1")
+                    self.assertEqual(rec.files, [],
+                                      "reinjected old code should have dropped the Path silently")
+                    # A genuinely bad entry mixed with a good one: old code
+                    # stores the good one alone instead of raising.
+                    rec2 = store.claim("t2", "ephemeral", "obj", ["ok.py", 123],
+                                        session_id="s2")
+                    self.assertEqual(rec2.files, ["ok.py"],
+                                      "reinjected old code should have silently dropped 123")
+            finally:
+                store.close()
+
+    # -- the same audit, applied to checkpoint()'s decisions list ---------
+
+    def test_calibrated_malformed_decision_raises_and_rolls_back_digest(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("t", "ephemeral", "obj", [])
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.checkpoint(rec.lifecycle_uuid, rec.version, "next",
+                                      decisions=[{"topic": "ok", "text": "fine"}, "malformed"])
+                self.assertEqual(ctx.exception.reason, "bad-decision")
+                payload = store.handover_payload(rec.lifecycle_uuid)
+                self.assertIsNone(payload["digest"],
+                                  "the digest row must have rolled back with the bad decision")
+                self.assertEqual(payload["decisions"], [],
+                                  "the good decision must not survive a rolled-back transaction")
+            finally:
+                store.close()
+
+    def test_structural_no_silent_continue_in_checkpoint_decisions_loop(self):
+        # Structural guard, mirroring the canonicalizer totality test: the
+        # decisions loop inside checkpoint() must never discard a malformed
+        # entry via a bare "continue". Grep-level check so a future edit
+        # cannot silently reintroduce the exact pre-fix shape.
+        with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
+            src = f.read()
+        start = src.index("def checkpoint(self,")
+        end = src.index("\n    def decide(self,")
+        body = src[start:end]
+        self.assertNotIn("else:\n                        continue", body,
+                          "checkpoint()'s decisions loop must raise on a malformed "
+                          "entry, never silently skip it")
 
 
 # ---------------------------------------------------------------------------
