@@ -12,6 +12,7 @@ import ast
 import datetime
 import gc
 import glob
+import hashlib
 import io
 import json
 import ntpath
@@ -61,6 +62,107 @@ def _scan_for_forbidden_output_calls(lines):
     pat = re.compile(r"print\(|sys\.stdout\.write|sys\.stderr\.write|\.stdout\.write|\.stderr\.write")
     return [i for i, line in enumerate(lines, 1)
             if not line.lstrip().startswith("#") and pat.search(line)]
+
+
+def _sha256_file(path):
+    """Content fingerprint used by the finding-7 tests to prove a file was
+    not moved AND not rewritten. Existence alone is too weak: a store that
+    was quarantined and then recreated empty at the same path also exists."""
+    h = hashlib.sha256()
+    with io.open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+# Sink calls that OPEN or WRITE a path. Shared by the finding-2B structural
+# test and its calibration companion below.
+_PATH_SINKS = ("open", "io.open", "_atomic_write_text", "_write_generated_file",
+               "os.makedirs", "os.replace", "os.rename", "os.remove", "os.unlink",
+               "os.rmdir", "shutil.copy2", "shutil.copyfile", "shutil.move",
+               "shutil.rmtree")
+_ROOT_ARG_NAMES = ("root", "project_root")
+
+
+def _dotted_call_name(node):
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _dotted_call_name(node.value)
+        return (base + "." + node.attr) if base else node.attr
+    return ""
+
+
+def _looks_like_project_root(node):
+    """The expressions this codebase uses to mean "the project root":
+    a bare `root`/`project_root` parameter, or any `.root` attribute
+    (`self.root`, `store.root`)."""
+    if isinstance(node, ast.Name):
+        return node.id in _ROOT_ARG_NAMES
+    if isinstance(node, ast.Attribute):
+        return node.attr == "root"
+    return False
+
+
+def _scan_root_path_sites(source, filename="bm_store.py"):
+    """Returns (root_joins, concat_sinks) for one Python source string.
+
+    root_joins:   os.path.join(<project root>, ...) call sites, which must be
+                  safe_project_path(...) instead.
+    concat_sinks: a write/open sink handed a path built by string
+                  concatenation, the shape that produced the STATE.md.bak
+                  write the funnel would otherwise never see.
+
+    Each entry is (lineno, enclosing qualified function name)."""
+    tree = ast.parse(source, filename=filename)
+    root_joins, concat_sinks = [], []
+
+    class _Visitor(ast.NodeVisitor):
+        def __init__(self):
+            self.class_stack = []
+            self.func_stack = ["<module>"]
+            self.taint_stack = [set()]
+
+        def visit_ClassDef(self, node):
+            self.class_stack.append(node.name)
+            self.generic_visit(node)
+            self.class_stack.pop()
+
+        def visit_FunctionDef(self, node):
+            qualified = ("%s.%s" % (self.class_stack[-1], node.name)
+                         if self.class_stack else node.name)
+            tainted = set()
+            for sub in ast.walk(node):
+                if (isinstance(sub, ast.Assign)
+                        and isinstance(sub.value, ast.BinOp)
+                        and isinstance(sub.value.op, ast.Add)):
+                    for target in sub.targets:
+                        if isinstance(target, ast.Name):
+                            tainted.add(target.id)
+            self.func_stack.append(qualified)
+            self.taint_stack.append(tainted)
+            self.generic_visit(node)
+            self.taint_stack.pop()
+            self.func_stack.pop()
+
+        def visit_Call(self, node):
+            name = _dotted_call_name(node.func)
+            enclosing = self.func_stack[-1]
+            if (name == "os.path.join" and node.args
+                    and _looks_like_project_root(node.args[0])):
+                root_joins.append((node.lineno, enclosing))
+            if name in _PATH_SINKS and node.args:
+                first = node.args[0]
+                concatenated = (isinstance(first, ast.BinOp)
+                                and isinstance(first.op, ast.Add))
+                from_concat = (isinstance(first, ast.Name)
+                               and first.id in self.taint_stack[-1])
+                if concatenated or from_concat:
+                    concat_sinks.append((node.lineno, enclosing))
+            self.generic_visit(node)
+
+    _Visitor().visit(tree)
+    return root_joins, concat_sinks
 
 # ---------------------------------------------------------------------------
 # The 10 calibrated reinjection tests: each is one confirmed V1 defect,
@@ -1260,6 +1362,16 @@ class TestFixRound3(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestFixRound4Honesty(unittest.TestCase):
+    # Amended for FINDING 7 (2026-07-26): these three tests used a read-only
+    # `verify` to CREATE the quarantine they then reason about, which is the
+    # very behavior finding 7 confirmed as a defect (the SessionStart hook
+    # runs `verify` automatically, so a transient disk or permission error
+    # was enough to move a healthy database). The honesty contract each test
+    # exists for is unchanged and every original assertion is still here;
+    # only the step that produces the quarantine moved to a WRITABLE
+    # command, which is the one thing allowed to move a file. Each test also
+    # gained the new guarantee: the read-only pass leaves the store exactly
+    # where it was.
     def test_calibrated_second_verify_after_quarantine_never_says_healthy(self):
         with tempfile.TemporaryDirectory() as d:
             _run_cli(["init"], d)
@@ -1269,14 +1381,27 @@ class TestFixRound4Honesty(unittest.TestCase):
             path = bs.store_path(d)
             with io.open(path, "wb"):
                 pass  # truncate to 0 bytes
+            truncated_digest = _sha256_file(path)
             r1 = _run_cli(["verify"], d)
             self.assertEqual(r1.returncode, 1, r1.stdout + r1.stderr)
             self.assertIn("CORRUPT", r1.stdout)
+            # FINDING 7: verify REPORTS, it never moves. The file it just
+            # called corrupt is still exactly where it was.
+            self.assertEqual(glob.glob(path + ".quarantine-*"), [],
+                              "a read-only verify must never quarantine")
+            self.assertEqual(_sha256_file(path), truncated_digest)
             r2 = _run_cli(["verify"], d)
             self.assertNotEqual(r2.returncode, 0, r2.stdout + r2.stderr)
             self.assertNotIn("healthy", r2.stdout)
+            # A WRITABLE command is what actually quarantines it.
+            r_write = _run_cli(["claim", "k2", "--lifetime", "ephemeral",
+                                "--objective", "o"], d)
+            self.assertNotEqual(r_write.returncode, 0, r_write.stdout + r_write.stderr)
             qdirs = glob.glob(path + ".quarantine-*")
             self.assertEqual(len(qdirs), 1)
+            r2 = _run_cli(["verify"], d)
+            self.assertNotEqual(r2.returncode, 0, r2.stdout + r2.stderr)
+            self.assertNotIn("healthy", r2.stdout)
             # SOFT F (fix-round 6, 2026-07-26): the pre-dispatch quarantine
             # warning that names the directory now goes to stderr, so
             # stdout (the payload stream) stays parseable.
@@ -1319,7 +1444,10 @@ class TestFixRound4Honesty(unittest.TestCase):
             path = bs.store_path(d)
             with io.open(path, "wb"):
                 pass
-            _run_cli(["verify"], d)  # triggers the quarantine
+            # FINDING 7: a WRITABLE command triggers the quarantine now.
+            # `verify` used to be what triggered it, and a read-only
+            # diagnostic moving the founder's database is the defect.
+            _run_cli(["claim", "k2", "--lifetime", "ephemeral", "--objective", "o"], d)
             qdirs = glob.glob(path + ".quarantine-*")
             self.assertEqual(len(qdirs), 1)
 
@@ -1345,7 +1473,10 @@ class TestFixRound4Honesty(unittest.TestCase):
             path = bs.store_path(d)
             with io.open(path, "wb"):
                 pass
-            _run_cli(["verify"], d)  # quarantines
+            # FINDING 7: quarantining is a write, so a writable command is
+            # what produces the outstanding quarantine this warning is about.
+            _run_cli(["claim", "k2", "--lifetime", "ephemeral", "--objective", "o"], d)
+            self.assertEqual(len(glob.glob(path + ".quarantine-*")), 1)
             r = _run_cli(["verify"], d)
             # SOFT F (fix-round 6, 2026-07-26): warnings go to stderr now,
             # so stdout stays a clean payload stream.
@@ -3769,6 +3900,405 @@ class TestStoreInvariantsUnderRandomSequences(unittest.TestCase):
                 "path; if this assertion fails, the generator is not calibrated")
         finally:
             bs.Store._find_overlap = original
+
+
+# ---------------------------------------------------------------------------
+# FINDING 2B (CONFIRMED by execution): generated-file writes were not
+# contained. With STATE.md symlinked at an external file, write_state_view
+# read the TARGET's bytes and saved them as <root>/STATE.md.bak-<stamp>, an
+# ordinary in-repo file a routine `git add -A` then commits.
+# ---------------------------------------------------------------------------
+
+class TestFinding2BPathContainment(unittest.TestCase):
+    def test_calibrated_finding2b_symlinked_state_md_refused_not_copied(self):
+        # The executed reproduction, as a test. Reinjecting the old line
+        # (`path = os.path.join(root, "STATE.md")`) makes this fail with
+        # "OwnershipRefused not raised", and the assertions below then show
+        # the external content sitting in an in-repo STATE.md.bak-* file.
+        outside = tempfile.mkdtemp()
+        try:
+            secret_path = os.path.join(outside, "private-notes.md")
+            secret = "PRIVATE CONTENT THAT LIVES OUTSIDE THE PROJECT"
+            with io.open(secret_path, "w", encoding="utf-8") as f:
+                f.write(secret)
+            with tempfile.TemporaryDirectory() as d:
+                with bs.Store(d) as store:
+                    store.claim("thing", "ephemeral", "obj", [])
+                os.symlink(secret_path, os.path.join(d, "STATE.md"))
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    bs.write_state_view(d)
+                self.assertEqual(ctx.exception.reason, "path-escape")
+                strays = sorted(n for n in os.listdir(d)
+                                if n.startswith("STATE.md.bak-"))
+                self.assertEqual(strays, [],
+                                  "an in-repo backup of a symlink target is exactly the "
+                                  "file `git add -A` commits; found: %s" % strays)
+                with io.open(secret_path, encoding="utf-8") as f:
+                    self.assertEqual(f.read(), secret,
+                                      "the external file must be left untouched")
+        finally:
+            shutil.rmtree(outside, ignore_errors=True)
+
+    def test_finding2b_symlinked_parent_directory_is_refused_too(self):
+        # A symlinked LEAF is not the only shape: <root>/threads -> outside
+        # makes every path under it an escape while the leaf itself looks
+        # like an ordinary new file. The funnel checks each existing
+        # component, not just the last one.
+        outside = tempfile.mkdtemp()
+        try:
+            target = os.path.join(outside, "elsewhere")
+            os.makedirs(target)
+            with tempfile.TemporaryDirectory() as d:
+                os.symlink(target, os.path.join(d, "threads"))
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    bs.safe_project_path(d, "threads", "note.md")
+                self.assertEqual(ctx.exception.reason, "path-escape")
+        finally:
+            shutil.rmtree(outside, ignore_errors=True)
+
+    def test_finding2b_traversal_and_absolute_components_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            for parts in ((os.pardir, "escape.md"),
+                          ("threads", os.pardir, os.pardir, "escape.md")):
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    bs.safe_project_path(d, *parts)
+                self.assertEqual(ctx.exception.reason, "path-escape")
+            absolute = os.path.join(os.sep, "etc", "passwd")
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.safe_project_path(d, absolute)
+            self.assertEqual(ctx.exception.reason, "path-escape",
+                              "os.path.join silently lets an absolute component win "
+                              "over the root, so it must be refused explicitly")
+
+    def test_finding2b_ordinary_nested_paths_are_allowed(self):
+        # The false-positive guard, and it is not hypothetical: a POSIX
+        # DIRECTORY always reports st_nlink >= 2 ('.' plus its parent's
+        # entry), so running the hardlink check over directory components
+        # would refuse every legitimate path on this platform.
+        with tempfile.TemporaryDirectory() as d:
+            real_root = os.path.realpath(d)
+            os.makedirs(os.path.join(d, "threads", "sub"))
+            expected = os.path.join(real_root, "threads", "sub", "note.md")
+            self.assertEqual(bs.safe_project_path(d, "threads", "sub", "note.md"),
+                             expected)
+            with io.open(expected, "w", encoding="utf-8") as f:
+                f.write("ordinary content")
+            self.assertEqual(bs.safe_project_path(d, "threads", "sub", "note.md"),
+                             expected, "an existing plain file must still be allowed")
+            self.assertEqual(bs.safe_project_path(d, "STATE.md"),
+                             os.path.join(real_root, "STATE.md"),
+                             "a path that does not exist yet cannot be an escape")
+
+    def test_finding2b_hardlinked_leaf_is_refused(self):
+        # The threat a symlink check cannot see (SOFT D's reasoning, applied
+        # to generated files): a second, git-visible name sharing the inode.
+        with tempfile.TemporaryDirectory() as d:
+            leaf = os.path.join(os.path.realpath(d), "STATE.md")
+            with io.open(leaf, "w", encoding="utf-8") as f:
+                f.write("content")
+            os.link(leaf, os.path.join(os.path.realpath(d), "STATE-alias.md"))
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.safe_project_path(d, "STATE.md")
+            self.assertEqual(ctx.exception.reason, "path-escape")
+
+    def test_finding2b_write_state_view_still_works_normally(self):
+        # Containment must not cost the ordinary path: a real render, a real
+        # human-prose backup, and a real splice still happen.
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.claim("thing", "ephemeral", "obj", [])
+            bs.write_state_view(d)
+            state = os.path.join(d, "STATE.md")
+            self.assertTrue(os.path.isfile(state))
+            with io.open(state, encoding="utf-8") as f:
+                first = f.read()
+            self.assertIn(bs._STATE_BEGIN, first)
+            bs.write_state_view(d)
+            strays = [n for n in os.listdir(d) if n.startswith("STATE.md.bak-")]
+            self.assertEqual(len(strays), 1,
+                              "the second render must still back the previous file up")
+
+    def test_structural_finding2b_root_paths_go_through_safe_project_path(self):
+        """Stops call site N+1, which is the whole point.
+
+        This project has already learned that hand-fixing N call sites leaves
+        site N+1 open: the database-handle leak (CI run 18, commit 7c2e0ec)
+        fixed twelve sites by hand, and the thirteenth, written by someone who
+        never read the fix, would have leaked exactly the same way. Finding 2B
+        is the same shape one layer down: write_state_view's STATE.md read was
+        one of several bare os.path.join(root, ...) sites, and repairing only
+        the one that was reproduced would leave the next generated file
+        (a handover, a thread note, a report) free to be written through a
+        symlink again. So the rule is asserted, not the instances.
+
+        TWO RULES, both derived from the confirmed defect:
+          1. os.path.join(<project root>, ...) anywhere in bm_store.py, since
+             every root-relative path must be built by safe_project_path.
+          2. a write/open sink handed a path built by string concatenation,
+             which is how the STATE.md.bak-<stamp> name was assembled: it
+             never touched os.path.join at all, so rule 1 alone would have
+             missed the exact line that leaked the bytes.
+
+        BLIND SPOTS, stated rather than overclaimed. This rule does NOT catch:
+          * a root passed under a name it does not recognize (a local
+            rebound as `base`, `d`, `where`); it recognizes `root`,
+            `project_root` and any `.root` attribute, which is what this
+            codebase actually writes;
+          * a path built with pathlib, os.sep.join, or an f-string;
+          * concatenation laundered through a helper function before it
+            reaches the sink (the taint check is per function, single
+            assignment deep, with no cross-function data flow);
+          * a caller in another module. bm_threads.py and bm_autosave.py
+            build their own root-relative paths and are outside this file's
+            scan; safe_project_path is public precisely so they can adopt
+            it, and their own suites should assert the same rule.
+        """
+        exempt_joins = {
+            "store_dir": "the store's own directory, which is already run "
+                          "through _refuse_if_symlink_escape and "
+                          "_refuse_if_hardlinked explicitly by both "
+                          "Store.__init__ and ReadOnlyStore.__init__ before "
+                          "anything is opened or written",
+            "_resolve_git_common_dir": "git's own administrative directory, "
+                                        "which legitimately lives OUTSIDE the "
+                                        "project root in a worktree, so an "
+                                        "inside-the-root funnel would refuse a "
+                                        "valid checkout; it has its own "
+                                        "validation (SOFT G, "
+                                        "_looks_like_git_admin_dir)",
+        }
+        exempt_concat_sinks = {
+            "Store._quarantine_and_raise": "the quarantine directory is built "
+                                            "from the ALREADY contained store "
+                                            "path and is safe by construction: "
+                                            "os.makedirs(exist_ok=False) means "
+                                            "anything already sitting at that "
+                                            "name, a symlink included, raises "
+                                            "instead of being written through",
+        }
+        with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
+            source = f.read()
+        root_joins, concat_sinks = _scan_root_path_sites(source)
+        bad_joins = [(ln, fn) for ln, fn in root_joins if fn not in exempt_joins]
+        bad_sinks = [(ln, fn) for ln, fn in concat_sinks if fn not in exempt_concat_sinks]
+        self.assertEqual(bad_joins, [],
+                          "os.path.join(<project root>, ...) call site(s) (line, "
+                          "enclosing function): %s. Build the path with "
+                          "safe_project_path(root, ...) instead, or add the enclosing "
+                          "function to `exempt_joins` above with a stated reason."
+                          % bad_joins)
+        self.assertEqual(bad_sinks, [],
+                          "write/open call site(s) handed a concatenated path (line, "
+                          "enclosing function): %s. This is the STATE.md.bak-<stamp> "
+                          "shape from finding 2B; push the name back through "
+                          "safe_project_path(root, name) instead of concatenating onto "
+                          "an existing path, or add the enclosing function to "
+                          "`exempt_concat_sinks` above with a stated reason."
+                          % bad_sinks)
+
+    def test_structural_finding2b_scanner_actually_catches_the_old_code(self):
+        # Calibration for the rule above: a check that has never been seen to
+        # fail is decoration. Both halves of the ORIGINAL defect are fed back
+        # in as source text and must be flagged; the repaired shape must not.
+        old_code = (
+            "def write_state_view(root):\n"
+            "    path = os.path.join(root, 'STATE.md')\n"
+            "    with open(path) as f:\n"
+            "        existing = f.read()\n"
+            "    backup_path = path + '.bak-' + stamp\n"
+            "    _atomic_write_text(backup_path, existing)\n")
+        old_joins, old_sinks = _scan_root_path_sites(old_code, "old.py")
+        self.assertEqual([fn for _ln, fn in old_joins], ["write_state_view"],
+                          "the reinjected os.path.join(root, ...) must be flagged")
+        self.assertEqual([fn for _ln, fn in old_sinks], ["write_state_view"],
+                          "the reinjected concatenated backup path must be flagged")
+        new_code = (
+            "def write_state_view(root):\n"
+            "    path = safe_project_path(root, 'STATE.md')\n"
+            "    with open(path) as f:\n"
+            "        existing = f.read()\n"
+            "    backup_path = safe_project_path(root, 'STATE.md.bak-' + stamp)\n"
+            "    _atomic_write_text(backup_path, existing)\n")
+        self.assertEqual(_scan_root_path_sites(new_code, "new.py"), ([], []),
+                          "the repaired shape must not be flagged, or the rule is "
+                          "unusable and will simply be deleted by the next person")
+
+
+# ---------------------------------------------------------------------------
+# FINDING 7 (CONFIRMED): a read-only health check could MOVE the real
+# database. ReadOnlyStore reused Store's quarantine verbatim, and everything
+# outside a two-string busy allowlist was ASSUMED to be corruption, so the
+# SessionStart hook's automatic `verify` could quarantine a healthy store on
+# a transient disk, permission or network-volume error.
+# ---------------------------------------------------------------------------
+
+class TestFinding7ReadOnlyNeverMoves(unittest.TestCase):
+    class _BoomConnection(object):
+        """A connection whose every statement fails the way a bad disk does.
+        A plain mock is not enough here: the code under test also closes the
+        connection, and the test asserts that close actually happened."""
+
+        def __init__(self, error):
+            self.error = error
+            self.closed = False
+
+        def execute(self, *args, **kwargs):
+            raise self.error
+
+        def close(self):
+            self.closed = True
+
+    def _seeded_project(self, d):
+        with bs.Store(d) as store:
+            store.claim("k", "persistent", "IMPORTANT WORK", ["k.py"])
+        return bs.store_path(d)
+
+    def test_calibrated_finding7_readonly_never_moves_on_disk_io_error(self):
+        # The SessionStart scenario: `verify` runs automatically, the disk
+        # hiccups, and the founder's database must still be exactly where it
+        # was, byte for byte. Reinjecting the old delegation
+        # (`return Store._quarantine_and_raise(self, cause)`) fails this on
+        # the sha256 comparison, because the file is gone from that path.
+        with tempfile.TemporaryDirectory() as d:
+            path = self._seeded_project(d)
+            before = _sha256_file(path)
+            boom = self._BoomConnection(sqlite3.OperationalError("disk I/O error"))
+            with mock.patch.object(bs, "_connect_read_only", return_value=boom):
+                with self.assertRaises(bs.StoreCorrupt) as ctx:
+                    bs.ReadOnlyStore(d)
+            # The file evidence FIRST, deliberately: it is the assertion this
+            # test exists for, so a future regression leads with "the bytes
+            # moved" rather than with a wording mismatch.
+            self.assertTrue(os.path.isfile(path),
+                            "the store must still be at its original path")
+            self.assertEqual(_sha256_file(path), before,
+                              "a read-only diagnostic must leave the database byte for "
+                              "byte identical")
+            self.assertEqual(glob.glob(path + ".quarantine-*"), [],
+                              "a read-only diagnostic must never create a quarantine")
+            message = str(ctx.exception)
+            self.assertIn("READ-ONLY", message)
+            self.assertIn("nothing", message.lower())
+            self.assertTrue(boom.closed,
+                            "the read-only path must still close its handle, or it "
+                            "recreates the Windows leak while fixing this")
+
+    def test_calibrated_finding7_readonly_never_moves_even_real_corruption(self):
+        # Even when the file IS genuinely damaged, the read-only path only
+        # reports it. Quarantining is a write, and this class has no write
+        # authority; the writable open right after proves the capability was
+        # not lost, only moved to where it belongs.
+        garbage = b"not a real sqlite database, just garbage bytes 1234567890"
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(bs.store_dir(d))
+            path = bs.store_path(d)
+            with io.open(path, "wb") as f:
+                f.write(garbage)
+            before = _sha256_file(path)
+            with self.assertRaises(bs.StoreCorrupt) as ctx:
+                bs.ReadOnlyStore(d)
+            self.assertIsNone(ctx.exception.quarantine_path)
+            self.assertEqual(_sha256_file(path), before)
+            self.assertEqual(glob.glob(path + ".quarantine-*"), [])
+            with self.assertRaises(bs.StoreCorrupt) as ctx2:
+                bs.Store(d)
+            self.assertTrue(ctx2.exception.quarantine_path,
+                            "a WRITABLE open must still quarantine real corruption")
+            self.assertFalse(os.path.exists(path))
+
+    def test_structural_finding7_readonly_cannot_reach_the_mover(self):
+        # Bound to WRITE AUTHORITY, not to a boolean somebody has to
+        # remember: ReadOnlyStore does not inherit from Store, so once the
+        # explicit delegation is gone there is no path to the mover at all.
+        # Patching the mover proves it is never entered, and the patch also
+        # removes its raise, so a reinjected delegation fails this test twice.
+        self.assertIsNot(bs.ReadOnlyStore._quarantine_and_raise,
+                         bs.Store._quarantine_and_raise,
+                         "ReadOnlyStore must OVERRIDE the quarantine entry point, "
+                         "not reuse the writable store's mover")
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(bs.store_dir(d))
+            with io.open(bs.store_path(d), "wb") as f:
+                f.write(b"not a real sqlite database, just garbage bytes 1234567890")
+            with mock.patch.object(bs.Store, "_quarantine_and_raise") as mover:
+                with self.assertRaises(bs.StoreCorrupt):
+                    bs.ReadOnlyStore(d)
+                self.assertEqual(mover.call_count, 0,
+                                  "a read-only store reached the code that moves the "
+                                  "founder's database")
+
+    def test_calibrated_finding7_writable_disk_io_error_reports_without_moving(self):
+        # The other half: even WITH write authority, an error that does not
+        # name corruption is an environment problem, not a verdict on the
+        # file. Reinjecting the old rule (quarantine every non-busy
+        # OperationalError) fails this on the sha256 comparison.
+        with tempfile.TemporaryDirectory() as d:
+            path = self._seeded_project(d)
+            before = _sha256_file(path)
+            store = bs.Store(d)
+            try:
+                real_conn = store.conn
+                boom = self._BoomConnection(sqlite3.OperationalError("disk I/O error"))
+                store.conn = boom
+                with self.assertRaises(bs.StoreCorrupt) as ctx:
+                    bs._exec(store, "SELECT value FROM meta WHERE key='schema_version'")
+                self.assertIsNone(ctx.exception.quarantine_path)
+            finally:
+                store.conn = None
+                store.close()
+                real_conn.close()
+            self.assertEqual(_sha256_file(path), before,
+                              "a disk I/O error is not evidence the file is damaged; "
+                              "the store must be byte for byte identical")
+            self.assertEqual(glob.glob(path + ".quarantine-*"), [])
+            self.assertIn("nothing was moved", str(ctx.exception))
+
+    def test_finding7_writable_still_quarantines_named_corruption(self):
+        # Regression guard for the classification itself: the capability must
+        # survive the narrowing, or this fix has simply disabled quarantine.
+        for cause in (sqlite3.DatabaseError("database disk image is malformed"),
+                      sqlite3.DatabaseError("file is not a database"),
+                      sqlite3.OperationalError("no such table: claims")):
+            with tempfile.TemporaryDirectory() as d:
+                store = bs.Store(d)
+                try:
+                    with self.assertRaises(bs.StoreCorrupt) as ctx:
+                        store._quarantine_and_raise(cause)
+                    self.assertTrue(ctx.exception.quarantine_path,
+                                    "%r must still quarantine" % (cause,))
+                    self.assertTrue(os.path.isdir(ctx.exception.quarantine_path))
+                finally:
+                    store.close()
+
+    def test_finding7_classifier_names_both_sides_of_the_line(self):
+        # The written-down rule, asserted rather than described in a comment
+        # nobody re-reads. Left column moves the file; right column never does.
+        quarantines = (
+            sqlite3.DatabaseError("file is not a database"),
+            sqlite3.DatabaseError("database disk image is malformed"),
+            sqlite3.OperationalError("no such table: claims"),
+            sqlite3.OperationalError("no such column: lifecycle_uuid"),
+            ValueError("store file exists but is zero bytes"),
+        )
+        reports_only = (
+            sqlite3.OperationalError("disk I/O error"),
+            sqlite3.OperationalError("unable to open database file"),
+            sqlite3.OperationalError("attempt to write a readonly database"),
+            sqlite3.OperationalError("database or disk is full"),
+            sqlite3.OperationalError("not authorized"),
+            sqlite3.OperationalError("database is locked"),
+            sqlite3.OperationalError("database is busy"),
+            sqlite3.ProgrammingError("Cannot operate on a closed database."),
+        )
+        for cause in quarantines:
+            self.assertTrue(bs._quarantine_is_warranted(cause),
+                            "%s(%s) is evidence the FILE is damaged and must still "
+                            "quarantine" % (type(cause).__name__, cause))
+        for cause in reports_only:
+            self.assertFalse(bs._quarantine_is_warranted(cause),
+                             "%s(%s) is an environment problem, not a verdict on the "
+                             "file; it must never move the founder's database"
+                             % (type(cause).__name__, cause))
 
 
 def tearDownModule():

@@ -920,6 +920,92 @@ def _refuse_if_hardlinked(expected_path):
             "and retry." % (expected_path, st.st_nlink, expected_path))
 
 
+def safe_project_path(root, *parts):
+    """THE PATH FUNNEL: the ONE public way this project builds a path to a
+    generated file inside a project root, and the only shape allowed to be
+    opened or written. Public on purpose, so bm_threads.py and any other
+    caller use this instead of growing their own os.path.join.
+
+        safe_project_path(root, "STATE.md")
+        safe_project_path(root, "threads", name + ".md")
+
+    Returns the absolute, containment-checked path. Creates NOTHING.
+
+    WHY (finding 2B, CONFIRMED by execution): every root-relative path in
+    this module except the store itself was a bare os.path.join, and
+    os.path.join followed by open() follows a symlink silently. With
+    STATE.md symlinked at a file outside the project, write_state_view read
+    the TARGET's bytes and wrote them to <root>/STATE.md.bak-<stamp>, an
+    ordinary in-repo file no project's .gitignore knows about, so a routine
+    `git add -A` committed the copied content. Fixing that one call site
+    would have left call site N+1 open, which is exactly how the twelve
+    hand-fixed database handles were followed by a thirteenth leak, so the
+    containment lives here and a structural test fails the build when a new
+    site joins a root without it.
+
+    Reuses the two containment primitives above rather than growing a third
+    piece of symlink logic beside them:
+      * _refuse_if_symlink_escape on EVERY existing component, root's
+        immediate child down through the leaf, so a symlinked PARENT
+        DIRECTORY is caught too, not only a symlinked leaf;
+      * _refuse_if_hardlinked on any component that is a regular FILE.
+        Deliberately NOT on directories: a POSIX directory always reports
+        st_nlink >= 2 ('.' plus its parent's entry; measured on this
+        machine: 2 for an empty directory, 4 with two subdirectories), so
+        applying the hardlink check to a directory would refuse every
+        legitimate path on the platform.
+
+    The path is built under the RESOLVED root, so a project living beneath
+    a symlinked prefix (macOS /tmp -> /private/tmp) is normal rather than
+    an escape, and the final result must still resolve to itself and sit
+    inside that resolved root. Any violation raises
+    OwnershipRefused('path-escape') naming the path and what it resolved
+    to."""
+    if not parts:
+        raise OwnershipRefused(
+            "path-escape",
+            "safe_project_path was called with no path components under %s; "
+            "a generated file must name itself" % (root,))
+    real_root = os.path.realpath(root)
+    for part in parts:
+        if not isinstance(part, str) or not part:
+            raise OwnershipRefused(
+                "path-escape",
+                "%r is not a usable path component under %s" % (part, real_root))
+        if os.path.isabs(part) or os.path.splitdrive(part)[0]:
+            raise OwnershipRefused(
+                "path-escape",
+                "path component %r is absolute; safe_project_path only builds "
+                "paths RELATIVE to the project root %s, so an absolute part "
+                "(which os.path.join would silently let win over the root) is "
+                "refused rather than obeyed" % (part, real_root),
+                details={"component": part, "root": real_root})
+    candidate = os.path.normpath(os.path.join(real_root, *parts))
+    prefix = real_root if real_root.endswith(os.sep) else real_root + os.sep
+    if not candidate.startswith(prefix):
+        raise OwnershipRefused(
+            "path-escape",
+            "%s resolves to %s, which is not inside the project root %s; "
+            "refusing to read or write it" % ("/".join(parts), candidate, real_root),
+            details={"expected": candidate, "root": real_root})
+    walked = real_root
+    for component in os.path.relpath(candidate, real_root).split(os.sep):
+        walked = os.path.join(walked, component)
+        _refuse_if_symlink_escape(walked)
+        if os.path.isfile(walked):
+            _refuse_if_hardlinked(walked)
+    resolved = os.path.realpath(candidate)
+    if resolved != candidate:
+        raise OwnershipRefused(
+            "path-escape",
+            "%s resolves to %s; refusing to read or write a generated file "
+            "through anything that does not resolve to itself inside the "
+            "project root %s" % (candidate, resolved, real_root),
+            details={"expected": candidate, "resolved": resolved,
+                     "root": real_root})
+    return candidate
+
+
 def _looks_like_git_admin_dir(path):
     """True only when path ALREADY EXISTS and has the layout a real git
     administrative directory has (a HEAD file plus an objects or refs
@@ -1046,6 +1132,70 @@ def _is_transient_busy_error(e):
     return "database is locked" in msg or "database is busy" in msg
 
 
+# FINDING 7: the exact conditions that may MOVE a founder's database.
+#
+# Before this, _is_transient_busy_error was a two-string allowlist and
+# everything outside it was ASSUMED to be corruption, with no evidence that
+# the file was damaged at all. A transient disk I/O error, a permission
+# problem or a network-volume hiccup during the SessionStart hook's
+# automatic `verify` was therefore enough to move a perfectly healthy store
+# aside. The default is now inverted: quarantine happens only for a NAMED
+# condition, and anything unrecognized reports without touching the file.
+#
+# QUARANTINES (evidence that the file itself is damaged):
+#   * a cause that is not a sqlite3.Error at all. This module raises those
+#     itself, and only after reading the file: zero length on disk, a table
+#     genuinely absent from sqlite_master, a schema_version that does not
+#     match. Those are findings, not guesses.
+#   * type(cause) is exactly sqlite3.DatabaseError. Measured (Python 3.9.6,
+#     SQLite 3.51.0): SQLITE_NOTADB raises DatabaseError('file is not a
+#     database') and SQLITE_CORRUPT raises DatabaseError('database disk
+#     image is malformed'); both arrive as the BASE class, never as an
+#     OperationalError. That is the corruption class, by construction.
+#   * a message naming corruption or a not-a-database file (below), so a
+#     future SQLite that routes one of these through a subclass is still
+#     caught.
+#   * "no such table" / "no such column" from an OperationalError. This is
+#     structural schema damage, not an environment hiccup: every table
+#     named here is created by this module's own DDL, so sqlite reporting
+#     one missing is evidence the schema was damaged (CRITICAL A,
+#     fix-round 8, reproduced: drop the claims table, claim again, GRANTED
+#     at exit 0). Kept deliberately.
+#
+# ONLY REPORTS NOW (the file is left exactly where it is, byte for byte):
+#   "database is locked" / "database is busy" (already refused 'db-busy'
+#   before reaching here), "disk I/O error", "unable to open database
+#   file", "attempt to write a readonly database", "database or disk is
+#   full", "not authorized", permission errors, and every other
+#   OperationalError, ProgrammingError, DataError, InternalError or
+#   NotSupportedError this list does not name.
+_CORRUPTION_MESSAGE_FRAGMENTS = (
+    "database disk image is malformed",
+    "file is not a database",
+    "file is encrypted or is not a database",
+    "malformed database schema",
+    "unsupported file format",
+)
+_SCHEMA_DAMAGE_MESSAGE_FRAGMENTS = ("no such table", "no such column")
+
+
+def _quarantine_is_warranted(cause):
+    """True only when `cause` is evidence the store FILE is damaged. See the
+    note above for the exact conditions on each side of the line. Fails
+    SAFE: an unrecognized error returns False, so the destructive action
+    requires a positive reason rather than the absence of one."""
+    if not isinstance(cause, sqlite3.Error):
+        return True
+    if type(cause) is sqlite3.DatabaseError:
+        return True
+    msg = str(cause).lower()
+    if any(frag in msg for frag in _CORRUPTION_MESSAGE_FRAGMENTS):
+        return True
+    if isinstance(cause, sqlite3.OperationalError):
+        return any(frag in msg for frag in _SCHEMA_DAMAGE_MESSAGE_FRAGMENTS)
+    return False
+
+
 def _exec(store, sql, params=()):
     """The ONE place any SQL statement runs against a Store's connection
     (GATE 4): Store.__init__ only probed the schema at OPEN time, so damage
@@ -1053,9 +1203,14 @@ def _exec(store, sql, params=()):
     of claim(), dump(), and verify(), unquarantined, exit 1. Every query in
     this module routes through here so the same split applies everywhere:
     a transient busy/locked OperationalError refuses 'db-busy'; any other
-    DatabaseError, OperationalError included, quarantines (CRITICAL A: also
-    the backstop for a table dropped from under an already-open connection,
-    not only one caught at the next fresh open). sqlite3.IntegrityError is
+    DatabaseError goes to the store's quarantine entry point, which decides
+    (FINDING 7) whether the evidence names a damaged FILE, in which case a
+    writable store moves it aside, or an environment failure, in which case
+    it is reported and the file is left untouched. A read-only store never
+    moves anything either way. Structural schema damage such as a dropped
+    table still quarantines (CRITICAL A: this is also the backstop for a
+    table dropped from under an already-open connection, not only one
+    caught at the next fresh open). sqlite3.IntegrityError is
     let through UNCHANGED: a unique-constraint hit is caller-shaped, not
     corruption (see transition()'s 'name-active' handling, GATE 6), and the
     caller is better placed to turn it into a named refusal than this is."""
@@ -1209,9 +1364,12 @@ class Store(object):
             # is never reached. A merely-busy database is transient, not
             # corrupt: refuse fail-closed with a retry message and touch
             # nothing. Anything else (fix-round 8: a missing table, for
-            # instance) is NOT transient, and quarantines like any other
-            # DatabaseError instead of giving retry advice that can never
-            # work (see _is_transient_busy_error).
+            # instance) is NOT transient, and goes to the quarantine entry
+            # point instead of giving retry advice that can never work (see
+            # _is_transient_busy_error). FINDING 7: reaching that entry
+            # point is no longer the same thing as being moved; only named
+            # evidence of a damaged file moves anything, and only from a
+            # class that has write authority.
             if not _is_transient_busy_error(e):
                 self._quarantine_and_raise(e)
             if self.conn is not None:
@@ -1309,7 +1467,27 @@ class Store(object):
         silently version-dependent. Copying while the handle is still open
         is unaffected by whatever close() does to the originals; the main
         file is still moved only after close(), since close() can only act
-        on the connection's own handle, not a sidecar file."""
+        on the connection's own handle, not a sidecar file.
+
+        FINDING 7: this is THE MOVER, and only a class with write authority
+        can reach it. ReadOnlyStore used to call it verbatim (one line:
+        `return Store._quarantine_and_raise(self, cause)`), so a read-only
+        health check could move the real database; it now OVERRIDES this
+        entry point and raises instead, which makes the containment
+        structural rather than a boolean somebody has to remember to check.
+        The classification guard below is the second half of the same fix:
+        even with write authority, only NAMED evidence of a damaged file
+        may move it (see _quarantine_is_warranted)."""
+        if not _quarantine_is_warranted(cause):
+            self.close()
+            raise StoreCorrupt(
+                "%s could not be read as a SQLite database (%s). That error "
+                "does not name corruption or a not-a-database file, so it was "
+                "treated as an environment problem (a disk or permission or "
+                "network-volume failure), NOT as a verdict on the file: "
+                "nothing was moved, renamed, copied or deleted, and the store "
+                "is still at its original path with its original bytes. Fix "
+                "the underlying condition and re-run the command." % (self.path, cause))
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%f")
         suffix = uuid.uuid4().hex[:8]
         qdir = self.path + ".quarantine-%s-%s" % (stamp, suffix)
@@ -2336,10 +2514,36 @@ class ReadOnlyStore(object):
             self._quarantine_and_raise(e)
 
     def _quarantine_and_raise(self, cause):
-        # Reuses Store's implementation verbatim (it only touches
-        # self.conn/self.path, both present here): one quarantine
-        # mechanism, not two copies to keep in sync.
-        return Store._quarantine_and_raise(self, cause)
+        """FINDING 7, CONFIRMED: a read-only health check must NEVER move the
+        real database. This used to be one line, `return
+        Store._quarantine_and_raise(self, cause)`, so every quarantine the
+        writable store could perform, a diagnostic could perform too. The
+        SessionStart hook runs `bm_store.py verify` automatically against
+        the founder's real project, so a transient disk I/O error, a
+        permission problem or a network-volume hiccup during that read was
+        enough to move a healthy store aside.
+
+        Overriding here rather than checking a flag inside the mover is the
+        point: ReadOnlyStore does not inherit from Store, so with this
+        delegation removed there is NO path from a read-only object to the
+        code that renames or moves anything. Write authority, not error
+        classification, decides whether the destructive action is reachable
+        at all.
+
+        Reports and preserves: the connection is closed (so the handle
+        cannot outlive the failure, the leak class from CI run 18) and the
+        file is left byte for byte where it was. StoreCorrupt is
+        deliberately the same exception type this raised before, so every
+        caller outside this module keeps the behavior it already handles;
+        only the side effect is gone."""
+        self.close()
+        raise StoreCorrupt(
+            "%s could not be read as a SQLite database (%s). This was a "
+            "READ-ONLY diagnostic, which has no authority to write: nothing "
+            "was moved, renamed, copied or deleted, and the file is still at "
+            "its original path with its original bytes. Inspect it by hand; "
+            "if it really is damaged, a writable command is the only thing "
+            "that may quarantine it." % (self.path, cause))
 
     def _verify_schema_or_raise(self):
         # Reuses Store's implementation verbatim, same reasoning as above.
@@ -2617,9 +2821,15 @@ def write_state_view(root):
     FUNNEL), never _atomic_write_text directly, so a missing redactor
     refuses the ENTIRE write instead of silently writing raw founder text
     (the record NAME) at exit 0 with no warning. See docs/superpowers/specs/
-    2026-07-26-phase1-fix-round-7.md for the full incident writeups."""
+    2026-07-26-phase1-fix-round-7.md for the full incident writeups.
+
+    FINDING 2B: both the read below and the backup write route through
+    safe_project_path (THE PATH FUNNEL), computed BEFORE any work is done,
+    so a symlinked STATE.md refuses 'path-escape' instead of having its
+    target's bytes read and copied into an in-repo STATE.md.bak-<stamp>
+    that `git add -A` would then commit."""
+    path = safe_project_path(root, "STATE.md")
     generated = render_state_md(root)
-    path = os.path.join(root, "STATE.md")
     try:
         with open(path, encoding="utf-8", errors="replace") as f:
             existing = f.read()
@@ -2646,10 +2856,17 @@ def write_state_view(root):
         # directory name, GATE 5) plus a short random suffix on collision,
         # so two renders in the same microsecond still each get their own
         # backup rather than one silently overwriting the other.
+        #
+        # FINDING 2B: the backup NAME is built root-relative and pushed
+        # back through the funnel (never `path + ".bak-"`, a raw string
+        # concatenation the funnel cannot see), so a symlink pre-planted at
+        # the backup name is refused instead of written through.
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%f")
-        backup_path = path + ".bak-" + stamp
+        backup_name = "STATE.md.bak-" + stamp
+        backup_path = safe_project_path(root, backup_name)
         if os.path.lexists(backup_path):
-            backup_path = backup_path + "-" + uuid.uuid4().hex[:8]
+            backup_path = safe_project_path(
+                root, backup_name + "-" + uuid.uuid4().hex[:8])
         _atomic_write_text(backup_path, existing)
         _warn("bm_store: saved the previous STATE.md as %s before rewriting it" % backup_path)
     if begin_count == 1:
@@ -2713,7 +2930,16 @@ def _verify_view_reflects_active_records(store, root):
     active_rows = _exec(store,
         "SELECT lifecycle_uuid, name FROM records WHERE state='active'").fetchall()
     problems = []
-    state_path = os.path.join(root, "STATE.md")
+    # FINDING 2B: the same funnel write_state_view uses, so this diagnostic
+    # read cannot be pointed at a file outside the project either. verify()
+    # promises a LIST of problems, never a crash, so a containment refusal
+    # becomes a reported problem here rather than an exception escaping a
+    # health check.
+    try:
+        state_path = safe_project_path(root, "STATE.md")
+    except OwnershipRefused as e:
+        return ["STATE.md under %s cannot be read safely (%s: %s); nothing "
+                "was read or written" % (root, e.reason, e)]
     try:
         with open(state_path, encoding="utf-8", errors="replace") as f:
             on_disk = f.read()
