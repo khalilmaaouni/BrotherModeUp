@@ -62,6 +62,7 @@ trap 'rm -rf "$WORKDIR"' EXIT INT TERM
 OK=0
 MISMATCHED=0
 MISSING=0
+TYPESWAPPED=0
 : > "$WORKDIR/manifest_paths"
 
 # Manifest lines are "<64 hex chars><two spaces><path>", the format both
@@ -75,9 +76,29 @@ while IFS= read -r line; do
     [ -z "$path" ] && continue
     printf '%s\n' "$path" >> "$WORKDIR/manifest_paths"
     full="$TARGET/$path"
-    if [ ! -f "$full" ]; then
+    # FINDING 4 (2026-07-27): check the entry TYPE, by lstat, before hashing
+    # anything. scripts/checksums.sh refuses to manifest anything that is not
+    # a regular file, so every path named here is attested to BE a regular
+    # file; that is the manifest's type claim and this is where it is
+    # enforced. It matters because `-f` follows symlinks: a regular file
+    # swapped on disk for a symlink pointing at an attacker's copy of the
+    # same bytes used to hash equal and be reported as a match. `-L` is the
+    # only test that sees the link rather than its target, so it goes first,
+    # and a broken symlink (where -e is false) is caught here too rather than
+    # being misreported as merely MISSING.
+    if [ -L "$full" ]; then
+        echo "TYPESWAP:  $path (a symlink on disk, but the manifest attests a regular file)"
+        TYPESWAPPED=$((TYPESWAPPED + 1))
+        continue
+    fi
+    if [ ! -e "$full" ]; then
         echo "MISSING:   $path"
         MISSING=$((MISSING + 1))
+        continue
+    fi
+    if [ ! -f "$full" ]; then
+        echo "TYPESWAP:  $path (not a regular file on disk, but the manifest attests one)"
+        TYPESWAPPED=$((TYPESWAPPED + 1))
         continue
     fi
     actual=$(hash_file "$full")
@@ -108,11 +129,39 @@ done < "$MANIFEST"
 MANIFEST_ABS=$(cd "$(dirname "$MANIFEST")" && pwd)/$(basename "$MANIFEST")
 MANIFEST_REL=$(printf '%s\n' "$MANIFEST_ABS" | sed "s|^$TARGET/||")
 
-find "$TARGET" -type f \
+#
+# FINDING 4 (2026-07-27): this enumeration used to say `-type f`, and that
+# one flag was a hole straight through the whole check. POSIX find without
+# -L does not follow symlinks, so a symlink is -type l and NEVER matches
+# -type f: an unmanifested symlink was invisible to this loop, and invisible
+# to the manifest loop above too, because the manifest by definition never
+# named it. The attack that exercised it: plant tools/json.py as a symlink to
+# an attacker-controlled file, and this script prints PASSED and exits 0,
+# while every session hook that runs `python3 tools/bm_telemetry.py` loads
+# the attacker's module first, because Python puts the script's own directory
+# at the front of sys.path and shadowing the standard library from there is
+# trivial. Reproduced end to end before the fix (exit 0, nothing reported).
+#
+# `! -type d` is the fix: it enumerates EVERY non-directory entry, which is
+# regular files, symlinks (including symlinks that point at directories,
+# which are type l and not type d), devices, FIFOs and sockets. Real
+# directories are the only thing left out, and a real directory is inert
+# here: it holds no bytes of its own, nothing executes it, and anything
+# inside it is enumerated on its own account. The excluded roots are now
+# also matched as bare names, not only as "<root>/*" prefixes, because a
+# symlink NAMED .brothermode or threads was previously skipped for free by
+# -type f and would otherwise walk right back in through the exclusion list.
+# find is not asked to descend through any link (no -L, deliberately), so
+# nothing below a planted link is traversed or trusted.
+find "$TARGET" ! -type d \
+    ! -path "$TARGET/.git" \
     ! -path "$TARGET/.git/*" \
+    ! -path "$TARGET/.brothermode" \
     ! -path "$TARGET/.brothermode/*" \
     ! -path '*/__pycache__/*' \
+    ! -path "$TARGET/threads" \
     ! -path "$TARGET/threads/*" \
+    ! -path "$TARGET/.superpowers" \
     ! -path "$TARGET/.superpowers/*" \
     ! -name '.DS_Store' \
     ! -name '*.bak*' \
@@ -124,30 +173,51 @@ while IFS= read -r full; do
     [ -z "$full" ] && continue
     rel=$(printf '%s\n' "$full" | sed "s|^$TARGET/||")
     [ "$rel" = "$MANIFEST_REL" ] && continue
-    if ! grep -q -x -F "$rel" "$WORKDIR/manifest_paths"; then
-        echo "EXTRA:     $rel"
-        EXTRA=$((EXTRA + 1))
+    if grep -q -x -F "$rel" "$WORKDIR/manifest_paths"; then
+        continue
     fi
+    # Name the type, by lstat, so the report distinguishes an unexpected but
+    # ordinary file from a planted link or device. -L comes first for the
+    # usual reason: it is the only test that reports on the entry rather than
+    # on whatever the entry points at.
+    if [ -L "$full" ]; then
+        echo "EXTRA (symlink): $rel"
+    elif [ -f "$full" ]; then
+        echo "EXTRA:     $rel"
+    else
+        echo "EXTRA (irregular): $rel"
+    fi
+    EXTRA=$((EXTRA + 1))
 done < "$WORKDIR/installed_raw"
 
 echo ""
 echo "verify-install: checked against $MANIFEST"
-echo "verify-install: $OK file(s) match, $MISMATCHED mismatched, $MISSING missing, $EXTRA extra (present on disk, absent from the manifest)"
+echo "verify-install: $OK file(s) match, $MISMATCHED mismatched, $MISSING missing, $TYPESWAPPED wrong type, $EXTRA extra (present on disk, absent from the manifest)"
 
-if [ "$MISMATCHED" -gt 0 ] || [ "$MISSING" -gt 0 ] || [ "$EXTRA" -gt 0 ]; then
+if [ "$MISMATCHED" -gt 0 ] || [ "$MISSING" -gt 0 ] || [ "$TYPESWAPPED" -gt 0 ] || [ "$EXTRA" -gt 0 ]; then
     echo "verify-install: FAILED. Do not trust this installed copy until you" \
-         "understand why the files above differ from the published manifest." >&2
+         "understand why the entries above differ from the published manifest." >&2
     if [ "$EXTRA" -gt 0 ]; then
-        echo "verify-install: an EXTRA file is exactly the shape of a" \
+        echo "verify-install: an EXTRA entry is exactly the shape of a" \
              "planted backdoor: it runs automatically along with everything" \
              "else in this installation, and the manifest says nothing" \
-             "about it because nothing here declared it." >&2
+             "about it because nothing here declared it. A symlink is the" \
+             "sharpest version of that: it can drop attacker-controlled code" \
+             "into a directory that is already on Python's import path." >&2
+    fi
+    if [ "$TYPESWAPPED" -gt 0 ]; then
+        echo "verify-install: a TYPESWAP entry means the manifest attests a" \
+             "regular file at that path but something else is there now," \
+             "typically a symlink pointing somewhere outside this install." \
+             "Content hashes cannot catch that on their own, because the hash" \
+             "of a link's target can be made to match perfectly." >&2
     fi
     exit 1
 fi
 
-echo "verify-install: PASSED. Every file the manifest names matches on disk,"
-echo "verify-install: and no file exists on disk that the manifest does not name."
+echo "verify-install: PASSED. Every entry the manifest names matches on disk,"
+echo "verify-install: in content and in type, and no entry exists on disk that"
+echo "verify-install: the manifest does not name."
 echo "verify-install: this does not prove the manifest itself is authentic;" \
      "it proves your files match whatever manifest you pointed this at. Get" \
      "the manifest from the release you trust (the tag's git history, or a" \
