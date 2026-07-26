@@ -1,5 +1,89 @@
 # Changelog
 
+## 2026-07-26 (later still): the final gate's two blockers, closed structurally
+
+A four-lens final gate aimed at the code from the entry below found two release
+blockers and three further gates, all reproduced by hand before this entry's
+fixes were written (`docs/superpowers/specs/2026-07-26-final-blockers.md`).
+This entry closes all of them. No version bump: still `2.0.0-rc.1`.
+
+**BLOCKER 1, the worst finding: the server documented as read-only moved the
+founder's database.** One `bm_status` call against a store whose header bytes
+had been corrupted quarantined it, renaming `store.sqlite3` aside and
+reporting `isError: false`; a HEALTHY store's own read-only open also created
+`-shm`/`-wal` sidecars that were not there before. Reproduced, then fixed
+structurally rather than by a stronger promise: `mcp/bm_mcp_server.py` now
+copies `.brothermode/` and `STATE.md` into a private temporary directory
+before every tool runs, and deletes the copy afterward, success or failure
+alike. Proven against the real server: a corrupted store's directory listing
+(names and content hashes) is byte-identical before and after all four tools
+are called, and a healthy store with its sidecars removed gains none back. A
+read-only sqlite URI was considered and rejected on purpose, to avoid
+reopening the exact `%`-path defect this project's own GATE A (fix-round 6)
+already closed.
+
+**BLOCKER 2, security: `verify-install.sh` reported PASSED with a planted
+backdoor present.** It only ever asked whether every file the manifest NAMES
+matches on disk, so a file that was ADDED (`tools/bm_helper.py`, containing a
+shell-out) was invisible to it. Reproduced (88 hashes, plant, still PASSED at
+exit 0), then fixed: the script now also enumerates the installed tree and
+fails, naming the file, when anything exists on disk that the manifest does
+not name. Verified against a clean tracked-file copy of this repository
+(PASSED, 0 extra) and the same copy with the backdoor planted (FAILED, exit 1,
+`EXTRA: tools/bm_helper.py`).
+
+**GATE 3: the server leaked founder text every other exit redacts.**
+`bm_store.verify()` returns raw, unredacted rows (it is an invariant checker,
+not a rendering funnel), and the server used to print its problem strings
+straight through; a secret-shaped record name reached a client here
+unredacted while the CLI showed `[REDACTED]` for the same value. Fixed: every
+founder-typed value this server returns now passes through
+`bm_store._protect_text`, the exact function the CLI's own output funnel
+uses. The round-7 output-funnel structural scan, previously scoped to
+`bm_store.py` alone, is now also applied to `mcp/bm_mcp_server.py`
+(`tools/test_bm.py`), together with a calibrated test that reproduces the
+secret-leak precondition and asserts the live secret never reaches the tool's
+returned text. Not widened further: `bm_threads.py`, `bm_autosave.py`,
+`bm_telemetry.py`, and `bm_score.py` were never brought under this funnel
+discipline and are outside this fix's scope; stated here rather than silently
+skipped.
+
+**GATE 4: `project_root` was not authoritative.** A relative path resolved
+against the SERVER PROCESS's own working directory, and `BROTHERMODE_ROOT`
+silently overrode an explicit argument, so a call naming one project could
+answer with a different project's record. Fixed: `project_root` must now be
+an absolute path (a relative one is refused outright), the server never
+consults `BROTHERMODE_ROOT`, and every tool prints the project root it
+actually resolved as the first line of its own output. Verified: with
+`BROTHERMODE_ROOT` pointed at one project, an absolute `project_root` naming
+a second project answers correctly about the second project, with its root
+printed; a relative `project_root` is refused with `isError: true`.
+
+**GATE 5: `checksums.sh` silently dropped any git-quoted path.** A tracked
+path containing a quote, a backslash, or a non-ASCII character is printed
+quoted by plain `git ls-files`, is not a real path on disk, and the manifest
+loop skipped it with no message at exit 0. Fixed: the manifest is now built
+from `git ls-files -z` (null-delimited, never quoted), and the script fails
+loudly, naming the file, if any listed path is not a regular file on disk.
+Verified in a throwaway repository with a file named containing both a quote
+and an accented character: the old approach silently hashed 3 of 4 tracked
+files; the fixed script hashes all 4, and correctly fails loudly when a
+tracked file is genuinely missing from disk.
+
+**SOFT 6: the decisions filter compared against the REDACTED name.**
+Filtering `bm_decisions` by a record's real name returned a false "no
+decisions recorded" whenever that name happened to look secret-shaped,
+indistinguishable from a project that genuinely recorded none. Fixed: the
+filter now matches against the record's real name, read from a second,
+separately-opened raw dump used only to compute matching identifiers; only
+those identifiers, never the raw name, reach the tool's returned (still
+redacted) text. Verified: filtering by a secret-shaped name now returns its
+decision instead of a false negative.
+
+`docs/RELEASE.md` and this file both now describe the two-directional
+`verify-install.sh` check accurately; the previous wording promised the
+behavior BLOCKER 2 found missing.
+
 ## 2026-07-26 (v2.0.0-rc.1): the first tagged version, release discipline, and an honest ledger of what shipped today
 
 This is the first version of this project to carry a version number
