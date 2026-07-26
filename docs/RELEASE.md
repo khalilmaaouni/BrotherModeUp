@@ -49,8 +49,9 @@ should be checked rather than trusted:
   proven," and every fact needed to justify that sits in
   `docs/KNOWN-LIMITS.md` as of today: the engine has never run on a real
   project (only test suites and adversarial review), continuous integration
-  has never executed even once, Windows behavior is proxied rather than
-  run on real Windows, and one confirmed defect is still open (a refused
+  HAS executed and FAILS on Windows for an unclosed database handle
+  (corrected 2026-07-26; this line previously claimed CI had never run,
+  which was false), and one confirmed defect is still open (a refused
   `adopt` attempt still writes a permanent handover block into `STATE.md`).
   Shipping `2.0.0` plain would assert a confidence this project does not
   have yet. `2.0.0-rc.1` sorts before `2.0.0` under semver precedence rules,
@@ -177,14 +178,19 @@ run of it as a test of the runbook, not just of the code.
 
 ## What has and has not happened, stated honestly
 
-- **No release has ever been tagged.** `git tag -l` in this repository
-  returns nothing as of this writing. The `--branch v2.0.0-rc.1` clone
-  command above will not work until step 5 actually runs.
-- **Continuous integration has never executed.** `.github/workflows/tests.yml`
-  is configured (three platforms, two Python versions for the store suite)
-  but nothing has been pushed to trigger it yet, per `docs/KNOWN-LIMITS.md`.
-  The first push that triggers it is also the first real test of that
-  configuration, and it may fail in ways only a real run can surface.
+- **A release IS tagged now.** Corrected 2026-07-26: `v2.0.0-rc.1` exists on
+  commit `7c2e0ec`, published as a GitHub pre-release. The clone command above
+  works. Recipe note worth keeping: GitHub Desktop does not push a tag created
+  outside the app, so the tag and the release were created through the GitHub
+  web interface instead.
+- **Continuous integration HAS executed, and it FAILED.** Corrected
+  2026-07-26: this line previously said CI had never run. It has run 18 times,
+  and on the tagged commit the job `store (windows-latest, 3.x)` exited 1 with
+  `PermissionError: [WinError 32]` on `store.sqlite3`. Cause: database handles
+  were opened and never closed. POSIX permits deleting a file that still has an
+  open handle, so every macOS and Linux leg passed and the leak stayed
+  invisible. Do not treat this release as green on three platforms; read
+  `docs/KNOWN-LIMITS.md` for the current state.
 - **`scripts/checksums.sh` and `scripts/verify-install.sh` are new as of this
   same day** and have been exercised against this repository's own working
   tree (a passing run, a deliberately tampered copy that correctly reported
