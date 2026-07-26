@@ -84,7 +84,7 @@ job `store (windows-latest, 3.x)` exited 1; the other matrix legs were cancelled
 fail-fast, so the Windows 3.9 leg and one macOS leg remain UNKNOWN rather than
 passing.
 
-## Windows is not merely unproven, it was BROKEN, and that is now demonstrated
+## Windows was BROKEN, was fixed, and is now GREEN (the full arc, kept on purpose)
 
 CORRECTED 2026-07-26. An earlier version said Windows was "designed for, not
 proven". The stronger truth: it failed. Verbatim from the run:
@@ -98,10 +98,28 @@ leak was invisible; Windows refuses, which is the only reason it surfaced. That
 makes it a real API gap on every platform (a long-lived process leaked a handle per
 store) that only one platform reported.
 
-Worth naming because it decided a design argument: the founder OVERRODE a
-recommendation to declare Windows unsupported and required it as scope. That
-override is what produced this finding. Narrowing the supported platforms would
-have hidden a defect rather than avoided one.
+RESOLVED 2026-07-27, CI run on commit ba4eca2: all eight jobs pass, including
+BOTH Windows legs (3.x and 3.9). This is the first green Windows run this
+project has ever had. The fix was an idempotent close() plus context-manager
+support on Store and ReadOnlyStore, twelve call sites closed, and four
+Windows-only test bugs that only surfaced once the suite got far enough to run:
+a mock-call string comparison that repr-doubled backslashes, a write handle
+opened on a memory-mapped -shm file, and a deliberate locker connection that was
+rolled back but never closed.
+
+The arc is kept here rather than collapsed into "Windows works", because the
+useful part is not the outcome. The founder OVERRODE a recommendation to declare
+Windows unsupported and required it as scope. That override is the only reason
+any of this was found: the defect was a real API gap on every platform (a
+long-lived process leaked a database handle per store) that POSIX silently
+tolerates. Narrowing the supported platforms would have hidden it, not avoided
+it.
+
+What is now guarded mechanically: every test that opens a store and does not
+close it FAILS, on every platform, naming the test. That check was calibrated in
+both directions before it was trusted, and enabling it immediately found ten
+further undisciplined sites. Two earlier attempts at that check were discarded
+for being incapable of failing, which is written up in the commit.
 Symlink and hardlink tests skip on Windows entirely. Read-only database behavior,
 file permission semantics, and the worktree layout are unverified there.
 
