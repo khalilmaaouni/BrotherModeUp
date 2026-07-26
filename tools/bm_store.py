@@ -398,34 +398,97 @@ def canonicalize_path(root, p, cwd=None):
     return resolved
 
 
+def _coerce_path_entry(f):
+    """The ONE gate any single claimed-file entry passes through before it
+    can become a stored path (fix-round 2, 2026-07-26: a claim() that
+    silently dropped a non-str entry, pathlib.Path being the obvious case,
+    still returned a Record reporting success, holding NOTHING, while the
+    file it was meant to protect was handed to the next writer). TOTAL: for
+    ANY input, this either returns a string or raises OwnershipRefused
+    reason 'bad-path' naming the entry and its type. Never returns None,
+    never returns anything silently skippable: a fence entry that cannot be
+    read as a path is a refusal, not a gap in the fence (this project's own
+    recorded lesson: a write whose return value is ignored eventually
+    reports success it did not earn)."""
+    if isinstance(f, str):
+        return f
+    try:
+        p = os.fspath(f)
+    except TypeError:
+        raise OwnershipRefused(
+            "bad-path",
+            "file entry %r (type %s) is not a string or os.PathLike and "
+            "cannot be used as a claim path" % (f, type(f).__name__),
+            details={"entry": repr(f), "type": type(f).__name__})
+    if isinstance(p, bytes):
+        try:
+            p = os.fsdecode(p)
+        except Exception as e:
+            raise OwnershipRefused(
+                "bad-path",
+                "file entry %r (type %s) could not be decoded as a path (%s)"
+                % (f, type(f).__name__, e),
+                details={"entry": repr(f), "type": type(f).__name__})
+    if not isinstance(p, str):
+        raise OwnershipRefused(
+            "bad-path",
+            "file entry %r (type %s) did not canonicalize to a string"
+            % (f, type(f).__name__),
+            details={"entry": repr(f), "type": type(f).__name__})
+    return p
+
+
 def _normalize_files(files, root, cwd=None):
     """Coerce a caller-supplied files argument into a de-duplicated list of
     (canonical_root_relative_path, is_glob) pairs, preserving input order. A
     bare string is ONE path, not an iterable of characters, the same
     defensive rule bm_registry's _safe_path_list enforces: claim(...,
-    files="a.py") must fence one path, not one character at a time. Every
-    path is canonicalized against root (see canonicalize_path); an escaping
-    path raises OwnershipRefused('path-escape') before any write happens."""
+    files="a.py") must fence one path, not one character at a time.
+
+    Every entry passes through _coerce_path_entry (TOTAL: string or raise)
+    and then canonicalize_path (root-relative, or raise 'path-escape'):
+    NOTHING is ever silently dropped (fix-round 2, 2026-07-26). A files
+    argument that is not iterable at all also raises 'bad-path' rather than
+    quietly becoming an empty list. A NON-EMPTY input that still yields zero
+    stored claims (every entry blank, or all entries collapse to the same
+    path) raises too: a record that reports success while fencing nothing
+    is exactly the defect this closes. Called BEFORE _transaction() opens
+    (see claim()), so any raise here happens before a single byte is
+    written: the whole claim is atomic by construction, never a partial
+    fence."""
     if files is None:
         raw = []
     elif isinstance(files, str):
         raw = [files]
     else:
         try:
-            raw = [f for f in files if isinstance(f, str)]
+            raw = list(files)
         except TypeError:
-            raw = []
+            raise OwnershipRefused(
+                "bad-path",
+                "files must be a string, an os.PathLike, or an iterable of "
+                "those; got %r (type %s)" % (files, type(files).__name__),
+                details={"type": type(files).__name__})
     out = []
     seen = set()
     for f in raw:
-        if not (f or "").strip():
+        p = _coerce_path_entry(f).strip()
+        if not p:
             continue
-        canon = canonicalize_path(root, f, cwd)
+        canon = canonicalize_path(root, p, cwd)
         key = _normcase(canon)
         if key in seen:
             continue
         seen.add(key)
         out.append((canon, _has_glob(canon)))
+    if raw and not out:
+        raise OwnershipRefused(
+            "bad-path",
+            "every declared file entry was blank or collapsed to nothing; "
+            "a non-empty files argument must yield at least one stored "
+            "claim, never a record that reports success while fencing "
+            "nothing",
+            details={"entry_count": len(raw)})
     return out
 
 
@@ -1219,7 +1282,20 @@ class Store(object):
                     elif isinstance(d, (list, tuple)) and len(d) == 2:
                         topic, text = d
                     else:
-                        continue
+                        # Same class as the files-list defect (fix-round 2,
+                        # 2026-07-26): silently skipping a malformed
+                        # decision would let checkpoint() report success
+                        # while quietly recording fewer decisions than the
+                        # caller asked for. Raising here (inside the open
+                        # transaction) rolls back the WHOLE checkpoint,
+                        # including the digest row already inserted above:
+                        # never a partial, mis-numbered decision history.
+                        raise OwnershipRefused(
+                            "bad-decision",
+                            "decision entry %r (type %s) is not a dict with "
+                            "topic/text or a 2-item (topic, text) pair, and "
+                            "cannot be stored" % (d, type(d).__name__),
+                            details={"entry": repr(d), "type": type(d).__name__})
                     dseq += 1
                     _exec(self,
                         "INSERT INTO decisions (lifecycle_uuid, seq, topic, "
