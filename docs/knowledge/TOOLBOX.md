@@ -140,3 +140,26 @@ Gotchas, each one having cost a real failure:
 - Agents verify what they are pointed at. Budget attention for wandering.
 
 Last verified: 2026-07-26.
+
+---
+
+## Shell measurement (the mistakes that cost me twice in one session)
+
+What it is for: reading a command's real result rather than an artifact of how I
+piped it.
+
+Gotchas, each one having cost a real false conclusion (2026-07-26):
+- `cmd | head -1` reports HEAD's exit code, not the command's. I twice reported
+  "exit=0" for operations that had correctly refused with exit 2, and once nearly
+  reported a fixed defect as still broken. Use `${PIPESTATUS[0]}`, or redirect to
+  a file and check `$?` before piping.
+- Inferring success from a side effect is not verification. I read a backup-file
+  message as proof that a resume had worked, when the resume state itself was the
+  thing to check. Query the state (`dump`, the record's own state field), never
+  the noise around it.
+- A substring search is not a structural check. Searching a rendered document for
+  injected text found it present when it was correctly escaped inside one line;
+  the real question was whether it occupied its own line. Match line structure
+  when structure is the property under test.
+
+Last verified: 2026-07-26.
