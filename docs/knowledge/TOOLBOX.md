@@ -79,21 +79,31 @@ Last verified: 2026-07-26.
 ## GitHub Desktop (the required push path on this machine)
 
 What it is for: every push and pull on this machine goes through the Desktop app,
-visibly, per standing founder rule, never a bare command-line push as a first
-resort.
+visibly, per standing founder rule, never a bare command-line push as a first resort.
 
-Verified invocation: PENDING. This entry is created without a verified recipe
-because the rule is standing, but the app has not been driven successfully in this
-session yet. It will be filled with the exact click path and the verification
-command the first time it is driven end to end.
+Verified invocation (2026-07-26, GitHub Desktop on macOS, driven end to end):
+1. `open -a "GitHub Desktop" /path/to/repo`. If the repo is not yet known to the app it
+   offers an Add Local Repository dialog; confirming it is safe and non-destructive.
+2. READ THE TOOLBAR BEFORE CLICKING ANYTHING. It names the current repository and the
+   current branch. The app opened on a DIFFERENT repository than the one just passed in
+   (the private mirror rather than the public repo), so the toolbar is the only proof of
+   what a click will affect.
+3. An unpublished branch shows a "Publish branch" button rather than "Push origin". Same
+   act, different label; clicking it publishes the branch and sets its upstream.
+4. Verify by command, never by the window: `git ls-remote --heads origin <branch>` must
+   list it, then `git fetch` and compare `git rev-parse HEAD` against `origin/<branch>`.
+   Proven output on the run that verified this entry: both sides 4534630, MATCH.
 
-Gotchas, each one having cost a real failure:
-- Command-line GitHub authentication is logged out on this machine, so pull
-  requests cannot be created from the terminal (recorded 2026-07-26, still true).
-- A screenshot shows what a window looked like, not what happened. Verify a push by
-  comparing local and remote revisions with a command, never by looking.
+Gotchas, each one having cost a real failure or a real risk:
+- Command-line GitHub authentication is logged out on this machine, so pull requests
+  cannot be created from the terminal even though the Desktop push works fine (recorded
+  2026-07-26, still true; unblocked by the founder running `gh auth login`).
+- A screenshot shows what a window looked like, not what happened. The upstream check plus
+  a fetch-and-compare is the only proof.
+- The app can be sitting on another repository when it opens. Never click a push control
+  without reading the toolbar first.
 
-Last verified: NOT YET VERIFIED.
+Last verified: 2026-07-26, by pushing branch v2 and confirming the remote hash matched.
 
 ---
 
