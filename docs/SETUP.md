@@ -2,6 +2,11 @@
 
 Ten minutes, three steps: install the skill, wire the hooks, create the vault. Nothing here needs admin rights or third-party packages.
 
+For a version of this with copy-pasteable commands, expected output at every
+step, and one concrete piece of evidence at the end, see `docs/QUICKSTART.md`.
+This page is the reference: the full hook explanation and the first-week
+checklist that QUICKSTART.md points back to.
+
 ## Prerequisites
 
 - Claude Code (CLI or desktop app) with skills enabled
@@ -28,9 +33,13 @@ When the user types /brothermode (any casing), read and follow
 ~/.claude/skills/brothermode/SKILL.md before doing anything else.
 ```
 
-## Step 2: wire the three hooks
+## Step 2: wire the four hooks
 
-Hooks make the learning loop mechanical: the model cannot forget to write telemetry, because the model is not the one writing it. Add to `~/.claude/settings.json` (create the file if it does not exist, or merge into your existing `hooks` block):
+An earlier version of this page said three hooks. That was wrong: the block
+below installs four (`SessionStart`, `SessionEnd`, `Stop`, `PreCompact`),
+counted directly from the JSON. Hooks make the learning loop mechanical: the
+model cannot forget to write telemetry, because the model is not the one
+writing it. Add to `~/.claude/settings.json` (create the file if it does not exist, or merge into your existing `hooks` block):
 
 ```json
 {
@@ -45,20 +54,47 @@ Hooks make the learning loop mechanical: the model cannot forget to write teleme
       { "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py stop-warn" } ] }
     ],
     "PreCompact": [
-      { "hooks": [ { "type": "command", "command": "sh -c 'p=$(cat); printf %s \"$p\" | sh ~/.claude/skills/brothermode/tools/bm_autosave.sh precompact; printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py precompact-brief' " } ] }
+      { "hooks": [ { "type": "command", "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_autosave.py precompact; printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py precompact-brief' " } ] }
     ]
   }
 }
 ```
 
-What each hook does:
+What each hook does, and honestly, what a FAILED hook costs you. The four
+hooks do not all cost the same thing when they break, and treating them as
+equivalent would be dishonest: losing a data point is not the same class of
+loss as losing your ability to recover from a crash.
 
 - **SessionStart** injects `DIGEST.md` (the 12-line law summary) plus any overdue-review nag into every new session's context.
+  If this hook fails: the new session simply starts without the digest and
+  nag text. Nothing is lost, nothing is recorded wrong; the session just
+  begins less informed than it should.
 - **SessionEnd** parses the finished session's transcript and appends one telemetry line to the ledger: tokens, tool calls, agents spawned, duration, models used. It also scans your short messages for correction candidates.
+  If this hook fails: that one session's telemetry line and correction scan
+  never happen. This costs you telemetry, one data point in the learning
+  loop, nothing more. Your work, your files, and your vault notes are
+  unaffected.
 - **Stop** warns (never blocks) when a substantial session ends the day without a vault session log.
-- **PreCompact** snapshots your working tree to a private git ref right before Claude Code compacts context (the token-death moment), so progress survives. Local git only, never pushes; recover with `sh tools/bm_autosave.sh recover`. It also writes a resume brief distilling the dying transcript (the last instruction, recent decisions, recent commands) so a resumed session recovers the thread, not just the files. Before a long or risky action you can log `python3 tools/bm_telemetry.py intent "next: X, because Y"` so a death leaves a forward-looking record. Optional: also add a `PostToolUse` hook running `bm_autosave.sh tick` and set `BROTHERMODE_AUTOSAVE=1` for continuous autosave between compactions (costs a hook per tool call).
+  If this hook fails: you simply do not get reminded to write a session log.
+  It is advisory only; it writes nothing and protects nothing.
+- **PreCompact** snapshots your working tree to a private git ref right before Claude Code compacts context (the token-death moment), so progress survives. Local git only, never pushes; recover with `python3 tools/bm_autosave.py recover`. It also writes a resume brief distilling the dying transcript (the last instruction, recent decisions, recent commands) so a resumed session recovers the thread, not just the files. Before a long or risky action you can log `python3 tools/bm_telemetry.py intent "next: X, because Y"` so a death leaves a forward-looking record. Optional: also add a `PostToolUse` hook running `bm_autosave.py tick` and set `BROTHERMODE_AUTOSAVE=1` for continuous autosave between compactions (costs a hook per tool call).
+  If this hook fails: this is the one that can actually cost you something
+  real. Your committed and already-saved files are never at risk either way;
+  what a failed PreCompact hook costs is the EXTRA safety net: no snapshot of
+  your uncommitted and untracked changes at the exact moment context gets
+  compacted, and no resume brief telling the next session what you were in
+  the middle of. That is recovery information, not telemetry, and it is not
+  the same kind of loss: a missing telemetry line is a gap in a chart; a
+  missing autosave snapshot or resume brief, hit at the wrong moment, can
+  mean redoing work or re-explaining context you would otherwise have gotten
+  back for free.
 
-Every hook is built to fail silent and exit 0. A broken hook can cost you a telemetry line; it can never cost you a work session.
+Every hook is built to fail silent and exit 0, so a broken hook never blocks
+a session from continuing. But "never blocks" is not the same claim as "never
+costs you anything": a broken `SessionEnd` costs a telemetry line; a broken
+`PreCompact` can cost you recovery information at the one moment you needed
+it most. Treat the two claims separately, because they are not the same
+thing.
 
 ## Step 3: create the vault
 
@@ -95,7 +131,15 @@ Unset, those checks report NO-DATA instead of guessing.
 python3 ~/.claude/skills/brothermode/tools/bm_score.py
 ```
 
-Expected on a fresh machine: 10 checks, mostly NO-DATA, zero FAIL, and the closing line "LLM judge scores only the residue." NO-DATA is correct for a system with no history: the tools never invent numbers.
+Expected on a fresh machine: 10 checks, mostly NO-DATA, and the closing line
+"LLM judge scores only the residue." NO-DATA is correct for a system with no
+history: the tools never invent numbers. You may also see one FAIL named
+`budget-vs-tier` that points at `STATE.md`: this checks the skill repository's
+OWN internal working file (the one its authors use to track building it), not
+anything in your vault or your project, and a FAIL there does not mean your
+install is broken. It is a real, checked-in inconsistency (that file's fence
+lines are not all written in the single-line, tier-tagged format the checker
+looks for), reported here rather than hidden.
 
 ```bash
 sh ~/.claude/skills/brothermode/tools/bm_sessionstart.sh
@@ -122,4 +166,4 @@ Working mostly alone but need to hand a project to someone occasionally? `python
 
 ## Uninstall
 
-Remove the three hook entries, delete `~/.claude/skills/brothermode`, and keep or delete your vault. The vault is yours; nothing else stores state.
+Remove the four hook entries from `~/.claude/settings.json`, delete `~/.claude/skills/brothermode`, and keep or delete your vault. The vault is yours; nothing else stores state.
