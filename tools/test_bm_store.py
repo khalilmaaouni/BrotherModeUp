@@ -4572,14 +4572,33 @@ class TestFinding5GitContainment(unittest.TestCase):
     def test_finding5_index_parser_agrees_with_git_ls_files(self):
         with tempfile.TemporaryDirectory() as base:
             repo = self._repo(base)
+            # The long name is sized to the PLATFORM, not to a constant.
+            # Windows enforces MAX_PATH at 260 characters unless long paths are
+            # explicitly enabled, and the CI temp directory already spends about
+            # 50 of those, so a flat 200-character name made `git add -A` die
+            # with exit 128 on both Windows legs while every POSIX leg passed.
+            # The point of this fixture is that the index parser reads a
+            # variable-length path correctly, and that is exercised by any name
+            # comfortably longer than the short ones beside it, so shortening it
+            # on Windows costs the test nothing.
+            budget = 240 - len(repo) if os.name == "nt" else 200
+            long_name = "z" * max(20, min(200, budget)) + ".txt"
             names = ["a.txt", "dir/b.txt", "dir/deeper/c d.txt",
-                     "z" * 200 + ".txt", "unicode-é中.txt"]
+                     long_name, "unicode-é中.txt"]
             for rel in names:
                 path = os.path.join(repo, *rel.split("/"))
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 with io.open(path, "w", encoding="utf-8") as f:
                     f.write("x\n")
-            self.assertEqual(_git(repo, "add", "-A").returncode, 0)
+            # Carry git's own stderr into the assertion. The previous version
+            # asserted only on the return code, so a failure read "128 != 0" and
+            # named neither the cause nor the file, which cost a full CI round
+            # to diagnose from the outside.
+            added = _git(repo, "add", "-A")
+            self.assertEqual(
+                added.returncode, 0,
+                "git add failed (rc=%s). stderr: %s" % (added.returncode,
+                                                         (added.stderr or "").strip()))
             # -z, because plain `ls-files` C-quotes any path outside ASCII
             # and the comparison would be against git's DISPLAY form rather
             # than against the bytes actually in the index.
