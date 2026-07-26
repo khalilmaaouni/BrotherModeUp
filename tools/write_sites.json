@@ -1,7 +1,7 @@
 {
   "_comment": "Reviewed write sites. If this test fails, a write site was added or removed. Confirm the new site redacts any user or model text before updating these counts.",
   "reviewed": {
-    "bm_store.py": 8,
+    "bm_store.py": 6,
     "bm_telemetry.py": 23,
     "bm_threads.py": 8,
     "bm_autosave.py": 5
