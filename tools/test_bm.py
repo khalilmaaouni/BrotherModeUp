@@ -1199,13 +1199,20 @@ class TestRegistryAbsorbAndView(unittest.TestCase):
         pattern = re.compile(
             r"^\s*(?:import|from)\s+(%s)\b" % "|".join(banned))
         offenders = []
+        # ONE named exception, and it is documented in SECURITY.md rather than
+        # hidden here: bm_autosave.py drives git, which is an external binary, so
+        # it must import subprocess. Every call it makes is local (no remote, no
+        # push, enforced by the shell-and-git half of this test below plus its own
+        # suite). The exception is per FILE and per MODULE NAME, so a second file
+        # cannot quietly inherit it, and subprocess remains banned everywhere else.
+        allowed = {"bm_autosave.py": {"subprocess"}}
         for n in sorted(os.listdir(tools)):
             if not n.endswith(".py") or n.startswith("test_"):
                 continue
             for i, line in enumerate(
                     io.open(os.path.join(tools, n), encoding="utf-8"), 1):
                 m = pattern.match(line)
-                if m:
+                if m and m.group(1) not in allowed.get(n, ()):
                     offenders.append("%s:%d imports %s" % (n, i, m.group(1)))
         self.assertEqual(
             offenders, [],

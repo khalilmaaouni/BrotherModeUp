@@ -1,75 +1,177 @@
 # BrotherMode
 
-**A Claude skill that turns the model from a tool that waits for instructions into a colleague that owns outcomes.**
-
-**Built for the solo founder and the individual top performer.** A company has a security officer, a data scientist, a project lead, and someone who remembers what you decided last month. Working alone, you have none of them. BrotherMode gives you the specialists you cannot hire and a memory that survives every interruption. It scales *down* to one person, on purpose, not up to an org. Occasionally sharing with a small team is supported (`bm_telemetry.py handoff`); running a multi-team control plane is not what this is for, and pairing it with GitHub protected branches and CI is the right way to get mechanical enforcement.
-
-Created by Khalil Maaouni. MIT licensed. Built for [Claude Code](https://claude.com/claude-code); the ideas port to any agent harness.
-
 ## What this is
 
-BrotherMode is not a prompt. It is an operating law: a written constitution that a Claude session loads at the start of any sizable task, plus the small mechanical toolchain that holds the session to it. The prompt tells the model what to do once. The law tells it how to work, every time, and the telemetry proves whether it actually did.
+BrotherMode is a Claude Code skill: a written set of working rules (`SKILL.md`)
+plus a small toolchain of Python and shell scripts, that you install once and
+that then shapes how an AI coding session behaves every time you invoke it.
+Instead of a model that waits for instructions and reports whatever sounds
+good, it is asked to behave like a colleague: map the situation before
+touching anything, say what it is doing and why in plain language, keep a
+written record of decisions and in-progress work so a crash or a restart does
+not lose the thread, and report bad news as soon as it is known rather than
+burying it in a summary. A machine-run hook, not the model itself, records
+what actually happened in each session (tokens spent, tools used, time taken),
+because a model reporting on its own performance is not evidence.
 
-Most agent setups fail the same way. The model over-delivers ceremony on small tasks, under-verifies big ones, forgets what a killed session was doing, lets two subagents overwrite each other's files, and reports success it never earned. BrotherMode exists to close those failure modes structurally, not by hoping the model behaves.
+## Who it is for
 
-## What is in the box
+A solo founder or an individual doing the work of several roles at once, using
+Claude Code as a working partner. It is built to scale down to one person on
+purpose, not up to a team or an organization: there is no shared server, no
+account system, and no multi-user coordination layer. If you are working with
+a small team, the project supports occasionally handing a project to a
+teammate (`bm_telemetry.py handoff`), but running this as a control plane for
+several people at once is not what it is for.
 
-| File | What it does |
-|---|---|
-| `SKILL.md` | The law: 16 numbered sections (0 through 15) covering classification, delegation, fences, budgets, research, honesty, memory, scoring |
-| `DIGEST.md` | A 12-line compression of the law, injected at every session start so the rules survive context loss |
-| `RUBRIC.md` | A template for the 9 frozen metrics your weekly review scores against |
-| `STATE.template.md` | The running state file format: fences, decisions, the never-forget list |
-| `tools/bm_telemetry.py` | The mechanical half of the learning loop: session telemetry, corrections capture, scorecard, nags |
-| `tools/bm_score.py` | Code-graded weekly checks, so the LLM judge only scores what code cannot decide |
-| `tools/bm_sessionstart.sh` | Session-start hook: injects the digest, overdue-review nags, the offline update check, and a recovery pointer after a compaction |
-| `tools/bm_autosave.sh` | Mechanical work-preservation: on the PreCompact hook it snapshots your whole working tree (untracked files included) to a private git ref so token-death never erases progress. Local git only, never pushes. `recover` restores it |
-| `tools/bm_score.py` runs advisory locally; `bm_score.py --strict` exits nonzero on any FAIL so CI can block a merge (the two-mode design). `bm_telemetry.py handoff <project>` writes one redacted, shareable markdown for handing a project to a teammate. |
-| `tools/bm_threads.py` | Thread mode (opt-in): one persistent thread per key feature, each with its own context, plus a chief dashboard as command center. Switching it off drains every thread's handover into your STATE.md and parks the threads, so it is reversible mid-project with no lost context |
-| `tools/test_bm.py` | Regression tests (stdlib only): secret redaction, owner-only files, project-identity collisions, non-invasive autosave. Run `python3 tools/test_bm.py`; CI runs them on every push |
-| `tools/WEEKLY-REVIEW.md` | The 11-step weekly self-review procedure |
-| `docs/HOW-IT-WORKS.md` | The full mechanics, explained exactly |
-| `docs/BrotherMode-Design-Document.pdf` | The whitepaper: philosophy, all 16 laws, the code, data flow and cost, benchmarks, and a quick start. Start here if you are deciding whether to adopt |
-| `docs/BrotherMode-One-Page.pdf` | The one-page overview: purpose, target user, philosophy, the 16 laws, and how to use it well. Print it, or send it to someone in thirty seconds. Source: `docs/one-pager.src.html` |
-| `CHANGELOG.md` | What existed before each release and what was added, with the known limits of every new part |
-| `docs/SETUP.md` | Installation, hooks, and first-week checklist |
-| `vault-template/` | A ready-made Obsidian-compatible memory vault: copy it, open it in Obsidian, start working |
+## What it actually does for you
 
-## The five ideas that carry the system
-
-1. **Fence then dispatch.** One writer per file, ever. Before any agent launches, its file set is written to a registry on disk. Overlap between two declared file sets is computed and refused by name, so a collision is caught before the work starts instead of cleaned up afterwards. The guarantee is exactly as good as the declaration: a file an agent never declared is not protected, so this converts collisions from silent into detectable, not from possible into impossible.
-2. **The safety floor is unconditional.** Whenever anything writes, three things happen first: map the ground (git status), register the fence, keep state on disk. The learning loop is explicitly forbidden from training this away.
-3. **Nothing merges unverified.** Agents self-report; the orchestrator re-runs the check against the actual files before accepting anything. A deliverable arriving without its done-check satisfied goes back with the gap named.
-4. **The skill learns from measured outcomes only.** A session-end hook writes real token counts, tool calls, and durations to a ledger. Absent telemetry, a field says "not measured". Fiction is banned. A weekly review moves scores; corrections from the human become laws, each carrying the reason behind it.
-5. **Honesty is a gate, not a virtue.** Bad news travels first. Every claim carries its calibration: verified by command, verified by inspection, likely, or assumed. Self-scores cap at 8; a 9 or 10 requires named external evidence.
-
-## Read this first
-
-[**The design document**](docs/BrotherMode-Design-Document.pdf) (36 pages) explains
-the philosophy, every law, the code, exactly what data goes where, what it costs,
-and when not to use this. It is written to be read by someone who has never used an
-AI agent, and to be checked by someone who will read the source.
+- Gives every session a starting posture: map what is already true (git
+  status, what else is mid-flight) before writing anything.
+- Keeps one writer per file at a time. Before any part of a session starts
+  writing to a set of files, that claim is written down first, so two
+  parallel efforts cannot silently overwrite each other's work.
+- Writes a resumable record of decisions and open work to a plain folder on
+  your disk (the vault), so a session that gets killed, or a context
+  compaction, can pick up from a file instead of from a memory that is gone.
+- Records real numbers about what a session cost (tokens, tool calls, time)
+  through a mechanical hook rather than through the model's own account of
+  itself, so a weekly review has something honest to look at.
+- Asks the model to say when it disagrees with you, using your own stated
+  values as the standard, before it goes along with a call it has reason to
+  think is wrong.
+- Snapshots your working tree to a private local git reference right before
+  Claude Code compacts its context (the point where a session tends to lose
+  track of what it was doing), so unsaved and untracked work has a recovery
+  path.
 
 ## Quick start
+
+The full, copy-pasteable, ten-minute path, with the expected output of every
+command, is [`docs/QUICKSTART.md`](docs/QUICKSTART.md). The short version:
 
 ```bash
 git clone https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
-Then follow `docs/SETUP.md` to wire the three hooks and create your vault. Invoke with `/brothermode` at the start of any sizable task. Total setup is under ten minutes.
+Then follow `docs/QUICKSTART.md` (or the longer reference, `docs/SETUP.md`) to
+run the tests, wire the four hooks, and point a vault folder somewhere on your
+disk. Invoke with `/brothermode` at the start of a sizable task.
+
+## Status: read this before trusting anything above
+
+This project is under active rebuild (a "V2" rewrite of its storage engine),
+and the honest state of that rebuild matters more than anything else on this
+page. The full, current list is
+[`docs/KNOWN-LIMITS.md`](docs/KNOWN-LIMITS.md); the two points that matter most:
+
+- **The new V2 storage engine is built but not wired into anything you run.**
+  `tools/bm_store.py` exists, has its own test suite
+  (`tools/test_bm_store.py`), and has been through several rounds of
+  adversarial review. But no other file in this project imports it or calls
+  it (checked directly: `grep -rn "bm_store" tools/*.py tools/*.sh` outside
+  of `bm_store.py` and its own test file returns nothing). The tools that
+  actually run today when you use this skill, `bm_threads.py`,
+  `bm_registry.py`, `bm_telemetry.py`, are the older ones, with the
+  limitations `KNOWN-LIMITS.md` describes. Rewiring them onto the new engine
+  is planned future work, not something already shipped.
+- **This has not been used on a real project yet.** Everything behind the
+  claims in this repository rests on its own test suites and adversarial
+  review, not on a week of someone's actual work going through it.
+  Continuous integration has never executed against this content (the
+  workflow is configured; it has not run). Windows support is designed for,
+  and one real defect was caught by simulating Windows path behavior on this
+  machine, but no one has run it on an actual Windows machine.
+
+Do not read anything in this README as implying otherwise. If a claim below
+and a claim in `KNOWN-LIMITS.md` seem to disagree, the limits file is the one
+to believe.
+
+## Verify the safety claims yourself
+
+This project claims it makes no network calls and keeps your data on your own
+disk. Do not take that on faith; it is checkable in under a minute:
+
+```bash
+cd ~/.claude/skills/brothermode
+grep -rnE "urllib|requests|socket|http|curl|wget" tools/*.py tools/*.sh | grep -v "^tools/test_"
+```
+
+Expected: no output. (The `test_` files are excluded because they deliberately
+contain these words in fixture data and in the test that checks the OTHER
+files never do; run the grep without that filter and you will see exactly
+that test data, not a real network call. The one thing that does shell out at
+all is the autosave mechanism, and it only ever calls local `git`, never a
+network command; `grep -rn subprocess tools/*.py tools/*.sh | grep -v test_`
+shows exactly where.)
+
+To check the tools do what they claim mechanically (secret redaction,
+owner-only file permissions, no silent overwrite between two writers), run
+the test suites yourself rather than trusting this page:
+
+```bash
+python3 tools/test_bm.py         # the tools that actually run today
+python3 tools/test_bm_store.py   # the new engine, not yet wired in (see Status)
+```
+
+The first takes several minutes on an ordinary machine (one test deliberately
+runs hundreds of real subprocess calls to stress concurrent behavior); the
+second takes roughly a minute. Both should end in `OK`.
+
+## Uninstall
+
+```bash
+rm -rf ~/.claude/skills/brothermode
+```
+
+Then remove the four hook entries you added to `~/.claude/settings.json`
+(`docs/SETUP.md` lists them). Your vault (default `~/BrotherModeVault`) is a
+separate, ordinary folder: nothing above touches it, and it is yours to keep
+or delete on its own.
+
+## What is in the box
+
+| File | What it does |
+|---|---|
+| `SKILL.md` | The law: numbered sections covering classification, delegation, fences, budgets, research, honesty, memory, scoring |
+| `DIGEST.md` | A short compression of the law, injected at every session start so the rules survive context loss |
+| `RUBRIC.md` | A template for the metrics a weekly review scores against |
+| `STATE.template.md` | The running state file format: fences, decisions, the never-forget list |
+| `tools/bm_telemetry.py` | The mechanical half of the learning loop: session telemetry, corrections capture, scorecard, nags |
+| `tools/bm_score.py` | Code-graded weekly checks, so an LLM judge only scores what code cannot decide |
+| `tools/bm_sessionstart.sh` | Session-start hook: injects the digest, overdue-review nags, and a recovery pointer after a compaction |
+| `tools/bm_autosave.py` | On the PreCompact hook, snapshots your whole working tree (untracked files included) to a private local git reference. Never pushes. `recover` restores it |
+| `tools/bm_threads.py` | Thread mode (opt-in): one persistent thread per key feature, plus a dashboard. Reversible mid-project |
+| `tools/test_bm.py` | Regression tests for the tools that run today. Standard library only. Run `python3 tools/test_bm.py` |
+| `tools/bm_store.py`, `tools/test_bm_store.py` | The new V2 storage engine and its tests. Built, not yet wired into any of the tools above; see Status |
+| `tools/WEEKLY-REVIEW.md` | The weekly self-review procedure |
+| `docs/QUICKSTART.md` | The literal ten-minute path, with expected output at every step |
+| `docs/SETUP.md` | The fuller installation and hooks reference |
+| `docs/HOW-IT-WORKS.md` | The mechanics of the tools that run today, explained exactly |
+| `docs/KNOWN-LIMITS.md` | What is not proven yet. Read this before the rest |
+| `docs/BrotherMode-Design-Document.pdf` | The whitepaper: philosophy, the code, data flow and cost |
+| `CHANGELOG.md` | What changed release to release, and the known limits of each addition |
+| `vault-template/` | A ready-made memory vault folder: copy it and start working |
 
 ## What is deliberately not here
 
-Enterprise control-plane machinery. There is no distributed lock service, no multi-machine coordination, no org governance layer, and that is deliberate: those serve a user this project is not built for, and adding them would cost the solo founder the very simplicity that makes this useful. For mechanical enforcement at merge time, pair it with GitHub protected branches, required status checks, and the CI workflow shipped here. And personal memory: the vault (session logs, findings, the founder model, telemetry ledgers) lives outside this repo, on your machine, and is never committed to it. The repo ships an empty vault-template you copy once; what grows inside your copy stays yours. This repo is the machinery. The memory is yours and stays yours.
+A distributed lock service, multi-machine coordination, or an
+organization-wide governance layer. That is on purpose: those serve a
+different kind of user than the one this project is built for, and adding
+them would cost the simplicity that makes this useful for one person. Your
+memory (session logs, findings, telemetry) lives in a vault folder outside
+this repository, on your own disk, and this repository never commits to it;
+you copy `vault-template/` once and what grows inside your copy stays yours.
 
 ## Requirements
 
 - Claude Code (CLI or desktop app) with skills enabled
-- Python 3 (standard library only; no packages to install)
+- Python 3, standard library only, no packages to install
 - git
 
 ## License
 
-MIT. Use it, fork it, rewrite the law to fit your team. The rubric is a template on purpose: ratify your own version with whoever plays the founder role, then freeze it.
+MIT. Use it, fork it, rewrite the law to fit how you work. `RUBRIC.md` ships
+as a template on purpose: measure your own baselines before freezing it.
 
 Created by Khalil Maaouni.
