@@ -1,5 +1,48 @@
 # Changelog
 
+## 2026-07-27 (v2.0.0-rc.2): the external audit closed, and rc.1 withdrawn
+
+A second external adversarial audit returned NO-GO on rc.1: 8 release blockers
+and 9 high-risk defects. All 17 are now closed, and CI is green on Linux, macOS
+and Windows across both supported Python versions with the recovery suite
+included, which rc.1 never was.
+
+WITHDRAWN: do not install `v2.0.0-rc.1`. Its tag points at a commit that FAILED
+on Windows, and the branch then moved 14 commits past it while the VERSION file
+still read `2.0.0-rc.1`. An immutable tag and a moving branch claimed one
+identity while holding different code. That is the defect this entry exists to
+close, and it is worse than an ordinary bug: a version number is the promise that
+two people naming it are discussing the same bytes.
+
+What actually changed for a user:
+
+- Your recovery tool no longer lies to you. It used to print "your files are
+  autosaved" whenever this session had EVER snapshotted; it now verifies the
+  snapshot still resolves and says plainly when your newest work may not be
+  captured. It has a third answer that claims nothing when the truth is unknown.
+- Files can no longer be written outside your project through a symlink. One
+  containment funnel now covers STATE.md, its backups, thread directories and the
+  project server, which previously had four separate holes.
+- The project server can no longer be tricked into copying another project's
+  database and answering with its contents.
+- The install verifier now catches a planted symlink backdoor it used to pass.
+- A read-only health check can no longer move your database.
+- The store refuses to open where git could commit it, so raw objectives and
+  decisions cannot be published by a routine `git add -A`.
+- A thread whose NAME looked secret-shaped used to become permanently unreachable
+  with its fence stranded. Identity now comes from the table, not a redacted view.
+- The CLI no longer guesses between two threads with the same name; it refuses
+  and lists them.
+- The single-writer promise has a mechanical gate for the first time: a
+  PreToolUse hook that blocks a write outside an active claim. It is shipped but
+  NOT installed by default, because it sits in front of every edit.
+
+Still true and stated rather than buried: this has never run on a real project,
+Bash writes are not gated by the hook, session identity is harder to forge but
+not unforgeable, recovered work is owner-only on POSIX only, and handovers are
+serialized by a lock rather than stored transactionally. `docs/KNOWN-LIMITS.md`
+carries the full list.
+
 ## 2026-07-26 (later still): the final gate's two blockers, closed structurally
 
 A four-lens final gate aimed at the code from the entry below found two release
