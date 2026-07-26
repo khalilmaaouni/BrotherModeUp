@@ -2079,8 +2079,13 @@ class TestFixRound7(unittest.TestCase):
             with io.open(backups[0], encoding="utf-8") as f:
                 backed_up = f.read()
             self.assertEqual(backed_up, first, "the backup must hold the PREVIOUS content verbatim")
-            self.assertTrue(any(backups[0] in str(call) for call in warn_mock.call_args_list),
-                             "the backup path must be reported on stderr")
+            # Compare against each ARGUMENT, not str(call): str() of a mock call
+            # renders through repr, which doubles every backslash, so a Windows
+            # path can never match itself. POSIX paths contain no backslashes,
+            # which is the only reason this passed everywhere else.
+            reported = [str(arg) for call in warn_mock.call_args_list for arg in call.args]
+            self.assertTrue(any(backups[0] in msg for msg in reported),
+                             "the backup path must be reported on stderr; got %r" % (reported,))
 
     # -- GATE B: the fail-closed redaction promise must actually hold -
 
@@ -2130,11 +2135,18 @@ class TestFixRound7(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             store = bs.Store(d)
             path = store.path
+            real_conn = store.conn
+            # Release the live connection BEFORE writing the sidecars. In WAL
+            # mode SQLite keeps -shm memory-mapped, and Windows refuses a second
+            # write handle on a mapped file (OSError [Errno 22]) where POSIX
+            # allows it. This test's subject is what close() does to sidecars
+            # that already exist, so writing them after the handle is released
+            # preserves the intent and works on every platform.
+            real_conn.close()
             with io.open(path + "-wal", "wb") as f:
                 f.write(b"wal sidecar bytes, pretend records live here")
             with io.open(path + "-shm", "wb") as f:
                 f.write(b"shm sidecar bytes")
-            real_conn = store.conn
 
             class _DestructiveCloseConn(object):
                 def close(self_inner):
@@ -2309,6 +2321,11 @@ class TestFixRound8(unittest.TestCase):
                     store.close()
             finally:
                 locker.execute("ROLLBACK")
+                # Windows keeps the temp directory locked until every handle
+                # on the db file is gone, this deliberate locker included.
+                # The sibling test at the top of this file already closes its
+                # locker; this one did not, and POSIX hid the difference.
+                locker.close()
 
     # -- IMPORTANT: checkpoint/decide must echo the new version ---------
 
