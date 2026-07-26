@@ -56,6 +56,13 @@ STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
 
+CLEAR_TTL_HOURS = object()
+"""The None-versus-empty rule (GATE D, round 6) has no natural "empty"
+value for a nullable REAL column the way a string field has "": passing
+None already means "not supplied, leave it alone" on a reclaim, so there
+was no way left to mean "clear it back to NULL" (fix-round 8, IMPORTANT).
+Pass this sentinel to Store.claim(ttl_hours=...) to mean exactly that."""
+
 _STATE_BEGIN = "<!-- BEGIN GENERATED BROTHERMODE STATE (edit outside these markers only) -->"
 _STATE_END = "<!-- END GENERATED BROTHERMODE STATE -->"
 _MARKER_ESCAPE = "[marker text neutralized]"
@@ -76,17 +83,14 @@ def _neutralize_markers(s):
 def _sanitize_for_display(s):
     """Neutralize every C0 control character (0x00-0x1F) and DEL (0x7F) in
     founder-typed text before it enters a generated view or a terminal
-    (SOFT D + SOFT E, fix-round 5, 2026-07-26, unified into one pass since
-    both are "a control character reached somewhere it should not have"):
-    an objective containing a raw newline forged a complete counterfeit
-    record block inside STATE.md while verify() reported healthy (SOFT D),
-    and an objective containing a raw ANSI escape (ESC, 0x1b) reached a real
-    terminal and erased another record's line, reproduced as "HIJACKED: no
-    other work exists" (SOFT E). valid_name already rejects non-printables
-    in NAMES; free-text fields had no equivalent gate. Each offending byte
-    becomes a visible \\xHH escape, the same representation _out() already
-    uses for an unencodable character, so the founder sees one consistent
-    escape style everywhere."""
+    (SOFT D + SOFT E, one pass: both are "a control character reached
+    somewhere it should not have"): a raw newline in an objective forged a
+    counterfeit record block inside STATE.md while verify() reported
+    healthy (SOFT D), and a raw ANSI escape reached a real terminal and
+    erased another record's line (SOFT E). valid_name already rejects
+    non-printables in NAMES; free-text fields had no equivalent gate. Each
+    offending byte becomes a visible \\xHH escape, the same representation
+    _out() uses for an unencodable character."""
     if not s:
         return s
     out = []
@@ -395,10 +399,13 @@ def _resolve_against_root(root, rel_literal, cwd=None):
 
 def canonicalize_path(root, p, cwd=None):
     """The ONE place a caller-declared path becomes a stored path (GATE 1,
-    fix-round 2026-07-26, closes four defects at once):
-    1. Resolves a relative path against cwd (default os.getcwd()) BEFORE
-       expressing it root-relative, so a claim typed from a subdirectory and
-       the same claim typed from the root store the identical string.
+    closes four defects at once):
+    1. Resolves a relative path against cwd BEFORE expressing it
+       root-relative, so a claim typed from a subdirectory and the same
+       claim typed from the root store the identical string. cwd=None (the
+       default for every Python-API caller) means "resolve against root
+       itself", NOT os.getcwd(); only the CLI passes cwd=os.getcwd()
+       explicitly (see _resolve_against_root for the actual rule).
     2. Rejects (reason 'path-escape') anything that resolves outside root,
        including via '..' or a symlink.
     3. Stores a root-relative POSIX string with '.'/'..' segments resolved;
@@ -474,15 +481,14 @@ def _normalize_files(files, root, cwd=None):
 
     Every entry passes through _coerce_path_entry (TOTAL: string or raise)
     and then canonicalize_path (root-relative, or raise 'path-escape'):
-    NOTHING is ever silently dropped (fix-round 2, 2026-07-26). A files
-    argument that is not iterable at all also raises 'bad-path' rather than
-    quietly becoming an empty list. A NON-EMPTY input that still yields zero
-    stored claims (every entry blank, or all entries collapse to the same
-    path) raises too: a record that reports success while fencing nothing
-    is exactly the defect this closes. Called BEFORE _transaction() opens
-    (see claim()), so any raise here happens before a single byte is
-    written: the whole claim is atomic by construction, never a partial
-    fence."""
+    NOTHING is ever silently dropped. A non-iterable files argument also
+    raises 'bad-path' rather than quietly becoming an empty list. A
+    NON-EMPTY input that still yields zero stored claims (every entry
+    blank, or all collapse to the same path) raises too: a record that
+    reports success while fencing nothing is exactly the defect this
+    closes. Called BEFORE _transaction() opens (see claim()), so any raise
+    here happens before a single byte is written: atomic by construction,
+    never a partial fence."""
     if files is None:
         raw = []
     elif isinstance(files, str):
@@ -581,8 +587,9 @@ class RedactionUnavailable(OwnershipRefused):
     """bm_telemetry.redact could not be loaded, or itself raised on the
     input. Refusing to render is the safe direction: the alternative is
     founder-typed text (an objective, a decision, a digest section, a note)
-    reaching STATE.md or a terminal unredacted. dump() is unaffected: it is
-    the documented raw export and never calls redact_text()."""
+    reaching STATE.md or a terminal unredacted. dump() redacts by default
+    (GATE C, fix-round 6) and raises this exact exception when it cannot;
+    only the explicit, documented dump(raw=True) skips redaction entirely."""
 
     def __init__(self, message, details=None):
         super(RedactionUnavailable, self).__init__("redaction-unavailable", message, details)
@@ -670,9 +677,6 @@ class Record(object):
     def __init__(self, **kw):
         for k in self.__slots__:
             setattr(self, k, kw.get(k))
-
-    def to_dict(self):
-        return dict((k, getattr(self, k)) for k in self.__slots__)
 
     def __repr__(self):
         return ("Record(name=%r, lifecycle_uuid=%r, state=%r, version=%r)"
@@ -847,15 +851,13 @@ def _chmod_best_effort(path, mode):
 
 def _refuse_if_symlink_escape(expected_path):
     """The ONE containment check for any path this module treats as living
-    LITERALLY at expected_path (GATE D, fix-round 3, extended to the store
-    file and its sidecars as GATE B, fix-round 5, 2026-07-26): a symlinked
-    .brothermode DIRECTORY was refused, but .brothermode/store.sqlite3 (and
-    its -wal/-shm) were never checked, so a symlinked store FILE still wrote
-    the raw sensitive database outside the project root (reproduced:
-    committed into git via a symlinked docs/leak.sqlite3 carrying a secret).
-    Only checks paths that already exist (os.path.lexists, which does not
-    follow the final symlink): a path about to be freshly created cannot be
-    an escape yet. Raises OwnershipRefused 'path-escape'."""
+    LITERALLY at expected_path (GATE D, extended to the store file and its
+    sidecars as GATE B): a symlinked .brothermode DIRECTORY was refused,
+    but .brothermode/store.sqlite3 (and its -wal/-shm) were never checked,
+    so a symlinked store FILE still wrote the raw database outside the
+    project root. Only checks paths that already exist (os.path.lexists,
+    which does not follow the final symlink): a path about to be freshly
+    created cannot be an escape yet. Raises OwnershipRefused 'path-escape'."""
     if not os.path.lexists(expected_path):
         return
     real_path = os.path.realpath(expected_path)
@@ -869,16 +871,13 @@ def _refuse_if_symlink_escape(expected_path):
 
 
 def _refuse_if_hardlinked(expected_path):
-    """SOFT D (fix-round 7, 2026-07-26): the symlink check above cannot see
-    a HARDLINK. A second, git-visible filename hardlinked to
-    .brothermode/store.sqlite3 (or its -wal/-shm) shares the same inode, so
-    os.path.realpath(expected_path) still equals expected_path (there is no
-    symlink to resolve) even though the raw sqlite bytes are also reachable,
-    and committable, through that other name (reproduced: a secret found in
-    committed git history via a hardlinked docs/leak.sqlite3). st_nlink
-    counts every hard-linked name a file has; an ordinary, unshared regular
-    file always reports 1. Only checks paths that already exist: a file
-    about to be freshly created cannot yet be hardlinked to anything."""
+    """SOFT D: the symlink check above cannot see a HARDLINK. A second,
+    git-visible filename hardlinked to .brothermode/store.sqlite3 (or its
+    -wal/-shm) shares the same inode, so os.path.realpath(expected_path)
+    still equals expected_path (no symlink to resolve) even though the raw
+    sqlite bytes are also reachable, and committable, through that other
+    name. st_nlink counts every hard-linked name a file has; an ordinary,
+    unshared file always reports 1. Only checks paths that already exist."""
     if not os.path.lexists(expected_path):
         return
     try:
@@ -915,22 +914,20 @@ def _looks_like_git_admin_dir(path):
 
 def _resolve_git_common_dir(root):
     """The directory that actually holds info/exclude for this checkout
-    (GATE C, fix-round 3, 2026-07-26). A normal checkout: <root>/.git. A
-    worktree: .git is a FILE containing 'gitdir: <path>' pointing at
-    <main>/.git/worktrees/<name>; info/exclude is NOT per-worktree, it is
-    shared once at the top of the MAIN checkout's .git, named by that
-    worktree gitdir's own 'commondir' file (present since git 2.5). The old
-    code returned early on a .git FILE, so nothing was ever excluded inside
-    a worktree and `git add -A` staged the raw store. Verified against a
-    real `git worktree add`. Returns None when there is no git here at all,
-    or anything about it could not be read.
+    (GATE C). A normal checkout: <root>/.git. A worktree: .git is a FILE
+    containing 'gitdir: <path>' pointing at <main>/.git/worktrees/<name>;
+    info/exclude is NOT per-worktree, it is shared once at the top of the
+    MAIN checkout's .git, named by that worktree gitdir's own 'commondir'
+    file (present since git 2.5); returning early on a .git FILE used to
+    leave nothing excluded inside a worktree, so `git add -A` staged the
+    raw store. Returns None when there is no git here, or it could not be
+    read.
 
-    SOFT G (fix-round 6, 2026-07-26): the pointer is validated with
-    _looks_like_git_admin_dir before being trusted, and NEVER created by
-    us: a crafted .git file naming an arbitrary path (for example
-    'gitdir: /etc') used to make this function return that path verbatim,
-    and the caller would then os.makedirs a directory tree there and write
-    into it. Raises OwnershipRefused('path-escape') instead."""
+    SOFT G: the pointer is validated with _looks_like_git_admin_dir before
+    being trusted, and NEVER created by us: a crafted .git file naming an
+    arbitrary path (e.g. 'gitdir: /etc') used to make this return that path
+    verbatim, and the caller would os.makedirs a tree there. Raises
+    OwnershipRefused('path-escape') instead."""
     git_path = os.path.join(root, ".git")
     if os.path.isdir(git_path):
         return git_path
@@ -978,13 +975,12 @@ def _resolve_git_common_dir(root):
 def _ensure_git_excludes(root):
     """Append .brothermode/, threads/, STATE.md to the resolved git common
     dir's info/exclude when git is present here and the entries are absent
-    (fixes finding 30; worktree support is GATE C, fix-round 3, 2026-07-26).
-    Called from Store.__init__ on EVERY open (GATE 7, fix-round 2026-07-26),
-    not only from init: any command creates .brothermode/store.sqlite3 as a
-    side effect, so a routine `git add -A` run before anyone happens to run
-    `init` used to commit the store, cleartext founder secrets and all.
-    Idempotent, so calling it on every open costs nothing once the entries
-    are already present."""
+    (worktree support is GATE C). Called from Store.__init__ on EVERY open
+    (GATE 7), not only from init: any command creates .brothermode/
+    store.sqlite3 as a side effect, so a routine `git add -A` run before
+    anyone happens to run `init` used to commit the store, secrets and
+    all. Idempotent: calling it on every open costs nothing once the
+    entries are present."""
     git_dir = _resolve_git_common_dir(root)
     if git_dir is None:
         return
@@ -1012,27 +1008,39 @@ def _ensure_git_excludes(root):
         _warn("bm_store: warning: could not update %s (%s)" % (exclude_path, e))
 
 
+def _is_transient_busy_error(e):
+    """True only for the two sqlite3.OperationalError messages that mean
+    "another connection holds the lock right now, try again shortly" (fix-
+    round 8, IMPORTANT: every OperationalError used to get the SAME "busy
+    or locked, wait and retry" advice, so a genuinely missing table gave
+    advice that can never work and hid CRITICAL A's own reproduction behind
+    a comforting, wrong message). Every other OperationalError (a missing
+    table or column, a disk I/O error, ...) means something is actually
+    wrong, and deserves to say so."""
+    msg = str(e).lower()
+    return "database is locked" in msg or "database is busy" in msg
+
+
 def _exec(store, sql, params=()):
     """The ONE place any SQL statement runs against a Store's connection
-    (GATE 4, fix-round 2026-07-26): Store.__init__ only probed the schema at
-    OPEN time, so damage on a later page opened fine and then leaked a raw
-    sqlite3.DatabaseError out of claim(), dump(), and verify(), with nothing
-    quarantined and the CLI exiting 1 with a driver traceback. Every query
-    in this module, from a Store method or from a module-level function
-    holding a Store (render_state_md, verify), routes through here so the
-    same ratified failure split applies everywhere, not only at open:
-    sqlite3.OperationalError refuses 'db-busy', any other
-    sqlite3.DatabaseError quarantines and raises StoreCorrupt.
-    sqlite3.IntegrityError (itself a DatabaseError subclass) is
-    deliberately let through UNCHANGED: a unique-constraint hit is
-    caller-shaped, not corruption (see transition()'s 'name-active' handling
-    for GATE 6), and the caller is better placed to turn it into a named
-    refusal than this generic helper is."""
+    (GATE 4): Store.__init__ only probed the schema at OPEN time, so damage
+    on a later page opened fine and leaked a raw sqlite3.DatabaseError out
+    of claim(), dump(), and verify(), unquarantined, exit 1. Every query in
+    this module routes through here so the same split applies everywhere:
+    a transient busy/locked OperationalError refuses 'db-busy'; any other
+    DatabaseError, OperationalError included, quarantines (CRITICAL A: also
+    the backstop for a table dropped from under an already-open connection,
+    not only one caught at the next fresh open). sqlite3.IntegrityError is
+    let through UNCHANGED: a unique-constraint hit is caller-shaped, not
+    corruption (see transition()'s 'name-active' handling, GATE 6), and the
+    caller is better placed to turn it into a named refusal than this is."""
     try:
         return store.conn.execute(sql, params)
     except sqlite3.IntegrityError:
         raise
     except sqlite3.OperationalError as e:
+        if not _is_transient_busy_error(e):
+            store._quarantine_and_raise(e)
         raise OwnershipRefused(
             "db-busy",
             "the store at %s is busy or locked (%s); wait a moment and retry."
@@ -1053,16 +1061,13 @@ class Store(object):
         real multi-second wait. Store(root) alone still matches the spec's
         constructor exactly.
 
-        create=False (fix-round 4, 2026-07-26): refuse 'no-store' rather
-        than silently create one, naming the exact command to run. Only the
-        CLI's `init` passes create=True (the default); every other CLI
-        command (claim, park, resume, checkpoint, decide) passes
+        create=False: refuse 'no-store' rather than silently create one,
+        naming the exact command to run. Only the CLI's `init` passes
+        create=True (the default); every other CLI command passes
         create=False, because "only init creates a store" only means
-        something if every OTHER path can refuse instead. Direct Python-API
+        something if every other path can refuse instead. Direct Python-API
         callers (this module's own tests included) keep the permissive
-        default: this parameter exists for the CLI's explicit contract, not
-        to change what Store(root) means when nobody asks for the stricter
-        behavior."""
+        default."""
         self.root = os.path.realpath(root)
         self.conn = None
         expected_store_dir = store_dir(self.root)
@@ -1113,6 +1118,12 @@ class Store(object):
             # legitimate state to be mistaken for one later.
             self._quarantine_and_raise(
                 ValueError("store file exists but is zero bytes (truncated, or never finished writing)"))
+        # CRITICAL A (fix-round 8): a non-empty file at this path already
+        # existed before this open, so its schema must be VERIFIED, never
+        # blindly recreated; a brand new path gets _ensure_schema exactly
+        # as before. Computed before sqlite3.connect, which creates the
+        # file itself when it is missing.
+        pre_existing = os.path.isfile(self.path)
         try:
             conn = sqlite3.connect(self.path, timeout=5.0, isolation_level=None)
             conn.row_factory = sqlite3.Row
@@ -1120,7 +1131,10 @@ class Store(object):
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA busy_timeout=%d" % int(busy_timeout_ms))
             conn.execute("PRAGMA foreign_keys=ON")
-            self._ensure_schema()
+            if pre_existing:
+                self._verify_schema_or_raise()
+            else:
+                self._ensure_schema()
             # A read, not just a connect: a corrupt file can open fine and
             # only fail the instant something touches its b-tree pages. Fail
             # here, at construction, rather than on the caller's first real
@@ -1129,15 +1143,16 @@ class Store(object):
             # instead, on every subsequent query (GATE 4).
             self.conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
         except sqlite3.OperationalError as e:
-            # Amended 2026-07-26: the first draft quarantined on ANY
-            # sqlite3.DatabaseError, and OperationalError (busy or locked) is
-            # a subclass of it, so a merely-busy database used to get renamed
-            # out from under a concurrent writer, which is itself data loss.
-            # A busy or locked database is transient, not corrupt: refuse
-            # fail-closed with a clear retry message and touch nothing. This
-            # except clause MUST stay before the DatabaseError one below,
-            # since OperationalError is a subclass and would otherwise never
-            # be reached.
+            # OperationalError (busy or locked) is a DatabaseError subclass,
+            # so this MUST stay before the DatabaseError clause below or it
+            # is never reached. A merely-busy database is transient, not
+            # corrupt: refuse fail-closed with a retry message and touch
+            # nothing. Anything else (fix-round 8: a missing table, for
+            # instance) is NOT transient, and quarantines like any other
+            # DatabaseError instead of giving retry advice that can never
+            # work (see _is_transient_busy_error).
+            if not _is_transient_busy_error(e):
+                self._quarantine_and_raise(e)
             if self.conn is not None:
                 try:
                     self.conn.close()
@@ -1173,31 +1188,51 @@ class Store(object):
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('created_at', ?)",
             (now_iso(),))
 
+    def _verify_schema_or_raise(self):
+        """CRITICAL A (fix-round 8, reproduced independently: claim alpha on
+        api/pay.py, drop the claims table, claim beta on the same path ->
+        GRANTED at exit 0, verify -> healthy). _ensure_schema's CREATE TABLE
+        IF NOT EXISTS ran unconditionally on every open, so a table missing
+        from an EXISTING store (dropped by hand, or left mid-migration) was
+        silently recreated empty instead of caught: the double-fence class
+        re-entering through the schema door, with a Phase 2/3 migration as
+        the realistic trigger. Called only when the file already existed
+        before this open; a brand new file still gets _ensure_schema. Every
+        expected table must be present and schema_version must match
+        exactly, or this quarantines rather than silently repairing."""
+        found = {r["name"] for r in self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        missing = sorted(t for t in _TABLES if t not in found)
+        if missing:
+            self._quarantine_and_raise(
+                ValueError("existing store is missing expected table(s): %s" % ", ".join(missing)))
+        row = self.conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
+        found_version = row["value"] if row is not None else None
+        if found_version != str(SCHEMA_VERSION):
+            self._quarantine_and_raise(
+                ValueError("existing store schema_version is %r, expected %r"
+                           % (found_version, str(SCHEMA_VERSION))))
+
     def _quarantine_and_raise(self, cause):
         """Quarantine store.sqlite3 AND its -wal/-shm sidecars into a
-        per-incident DIRECTORY (GATE 5, fix-round 2026-07-26). A single
-        renamed FILE had two defects: two quarantines inside the same
-        second collided and os.replace silently destroyed the first one's
-        evidence, and the -wal/-shm sidecars (where the actually-lost
-        records can live, since WAL keeps recent writes there before a
-        checkpoint) were left behind entirely. The directory name carries
-        microsecond precision plus a uuid4 suffix and is created with
-        os.makedirs(exist_ok=False), so a name can never be reused; nothing
-        is ever os.replace'd onto an existing path.
+        per-incident DIRECTORY (GATE 5): a single renamed FILE let two
+        quarantines in the same second collide (os.replace silently
+        destroying the first's evidence) and left the sidecars (where the
+        actually-lost records can live, WAL keeping recent writes there
+        before a checkpoint) behind entirely. The directory name carries
+        microsecond precision plus a uuid4 suffix via os.makedirs(exist_ok=
+        False), so a name is never reused and nothing is ever replaced onto
+        an existing path.
 
-        GATE C (fix-round 7, 2026-07-26): the sidecars are now COPIED into
-        the quarantine directory BEFORE self.conn.close() runs, not after.
-        The previous order closed the connection first and moved files
-        second; on a newer bundled SQLite (3.53.1, shipped with a recent
-        Python 3.13), close() itself DELETES stale -wal/-shm files as part
-        of its own cleanup, so by the time the move ran there was nothing
-        left: destroyed, not merely left behind, which is worse than the
-        original defect this quarantine exists to prevent, and is silently
-        version-dependent (passes on an older SQLite, fails on a newer one,
-        same test). Copying their bytes while the handle is still open is
-        unaffected by whatever close() does to the originals afterward; the
-        main store file is still moved only after close(), since it is the
-        connection's own handle, not a sidecar, that close() can act on."""
+        GATE C: sidecars are COPIED into the quarantine directory BEFORE
+        self.conn.close() runs, not after: a newer bundled SQLite (3.53.1,
+        with a recent Python 3.13) DELETES stale -wal/-shm files as part of
+        close()'s own cleanup, so the old close-then-move order sometimes
+        found nothing left to move, worse than the original defect and
+        silently version-dependent. Copying while the handle is still open
+        is unaffected by whatever close() does to the originals; the main
+        file is still moved only after close(), since close() can only act
+        on the connection's own handle, not a sidecar file."""
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%f")
         suffix = uuid.uuid4().hex[:8]
         qdir = self.path + ".quarantine-%s-%s" % (stamp, suffix)
@@ -1320,15 +1355,24 @@ class Store(object):
         try:
             yield self.conn
         except Exception:
-            try:
-                self.conn.execute("ROLLBACK")
-            except sqlite3.Error:
-                pass
+            # self.conn can already be None here (fix-round 8, found while
+            # testing CRITICAL A's new quarantine-on-OperationalError path):
+            # a DatabaseError raised mid-transaction routes through _exec,
+            # which quarantines and closes/nulls the connection BEFORE this
+            # handler ever runs, so a bare self.conn.execute("ROLLBACK")
+            # raised AttributeError on None and masked the real
+            # StoreCorrupt with a confusing one. Nothing to roll back on a
+            # connection that is already gone.
+            if self.conn is not None:
+                try:
+                    self.conn.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass
             raise
         else:
             _exec(self, "COMMIT")
 
-    def _record_by_uuid(self, conn, lifecycle_uuid):
+    def _record_by_uuid(self, lifecycle_uuid):
         row = _exec(self,
             "SELECT * FROM records WHERE lifecycle_uuid=?", (lifecycle_uuid,)).fetchone()
         if row is None:
@@ -1352,11 +1396,11 @@ class Store(object):
         to build its return value, and tests and future callers need a way
         to re-read a record without reaching into private methods: exposing
         it is a small, pure-read addition, not a behavior change."""
-        return self._record_by_uuid(self.conn, lifecycle_uuid)
+        return self._record_by_uuid(lifecycle_uuid)
 
     # -- claim ---------------------------------------------------------
 
-    def _find_overlap(self, conn, norm_files, exclude_uuid=None):
+    def _find_overlap(self, norm_files, exclude_uuid=None):
         if exclude_uuid is None:
             rows = _exec(self,
                 "SELECT r.name AS name, c.lifecycle_uuid AS lifecycle_uuid, "
@@ -1376,7 +1420,7 @@ class Store(object):
                     return (r["name"], r["lifecycle_uuid"], (path, r["path"]))
         return None
 
-    def _admit(self, conn, name, lifetime, norm_files, exclude_uuid=None):
+    def _admit(self, name, lifetime, norm_files, exclude_uuid=None):
         """The ONE admission check any path that grants a record ACTIVE
         status over a set of claims must run (GATE A, fix-round 3,
         2026-07-26): resume (parked -> active) used to re-run NONE of
@@ -1389,7 +1433,7 @@ class Store(object):
         a SELECT before this runs, and resume relies on the UNIQUE INDEX
         itself raising IntegrityError at the UPDATE site (GATE 6); both
         funnel to the same 'name-active' refusal at their own call sites."""
-        conflict = self._find_overlap(conn, norm_files, exclude_uuid=exclude_uuid)
+        conflict = self._find_overlap(norm_files, exclude_uuid=exclude_uuid)
         if conflict is not None:
             self._raise_overlap(conflict)
         if lifetime == "persistent":
@@ -1443,31 +1487,30 @@ class Store(object):
     #: instead of shipping a silent-wipe defect.
     UPDATABLE_SCALAR_FIELDS = ("objective", "owner", "tier", "check_cmd", "ttl_hours")
 
-    def _reclaim_active(self, conn, row, objective, norm, owner, tier, check_cmd, ttl_hours):
+    def _reclaim_active(self, row, objective, norm, owner, tier, check_cmd, ttl_hours):
         """The same session re-declaring a name it already holds active.
-        Updates in place, keeps the SAME lifecycle_uuid (this is still the
-        same life of the record).
+        Updates in place, keeps the SAME lifecycle_uuid.
 
-        GATE D (fix-round 6, 2026-07-26): the None-versus-empty rule from
-        GATE A (round 5, for files) now applies to EVERY updatable scalar
-        field (see UPDATABLE_SCALAR_FIELDS): None means "not supplied" and
-        leaves the stored value completely untouched; any other value,
-        INCLUDING an explicit empty string, is a deliberate write, even to
-        clear the field. Before this, a reclaim that only wanted to change
-        the tier silently wiped the objective to empty, unrecoverable, exit
-        0: the identical defect class fixed for files last round, left open
-        here (this project's most expensive recurring failure: fix the
-        instance, leave the class).
+        GATE D: the None-versus-empty rule (GATE A, files) applies to EVERY
+        updatable scalar field (see UPDATABLE_SCALAR_FIELDS): None means
+        "not supplied", leaving the stored value untouched; any other
+        value, an explicit empty string included, is a deliberate write,
+        even to clear the field (a reclaim that only wanted to change the
+        tier used to silently wipe the objective).
 
         norm is None when the caller did not supply files: the existing
-        claims are left COMPLETELY untouched, no overlap re-check, no
-        DELETE, no INSERT. norm is a (possibly empty) list when the caller
-        explicitly supplied files: [] is a deliberate, allowed release, and
-        still re-checks overlap against every OTHER active record, since
-        skipping that check would let a same-session reclaim silently seize
-        a path a different session already holds."""
+        claims are left COMPLETELY untouched. norm is a (possibly empty)
+        list when the caller explicitly supplied files: [] is a deliberate,
+        allowed release, and still re-checks overlap against every OTHER
+        active record, since skipping that check would let a same-session
+        reclaim silently seize a path a different session already holds.
+
+        ttl_hours: a nullable REAL column has no natural "empty" value to
+        double as "clear it" the way a string does, so CLEAR_TTL_HOURS is
+        the explicit third state: None preserves, CLEAR_TTL_HOURS clears
+        to NULL, anything else is the new value."""
         if norm is not None:
-            conflict = self._find_overlap(conn, norm, exclude_uuid=row["lifecycle_uuid"])
+            conflict = self._find_overlap(norm, exclude_uuid=row["lifecycle_uuid"])
             if conflict is not None:
                 self._raise_overlap(conflict)
         ts = now_iso()
@@ -1475,7 +1518,12 @@ class Store(object):
         new_owner = owner if owner is not None else row["owner"]
         new_tier = tier if tier is not None else row["tier"]
         new_check = check_cmd if check_cmd is not None else row["check_cmd"]
-        new_ttl = ttl_hours if ttl_hours is not None else row["ttl_hours"]
+        if ttl_hours is CLEAR_TTL_HOURS:
+            new_ttl = None
+        elif ttl_hours is not None:
+            new_ttl = ttl_hours
+        else:
+            new_ttl = row["ttl_hours"]
         _exec(self,
             "UPDATE records SET objective=?, owner=?, tier=?, check_cmd=?, "
             "ttl_hours=?, version=version+1, updated_at=? WHERE lifecycle_uuid=?",
@@ -1486,43 +1534,38 @@ class Store(object):
                 _exec(self,
                     "INSERT INTO claims (lifecycle_uuid, path, is_glob) VALUES (?,?,?)",
                     (row["lifecycle_uuid"], path, 1 if is_glob else 0))
-        return self._record_by_uuid(conn, row["lifecycle_uuid"])
+        return self._record_by_uuid(row["lifecycle_uuid"])
 
     def claim(self, name, lifetime, objective=None, files=None, owner=None, session_id="",
               tier=None, check_cmd=None, ttl_hours=None, cwd=None):
         """Register (or, for the SAME non-empty session re-declaring, update
         in place) one unit of work. Every refusal here closes a confirmed
-        defect: silent takeover of an active name (F3, and again through the
-        CLI door as GATE 3, fix-round 2026-07-26), unbounded file overlap
-        (F1/F2/F11 and the GATE 1 canonicalization class), and an uncapped
-        persistent-thread count.
+        defect: silent takeover of an active name (F3, and again through
+        the CLI door as GATE 3), unbounded file overlap (F1/F2/F11 and the
+        GATE 1 canonicalization class), and an uncapped persistent count.
 
-        cwd (default os.getcwd()) is the directory relative paths in files
-        are resolved against BEFORE being canonicalized root-relative (GATE
-        1): a claim typed from a subdirectory and the same claim typed from
-        the root must store the identical string, never two different ones
-        that both "win" against overlap checking.
+        cwd is the directory relative paths in files are resolved against
+        BEFORE being canonicalized root-relative (GATE 1): a claim typed
+        from a subdirectory and the same claim typed from the root must
+        store the identical string. The default, cwd=None, means "resolve
+        against root itself", NOT os.getcwd(): only the CLI passes
+        cwd=os.getcwd() explicitly (see canonicalize_path).
 
-        GATE D (fix-round 6, 2026-07-26): objective, owner, tier, and
-        check_cmd now default to None, the same "not supplied" sentinel
-        files has used since GATE A (round 5). On a NEW claim, None simply
-        means empty (unchanged prior behavior for a fresh record). On a
-        RECLAIM, None LEAVES the stored value completely untouched; any
-        other value (an explicit "" included) is a deliberate write, even
-        to clear the field. Before this fix, a reclaim that only wanted to
-        update the tier silently erased the objective to empty,
-        unrecoverable, exit 0 (the identical files defect from round 5,
-        left open for every other field). files follows the same rule:
-        None LEAVES existing claims untouched on a reclaim; files=[] (an
-        explicit empty list) is a deliberate release, always honored, on
-        both a new claim and a reclaim."""
+        GATE D: objective, owner, tier, and check_cmd default to None, the
+        same "not supplied" sentinel files uses (GATE A). On a NEW claim,
+        None simply means empty. On a RECLAIM, None LEAVES the stored value
+        untouched; any other value, an explicit "" included, is a
+        deliberate write, even to clear the field (a reclaim that only
+        wanted to update the tier used to silently erase the objective).
+        files follows the same rule: None leaves existing claims untouched
+        on a reclaim; files=[] is a deliberate release, always honored."""
         valid_name(name)
         if lifetime not in ("persistent", "ephemeral"):
             raise ValueError(
                 "lifetime must be 'persistent' or 'ephemeral', got %r" % (lifetime,))
         files_supplied = files is not None
         norm = _normalize_files(files, self.root, cwd) if files_supplied else None
-        with self._transaction() as conn:
+        with self._transaction():
             active = _exec(self,
                 "SELECT * FROM records WHERE name=? AND state='active'", (name,)).fetchone()
             if active is not None:
@@ -1553,7 +1596,7 @@ class Store(object):
                                      "current_lifetime": active["lifetime"],
                                      "requested_lifetime": lifetime})
                     return self._reclaim_active(
-                        conn, active, objective, norm, owner, tier, check_cmd, ttl_hours)
+                        active, objective, norm, owner, tier, check_cmd, ttl_hours)
                 raise OwnershipRefused(
                     "name-active",
                     "'%s' is already active as lifecycle %s under session "
@@ -1567,9 +1610,13 @@ class Store(object):
             # empty fence (unchanged prior behavior); only a RECLAIM (the
             # branch above) treats "not supplied" as "leave alone".
             new_claim_files = norm if files_supplied else []
-            self._admit(conn, name, lifetime, new_claim_files)
+            self._admit(name, lifetime, new_claim_files)
             lifecycle_uuid = uuid.uuid4().hex
             ts = now_iso()
+            # A brand new record has no ttl_hours to clear, so
+            # CLEAR_TTL_HOURS means the same thing None does here: empty.
+            # Only _reclaim_active needs to tell the two apart.
+            new_ttl_hours = None if ttl_hours is CLEAR_TTL_HOURS else ttl_hours
             _exec(self,
                 "INSERT INTO records (lifecycle_uuid, name, lifetime, state, "
                 "objective, owner, session_id, tier, check_cmd, evidence, "
@@ -1577,7 +1624,7 @@ class Store(object):
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (lifecycle_uuid, name, lifetime, "active", objective or "",
                  owner or "", session_id or "", tier or "", check_cmd or "",
-                 "", ttl_hours, 1, ts, ts))
+                 "", new_ttl_hours, 1, ts, ts))
             for path, is_glob in new_claim_files:
                 _exec(self,
                     "INSERT INTO claims (lifecycle_uuid, path, is_glob) VALUES (?,?,?)",
@@ -1586,7 +1633,7 @@ class Store(object):
                 "INSERT INTO transitions (lifecycle_uuid, from_state, to_state, "
                 "session_id, note, at) VALUES (?,?,?,?,?,?)",
                 (lifecycle_uuid, None, "active", session_id or "", "claimed", ts))
-            return self._record_by_uuid(conn, lifecycle_uuid)
+            return self._record_by_uuid(lifecycle_uuid)
 
     # -- transition ------------------------------------------------------
 
@@ -1595,32 +1642,22 @@ class Store(object):
         """Move a record along its legal state graph. Every failure to match
         lifecycle_uuid, expected_version, AND a legal source state for
         to_state raises StaleIdentity naming the actual current state and
-        version, so an illegal move and a stale version report the same way
-        a caller must react to the same way: re-read the record and decide
-        what is actually true now (fixes the F5/F6/F7/F8 class).
+        version, so a caller reacts to an illegal move and a stale version
+        the same way: re-read the record and decide what is actually true.
 
-        SOFT 10 (fix-round 2026-07-26): a non-empty owning session_id must
-        match the caller's, or the move is refused 'not-owner', EXCEPT for
-        the 'adopted' target: adoption of a dead session's record is the one
-        legitimate cross-session path, and it records the adopter's session.
+        A non-empty owning session_id must match the caller's, or the move
+        is refused 'not-owner', EXCEPT for 'adopted' (SOFT 10): adopting a
+        dead session's record is the one legitimate cross-session path.
+        That exception was originally too wide (SOFT E): adopting a record
+        CURRENTLY ACTIVE under a different, live session is a takeover
+        dressed as adoption, so it now requires adopt_from_live_session=True
+        (CLI: --adopt-from-live-session) explicitly, and the displacement is
+        named in the refusal and the transition's note.
 
-        SOFT E (fix-round 6, 2026-07-26): that exception was too wide.
-        Adopting a record that is CURRENTLY ACTIVE under a DIFFERENT, live
-        session is a takeover dressed up as adoption: a second session
-        could not claim or park a live owner's record, but COULD adopt it
-        and then re-claim the freed name, in two exit-0 commands. Real dead-
-        session detection is Phase 3 work; until then, adopting a live
-        session's ACTIVE record requires the caller to say
-        adopt_from_live_session=True (CLI: --adopt-from-live-session)
-        explicitly, and the displacement is named in the refusal and
-        recorded in the transition's note.
-
-        GATE 6 (fix-round 2026-07-26): resuming (or parking/completing) into
-        a name another lifecycle now holds active violates the
-        one-active-per-name unique index and used to raise a raw
-        sqlite3.IntegrityError that reached the CLI as an unhandled
-        exit-1 crash. Caught here and turned into the same 'name-active'
-        refusal claim() already uses, exit 2."""
+        GATE 6: resuming (or parking/completing) into a name another
+        lifecycle now holds active violates the one-active-per-name unique
+        index; caught here and turned into the same 'name-active' refusal
+        claim() uses, rather than an unhandled sqlite3.IntegrityError."""
         if to_state not in _LEGAL_MOVES:
             raise ValueError("unknown target state %r" % (to_state,))
         if to_state == "complete" and not (evidence or "").strip():
@@ -1630,7 +1667,7 @@ class Store(object):
                 "check_cmd result)",
                 details={"lifecycle_uuid": lifecycle_uuid})
         allowed_from = _LEGAL_MOVES[to_state]
-        with self._transaction() as conn:
+        with self._transaction():
             row = _exec(self,
                 "SELECT * FROM records WHERE lifecycle_uuid=?", (lifecycle_uuid,)).fetchone()
             if row is None or row["version"] != expected_version or row["state"] not in allowed_from:
@@ -1679,7 +1716,7 @@ class Store(object):
                     "SELECT path, is_glob FROM claims WHERE lifecycle_uuid=?",
                     (lifecycle_uuid,)).fetchall()
                 norm_files = [(r["path"], bool(r["is_glob"])) for r in claim_rows]
-                self._admit(conn, row["name"], row["lifetime"], norm_files,
+                self._admit(row["name"], row["lifetime"], norm_files,
                             exclude_uuid=lifecycle_uuid)
             ts = now_iso()
             new_evidence = evidence if to_state == "complete" else row["evidence"]
@@ -1715,7 +1752,7 @@ class Store(object):
                 "INSERT INTO transitions (lifecycle_uuid, from_state, to_state, "
                 "session_id, note, at) VALUES (?,?,?,?,?,?)",
                 (lifecycle_uuid, row["state"], to_state, session_id or "", note or "", ts))
-            return self._record_by_uuid(conn, lifecycle_uuid)
+            return self._record_by_uuid(lifecycle_uuid)
 
     # -- checkpoint / decide / send ---------------------------------------
 
@@ -1729,7 +1766,7 @@ class Store(object):
         appended in the SAME transaction as the digest row (fixes finding
         19): a caller can never see the digest saved without its decisions,
         or vice versa."""
-        with self._transaction() as conn:
+        with self._transaction():
             row = _exec(self,
                 "SELECT * FROM records WHERE lifecycle_uuid=?", (lifecycle_uuid,)).fetchone()
             if row is None or row["version"] != expected_version or row["state"] != "active":
@@ -1790,7 +1827,7 @@ class Store(object):
         not restricted to the active state the way checkpoint is: a
         decision can legitimately be recorded while reconciling a parked or
         adopted record too."""
-        with self._transaction() as conn:
+        with self._transaction():
             row = _exec(self,
                 "SELECT * FROM records WHERE lifecycle_uuid=?", (lifecycle_uuid,)).fetchone()
             if row is None or row["version"] != expected_version:
@@ -1820,7 +1857,7 @@ class Store(object):
         transition do; it is still state-gated (ACTIVE only), and that
         refusal is reported as StaleIdentity for the same reason checkpoint's
         is: the record is no longer in the life the caller assumed it was."""
-        with self._transaction() as conn:
+        with self._transaction():
             row = _exec(self,
                 "SELECT * FROM records WHERE lifecycle_uuid=?", (lifecycle_uuid,)).fetchone()
             if row is None or row["state"] != "active":
@@ -1892,32 +1929,21 @@ class Store(object):
     def render_digest(self, lifecycle_uuid):
         """A bounded, human-readable handover for one lifecycle. Each
         section below is truncated to ITS OWN fixed budget, independently of
-        every other section (see _SECTION_BUDGETS). V1 kept one shared
-        4000-char pool where a long run of decisions could crowd out
-        next_intent entirely (F12): exactly the field a resuming session
-        needs first. Fixed per-section budgets mean next_intent can never be
-        displaced, no matter how much decision history exists. Advisory for a
-        missing record (renders a plain string instead of raising), but NOT
-        advisory for redaction: every founder-typed field below (the
-        objective, next_intent, blockers, files_note, each decision's topic
-        and text) is passed through redact_text() before truncation, and
-        raises RedactionUnavailable rather than rendering unredacted text if
-        that cannot happen.
-
-        SOFT E (fix-round 3, 2026-07-26): the header carries the objective,
-        as the ratified spec's own budget list names it ("header (lifecycle,
-        objective) 400 chars"); it used to carry name/state/lifetime only,
-        so a resuming session read a handover that never said what the work
-        was for.
-
-        Round 7 (2026-07-26): the NAME is founder-typed text too (valid_name
-        only rejects reserved characters and whitespace; it happily accepts
-        something shaped like a real secret), so it is redacted here exactly
-        like objective/next_intent/blockers/files_note/decisions, unlike the
-        conditional per-field calls in render_state_md that let redaction
-        get skipped entirely for an all-empty-optional-fields record (GATE
-        B): a record's name is never empty, so this call always runs, and a
-        missing redactor is always caught here rather than only sometimes."""
+        every other section (see _SECTION_BUDGETS): V1's one shared 4000-char
+        pool let a long run of decisions crowd out next_intent entirely
+        (F12), exactly the field a resuming session needs first. Advisory
+        for a missing record (renders a plain string instead of raising),
+        but NOT advisory for redaction: every founder-typed field below
+        (objective, next_intent, blockers, files_note, each decision's
+        topic and text, and the record NAME) is passed through
+        redact_text() before truncation, and raises RedactionUnavailable
+        rather than render unredacted text if that cannot happen. The
+        header carries the objective (SOFT E; the ratified spec's own
+        budget list names it), not just name/state/lifetime. NAME is
+        redacted unconditionally here, unlike render_state_md's per-field
+        calls that can all be skipped on an all-empty-optional-fields
+        record (GATE B): a record's name is never empty, so this call
+        always runs, and a missing redactor is always caught."""
         row = _exec(self,
             "SELECT * FROM records WHERE lifecycle_uuid=?", (lifecycle_uuid,)).fetchone()
         if row is None:
@@ -2005,20 +2031,17 @@ class Store(object):
     def dump(self, raw=False):
         """Full JSON-serializable export of every table.
 
-        GATE C (fix-round 6, 2026-07-26): redacts BY DEFAULT-DENY. Every
-        TEXT-typed column not in _DUMP_SAFE_COLUMNS (read live from the
-        schema, see _text_columns) is redacted, whatever its name. Round 5
-        redacted an ENUMERATED list of known-sensitive fields and missed
-        transitions.note, directives.text, records.evidence,
-        records.check_cmd, and records.owner precisely because nobody had
-        listed them; default-deny means a new text column is redacted
-        automatically, with no code change required, rather than exposed
-        by default. dump is exactly what a founder pipes into a file, a
+        GATE C: redacts BY DEFAULT-DENY. Every TEXT-typed column not in
+        _DUMP_SAFE_COLUMNS (read live from the schema, see _text_columns)
+        is redacted, whatever its name; an earlier enumerated allowlist of
+        "known-sensitive" fields missed transitions.note, directives.text,
+        records.evidence/check_cmd/owner precisely because nobody had
+        listed them. dump is exactly what a founder pipes into a file, a
         paste, or an issue, so silent cleartext by default is the wrong
         direction. raw=True (CLI: --raw) is the explicit, named escape
         hatch for a human who really needs the unredacted sqlite contents
-        (SECURITY.md documents the file itself as sensitive); it is never
-        the default."""
+        (SECURITY.md documents the file itself as sensitive); never the
+        default."""
         out = {}
         for t in _TABLES:
             rows = _exec(self, "SELECT * FROM %s" % t).fetchall()
@@ -2049,21 +2072,19 @@ class Store(object):
 
 def _connect_read_only(path, timeout=5.0):
     """Open an EXISTING file read-only, without ever building a sqlite URI
-    (GATE A, fix-round 6, 2026-07-26, VERIFIED BY ORCHESTRATOR). A URI's
-    query string only escapes '?' and '#'; sqlite itself percent-DECODES
-    everything else in the filename, so a project path containing '%' (for
-    example p%41) silently resolved to a COMPLETELY DIFFERENT file, and
-    every read-only command opened another project's database, reported it
-    healthy, and never saw the caller's own real data. Escaping '%' too
-    would still leave a pattern-language bug waiting for the next special
-    character; deleting URIs from this path removes the whole class rather
-    than its current instance. The caller has already proven the file
-    exists with a plain os.path.isfile check, so a normal
-    sqlite3.connect(path) is unambiguous: no escaping, no decoding, no URI
-    grammar at all. Read-only is enforced at the SQL level with PRAGMA
-    query_only=ON, set as the FIRST statement on the connection, which
-    makes any write raise sqlite3.OperationalError rather than silently
-    succeed (verified in a test that attempts an INSERT)."""
+    (GATE A, VERIFIED BY ORCHESTRATOR). A URI's query string only escapes
+    '?' and '#'; sqlite itself percent-DECODES everything else in the
+    filename, so a project path containing '%' (e.g. p%41) silently
+    resolved to a COMPLETELY DIFFERENT file, and every read-only command
+    opened another project's database, reported it healthy, and never saw
+    the caller's own data. Escaping '%' too would still leave a
+    pattern-language bug waiting for the next special character; deleting
+    URIs removes the whole class. The caller has already proven the file
+    exists (os.path.isfile), so a plain sqlite3.connect(path) is
+    unambiguous: no escaping, no decoding, no URI grammar. Read-only is
+    enforced at the SQL level with PRAGMA query_only=ON, the FIRST
+    statement on the connection, which makes any write raise
+    sqlite3.OperationalError rather than silently succeed."""
     conn = sqlite3.connect(path, timeout=timeout, isolation_level=None)
     try:
         conn.row_factory = sqlite3.Row
@@ -2115,8 +2136,16 @@ class ReadOnlyStore(object):
         try:
             conn = _connect_read_only(self.path)
             self.conn = conn
+            # CRITICAL A (fix-round 8): the same structural verification the
+            # writable Store applies on an existing file, so a diagnostic
+            # command (dashboard, dump, verify) run against a store missing
+            # a table quarantines and says so, rather than opening "clean"
+            # and reporting whatever is left as healthy.
+            self._verify_schema_or_raise()
             self.conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
         except sqlite3.OperationalError as e:
+            if not _is_transient_busy_error(e):
+                self._quarantine_and_raise(e)
             if self.conn is not None:
                 try:
                     self.conn.close()
@@ -2136,6 +2165,10 @@ class ReadOnlyStore(object):
         # mechanism, not two copies to keep in sync.
         return Store._quarantine_and_raise(self, cause)
 
+    def _verify_schema_or_raise(self):
+        # Reuses Store's implementation verbatim, same reasoning as above.
+        return Store._verify_schema_or_raise(self)
+
     def dump(self, raw=False):
         # Reuses Store.dump() verbatim: it only calls _exec(self, ...) over
         # _TABLES, which works identically against a read-only connection.
@@ -2153,16 +2186,13 @@ def _find_quarantine_dirs(root):
     """Every quarantine directory currently sitting beside the store,
     newest first (the timestamp-plus-uuid naming sorts lexicographically).
 
-    GATE B (fix-round 6, 2026-07-26): NEVER glob. glob.glob interpolates
-    the root into a pattern string, so a project path containing [ ] * or ?
-    (for example a directory literally named 'p[1]') is itself read as
-    GLOB SYNTAX rather than a literal path, and an outstanding quarantine
-    silently stops matching: init then creates a fresh store over real data
-    loss and verify reports healthy. The fix deletes the pattern language
-    for this lookup entirely rather than escaping it (the same shape as
-    GATE A): list the containing directory literally with os.listdir and
-    match the quarantine marker by a plain string prefix, so no character
-    in the project's path is ever interpreted as syntax."""
+    GATE B: NEVER glob. glob.glob interpolates the root into a pattern
+    string, so a project path containing [ ] * or ? (e.g. a directory
+    literally named 'p[1]') is read as GLOB SYNTAX rather than a literal
+    path, and an outstanding quarantine silently stops matching. Deletes
+    the pattern language for this lookup entirely (same shape as GATE A):
+    os.listdir the containing directory literally and match the
+    quarantine marker by a plain string prefix."""
     store_dirname_path = store_dir(root)
     prefix = STORE_FILENAME + ".quarantine-"
     try:
@@ -2289,9 +2319,8 @@ def render_state_md(root):
     text can never masquerade as a real marker and corrupt the generated
     block's boundary. A store that cannot even be opened propagates
     StoreCorrupt or OwnershipRefused('no-store'); a later-page corruption
-    during rendering is caught by _exec (GATE 4). Read-only (fix-round 4,
-    2026-07-26): the dashboard is a diagnostic and must never create the
-    store it is displaying."""
+    during rendering is caught by _exec (GATE 4). Read-only: the dashboard
+    is a diagnostic and must never create the store it is displaying."""
     store = ReadOnlyStore(root)
     try:
         rows = _exec(store, "SELECT * FROM records ORDER BY state, name").fetchall()
@@ -2352,37 +2381,27 @@ def write_state_view(root):
     no markers yet gets them appended after whatever prose already exists; a
     file that does not exist yet gets just the generated block.
 
-    GATE A (fix-round 7, 2026-07-26, VERIFIED BY ORCHESTRATOR): reproduced
-    by hand-editing a rendered STATE.md the way a human actually would
-    (deleted the closing END line, added "## My notes / CALL BOB ABOUT THE
-    CONTRACT") and rendering twice. The OLD check here was a naive
-    containment test ("BEGIN in existing and END in existing"): render 1
-    found a lone BEGIN with no END and fell into the append branch,
-    appending a fresh complete block AFTER the human's notes, so the file
-    now held two BEGIN markers and one END; render 2's containment test was
-    satisfied by that damaged file and took the splice branch using the
-    FIRST BEGIN and the ONLY END, deleting everything between them,
-    including the human's notes. 330 bytes left, exit 0, no warning, no
-    backup. The guard neutralized markers arriving FROM THE STORE
-    (_neutralize_markers, GATE 8b) but trusted markers already IN THE FILE.
+    GATE A (VERIFIED BY ORCHESTRATOR: hand-edit a rendered STATE.md the way
+    a human would, deleting the END line and adding their own notes, then
+    render twice): the old naive containment test ("BEGIN in existing and
+    END in existing") let render 1 append a fresh block after the damaged
+    file, then let render 2's splice use the FIRST BEGIN and the ONLY END,
+    deleting everything between them, notes included, at exit 0 with no
+    warning. The marker-injection guard only ever neutralized markers
+    arriving FROM THE STORE (GATE 8b); it trusted markers already IN THE
+    FILE. Fixed by failing closed: the existing file's marker COUNT must be
+    exactly (0, 0) or (1, 1), or this refuses ('view-markers-damaged')
+    rather than guess which BEGIN belongs to which END. Whenever the file
+    already has content and passes that check, it is saved first as
+    STATE.md.bak-<UTC stamp> (reported on stderr): a generated file may
+    overwrite its own block, but may never irrecoverably lose what a human
+    wrote.
 
-    Fixed by failing closed: the existing file's marker COUNT must be
-    exactly (0, 0) [no markers yet] or (1, 1) [one intact block], or this
-    refuses ('view-markers-damaged') rather than guess which BEGIN belongs
-    to which END. Any other count means the file's structure cannot be
-    trusted to parse safely, whatever caused it. Whenever the file already
-    has content and passes that check, the previous content is saved
-    beside it as STATE.md.bak-<UTC stamp> first (reported on stderr) before
-    anything is overwritten, so even a render that turns out to be
-    unwanted can always be recovered from disk: a generated file may
-    overwrite its own block, but it may never silently discard, and never
-    irrecoverably lose, what a human wrote.
-
-    GATE B (fix-round 7): the final write routes through
-    _write_generated_file (THE FILE FUNNEL), never _atomic_write_text
-    directly, so a missing redactor refuses the ENTIRE write (nothing
-    reaches disk) instead of silently writing raw founder text (the record
-    NAME, round 7's other finding here) at exit 0 with no warning."""
+    GATE B: the final write routes through _write_generated_file (THE FILE
+    FUNNEL), never _atomic_write_text directly, so a missing redactor
+    refuses the ENTIRE write instead of silently writing raw founder text
+    (the record NAME) at exit 0 with no warning. See docs/superpowers/specs/
+    2026-07-26-phase1-fix-round-7.md for the full incident writeups."""
     generated = render_state_md(root)
     path = os.path.join(root, "STATE.md")
     try:
@@ -2436,12 +2455,11 @@ def verify(root):
     enforces at write time, plus the generated view and transition history,
     rather than trusting that nothing has drifted since the last write.
 
-    Read-only (fix-round 4, 2026-07-26): opens via ReadOnlyStore, never
-    creating the thing it is diagnosing. The health vocabulary is reserved:
-    an unacknowledged quarantine is reported as a PROBLEM here (not
-    silently skipped), because "healthy" may only be printed when a store
-    was actually opened, read, and found consistent, with nothing
-    outstanding from a prior loss."""
+    Read-only: opens via ReadOnlyStore, never creating the thing it is
+    diagnosing. The health vocabulary is reserved: an unacknowledged
+    quarantine is reported as a PROBLEM here (not silently skipped),
+    because "healthy" may only be printed when a store was actually
+    opened, read, and found consistent."""
     unacknowledged = _unacknowledged_quarantine_dirs(root)
     problems = [
         "unacknowledged quarantine directory %s; recover what you need, "
@@ -2469,11 +2487,21 @@ def verify(root):
                         % (a["name"], a["lifecycle_uuid"][:8], a["path"],
                            b["name"], b["lifecycle_uuid"][:8], b["path"]))
         rendered = render_state_md(root)
-        for r in _exec(store, "SELECT name FROM records WHERE state='active'").fetchall():
-            if r["name"] not in rendered:
+        # IMPORTANT (fix-round 8): this used to check the raw NAME's
+        # presence as a substring of the whole rendered document, which a
+        # short name (or a name that also happens to occur inside other
+        # rendered text) satisfies vacuously, and which a redacted name
+        # (round 7: a name shaped like a real secret) NEVER satisfies even
+        # when the record legitimately IS in the view. The lifecycle_uuid
+        # prefix is never redacted and is printed beside every record, so
+        # it is both non-vacuous (astronomically unlikely to appear by
+        # coincidence) and correct regardless of name redaction.
+        for r in _exec(store,
+                "SELECT lifecycle_uuid, name FROM records WHERE state='active'").fetchall():
+            if r["lifecycle_uuid"][:8] not in rendered:
                 problems.append(
-                    "active record %r does not appear in the generated STATE.md view"
-                    % r["name"])
+                    "active record %r (%s) does not appear in the generated STATE.md view"
+                    % (r["name"], r["lifecycle_uuid"][:8]))
         for r in _exec(store, "SELECT lifecycle_uuid, name, state FROM records").fetchall():
             last = _exec(store,
                 "SELECT to_state FROM transitions WHERE lifecycle_uuid=? ORDER BY id DESC LIMIT 1",
@@ -2498,38 +2526,30 @@ def verify(root):
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# THE OUTPUT FUNNEL (fix-round 7, 2026-07-26). Five separate findings this
-# round were one root cause: a founder-typed string reached SOME exit
-# (verify's problems, the path-escape message, the record NAME, the
-# --session echo) without going through redaction, because redaction was
-# invoked per call site, per field, and a missed field is invisible until
-# someone reproduces it. THE FIX IS STRUCTURAL: every byte this module ever
-# sends to stdout, stderr, or a generated file passes through exactly one
-# of the named functions below; none of them can be bypassed with a bare
-# print()/sys.stdout.write()/sys.stderr.write() or a raw file write (a
-# structural test greps the source for exactly that).
+# THE OUTPUT FUNNEL. Five separate findings in one round shared one root
+# cause: a founder-typed string reached SOME exit (verify's problems, the
+# path-escape message, the record NAME, the --session echo) without going
+# through redaction, because redaction was invoked per call site, per
+# field, and a missed field is invisible until someone reproduces it. THE
+# FIX IS STRUCTURAL: every byte this module sends to stdout, stderr, or a
+# generated file passes through exactly one of the named functions below;
+# none can be bypassed with a bare print()/sys.stdout.write()/
+# sys.stderr.write() or a raw file write (a structural test greps for it).
 #
-# Two funnel functions (_out, _warn) redact AND sanitize UNCONDITIONALLY,
-# with no opt-out, and are for ORDINARY SINGLE-LINE messages (a claim
-# confirmation, a refusal, one verify problem, the --session echo): a
-# founder-controlled value like --session never goes through valid_name's
-# ASCII-printable check, so a stray control character reaching a real
-# terminal is a live risk _sanitize_for_display exists to close.
-#
-# _sanitize_for_display must NEVER run blanket over an already-ASSEMBLED
-# multi-line document (the dashboard's rendered markdown, dump's JSON): its
-# job is defusing a SINGLE VALUE's control characters before that value is
-# embedded in a document, so the value cannot forge the document's own
-# structure; a document's OWN newlines (or JSON's own indentation) are not
-# founder-typed injection; escaping them corrupts the document instead of
-# protecting it (reproduced during this exact round: JSON became invalid,
-# the dashboard became one unreadable line of literal \x0a text). Content
-# that is either (a) already protected per FIELD before assembly, or (b)
-# has zero founder influence, or (c) already had its own redact/no-redact
-# decision made upstream at the data level, uses one of the two narrower
-# exceptions below instead: _out_prerendered (redact only, no sanitize,
-# still fails closed: the dashboard) and _out_unprotected (neither: pure
-# static help text, and dump's already-decided JSON payload in both modes).
+# _out/_warn redact AND sanitize UNCONDITIONALLY, no opt-out, for ORDINARY
+# SINGLE-LINE messages: a founder-controlled value like --session never
+# goes through valid_name's ASCII-printable check, so a stray control
+# character reaching a real terminal is a live risk _sanitize_for_display
+# closes. It must NEVER run blanket over an already-ASSEMBLED multi-line
+# document (the dashboard, dump's JSON): its job is defusing a SINGLE
+# VALUE's control characters before embedding, not judging a document's
+# OWN newlines/indentation, which escaping corrupts instead of protecting
+# (reproduced once: JSON went invalid, the dashboard became one unreadable
+# line). Content that is already protected per field, or has zero founder
+# influence, or already had its redact decision made upstream, uses one of
+# the two narrower exceptions instead: _out_prerendered (redact only, still
+# fails closed: the dashboard) and _out_unprotected (neither: static help
+# text, and dump's already-decided JSON payload in both modes).
 # ---------------------------------------------------------------------------
 
 def _protect_text(t):
@@ -2594,35 +2614,21 @@ def _out_prerendered(s, end=""):
 
 
 def _out_unprotected(s, end="\n"):
-    """The narrow, named exception to the funnel, for the two cases where
-    running EITHER redact_text() or _sanitize_for_display() over the
-    OUTGOING TEXT would be wrong, not merely unnecessary:
+    """The narrow, named exception to the funnel, for two cases where
+    running redact_text() or _sanitize_for_display() would be WRONG, not
+    merely unnecessary: (1) main()'s usage/help text (this module's own
+    __doc__ and command list) has zero founder influence by construction,
+    so there is nothing to redact and requiring a working redactor just to
+    show --help would be wrong; (2) cmd_dump's JSON payload in both modes,
+    where store.dump() is ITSELF the redaction boundary (default-deny per
+    column, or the documented, warned raw=True escape hatch), so redacting
+    the already-decided, SERIALIZED text again is redundant, and
+    sanitizing it is destructive: JSON's own structural indentation is not
+    founder text, and blanket-sanitizing corrupts it (and silently
+    re-redacts --raw's own secret, defeating the flag).
 
-    1. main()'s usage/help text (this module's own __doc__ and its command
-       list): zero founder influence, ever, by construction, so there is
-       nothing for redaction to catch and nothing to sanitize; forcing a
-       working redactor to be loaded before a founder can see `--help` was
-       the earlier draft of this fix, and it was wrong, since a broken
-       bm_telemetry.py has nothing to do with whether help text is safe.
-
-    2. cmd_dump's JSON payload, in BOTH modes: store.dump() is ITSELF the
-       redaction boundary for the default mode (default-deny per column,
-       GATE C fix-round 6) and the documented, warned, deliberate absence
-       of one for raw=True; either way the redact/no-redact decision was
-       already made on the DATA before json.dumps() ever ran, so re-running
-       redact_text on the SERIALIZED text is redundant at best. Running
-       _sanitize_for_display on it is actively destructive: JSON escapes
-       control characters inside its OWN string values per the JSON spec,
-       and json.dumps(indent=2)'s structural newlines are not founder text
-       either, so blanket-sanitizing here does not add safety, it corrupts
-       the JSON (reproduced during this exact round: valid JSON became
-       unparseable, and, worse, --raw's own secret got re-redacted by the
-       print step after store.dump(raw=True) had correctly returned it,
-       silently defeating the documented escape hatch).
-
-    Restricted to exactly these two callers; the structural test enumerates
-    and counts them, so a new call site is a deliberate, reviewed choice,
-    not a silent bypass."""
+    Restricted to exactly these two callers; a structural test enumerates
+    and counts them, so a new call site is a deliberate, reviewed choice."""
     _raw_write(sys.stdout, s + end)
 
 
@@ -2643,42 +2649,24 @@ def _warn(s, end="\n"):
 
 
 def _write_generated_file(path, text):
-    """THE FILE FUNNEL: the third leg of the output funnel, for generated
-    files (currently only STATE.md, via write_state_view). Blanket-runs
-    redact_text() over the ENTIRE text handed in, unconditionally, before
-    _atomic_write_text ever sees it: if the redactor is unavailable, this
-    raises RedactionUnavailable and _atomic_write_text is never called, so
-    NOTHING is written (GATE B, fix-round 7, 2026-07-26).
+    """THE FILE FUNNEL (see THE OUTPUT FUNNEL note below): the only path
+    allowed to write a generated file (currently STATE.md, via
+    write_state_view). Runs redact_text() over the whole text unconditionally
+    before _atomic_write_text ever sees it; if the redactor is unavailable
+    this raises RedactionUnavailable and nothing is written.
 
-    Deliberately does NOT also run _sanitize_for_display here (unlike
-    _protect_text, which _out()/_warn() use for single-line messages): the
-    text handed in is a multi-line DOCUMENT whose own newlines (between
-    sections, and in any human prose preserved outside the markers) are
-    real structure, not founder-typed control-character injection, and
-    every founder-typed VALUE embedded in the generated block already went
-    through _redacted_view_text (which DOES sanitize) per field before
-    assembly. Blanket-sanitizing the whole document a second time here
-    would escape those legitimate newlines as literal \\x0a text,
-    corrupting the file into an unreadable single line, exactly the
-    corruption reproduced (and fixed) elsewhere in this same round for
-    _out()'s dashboard and dump call sites. redact_text() alone is safe for
-    multi-line text (a stateless pattern scan for secret SHAPES; it does
-    not touch newlines) and remains a defense-in-depth catch for any field
-    a future per-field call forgets, applied even to human prose preserved
-    outside the markers: a founder can hand-paste a real secret into their
-    own notes too, and it only ever rewrites text matching an actual secret
-    shape, never plain words, so ordinary prose passes through untouched.
+    Deliberately skips _sanitize_for_display (unlike _protect_text, for
+    single-line messages): the text is a multi-line DOCUMENT whose own
+    newlines, and the real BEGIN/END markers, are structure this module is
+    writing on purpose, not founder-typed injection; sanitizing the whole
+    document a second time would escape them into literal \\x0a text and
+    corrupt the file. Every founder-typed VALUE was already sanitized per
+    field before assembly (_redacted_view_text); redact_text() here is a
+    defense-in-depth secret-pattern scan that does not touch newlines, so it
+    is safe even over human prose preserved outside the markers.
 
-    Marker neutralization is deliberately NOT part of this pass either
-    (unlike _redacted_view_text, which callers use per-field before
-    assembly): the text handed in here already contains the REAL structural
-    BEGIN/END markers this module is about to write on purpose, and
-    redact_text() never touches those, so they survive intact.
-
-    Returns the protected text actually written, never the unprotected
-    input, so a caller that keeps the return value (write_state_view does,
-    for its own return value and its tests) never ends up holding a string
-    that disagrees with what is now on disk."""
+    Returns the protected text actually written (never the unprotected
+    input), so a caller holding the return value never disagrees with disk."""
     protected = redact_text(text or "")
     _atomic_write_text(path, protected)
     return protected
@@ -2756,6 +2744,9 @@ def cmd_claim(argv):
              "it can never be dropped by accident.")
         _out("  On a reclaim, omitting --objective/--tier/--check/--owner LEAVES "
              "each untouched; typing the flag, even with an empty value, sets it.")
+        _out("  --ttl-hours follows the same rule: omit it to leave the existing "
+             "ttl untouched; type --ttl-hours with NO value to clear it back to "
+             "none; type --ttl-hours N to set it.")
         sys.exit(2)
     name = argv[0]
     kv = _parse_kv(argv[1:])
@@ -2787,8 +2778,19 @@ def cmd_claim(argv):
     session_id = " ".join(kv.get("session", [])) or _default_cli_session_id()
     tier = " ".join(kv["tier"]) if "tier" in kv else None
     check_cmd = " ".join(kv["check"]) if "check" in kv else None
-    ttl_raw = kv.get("ttl-hours")
-    ttl_hours = float(ttl_raw[0]) if ttl_raw else None
+    # IMPORTANT (fix-round 8): ttl_hours had no way to be cleared via the
+    # CLI, since "typed the flag with no value" and "omitted the flag"
+    # BOTH produced ttl_raw=[] (falsy) here, indistinguishable from each
+    # other. Checking "ttl-hours" in kv (presence) instead of ttl_raw
+    # (truthiness) tells them apart: omitted means None (not supplied,
+    # preserves on reclaim); typed with no value means CLEAR_TTL_HOURS
+    # (the founder's deliberate clear); typed with a value is that value.
+    if "ttl-hours" not in kv:
+        ttl_hours = None
+    elif not kv["ttl-hours"]:
+        ttl_hours = CLEAR_TTL_HOURS
+    else:
+        ttl_hours = float(kv["ttl-hours"][0])
     # Fix-round 4: only `init` creates a store; claim refuses 'no-store'.
     store = Store(root, create=False)
     try:
@@ -2880,7 +2882,13 @@ def cmd_checkpoint(argv):
                                 blockers=blockers, files_note=files_note, body=body)
     finally:
         store.close()
-    _out("checkpoint %d recorded for %s" % (seq, lifecycle_uuid))
+    # IMPORTANT (fix-round 8): checkpoint bumps the record's version but
+    # never returned or printed it, so the founder's very next command
+    # (which needs --version) failed stale-identity against a version it
+    # was never told about. expected_version + 1 is the new version: the
+    # compare-and-swap this just passed only ever increments by exactly 1,
+    # never skips or double-increments, so this is exact, not a guess.
+    _out("checkpoint %d recorded for %s (version %s)" % (seq, lifecycle_uuid, expected_version + 1))
 
 
 def cmd_decide(argv):
@@ -2902,7 +2910,8 @@ def cmd_decide(argv):
         seq = store.decide(lifecycle_uuid, expected_version, topic, text)
     finally:
         store.close()
-    _out("decision %d recorded for %s" % (seq, lifecycle_uuid))
+    # IMPORTANT (fix-round 8): same reasoning as cmd_checkpoint above.
+    _out("decision %d recorded for %s (version %s)" % (seq, lifecycle_uuid, expected_version + 1))
 
 
 def cmd_dashboard(argv):
