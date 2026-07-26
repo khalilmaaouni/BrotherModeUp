@@ -166,4 +166,11 @@ Working mostly alone but need to hand a project to someone occasionally? `python
 
 ## Uninstall
 
-Remove the four hook entries from `~/.claude/settings.json`, delete `~/.claude/skills/brothermode`, and keep or delete your vault. The vault is yours; nothing else stores state.
+Remove the four hook entries from `~/.claude/settings.json` and delete
+`~/.claude/skills/brothermode`. That removes the skill, but not what it wrote
+inside each project you used it in: a per-project sqlite store, thread
+files, `STATE.md` and its backups, local autosave git refs, and three lines
+in `.git/info/exclude`. `../README.md`'s Uninstall section lists exactly
+what is left and the commands to remove it, measured 2026-07-26 by actually
+doing it in a scratch project. Your vault is yours either way; nothing
+inside this repository ever writes to it except the files it holds.

@@ -840,6 +840,19 @@ def _text_columns(conn, table):
     return out
 
 
+def _ownership_guard_applies(current_state):
+    """BLOCKER 2 (release-blockers spec, 2026-07-26): the not-owner guard
+    in Store.transition() protects a record ONLY while it is CURRENTLY
+    'active' (a live writer exists). Extracted as its own tiny, named
+    function -- rather than left as an inline comparison inside
+    transition() -- so a reinjection test can monkeypatch this exact
+    module symbol back to the OLD, unconditional shape (always True) and
+    prove that a resume from a different session used to be wrongly
+    refused after a park, without duplicating transition()'s surrounding
+    transactional logic in the test."""
+    return current_state == "active"
+
+
 _LEGAL_MOVES = {
     "parked": ("active",),
     "active": ("parked",),
@@ -1657,14 +1670,36 @@ class Store(object):
         version, so a caller reacts to an illegal move and a stale version
         the same way: re-read the record and decide what is actually true.
 
-        A non-empty owning session_id must match the caller's, or the move
-        is refused 'not-owner', EXCEPT for 'adopted' (SOFT 10): adopting a
-        dead session's record is the one legitimate cross-session path.
-        That exception was originally too wide (SOFT E): adopting a record
-        CURRENTLY ACTIVE under a different, live session is a takeover
-        dressed as adoption, so it now requires adopt_from_live_session=True
-        (CLI: --adopt-from-live-session) explicitly, and the displacement is
-        named in the refusal and the transition's note.
+        OWNERSHIP GUARDS ONLY ACTIVE RECORDS (BLOCKER 2 fix, release-blockers
+        spec, 2026-07-26; this was my own specification error, per that
+        spec). A non-empty owning session_id blocks a move ONLY when the
+        record's CURRENT state (row["state"], before this transition) is
+        'active': that is the one state with a live writer to protect. A
+        parked record has no live writer by definition, so ANY session may
+        resume it and becomes its owner in the same transition; that is the
+        whole point of the founder's reversibility requirement (`off` today,
+        `resume` tomorrow from a different session, must work). The OLD
+        check compared session_id unconditionally for every to_state except
+        'adopted', which wrongly refused that legitimate resume-tomorrow
+        case: a parked record's session_id column still holds its last
+        owner (park does not clear it), so resuming looked identical to
+        stealing someone else's still-live work. Since 'parked'/'complete'
+        can only be reached FROM 'active' (see _LEGAL_MOVES), the
+        state=='active' condition is a no-op for those two moves (the guard
+        keeps working exactly as before); it only changes 'active' itself
+        (resume), which can never be reached FROM 'active' at all, so the
+        guard no longer applies there.
+
+        'adopted' (SOFT 10) remains the one exception among moves FROM an
+        ACTIVE record: adopting a dead session's ACTIVE record is the
+        legitimate cross-session path, and even that was originally too
+        wide (SOFT E): adopting a record CURRENTLY ACTIVE under a
+        different, live session is a takeover dressed as adoption, so it
+        now requires adopt_from_live_session=True (CLI:
+        --adopt-from-live-session) explicitly, and the displacement is
+        named in the refusal and the transition's note. Adopting a PARKED
+        record needs neither exception: a parked record already has no
+        live writer to displace.
 
         GATE 6: resuming (or parking/completing) into a name another
         lifecycle now holds active violates the one-active-per-name unique
@@ -1692,12 +1727,18 @@ class Store(object):
                         "version %s state %r" % (cur_version, cur_state))),
                     current_state=cur_state, current_version=cur_version)
             if to_state != "adopted":
-                if row["session_id"] and row["session_id"] != (session_id or ""):
+                # BLOCKER 2 fix: the guard fires only when the record is
+                # CURRENTLY active (a live writer exists to protect). A
+                # parked (or adopted) record resuming to 'active' never has
+                # row["state"] == "active" here (see the docstring), so this
+                # never blocks a legitimate cross-session resume.
+                if (_ownership_guard_applies(row["state"]) and row["session_id"]
+                        and row["session_id"] != (session_id or "")):
                     raise OwnershipRefused(
                         "not-owner",
-                        "lifecycle %s is owned by a different session; only "
-                        "that session may move it to '%s' (adoption is the "
-                        "exception for a dead session's record)"
+                        "lifecycle %s is ACTIVE under a different session; "
+                        "only that session may move it to '%s' (adoption is "
+                        "the exception for a dead session's record)"
                         % (lifecycle_uuid, to_state),
                         details={"lifecycle_uuid": lifecycle_uuid,
                                  "held_by_session_id": row["session_id"]})
@@ -2390,8 +2431,9 @@ def _redacted_view_text(raw):
 def render_state_md(root):
     """The generated human view of every record. Advisory for missing data
     (never raises for that), but every founder-typed field rendered below
-    (objective, tier, claim paths, next intent) is passed through
-    _redacted_view_text() first (GATE 8a: tier and claim paths used to reach
+    (objective, tier, session id, claim paths, next intent) is passed
+    through _redacted_view_text() first (GATE 8a: tier and claim paths used
+    to reach
     STATE.md unredacted), and raises RedactionUnavailable rather than emit
     unredacted text if that cannot happen. The literal BEGIN/END marker
     strings are neutralized inside that same pipeline (GATE 8b), so founder
@@ -2422,6 +2464,14 @@ def render_state_md(root):
                     "SELECT path FROM claims WHERE lifecycle_uuid=? ORDER BY path",
                     (r["lifecycle_uuid"],)).fetchall()]
                 tier_text = _redacted_view_text(r["tier"]) if r["tier"] else "no tier"
+                # BLOCKER 2 fix (release-blockers spec, 2026-07-26): the
+                # owning session id used to appear NOWHERE in this view (or
+                # in any thread file), so a human could not tell who held a
+                # record without dumping the database. session_id is
+                # founder-suppliable (--session) like tier, so it goes
+                # through the same redactor rather than being assumed safe.
+                session_text = (_redacted_view_text(r["session_id"])
+                                if r["session_id"] else "no session")
                 # Round 7 (2026-07-26): the record NAME is founder-typed text
                 # (valid_name only rejects reserved characters and
                 # whitespace; a name shaped like a real secret passes it
@@ -2442,9 +2492,9 @@ def render_state_md(root):
                 # CURRENT version to act at all. Printing both means a human
                 # reading STATE.md can act on what they read without a
                 # separate `dump` round trip.
-                lines.append("- %s (%s, version %s, %s) [%s]"
+                lines.append("- %s (%s, version %s, %s) [%s] owner-session: %s"
                              % (_redacted_view_text(r["name"]), r["lifecycle_uuid"],
-                                r["version"], r["lifetime"], tier_text))
+                                r["version"], r["lifetime"], tier_text, session_text))
                 lines.append("  objective: %s"
                              % (_redacted_view_text(r["objective"]) if r["objective"] else "(none)"))
                 files_text = (", ".join(_redacted_view_text(f) for f in files)
@@ -2590,9 +2640,19 @@ def _verify_view_reflects_active_records(store, root):
             on_disk = f.read()
     except OSError:
         if active_rows:
+            # GATE 4 fix (release-blockers spec, 2026-07-26): this project
+            # is installed once and used FROM other projects' roots (the
+            # `root` this problem is about is very often NOT this file's
+            # own directory), so a hardcoded relative "tools/bm_store.py"
+            # named a path that does not exist at that root at all. The
+            # remedy now names THIS file's own absolute path, the same
+            # os.path.abspath(__file__) shape bm_autosave.py's recover
+            # nudge already uses, so it is resolvable regardless of the
+            # caller's cwd or which project's root triggered the problem.
             problems.append(
-                "STATE.md does not exist at %s; run `python3 tools/bm_store.py "
-                "dashboard` (or any mutating command) to generate it" % state_path)
+                "STATE.md does not exist at %s; run `python3 %s "
+                "dashboard` (or any mutating command) to generate it"
+                % (state_path, os.path.abspath(__file__)))
         return problems
     begin_idx = on_disk.find(_STATE_BEGIN)
     end_idx = on_disk.find(_STATE_END)
@@ -2845,6 +2905,24 @@ def _parse_kv(argv):
     return kv
 
 
+def _reject_unknown_flags(cmd_name, kv, allowed):
+    """GATE 5 (release-blockers spec, 2026-07-26): _parse_kv stores ANY
+    "--flag" shape without complaint, and every command below used to read
+    back only the keys it recognized, silently dropping the rest. Reported
+    success at exit 0 either way: a typo'd flag (e.g. --note where the
+    command wants --files-note) was simply ignored, storing nothing for it.
+    A caller must be told the exact command failed, not learn it later from
+    a missing fence or a missing digest, so this refuses hard: named
+    flag(s), exit 2, and (because this runs before the command's own store
+    call) nothing is ever attempted."""
+    unknown = sorted(set(kv) - set(allowed))
+    if unknown:
+        _out("%s: unrecognized flag(s) %s (recognized: %s)"
+             % (cmd_name, ", ".join("--" + u for u in unknown),
+                ", ".join("--" + a for a in sorted(allowed))))
+        sys.exit(2)
+
+
 def _default_cli_session_id():
     """A fresh, unguessable session id for THIS process (GATE 3, fix-round
     2026-07-26): two independent CLI invocations that both omit --session
@@ -2862,6 +2940,7 @@ def _default_cli_session_id():
 
 def cmd_init(argv):
     kv = _parse_kv(argv)
+    _reject_unknown_flags("init", kv, ("acknowledge-quarantine",))
     acknowledge = "acknowledge-quarantine" in kv
     root, source = resolve_root()
     if root is None:
@@ -2905,6 +2984,9 @@ def cmd_claim(argv):
         sys.exit(2)
     name = argv[0]
     kv = _parse_kv(argv[1:])
+    _reject_unknown_flags("claim", kv,
+        ("lifetime", "objective", "files", "release-files", "owner",
+         "session", "tier", "check"))
     root, _source = require_root()
     lifetime = " ".join(kv.get("lifetime", [])) or "ephemeral"
     # GATE D (fix-round 6, 2026-07-26): the SAME None-vs-empty rule GATE A
@@ -2952,6 +3034,8 @@ def _cmd_transition(argv, to_state, usage):
         sys.exit(2)
     lifecycle_uuid = argv[0]
     kv = _parse_kv(argv[1:])
+    _reject_unknown_flags("transition", kv,
+        ("version", "session", "note", "evidence", "adopt-from-live-session"))
     ver_raw = kv.get("version")
     if not ver_raw:
         _out("usage: %s" % usage)
@@ -3010,6 +3094,8 @@ def cmd_checkpoint(argv):
         sys.exit(2)
     lifecycle_uuid = argv[0]
     kv = _parse_kv(argv[1:])
+    _reject_unknown_flags("checkpoint", kv,
+        ("version", "next", "blockers", "files-note", "body"))
     ver_raw = kv.get("version")
     if not ver_raw:
         _out("checkpoint: --version is required (optimistic concurrency)")
@@ -3042,6 +3128,7 @@ def cmd_decide(argv):
         sys.exit(2)
     lifecycle_uuid = argv[0]
     kv = _parse_kv(argv[1:])
+    _reject_unknown_flags("decide", kv, ("version", "topic", "text"))
     ver_raw = kv.get("version")
     if not ver_raw:
         _out("decide: --version is required (optimistic concurrency)")
@@ -3072,6 +3159,7 @@ def cmd_dashboard(argv):
 
 def cmd_dump(argv):
     kv = _parse_kv(argv)
+    _reject_unknown_flags("dump", kv, ("raw",))
     raw = "raw" in kv
     root, _source = require_root()
     store = ReadOnlyStore(root)  # fix-round 4: dump is a diagnostic, never creates
