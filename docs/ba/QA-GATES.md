@@ -16,8 +16,8 @@ calibration contract).
 | Score checks, strict mode | `python3 tools/bm_score.py --strict` | Exits 0 when every code-graded check passes, exits nonzero on any FAIL | The weekly-review checks that code, not a language model, can decide mechanically | Yes, but only on the `ubuntu-latest` leg of the V1 job |
 | V2 store suite | `python tools/test_bm_store.py` | All tests pass, process exits 0 | Every behavior in the ratified V2 API, plus the ten numbered calibrated reinjection tests named in the design spec, plus every fix demanded by the Phase 1 fix round | Yes, on every push and pull request to `main` and `v2`, across the full matrix below |
 | Store invariant check, run by hand or by a wrapping script | `python3 tools/bm_store.py verify` | `verify: healthy, 0 problem(s)` and exit 0; otherwise a numbered list of problems and exit 2 | The four machine-checkable invariants over a live store: one active record per name, no overlapping active claims, every active record visible in the generated view, and every record's transition history matching its current state | Not part of the shipped CI workflow itself; this is a runtime check a founder or a CI step can call against a real project's store |
-| Toolchain size check | `find tools -type f \( -name "*.py" -o -name "*.sh" \) \| xargs wc -l` | A line count that stays within 15 percent of the figure `SECURITY.md` states (about 8,400 lines, measured 2026-07-26) | The claim that BrotherMode is a small, auditable amount of standard-library code, not a growing dependency the founder cannot read in an afternoon | Documented as a gate in `SECURITY.md`; whether it runs as an automated CI check or a manual pre-release check was not confirmed by any source read for this pack |
-| No-network-call check | `grep -rnE "urllib\|requests\|socket\|http\|curl\|wget\|subprocess" tools/` | Only expected, already-reviewed matches, none of them a real network call | The "makes no network calls" privacy claim in `SECURITY.md` | Documented as a gate in `SECURITY.md`; same open question as above on whether it is wired into CI |
+| Toolchain size check | `python3 tools/test_bm.py TestRegistryAbsorbAndView.test_security_md_line_count_claim_is_still_true` | Test passes while the real line count stays within 15 percent of the figure `SECURITY.md` states (about 8,400 lines, measured 2026-07-26) | The claim that BrotherMode is a small, auditable amount of standard-library code, not a growing dependency the founder cannot read in an afternoon | Yes. Resolved 2026-07-26: this is a test inside the V1 suite, so it runs in CI on every push, not by hand |
+| No-network-call check | `python3 tools/test_bm.py TestRegistryAbsorbAndView.test_no_network_claim_is_mechanically_true` | Test passes; it fails naming the offending file and line if any shipping tool imports a network or subprocess module, or if any shell tool runs curl, wget, nc, ssh, scp, or a git command that reaches a remote | The "makes no network calls" privacy claim in `SECURITY.md`, which is the single claim protecting the founder's data from leaving the machine | Yes. Added 2026-07-26 because the claim previously had NO mechanical gate at all: it shipped as a grep the reader was expected to run by hand. Calibrated both ways: injecting `import urllib.request` into a tool and appending `git push origin main` to the autosave each make it fail, naming the exact file and line |
 
 ## The CI matrix, exactly as configured
 
@@ -66,14 +66,19 @@ no source confirming each one has actually been run through the
 reintroduce-and-confirm-it-fails cycle yet. Treat that as an open item, not a
 settled claim.
 
-## A known, named gap, tracked rather than hidden
+## A known, named gap, now closed (kept here as the record)
 
-The Phase 1 fix round's own "out of scope for this round" section names one
-open problem directly: the V1 lifetime tripwire test inside
-`tools/test_bm.py` fails against `tools/bm_store.py`'s legitimate use of the
-literal word "ephemeral," because that test was written before the V2 store
-existed. The fix round is explicit that the right fix is a small, deliberate
-exemption in that test file, that this decision belongs to the founder, and
-that nobody should rename, split, or obfuscate the literal just to dodge the
-scanner. As of this pack's writing, this is not resolved; it is named here so
-it is not silently dropped.
+The Phase 1 fix round's "out of scope for this round" section named one open
+problem: the V1 lifetime tripwire test inside `tools/test_bm.py` failed
+against `tools/bm_store.py`'s legitimate use of the literal word "ephemeral",
+because that test was written before the V2 store existed. The fix round was
+explicit that the right fix was a small, deliberate exemption in that test
+file, that the decision belonged to the founder, and that nobody should
+rename, split, or obfuscate the literal to dodge the scanner.
+
+RESOLVED on 2026-07-26. The founder approved the exemption, it was applied to
+`tools/test_bm.py`, and it was calibrated the same way every other fix here
+is: the literal was reintroduced into a V1 module (`bm_threads.py`) and the
+tripwire still fired, naming that file and line, which proves the exemption
+narrowed the guard to exactly one file rather than blunting it. The full V1
+suite returned to green after the change.
