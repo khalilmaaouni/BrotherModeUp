@@ -33,9 +33,11 @@ find it there too:
   owner-only where the platform supports it (on Windows this is best-effort;
   rely on your user profile's access control).
 
-You can verify both claims yourself; the tools are about 8,400 lines of
+You can verify both claims yourself; the tools are about 10,300 lines of
 standard-library Python and shell (measured 2026-07-26; a test fails if this
-figure drifts more than 15 percent from what the command below returns):
+figure drifts more than 15 percent from what the command below returns).
+That figure is temporarily inflated: the V2 store ships alongside the V1
+registry and thread tools it replaces, and Phase 3 removes them:
 
 ```bash
 find tools -type f \( -name "*.py" -o -name "*.sh" \) | xargs wc -l

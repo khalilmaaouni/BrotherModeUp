@@ -40,6 +40,7 @@ No em or en dashes anywhere in this file, its comments, or its output.
 """
 import contextlib
 import datetime
+import glob
 import hashlib
 import io
 import json
@@ -867,14 +868,31 @@ class Store(object):
     (see _transaction), so a reader never observes a half-written record and
     two writers on the same file never interleave."""
 
-    def __init__(self, root, busy_timeout_ms=5000):
+    def __init__(self, root, busy_timeout_ms=5000, create=True):
         """busy_timeout_ms defaults to the spec's 5000; exposed as a keyword
         so a test can force a near-instant "database is locked" without a
         real multi-second wait. Store(root) alone still matches the spec's
-        constructor exactly."""
+        constructor exactly.
+
+        create=False (fix-round 4, 2026-07-26): refuse 'no-store' rather
+        than silently create one, naming the exact command to run. Only the
+        CLI's `init` passes create=True (the default); every other CLI
+        command (claim, park, resume, checkpoint, decide) passes
+        create=False, because "only init creates a store" only means
+        something if every OTHER path can refuse instead. Direct Python-API
+        callers (this module's own tests included) keep the permissive
+        default: this parameter exists for the CLI's explicit contract, not
+        to change what Store(root) means when nobody asks for the stricter
+        behavior."""
         self.root = os.path.realpath(root)
         self.conn = None
         expected_store_dir = store_dir(self.root)
+        if not create and not os.path.isfile(store_path(self.root)):
+            raise OwnershipRefused(
+                "no-store",
+                "no store exists at %s; run `python3 tools/bm_store.py "
+                "init` to create one" % store_path(self.root),
+                details={"path": store_path(self.root)})
         os.makedirs(expected_store_dir, exist_ok=True)
         # GATE D (fix-round 3, 2026-07-26): claim paths were already
         # symlink-checked and refused as 'path-escape', but .brothermode
@@ -1635,6 +1653,135 @@ class Store(object):
 
 
 # ---------------------------------------------------------------------------
+# Read-only access (fix-round 4, 2026-07-26): verify, dump, and dashboard
+# are diagnostics. A diagnostic that can write is a diagnostic that can
+# silently CREATE the very thing it claims to be checking, and then report
+# health about the empty shell it just made. This class never creates a
+# directory, a file, or a WAL sidecar, never runs schema DDL, and opens the
+# connection via sqlite3 URI mode=ro so a stray write anywhere in the read
+# path raises rather than silently succeeding.
+# ---------------------------------------------------------------------------
+
+def _sqlite_ro_uri(path):
+    # SQLite URI filenames treat '?' and '#' specially; percent-encode them
+    # so an unusual path (rare, but not impossible) does not corrupt the
+    # query string this builds.
+    return "file:" + path.replace("?", "%3f").replace("#", "%23") + "?mode=ro"
+
+
+class ReadOnlyStore(object):
+    """Opens an EXISTING store read-only. Refuses 'no-store' before ever
+    calling sqlite3.connect if the file is not already there (fix-round 4):
+    the old behavior let verify/dump/dashboard silently create an empty
+    store and then report it healthy, seconds after a truncation had just
+    quarantined the real one. A zero-length existing file is corruption
+    here exactly as it is for the writable Store (GATE B, fix-round 3)."""
+
+    def __init__(self, root):
+        self.root = os.path.realpath(root)
+        self.conn = None
+        self.path = store_path(self.root)
+        if not os.path.isfile(self.path):
+            raise OwnershipRefused(
+                "no-store",
+                "no store exists at %s; run `python3 tools/bm_store.py "
+                "init` to create one" % self.path,
+                details={"path": self.path})
+        if os.path.getsize(self.path) == 0:
+            self._quarantine_and_raise(
+                ValueError("store file exists but is zero bytes (truncated, or never finished writing)"))
+        try:
+            conn = sqlite3.connect(_sqlite_ro_uri(self.path), uri=True,
+                                    timeout=5.0, isolation_level=None)
+            conn.row_factory = sqlite3.Row
+            self.conn = conn
+            conn.execute("PRAGMA busy_timeout=5000")
+            self.conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
+        except sqlite3.OperationalError as e:
+            if self.conn is not None:
+                try:
+                    self.conn.close()
+                except Exception:
+                    pass
+                self.conn = None
+            raise OwnershipRefused(
+                "db-busy",
+                "the store at %s is busy or locked (%s); wait a moment and "
+                "retry." % (self.path, e))
+        except sqlite3.DatabaseError as e:
+            self._quarantine_and_raise(e)
+
+    def _quarantine_and_raise(self, cause):
+        # Reuses Store's implementation verbatim (it only touches
+        # self.conn/self.path, both present here): one quarantine
+        # mechanism, not two copies to keep in sync.
+        return Store._quarantine_and_raise(self, cause)
+
+    def dump(self):
+        # Reuses Store.dump() verbatim: it only calls _exec(self, ...) over
+        # _TABLES, which works identically against a read-only connection.
+        return Store.dump(self)
+
+    def close(self):
+        if self.conn is not None:
+            try:
+                self.conn.close()
+            finally:
+                self.conn = None
+
+
+def _find_quarantine_dirs(root):
+    """Every quarantine directory currently sitting beside the store,
+    newest first (the timestamp-plus-uuid naming sorts lexicographically)."""
+    pattern = store_path(root) + ".quarantine-*"
+    return sorted((p for p in glob.glob(pattern) if os.path.isdir(p)), reverse=True)
+
+
+def _is_quarantine_acknowledged(qdir):
+    return os.path.isfile(os.path.join(qdir, "ACKNOWLEDGED"))
+
+
+def _unacknowledged_quarantine_dirs(root):
+    return [d for d in _find_quarantine_dirs(root) if not _is_quarantine_acknowledged(d)]
+
+
+def _quarantine_record_count(qdir):
+    """Best-effort record count from a quarantined file, or None when that
+    cannot be determined. It is quarantined because it could not be read
+    normally, so failing here is the expected common case, not a bug."""
+    qpath = os.path.join(qdir, STORE_FILENAME)
+    if not os.path.isfile(qpath) or os.path.getsize(qpath) == 0:
+        return None
+    try:
+        conn = sqlite3.connect(_sqlite_ro_uri(qpath), uri=True, timeout=1.0)
+        try:
+            row = conn.execute("SELECT COUNT(*) FROM records").fetchone()
+            return row[0] if row else None
+        finally:
+            conn.close()
+    except Exception:
+        return None
+
+
+def _quarantine_summary(qdir):
+    count = _quarantine_record_count(qdir)
+    return "%s (%s)" % (qdir, "%d record(s) recoverable" % count if count is not None
+                         else "record count unknown")
+
+
+def _acknowledge_quarantine(qdir):
+    """Mark one quarantine directory acknowledged WITHOUT deleting it
+    (fix-round 4): it is the founder's one chance to recover lost records,
+    so nothing here ever removes it, only records that someone looked."""
+    try:
+        with open(os.path.join(qdir, "ACKNOWLEDGED"), "w", encoding="utf-8") as f:
+            f.write("acknowledged %s\n" % now_iso())
+    except OSError as e:
+        print("bm_store: warning: could not write acknowledgement marker in "
+              "%s (%s)" % (qdir, e), file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
 # init: creates the store and, best-effort, keeps its files out of git
 # status without touching the founder's own .gitignore (fixes finding 30).
 # ---------------------------------------------------------------------------
@@ -1701,9 +1848,11 @@ def render_state_md(root):
     strings are neutralized inside that same pipeline (GATE 8b), so founder
     text can never masquerade as a real marker and corrupt the generated
     block's boundary. A store that cannot even be opened propagates
-    StoreCorrupt from Store(root); a later-page corruption during rendering
-    is caught by _exec (GATE 4)."""
-    store = Store(root)
+    StoreCorrupt or OwnershipRefused('no-store'); a later-page corruption
+    during rendering is caught by _exec (GATE 4). Read-only (fix-round 4,
+    2026-07-26): the dashboard is a diagnostic and must never create the
+    store it is displaying."""
+    store = ReadOnlyStore(root)
     try:
         rows = _exec(store, "SELECT * FROM records ORDER BY state, name").fetchall()
         lines = [_STATE_BEGIN,
@@ -1774,10 +1923,21 @@ def verify(root):
     This replaces V1's one-directional check (fixes F15): the store IS both
     directions, so verify checks the same union-of-claims invariant claim()
     enforces at write time, plus the generated view and transition history,
-    rather than trusting that nothing has drifted since the last write."""
-    store = Store(root)
+    rather than trusting that nothing has drifted since the last write.
+
+    Read-only (fix-round 4, 2026-07-26): opens via ReadOnlyStore, never
+    creating the thing it is diagnosing. The health vocabulary is reserved:
+    an unacknowledged quarantine is reported as a PROBLEM here (not
+    silently skipped), because "healthy" may only be printed when a store
+    was actually opened, read, and found consistent, with nothing
+    outstanding from a prior loss."""
+    unacknowledged = _unacknowledged_quarantine_dirs(root)
+    problems = [
+        "unacknowledged quarantine directory %s; recover what you need, "
+        "then run `python3 tools/bm_store.py init --acknowledge-quarantine`"
+        % _quarantine_summary(d) for d in unacknowledged]
+    store = ReadOnlyStore(root)
     try:
-        problems = []
         dupes = _exec(store,
             "SELECT name, COUNT(*) AS c FROM records WHERE state='active' "
             "GROUP BY name HAVING COUNT(*) > 1").fetchall()
@@ -1883,6 +2043,8 @@ def _default_cli_session_id():
 
 
 def cmd_init(argv):
+    kv = _parse_kv(argv)
+    acknowledge = "acknowledge-quarantine" in kv
     root, source = resolve_root()
     if root is None:
         # init is the one command allowed to proceed with no-root: its whole
@@ -1890,7 +2052,24 @@ def cmd_init(argv):
         # sensible choice when nothing else anchors a project here.
         root = os.path.realpath(os.getcwd())
         source = "cwd (nothing found to anchor on; this becomes the new root)"
+    unacknowledged = _unacknowledged_quarantine_dirs(root)
+    if unacknowledged and not acknowledge:
+        # Fix-round 4 (2026-07-26): a quarantine is remembered until an
+        # explicit act acknowledges it, mirroring the ratified autosave
+        # receipt rule. init must not just barrel past a prior data loss.
+        raise OwnershipRefused(
+            "unacknowledged-quarantine",
+            "%d quarantine director%s not been acknowledged: %s. Recover "
+            "what you need, then run `python3 tools/bm_store.py init "
+            "--acknowledge-quarantine` to continue (the directory is never "
+            "deleted by this)."
+            % (len(unacknowledged), "y has" if len(unacknowledged) == 1 else "ies have",
+               "; ".join(_quarantine_summary(d) for d in unacknowledged)),
+            details={"quarantine_dirs": unacknowledged})
     init_project(root)
+    if acknowledge:
+        for d in unacknowledged:
+            _acknowledge_quarantine(d)
     _out("bm_store: initialized %s (root resolved via %s)" % (store_path(root), source))
 
 
@@ -1913,7 +2092,8 @@ def cmd_claim(argv):
     check_cmd = " ".join(kv.get("check", []))
     ttl_raw = kv.get("ttl-hours")
     ttl_hours = float(ttl_raw[0]) if ttl_raw else None
-    store = Store(root)
+    # Fix-round 4: only `init` creates a store; claim refuses 'no-store'.
+    store = Store(root, create=False)
     try:
         rec = store.claim(name, lifetime, objective, files, owner=owner,
                            session_id=session_id, tier=tier, check_cmd=check_cmd,
@@ -1940,7 +2120,7 @@ def _cmd_transition(argv, to_state, usage):
     note = " ".join(kv.get("note", []))
     evidence = " ".join(kv.get("evidence", []))
     root, _source = require_root()
-    store = Store(root)
+    store = Store(root, create=False)
     try:
         rec = store.transition(lifecycle_uuid, expected_version, to_state,
                                 session_id=session_id, note=note, evidence=evidence)
@@ -1984,7 +2164,7 @@ def cmd_checkpoint(argv):
     files_note = " ".join(kv.get("files-note", []))
     body = " ".join(kv.get("body", []))
     root, _source = require_root()
-    store = Store(root)
+    store = Store(root, create=False)
     try:
         seq = store.checkpoint(lifecycle_uuid, expected_version, next_intent,
                                 blockers=blockers, files_note=files_note, body=body)
@@ -2007,7 +2187,7 @@ def cmd_decide(argv):
     topic = " ".join(kv.get("topic", []))
     text = " ".join(kv.get("text", []))
     root, _source = require_root()
-    store = Store(root)
+    store = Store(root, create=False)
     try:
         seq = store.decide(lifecycle_uuid, expected_version, topic, text)
     finally:
@@ -2022,7 +2202,7 @@ def cmd_dashboard(argv):
 
 def cmd_dump(argv):
     root, _source = require_root()
-    store = Store(root)
+    store = ReadOnlyStore(root)  # fix-round 4: dump is a diagnostic, never creates
     try:
         data = store.dump()
     finally:
@@ -2050,6 +2230,26 @@ _COMMANDS = {
 }
 
 
+def _warn_if_unacknowledged_quarantine(root):
+    """Printed before EVERY command (fix-round 4, 2026-07-26): a founder who
+    runs any command, not just verify, is told a quarantine happened and is
+    still unacknowledged. Best-effort: root resolution failing here is not
+    this function's problem, the command itself will report it."""
+    if root is None:
+        return
+    try:
+        unacknowledged = _unacknowledged_quarantine_dirs(root)
+    except Exception:
+        return
+    if not unacknowledged:
+        return
+    _out("bm_store: WARNING: %d unacknowledged quarantine director%s: %s. "
+         "Run `python3 tools/bm_store.py init --acknowledge-quarantine` "
+         "after recovering what you need."
+         % (len(unacknowledged), "y" if len(unacknowledged) == 1 else "ies",
+            "; ".join(_quarantine_summary(d) for d in unacknowledged)))
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     cmd = argv[0] if argv else ""
@@ -2059,6 +2259,8 @@ def main(argv=None):
         _out((__doc__ or "").strip())
         _out("\ncommands: %s" % ", ".join(sorted(_COMMANDS)))
         sys.exit(0 if cmd == "" else 2)
+    root_for_warning, _src = resolve_root()
+    _warn_if_unacknowledged_quarantine(root_for_warning)
     try:
         fn(rest)
     except SystemExit:

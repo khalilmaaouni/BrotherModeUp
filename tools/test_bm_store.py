@@ -453,21 +453,24 @@ class TestFixRoundGates(unittest.TestCase):
         # Structural guard for "route EVERY sqlite call through one internal
         # helper... No bare cursor calls outside it": the only raw
         # .execute()/.executescript() call sites left in the whole module
-        # are _exec's own body, Store.__init__'s open-time probe (which by
-        # definition runs before the connection is confirmed healthy enough
-        # to trust _exec's quarantine path), _ensure_schema (called only
-        # from inside that same protected try block), and _transaction's
-        # ROLLBACK-during-cleanup (must never mask the exception already
-        # being handled). If this count grows, a new call site was added
-        # without routing it through _exec: update this test deliberately,
-        # the same way tools/write_sites.json makes a new write site a
-        # conscious decision rather than a silent one.
+        # are _exec's own body; Store.__init__'s and ReadOnlyStore.__init__'s
+        # open-time probes (which by definition run before the connection is
+        # confirmed healthy enough to trust _exec's quarantine path);
+        # _ensure_schema (called only from inside that same protected try
+        # block); _transaction's ROLLBACK-during-cleanup (must never mask
+        # the exception already being handled); and
+        # _quarantine_record_count's standalone read of an ALREADY
+        # quarantined file (fix-round 4), which is not the live store and
+        # has nothing to route through. If this count grows, a new call
+        # site was added without routing it through _exec: update this test
+        # deliberately, the same way tools/write_sites.json makes a new
+        # write site a conscious decision rather than a silent one.
         with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
             lines = f.readlines()
         bare = [i for i, line in enumerate(lines, 1)
                 if re.search(r"\.execute\(|\.executescript\(", line)
                 and "_exec(self" not in line and "_exec(store" not in line]
-        self.assertEqual(len(bare), 10,
+        self.assertEqual(len(bare), 13,
                           "raw execute call sites changed (now at lines %s); route any "
                           "new one through _exec or update this count deliberately" % bare)
 
@@ -1161,6 +1164,170 @@ class TestFixRound3(unittest.TestCase):
                                   "while reporting a differently-requested claim as done")
             finally:
                 store.close()
+
+
+# ---------------------------------------------------------------------------
+# Fix round 4 (2026-07-26): an honesty defect. After a truncation-quarantine,
+# the next command silently created a fresh store and reported "healthy"
+# seconds after total data loss; a read-only diagnostic in a fresh directory
+# created the very store.sqlite3 (plus -wal/-shm) it claimed to be checking.
+# ---------------------------------------------------------------------------
+
+class TestFixRound4Honesty(unittest.TestCase):
+    def test_calibrated_second_verify_after_quarantine_never_says_healthy(self):
+        with tempfile.TemporaryDirectory() as d:
+            _run_cli(["init"], d)
+            r_claim = _run_cli(["claim", "k", "--lifetime", "persistent",
+                                "--objective", "IMPORTANT WORK", "--files", "k.py"], d)
+            self.assertEqual(r_claim.returncode, 0, r_claim.stdout + r_claim.stderr)
+            path = bs.store_path(d)
+            with io.open(path, "wb"):
+                pass  # truncate to 0 bytes
+            r1 = _run_cli(["verify"], d)
+            self.assertEqual(r1.returncode, 1, r1.stdout + r1.stderr)
+            self.assertIn("CORRUPT", r1.stdout)
+            r2 = _run_cli(["verify"], d)
+            self.assertNotEqual(r2.returncode, 0, r2.stdout + r2.stderr)
+            self.assertNotIn("healthy", r2.stdout)
+            qdirs = glob.glob(path + ".quarantine-*")
+            self.assertEqual(len(qdirs), 1)
+            self.assertIn(os.path.basename(qdirs[0]), r2.stdout,
+                          "verify must name the quarantine directory")
+
+    def test_calibrated_reinject_autocreate_would_report_healthy(self):
+        # Reproduces the exact pre-fix shape: verify() opening a permissive,
+        # auto-creating Store instead of ReadOnlyStore.
+        def old_verify(root):
+            store = bs.Store(root)
+            try:
+                return []
+            finally:
+                store.close()
+
+        with tempfile.TemporaryDirectory() as d:
+            _run_cli(["init"], d)
+            _run_cli(["claim", "k", "--lifetime", "persistent",
+                      "--objective", "obj", "--files", "k.py"], d)
+            path = bs.store_path(d)
+            with io.open(path, "wb"):
+                pass
+            with self.assertRaises(bs.StoreCorrupt):
+                bs.verify(d)
+            with mock.patch.object(bs, "verify", old_verify):
+                problems = bs.verify(d)
+            self.assertEqual(problems, [],
+                              "reinjected old code reports healthy right after data loss")
+            self.assertTrue(os.path.isfile(path),
+                             "reinjected old code silently recreated the store")
+
+    def _assert_fresh_dir_untouched(self, cmd):
+        with tempfile.TemporaryDirectory() as d:
+            before = sorted(os.listdir(d))
+            self.assertEqual(before, [])
+            r = _run_cli([cmd], d, env={"BROTHERMODE_ROOT": d})
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("no-store", r.stdout)
+            after = sorted(os.listdir(d))
+            self.assertEqual(after, [], "a read-only diagnostic must leave a fresh "
+                              "directory completely untouched, found: %s" % after)
+
+    def test_calibrated_verify_in_fresh_dir_refuses_and_touches_nothing(self):
+        self._assert_fresh_dir_untouched("verify")
+
+    def test_calibrated_dump_in_fresh_dir_refuses_and_touches_nothing(self):
+        self._assert_fresh_dir_untouched("dump")
+
+    def test_calibrated_dashboard_in_fresh_dir_refuses_and_touches_nothing(self):
+        self._assert_fresh_dir_untouched("dashboard")
+
+    def test_calibrated_reinject_autocreate_would_create_sidecars(self):
+        # The exact pre-fix shape of render_state_md: opening a permissive,
+        # auto-creating Store instead of ReadOnlyStore. Exercised directly
+        # against the tempdir (never via require_root/cwd resolution, which
+        # could otherwise resolve to this repo's own root by accident).
+        def old_render_state_md(root):
+            store = bs.Store(root)
+            try:
+                return "No records.\n"
+            finally:
+                store.close()
+
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(os.listdir(d), [])
+            old_render_state_md(d)
+            self.assertTrue(os.path.isdir(os.path.join(d, ".brothermode")),
+                             "reinjected old code must have created the store directory")
+            self.assertTrue(os.path.isfile(bs.store_path(d)))
+
+    def test_calibrated_claim_and_transition_also_refuse_no_store(self):
+        with tempfile.TemporaryDirectory() as d:
+            r1 = _run_cli(["claim", "k", "--lifetime", "ephemeral", "--objective", "obj"],
+                          d, env={"BROTHERMODE_ROOT": d})
+            self.assertEqual(r1.returncode, 2, r1.stdout + r1.stderr)
+            self.assertIn("no-store", r1.stdout)
+            self.assertEqual(os.listdir(d), [])
+
+    def test_calibrated_init_refuses_without_acknowledge_then_succeeds_with_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            _run_cli(["init"], d)
+            _run_cli(["claim", "k", "--lifetime", "persistent", "--objective", "obj",
+                      "--files", "k.py"], d)
+            path = bs.store_path(d)
+            with io.open(path, "wb"):
+                pass
+            _run_cli(["verify"], d)  # triggers the quarantine
+            qdirs = glob.glob(path + ".quarantine-*")
+            self.assertEqual(len(qdirs), 1)
+
+            r_refused = _run_cli(["init"], d)
+            self.assertEqual(r_refused.returncode, 2, r_refused.stdout + r_refused.stderr)
+            self.assertIn("unacknowledged-quarantine", r_refused.stdout)
+            self.assertTrue(os.path.isdir(qdirs[0]), "must not delete on a refused init")
+
+            r_ack = _run_cli(["init", "--acknowledge-quarantine"], d)
+            self.assertEqual(r_ack.returncode, 0, r_ack.stdout + r_ack.stderr)
+            self.assertTrue(os.path.isdir(qdirs[0]),
+                             "acknowledging must never delete the quarantine directory")
+            self.assertTrue(os.path.isfile(os.path.join(qdirs[0], "ACKNOWLEDGED")))
+
+            r_verify = _run_cli(["verify"], d)
+            self.assertEqual(r_verify.returncode, 0, r_verify.stdout + r_verify.stderr)
+            self.assertIn("healthy", r_verify.stdout)
+
+    def test_calibrated_reinject_no_acknowledge_check_would_pass_healthy(self):
+        def old_init_project_flow(root):
+            return bs.init_project(root)
+
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            store.claim("k", "ephemeral", "obj", [])
+            store.close()
+            path = store.path
+            with io.open(path, "wb"):
+                pass
+            with self.assertRaises(bs.StoreCorrupt):
+                bs.Store(d)
+            qdirs = bs._find_quarantine_dirs(d)
+            self.assertEqual(len(qdirs), 1)
+            self.assertFalse(bs._is_quarantine_acknowledged(qdirs[0]))
+            # Reinject: init_project alone (the pre-fix cmd_init body) never
+            # checked for an unacknowledged quarantine at all.
+            old_init_project_flow(d)
+            self.assertEqual(bs._unacknowledged_quarantine_dirs(d), qdirs,
+                              "reinjected old init must leave the quarantine "
+                              "unacknowledged while still succeeding silently")
+
+    def test_warning_printed_for_every_command_while_unacknowledged(self):
+        with tempfile.TemporaryDirectory() as d:
+            _run_cli(["init"], d)
+            _run_cli(["claim", "k", "--lifetime", "ephemeral", "--objective", "obj"], d)
+            path = bs.store_path(d)
+            with io.open(path, "wb"):
+                pass
+            _run_cli(["verify"], d)  # quarantines
+            r = _run_cli(["verify"], d)
+            self.assertIn("WARNING", r.stdout)
+            self.assertIn("quarantine", r.stdout.lower())
 
 
 # ---------------------------------------------------------------------------
