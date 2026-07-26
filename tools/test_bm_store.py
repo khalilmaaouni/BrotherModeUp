@@ -656,10 +656,6 @@ class TestFixRoundGates(unittest.TestCase):
         self.assertIn(b"\\xe9", buf.getvalue())
         self.assertIn(b"objective claimed", buf.getvalue())
 
-    def test_calibrated_gate9_unicode_encode_error_is_a_value_error_subclass(self):
-        # The root cause this fix closes: verified via __mro__.
-        self.assertTrue(issubclass(UnicodeEncodeError, ValueError))
-
     def test_calibrated_gate9_main_reports_unicode_failure_as_exit_one_not_bad_input(self):
         # Defense-in-depth backstop: even if some future print call bypasses
         # _out and raises UnicodeEncodeError, main() must not classify it as
@@ -896,6 +892,275 @@ class TestFixRound2SilentDrop(unittest.TestCase):
         self.assertNotIn("else:\n                        continue", body,
                           "checkpoint()'s decisions loop must raise on a malformed "
                           "entry, never silently skip it")
+
+
+# ---------------------------------------------------------------------------
+# Fix round 3 (2026-07-26): GATE A (resume bypasses admission checks), GATE B
+# (zero-length store treated as healthy), GATE C (worktree excludes never
+# written), GATE D (.brothermode not symlink-checked), SOFT F (reclaim
+# silently drops a lifetime change).
+# ---------------------------------------------------------------------------
+
+class TestFixRound3(unittest.TestCase):
+    # -- GATE A -------------------------------------------------------
+
+    def test_calibrated_gateA_resume_refuses_overlap_with_new_claimant(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                alpha = store.claim("alpha", "ephemeral", "obj", ["api/pay.py"],
+                                     session_id="sessA")
+                parked = store.transition(alpha.lifecycle_uuid, alpha.version, "parked",
+                                           session_id="sessA")
+                store.claim("beta", "ephemeral", "obj", ["api/pay.py"], session_id="sessB")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.transition(parked.lifecycle_uuid, parked.version, "active",
+                                      session_id="sessA")
+                self.assertEqual(ctx.exception.reason, "overlap")
+                still = store.get(parked.lifecycle_uuid)
+                self.assertEqual(still.state, "parked", "a refused resume must leave it parked")
+                self.assertEqual(bs.verify(d), [],
+                                  "the store must never create the overlap its own verify reports")
+            finally:
+                store.close()
+
+    def test_calibrated_gateA_resume_refuses_persistent_cap(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                target = store.claim("p0", "persistent", "obj", [], session_id="s")
+                parked = store.transition(target.lifecycle_uuid, target.version, "parked",
+                                           session_id="s")
+                for i in range(3):
+                    store.claim("p%d" % (i + 1), "persistent", "obj", [], session_id="s")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.transition(parked.lifecycle_uuid, parked.version, "active",
+                                      session_id="s")
+                self.assertEqual(ctx.exception.reason, "cap")
+            finally:
+                store.close()
+
+    def test_calibrated_gateA_cli_resume_refuses_and_verify_stays_clean(self):
+        with tempfile.TemporaryDirectory() as d:
+            _run_cli(["init"], d)
+            r1 = _run_cli(["claim", "alpha", "--lifetime", "ephemeral",
+                          "--objective", "obj", "--files", "api/pay.py",
+                          "--session", "sessA"], d)
+            uuid1 = re.search(r"lifecycle ([0-9a-f]+)", r1.stdout).group(1)
+            _run_cli(["park", uuid1, "--version", "1", "--session", "sessA"], d)
+            _run_cli(["claim", "beta", "--lifetime", "ephemeral", "--objective", "obj",
+                      "--files", "api/pay.py", "--session", "sessB"], d)
+            r_resume = _run_cli(["resume", uuid1, "--version", "2", "--session", "sessA"], d)
+            self.assertEqual(r_resume.returncode, 2, r_resume.stdout + r_resume.stderr)
+            self.assertIn("overlap", r_resume.stdout)
+            r_verify = _run_cli(["verify"], d)
+            self.assertEqual(r_verify.returncode, 0, r_verify.stdout + r_verify.stderr)
+
+    def test_structural_one_admission_function_used_by_both_paths(self):
+        with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
+            src = f.read()
+        self.assertEqual(src.count("def _admit("), 1,
+                          "exactly one admission function must exist")
+        claim_start = src.index("def claim(self, name, lifetime")
+        claim_end = src.index("\n    # -- transition")
+        transition_start = src.index("def transition(self, lifecycle_uuid")
+        transition_end = src.index("\n    # -- checkpoint")
+        self.assertIn("self._admit(", src[claim_start:claim_end])
+        self.assertIn("self._admit(", src[transition_start:transition_end])
+
+    def test_calibrated_reinject_gateA_would_fail_above(self):
+        # Reinject the pre-fix shape: resume skips admission entirely.
+        def old_transition(self, lifecycle_uuid, expected_version, to_state,
+                            session_id="", note="", evidence=""):
+            if to_state not in bs._LEGAL_MOVES:
+                raise ValueError("unknown target state %r" % (to_state,))
+            if to_state == "complete" and not (evidence or "").strip():
+                raise bs.OwnershipRefused("missing-evidence", "x")
+            allowed_from = bs._LEGAL_MOVES[to_state]
+            with self._transaction() as conn:
+                row = bs._exec(self, "SELECT * FROM records WHERE lifecycle_uuid=?",
+                                (lifecycle_uuid,)).fetchone()
+                if row is None or row["version"] != expected_version or row["state"] not in allowed_from:
+                    raise bs.StaleIdentity("stale")
+                ts = bs.now_iso()
+                bs._exec(self,
+                    "UPDATE records SET state=?, version=version+1, updated_at=? "
+                    "WHERE lifecycle_uuid=? AND version=? AND state=?",
+                    (to_state, ts, lifecycle_uuid, expected_version, row["state"]))
+                return self._record_by_uuid(conn, lifecycle_uuid)
+
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                alpha = store.claim("alpha", "ephemeral", "obj", ["api/pay.py"],
+                                     session_id="sessA")
+                parked = store.transition(alpha.lifecycle_uuid, alpha.version, "parked",
+                                           session_id="sessA")
+                store.claim("beta", "ephemeral", "obj", ["api/pay.py"], session_id="sessB")
+                with mock.patch.object(bs.Store, "transition", old_transition):
+                    resumed = store.transition(parked.lifecycle_uuid, parked.version, "active",
+                                                session_id="sessA")
+                    self.assertEqual(resumed.state, "active",
+                                      "reinjected old code must resume unchecked")
+                self.assertNotEqual(bs.verify(d), [],
+                                     "reinjected old code must leave the store corrupt, "
+                                     "proving the fix's checks were doing real work")
+            finally:
+                store.close()
+
+    # -- GATE B ---------------------------------------------------------
+
+    def test_calibrated_gateB_zero_length_existing_store_quarantines(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            store.claim("keeper", "ephemeral", "obj", [])
+            path = store.path
+            store.close()
+            self.assertGreater(os.path.getsize(path), 0)
+            with io.open(path, "wb"):
+                pass  # truncate to 0 bytes, sidecars (if any) untouched
+            self.assertEqual(os.path.getsize(path), 0)
+            with self.assertRaises(bs.StoreCorrupt) as ctx:
+                bs.Store(d)
+            qdir = ctx.exception.quarantine_path
+            self.assertTrue(os.path.isdir(qdir))
+            self.assertTrue(os.path.exists(os.path.join(qdir, "store.sqlite3")))
+            store2 = bs.Store(d)  # fresh init after quarantine must work
+            try:
+                rec = store2.claim("again", "ephemeral", "obj", [])
+                self.assertEqual(rec.state, "active")
+            finally:
+                store2.close()
+
+    def test_first_time_creation_is_not_flagged_as_zero_length(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)  # must not raise: the file did not exist yet
+            try:
+                self.assertGreater(os.path.getsize(store.path), 0)
+            finally:
+                store.close()
+
+    # -- GATE C: requires a real git worktree ----------------------------
+
+    def _make_git_worktree(self, base):
+        main = os.path.join(base, "main")
+        wt = os.path.join(base, "wt")
+        os.makedirs(main)
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t.com",
+                   GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t.com")
+        for cmd in (["git", "init", "-q"],
+                    ["git", "commit", "-q", "--allow-empty", "-m", "init"]):
+            subprocess.run(cmd, cwd=main, env=env, check=True,
+                            capture_output=True)
+        subprocess.run(["git", "worktree", "add", "-q", wt, "-b", "feature"],
+                        cwd=main, env=env, check=True, capture_output=True)
+        return wt
+
+    def test_calibrated_gateC_worktree_excludes_written(self):
+        with tempfile.TemporaryDirectory() as base:
+            wt = self._make_git_worktree(base)
+            self.assertTrue(os.path.isfile(os.path.join(wt, ".git")),
+                             "sanity: .git must be a FILE in a worktree")
+            store = bs.Store(wt)
+            try:
+                store.claim("thing", "ephemeral", "obj", [])
+            finally:
+                store.close()
+            r = subprocess.run(["git", "status", "--porcelain"], cwd=wt,
+                                capture_output=True, text=True)
+            self.assertNotIn(".brothermode", r.stdout, r.stdout)
+
+    def test_calibrated_reinject_gateC_would_fail_above(self):
+        with tempfile.TemporaryDirectory() as base:
+            wt = self._make_git_worktree(base)
+            def old_ensure_git_excludes(root):
+                git_dir = os.path.join(root, ".git")
+                if not os.path.isdir(git_dir):
+                    return
+            with mock.patch.object(bs, "_ensure_git_excludes", old_ensure_git_excludes):
+                store = bs.Store(wt)
+                try:
+                    store.claim("thing", "ephemeral", "obj", [])
+                finally:
+                    store.close()
+            r = subprocess.run(["git", "status", "--porcelain"], cwd=wt,
+                                capture_output=True, text=True)
+            self.assertIn(".brothermode", r.stdout,
+                          "reinjected old code must leave the store unexcluded")
+
+    # -- GATE D -----------------------------------------------------------
+
+    @unittest.skipIf(sys.platform == "win32", "symlinks need elevation on Windows")
+    def test_calibrated_gateD_symlinked_brothermode_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            target = os.path.join(d, "docs")
+            os.makedirs(target)
+            os.symlink(target, os.path.join(d, ".brothermode"))
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.Store(d)
+            self.assertEqual(ctx.exception.reason, "path-escape")
+
+    @unittest.skipIf(sys.platform == "win32", "symlinks need elevation on Windows")
+    def test_calibrated_gateD_symlink_target_never_chmodded(self):
+        with tempfile.TemporaryDirectory() as d:
+            target = os.path.join(d, "docs")
+            os.makedirs(target)
+            before = stat.S_IMODE(os.stat(target).st_mode)
+            os.symlink(target, os.path.join(d, ".brothermode"))
+            with self.assertRaises(bs.OwnershipRefused):
+                bs.Store(d)
+            after = stat.S_IMODE(os.stat(target).st_mode)
+            self.assertEqual(before, after, "the symlink target must never be chmodded")
+
+    # -- SOFT E -------------------------------------------------------
+
+    def test_soft_e_render_digest_header_includes_objective(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("thing", "ephemeral", "ship the payments webhook", [])
+                out = store.render_digest(rec.lifecycle_uuid)
+                self.assertIn("ship the payments webhook", out)
+            finally:
+                store.close()
+
+    # -- SOFT F -------------------------------------------------------
+
+    def test_calibrated_soft_f_reclaim_with_different_lifetime_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("thing", "persistent", "obj", [], session_id="s1")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.claim("thing", "ephemeral", "obj2", [], session_id="s1")
+                self.assertEqual(ctx.exception.reason, "lifetime-mismatch")
+                still = store.get(store.conn.execute(
+                    "SELECT lifecycle_uuid FROM records WHERE name='thing'").fetchone()[0])
+                self.assertEqual(still.lifetime, "persistent")
+                self.assertEqual(still.objective, "obj")
+            finally:
+                store.close()
+
+    def test_calibrated_reinject_soft_f_would_fail_above(self):
+        def old_claim_reclaim_check(active, lifetime):
+            return False  # old code: never compared lifetime at all
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("thing", "persistent", "obj", [], session_id="s1")
+                # Reproduce the exact pre-fix call site: _reclaim_active
+                # invoked directly, bypassing the new lifetime check that
+                # now lives in claim() just before it.
+                row = store.conn.execute(
+                    "SELECT * FROM records WHERE lifecycle_uuid=?",
+                    (rec.lifecycle_uuid,)).fetchone()
+                with store._transaction() as conn:
+                    updated = store._reclaim_active(conn, row, "obj2", [], "", "", "", None)
+                self.assertEqual(updated.lifetime, "persistent",
+                                  "reinjected old path silently keeps the old lifetime "
+                                  "while reporting a differently-requested claim as done")
+            finally:
+                store.close()
 
 
 # ---------------------------------------------------------------------------
