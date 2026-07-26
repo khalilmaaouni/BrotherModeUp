@@ -2215,8 +2215,23 @@ class TestFixRound7(unittest.TestCase):
             # path can never match itself. POSIX paths contain no backslashes,
             # which is the only reason this passed everywhere else.
             reported = [str(arg) for call in warn_mock.call_args_list for arg in call.args]
-            self.assertTrue(any(backups[0] in msg for msg in reported),
-                             "the backup path must be reported on stderr; got %r" % (reported,))
+            # Compare the BASENAME, not the full path. Two Windows-only reasons,
+            # both of which have now failed CI once each:
+            #   1. str() of a mock call renders through repr and doubles every
+            #      backslash, so a Windows path never matches itself. That is why
+            #      this reads call.args rather than str(call).
+            #   2. The containment funnel resolves paths, and Windows hands out
+            #      the 8.3 short form (C:\Users\RUNNER~1\...) where realpath
+            #      returns the long form (C:\Users\runneradmin\...). Same
+            #      directory, two spellings, so a full-path substring test fails
+            #      even though the correct file was reported.
+            # The basename carries the microsecond stamp, so it is still specific
+            # to THIS backup and the assertion keeps its meaning: the tool must
+            # name the backup it just wrote.
+            wanted = os.path.basename(backups[0])
+            self.assertTrue(any(wanted in msg for msg in reported),
+                             "the backup file must be reported on stderr; wanted %r, got %r"
+                             % (wanted, reported))
 
     # -- GATE B: the fail-closed redaction promise must actually hold -
 
