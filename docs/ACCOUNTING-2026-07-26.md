@@ -121,7 +121,11 @@ back, not from the plan being right.
 ## Missing, ranked by harm
 
 1. Never run on a real project. Everything rests on tests and simulated lifecycles.
-2. Continuous integration has never executed, so its first run is the first real test of
+2. CORRECTED 2026-07-26: continuous integration HAS executed (18 runs) and FAILED on the
+   tagged commit, on Windows, for a real handle leak. The earlier claim here that it had
+   never run was asserted without looking. See docs/KNOWN-LIMITS.md. Original line kept
+   below for the record of what was claimed:
+   (was) its first run is the first real test of
    a configuration nobody has exercised.
 3. The telemetry audit and the learning loops are IN FLIGHT at the time of writing. Until
    they land, the law describes loops the code does not implement.

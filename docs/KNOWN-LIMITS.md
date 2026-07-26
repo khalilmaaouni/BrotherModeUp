@@ -71,18 +71,37 @@ Unchanged from the previous handover, and it is the honest headline. Everything
 here rests on tests, adversarial execution, and simulated lifecycles. No day of
 real founder work has yet been done through the V2 store.
 
-## Continuous integration has never executed
+## Continuous integration HAS executed, and it FAILED on Windows
 
-The workflow is configured for Linux, macOS, and Windows across two Python
-versions, and the action versions are pinned to verified commit hashes. None of it
-has run, because nothing has been pushed yet. The first push is also the first
-real test of that configuration, and it may well fail.
+CORRECTED 2026-07-26. An earlier version of this file said continuous integration
+had never executed. That was FALSE and it was never checked: the workflow has run
+18 times, three of them on branch v2, and the record is public in the repository's
+Actions tab. Assuming instead of looking, in a project whose whole point is not
+doing that, is worth recording rather than quietly fixing.
 
-## Windows is designed for, not proven
+The result on the tagged release commit (run 18, commit 7c2e0ec) is FAILURE. The
+job `store (windows-latest, 3.x)` exited 1; the other matrix legs were cancelled by
+fail-fast, so the Windows 3.9 leg and one macOS leg remain UNKNOWN rather than
+passing.
 
-No Windows machine was available. Windows behavior was proxied by substituting the
-Windows path module and forcing the platform identifier, which caught a real defect
-(directory containment silently failing there) but is not the same as running.
+## Windows is not merely unproven, it was BROKEN, and that is now demonstrated
+
+CORRECTED 2026-07-26. An earlier version said Windows was "designed for, not
+proven". The stronger truth: it failed. Verbatim from the run:
+
+    PermissionError: [WinError 32] The process cannot access the file because it is
+    being used by another process: '...\.brothermode\store.sqlite3'
+
+Cause: sqlite connections were opened and never closed. POSIX allows deleting a
+file that still has an open handle, so every macOS and Linux leg passed and the
+leak was invisible; Windows refuses, which is the only reason it surfaced. That
+makes it a real API gap on every platform (a long-lived process leaked a handle per
+store) that only one platform reported.
+
+Worth naming because it decided a design argument: the founder OVERRODE a
+recommendation to declare Windows unsupported and required it as scope. That
+override is what produced this finding. Narrowing the supported platforms would
+have hidden a defect rather than avoided one.
 Symlink and hardlink tests skip on Windows entirely. Read-only database behavior,
 file permission semantics, and the worktree layout are unverified there.
 
