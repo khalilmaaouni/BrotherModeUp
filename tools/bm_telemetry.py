@@ -9,7 +9,16 @@ Subcommands:
   migrate           One-time ledger migration to schema 2 (idempotent, temp+rename,
                     line-count recheck; never backfills absent values).
   scorecard         Renders the 9-metric dashboard from the ledger + companion files.
-  rate              Records a founder felt-outcome rating (1-5).
+  rate              Records a founder felt-outcome rating. Integers 1-5 ONLY
+                    (a human answering a 1-to-5 ask cannot produce a
+                    fraction). --reply/--session name the PROVENANCE pair
+                    (the founder's own verbatim words and the session id);
+                    missing either records the rating but flags it
+                    unattributed, reported separately and never averaged.
+  rework            Records a REWORK signal: the founder sent a deliverable
+                    back, or a later session redid the same artifact.
+  escaped-defect    Records an ESCAPED DEFECT signal: a later session found
+                    a defect in work an earlier session called green.
   review-mark       Records that a weekly review ran (feeds the overdue nag).
   startup-nags      One-line nags + yesterday's spend for SessionStart injection.
   stop-warn         Stop hook target, WARN ONLY (never blocks): systemMessage JSON
@@ -18,7 +27,12 @@ Subcommands:
   registry-check    Flags fence-registry lines that look live in a stale file.
   fence-lint        Dispatch aid: prints live fences from the project's STATE.md
                     and the BROTHERMODE_REGISTRIES globs before a writer launches.
-  prediction-audit  Counts sealed predictions in the founder model ledger.
+  prediction-audit  Counts sealed predictions in the founder model ledger and
+                    reports alignment ONLY on the DIVERGED rows (prediction
+                    and recommendation disagreed); agreement-case scoring
+                    rewards flattery, so it is excluded, and a zero-diverged
+                    week reports "0 scored divergent predictions" rather
+                    than a ratio built on agreement.
   check-update      OFFLINE check of your installed copy: warns when an already
                     fetched update is waiting, when the copy has gone stale, and
                     once when the law itself changed under you. Reads git refs as
@@ -56,7 +70,7 @@ absent; nothing is invented. Token counts are labeled as-flushed (the transcript
 may lag the final turn). Old (schema 1) and new lines are both readable: use
 fld() everywhere.
 """
-import json, os, sys, glob, re, datetime, hashlib, tempfile, io
+import json, os, sys, glob, re, datetime, hashlib, tempfile, io, shutil
 
 # ---------------------------------------------------------------------------
 # Configuration. The vault is the durable memory folder every ledger lives in.
@@ -75,6 +89,11 @@ LEDGER = os.path.join(TEL_DIR, "outcomes.jsonl")
 RATINGS = os.path.join(TEL_DIR, "ratings.jsonl")
 REVIEWS = os.path.join(TEL_DIR, "reviews.jsonl")
 CORRECTIONS = os.path.join(TEL_DIR, "corrections.jsonl")
+# SKILL.md section 8, fix-round 2026-07-26: the two outcome signals the
+# graded party cannot fake, because each points at something checkable
+# outside the grader's own say-so (a returned deliverable, a redone
+# artifact, a defect a later session actually found), never a self-report.
+SIGNALS = os.path.join(TEL_DIR, "signals.jsonl")
 FOUNDER_MODEL = os.path.join(VAULT, "50-Reference", "founder-model.md")
 SESSIONS_GLOB = os.path.join(VAULT, "10-Projects", "*", "Sessions", "*.md")
 
@@ -342,7 +361,7 @@ def cmd_outcomes_append():
         print("bm_telemetry: below activity floor (%d api msgs, %d tool calls); not recorded"
               % (main["api_msgs"], main["tool_calls"]))
         return
-    project = os.path.basename(cwd) or cwd
+    project = _vault_project_name(cwd)
     hours = 0.0
     if main["first_ts"] and main["last_ts"]:
         try:
@@ -383,7 +402,7 @@ def cmd_migrate():
     if not os.path.isfile(LEDGER):
         print("migrate: no ledger yet")
         return
-    rows = read_jsonl(LEDGER)
+    rows, bad = read_jsonl(LEDGER, report_bad=True)
     n_before = len(rows)
     changed = 0
     out = []
@@ -396,23 +415,26 @@ def cmd_migrate():
             # input tokens were never recorded pre-schema-2: stays ABSENT, never invented
             changed += 1
         out.append(r)
-    # Back up before the rewrite, so the failure message below is honest.
+    # Back up the RAW FILE (byte-exact, via atomic_backup) before the rewrite,
+    # not a re-serialization of `rows`: `rows` already excludes any line that
+    # failed to parse, so the old re-serialized "backup" silently excluded it
+    # too, and this line-count check compared two counts that both already
+    # excluded it. Copying bytes cannot lose a line no matter how it parses.
     bak = LEDGER + ".bak-migrate" + datetime.date.today().strftime("%Y%m%d")
-    if not os.path.exists(bak):
-        with open(bak, "w") as f:
-            for r in rows:
-                f.write(json.dumps(r, separators=(",", ":")) + "\n")
-    tmp = LEDGER + ".tmp"
-    with open(tmp, "w") as f:
-        for r in out:
-            f.write(json.dumps(r, separators=(",", ":")) + "\n")
-    os.rename(tmp, LEDGER)
+    backed_up = atomic_backup(LEDGER, bak)
+    atomic_write(LEDGER, "".join(json.dumps(r, separators=(",", ":")) + "\n" for r in out))
     n_after = len(read_jsonl(LEDGER))
     if n_after < n_before:
         print("migrate: LINE COUNT DROPPED %d->%d, restore from backup!" % (n_before, n_after))
     else:
         print("migrate: %d lines, %d migrated to schema 2, count ok (%d)"
               % (n_before, changed, n_after))
+    if bad:
+        print("migrate: %d malformed line(s) in the original could not be parsed "
+              "(line numbers %s) and are NOT in the rewritten file; the exact "
+              "original bytes are preserved at %s%s, nothing was deleted."
+              % (len(bad), ",".join(str(i) for i in bad[:10]) + (",..." if len(bad) > 10 else ""),
+                 bak, "" if backed_up else " (from an earlier run today)"))
 
 
 def cmd_dedup():
@@ -428,7 +450,7 @@ def cmd_dedup():
                                        sort_keys=True)), "last"),
         (CORRECTIONS, lambda r: (r.get("session_id"), r.get("text")), "first"),
     ):
-        rows = read_jsonl(path)
+        rows, bad = read_jsonl(path, report_bad=True)
         if not rows:
             print("dedup: %s empty or missing, skipped" % os.path.basename(path))
             continue
@@ -450,21 +472,26 @@ def cmd_dedup():
                 seen.add(k)
                 kept.append(r)
         if len(kept) == len(rows):
-            print("dedup: %s already clean (%d lines)" % (os.path.basename(path), len(rows)))
+            # No rewrite happens on this branch, so the file on disk is
+            # untouched: any malformed line already in it is neither lost
+            # nor hidden, just still there for the next read to report.
+            print("dedup: %s already clean (%d lines%s)"
+                  % (os.path.basename(path), len(rows),
+                     ", %d malformed line(s) left in place" % len(bad) if bad else ""))
             continue
+        # Byte-exact backup BEFORE the rewrite (see atomic_backup's docstring
+        # for why this replaced re-serializing read_jsonl()'s own output).
         bak = "%s.bak-dedup%s" % (path, stamp)
-        if not os.path.exists(bak):
-            with open(bak, "w") as f:
-                for r in rows:
-                    f.write(json.dumps(r, separators=(",", ":")) + "\n")
-        tmp = path + ".tmp"
-        with open(tmp, "w") as f:
-            for r in kept:
-                f.write(json.dumps(r, separators=(",", ":")) + "\n")
-        os.rename(tmp, path)
+        backed_up = atomic_backup(path, bak)
+        atomic_write(path, "".join(json.dumps(r, separators=(",", ":")) + "\n" for r in kept))
         print("dedup: %s %d -> %d lines (%d duplicate flushes dropped; backup %s)"
               % (os.path.basename(path), len(rows), len(kept),
                  len(rows) - len(kept), os.path.basename(bak)))
+        if bad:
+            print("dedup: %d malformed line(s) in %s could not be parsed and are NOT in "
+                  "the rewritten file; the exact original bytes are preserved at %s%s."
+                  % (len(bad), os.path.basename(path), bak,
+                     "" if backed_up else " (from an earlier run today)"))
 
 
 def outcomes_lines_in_window(min_age_d, max_age_d):
@@ -507,16 +534,52 @@ def cmd_speed():
         print("  trend: NO-DATA (both windows need recorded runs; nothing is invented)")
 
 
-def read_jsonl(path):
-    rows = []
+def read_jsonl(path, report_bad=False):
+    """Parse a JSONL ledger. A line that fails to parse is skipped from the
+    returned rows exactly as before (a caller doing arithmetic over `rows`
+    still gets clean data), but it is no longer INVISIBLE: pass
+    report_bad=True to also get back the 1-based line numbers that could not
+    be parsed, so a caller can COUNT and REPORT what it silently used to
+    drop (docs/REMAINING.md item 1, fix-round 2026-07-26: a maintenance
+    rewrite that reads with this function, then writes back only what it
+    parsed, used to permanently delete a corrupt line while its own
+    before/after count check stayed green, because both counts already
+    excluded the dropped line). Line numbers only, never the raw text: a
+    malformed line in corrections.jsonl or a resume brief can still carry
+    unredacted founder text, and this module never prints founder text
+    unredacted, so the caller reports a location, not content, and the
+    REWRITE side of the fix is atomic_backup (byte-exact original), not a
+    quarantine of individual lines here."""
+    rows, bad = [], []
     if not os.path.isfile(path):
-        return rows
-    for raw in open(path, errors="replace"):
+        return (rows, bad) if report_bad else rows
+    for i, raw in enumerate(open(path, errors="replace"), 1):
+        if not raw.strip():
+            continue
         try:
             rows.append(json.loads(raw))
         except Exception:
-            continue
-    return rows
+            bad.append(i)
+    return (rows, bad) if report_bad else rows
+
+
+def atomic_backup(path, bak):
+    """Copy path's raw bytes to bak verbatim, byte for byte, before any
+    maintenance rewrite touches path. Never overwrites an existing bak (the
+    FIRST snapshot from a day that ran migrate/dedup twice is the one worth
+    keeping, matching the existing per-day backup naming). Returns True if a
+    new backup was written, False if one already existed today.
+
+    This exists because the OLD backup code in cmd_migrate/cmd_dedup
+    rebuilt its "backup" by re-serializing read_jsonl()'s OWN PARSED OUTPUT,
+    so a line that failed to parse was missing from the "backup" too, and a
+    line-count check comparing two counts that both already excluded it
+    could never catch the loss. Copying the file's actual bytes cannot lose
+    a line no matter how the parser behaves."""
+    if os.path.exists(bak):
+        return False
+    shutil.copyfile(path, bak)
+    return True
 
 
 def real_sessions(rows):
@@ -539,42 +602,118 @@ def age_days(iso):
         return None
 
 
+def _coordination_collisions(cwd):
+    """Real collision count for rubric metric 7 (docs/REMAINING.md item 1,
+    fix-round 2026-07-26), replacing the old hardcoded literal 'collisions=0,
+    baton drops=0': bm_store.verify() already computes the exact invariant a
+    coordination collision IS (two ACTIVE claims whose paths overlap), so
+    this reads that instead of printing an unmovable number. 'baton drops'
+    has NO data source anywhere in this codebase, so that half of the old
+    line is DELETED rather than replaced with a second fake number: per the
+    brief, a metric nobody can act on is worse than a missing one, and
+    RUBRIC.md's own evidence line already names baton drops and
+    resume-vs-respawn as judged weekly from OUTCOMES incidents, not computed
+    here. Returns (n, note): n is an int when a store was found and read, or
+    None with a one-line reason (no bm_store module, no resolvable root, or
+    no store initialized yet at that root)."""
+    bm_store, err = _get_bm_store()
+    if bm_store is None:
+        return None, "bm_store.py unavailable (%s)" % err
+    root, _source = _resolve_root_quiet(cwd)
+    if root is None:
+        return None, "no BrotherMode project root found from %s" % cwd
+    try:
+        problems = bm_store.verify(root)
+    except Exception as e:
+        return None, "store.verify() could not run (%r)" % (e,)
+    return sum(1 for p in problems if p.startswith("active claims overlap")), None
+
+
 def cmd_scorecard():
-    led = read_jsonl(LEDGER)
+    led, led_bad = read_jsonl(LEDGER, report_bad=True)
     rows = real_sessions(led)
-    ratings = read_jsonl(RATINGS)
-    reviews = read_jsonl(REVIEWS)
-    corrections = read_jsonl(CORRECTIONS)
+    ratings, ratings_bad = read_jsonl(RATINGS, report_bad=True)
+    reviews, reviews_bad = read_jsonl(REVIEWS, report_bad=True)
+    corrections, corr_bad = read_jsonl(CORRECTIONS, report_bad=True)
+    signals = read_jsonl(SIGNALS)
+    n_rework = sum(1 for s in signals if s.get("kind") == "rework")
+    n_escaped = sum(1 for s in signals if s.get("kind") == "escaped-defect")
     preds = prediction_counts()
     recent = [r for r in rows if (age_days(r.get("ts", "")) or 99) <= 7]
     out7 = sum(fld(r, OUT_KEYS) + r.get("sub_out_tokens", 0) for r in recent)
     cr = sum(r.get("cache_read", 0) for r in recent)
     cw = sum(r.get("cache_write", 0) for r in recent)
     ratio = (100.0 * cr / (cr + cw)) if (cr + cw) else None
-    rated = [x for x in ratings if isinstance(x.get("score"), (int, float))]
-    avg_rating = round(sum(x["score"] for x in rated) / len(rated), 2) if rated else None
+    # PROVENANCE (SKILL.md section 8, fix-round 2026-07-26): a rating with no
+    # founder reply and session id attached is UNATTRIBUTED and is reported
+    # separately, never folded into the average; averaging it would let the
+    # system's own guess about its felt-outcome pass as the founder's own.
+    scored_ratings = [x for x in ratings if isinstance(x.get("score"), (int, float))]
+    attributed = [x for x in scored_ratings if x.get("attributed")]
+    unattributed = [x for x in scored_ratings if not x.get("attributed")]
+    avg_rating = round(sum(x["score"] for x in attributed) / len(attributed), 2) if attributed else None
     last_review = max((x.get("ts", "") for x in reviews), default=None)
     lr_age = age_days(last_review) if last_review else None
+    bad_total = len(led_bad) + len(ratings_bad) + len(reviews_bad) + len(corr_bad)
     print("BROTHERMODE SCORECARD  (mechanical fields computed; judgment fields scored at weekly review)")
-    print("ledger: %d sessions, %d last 7d, %dk out last 7d, %d correction candidates pending"
-          % (len(rows), len(recent), out7 // 1000, len(corrections)))
+    if bad_total:
+        print("WARNING: %d malformed ledger line(s) could not be parsed and are excluded from "
+              "every count below (ledger=%d ratings=%d reviews=%d corrections=%d); the raw "
+              "files are untouched, nothing was deleted (migrate/dedup preserve a byte-exact backup)."
+              % (bad_total, len(led_bad), len(ratings_bad), len(reviews_bad), len(corr_bad)))
+    print("ledger: %d sessions, %d last 7d, %dk out last 7d, %d correction candidates pending, "
+          "%d rework signal(s), %d escaped defect(s)"
+          % (len(rows), len(recent), out7 // 1000, len(corrections), n_rework, n_escaped))
     print("1 self-learning : reviews=%d, last=%s, sealed predictions=%d (10: 0 gaps 14d + 2 reviews + >=5 predictions)"
           % (len(reviews), ("%.1fd" % lr_age) if lr_age is not None else "never", preds["sealed"]))
-    print("2 token economy : measured=%d/%d, out 7d=%dk, budget-vs-tier: bm_score check (10: 0 unmeasured + budgets enforced + trend down)"
-          % (len(rows), len(rows), out7 // 1000))
-    print("3 speed         : run 'bm_telemetry.py speed' for the metric 3 feed; trend judged at weekly review")
-    print("4 alignment     : ratings=%d avg=%s, prediction hits=%s/%s, corrections captured=%d (10: avg>=4.5 + 0 repeats 2wk)"
-          % (len(rated), avg_rating, preds["hits"], preds["scored"], len(corrections)))
+    # FIX (fix-round 2026-07-26): this used to print len(rows), len(rows), a
+    # value compared against ITSELF that can never be anything but 100 percent
+    # regardless of whether tokens were actually measured, the same class of
+    # theatre as the hardcoded coordination line. "measured" now means "has a
+    # real input-token field", which schema-1 rows and any row migrate could
+    # not backfill genuinely lack (migrate never invents that value).
+    measured = sum(1 for r in rows if any(k in r for k in IN_KEYS))
+    print("2 token economy : measured=%d/%d, out 7d=%dk, budget-vs-tier: bm_score check "
+          "(10: 0 unmeasured + budgets enforced; trend NOT DECIDABLE at this session volume, see RUBRIC.md)"
+          % (measured, len(rows), out7 // 1000))
+    print("3 speed         : run 'bm_telemetry.py speed' for the raw span-hours feed; "
+          "trend NOT DECIDABLE at this session volume (see RUBRIC.md), judged directionally at weekly review")
+    diverged_txt = ("%d/%d" % (preds["diverged_hits"], preds["diverged_scored"])) \
+        if preds["diverged_scored"] else "0 scored divergent predictions"
+    print("4 alignment     : ratings=%d avg=%s (unattributed=%d, never averaged), "
+          "prediction alignment (diverged only)=%s, corrections captured=%d, rework=%d, escaped-defects=%d "
+          "(10: avg>=4.5 + 0 repeats 2wk)"
+          % (len(attributed), avg_rating, len(unattributed), diverged_txt,
+             len(corrections), n_rework, n_escaped))
     print("5 memory        : canonical=%s; registry + vault hygiene judged weekly" % LEDGER)
-    print("6 honesty       : floor gate; evidence blocks in fence closes judged weekly")
-    print("7 coordination  : floor gate; collisions=0, baton drops=0, resume-not-respawn judged weekly")
+    print("6 honesty       : floor gate; escaped defects=%d (signals.jsonl); "
+          "evidence blocks in fence closes judged weekly" % n_escaped)
+    collisions, coll_note = _coordination_collisions(os.getcwd())
+    if collisions is None:
+        print("7 coordination  : floor gate; collisions NOT MEASURED (%s); "
+              "baton drops and resume-not-respawn judged weekly from OUTCOMES incidents" % coll_note)
+    else:
+        print("7 coordination  : floor gate; collisions=%d (bm_store.verify() at %s); "
+              "baton drops and resume-not-respawn judged weekly from OUTCOMES incidents"
+              % (collisions, os.getcwd()))
     print("8 delivery      : shipped surfaces vs spend, check: fields on fences, judged weekly")
     print("9 cache economy : warm-read ratio 7d=%s (10: sustained >=90%% + zero broken-prefix incidents 2wk)"
           % (("%.1f%%" % ratio) if ratio is not None else "no data"))
 
 
 def prediction_counts():
-    out = {"sealed": 0, "scored": 0, "hits": 0}
+    """Parse the founder-model prediction ledger table (row shape, no leading
+    pipe: date | prediction | against-case | diverged | outcome | note).
+    SEALED once a real against-case (parts[2]) exists; SCORED once the
+    outcome (parts[4]) is a yes/hit/no/miss verdict. DIVERGED (SKILL.md
+    section 8, fix-round 2026-07-26): scoring alignment on an agreement case
+    rewards telling the founder what they want to hear, so the hit rate that
+    matters is counted ONLY on rows where parts[3] marks the prediction and
+    the recommendation as having diverged ('yes'); a scored row with no
+    diverged marker at all is counted separately (unmarked), never silently
+    treated as either divergent or agreed."""
+    out = {"sealed": 0, "scored": 0, "hits": 0,
+           "diverged_scored": 0, "diverged_hits": 0, "unmarked": 0}
     if not os.path.isfile(FOUNDER_MODEL):
         return out
     in_ledger = False
@@ -590,31 +729,78 @@ def prediction_counts():
                 out["sealed"] += 1
                 if parts[4].lower().startswith(("yes", "hit", "no", "miss")):
                     out["scored"] += 1
-                    if parts[4].lower().startswith(("yes", "hit")):
+                    hit = parts[4].lower().startswith(("yes", "hit"))
+                    if hit:
                         out["hits"] += 1
+                    diverged_field = parts[3].lower() if len(parts) > 3 else ""
+                    if diverged_field.startswith("yes"):
+                        out["diverged_scored"] += 1
+                        if hit:
+                            out["diverged_hits"] += 1
+                    elif not diverged_field.startswith("no"):
+                        out["unmarked"] += 1
     return out
 
 
 def cmd_rate(argv):
-    score, task, note = None, "", ""
+    """Record a founder felt-outcome rating. INTEGERS 1-5 ONLY (SKILL.md
+    section 8, fix-round 2026-07-26): a human answering a 1-to-5 ask cannot
+    produce a fractional score, so a fractional value in this ledger is
+    proof the system rated itself rather than the founder (three of the real
+    ratings on file were fractional before this fix). --reply/--session are
+    the PROVENANCE pair: the founder's own verbatim words and the session id
+    the rating came from. A rating missing either is still recorded (a
+    felt-outcome is worth keeping either way) but flagged attributed=false,
+    and cmd_scorecard reports unattributed rows separately, never averaged."""
+    score_raw, task, note, reply, session = None, "", "", "", ""
     it = iter(argv)
     for a in it:
         if a == "--score":
-            score = float(next(it, "0"))
+            score_raw = next(it, "")
         elif a == "--task":
             task = next(it, "")
         elif a == "--note":
             note = next(it, "")
-    if score is None or not (1 <= score <= 5):
-        print("usage: rate --score 1..5 --task \"...\" [--note \"...\"]")
+        elif a == "--reply":
+            reply = next(it, "")
+        elif a == "--session":
+            session = next(it, "")
+    usage = ("usage: rate --score 1..5 --task \"...\" "
+             "[--reply \"founder's verbatim words\"] [--session ID] [--note \"...\"]")
+    if not score_raw:
+        print(usage)
+        return
+    try:
+        # int(), not float(): a string like "4.5" or "4/5" must REFUSE, not
+        # truncate or round silently into a plausible-looking integer.
+        score = int(score_raw)
+    except ValueError:
+        print("rate: refused, --score must be a whole number 1-5 (got %r). A founder "
+              "answering a 1-to-5 ask cannot produce a fraction; a fractional score here "
+              "would mean the system rated itself, not the founder." % score_raw)
+        return
+    if not (1 <= score <= 5):
+        print(usage)
         return
     task = redact(task)[0]
     note = redact(note)[0]
-    # Owner-only: the note is founder-written prose, as sensitive as the
-    # correction candidates in CORRECTIONS, which have been 0600 all along.
-    atomic_append(RATINGS, {"ts": now_iso(), "score": score, "task": task, "note": note},
-                  mode=0o600)
-    print("bm_telemetry: rating %.1f recorded for '%s'" % (score, task))
+    reply = redact(reply)[0]
+    rec = {"ts": now_iso(), "score": score, "task": task, "note": note}
+    is_attributed = bool(reply) and bool(session)
+    rec["attributed"] = is_attributed
+    if reply:
+        rec["reply"] = reply
+    if session:
+        rec["session_id"] = session
+    # Owner-only: the note/reply are founder-written prose, as sensitive as
+    # the correction candidates in CORRECTIONS, which have been 0600 all along.
+    atomic_append(RATINGS, rec, mode=0o600)
+    if is_attributed:
+        print("bm_telemetry: rating %d recorded for '%s' (attributed: session %s)"
+              % (score, task, session[:8]))
+    else:
+        print("bm_telemetry: rating %d recorded for '%s' (UNATTRIBUTED: no --reply/--session; "
+              "reported separately at scorecard time, never averaged in)" % (score, task))
 
 
 def cmd_review_mark(argv):
@@ -622,6 +808,39 @@ def cmd_review_mark(argv):
     # Owner-only for the same reason as RATINGS above.
     atomic_append(REVIEWS, {"ts": now_iso(), "note": note}, mode=0o600)
     print("bm_telemetry: weekly review marked")
+
+
+def cmd_signal(kind, argv):
+    """Record a REWORK or ESCAPED DEFECT signal (SKILL.md section 8,
+    fix-round 2026-07-26): the two outcome signals the graded party cannot
+    fake, because each points at something checkable outside the grader's
+    own say-so, a returned deliverable or a redone artifact for REWORK, a
+    defect a later session actually found in work called green for ESCAPED
+    DEFECT, rather than a self-report. This only RECORDS the event; it does
+    not try to auto-detect it from git history or the transcript (that is
+    real analysis work, out of scope for this mechanical pass), so it is
+    invoked by whichever session or founder review notices the event."""
+    session, task, evidence, note = "", "", "", ""
+    it = iter(argv)
+    for a in it:
+        if a == "--session":
+            session = next(it, "")
+        elif a == "--task":
+            task = next(it, "")
+        elif a == "--evidence":
+            evidence = next(it, "")
+        elif a == "--note":
+            note = next(it, "")
+    if not session or not task:
+        print("usage: %s --session ID --task \"...\" [--evidence \"...\"] [--note \"...\"]" % kind)
+        return
+    rec = {"ts": now_iso(), "kind": kind, "session_id": session,
+           "task": redact(task)[0], "evidence": redact(evidence)[0],
+           "note": redact(note)[0]}
+    # Owner-only: task/evidence/note can carry founder-written prose, the
+    # same sensitivity as RATINGS and CORRECTIONS above.
+    atomic_append(SIGNALS, rec, mode=0o600)
+    print("bm_telemetry: %s recorded for session %s" % (kind, session[:8]))
 
 
 def cmd_startup_nags():
@@ -849,8 +1068,139 @@ def cmd_check_update():
             pass
 
 
+def _load_bm_store():
+    """Load bm_store.py by path, the same shape _load_bm_autosave uses below
+    for bm_autosave.py: works regardless of the caller's cwd, and never
+    raises (returns (None, repr(exception)) instead), so every caller here
+    can degrade to an honest fallback rather than crash. bm_store.py itself
+    imports no subprocess (its own header states "No network, no subprocess:
+    root resolution walks the filesystem directly"), so loading it keeps
+    this module's own no-subprocess property intact."""
+    try:
+        import importlib.util
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location(
+            "bm_store_for_telemetry", os.path.join(here, "bm_store.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod, None
+    except Exception as e:
+        return None, repr(e)
+
+
+# LAZY, NOT EAGER (this is load-bearing, not a style choice): bm_store.py's
+# OWN module top level eagerly loads bm_telemetry.py BY PATH to reach
+# redact() (see its _load_redact/_REDACT). Assigning `_BM_STORE = _load_bm_store()`
+# here at MODULE level would exec bm_store.py during THIS module's own
+# import, which would exec a fresh copy of bm_telemetry.py, which (if this
+# call were also eager there) would exec bm_store.py again: unbounded mutual
+# recursion between the two files' import-time side effects (reproduced
+# while writing this fix; the fresh copy's stack overflows within a few
+# thousand frames). bm_autosave.py avoids this the same way: it defines
+# _load_bm_store() but calls it ONLY from inside a function, never at its
+# own module scope. This cache defers the actual load to the first RUNTIME
+# call, by which point this module has already finished importing, so the
+# fresh bm_telemetry copy bm_store.py loads never re-enters this file.
+_bm_store_cache = []
+
+
+def _get_bm_store():
+    if not _bm_store_cache:
+        _bm_store_cache.extend(_load_bm_store())
+    return _bm_store_cache[0], _bm_store_cache[1]
+
+
+def _resolve_root_quiet(cwd):
+    """bm_store.resolve_root(cwd), or (None, None) on any failure (module
+    missing, exception). Never raises: every caller here is an advisory
+    identity/reporting path, never a gate, so a resolution failure must
+    degrade to the documented fallback, not stop work."""
+    bm_store, _err = _get_bm_store()
+    if bm_store is None:
+        return None, None
+    try:
+        return bm_store.resolve_root(cwd)
+    except Exception:
+        return None, None
+
+
+def _legacy_project_of(cwd):
+    """The PRE-FIX identity (fix-round 2026-07-26, docs/REMAINING.md item 1):
+    hash of the raw cwd string alone, computed from the CURRENT FOLDER rather
+    than the project root. Two subfolders of one project collided into two
+    different identities under this formula, so one project's resume brief
+    and intent log could be read as another's. Kept ONLY so _intent_path and
+    _resume_path can point at files a session wrote under it before this fix
+    landed (see _migration_pointer); never used to compute a NEW identity."""
+    base = re.sub(r"[^A-Za-z0-9_.-]", "_", os.path.basename(cwd.rstrip("/"))) or "session"
+    h = hashlib.sha1(os.path.abspath(cwd).encode("utf-8", "replace")).hexdigest()[:6]
+    return "%s-%s" % (base, h)
+
+
+def _project_of(cwd):
+    """Project identity used to key per-project telemetry files (intent log,
+    resume brief). MUST resolve the same canonical ROOT bm_store.py and
+    bm_autosave.py already use (resolve_root: BROTHERMODE_ROOT, then a
+    .brothermode marker, then .git, walking up from cwd) rather than the
+    current folder alone, or two subfolders of one project get two different
+    identities here (the exact defect fixed everywhere else; confirmed open
+    2026-07-26). Falls back to _legacy_project_of(cwd) ONLY when no root can
+    be resolved (a bare folder with no marker and no git), which keeps this
+    working outside a BrotherMode project instead of refusing."""
+    root, _source = _resolve_root_quiet(cwd)
+    if root is None:
+        return _legacy_project_of(cwd)
+    base = re.sub(r"[^A-Za-z0-9_.-]", "_", os.path.basename(root.rstrip("/"))) or "session"
+    h = hashlib.sha1(os.path.abspath(root).encode("utf-8", "replace")).hexdigest()[:6]
+    return "%s-%s" % (base, h)
+
+
+def _vault_project_name(cwd):
+    """The human-legible project label written into LEDGER/CORRECTIONS rows
+    and correlated with <vault>/10-Projects/<name> (a human-chosen folder):
+    unlike _project_of, this stays a bare basename with NO hash suffix, so it
+    keeps matching the vault folder name. Same class of bug as _project_of
+    fixed a CURRENT-FOLDER basename here too (docs/REMAINING.md item 1's
+    class sweep, fix-round 2026-07-26): a session run from a repo's root and
+    one run from a subdirectory of the SAME repo used to tag their ledger
+    rows with two different project labels, fragmenting one project's
+    session history. Resolves the canonical root first; falls back to
+    basename(cwd) only when no root can be found."""
+    root, _source = _resolve_root_quiet(cwd)
+    if root:
+        return os.path.basename(root) or root
+    return os.path.basename(cwd) or cwd
+
+
+def _migration_pointer(cwd, new_identity, path_for):
+    """MIGRATION (docs/REMAINING.md item 1, fix-round 2026-07-26): the
+    project-identity formula changed from _legacy_project_of (keyed on the
+    raw cwd) to _project_of (keyed on the resolved root), so a file written
+    under the OLD identity before this fix is not automatically found by the
+    new one. Rather than silently abandoning it, print a one-line pointer to
+    stderr (advisory only, never blocks) whenever a file exists under the
+    OLD identity but not yet under the NEW one, naming exactly where the old
+    file lives. `path_for` is _intent_path_for or _resume_path_for, called
+    with each identity so the check compares the SAME file kind."""
+    legacy = _legacy_project_of(cwd)
+    if legacy == new_identity:
+        return
+    old_path = path_for(legacy)
+    if os.path.exists(old_path) and not os.path.exists(path_for(new_identity)):
+        print("BROTHERMODE: found a pre-migration file at %s (old per-folder identity); "
+              "this session now keys by project root as %s. Nothing was moved "
+              "automatically; read the old file directly if you need it."
+              % (old_path, new_identity), file=sys.stderr)
+
+
+def _intent_path_for(identity):
+    return os.path.join(TEL_DIR, "intent-%s.log" % identity)
+
+
 def _intent_path(cwd):
-    return os.path.join(TEL_DIR, "intent-%s.log" % _project_of(cwd))
+    identity = _project_of(cwd)
+    _migration_pointer(cwd, identity, _intent_path_for)
+    return _intent_path_for(identity)
 
 
 def cmd_intent(argv):
@@ -884,17 +1234,14 @@ def _last_intent(cwd):
         return ""
 
 
-def _project_of(cwd):
-    # basename ALONE collides across ~/client-a/backend and ~/client-b/backend, which
-    # would let one project's resume/intent files be read as another's. Suffix a short
-    # hash of the absolute path so the identity is unique per repository root.
-    base = re.sub(r"[^A-Za-z0-9_.-]", "_", os.path.basename(cwd.rstrip("/"))) or "session"
-    h = hashlib.sha1(os.path.abspath(cwd).encode("utf-8", "replace")).hexdigest()[:6]
-    return "%s-%s" % (base, h)
+def _resume_path_for(identity):
+    return os.path.join(TEL_DIR, "last-resume-%s.md" % identity)
 
 
 def _resume_path(cwd):
-    return os.path.join(TEL_DIR, "last-resume-%s.md" % _project_of(cwd))
+    identity = _project_of(cwd)
+    _migration_pointer(cwd, identity, _resume_path_for)
+    return _resume_path_for(identity)
 
 
 def cmd_precompact_brief():
@@ -1184,10 +1531,23 @@ def cmd_purge_corrections(argv):
 
 def cmd_prediction_audit():
     c = prediction_counts()
-    print("prediction ledger: %d sealed, %d scored, %d hits (%s)"
+    print("prediction ledger: %d sealed, %d scored (all outcomes), %d hits (all outcomes) (%s)"
           % (c["sealed"], c["scored"], c["hits"], FOUNDER_MODEL))
     if c["sealed"] == 0:
         print("AUDIT FLAG: zero sealed predictions; section 14 requires sealing BEFORE recommendations.")
+    # DIVERGED-ONLY scoring (SKILL.md section 8): agreement cases carry no
+    # alignment signal, so the honest audit line is "0 scored divergent
+    # predictions" when none exist, never a ratio built on agreement.
+    if c["diverged_scored"] == 0:
+        print("prediction alignment: 0 scored divergent predictions (the honest number; "
+              "scoring agreement cases rewards flattery, so they are excluded rather than "
+              "folded into a ratio).")
+    else:
+        print("prediction alignment (diverged only): %d/%d hits"
+              % (c["diverged_hits"], c["diverged_scored"]))
+    if c["unmarked"]:
+        print("AUDIT FLAG: %d scored prediction(s) have no diverged/agreed marker (column 4); "
+              "mark each 'yes' or 'no' so alignment can be scored honestly." % c["unmarked"])
 
 
 # DELETED (fix-round 2026-07-26): `attribute <record_id> <output_tokens>` used
@@ -1214,6 +1574,10 @@ def main():
             cmd_rate(argv)
         elif cmd == "review-mark":
             cmd_review_mark(argv)
+        elif cmd == "rework":
+            cmd_signal("rework", argv)
+        elif cmd == "escaped-defect":
+            cmd_signal("escaped-defect", argv)
         elif cmd == "startup-nags":
             cmd_startup_nags()
         elif cmd == "stop-warn":

@@ -43,20 +43,21 @@ this edit actually showed:
   0 with no fence. Re-run just now: both `bm_store.py` and `bm_threads.py`
   refuse an unrecognized flag by name at exit 2, for `start` and for
   `checkpoint`.
-- **A refused adoption attempt still writes its handover into `STATE.md`.
-  STILL OPEN, confirmed by direct execution 2026-07-26, after the four
-  fixes above had already landed.** Start a persistent thread under one
-  session, then have a different session attempt `adopt` without the
-  explicit override: the attempt is correctly refused ("ADOPT REFUSED",
-  exit 2), but `STATE.md` still gains a permanent "Adopted from
-  dead/stalled thread" block for a thread that is, in fact, live and
-  active. The delivery write happens before the ownership check rather
-  than after it.
+- **A refused adoption attempt wrote its handover into `STATE.md`. FIXED,
+  re-verified 2026-07-26 by the orchestrator after this file first recorded
+  it as open.** The delivery write happened before the ownership check, so a
+  refusal still recorded a live thread as "Adopted from dead/stalled thread".
+  The order is now transition first, deliver second. Re-run just now: a
+  different session attempting `adopt` without the override exits 2, the
+  checksum of `STATE.md` is IDENTICAL before and after, and the false block
+  appears zero times. This entry is kept rather than deleted because the
+  sequence, found open and then closed within the same session, is the
+  clearest example of why this file states dates and re-verification rather
+  than conclusions.
 
-Practical consequence: the fence and reversibility mechanics held up under
-direct testing just now, but do not trust anything written into `STATE.md`
-following a refused adopt attempt without separately checking whether the
-adoption actually succeeded. This project's code changes fast; re-run the
+Practical consequence: all five defects the rewire introduced are now closed
+and each was re-verified by direct execution rather than accepted from a
+report. This project's code changes fast; re-run the
 reproduction steps in the release-blockers spec yourself rather than trust
 this file's dates once more time has passed. The general operating
 restrictions from the original audit still apply: run commands from the
