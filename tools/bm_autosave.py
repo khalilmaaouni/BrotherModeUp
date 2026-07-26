@@ -113,11 +113,14 @@ SECRET_EXCLUDE_PATHSPECS = (
 )
 # The same shapes, as plain glob suffixes, for the informational
 # captured/excluded counts on the receipt (best-effort only; the pathspecs
-# above are the real, enforced boundary, not this classifier).
-SECRET_GLOBS = (
-    "**/.env", ".env", "**/.env.*", "**/*.pem", "**/*.key", "**/*.p12",
-    "**/*.keystore", "**/id_rsa", "**/id_dsa", "**/*.pfx",
-)
+# above are the real, enforced boundary, not this classifier). Derived from
+# SECRET_EXCLUDE_PATHSPECS rather than hand-copied a second time (prerelease
+# fix round): a git pathspec of the form ":(exclude[,glob])<pattern>" always
+# carries the real glob as everything after its last ')', so stripping the
+# magic-word prefix is the whole derivation; a second, hand-maintained list
+# is exactly the kind of copy that silently drifts from the one git actually
+# enforces.
+SECRET_GLOBS = tuple(p.rsplit(")", 1)[-1] for p in SECRET_EXCLUDE_PATHSPECS)
 
 _UNSAFE_REF_CHARS = re.compile(r"[^A-Za-z0-9_.-]")
 
@@ -303,20 +306,36 @@ def _clear_latest_if_present(toplevel, worktree_id):
         _run_git(toplevel, "update-ref", "-d", ref)
 
 
+def _snapshot_sort_key(ref):
+    """The retention sort key for one snapshot ref: the STAMP ALONE (the
+    last '/'-separated component), never the whole ref name. A ref looks
+    like <namespace>/<worktree>/<session>/<stamp>, so sorting the full
+    string ranks the session id above the timestamp: a snapshot from a
+    session whose id sorts early is treated as older than every snapshot
+    from a session whose id sorts late, no matter when either was taken.
+    Reproduced 2026-07-26: ten snapshots from session zzz-old, then the
+    newest snapshot from session aaa-new, and the whole-refname sort
+    deleted THE NEWEST while keeping all ten older ones. A separate,
+    named function (not an inline lambda) so a reinjection test can
+    monkeypatch exactly this symbol back to the old, whole-refname shape
+    and prove the calibration (GATE A, prerelease fix round)."""
+    return ref.rsplit("/", 1)[-1]
+
+
 def _prune_old_snapshots(toplevel, worktree_id, retain=None):
     """Requirement 8 (retention): keep the last `retain` snapshot refs per
-    worktree (default 10), never the only one.
+    worktree (default 10), never the only one. Sorts on _snapshot_sort_key
+    (the stamp alone), never the whole ref name: see that function's
+    docstring for the reproduced defect this closes. In a module whose
+    entire purpose is not losing work, sorting by the wrong key destroys
+    exactly the snapshot the founder would reach for.
 
-    Sort on the STAMP ALONE, never the whole ref name. A ref looks like
-    <namespace>/<worktree>/<session>/<stamp>, so sorting the full string ranks
-    the session id above the timestamp: a snapshot from a session whose id sorts
-    early is treated as older than every snapshot from a session whose id sorts
-    late, no matter when either was taken. That is not a cosmetic ordering bug.
-    Reproduced 2026-07-26: ten snapshots from session zzz-old, then the newest
-    snapshot from session aaa-new, and the pruner deleted THE NEWEST while
-    keeping all ten older ones. In a module whose entire purpose is not losing
-    work, sorting by the wrong key destroys exactly the snapshot the founder
-    would reach for."""
+    GATE F (prerelease fix round): a receipt row must never outlive the
+    ref that made it true, or has_receipt() keeps answering yes for a
+    snapshot that is actually gone. Every pruned ref's commit sha is
+    captured BEFORE it is deleted, and the matching receipt rows are
+    deleted in the same call, best-effort like every other receipt
+    operation in this module."""
     if retain is None:
         retain = _parse_int_env("BROTHERMODE_AUTOSAVE_RETAIN", DEFAULT_RETAIN)
     prefix = "%s/%s/" % (REF_NAMESPACE, worktree_id)
@@ -326,12 +345,18 @@ def _prune_old_snapshots(toplevel, worktree_id, retain=None):
     refs = [line.strip() for line in r.stdout.splitlines() if line.strip()]
     snap_refs = sorted(
         (ref for ref in refs if not ref.endswith("/latest")),
-        key=lambda r: r.rsplit("/", 1)[-1])
+        key=_snapshot_sort_key)
     if len(snap_refs) <= 1:
         return  # never prune the only snapshot
     excess = snap_refs[: max(0, len(snap_refs) - max(retain, 1))]
+    pruned_shas = []
     for ref in excess:
+        sha = _run_git(toplevel, "rev-parse", "-q", "--verify", ref).stdout.strip()
         _run_git(toplevel, "update-ref", "-d", ref)
+        if sha:
+            pruned_shas.append(sha)
+    if pruned_shas:
+        _delete_receipts_for_shas(toplevel, worktree_id, pruned_shas)
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +386,17 @@ def _load_bm_store():
         return None
 
 
-def _open_store_for_receipt(toplevel):
+def _resolve_receipt_root(toplevel):
+    """Shared root resolution PLUS the cross-project guard (prerelease fix
+    round) for every receipt operation: resolve_root(toplevel) can walk
+    UP PAST this snapshot's own git toplevel and find a DIFFERENT
+    project's BrotherMode marker or .git further up the tree (a repo
+    nested inside a larger BrotherMode-enabled directory), in which case
+    writing or reading a receipt there would touch ANOTHER project's
+    store for THIS worktree's snapshot. Returns (bm_store module, root)
+    only when the resolved root IS this snapshot's own toplevel;
+    otherwise (None, None), the same "advisory, never blocks" shape every
+    other helper in this section uses."""
     bs = _load_bm_store()
     if bs is None:
         return None, None
@@ -373,6 +408,20 @@ def _open_store_for_receipt(toplevel):
         _warn("no BrotherMode store root found from %s; the snapshot still "
               "counts, but no receipt was recorded" % toplevel)
         return None, None
+    if os.path.realpath(root) != os.path.realpath(toplevel):
+        _warn("resolved BrotherMode root %s is not this snapshot's own "
+              "worktree %s; refusing to touch another project's store "
+              "(the snapshot still counts)" % (root, toplevel))
+        return None, None
+    return bs, root
+
+
+def _open_store_for_receipt(toplevel):
+    """A WRITABLE store, for the receipt WRITER and the GATE F pruner
+    below; both need to mutate autosave_receipts."""
+    bs, root = _resolve_receipt_root(toplevel)
+    if bs is None:
+        return None, None
     try:
         store = bs.Store(root, create=False)
     except Exception as e:
@@ -382,31 +431,74 @@ def _open_store_for_receipt(toplevel):
     return bs, store
 
 
+def _open_readonly_store_for_receipt(toplevel):
+    """The READ-ONLY store, for has_receipt (the wiring item, prerelease
+    fix round): has_receipt is answering a read question, and opening the
+    writable Store class to do it can create the very store it claims to
+    check (side effects on open: WAL sidecars, git-exclude bookkeeping).
+    A store that genuinely does not exist yet is an honest, silent False,
+    not a warning: that is the normal state for a project that has never
+    run `bm_store.py init`."""
+    bs, root = _resolve_receipt_root(toplevel)
+    if bs is None:
+        return None, None
+    try:
+        store = bs.ReadOnlyStore(root)
+    except bs.OwnershipRefused:
+        return None, None
+    except Exception as e:
+        _warn("could not open the BrotherMode store read-only (%r)" % (e,))
+        return None, None
+    return bs, store
+
+
 def _write_receipt(toplevel, worktree_id, session_id, snapshot_sha, tree_sha,
                     source_head, captured, excluded):
     """Advisory only: a missing or refusing store must never fail a
     snapshot that already succeeded (requirement 9's own text: "warn once
-    and continue")."""
+    and continue").
+
+    Delegates the actual INSERT to Store.write_autosave_receipt (the
+    wiring item, prerelease fix round): this used to run hand-written
+    BEGIN IMMEDIATE / INSERT / COMMIT directly on the store's own
+    connection, bypassing bm_store._exec, the one function that tells a
+    merely-busy database apart from a genuinely corrupt one. Giving the
+    store its own method means a receipt write gets the exact same
+    busy/corrupt handling every other mutation in that file gets, instead
+    of a second, weaker copy of it here."""
     bs, store = _open_store_for_receipt(toplevel)
     if store is None:
         return
     try:
-        conn = store.conn
-        conn.execute("BEGIN IMMEDIATE")
-        conn.execute(
-            "INSERT INTO autosave_receipts (worktree_id, session_id, snapshot_sha, "
-            "tree_sha, source_head, captured_count, excluded_count, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (worktree_id, session_id, snapshot_sha, tree_sha, source_head or "",
-             captured, excluded, bs.now_iso()))
-        conn.execute("COMMIT")
+        store.write_autosave_receipt(worktree_id, session_id, snapshot_sha,
+                                      tree_sha, source_head, captured, excluded)
     except Exception as e:
-        try:
-            conn.execute("ROLLBACK")
-        except Exception:
-            pass
         _warn("could not write an autosave receipt (%r); the snapshot still "
               "counts, but is not recorded" % (e,))
+    finally:
+        try:
+            store.close()
+        except Exception:
+            pass
+
+
+def _delete_receipts_for_shas(toplevel, worktree_id, shas):
+    """GATE F (prerelease fix round): a receipt row must never outlive the
+    snapshot ref that made it true. Reproduced: thirteen sessions,
+    retention ten, and the pruned session's receipt row survived, so
+    has_receipt reported safety for work whose ref was gone. Called from
+    _prune_old_snapshots in the SAME call that deletes the refs. Advisory
+    and best-effort like every other receipt operation here: a missing or
+    refusing store must never fail pruning itself."""
+    bs, store = _open_store_for_receipt(toplevel)
+    if store is None:
+        return
+    try:
+        store.delete_autosave_receipts(worktree_id, shas)
+    except Exception as e:
+        _warn("could not delete pruned autosave receipt(s) (%r); has_receipt "
+              "may report a pruned snapshot as still safe until this is "
+              "retried" % (e,))
     finally:
         try:
             store.close()
@@ -419,8 +511,10 @@ def has_receipt(toplevel, worktree_id, session_id):
     This is the honest ground truth a compact-hint reader needs to stop
     claiming "your files are autosaved" without checking (J); writing it is
     this module's job, reading it from the hook is a separate fenced
-    change."""
-    bs, store = _open_store_for_receipt(toplevel)
+    change. Opens the store READ-ONLY (see _open_readonly_store_for_receipt):
+    a diagnostic read must never be able to create the thing it is
+    checking."""
+    bs, store = _open_readonly_store_for_receipt(toplevel)
     if store is None:
         return False
     try:

@@ -16,6 +16,7 @@ import json
 import ntpath
 import os
 import pathlib
+import random
 import re
 import sqlite3
 import stat
@@ -521,6 +522,9 @@ class TestFixRoundGates(unittest.TestCase):
                                      "open-time try block (brand new file)",
             "Store._verify_schema_or_raise": "same protected open-time try "
                                               "block (fix-round 8, CRITICAL A, existing file)",
+            "Store._ensure_indexes": "same protected open-time try block, run right "
+                                      "after schema creation/verification on EVERY open "
+                                      "(prerelease fix round, the transitions index)",
             "Store._transaction": "ROLLBACK during cleanup must never mask "
                                    "the exception already being handled",
             "_quarantine_record_count": "reads an ALREADY quarantined file, "
@@ -1005,6 +1009,7 @@ class TestFixRound3(unittest.TestCase):
                 self.assertEqual(ctx.exception.reason, "overlap")
                 still = store.get(parked.lifecycle_uuid)
                 self.assertEqual(still.state, "parked", "a refused resume must leave it parked")
+                bs.write_state_view(d)
                 self.assertEqual(bs.verify(d), [],
                                   "the store must never create the overlap its own verify reports")
             finally:
@@ -1442,6 +1447,7 @@ class TestFixRound5(unittest.TestCase):
             self.assertTrue(all(not line.startswith("- ghost") for line in lines),
                              "a newline forged a real, separate markdown line: %r" % lines)
             self.assertIn("\\x0a", view)
+            bs.write_state_view(d)
             self.assertEqual(bs.verify(d), [])
 
     # -- SOFT E -------------------------------------------------------
@@ -1527,6 +1533,7 @@ class TestFixRound6(unittest.TestCase):
             self.assertEqual(names, ["ownwork"])
             view = bs.render_state_md(ppercent)
             self.assertNotIn("PRIVATE-PROJECT-A-OBJECTIVE", view)
+            bs.write_state_view(ppercent)
             self.assertEqual(bs.verify(ppercent), [])
 
     def test_calibrated_gateA_query_only_actually_refuses_a_write(self):
@@ -1576,10 +1583,6 @@ class TestFixRound6(unittest.TestCase):
                 store.send(rec.lifecycle_uuid, "directive")
                 conn = store.conn
                 conn.execute("BEGIN IMMEDIATE")
-                conn.execute(
-                    "INSERT INTO deliveries (payload_sha256, lifecycle_uuid, target, "
-                    "delivered_at) VALUES (?,?,?,?)",
-                    ("x" * 64, rec.lifecycle_uuid, "STATE.md", bs.now_iso()))
                 conn.execute(
                     "INSERT INTO autosave_receipts (worktree_id, session_id, snapshot_sha, "
                     "tree_sha, source_head, captured_count, excluded_count, created_at) "
@@ -1655,7 +1658,7 @@ class TestFixRound6(unittest.TestCase):
             store = bs.Store(d)
             try:
                 seed = {"objective": "seed-objective", "owner": "seed-owner",
-                        "tier": "seed-tier", "check_cmd": "seed-check", "ttl_hours": 3.5}
+                        "tier": "seed-tier", "check_cmd": "seed-check"}
                 self.assertEqual(set(seed), set(bs.Store.UPDATABLE_SCALAR_FIELDS),
                                   "test seed must cover exactly the declared updatable fields")
                 store.claim("thing", "ephemeral", session_id="s1", **seed)
@@ -2252,36 +2255,16 @@ class TestFixRound8(unittest.TestCase):
             r_cp2 = _run_cli(["checkpoint", uuid1, "--version", "3", "--next", "n2"], d)
             self.assertEqual(r_cp2.returncode, 0, r_cp2.stdout + r_cp2.stderr)
 
-    # -- IMPORTANT: ttl_hours must be clearable like every other field -
-
-    def test_calibrated_important_ttl_hours_can_be_cleared_on_reclaim(self):
-        with tempfile.TemporaryDirectory() as d:
-            store = bs.Store(d)
-            try:
-                rec = store.claim("thing", "ephemeral", "obj", [], session_id="s1", ttl_hours=4.0)
-                self.assertEqual(rec.ttl_hours, 4.0)
-                cleared = store.claim("thing", "ephemeral", session_id="s1",
-                                       ttl_hours=bs.CLEAR_TTL_HOURS)
-                self.assertIsNone(cleared.ttl_hours)
-            finally:
-                store.close()
-
-    def test_calibrated_important_cli_ttl_hours_flag_with_no_value_clears(self):
-        with tempfile.TemporaryDirectory() as d:
-            r = _run_cli(["init"], d)
-            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-            r1 = _run_cli(["claim", "thing", "--lifetime", "ephemeral", "--objective", "o",
-                          "--session", "s1", "--ttl-hours", "4"], d)
-            self.assertEqual(r1.returncode, 0, r1.stdout + r1.stderr)
-            r2 = _run_cli(["claim", "thing", "--lifetime", "ephemeral",
-                          "--session", "s1", "--ttl-hours"], d)
-            self.assertEqual(r2.returncode, 0, r2.stdout + r2.stderr)
-            data = bs.ReadOnlyStore(d)
-            try:
-                rec = data.dump()["records"][0]
-            finally:
-                data.close()
-            self.assertIsNone(rec["ttl_hours"])
+    # ttl_hours was deleted in the prerelease fix round: the law promised a
+    # fence past its TTL is treated as released, and nothing anywhere
+    # expired anything (a claim with a TTL of 0.36 seconds still blocked a
+    # second claim a second later, VERIFIED BY ORCHESTRATOR). The column,
+    # CLEAR_TTL_HOURS, the CLI --ttl-hours flag, and the reclaim branch are
+    # all gone; the two tests that exercised clearing it
+    # (test_calibrated_important_ttl_hours_can_be_cleared_on_reclaim,
+    # test_calibrated_important_cli_ttl_hours_flag_with_no_value_clears)
+    # are deleted with the feature, not left testing a symbol that no
+    # longer exists.
 
     # -- IMPORTANT: verify's view check must not pass vacuously --------
 
@@ -2296,24 +2279,71 @@ class TestFixRound8(unittest.TestCase):
                 store.claim("a", "ephemeral", "obj", [])
             finally:
                 store.close()
+            bs.write_state_view(d)
             self.assertEqual(bs.verify(d), [])
 
     def test_calibrated_important_verify_view_check_still_catches_a_real_gap(self):
-        # The uuid-based check must not become permissive in exchange for
-        # not being vacuous: render_state_md and verify() read the SAME
-        # live table, so mutating the record directly cannot create a
-        # genuine mismatch between them (both would see the same change);
-        # the view itself is mocked to a fixed string that omits the
-        # record's uuid, simulating a real render-time gap.
+        # GATE B (prerelease fix round): verify's view check must read the
+        # file ON DISK, not a fresh render computed from the same live rows
+        # it just read (that comparison can never disagree with itself,
+        # which is why the old check caught nothing). Writing a STALE, real
+        # STATE.md directly, with no mention of this record at all, is what
+        # a genuinely out-of-date file looks like; only a check that opens
+        # the real file can catch it.
         with tempfile.TemporaryDirectory() as d:
             store = bs.Store(d)
             try:
                 store.claim("thing", "ephemeral", "obj", [])
             finally:
                 store.close()
-            with mock.patch.object(bs, "render_state_md", return_value="nothing relevant here"):
-                problems = bs.verify(d)
+            stale = "%s\nNo records.\n%s\n" % (bs._STATE_BEGIN, bs._STATE_END)
+            with io.open(os.path.join(d, "STATE.md"), "w", encoding="utf-8") as f:
+                f.write(stale)
+            problems = bs.verify(d)
             self.assertTrue(any("does not appear" in p for p in problems), problems)
+
+    def test_calibrated_gate_b_view_check_reads_the_real_file(self):
+        # GATE B (prerelease fix round): reproduces the exact executed
+        # scenario the fix-round writeup names: deleting STATE.md entirely
+        # left verify() reporting healthy. Then CALIBRATES it by reinjecting
+        # the old, tautological shape (re-render fresh and compare a live
+        # document against itself) onto the exact PRODUCT symbol verify()
+        # calls, and confirms the SAME missing-file scenario is now missed.
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("thing", "ephemeral", "obj", [])
+            finally:
+                store.close()
+            bs.write_state_view(d)
+            os.remove(os.path.join(d, "STATE.md"))
+            problems = bs.verify(d)
+            self.assertTrue(any("STATE.md does not exist" in p for p in problems), problems)
+
+            original = bs._verify_view_reflects_active_records
+
+            def _old_tautological_check(store, root):
+                rendered = bs.render_state_md(root)
+                probs = []
+                for r in bs._exec(store,
+                        "SELECT lifecycle_uuid, name FROM records WHERE state='active'").fetchall():
+                    if r["lifecycle_uuid"][:8] not in rendered:
+                        probs.append(
+                            "active record %r (%s) does not appear in the generated "
+                            "STATE.md view" % (r["name"], r["lifecycle_uuid"][:8]))
+                return probs
+
+            bs._verify_view_reflects_active_records = _old_tautological_check
+            try:
+                problems2 = bs.verify(d)  # STATE.md is STILL deleted from disk
+                self.assertEqual(
+                    problems2, [],
+                    "REINJECTION CHECK: the old tautological check (re-render fresh "
+                    "and compare it against itself) must report healthy even though "
+                    "STATE.md is missing from disk entirely (this is GATE B); if "
+                    "this assertion fails, the test is not calibrated")
+            finally:
+                bs._verify_view_reflects_active_records = original
 
 
 # ---------------------------------------------------------------------------
@@ -2493,6 +2523,64 @@ class TestStoreOpen(unittest.TestCase):
                 self.assertEqual(fk, 1)
             finally:
                 store.close()
+
+class TestTransitionsIndexOnOpen(unittest.TestCase):
+    """The measured optimization's other half (prerelease fix round): the
+    transitions index must be created on EVERY open, not only inside
+    _DDL, because a DDL-only index is a silent no-op for a store that
+    already existed before the index was added (_ensure_schema, the only
+    thing that runs _DDL, only runs for a BRAND NEW file)."""
+
+    def test_index_recreated_on_reopen_of_a_pre_existing_store(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            store.claim("thing", "ephemeral", "obj", [])
+            store.close()
+            # Simulate a store that predates the index.
+            older = bs.Store(d)
+            older.conn.execute("DROP INDEX IF EXISTS transitions_lifecycle_uuid_idx")
+            older.close()
+            reopened = bs.Store(d)
+            try:
+                names = {r["name"] for r in reopened.conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='index'").fetchall()}
+                self.assertIn("transitions_lifecycle_uuid_idx", names,
+                              "opening an EXISTING store must (re)create the index, "
+                              "not only a brand-new one")
+            finally:
+                reopened.close()
+
+    def test_calibrated_ddl_only_index_is_a_silent_noop_on_existing_store(self):
+        # CALIBRATION: reinject the old, DDL-only shape by neutralizing the
+        # PRODUCT method _ensure_indexes, drop the index from an already
+        # existing store, and confirm the calibrated check now fails: the
+        # index stays gone on the next open, exactly the trap the reviewer
+        # proved (adding an index to the DDL alone is a silent no-op on an
+        # existing store, because schema creation does not run there).
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            store.claim("thing", "ephemeral", "obj", [])
+            store.close()
+            original = bs.Store._ensure_indexes
+            bs.Store._ensure_indexes = lambda self: None
+            try:
+                older = bs.Store(d)
+                older.conn.execute("DROP INDEX IF EXISTS transitions_lifecycle_uuid_idx")
+                older.close()
+                reopened = bs.Store(d)
+                try:
+                    names = {r["name"] for r in reopened.conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='index'").fetchall()}
+                    self.assertNotIn(
+                        "transitions_lifecycle_uuid_idx", names,
+                        "REINJECTION CHECK: with _ensure_indexes neutralized, "
+                        "opening an EXISTING store must never recreate a dropped "
+                        "index (this is the DDL-only trap); if this assertion "
+                        "fails, the test is not calibrated")
+                finally:
+                    reopened.close()
+            finally:
+                bs.Store._ensure_indexes = original
 
 class TestClaimCap(unittest.TestCase):
     def test_persistent_cap_at_three_ephemeral_uncapped(self):
@@ -2716,6 +2804,64 @@ class TestHandoverPayloadShape(unittest.TestCase):
             finally:
                 store.close()
 
+class TestGateDDigestFilesSection(unittest.TestCase):
+    """GATE D (prerelease fix round): render_digest's '## Files' section
+    used to be built from the free-text files_note alone, so a record
+    actively holding a live fence rendered "Files: (none)" the moment
+    nobody had typed a files_note on a checkpoint: the one field a
+    resuming session most needs."""
+
+    def test_files_section_shows_the_real_fence_with_no_files_note(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("thing", "ephemeral", "obj",
+                                   ["api/pay.py", "api/webhook.py"])
+                digest = store.render_digest(rec.lifecycle_uuid)
+                self.assertIn("api/pay.py", digest)
+                self.assertIn("api/webhook.py", digest)
+                self.assertNotIn("## Files\n\n(none)", digest,
+                                  "a record holding a live fence must never render "
+                                  "Files: (none)")
+
+                # CALIBRATION: reinject the old, notes-only shape by patching
+                # the PRODUCT method Store._digest_files_block back to reading
+                # files_note alone, and confirm the calibrated check now
+                # fails for the GATE D reason: a record with a real fence and
+                # no typed files_note renders "(none)".
+                original = bs.Store._digest_files_block
+
+                def _old_notes_only(self, lifecycle_uuid, digest_row):
+                    text = digest_row["files_note"] if digest_row else ""
+                    return text or "(none)"
+
+                bs.Store._digest_files_block = _old_notes_only
+                try:
+                    digest2 = store.render_digest(rec.lifecycle_uuid)
+                    self.assertNotIn(
+                        "api/pay.py", digest2,
+                        "REINJECTION CHECK: the old notes-only Files section must "
+                        "omit the real fence entirely (this is GATE D); if this "
+                        "assertion fails, the test is not calibrated")
+                    self.assertIn("(none)", digest2)
+                finally:
+                    bs.Store._digest_files_block = original
+            finally:
+                store.close()
+
+    def test_files_section_also_shows_a_typed_files_note(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("thing", "ephemeral", "obj", ["api/pay.py"])
+                store.checkpoint(rec.lifecycle_uuid, rec.version, "next",
+                                  files_note="watch the webhook retry path")
+                digest = store.render_digest(rec.lifecycle_uuid)
+                self.assertIn("api/pay.py", digest)
+                self.assertIn("watch the webhook retry path", digest)
+            finally:
+                store.close()
+
 class TestRenderDigestBudgets(unittest.TestCase):
     def test_next_intent_truncates_at_its_own_budget(self):
         with tempfile.TemporaryDirectory() as d:
@@ -2759,7 +2905,7 @@ class TestDump(unittest.TestCase):
                 store.decide(rec.lifecycle_uuid, rec.version, "t", "x")
                 data = store.dump()
                 for table in ("meta", "records", "claims", "decisions", "digests",
-                              "directives", "deliveries", "transitions", "autosave_receipts"):
+                              "directives", "transitions", "autosave_receipts"):
                     self.assertIn(table, data)
                     self.assertIsInstance(data[table], list)
                 self.assertEqual(len(data["records"]), 1)
@@ -2845,6 +2991,65 @@ class TestRedactionUnavailable(unittest.TestCase):
             finally:
                 store.close()
 
+    # -- GATE C (prerelease fix round): a missing dependency must never --
+    # -- report committed work as failed --------------------------------
+
+    def test_calibrated_prerelease_gateC_missing_telemetry_commits_and_reports_cleanly(self):
+        # GATE C (prerelease fix round, distinct from the fix-round-5 GATE C
+        # above): with bm_telemetry.py GENUINELY absent (renamed aside, the
+        # same real-file pattern test_calibrated_gateB_genuinely_absent_
+        # bm_telemetry_refuses_state_view uses, not merely _REDACT patched
+        # to None), a claim used to COMMIT and then the CLI exited with an
+        # UNCAUGHT RedactionUnavailable from inside main()'s own
+        # OwnershipRefused handler (it tried to print "refused (...)",
+        # which itself calls redact_text() on the very message it is
+        # printing), reporting an already-committed success as though the
+        # command had crashed. The fix must report exit 1 (an environment
+        # problem), never exit 2 ("refused", implying nothing happened) and
+        # never an uncaught traceback, and the record must have actually
+        # committed, verified independently below with the REAL telemetry
+        # restored.
+        telemetry_path = os.path.join(HERE, "bm_telemetry.py")
+        moved_path = telemetry_path + ".moved-for-gateC-prerelease-test"
+        self.assertTrue(os.path.exists(telemetry_path), "sanity: the real file must exist")
+        with tempfile.TemporaryDirectory() as d:
+            os.rename(telemetry_path, moved_path)
+            try:
+                # `init` itself prints a confirmation through the same
+                # redacted funnel, so it degrades exactly like `claim` does;
+                # both are exercised so the fix is proven general, not
+                # special-cased to one command.
+                r_init = _run_cli(["init"], d)
+                r_claim = _run_cli(
+                    ["claim", "thing", "--lifetime", "ephemeral", "--objective", "obj",
+                     "--session", "s1"], d)
+            finally:
+                os.rename(moved_path, telemetry_path)
+            for label, r in (("init", r_init), ("claim", r_claim)):
+                self.assertNotIn("Traceback", r.stderr,
+                                  "%s: an uncaught exception leaked past main(): %s"
+                                  % (label, r.stderr))
+                self.assertNotEqual(
+                    r.returncode, 2,
+                    "%s: work that already committed must never be reported with "
+                    "the 'refused' exit code: %s" % (label, r.stdout + r.stderr))
+                self.assertEqual(
+                    r.returncode, 1,
+                    "%s: a broken redactor is an environment problem (exit 1), not "
+                    "a business refusal (exit 2) or a silent success (exit 0), for "
+                    "work that already committed: %s" % (label, r.stdout + r.stderr))
+            # Independently verify, with the REAL telemetry restored, that
+            # both the store and the claim actually committed despite the
+            # degraded reports above.
+            store = bs.ReadOnlyStore(d)
+            try:
+                names = [r["name"] for r in store.dump()["records"]]
+            finally:
+                store.close()
+            self.assertIn("thing", names,
+                          "the claim must have committed even though printing its "
+                          "confirmation could not be redacted")
+
 class TestStateView(unittest.TestCase):
     def test_write_state_view_creates_markers_and_content(self):
         with tempfile.TemporaryDirectory() as d:
@@ -2892,6 +3097,7 @@ class TestVerify(unittest.TestCase):
                 store.claim("thing", "ephemeral", "obj", ["a/b.py"])
             finally:
                 store.close()
+            bs.write_state_view(d)
             self.assertEqual(bs.verify(d), [])
 
     def test_verify_reports_overlapping_active_claims_from_raw_sql(self):
@@ -2908,12 +3114,12 @@ class TestVerify(unittest.TestCase):
                 conn.execute(
                     "INSERT INTO records (lifecycle_uuid, name, lifetime, state, "
                     "objective, owner, session_id, tier, check_cmd, evidence, "
-                    "ttl_hours, version, created_at, updated_at) VALUES "
-                    "(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "version, created_at, updated_at) VALUES "
+                    "(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     ("deadbeefcafe", "two", "ephemeral", "active", "obj2", "", "s2",
-                     "", "", "", None, 1, ts, ts))
+                     "", "", "", 1, ts, ts))
                 conn.execute(
-                    "INSERT INTO claims (lifecycle_uuid, path, is_glob) VALUES (?,?,0)",
+                    "INSERT INTO claims (lifecycle_uuid, path) VALUES (?,?)",
                     ("deadbeefcafe", "a/b.py"))
                 conn.execute("COMMIT")
             finally:
@@ -3040,6 +3246,229 @@ class TestCLIExitCodes(unittest.TestCase):
                               "the sabotaged claim really did create nothing, confirming "
                               "the strengthened CLI test (which checks dump) is the one "
                               "that would have failed here, not a plain verify check")
+
+
+# ---------------------------------------------------------------------------
+# The restored generative test (prerelease fix round). The V1 registry had a
+# 320-line generative property test (git a5c27e2) that ran random CLI
+# operation sequences and checked seven numbered invariants after every
+# step; it was deleted with bm_registry.py itself (c9e3540) because it was
+# bound to the V1 JSON-registry shape. It historically found a real defect
+# nobody had written down (start stamping a blank template over a live
+# digest), and that same commit's own lesson is the one this class exists to
+# honor: "CALIBRATION MATTERS MORE THAN THE TEST" - the first V1 generator
+# picked operations uniformly at random and exercised almost nothing, and
+# reinjecting two known bugs did not make it fire. A generative test that
+# cannot fire is worse than none.
+#
+# This is a STATE MACHINE against the STORE directly (the Python API, not
+# the CLI, since the V1 defect this replaces was store-shaped, not CLI-
+# shaped), the same reason the V1 rewrite gave: picking legal moves that
+# ACTUALLY apply to the model's current belief about each name, with a
+# smaller chance of a deliberately illegal one so refuse-don't-guess is
+# exercised too. Biased toward REUSE-AFTER-CLOSE and RESTART-WHILE-LIVE by
+# closing and reopening a fresh Store handle onto the SAME root a good
+# fraction of every step, including with an ACTIVE record mid-life and no
+# intervening park/complete: exactly the moment a process restart (a crash,
+# a new CLI invocation) actually happens in the real world.
+# ---------------------------------------------------------------------------
+
+class TestStoreInvariantsUnderRandomSequences(unittest.TestCase):
+    NAMES = ("alpha", "beta")
+    # A SMALL shared pool so two different names have a real chance of
+    # claiming the SAME path: without this, "no two active claims overlap"
+    # can never be violated no matter what is broken, since alpha and beta
+    # would never contend for the same file.
+    PATHS = ("api/pay.py", "api/webhook.py")
+
+    def _check_invariants(self, store, seed, step, model):
+        where = "seed=%d step=%d" % (seed, step)
+        rows = store.conn.execute("SELECT * FROM records").fetchall()
+        active_rows = [r for r in rows if r["state"] == "active"]
+
+        # At most one ACTIVE record per name (the DB's own UNIQUE INDEX
+        # already enforces this; checked again here as a model-level
+        # invariant so a reinjected defect that bypasses the DB layer
+        # entirely, such as _admit neutralized, is still caught).
+        names_seen = {}
+        for r in active_rows:
+            self.assertNotIn(r["name"], names_seen,
+                "%s: two ACTIVE records share name %r (%s and %s)"
+                % (where, r["name"], names_seen.get(r["name"]), r["lifecycle_uuid"]))
+            names_seen[r["name"]] = r["lifecycle_uuid"]
+
+        # No two ACTIVE claims overlap.
+        active_claims = store.conn.execute(
+            "SELECT c.lifecycle_uuid AS lifecycle_uuid, c.path AS path FROM claims c "
+            "JOIN records r ON r.lifecycle_uuid = c.lifecycle_uuid "
+            "WHERE r.state='active'").fetchall()
+        for i in range(len(active_claims)):
+            for j in range(i + 1, len(active_claims)):
+                a, b = active_claims[i], active_claims[j]
+                if a["lifecycle_uuid"] == b["lifecycle_uuid"]:
+                    continue
+                self.assertFalse(
+                    bs.paths_overlap(a["path"], b["path"]),
+                    "%s: active claims overlap: %s vs %s" % (where, a["path"], b["path"]))
+
+        # Every record's stored state matches its latest transition (or has
+        # none and is still active, the just-claimed case).
+        for r in rows:
+            last = store.conn.execute(
+                "SELECT to_state FROM transitions WHERE lifecycle_uuid=? ORDER BY id DESC LIMIT 1",
+                (r["lifecycle_uuid"],)).fetchone()
+            if last is None:
+                self.assertEqual(r["state"], "active",
+                    "%s: record %s has no transitions row but is not active"
+                    % (where, r["lifecycle_uuid"]))
+            else:
+                self.assertEqual(last["to_state"], r["state"],
+                    "%s: record %s is %r but its latest transition recorded %r"
+                    % (where, r["lifecycle_uuid"], r["state"], last["to_state"]))
+
+        # The model's own belief about each name must never point at a
+        # lifecycle the store itself has lost track of.
+        for name, cur in model.items():
+            if cur is None:
+                continue
+            fresh = store.get(cur["uuid"])
+            self.assertIsNotNone(
+                fresh, "%s: model believes %s/%s exists but the store has no "
+                "such record" % (where, name, cur["uuid"]))
+
+    def _run_sequence(self, seed, steps=50):
+        rng = random.Random(seed)
+        with tempfile.TemporaryDirectory() as d:
+            bs.init_project(d)
+            store = bs.Store(d)
+            model = {n: None for n in self.NAMES}
+            for step in range(steps):
+                # REUSE-AFTER-CLOSE / RESTART-WHILE-LIVE bias: close and
+                # reopen a FRESH Store handle onto the SAME root, whether or
+                # not a record is currently ACTIVE (deliberately not parked
+                # or completed first).
+                if rng.random() < 0.25:
+                    store.close()
+                    store = bs.Store(d)
+
+                name = rng.choice(self.NAMES)
+                cur = model[name]
+                enabled = ["claim"]
+                if cur is not None:
+                    if cur["state"] == "active":
+                        enabled += ["park", "park", "complete", "checkpoint",
+                                    "checkpoint", "decide"]
+                    elif cur["state"] == "parked":
+                        enabled += ["resume", "resume"]
+                # A smaller chance of a move that does NOT apply to the
+                # model's current belief, so refuse-don't-guess is exercised
+                # on illegal input too, not only ever-legal sequences.
+                op = (rng.choice(enabled) if rng.random() > 0.15
+                      else rng.choice(["claim", "park", "resume", "complete",
+                                       "checkpoint", "decide"]))
+                path = rng.choice(self.PATHS)
+
+                try:
+                    if op == "claim":
+                        rec = store.claim(name, "ephemeral", "step %d" % step,
+                                           [path], session_id="s1")
+                        model[name] = {"uuid": rec.lifecycle_uuid,
+                                       "version": rec.version, "state": rec.state}
+                    elif op == "park" and cur is not None:
+                        rec = store.transition(cur["uuid"], cur["version"], "parked",
+                                                session_id="s1")
+                        model[name] = {"uuid": rec.lifecycle_uuid,
+                                       "version": rec.version, "state": rec.state}
+                    elif op == "resume" and cur is not None:
+                        rec = store.transition(cur["uuid"], cur["version"], "active",
+                                                session_id="s1")
+                        model[name] = {"uuid": rec.lifecycle_uuid,
+                                       "version": rec.version, "state": rec.state}
+                    elif op == "complete" and cur is not None:
+                        store.transition(cur["uuid"], cur["version"], "complete",
+                                          session_id="s1", evidence="ok")
+                        # Completed is terminal for this model slot: the next
+                        # claim() under the same name starts a brand new
+                        # lifecycle, exactly like a real resumed project.
+                        model[name] = None
+                    elif op == "checkpoint" and cur is not None:
+                        store.checkpoint(cur["uuid"], cur["version"], "next %d" % step)
+                        model[name]["version"] = cur["version"] + 1
+                    elif op == "decide" and cur is not None:
+                        store.decide(cur["uuid"], cur["version"], "topic", "text %d" % step)
+                        model[name]["version"] = cur["version"] + 1
+                except (bs.OwnershipRefused, bs.StaleIdentity, ValueError):
+                    # A deliberately illegal move, or a legal one that lost a
+                    # race against the model's own drifted belief (an
+                    # overlap refusal from the shared PATHS pool, most
+                    # commonly): refusing is correct, not a test failure.
+                    # Re-sync the model from the store's OWN truth rather
+                    # than trust what this loop assumed.
+                    if cur is not None:
+                        fresh = store.get(cur["uuid"])
+                        model[name] = ({"uuid": fresh.lifecycle_uuid,
+                                        "version": fresh.version, "state": fresh.state}
+                                       if fresh is not None else None)
+
+                self._check_invariants(store, seed, step, model)
+            store.close()
+
+    def test_random_sequences_hold_invariants(self):
+        for seed in range(6):
+            self._run_sequence(seed)
+
+    # -- calibration: the generator must actually be ABLE to fire --------
+
+    def test_calibrated_generator_catches_admit_bypassed(self):
+        # Reinject a real, historical defect (GATE A, fix-round 3: resume
+        # bypassed the SAME admission gate claim() runs, walking straight
+        # over another session's fence) by neutralizing the PRODUCT method
+        # _admit entirely, and confirm the generator's own overlap
+        # invariant fires on at least one seed. If it does not, the
+        # generator is decoration, not a test (the V1 lesson this class
+        # exists to honor).
+        original = bs.Store._admit
+        bs.Store._admit = lambda self, *a, **kw: None
+        try:
+            fired = False
+            for seed in range(6):
+                try:
+                    self._run_sequence(seed)
+                except AssertionError:
+                    fired = True
+                    break
+            self.assertTrue(
+                fired, "REINJECTION CHECK: with Store._admit neutralized, at least "
+                "one seed must produce two active records claiming the same path "
+                "(this is the admission-gate class of defect); if this assertion "
+                "fails, the generator is not calibrated")
+        finally:
+            bs.Store._admit = original
+
+    def test_calibrated_generator_catches_find_overlap_bypassed(self):
+        # A second, independent known defect: the lower-level detection
+        # function _find_overlap itself neutralized (rather than the
+        # admission gate that calls it), so no admission path anywhere can
+        # see a real conflict. A different product symbol than the test
+        # above, proving the generator's overlap invariant is not
+        # accidentally tied to one specific patch point.
+        original = bs.Store._find_overlap
+        bs.Store._find_overlap = lambda self, *a, **kw: None
+        try:
+            fired = False
+            for seed in range(6):
+                try:
+                    self._run_sequence(seed)
+                except AssertionError:
+                    fired = True
+                    break
+            self.assertTrue(
+                fired, "REINJECTION CHECK: with Store._find_overlap neutralized, at "
+                "least one seed must produce two active records claiming the same "
+                "path; if this assertion fails, the generator is not calibrated")
+        finally:
+            bs.Store._find_overlap = original
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
