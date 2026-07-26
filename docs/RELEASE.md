@@ -106,16 +106,26 @@ sh scripts/verify-install.sh
 ```
 
 This checks the current directory's files against `CHECKSUMS.sha256`
-(published in the repository at that tag; see the release steps below) and
-names any file that is missing or does not match, then exits nonzero if
-anything differs. A clean pass reads:
+(published in the repository at that tag; see the release steps below) in
+BOTH directions: it names any file the manifest lists that is missing or does
+not match on disk, AND any file present on disk that the manifest does not
+list, then exits nonzero if anything differs either way. That second
+direction was added 2026-07-26 (final-blockers spec, BLOCKER 2) after an
+external check reproduced the exact gap it closes: a planted file
+(`tools/bm_helper.py` containing a shell-out backdoor) was invisible to a
+version of this check that only ever asked "does every NAMED file match",
+and it reported PASSED at exit 0 with the backdoor still present. An ADDED
+file is exactly the shape that matters for code that runs automatically on
+every session, which is why both directions are checked now, not one. A
+clean pass reads:
 
 ```
-verify-install: N file(s) match, 0 mismatched, 0 missing
-verify-install: PASSED. Every file the manifest names matches on disk.
+verify-install: N file(s) match, 0 mismatched, 0 missing, 0 extra (present on disk, absent from the manifest)
+verify-install: PASSED. Every file the manifest names matches on disk,
+verify-install: and no file exists on disk that the manifest does not name.
 ```
 
-Read the last line the script prints, always: matching the manifest proves
+Read the last lines the script prints, always: matching the manifest proves
 your files are what the manifest says, not that the manifest itself is
 trustworthy. Fetch the manifest from a channel you trust (the tag itself, or
 a signed release asset), never from the same place a compromised copy of the
@@ -177,9 +187,12 @@ run of it as a test of the runbook, not just of the code.
   configuration, and it may fail in ways only a real run can surface.
 - **`scripts/checksums.sh` and `scripts/verify-install.sh` are new as of this
   same day** and have been exercised against this repository's own working
-  tree (a passing run, and a deliberately tampered copy that correctly
-  reported the tampering) but never against an actual tagged release,
-  because none exists yet.
+  tree (a passing run, a deliberately tampered copy that correctly reported
+  the tampering, a planted extra file that correctly reported PASSED at exit
+  0 until the 2026-07-26 fix, and now correctly fails and names it, and a
+  git-tracked filename containing a quote and a non-ASCII character, which
+  the same fix now hashes instead of silently dropping) but never against an
+  actual tagged release, because none exists yet.
 - **This runbook itself is unproven.** These seven steps are written down
   correctly to the best of the author's knowledge, but no one has followed
   them start to finish. The first real release is also the first test of
