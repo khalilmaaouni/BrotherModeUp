@@ -292,6 +292,105 @@ class TestAutosave(unittest.TestCase):
             self.assertNotEqual(envobj.returncode, 0, ".env leaked into the autosave snapshot")
 
 
+class TestCompactHintHonesty(unittest.TestCase):
+    """GATE E (fix-round 2026-07-26): compact-hint used to print "Your files
+    are autosaved" UNCONDITIONALLY on every compaction resume, and named
+    tools/bm_autosave.sh, which Phase 2 deleted. Fixed: the claim prints
+    only when bm_autosave.has_receipt finds a real receipt for this
+    worktree and session; otherwise an honest alternative names the
+    command that actually exists (bm_autosave.py, not the deleted .sh).
+
+    Two cases run the real CLI end to end as a subprocess (a receipt
+    written by the real bm_autosave.py, and a store with none); the third
+    patches the cached _BM_AUTOSAVE reference bm_telemetry itself loaded at
+    import time (the PRODUCT symbol, not a local stand-in) to simulate
+    bm_autosave.py being unavailable, since deleting or renaming the real
+    file would cross this change's own fence."""
+
+    def _git_repo(self, path):
+        def git(*a):
+            r = subprocess.run(["git", "-C", path] + list(a), capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, "git %s failed: %s" % (" ".join(a), r.stderr))
+            return r
+        git("init", "-q")
+        git("config", "user.email", "t@t.t")
+        git("config", "user.name", "t")
+        io.open(os.path.join(path, "tracked.txt"), "w").write("v1")
+        git("add", "-A")
+        git("commit", "-qm", "init")
+
+    def _init_store(self, repo, env):
+        r = subprocess.run([sys.executable, os.path.join(HERE, "bm_store.py"), "init"],
+                            cwd=repo, env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, "bm_store init failed: %s" % (r.stdout + r.stderr))
+
+    def _compact_hint(self, repo, session_id, env):
+        payload = json.dumps({"source": "compact", "cwd": repo, "session_id": session_id})
+        return subprocess.run(
+            [sys.executable, os.path.join(HERE, "bm_telemetry.py"), "compact-hint"],
+            input=payload, cwd=repo, env=env, capture_output=True, text=True)
+
+    def test_claims_safety_only_when_a_real_receipt_exists(self):
+        with tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as v:
+            env = dict(os.environ, BROTHERMODE_VAULT=v)
+            env.pop("BROTHERMODE_ROOT", None)
+            self._git_repo(repo)
+            self._init_store(repo, env)
+            # A snapshot of a working tree that matches HEAD writes no
+            # receipt at all (nothing to save); dirty the tree first so
+            # bm_autosave.py actually has something to capture.
+            io.open(os.path.join(repo, "wip.txt"), "w").write("work in progress")
+            snap = subprocess.run(
+                [sys.executable, os.path.join(HERE, "bm_autosave.py"), "precompact"],
+                input=json.dumps({"cwd": repo, "session_id": "sess-1"}),
+                cwd=repo, env=env, capture_output=True, text=True)
+            self.assertEqual(snap.returncode, 0, "bm_autosave precompact failed: %s"
+                              % (snap.stdout + snap.stderr))
+            r = self._compact_hint(repo, "sess-1", env)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("Your files are autosaved", r.stdout,
+                          "a real receipt exists; the claim must be printed")
+            self.assertIn("bm_autosave.py recover", r.stdout,
+                          "must name the recovery command that actually exists")
+            self.assertNotIn("bm_autosave.sh", r.stdout,
+                             "must never name the deleted shell script")
+
+    def test_no_claim_when_no_receipt_matches_this_session(self):
+        with tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as v:
+            env = dict(os.environ, BROTHERMODE_VAULT=v)
+            env.pop("BROTHERMODE_ROOT", None)
+            self._git_repo(repo)
+            self._init_store(repo, env)
+            # No snapshot was ever taken, so no receipt exists for any session.
+            r = self._compact_hint(repo, "sess-never-saved", env)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertNotIn("Your files are autosaved", r.stdout,
+                             "must not claim safety when no receipt was found")
+            self.assertIn("No autosave snapshot receipt was found", r.stdout)
+            self.assertIn("bm_autosave.py recover", r.stdout,
+                          "must still name the recovery command that exists")
+            self.assertNotIn("bm_autosave.sh", r.stdout)
+
+    def test_no_claim_and_no_crash_when_bm_autosave_is_unavailable(self):
+        old_mod, old_err = bm._BM_AUTOSAVE, bm._BM_AUTOSAVE_LOAD_ERROR
+        bm._BM_AUTOSAVE = None
+        bm._BM_AUTOSAVE_LOAD_ERROR = "simulated: bm_autosave.py unavailable"
+        old_stdin, old_stdout = sys.stdin, sys.stdout
+        try:
+            sys.stdin = io.StringIO(json.dumps(
+                {"source": "compact", "cwd": "/tmp", "session_id": "s1"}))
+            sys.stdout = captured = io.StringIO()
+            bm.cmd_compact_hint()  # must never raise
+        finally:
+            sys.stdin, sys.stdout = old_stdin, old_stdout
+            bm._BM_AUTOSAVE, bm._BM_AUTOSAVE_LOAD_ERROR = old_mod, old_err
+        out = captured.getvalue()
+        self.assertNotIn("Your files are autosaved", out,
+                         "must not claim safety when bm_autosave could not be loaded")
+        self.assertIn("simulated: bm_autosave.py unavailable", out)
+        self.assertNotIn("bm_autosave.sh", out)
+
+
 class TestHandoff(unittest.TestCase):
     def test_handoff_redacts_and_preserves(self):
         with tempfile.TemporaryDirectory() as v:
@@ -1129,19 +1228,38 @@ class TestArchitecturalGuards(unittest.TestCase):
 
     def test_bm_threads_has_no_bm_registry_reference(self):
         # Scoped to this rewire's own fence (bm_threads.py, and bm_registry.py's
-        # deletion): bm_store.py and bm_telemetry.py are OUTSIDE that fence and
-        # are deliberately not asserted on here. bm_store.py's own module
-        # docstring names "bm_registry.py" several times as HISTORICAL, purely
-        # explanatory prose (why the store replaced it), which is legitimate
-        # and not this test's concern. bm_telemetry.py's `attribute` command
-        # still loads bm_registry.py by path at runtime, which is a REAL,
-        # currently-broken cross-fence dependency now that the file is gone;
-        # see the implementer's report rather than a silent assertion here.
+        # deletion): bm_store.py is OUTSIDE that fence and is deliberately not
+        # asserted on here. bm_store.py's own module docstring names
+        # "bm_registry.py" several times as HISTORICAL, purely explanatory
+        # prose (why the store replaced it), which is legitimate and not this
+        # test's concern.
+        #
+        # bm_telemetry.py's `attribute` command USED TO still load
+        # bm_registry.py by path at runtime, a real, currently-broken
+        # cross-fence dependency once the file was gone (it accumulated
+        # spend onto a dict-shaped registry.json record that bm_store.py's
+        # sqlite schema has no equivalent of at all). Fix-round 2026-07-26
+        # deleted the command rather than port it: nothing in the repo
+        # called it except historical design docs, and no test exercised its
+        # success path, so a silent no-op was strictly worse than removing
+        # it. Asserted here now that it is this test's concern again.
         self.assertFalse(os.path.exists(os.path.join(HERE, "bm_registry.py")),
                          "bm_registry.py must be deleted, not merely unreferenced")
         src = io.open(os.path.join(HERE, "bm_threads.py"), encoding="utf-8").read()
         self.assertNotIn("bm_registry", src,
                          "bm_threads.py must not reference the deleted bm_registry module")
+        # bm_telemetry.py, unlike bm_threads.py, is allowed the same kind of
+        # HISTORICAL prose mention bm_store.py's docstring carries (explaining
+        # why `attribute` was deleted rather than ported); what must actually
+        # be gone is the runtime load, so this checks for the exact spec name
+        # the deleted code used rather than banning the bare word.
+        tel_src = io.open(os.path.join(HERE, "bm_telemetry.py"), encoding="utf-8").read()
+        self.assertNotIn("bm_registry_for_telemetry", tel_src,
+                         "bm_telemetry.py must not load bm_registry.py by path at runtime "
+                         "(the `attribute` command was deleted, not ported, fix-round 2026-07-26)")
+        self.assertNotIn("def cmd_attribute", tel_src,
+                         "cmd_attribute was deleted (fix-round 2026-07-26); it must not come back "
+                         "without a store-backed spend concept to port it onto")
 
     def test_handover_delivery_has_exactly_one_owner(self):
         # THE ARCHITECTURAL GUARD, carried over from V1's own version of this
