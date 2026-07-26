@@ -55,9 +55,14 @@ else
     exit 1
 fi
 
+WORKDIR=$(mktemp -d 2>/dev/null || echo "/tmp/bm-verify-install-work.$$")
+mkdir -p "$WORKDIR"
+trap 'rm -rf "$WORKDIR"' EXIT INT TERM
+
 OK=0
 MISMATCHED=0
 MISSING=0
+: > "$WORKDIR/manifest_paths"
 
 # Manifest lines are "<64 hex chars><two spaces><path>", the format both
 # sha256sum and shasum -a 256 produce. Splitting by fixed column position
@@ -68,6 +73,7 @@ while IFS= read -r line; do
     expected=$(printf '%s' "$line" | cut -c1-64)
     path=$(printf '%s' "$line" | cut -c67-)
     [ -z "$path" ] && continue
+    printf '%s\n' "$path" >> "$WORKDIR/manifest_paths"
     full="$TARGET/$path"
     if [ ! -f "$full" ]; then
         echo "MISSING:   $path"
@@ -83,17 +89,65 @@ while IFS= read -r line; do
     fi
 done < "$MANIFEST"
 
+# Second direction of the check. The loop above only asks "does every file
+# the manifest NAMES match on disk", which never notices a file that was
+# ADDED (an extra file is neither a MISMATCH nor a MISSING), so this script
+# used to report PASSED with a planted extra file still present; see
+# docs/superpowers/specs/2026-07-26-final-blockers.md, BLOCKER 2, for the
+# reproduction that motivated this second pass. It asks the other
+# direction instead: does every file that actually EXISTS on disk appear
+# in the manifest. The exclusion list below is the same one
+# scripts/checksums.sh already applies when it cannot use git (kept in
+# sync by comment in both files, since each script is self-contained POSIX
+# sh with no shared file to hold this list once): machine state and
+# generated files this project's own .gitignore already keeps out of what
+# git tracks, so their absence from the manifest is expected, not an added
+# file. Stated limit: if $TARGET itself contains a character `find -path`
+# treats as glob syntax (*, ?, [ ]), the exclusions below can under- or
+# over-match; named here rather than silently assumed correct.
+MANIFEST_ABS=$(cd "$(dirname "$MANIFEST")" && pwd)/$(basename "$MANIFEST")
+MANIFEST_REL=$(printf '%s\n' "$MANIFEST_ABS" | sed "s|^$TARGET/||")
+
+find "$TARGET" -type f \
+    ! -path "$TARGET/.git/*" \
+    ! -path "$TARGET/.brothermode/*" \
+    ! -path '*/__pycache__/*' \
+    ! -path "$TARGET/threads/*" \
+    ! -path "$TARGET/.superpowers/*" \
+    ! -name '.DS_Store' \
+    ! -name '*.bak*' \
+    ! -name 'STATE.md' \
+    > "$WORKDIR/installed_raw"
+
+EXTRA=0
+while IFS= read -r full; do
+    [ -z "$full" ] && continue
+    rel=$(printf '%s\n' "$full" | sed "s|^$TARGET/||")
+    [ "$rel" = "$MANIFEST_REL" ] && continue
+    if ! grep -q -x -F "$rel" "$WORKDIR/manifest_paths"; then
+        echo "EXTRA:     $rel"
+        EXTRA=$((EXTRA + 1))
+    fi
+done < "$WORKDIR/installed_raw"
+
 echo ""
 echo "verify-install: checked against $MANIFEST"
-echo "verify-install: $OK file(s) match, $MISMATCHED mismatched, $MISSING missing"
+echo "verify-install: $OK file(s) match, $MISMATCHED mismatched, $MISSING missing, $EXTRA extra (present on disk, absent from the manifest)"
 
-if [ "$MISMATCHED" -gt 0 ] || [ "$MISSING" -gt 0 ]; then
+if [ "$MISMATCHED" -gt 0 ] || [ "$MISSING" -gt 0 ] || [ "$EXTRA" -gt 0 ]; then
     echo "verify-install: FAILED. Do not trust this installed copy until you" \
          "understand why the files above differ from the published manifest." >&2
+    if [ "$EXTRA" -gt 0 ]; then
+        echo "verify-install: an EXTRA file is exactly the shape of a" \
+             "planted backdoor: it runs automatically along with everything" \
+             "else in this installation, and the manifest says nothing" \
+             "about it because nothing here declared it." >&2
+    fi
     exit 1
 fi
 
-echo "verify-install: PASSED. Every file the manifest names matches on disk."
+echo "verify-install: PASSED. Every file the manifest names matches on disk,"
+echo "verify-install: and no file exists on disk that the manifest does not name."
 echo "verify-install: this does not prove the manifest itself is authentic;" \
      "it proves your files match whatever manifest you pointed this at. Get" \
      "the manifest from the release you trust (the tag's git history, or a" \
