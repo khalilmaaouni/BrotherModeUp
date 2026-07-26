@@ -85,6 +85,27 @@ def _store():
     return _STORE_MOD
 
 
+def _refresh_root_view(root):
+    """Regenerate the project root's STATE.md after a mutation, calling
+    bm_store's own advisory refresh (GATE 4, release-blockers spec,
+    2026-07-26). Before this, `off` was the ONLY thread command that ever
+    refreshed the root view; every other mutating command here (start,
+    checkpoint, decide, send, park, resume, complete, adopt) left an
+    active record's lifecycle_uuid missing from STATE.md's generated
+    block, so `bm_store.py verify` (run at every SessionStart) reported
+    "1 problem(s) found" on every ordinary run after using thread mode,
+    even though nothing was actually wrong. Fails open, like every other
+    view refresh in this project: the mutation this follows has already
+    committed, so a view-refresh failure here is warned, never raised."""
+    bs = _store()
+    try:
+        bs._refresh_state_view(root)
+    except Exception as e:
+        _warn("bm_threads: could not refresh the generated STATE.md view "
+              "after this command (%r); the command's own result is still "
+              "accurate." % (e,))
+
+
 THREADS_DIRNAME = "threads"
 MODE_FILE = "thread-mode.json"          # a mode switch, never ownership (see module doc)
 STATE_FILENAME = "STATE.md"
@@ -131,6 +152,36 @@ def _parse_kv(argv):
         elif key is not None:
             kv[key].append(a)
     return kv
+
+
+def _reject_unknown_flags(cmd_name, kv, allowed):
+    """GATE 5 (release-blockers spec, 2026-07-26): _parse_kv stores ANY
+    "--flag" shape without complaint, and every command below used to read
+    back only the keys it recognized, silently dropping the rest.
+    Reproduced by the orchestrator: `checkpoint X --note "..."` reported
+    success and stored nothing (there is no --note flag; the intended
+    --files-note was never set). Duplicated from bm_store.py's own
+    _reject_unknown_flags on purpose (same reasoning as _parse_kv above)."""
+    unknown = sorted(set(kv) - set(allowed))
+    if unknown:
+        _out("%s: unrecognized flag(s) %s (recognized: %s)"
+             % (cmd_name, ", ".join("--" + u for u in unknown),
+                ", ".join("--" + a for a in sorted(allowed))))
+        sys.exit(2)
+
+
+def _unrecognized_start_flags(argv_tail, flag_names):
+    """GATE 5 helper for `start` specifically: every "--"-shaped token
+    anywhere in argv_tail (which spans BOTH the positional-objective region
+    and the flag region) that is not one of flag_names. `start` cannot use
+    _reject_unknown_flags directly: that helper checks an already-PARSED kv
+    dict, but here an unrecognized flag corrupts parsing itself (it never
+    bounds the objective, so it is swallowed as prose before any kv exists
+    to check). Extracted as its own named function, separate from
+    _reject_unknown_flags, so a reinjection test can monkeypatch this exact
+    symbol back to a permissive no-op without duplicating cmd_start's
+    surrounding objective-splitting logic."""
+    return sorted({a for a in argv_tail if a.startswith("--") and a not in flag_names})
 
 
 # ---------------------------------------------------------------------------
@@ -519,6 +570,18 @@ def cmd_start(argv):
     # argv[1] up to the first recognised flag; everything from there on is
     # ordinary "--flag value..." parsing via _parse_kv.
     flag_names = ("--files", "--session", "--tier")
+    # GATE 5 (release-blockers spec, 2026-07-26): an unrecognized "--xxx"
+    # token used to be silently swallowed into the positional objective
+    # text, since it never matched flag_names and so never bounded the
+    # objective at all -- reproduced with `start X --file f` (singular),
+    # which created a thread with NO FENCE at exit 0. Every "--"-shaped
+    # token in argv[1:] must be a RECOGNIZED flag before any of it is
+    # treated as either objective prose or a flag's value.
+    unknown = _unrecognized_start_flags(argv[1:], flag_names)
+    if unknown:
+        _out("start: unrecognized flag(s) %s (recognized: %s)"
+             % (", ".join(unknown), ", ".join(flag_names)))
+        sys.exit(2)
     flag_at = min([argv.index(f) for f in flag_names if f in argv[1:]] or [len(argv)])
     objective = " ".join(argv[1:flag_at]).strip() or "(objective not stated)"
     kv = _parse_kv(argv[flag_at:])
@@ -532,6 +595,7 @@ def cmd_start(argv):
         digest_text = store.render_digest(rec.lifecycle_uuid)
     finally:
         store.close()
+    _refresh_root_view(root)
     base = _thread_dir(root, name, rec.lifecycle_uuid)
     # The CLI-typed name and objective are founder-typed text, and these
     # files are plain views on disk (not a store render function that
@@ -579,6 +643,12 @@ def cmd_checkpoint(argv):
         sys.exit(2)
     name = argv[0]
     kv = _parse_kv(argv[1:])
+    # GATE 5 (release-blockers spec, 2026-07-26): reproduced with
+    # `checkpoint X --note "..."`, which reported success and stored
+    # nothing -- there is no --note flag (the intended flag is
+    # --files-note), and the unrecognized key was silently dropped.
+    _reject_unknown_flags("checkpoint", kv,
+        ("next", "blockers", "files-note", "body", "topic", "decision", "lifecycle"))
     next_intent = " ".join(kv.get("next", []))
     blockers = " ".join(kv.get("blockers", []))
     files_note = " ".join(kv.get("files-note", []))
@@ -596,6 +666,7 @@ def cmd_checkpoint(argv):
         digest_text = store.render_digest(rec["lifecycle_uuid"])
     finally:
         store.close()
+    _refresh_root_view(root)
     base = _thread_dir(root, name, rec["lifecycle_uuid"])
     if not _atomic_write(os.path.join(base, "digest.md"), digest_text):
         _warn("bm_threads: checkpoint %d saved in the store, but this thread's "
@@ -623,6 +694,7 @@ def cmd_decide(argv):
         sys.exit(2)
     name = argv[0]
     kv = _parse_kv(argv[1:])
+    _reject_unknown_flags("decide", kv, ("topic", "text", "lifecycle"))
     topic = " ".join(kv.get("topic", []))
     text = " ".join(kv.get("text", []))
     lifecycle_prefix = " ".join(kv.get("lifecycle", [])) or None
@@ -632,6 +704,7 @@ def cmd_decide(argv):
         seq = store.decide(rec["lifecycle_uuid"], rec["version"], topic, text)
     finally:
         store.close()
+    _refresh_root_view(root)
     _out("decision %d recorded for '%s' (version %s)" % (seq, name, rec["version"] + 1))
 
 
@@ -663,6 +736,7 @@ def cmd_send(argv):
     if not _atomic_write(os.path.join(base, "inbox.md"), body):
         _warn("bm_threads: directive %d saved in the store, but inbox.md for '%s' "
               "could not be refreshed on disk." % (seq, name))
+    _refresh_root_view(root)
     _out("sent to '%s' (directive %d)" % (name, seq))
 
 
@@ -683,11 +757,19 @@ def cmd_dashboard(argv):
         _out_prerendered(bs.render_state_md(root), end="")
     except bs.OwnershipRefused as e:
         if e.reason == "no-store":
+            # No store to refresh a view against either: refreshing here
+            # would just re-hit the same "no-store" refusal inside
+            # _refresh_root_view and print a redundant, confusing warning
+            # underneath this already-graceful message (a NEW warning this
+            # command never used to print). Advisory commands fail open
+            # with ONE plain message, not two.
             _out("  no store yet. `on` then `start <feature>` to begin.")
-        else:
-            raise
+            return
+        raise
     except bs.StoreCorrupt as e:
         _out("  STORE CORRUPT: %s" % (e,))
+        return
+    _refresh_root_view(root)
 
 
 def _transition_cmd(argv, to_state, usage, needs_evidence=False):
@@ -698,6 +780,7 @@ def _transition_cmd(argv, to_state, usage, needs_evidence=False):
         sys.exit(2)
     name = argv[0]
     kv = _parse_kv(argv[1:])
+    _reject_unknown_flags(to_state, kv, ("session", "note", "evidence", "lifecycle"))
     session_id = " ".join(kv.get("session", []))
     note = " ".join(kv.get("note", []))
     evidence = " ".join(kv.get("evidence", []))
@@ -713,6 +796,7 @@ def _transition_cmd(argv, to_state, usage, needs_evidence=False):
                                    session_id=session_id, note=note, evidence=evidence)
     finally:
         store.close()
+    _refresh_root_view(root)
     _out("%s: '%s' (lifecycle %s) is now %s at version %s"
          % (to_state, name, result.lifecycle_uuid, result.state, result.version))
 
@@ -733,11 +817,43 @@ def cmd_complete(argv):
                      "[--lifecycle PREFIX]", needs_evidence=True)
 
 
+def _adopt_core(store, root, rec, session_id, adopt_live, name):
+    """The transition-then-deliver core of `adopt` (GATE 3 fix,
+    release-blockers spec, 2026-07-26). Extracted as its own named
+    function so a reinjection test can monkeypatch this exact symbol back
+    to the OLD, broken order (deliver the handover, THEN attempt the
+    transition) and prove that a refused adopt used to permanently corrupt
+    STATE.md: the OLD code's own docstring claimed "the order IS the
+    atomicity: a failure here changes nothing", which was only true for a
+    delivery failure, never for a REFUSED transition (e.g.
+    live-session-adopt-blocked) -- by then delivery had already landed,
+    permanently recording a LIVE thread as "Adopted from dead/stalled
+    thread" in STATE.md, and the fingerprint dedupe then suppressed the
+    TRUE header when `off` drained the still-active record later
+    (reproduced by the orchestrator).
+
+    With the transition first, a refusal changes nothing at all: nothing
+    is written into STATE.md until the store has actually recorded the
+    adoption. May raise bs.OwnershipRefused('live-session-adopt-blocked')
+    from the transition call; the caller (cmd_adopt) turns that into a
+    clean CLI refusal. If the transition succeeds but the handover write
+    itself then fails, the adoption is real (never rolled back for a
+    secondary view write) -- returns the outcome so the caller can report
+    that honestly, never as a silent success or a false failure."""
+    luid = rec["lifecycle_uuid"]
+    result = store.transition(luid, rec["version"], "adopted",
+                               session_id=session_id, note="adopted by the chief",
+                               adopt_from_live_session=adopt_live)
+    # The transition has committed: STATE.md may now be written for it.
+    outcome = _deliver_handover_once(root, store, luid,
+                                      "Adopted from dead/stalled thread: %s" % _protect(name))
+    return outcome, result
+
+
 def cmd_adopt(argv):
     """A thread died or stalled: the chief ABSORBS its fence and reports,
-    rather than silently respawning. Delivers the handover first (the order
-    IS the atomicity: a failure here changes nothing and the record stays
-    adoptable), then transitions to 'adopted' only once that landed."""
+    rather than silently respawning. See _adopt_core for the GATE 3
+    ordering fix this command relies on."""
     bs = _store()
     root = _require_root()
     if not argv:
@@ -746,29 +862,17 @@ def cmd_adopt(argv):
         sys.exit(2)
     name = argv[0]
     kv = _parse_kv(argv[1:])
+    _reject_unknown_flags("adopt", kv, ("session", "adopt-from-live-session", "lifecycle"))
     session_id = " ".join(kv.get("session", [])) or _default_session_id()
     adopt_live = "adopt-from-live-session" in kv
     lifecycle_prefix = " ".join(kv.get("lifecycle", [])) or None
+    outcome = result = None
     store = bs.Store(root, create=False)
     try:
         rec = _find_record(store, name, states=_LEGAL_SOURCE_STATES["adopted"],
                             lifecycle_prefix=lifecycle_prefix)
-        luid = rec["lifecycle_uuid"]
-        outcome = _deliver_handover_once(root, store, luid,
-                                          "Adopted from dead/stalled thread: %s" % _protect(name))
-        if outcome is False:
-            _out("ADOPT FAILED: could not write the handover into %s" % STATE_FILENAME)
-            _out("  Nothing changed: lifecycle %s is untouched, so no context was "
-                 "lost. Fix the disk issue, then run `adopt` again." % luid)
-            sys.exit(2)
-        if outcome == "unavailable":
-            _out("ADOPT FAILED: the redactor is unavailable, so the handover was "
-                 "refused rather than written unprotected. Nothing changed.")
-            sys.exit(2)
         try:
-            result = store.transition(luid, rec["version"], "adopted",
-                                       session_id=session_id, note="adopted by the chief",
-                                       adopt_from_live_session=adopt_live)
+            outcome, result = _adopt_core(store, root, rec, session_id, adopt_live, name)
         except bs.OwnershipRefused as e:
             if e.reason == "live-session-adopt-blocked":
                 _out("ADOPT REFUSED (%s): %s" % (e.reason, e))
@@ -776,14 +880,31 @@ def cmd_adopt(argv):
                      "displace that session.")
                 sys.exit(2)
             raise
+        luid = rec["lifecycle_uuid"]
+        if outcome is False:
+            _warn("bm_threads: adopted '%s' (lifecycle %s, version %s) in the "
+                  "store, but the handover could not be written into %s (a disk "
+                  "issue). The adoption itself is real; the store's digest is "
+                  "intact regardless (see `dashboard` or `dump`)."
+                  % (name, luid, result.version, STATE_FILENAME))
+        elif outcome == "unavailable":
+            _warn("bm_threads: adopted '%s' (lifecycle %s, version %s) in the "
+                  "store, but the redactor is unavailable, so the handover was "
+                  "NOT written into %s. The adoption itself is real; the store's "
+                  "digest is intact regardless." % (name, luid, result.version, STATE_FILENAME))
     finally:
         store.close()
+    _refresh_root_view(root)
     if outcome == "already":
         _out("adopted '%s' (resumed): the handover was already in %s from an "
              "earlier attempt, so it was NOT written again." % (name, STATE_FILENAME))
-    else:
+    elif outcome == "delivered":
         _out("adopted '%s': its digest and fence are now in %s (lifecycle %s, "
              "version %s)." % (name, STATE_FILENAME, result.lifecycle_uuid, result.version))
+    else:
+        _out("adopted '%s' (lifecycle %s, version %s): recorded in the store; "
+             "see the warning above about %s." % (name, result.lifecycle_uuid,
+                                                   result.version, STATE_FILENAME))
     _out("  DECIDE: respawn the thread, or continue this work solo. Nothing is orphaned.")
 
 

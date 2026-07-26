@@ -34,17 +34,19 @@ cd ~/.claude/skills/brothermode
 python3 tools/test_bm.py
 ```
 
-Expected, after a wait: `Ran 124 tests in <some number of seconds>` followed by
-`OK (skipped=1)`. On an ordinary laptop this takes about four to five minutes,
-not seconds: one test in this file deliberately runs several hundred real
-subprocess calls (it drives the command-line tool through hundreds of randomly
-generated sequences of operations, checking the same invariants after every
-single one), and that is most of the four minutes. The one skip is
-environment-dependent (it needs a filesystem that supports making a file
-read-only, which not every sandbox does) and is not a failure. If you see any
-line starting `FAIL` or `ERROR`, stop here: something about your Python or
-platform does not match what this project expects, and installing the rest is
-not worth doing until that is understood.
+Expected: `Ran 54 tests in <some number of seconds>` followed by `OK
+(skipped=2)`. Measured 2026-07-26 on an ordinary laptop: about nine seconds,
+not minutes. (An earlier version of this page said 124 tests, one skip, and
+four to five minutes; that was true before this project's Phase 3 rewire
+deleted the old registry module and its tests along with it, 2026-07-26. If
+your run shows the old numbers, you have an older copy of this repository.)
+The two skips are both environment-dependent, not failures: one is a check
+for a shell-script autosave version this project no longer ships, the other
+needs a filesystem that supports making a file read-only, which not every
+sandbox does. If you see any line starting `FAIL` or `ERROR`, stop here:
+something about your Python or platform does not match what this project
+expects, and installing the rest is not worth doing until that is
+understood.
 
 ## 3. Wire the hooks
 

@@ -19,7 +19,16 @@ find it there too:
 - Each thread also gets `threads/<name>/STATE.md`, `inbox.md`, `outbox.md`, and
   `digest.md`, plus a `threads/.mode.lock`. Everything written there is redacted
   at the write, the same as everything else.
-- `absorb` appends a handover section to your project's `STATE.md`.
+- `STATE.md` is fully regenerated from the store on every mutating command
+  (a generated view, never hand-edited truth); nothing appends to it. Each
+  thread also gets its own `threads/<name>-<id>/digest.md`, a view of that
+  thread's recorded handover. There is no `absorb` command in either CLI
+  (confirmed by running `--help` on both, 2026-07-26: `bm_store.py`'s
+  commands are adopt, checkpoint, claim, complete, dashboard, decide, dump,
+  init, park, resume, verify; `bm_threads.py`'s are adopt, checkpoint,
+  complete, dashboard, decide, off, on, park, recommend, resume, send,
+  start). An earlier draft of this document named a command that was never
+  shipped.
 - The V2 store (`tools/bm_store.py`, arriving module by module) writes
   `.brothermode/store.sqlite3` under your project root. That database holds your
   objectives, decisions, digests, and directives AS YOU TYPED THEM: redaction in
@@ -33,19 +42,18 @@ find it there too:
   owner-only where the platform supports it (on Windows this is best-effort;
   rely on your user profile's access control).
 
-You can verify both claims yourself; the tools are about 12,400 lines of
+You can verify both claims yourself; the tools are about 12,008 lines of
 standard-library Python and shell (measured 2026-07-26; a test fails if this
 figure drifts more than 15 percent from what the command below returns).
 
-This figure has been raised three times in one day, which is itself worth
-stating plainly rather than hiding in a number. Two reasons, one legitimate and
-one not: the V2 store currently ships ALONGSIDE the V1 registry and thread tools
-it replaces (Phase 3 removes about 1,668 lines of those), and roughly a third of
-the new store file is comment, much of it narrating which fix round changed what,
-which belongs in git rather than in the source. A pass to strip that provenance
-is contracted. If this number is not falling by the close of Phase 3, the growth
-is real and the claim that this is a small auditable toolchain should be
-withdrawn rather than restated:
+This figure was raised three times in one day, then fell once Phase 3 landed
+the same day: the V2 store shipped ALONGSIDE the V1 registry and thread tools
+it replaced for a while, and Phase 3 deleted `bm_registry.py` (917 lines) and
+rewrote `bm_threads.py` on top of the store instead of its own storage,
+cutting `tools/test_bm.py` from 124 tests to the 54 it has today. Roughly a
+third of `bm_store.py` is still comment, much of it narrating which fix round
+changed what, which belongs in git rather than in the source; a pass to
+strip that provenance out of the source remains contracted, not done:
 
 ```bash
 find tools -type f \( -name "*.py" -o -name "*.sh" \) | xargs wc -l

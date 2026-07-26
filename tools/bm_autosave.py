@@ -81,6 +81,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -701,13 +702,64 @@ def cmd_tick():
                 pass
 
 
+def _chmod_best_effort(path, mode):
+    """Best-effort permission tightening, the same shape bm_store.py's own
+    _chmod_best_effort uses (duplicated here on purpose rather than
+    importing bm_store.py for one line: this module's git-snapshot half
+    and the store's persistence half stay independent, and a founder who
+    has read one BrotherMode module can read the other). Windows ACLs make
+    a POSIX mode a courtesy at best (os.chmod there can only toggle the
+    read-only bit), so a failure, or a silent no-op on a platform that will
+    not honor it, is expected and never escalated: this function does not
+    claim a guarantee the platform will not keep."""
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        pass
+
+
+def _prepare_recovery_worktree_dir():
+    """The directory `git worktree add` will check the recovery snapshot
+    out into, owner-only (0700) from the instant it exists to the instant
+    anything is checked out into it (BLOCKER 1, release-blockers spec,
+    2026-07-26, VERIFIED BY ORCHESTRATOR).
+
+    tempfile.mkdtemp() already creates its directory at 0700. The OLD code
+    then called os.rmdir() on that directory, reasoning (in a comment) that
+    `git worktree add` needs a path that does not exist yet. That reasoning
+    was never actually true (verified by hand: `git worktree add --detach
+    <an-existing-empty-dir> <sha>` succeeds and leaves the directory's own
+    mode untouched), and the rmdir meant git recreated the path itself, at
+    the process umask (typically 0755 under the common 022 default)
+    instead of 0700. On a shared machine with a world-writable temp
+    directory, that made every recovered worktree, and any untracked
+    private file inside it, readable by any local account (reproduced:
+    drwxr-xr-x on the directory, -rw-r--r-- on an untracked secret file
+    inside it).
+
+    The fix is what this function does NOT do: it never discards mkdtemp's
+    own directory, so there is no window where a less-restrictive mode
+    could apply before this returns. The chmod below is defense in depth
+    (correct even if a platform's mkdtemp default or umask handling were
+    ever looser than expected), not the load-bearing half of the fix."""
+    d = tempfile.mkdtemp(prefix="bm-autosave-recover-")
+    _chmod_best_effort(d, 0o700)
+    return d
+
+
 def cmd_recover(argv):
     """Print exactly how to get saved work back, and DO it: create a NEW
     git worktree at a temporary path checked out at the latest snapshot,
     and print its location. Never writes into the live working tree
     (requirement 6): the old in-place `git restore --worktree .` path,
     which could delete a tracked file the snapshot never captured (FC), is
-    gone, not merely warned about."""
+    gone, not merely warned about.
+
+    BLOCKER 1 (release-blockers spec, 2026-07-26): the recovery directory
+    is owner-only from the moment it exists (see
+    _prepare_recovery_worktree_dir), and the mode actually achieved is
+    printed, not merely assumed, so the founder can see what protection a
+    given platform actually gave the recovered work."""
     start = argv[0] if argv else os.getcwd()
     toplevel = resolve_toplevel(start)
     if toplevel is None:
@@ -720,18 +772,21 @@ def cmd_recover(argv):
     if not sha:
         print("bm_autosave: no autosave found for %s (ref %s is empty)." % (toplevel, ref))
         return
-    tmp_dir = tempfile.mkdtemp(prefix="bm-autosave-recover-")
-    try:
-        os.rmdir(tmp_dir)  # `git worktree add` wants a path that does not exist yet
-    except OSError:
-        pass
+    tmp_dir = _prepare_recovery_worktree_dir()
     wt = _run_git(toplevel, "worktree", "add", "--detach", tmp_dir, sha)
     if wt.returncode != 0:
+        try:
+            os.rmdir(tmp_dir)
+        except OSError:
+            pass
         print("bm_autosave: could not create a recovery worktree (%s)"
               % (wt.stderr or "").strip())
         return
+    mode = stat.S_IMODE(os.stat(tmp_dir).st_mode)
     print("bm_autosave: recovered snapshot %s into a NEW worktree at:" % sha)
     print("  %s" % tmp_dir)
+    print("  permissions: %04o (owner-only; best-effort only on platforms, "
+          "e.g. Windows, that do not fully enforce a POSIX mode)" % mode)
     print("  Your live working tree at %s was never touched. Inspect the folder "
           "above, copy back what you need, then run" % toplevel)
     print("  `git -C %s worktree remove %s` when you are done with it."

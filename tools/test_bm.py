@@ -28,6 +28,54 @@ bs = importlib.util.module_from_spec(_store_spec)
 _store_spec.loader.exec_module(bs)
 sys.modules["bm_store"] = bs
 
+# Import bm_threads.py as a module too (not only via subprocess), so
+# calibration tests can monkeypatch a real PRODUCT symbol on THIS module
+# object and have bm_threads' own command functions, called in-process,
+# actually run through the patched version. A subprocess re-execs
+# bm_threads.py fresh from disk and can never see an in-process monkeypatch,
+# so behavioral tests use _run_threads (subprocess, realistic end-to-end),
+# and only calibration tests use this module object directly.
+_threads_spec = importlib.util.spec_from_file_location("bm_threads", os.path.join(HERE, "bm_threads.py"))
+threads_mod = importlib.util.module_from_spec(_threads_spec)
+_threads_spec.loader.exec_module(threads_mod)
+sys.modules["bm_threads"] = threads_mod
+
+
+def _read(path):
+    with io.open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def _call_thread_cmd_in_process(root, fn, argv):
+    """Invoke a bm_threads command FUNCTION directly, in-process, so a
+    monkeypatch on threads_mod's own module object is actually exercised
+    (a subprocess re-execs bm_threads.py fresh and could never see it).
+    Both BROTHERMODE_ROOT (resolve_root() checks it before cwd) AND the
+    process cwd are set and restored: cwd matters too, because claim()
+    resolves relative --files paths against os.getcwd(), which cmd_start
+    passes through unchanged. Returns (exit_code, printed_stdout); a
+    command that never calls sys.exit() returns 0."""
+    old_env = os.environ.get("BROTHERMODE_ROOT")
+    old_cwd = os.getcwd()
+    os.environ["BROTHERMODE_ROOT"] = root
+    os.chdir(root)
+    out = io.StringIO()
+    code = 0
+    try:
+        with contextlib.redirect_stdout(out):
+            try:
+                fn(argv)
+            except SystemExit as e:
+                code = e.code or 0
+    finally:
+        os.chdir(old_cwd)
+        if old_env is None:
+            os.environ.pop("BROTHERMODE_ROOT", None)
+        else:
+            os.environ["BROTHERMODE_ROOT"] = old_env
+    return code, out.getvalue()
+
+
 def _run_threads(args, cwd, env=None):
     """Invoke bm_threads.py as a subprocess, always with BROTHERMODE_ROOT
     scrubbed from the child's environment (matching test_bm_store.py's own
@@ -733,12 +781,22 @@ class TestLiveSessionAdoptGate(unittest.TestCase):
             _run_threads(["on"], d)
             _run_threads(["start", "payments", "build payments", "--files", "api/pay.py",
                          "--session", "sessA"], d)
+            state_path = os.path.join(d, "STATE.md")
+            before = _read(state_path) if os.path.exists(state_path) else None
             r = _run_threads(["adopt", "payments"], d)
             self.assertEqual(r.returncode, 2)
             self.assertIn("ADOPT REFUSED (live-session-adopt-blocked)", r.stdout)
             rec = _record(d, "payments", states=("active",))
             self.assertIsNotNone(rec, "a refused adopt must leave the record exactly as it was")
             self.assertEqual(rec["session_id"], "sessA")
+            # GATE 3 (release-blockers spec, 2026-07-26): a refused adopt
+            # used to still permanently write its handover into STATE.md
+            # (delivery happened before the transition). Reproduced: a LIVE
+            # thread got recorded as "Adopted from dead/stalled thread".
+            after = _read(state_path) if os.path.exists(state_path) else None
+            self.assertEqual(before, after,
+                             "a refused adopt must leave STATE.md byte-for-byte unchanged")
+            self.assertNotIn("Adopted from dead/stalled thread", after or "")
 
     def test_adopt_with_the_flag_displaces_the_live_session(self):
         with tempfile.TemporaryDirectory() as d:
@@ -748,6 +806,45 @@ class TestLiveSessionAdoptGate(unittest.TestCase):
             r = _run_threads(["adopt", "payments", "--adopt-from-live-session"], d)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertEqual(_record(d, "payments")["state"], "adopted")
+
+    def test_calibrated_gate3_reinjecting_deliver_then_transition_corrupts_state_md(self):
+        # CALIBRATION: reinject the OLD order (deliver the handover, THEN
+        # attempt the transition) onto the real PRODUCT symbol
+        # threads_mod._adopt_core, called IN-PROCESS (a subprocess re-execs
+        # bm_threads.py fresh and could never see this monkeypatch), and
+        # confirm the SAME refused adopt now corrupts STATE.md with a LIVE
+        # thread's handover -- the exact GATE 3 defect.
+        def _old_deliver_then_transition(store, root, rec, session_id, adopt_live, name):
+            luid = rec["lifecycle_uuid"]
+            outcome = threads_mod._deliver_handover_once(
+                root, store, luid,
+                "Adopted from dead/stalled thread: %s" % threads_mod._protect(name))
+            result = store.transition(luid, rec["version"], "adopted",
+                                       session_id=session_id, note="adopted by the chief",
+                                       adopt_from_live_session=adopt_live)
+            return outcome, result
+
+        with tempfile.TemporaryDirectory() as d:
+            _run_threads(["on"], d)
+            _run_threads(["start", "payments", "build payments", "--files", "api/pay.py",
+                         "--session", "sessA"], d)
+            original = threads_mod._adopt_core
+            threads_mod._adopt_core = _old_deliver_then_transition
+            try:
+                code, printed = _call_thread_cmd_in_process(d, threads_mod.cmd_adopt, ["payments"])
+            finally:
+                threads_mod._adopt_core = original
+            self.assertEqual(code, 2, printed)
+            state = _read(os.path.join(d, "STATE.md"))
+            self.assertIn(
+                "Adopted from dead/stalled thread", state,
+                "REINJECTION CHECK: with the old deliver-then-transition order "
+                "restored, a REFUSED adopt must still corrupt STATE.md with a LIVE "
+                "thread's handover, reproducing GATE 3; if this assertion fails, "
+                "the test above is not calibrated to the defect it claims to catch")
+            rec = _record(d, "payments", states=("active",))
+            self.assertIsNotNone(rec, "only the delivered TEXT should have leaked, "
+                                 "not the record's own state")
 
 
 class TestSecondSessionCannotTakeOver(unittest.TestCase):
@@ -803,6 +900,33 @@ class TestParkResumeComplete(unittest.TestCase):
             self.assertIn("refused", r.stdout)
             self.assertEqual(_record(d, "alpha")["state"], "active",
                              "the wrong session must never be able to park someone else's thread")
+
+    def test_blocker2_resume_from_a_different_session_succeeds_after_off(self):
+        # THE founder's ratified hard requirement: thread mode can be
+        # switched off mid-project with every thread resumable. Reproduced:
+        # monday `off` said "resumable"; tuesday `resume` from a DIFFERENT
+        # session was refused not-owner, and the owning session id appeared
+        # nowhere a human could see it.
+        with tempfile.TemporaryDirectory() as d:
+            _run_threads(["on"], d)
+            _run_threads(["start", "payments", "build payments", "--files", "api/pay.py",
+                         "--session", "monday"], d)
+            r_off = _run_threads(["off"], d)
+            self.assertEqual(r_off.returncode, 0, r_off.stdout + r_off.stderr)
+            self.assertIn("resumable", r_off.stdout)
+            parked = _record(d, "payments", states=("parked",))
+            self.assertIsNotNone(parked)
+            self.assertEqual(parked["session_id"], "monday")
+            r_resume = _run_threads(["resume", "payments", "--session", "tuesday"], d)
+            self.assertEqual(r_resume.returncode, 0, r_resume.stdout + r_resume.stderr)
+            resumed = _record(d, "payments", states=("active",))
+            self.assertIsNotNone(resumed)
+            self.assertEqual(resumed["session_id"], "tuesday",
+                             "the resuming session must become the new owner in the "
+                             "same transition")
+            # The owning session must be discoverable without dumping the DB.
+            r_dash = _run_threads(["dashboard"], d)
+            self.assertIn("tuesday", r_dash.stdout)
 
 
 class TestStrictMode(unittest.TestCase):
@@ -1289,6 +1413,127 @@ class TestArchitecturalGuards(unittest.TestCase):
             self.assertEqual(top_line, nested_line,
                              "the resolved root must not depend on the calling subdirectory")
             self.assertIn(os.path.realpath(d), nested_line)
+
+
+class TestGate4ThreadCommandsRefreshTheRootView(unittest.TestCase):
+    """GATE 4 (release-blockers spec, 2026-07-26): the thread CLI never
+    rendered the root STATE.md, so `bm_store.py verify` (run at every
+    SessionStart) reported "1 problem(s) found" on every ordinary run
+    after using thread mode, even though nothing was actually wrong."""
+
+    def test_verify_is_healthy_after_start_with_no_off_or_dashboard(self):
+        # `start` alone, never followed by `off`, `dashboard`, or any
+        # bm_store.py command: the exact sequence that used to leave
+        # STATE.md not reflecting the new active record.
+        with tempfile.TemporaryDirectory() as d:
+            _run_threads(["on"], d)
+            r = _run_threads(["start", "payments", "build payments",
+                              "--files", "api/pay.py", "--session", "s1"], d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            problems = bs.verify(d)
+            self.assertEqual(problems, [],
+                             "verify must be healthy immediately after `start`, without "
+                             "requiring a separate `dashboard` or `off` to refresh the view: %s"
+                             % problems)
+
+    def test_verify_is_healthy_after_checkpoint_and_decide_too(self):
+        with tempfile.TemporaryDirectory() as d:
+            _run_threads(["on"], d)
+            _run_threads(["start", "payments", "build payments",
+                          "--files", "api/pay.py", "--session", "s1"], d)
+            _run_threads(["checkpoint", "payments", "--next", "wire it"], d)
+            _run_threads(["decide", "payments", "--topic", "t", "--text", "x"], d)
+            problems = bs.verify(d)
+            self.assertEqual(problems, [], problems)
+
+    def test_calibrated_gate4_reinjecting_a_skipped_refresh_reproduces_the_problem(self):
+        # CALIBRATION: reinject a no-op onto the real PRODUCT symbol
+        # threads_mod._refresh_root_view, called IN-PROCESS (a subprocess
+        # cannot see this monkeypatch), and confirm the SAME `start`
+        # sequence now reproduces the reported "1 problem(s) found".
+        with tempfile.TemporaryDirectory() as d:
+            _run_threads(["on"], d)
+            original = threads_mod._refresh_root_view
+            threads_mod._refresh_root_view = lambda root: None
+            try:
+                code, printed = _call_thread_cmd_in_process(
+                    d, threads_mod.cmd_start,
+                    ["payments", "build", "payments", "--files", "api/pay.py", "--session", "s1"])
+            finally:
+                threads_mod._refresh_root_view = original
+            self.assertEqual(code, 0, printed)
+            problems = bs.verify(d)
+            self.assertEqual(
+                len(problems), 1,
+                "REINJECTION CHECK: with the view refresh disabled, `start` must "
+                "leave verify() reporting exactly the GATE 4 problem shape; if this "
+                "assertion fails, the tests above are not calibrated to the defect "
+                "they claim to catch: %s" % problems)
+            self.assertTrue(any("STATE.md does not exist" in p
+                                or "does not appear in the generated" in p for p in problems),
+                            problems)
+
+
+class TestGate5UnknownFlagsRefused(unittest.TestCase):
+    """GATE 5 (release-blockers spec, 2026-07-26): neither CLI validated
+    flag names. `start X --file f` (singular) created a thread whose
+    objective was the flag text and with NO FENCE, exit 0. `checkpoint X
+    --note "..."` reported success and stored nothing. A silently unfenced
+    thread breaks the one guarantee this project exists to provide."""
+
+    def test_start_refuses_a_misspelled_files_flag(self):
+        with tempfile.TemporaryDirectory() as d:
+            _run_threads(["on"], d)
+            r = _run_threads(["start", "X", "objective", "text", "--file", "f"], d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("unrecognized flag", r.stdout)
+            self.assertIsNone(_record(d, "X"),
+                             "a refused start must create NO record at all, fenced or not")
+
+    def test_checkpoint_refuses_a_misspelled_note_flag(self):
+        with tempfile.TemporaryDirectory() as d:
+            _run_threads(["on"], d)
+            _run_threads(["start", "payments", "build payments",
+                          "--files", "api/pay.py", "--session", "s1"], d)
+            before = _record(d, "payments")
+            r = _run_threads(["checkpoint", "payments", "--note", "some progress note"], d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("unrecognized flag", r.stdout)
+            after = _record(d, "payments")
+            self.assertEqual(before["version"], after["version"],
+                             "a refused checkpoint must record nothing, not a "
+                             "version bump with an empty digest")
+
+    def test_calibrated_gate5_reinjecting_permissive_start_lets_a_typo_through_unfenced(self):
+        # CALIBRATION: reinject a no-op onto the real PRODUCT symbol
+        # threads_mod._unrecognized_start_flags (start's OWN flag check;
+        # it cannot use _reject_unknown_flags, which checks an already-
+        # parsed kv dict, since an unrecognized flag here corrupts parsing
+        # itself), called IN-PROCESS, and confirm the SAME `--file` typo
+        # now reproduces the exact reported defect: a thread created with
+        # the flag text as its objective and NO FENCE, at exit 0.
+        with tempfile.TemporaryDirectory() as d:
+            _run_threads(["on"], d)
+            original = threads_mod._unrecognized_start_flags
+            threads_mod._unrecognized_start_flags = lambda *a, **k: []
+            try:
+                code, printed = _call_thread_cmd_in_process(
+                    d, threads_mod.cmd_start, ["X", "objective", "text", "--file", "f"])
+            finally:
+                threads_mod._unrecognized_start_flags = original
+            self.assertEqual(
+                code, 0, "REINJECTION CHECK: with flag validation disabled, `start "
+                "X --file f` must succeed at exit 0 (the reported defect), not "
+                "refuse for some other reason: %s" % printed)
+            rec = _record(d, "X", states=("active",))
+            self.assertIsNotNone(rec, "REINJECTION CHECK: the old behavior still "
+                                 "creates a record, just an unfenced one")
+            self.assertIn("--file f", rec["objective"],
+                          "REINJECTION CHECK: the flag text must have leaked into "
+                          "the objective, the exact reported shape")
+            self.assertEqual(_claims(d, rec["lifecycle_uuid"]), [],
+                             "REINJECTION CHECK: the record must have NO FENCE, "
+                             "the exact reported defect")
 
 
 class TestCliSequencesNeverRaiseOrLeaveDoubleActiveThreads(unittest.TestCase):
