@@ -1182,6 +1182,59 @@ class TestRegistryAbsorbAndView(unittest.TestCase):
                         "SECURITY.md claims about %d lines but the tools are %d. "
                         "Update the figure in SECURITY.md." % (claimed, actual))
 
+    def test_no_network_claim_is_mechanically_true(self):
+        """SECURITY.md's headline privacy claim ("makes no network calls") was
+        published with a grep the reader was expected to run by hand, which
+        means the claim rotted the moment nobody ran it. The line-count claim
+        beside it has been gated since it drifted twice in one day; the claim
+        that actually protects the founder's data was not. It is now.
+
+        Shipping modules only: the test files themselves may import subprocess
+        to drive the CLI they are testing, which is local execution, not a
+        network call, and is what makes the CLI testable at all."""
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        tools = os.path.join(root, "tools")
+        banned = ("urllib", "http", "socket", "requests", "ftplib", "smtplib",
+                  "telnetlib", "xmlrpc", "subprocess", "asyncio")
+        pattern = re.compile(
+            r"^\s*(?:import|from)\s+(%s)\b" % "|".join(banned))
+        offenders = []
+        for n in sorted(os.listdir(tools)):
+            if not n.endswith(".py") or n.startswith("test_"):
+                continue
+            for i, line in enumerate(
+                    io.open(os.path.join(tools, n), encoding="utf-8"), 1):
+                m = pattern.match(line)
+                if m:
+                    offenders.append("%s:%d imports %s" % (n, i, m.group(1)))
+        self.assertEqual(
+            offenders, [],
+            "SECURITY.md claims BrotherMode makes no network calls and that the "
+            "tools run no subprocess, but %s. Either remove the import or "
+            "correct SECURITY.md; do not leave the document claiming more than "
+            "the code delivers." % ", ".join(offenders))
+
+        # The shell half of the claim: the autosave runs git locally and must
+        # never reach a remote. A pushing autosave would send the founder's
+        # entire working tree, untracked files included, somewhere it was never
+        # promised to go.
+        net_cmds = re.compile(r"(?<![\w-])(curl|wget|nc|ssh|scp)\s")
+        push = re.compile(r"git\s+(?:-C\s+\S+\s+)?(?:push|fetch|pull|clone|remote)\b")
+        shell_offenders = []
+        for n in sorted(os.listdir(tools)):
+            if not n.endswith(".sh"):
+                continue
+            for i, line in enumerate(
+                    io.open(os.path.join(tools, n), encoding="utf-8"), 1):
+                code = line.split("#", 1)[0]
+                if net_cmds.search(code) or push.search(code):
+                    shell_offenders.append("%s:%d" % (n, i))
+        self.assertEqual(
+            shell_offenders, [],
+            "a shell tool now reaches the network or a git remote (%s). "
+            "SECURITY.md promises the autosave is local only and never pushes."
+            % ", ".join(shell_offenders))
+
     def test_missing_fcntl_degrades_loudly_and_still_works(self):
         """fcntl is POSIX only, so on Windows there is no lock. Continuing is
         right (never block a session) but doing it silently was not: the caller
