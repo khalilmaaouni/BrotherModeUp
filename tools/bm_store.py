@@ -39,6 +39,7 @@ resolution walks the filesystem directly rather than shelling out to git.
 No em or en dashes anywhere in this file, its comments, or its output.
 """
 import contextlib
+import weakref
 import datetime
 import hashlib
 import io
@@ -1073,6 +1074,38 @@ def _exec(store, sql, params=()):
         store._quarantine_and_raise(e)
 
 
+# Every Store/ReadOnlyStore whose sqlite handle is currently open. This is the
+# MECHANICAL STOP for the leak class behind the Windows CI failure (run 18,
+# commit 7c2e0ec): that round fixed 12 known call sites by hand, and a
+# hand-fixed call site is not a fixed class, because the 13th site is written
+# by someone who never read the fix. The suite asserts this set is empty at
+# teardown, so ANY future site that opens a store and abandons it fails the
+# suite on every platform, not only on the one that happens to lock files.
+#
+# A WeakSet rather than a list, deliberately: a store that has been garbage
+# collected no longer holds an OS handle (CPython closes the sqlite connection
+# when it finalizes), so counting it would report a leak that cannot hurt
+# anyone. What broke Windows was a store still REFERENCED and still open when
+# the directory was removed, and that is exactly what stays visible here.
+_OPEN_STORES = weakref.WeakSet()
+
+# Discipline tracking, OFF by default. _OPEN_STORES tracks stores that are
+# still alive, which turned out to be the wrong question: a store abandoned
+# inside a test is freed the moment the test function returns, so by the time
+# any external checker looks, the set is empty and the leak reports clean.
+# That was measured, not assumed: a deliberately reinjected leak passed a
+# liveness-based check.
+#
+# What matters is whether a store was ever closed, not whether it is still
+# alive when someone asks. _UNCLOSED holds a STRONG reference, so an abandoned
+# store stays visible after collection would have hidden it. It is opt-in
+# precisely because strong references retain sqlite connections: the test
+# runner sets _TRACK_UNCLOSED, and the shipping CLI never does, so normal use
+# keeps exactly the memory profile it had before.
+_TRACK_UNCLOSED = False
+_UNCLOSED = set()
+
+
 class Store(object):
     """One open connection to <root>/.brothermode/store.sqlite3. Every
     ownership mutation runs inside exactly one BEGIN IMMEDIATE ... COMMIT
@@ -1152,6 +1185,9 @@ class Store(object):
             conn = sqlite3.connect(self.path, timeout=5.0, isolation_level=None)
             conn.row_factory = sqlite3.Row
             self.conn = conn
+            _OPEN_STORES.add(self)
+            if _TRACK_UNCLOSED:
+                _UNCLOSED.add(self)
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA busy_timeout=%d" % int(busy_timeout_ms))
             conn.execute("PRAGMA foreign_keys=ON")
@@ -1184,6 +1220,7 @@ class Store(object):
                 except Exception:
                     pass
                 self.conn = None
+                _UNCLOSED.discard(self)
             raise OwnershipRefused(
                 "db-busy",
                 "the store at %s is busy or locked (%s), most likely another "
@@ -1290,6 +1327,7 @@ class Store(object):
                 except Exception:
                     pass
                 self.conn = None
+                _UNCLOSED.discard(self)
             raise StoreCorrupt(
                 "%s is not a readable SQLite database (%s), and a quarantine "
                 "directory could not be created either (%s). Nothing was "
@@ -1318,6 +1356,7 @@ class Store(object):
             except Exception:
                 pass
             self.conn = None
+            _UNCLOSED.discard(self)
         moved, failed = list(preserved), []
         # The main file is not a WAL/SHM sidecar and was never at risk from
         # close() the way GATE C describes, so it is moved here, after
@@ -1376,11 +1415,33 @@ class Store(object):
             quarantine_path=qdir)
 
     def close(self):
+        """Idempotent: a second call finds self.conn already None and is a
+        harmless no-op, so callers never need to guard a close-in-finally
+        with an extra 'if store is not None and store.conn is not None'."""
+        _OPEN_STORES.discard(self)
+        _UNCLOSED.discard(self)
         if self.conn is not None:
             try:
                 self.conn.close()
             finally:
                 self.conn = None
+                _UNCLOSED.discard(self)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # Windows CI defect (GitHub Actions run 18, commit 7c2e0ec, job
+        # 'store (windows-latest, 3.x)'): callers that opened a Store and
+        # never closed it left the sqlite3 handle open, which POSIX
+        # tolerates silently but Windows enforces as a locked file, so a
+        # later attempt to remove the containing directory raised
+        # PermissionError. close() runs here regardless of how the with
+        # block exits (return, break, or an exception in flight), which is
+        # the whole reason to prefer this over a bare call at the end of a
+        # function body.
+        self.close()
+        return False
 
     @contextlib.contextmanager
     def _transaction(self):
@@ -2247,6 +2308,9 @@ class ReadOnlyStore(object):
         try:
             conn = _connect_read_only(self.path)
             self.conn = conn
+            _OPEN_STORES.add(self)
+            if _TRACK_UNCLOSED:
+                _UNCLOSED.add(self)
             # CRITICAL A (fix-round 8): the same structural verification the
             # writable Store applies on an existing file, so a diagnostic
             # command (dashboard, dump, verify) run against a store missing
@@ -2263,6 +2327,7 @@ class ReadOnlyStore(object):
                 except Exception:
                     pass
                 self.conn = None
+                _UNCLOSED.discard(self)
             raise OwnershipRefused(
                 "db-busy",
                 "the store at %s is busy or locked (%s); wait a moment and "
@@ -2286,11 +2351,25 @@ class ReadOnlyStore(object):
         return Store.dump(self, raw=raw)
 
     def close(self):
+        """Idempotent, same contract as Store.close()."""
+        _OPEN_STORES.discard(self)
+        _UNCLOSED.discard(self)
         if self.conn is not None:
             try:
                 self.conn.close()
             finally:
                 self.conn = None
+                _UNCLOSED.discard(self)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # Same rationale as Store.__exit__: a diagnostic read (dashboard,
+        # verify, has_receipt) that opens a ReadOnlyStore and forgets to
+        # close it leaks exactly the same handle.
+        self.close()
+        return False
 
 
 def _find_quarantine_dirs(root):
@@ -2963,7 +3042,12 @@ def cmd_init(argv):
             % (len(unacknowledged), "y has" if len(unacknowledged) == 1 else "ies have",
                "; ".join(_quarantine_summary(d) for d in unacknowledged)),
             details={"quarantine_dirs": unacknowledged})
-    init_project(root)
+    # init_project returns the Store it just opened (its own schema-setup
+    # side effects need a live connection); this command only needs the
+    # side effects, so close it right away instead of leaking the handle
+    # for the rest of the process (the real, product-level shape of the
+    # Windows CI defect this fix-round exists for).
+    init_project(root).close()
     if acknowledge:
         for d in unacknowledged:
             _acknowledge_quarantine(d)
