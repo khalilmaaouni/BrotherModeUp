@@ -2070,5 +2070,514 @@ class TestFinding4InstallVerifierSeesEveryEntryType(unittest.TestCase):
             self.assertIn("tools/sneaky.py", r.stderr)
 
 
+def _identity_rows(root, name):
+    """Every record named `name`, read through the store's own direct table
+    lookup. Deliberately NOT _record() above, which reads dump(): a name
+    that trips the redactor comes back as "[REDACTED]" from dump(), so a
+    test that used it could never see the very records FINDING 9 is about."""
+    store = bs.Store(root, create=False)
+    try:
+        return store.identity_by_name(name)
+    finally:
+        store.close()
+
+
+def _fresh_threads_module(tag):
+    """A private import of bm_threads.py, so a calibration test can
+    monkeypatch product symbols on it without leaking that patch into any
+    other test (the shape TestPartialOffAtomicity._mod already uses)."""
+    spec = importlib.util.spec_from_file_location(
+        "bm_threads_%s" % tag, os.path.join(HERE, "bm_threads.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _OLD_find_record_through_dump(store, name, states=None, lifecycle_prefix=None):
+    """The PRE-FIX _find_record, verbatim in behaviour: it resolved names
+    through the redacted presentation view (FINDING 9) and returned the most
+    recently updated match whenever the top two timestamps merely differed
+    (FINDING 10). Kept here, in the test file, so the calibration tests can
+    reinject the exact old behaviour without the product file carrying a
+    dead code path someone could call by accident."""
+    data = store.dump()
+    matches = [r for r in data["records"] if r["name"] == name]
+    if lifecycle_prefix:
+        matches = [r for r in matches if r["lifecycle_uuid"].startswith(lifecycle_prefix)]
+    if states:
+        matches = [r for r in matches if r["state"] in states]
+    if not matches:
+        raise bs.OwnershipRefused("not-found", "no record named %r found" % (name,))
+    if len(matches) > 1:
+        matches.sort(key=lambda r: r["updated_at"], reverse=True)
+        if matches[0]["updated_at"] != matches[1]["updated_at"]:
+            return matches[0]
+        raise bs.OwnershipRefused("ambiguous-name", "ambiguous")
+    return matches[0]
+
+
+class TestFinding9SecretShapedNamesStayReachable(unittest.TestCase):
+    """FINDING 9 (external audit 2026-07-27, HIGH): a thread whose NAME trips
+    the redactor was stored fine and then became unreachable forever, its
+    fence stranded, because _find_record resolved names through store.dump()
+    (a PRESENTATION view whose default-deny redaction rewrites records.name).
+
+    "password=hunter2" is a legal name: bm_store.valid_name rejects reserved
+    characters, whitespace and non-printable ASCII, and nothing else. So this
+    was reachable by typing, not only in theory."""
+
+    SECRET_NAME = "password=hunter2"
+
+    def test_the_name_really_does_trip_the_redactor(self):
+        # The premise, asserted rather than assumed: if this ever stops being
+        # true, every other test in this class would pass for the wrong
+        # reason and prove nothing at all.
+        self.assertEqual(bs.redact_text(self.SECRET_NAME), "[REDACTED]")
+        self.assertEqual(bs.valid_name(self.SECRET_NAME), self.SECRET_NAME,
+                         "the store must still accept this name, or the bug it "
+                         "strands could not be created in the first place")
+
+    def test_a_thread_named_like_a_secret_stays_reachable_for_its_whole_life(self):
+        with tempfile.TemporaryDirectory() as d:
+            _run_threads(["on"], d)
+            r = _run_threads(["start", self.SECRET_NAME, "ship it",
+                              "--files", "api/a.py", "--session", "s1"], d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            rows = _identity_rows(d, self.SECRET_NAME)
+            self.assertEqual(len(rows), 1, "the record must have been stored under "
+                                           "its real name: %s" % rows)
+            luid = rows[0]["lifecycle_uuid"]
+            # Every name-addressed command, not just the one the audit named.
+            for args in (["checkpoint", self.SECRET_NAME, "--next", "wire it up"],
+                         ["decide", self.SECRET_NAME, "--topic", "api", "--text", "chose sqlite"],
+                         ["send", self.SECRET_NAME, "keep going"],
+                         ["park", self.SECRET_NAME, "--session", "s1"],
+                         ["resume", self.SECRET_NAME, "--session", "s1"],
+                         ["complete", self.SECRET_NAME, "--session", "s1",
+                          "--evidence", "tests pass: 12/12"]):
+                r = _run_threads(args, d)
+                self.assertEqual(r.returncode, 0,
+                                 "`%s` could not reach a thread whose name trips the "
+                                 "redactor; its fence would be stranded forever:\n%s\n%s"
+                                 % (args[0], r.stdout, r.stderr))
+            final = [row for row in _identity_rows(d, self.SECRET_NAME)
+                     if row["lifecycle_uuid"] == luid]
+            self.assertEqual(final[0]["state"], "complete")
+
+    def test_the_secret_name_never_reaches_stdout_or_a_file_in_cleartext(self):
+        # Resolution stopped going through the redactor, so this proves the
+        # protection that was really wanted is still there, at the OUTPUT
+        # boundary where it belongs.
+        with tempfile.TemporaryDirectory() as d:
+            _run_threads(["on"], d)
+            r = _run_threads(["start", self.SECRET_NAME, "ship it",
+                              "--files", "api/a.py", "--session", "s1"], d)
+            self.assertNotIn(self.SECRET_NAME, r.stdout)
+            _run_threads(["checkpoint", self.SECRET_NAME, "--next", "wire it up"], d)
+            r_off = _run_threads(["off"], d)
+            self.assertEqual(r_off.returncode, 0, r_off.stdout + r_off.stderr)
+            self.assertNotIn(self.SECRET_NAME, r_off.stdout)
+            state = _read(os.path.join(d, "STATE.md"))
+            self.assertIn("Drained from thread mode", state,
+                          "the handover must still have been delivered")
+            self.assertNotIn(self.SECRET_NAME, state,
+                             "reading the authoritative row must not have carried the "
+                             "raw name into STATE.md; cmd_off protects it explicitly")
+            mode = _read(os.path.join(d, "threads", "thread-mode.json"))
+            self.assertNotIn(self.SECRET_NAME, mode,
+                             "the drained-history list is written to disk and must "
+                             "carry the protected name, not the raw one")
+            parked = _identity_rows(d, self.SECRET_NAME)
+            self.assertEqual([row["state"] for row in parked], ["parked"],
+                             "`off` must have found and parked it by identity")
+
+    def test_calibrated_the_old_dump_based_resolution_strands_the_thread(self):
+        # REINJECTION: put the pre-fix resolver back and watch the same
+        # thread become unfindable.
+        with tempfile.TemporaryDirectory() as d:
+            mod = _fresh_threads_module("finding9")
+            _run_threads(["on"], d)
+            _run_threads(["start", self.SECRET_NAME, "ship it",
+                          "--files", "api/a.py", "--session", "s1"], d)
+            store = bs.Store(d, create=False)
+            try:
+                found = mod._find_record(store, self.SECRET_NAME)
+                self.assertIsNotNone(found["lifecycle_uuid"],
+                                     "the FIXED resolver must find it")
+                mod._find_record = _OLD_find_record_through_dump
+                with self.assertRaises(bs.OwnershipRefused) as caught:
+                    mod._find_record(store, self.SECRET_NAME)
+                self.assertEqual(caught.exception.reason, "not-found",
+                                 "the pre-fix resolver must fail to find a record "
+                                 "that is plainly in the store, which is the whole "
+                                 "of FINDING 9")
+            finally:
+                store.close()
+
+    def test_no_record_resolution_in_bm_threads_reads_the_dump_view(self):
+        # The structural half: dump() may still be used for the two GENERATED
+        # VIEWS (inbox.md's directives, and the dashboard's own render), and
+        # for enumerating lifecycle uuids in _records_by_identity, but never
+        # to answer "which record is this name".
+        src = io.open(os.path.join(HERE, "bm_threads.py"), encoding="utf-8").read()
+        for line in src.splitlines():
+            code = line.split("#", 1)[0]
+            if "dump()" not in code:
+                continue
+            self.assertNotIn("name", code,
+                             "a dump() read is being matched against a name again "
+                             "(FINDING 9): %r" % line.strip())
+        self.assertIn("store.identity_by_name(name)", src,
+                      "_find_record must resolve through the store's direct lookup")
+
+
+class TestFinding10AmbiguousNamesAlwaysRefuse(unittest.TestCase):
+    """FINDING 10 (external audit 2026-07-27, HIGH): _find_record promised in
+    its own docstring that it never guesses, then guessed. It reported
+    ambiguity ONLY when the top two updated_at strings were exactly EQUAL,
+    and those are second-resolution timestamps, so in practice it silently
+    acted on whichever lifecycle had been touched most recently."""
+
+    def _two_parked_lives(self, d, pause=1.1):
+        """Two records named 'alpha', both parked. The store's unique index
+        forbids two ACTIVE records sharing a name, so a reused name is
+        exactly how a founder ends up here: build a life, park it, build
+        another, park that.
+
+        `pause` separates the two lives in time, and DEFAULTS to more than a
+        second for a reason worth stating: updated_at is a second-resolution
+        string, and the pre-fix resolver only reported ambiguity when the top
+        two were exactly EQUAL. Two records built back to back land in the
+        same second, take that rare tie branch, and get refused even by the
+        broken code, so a test built that way passes against the bug and
+        proves nothing. Letting the clock tick is not scaffolding: it is the
+        normal case, and it is why the silent guess was the everyday path."""
+        import time as _time
+        _run_threads(["on"], d)
+        _run_threads(["start", "alpha", "first life", "--files", "api/a.py",
+                      "--session", "s1"], d)
+        _run_threads(["park", "alpha", "--session", "s1"], d)
+        if pause:
+            _time.sleep(pause)
+        _run_threads(["start", "alpha", "second life", "--files", "api/b.py",
+                      "--session", "s2"], d)
+        _run_threads(["park", "alpha", "--session", "s2"], d)
+        rows = _identity_rows(d, "alpha")
+        self.assertEqual(len(rows), 2, "test setup failed: %s" % rows)
+        self.assertEqual(sorted(r["state"] for r in rows), ["parked", "parked"])
+        return [r["lifecycle_uuid"] for r in rows]
+
+    def test_resume_refuses_and_names_every_candidate_and_the_flag(self):
+        with tempfile.TemporaryDirectory() as d:
+            uuids = self._two_parked_lives(d)
+            r = _run_threads(["resume", "alpha", "--session", "s3"], d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("ambiguous-name", r.stdout)
+            for u in uuids:
+                self.assertIn(u, r.stdout,
+                              "the refusal must list every candidate lifecycle uuid "
+                              "so the founder can pick one: %s" % r.stdout)
+            self.assertIn("--lifecycle", r.stdout,
+                          "the refusal must name the exact flag that resolves it")
+            self.assertEqual(sorted(x["state"] for x in _identity_rows(d, "alpha")),
+                             ["parked", "parked"],
+                             "a refusal must change nothing")
+
+    def test_decide_and_adopt_inherit_the_same_refusal(self):
+        # Not each carrying its own copy of the resolution logic: the same
+        # reason string, from the same helper, for commands with completely
+        # different state filters.
+        with tempfile.TemporaryDirectory() as d:
+            uuids = self._two_parked_lives(d)
+            for args in (["decide", "alpha", "--topic", "api", "--text", "x"],
+                         ["adopt", "alpha", "--session", "s4"]):
+                r = _run_threads(args, d)
+                self.assertEqual(r.returncode, 2, "%s: %s%s" % (args[0], r.stdout, r.stderr))
+                self.assertIn("ambiguous-name", r.stdout, args[0])
+                for u in uuids:
+                    self.assertIn(u, r.stdout, args[0])
+
+    def test_the_lifecycle_flag_is_a_working_escape_not_just_advice(self):
+        with tempfile.TemporaryDirectory() as d:
+            uuids = self._two_parked_lives(d)
+            wanted = uuids[0]
+            r = _run_threads(["resume", "alpha", "--session", "s3",
+                              "--lifecycle", wanted[:8]], d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            states = {row["lifecycle_uuid"]: row["state"] for row in _identity_rows(d, "alpha")}
+            self.assertEqual(states[wanted], "active")
+            self.assertEqual(states[uuids[1]], "parked",
+                             "only the named lifecycle may move")
+
+    def test_calibrated_the_old_newest_wins_shortcut_guessed_silently(self):
+        # REINJECTION: the pre-fix resolver, on the very input the fixed one
+        # refuses, returns a record and says nothing.
+        with tempfile.TemporaryDirectory() as d:
+            mod = _fresh_threads_module("finding10")
+            uuids = self._two_parked_lives(d, pause=1.1)
+            rows = _identity_rows(d, "alpha")
+            self.assertNotEqual(rows[0]["updated_at"], rows[1]["updated_at"],
+                                "test setup failed: the two lives must have "
+                                "DIFFERENT updated_at stamps, or the pre-fix "
+                                "resolver takes its rare tie branch and this "
+                                "calibration proves nothing")
+            store = bs.Store(d, create=False)
+            try:
+                # bm_threads loads its OWN private copy of bm_store, so the
+                # class it raises is not this test module's bs.OwnershipRefused.
+                with self.assertRaises(mod._store().OwnershipRefused) as caught:
+                    mod._find_record(store, "alpha", states=("parked",))
+                self.assertEqual(caught.exception.reason, "ambiguous-name")
+                mod._find_record = _OLD_find_record_through_dump
+                guessed = mod._find_record(store, "alpha", states=("parked",))
+                self.assertIn(guessed["lifecycle_uuid"], uuids,
+                              "the pre-fix resolver silently picked one of two "
+                              "lifecycles, which is exactly FINDING 10")
+            finally:
+                store.close()
+
+    def test_name_resolution_has_exactly_one_owner(self):
+        # The architectural half of "verify that resume, decide, complete and
+        # adopt all inherit the refusal": every command reaches records by
+        # name through _find_record, so there is one place the policy can be
+        # weakened, not six.
+        src = io.open(os.path.join(HERE, "bm_threads.py"), encoding="utf-8").read()
+        callers = [ln.strip() for ln in src.splitlines()
+                   if "identity_by_name(" in ln.split("#", 1)[0]]
+        self.assertEqual(len(callers), 1,
+                         "exactly one function may resolve a name to a record "
+                         "(_find_record); found: %s" % callers)
+        for command in ("cmd_checkpoint", "cmd_decide", "cmd_send",
+                        "_transition_cmd", "cmd_adopt"):
+            body = src.split("def %s(" % command, 1)[1].split("\ndef ", 1)[0]
+            self.assertIn("_find_record(", body,
+                          "%s must resolve names through the shared refusal, not "
+                          "its own copy" % command)
+
+
+class TestFinding12HandoverDeliveryIsSerializedAndVerified(unittest.TestCase):
+    """FINDING 12 (external audit 2026-07-27, HIGH): _deliver_handover_once
+    did an UNLOCKED check-then-append on STATE.md while
+    bm_store.write_state_view independently read, rebuilt and atomically
+    REPLACED the same file. Interleaved, that duplicates a handover or
+    erases one.
+
+    THIS IS THE IN-FENCE MITIGATION, NOT THE TRANSACTIONAL FIX. The real fix
+    stores handovers in sqlite and GENERATES them into the view; that needs a
+    new table in bm_store.py, which is outside this change's fence, and its
+    shape is recorded in bm_threads._FOLLOWUP_TRANSACTIONAL_HANDOVERS. What
+    is proven here is what the mitigation actually delivers: this module's
+    own STATE.md writes are serialized behind one lock, and an append that
+    does not survive is never reported as delivered."""
+
+    def _thread_with_a_handover(self, d, mod):
+        _run_threads(["on"], d)
+        _run_threads(["start", "alpha", "ship it", "--files", "api/a.py",
+                      "--session", "s1"], d)
+        _run_threads(["checkpoint", "alpha", "--next", "wire the webhook"], d)
+        return _identity_rows(d, "alpha")[0]["lifecycle_uuid"]
+
+    def _deliver_twice_concurrently(self, root, mod, luid):
+        """Two deliveries of the SAME handover, forced to overlap: each waits
+        at a barrier the first time it checks whether the tag is already
+        there. With the lock, the second one cannot even reach the barrier
+        until the first has finished, so the barrier times out and the pair
+        is serialized; without it, both check before either appends."""
+        import threading
+        barrier = threading.Barrier(2)
+        real_landed = mod._handover_landed
+        first_call = {}
+
+        def landed_at_the_barrier(state_path, tag):
+            # Keyed by THREAD, not by tag: both threads deliver the same tag,
+            # so a tag-keyed flag let the second one skip the barrier and the
+            # pair never overlapped at all (the harness proved nothing).
+            key = threading.get_ident()
+            if not first_call.get(key):
+                first_call[key] = True
+                try:
+                    barrier.wait(timeout=2)
+                except threading.BrokenBarrierError:
+                    pass
+            return real_landed(state_path, tag)
+
+        mod._handover_landed = landed_at_the_barrier
+        outcomes = []
+        lock = threading.Lock()
+
+        def deliver():
+            store = bs.Store(root, create=False)
+            try:
+                out = mod._deliver_handover_once(root, store, luid, "Drained: alpha")
+            finally:
+                store.close()
+            with lock:
+                outcomes.append(out)
+
+        try:
+            workers = [threading.Thread(target=deliver) for _ in range(2)]
+            for w in workers:
+                w.start()
+            for w in workers:
+                w.join(timeout=30)
+            for w in workers:
+                self.assertFalse(w.is_alive(), "a delivery thread never finished")
+        finally:
+            mod._handover_landed = real_landed
+        tags = _read(os.path.join(root, "STATE.md")).count("<!-- brothermode-handover:")
+        return sorted(str(o) for o in outcomes), tags
+
+    def test_two_concurrent_deliveries_write_exactly_one_handover(self):
+        with tempfile.TemporaryDirectory() as d:
+            mod = _fresh_threads_module("finding12_concurrent")
+            luid = self._thread_with_a_handover(d, mod)
+            outcomes, tags = self._deliver_twice_concurrently(d, mod, luid)
+            self.assertEqual(tags, 1,
+                             "two concurrent deliveries wrote %d handover blocks; "
+                             "the STATE.md lock must serialize them so the second "
+                             "sees the first's tag" % tags)
+            self.assertEqual(outcomes, ["already", "delivered"],
+                             "one must deliver and the other must recognise it as "
+                             "already delivered: %s" % outcomes)
+
+    def test_calibrated_without_the_lock_the_same_pair_duplicates_the_handover(self):
+        # REINJECTION: the lock becomes a no-op, which is precisely the
+        # pre-fix code (an unlocked check-then-append).
+        with tempfile.TemporaryDirectory() as d:
+            mod = _fresh_threads_module("finding12_nolock")
+            luid = self._thread_with_a_handover(d, mod)
+
+            @contextlib.contextmanager
+            def no_lock(root, wait=None):
+                yield True
+
+            mod._state_lock = no_lock
+            outcomes, tags = self._deliver_twice_concurrently(d, mod, luid)
+            self.assertEqual(tags, 2,
+                             "the reproduction did not reproduce: without the lock "
+                             "the pair must duplicate the handover, or the test "
+                             "above proves nothing (%s)" % outcomes)
+
+    def test_an_appended_handover_that_does_not_survive_is_never_reported_delivered(self):
+        # A concurrent rebuild-and-replace lands between the append and the
+        # check: the file really is rewritten here, by the test, at exactly
+        # that instant. The record's state must then stay where it is, which
+        # is what keeps the handover recoverable instead of parking a thread
+        # whose digest just vanished.
+        with tempfile.TemporaryDirectory() as d:
+            mod = _fresh_threads_module("finding12_erase")
+            luid = self._thread_with_a_handover(d, mod)
+            state_path = os.path.join(d, "STATE.md")
+            before = _read(state_path)
+            real_read = mod._read
+            reads = {"n": 0}
+
+            def racing_read(path):
+                if os.path.abspath(path) == os.path.abspath(state_path):
+                    reads["n"] += 1
+                    if reads["n"] == 2:      # the post-append verification read
+                        with io.open(state_path, "w", encoding="utf-8") as f:
+                            f.write(before)
+                return real_read(path)
+
+            mod._read = racing_read
+            try:
+                store = bs.Store(d, create=False)
+                try:
+                    outcome = mod._deliver_handover_once(root=d, store=store,
+                                                         lifecycle_uuid=luid,
+                                                         heading="Drained: alpha")
+                finally:
+                    store.close()
+            finally:
+                mod._read = real_read
+            self.assertEqual(outcome, "lost",
+                             "an append erased by a concurrent writer must be "
+                             "reported, not counted as delivered")
+            self.assertNotIn("brothermode-handover:", _read(state_path),
+                             "test setup failed: the erase did not happen")
+            self.assertNotIn(outcome, ("delivered", "already"),
+                             "only delivered/already may license a state change")
+
+    def test_calibrated_without_the_readback_the_erased_handover_reports_delivered(self):
+        # REINJECTION: no verification read (the pre-fix code returned
+        # "delivered" the moment the append itself did not raise).
+        with tempfile.TemporaryDirectory() as d:
+            mod = _fresh_threads_module("finding12_noreadback")
+            luid = self._thread_with_a_handover(d, mod)
+            state_path = os.path.join(d, "STATE.md")
+            before = _read(state_path)
+            real_landed = mod._handover_landed
+            calls = {"n": 0}
+
+            def unverified(path, tag):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    return real_landed(path, tag)
+                with io.open(state_path, "w", encoding="utf-8") as f:
+                    f.write(before)          # the concurrent replace
+                return True                  # ... which the old code never checked
+            mod._handover_landed = unverified
+            store = bs.Store(d, create=False)
+            try:
+                outcome = mod._deliver_handover_once(root=d, store=store,
+                                                     lifecycle_uuid=luid,
+                                                     heading="Drained: alpha")
+            finally:
+                store.close()
+            self.assertEqual(outcome, "delivered")
+            self.assertNotIn("brothermode-handover:", _read(state_path),
+                             "the reproduction did not reproduce: the file must be "
+                             "missing the handover it just reported as delivered")
+
+    def test_off_holds_the_record_when_the_handover_cannot_be_written(self):
+        # The consequence that matters to a founder: an undelivered handover
+        # must never be followed by a state change, whatever the reason.
+        with tempfile.TemporaryDirectory() as d:
+            mod = _fresh_threads_module("finding12_off")
+            self._thread_with_a_handover(d, mod)
+            real = mod._deliver_handover_once
+            mod._deliver_handover_once = lambda *a, **k: "busy"
+            try:
+                code, out = _call_thread_cmd_in_process(d, mod.cmd_off, [])
+            finally:
+                mod._deliver_handover_once = real
+            self.assertEqual(code, 2, out)
+            self.assertIn("HANDOVER INCOMPLETE", out)
+            self.assertIn("STATE.md lock", out,
+                          "the founder must be told WHY it could not be written: %s" % out)
+            self.assertEqual([r["state"] for r in _identity_rows(d, "alpha")], ["active"],
+                             "the record must stay active and fenced")
+
+    def test_the_lock_is_a_directory_so_it_can_never_hold_founder_text(self):
+        with tempfile.TemporaryDirectory() as d:
+            mod = _fresh_threads_module("finding12_lockshape")
+            _run_threads(["on"], d)
+            lock = mod._StateFileLock(d)
+            self.assertTrue(lock.acquire())
+            try:
+                self.assertTrue(os.path.isdir(lock.path),
+                                "the lock must be a directory: it carries no bytes, so "
+                                "no founder text can ever leak into it")
+                second = mod._StateFileLock(d, wait=0)
+                self.assertFalse(second.acquire(),
+                                 "a second holder must be refused while it is held")
+            finally:
+                lock.release()
+            self.assertFalse(os.path.exists(lock.path), "release must remove it")
+            self.assertTrue(mod._StateFileLock(d, wait=0).acquire(),
+                            "the lock must be takeable again after release")
+
+    def test_the_transactional_followup_is_written_down_not_lost(self):
+        # (b) of the audit's instruction: the in-fence mitigation must not be
+        # mistaken for the fix, so the follow-up shape ships in the file.
+        src = io.open(os.path.join(HERE, "bm_threads.py"), encoding="utf-8").read()
+        self.assertIn("_FOLLOWUP_TRANSACTIONAL_HANDOVERS", src)
+        for required in ("handovers table", "deliver_handover", "render_state_md"):
+            self.assertIn(required, src,
+                          "the follow-up note must name %r so the bm_store change "
+                          "can be written from it" % required)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
