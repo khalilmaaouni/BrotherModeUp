@@ -176,33 +176,52 @@ staleness discipline that the research on version drift demands.
 
 ### 5.3 Register three: METHOD (the Superpowers spine, wired into the flow)
 
-The three method skills the founder named map cleanly onto the phase flow already
-in use, and the value is in their MECHANICS, not their names. An extraction pass is
-running to capture those mechanics faithfully rather than from memory; the design
-here fixes only the wiring:
+The four method skills were read directly and their LOAD-BEARING MECHANICS
+extracted, because the value is in what they make you do, not in their names. What
+follows is the wiring, with the mechanic that would be lost if only the idea
+survived (which is exactly how method decays).
 
-- BRAINSTORM before any creative or structural work, with its hard gate: no
-  implementation until a design exists and the founder has approved it. This is the
-  same gate as the decision-brief rule already in the law, so they merge rather
-  than stack.
-- DEEP RESEARCH before any decision that turns on facts that can change (versions,
-  prices, platform behavior, what is state of the art), with sources opened and
-  cited, not recalled.
-- CODE REVIEW before any merge, dispatched with the reviewer receiving crafted
-  context and a git range rather than the session's history, so the reviewer judges
-  the work product and not the author's reasoning.
+BRAINSTORM, before any creative or structural work. Two separate gates, not one: a
+design must be presented and approved, and then the written spec file must be
+reviewed and approved. Explicitly no exception for work that looks simple. The
+lost-mechanic risk: the two gates collapse into one, and a session goes straight to
+code with no approved artefact. This merges with the decision-brief rule already in
+the law rather than stacking beside it.
 
-Parallel-agent dispatch keeps its current shape (one wave, disjoint fences, a
-runnable done-check per brief), with one addition proven necessary today: every
-dispatched brief carries a mechanical FRESHNESS ASSERTION the agent must run and
-quote back, because a fleet once spent a full round on a stale copy and reported
-confident findings about code three commits old.
+DEEP RESEARCH, before any decision that turns on facts that can change. Its teeth
+are two: every named technology cross-referenced across two to three sources
+minimum, preferring official docs and recent material, and a HARD STOP when a
+chosen dependency turns out to be deprecated, with the options put to the founder
+rather than silently worked around. Questions must be version-scoped and
+answerable, not vague. The lost-mechanic risk: "do some research" becomes one
+unchecked search and a deprecated pick ships.
 
-Ordering in a build, stated once so it stops being improvised: brainstorm, then
-research what the design turns on, then plan, then implement behind fences, then
-deterministic gates, then adversarial review, then code review, then merge, then
-write back to the three registers. The registers are read at the START of the next
-build, which is the only thing that makes any of it learning rather than filing.
+CODE REVIEW, before any merge. Dispatched to a separate agent, never the session
+that wrote the code, and given a git range plus crafted context rather than the
+session's history, so it judges the work product and not the author's reasoning.
+The checkout is READ ONLY: no mutating the tree, index, HEAD, or branch, with a
+separate worktree if another revision is needed. Fixed return contract (strengths,
+then Critical, Important, Minor with file and line, then an explicit merge verdict)
+and severity gating: Critical blocks, Important is fixed before proceeding, Minor is
+recorded. The lost-mechanic risk: the read-only rule and the severity gate both
+vanish, and "we reviewed it" means nothing.
+
+PARALLEL DISPATCH, with the rule that this build accidentally confirmed: fan-out is
+for INDEPENDENT, READ-ONLY work. Implementation stays SERIAL, one writer, precisely
+to avoid the merge collisions a parallel implementer fleet creates. Each brief is
+self-contained (no reliance on session history), names its constraints, and states
+its output contract. Two additions this build proved necessary: a mechanical
+FRESHNESS ASSERTION the agent must run and quote back, because a fleet once spent a
+full round on a copy three commits stale and reported confident findings about code
+that no longer existed; and a done-check per brief that the orchestrator re-runs
+rather than trusts.
+
+Ordering in a build, stated once so it stops being improvised: brainstorm to an
+approved spec, research what the design turns on, plan, implement behind fences
+with a single writer, deterministic gates, adversarial review in parallel,
+independent code review, merge, then write back to the three registers. The
+registers are read at the START of the next build, which is the only thing that
+makes any of this learning rather than filing.
 
 ### 5.4 What keeps this from becoming its own theatre
 
