@@ -1,5 +1,92 @@
 # Changelog
 
+## 2026-07-26 (v2.0.0-rc.1): the first tagged version, release discipline, and an honest ledger of what shipped today
+
+This is the first version of this project to carry a version number
+(`VERSION`, `2.0.0-rc.1`) and, once the founder-gated tagging step in
+`docs/RELEASE.md` actually runs, the first tagged release. Read
+`docs/RELEASE.md` for why it is `2.0.0-rc.1` and not a bare `2.0.0`: the
+storage engine changed underneath every command (a major bump), but this has
+never run on a real project and CI has never executed once (`docs/KNOWN-LIMITS.md`),
+so it ships as a release candidate rather than a claim of proven stability.
+
+**What changed for you, if you install this today:**
+
+- **The storage engine is now the thing every tool actually uses.**
+  `tools/bm_store.py` (a SQLite-backed store) is imported by
+  `bm_autosave.py`, `bm_sessionstart.sh`, `bm_telemetry.py`, and
+  `bm_threads.py`. `bm_registry.py`, the old JSON registry, is deleted
+  outright, not kept as a shim. If your own scripts imported
+  `bm_registry.py` directly, that import will now fail; nothing in this
+  project does that any more.
+- **A recovery path for the new engine.** The autosave/recovery mechanism was
+  rebuilt against the store rather than the old registry, with a real,
+  test-covered recovery flow instead of a manual sqlite surgery.
+- **Two security fixes, both re-verified today.** A recovered autosave
+  worktree used to come back world-readable (`drwxr-xr-x`); it now comes
+  back owner-only (`drwx------`). Turning thread mode off and resuming a
+  thread later from a different session used to be wrongly refused; it now
+  succeeds and transfers ownership correctly. Both are described in full,
+  with the exact reproduction steps, in `docs/KNOWN-LIMITS.md`.
+- **Several features were removed, not just refactored.** Checkpoint clash
+  detection has no equivalent in the new engine and is gone. The 320-line
+  generative test bound to the old registry was deleted along with it; a
+  store-level replacement is being built separately and is not part of this
+  release. Neither removal is quietly absorbed into "cleanup" language:
+  they are feature losses, named as such in `docs/REMAINING.md`.
+- **Release discipline exists for the first time.** `scripts/checksums.sh`
+  generates a SHA256 manifest of every git-tracked file; `scripts/verify-install.sh`
+  checks an installed copy against that manifest and names anything that
+  differs. This is the direct answer to a problem the original external
+  audit called the weakest link in the whole design: the install
+  instruction clones a git ref into a location whose code then runs
+  automatically on every Claude Code session, with previously no way to
+  confirm what actually landed on disk.
+- **A guided path to the memory setup**, `docs/OBSIDIAN.md`: what the vault
+  is, how to install Obsidian, how to point it at the vault, and how to work
+  with the same vault using nothing but a plain text editor. Obsidian
+  previously appeared nowhere outside a design document.
+- **A minimal, read-only MCP server**, `mcp/`, so a session can ask what
+  work is active, what fences are live, what decisions were recorded, and
+  whether the store is healthy, without reading files directly. It is
+  read-only by construction (it only opens `bm_store.ReadOnlyStore` or calls
+  `bm_store.verify()`) and implements the subset of the Model Context
+  Protocol a read-only query tool actually needs, not the full
+  specification; `mcp/README.md` states exactly what was and was not
+  verified.
+
+**What is still open, so nobody mistakes this for finished:**
+
+- **One confirmed defect remains.** A refused `adopt` attempt (one session
+  tries to take over another session's live, active thread without the
+  explicit override, and is correctly told no) still permanently writes an
+  "Adopted from dead/stalled thread" block into `STATE.md` anyway. The
+  refusal itself is correct; the side effect it leaves behind is misleading.
+  See `docs/KNOWN-LIMITS.md` for the exact reproduction.
+- **Never run on a real project.** Every claim in this release rests on test
+  suites and adversarial review, not on a week of real founder work going
+  through the V2 store.
+- **CI has never executed.** The workflow is configured for Linux, macOS,
+  and Windows; nothing has been pushed to trigger it, so the first real push
+  is also the first real test of that configuration.
+- **Windows is designed for, not proven.** Windows behavior was proxied by
+  substituting the path module and platform identifier, which caught one
+  real defect but is not the same as running on Windows.
+- **The self-learning mechanism (Section 8 loops) is designed, not built.**
+  The redesign is approved and written up; nothing implements it yet, and
+  the old scorecard still prints at least one number (`collisions=0, baton
+  drops=0`) that cannot move because nothing behind it is measured.
+
+No test count is restated here. The previous entry claimed 116; this session
+could not re-run `tools/test_bm.py` to confirm that number still holds
+(other work landed in `tools/` in parallel with this entry being written),
+and `docs/KNOWN-LIMITS.md` already warns that any test count in this
+repository is a claim to re-verify, not a certificate. State the actual
+number the next time this file is edited, taken from a command run in that
+same session, not copied forward from here.
+
+---
+
 ## 2026-07-26: handover delivery gets an owner, and the pattern gets a stop
 
 A reviewer found that the retry marker added in the previous entry was keyed on

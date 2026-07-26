@@ -1,8 +1,8 @@
 {
-  "_comment": "Reviewed write sites. If this test fails, a write site was added or removed. Confirm the new site redacts any user or model text before updating these counts.",
+  "_comment": "Reviewed write sites. If this test fails, a write site was added or removed. Confirm the new site redacts any user or model text before updating these counts. bm_telemetry.py fell 23 to 15 on 2026-07-26: eight raw open-and-write pairs in the ledger maintenance paths were replaced by the audited atomic_write primitive, which also closes the audit finding about rewrites landing with default permissions.",
   "reviewed": {
     "bm_store.py": 6,
-    "bm_telemetry.py": 23,
+    "bm_telemetry.py": 15,
     "bm_threads.py": 8,
     "bm_autosave.py": 5
   }
