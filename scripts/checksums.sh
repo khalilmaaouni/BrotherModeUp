@@ -57,8 +57,22 @@ mkdir -p "$WORKDIR"
 trap 'rm -rf "$WORKDIR"' EXIT INT TERM
 
 # --- build the file list, git-tracked files preferred (see header comment).
+#
+# GATE 5 (final-blockers spec 2026-07-26, VERIFIED BY ORCHESTRATOR): plain
+# `git ls-files` quotes any tracked path containing a quote, a backslash, or
+# a non-ASCII byte (git's default core.quotePath behavior), and the quoted
+# form it prints is not a real path on disk. The old loop's `[ -f "$f" ]`
+# check then failed for it and silently "continue"d past it, exit 0, no
+# message: 91 tracked files in, 89 hashed, two dropped with nothing said.
+# `-z` asks git for the exact bytes of every tracked path, NUL-terminated,
+# never quoted, so every entry below is always the real, literal path.
+# Residual, stated rather than hidden: a path containing a literal newline
+# byte (legal on POSIX, vanishingly rare in practice, and not what this gate
+# was about) would still be misread once `tr` turns NUL into newline; this
+# closes the quoting defect the orchestrator reproduced, not every
+# conceivable byte a filename could contain.
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git ls-files > "$WORKDIR/filelist"
+    git ls-files -z | tr '\0' '\n' > "$WORKDIR/filelist"
 else
     find . -type f \
         ! -path './.git/*' \
@@ -87,12 +101,36 @@ fi
 LC_ALL=C sort "$WORKDIR/filelist" > "$WORKDIR/sorted"
 
 COUNT=0
+LISTED_COUNT=0
 while IFS= read -r f; do
     [ -z "$f" ] && continue
-    [ -f "$f" ] || continue
+    LISTED_COUNT=$((LISTED_COUNT + 1))
+    if [ ! -f "$f" ]; then
+        # GATE 5: a listed path that is not a regular file (a submodule
+        # gitlink, a broken symlink, or, before this fix, a git-quoted name
+        # that never existed as a literal path at all) used to be silently
+        # skipped, exit 0. Refuse instead: a manifest that quietly disagrees
+        # with its own file list is worse than no manifest.
+        echo "checksums.sh: '$f' is listed as a tracked file but is not a" \
+             "regular file on disk; refusing to silently drop it from the" \
+             "manifest" >&2
+        exit 1
+    fi
     hash_file "$f" >> "$WORKDIR/manifest"
     COUNT=$((COUNT + 1))
 done < "$WORKDIR/sorted"
+
+if [ "$COUNT" -ne "$LISTED_COUNT" ]; then
+    # Belt and suspenders: the per-file check above should already have
+    # caught any mismatch and exited, so reaching here with unequal counts
+    # means the loop logic itself disagrees with what it just did. Fail
+    # loudly rather than write a manifest whose own file count cannot be
+    # trusted.
+    echo "checksums.sh: internal error: hashed $COUNT file(s) but listed" \
+         "$LISTED_COUNT; refusing to write a manifest that disagrees with" \
+         "its own file list" >&2
+    exit 1
+fi
 
 if [ -n "$OUT_FILE" ]; then
     cp "$WORKDIR/manifest" "$OUT_FILE"

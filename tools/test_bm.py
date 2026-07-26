@@ -1603,5 +1603,109 @@ class TestCliSequencesNeverRaiseOrLeaveDoubleActiveThreads(unittest.TestCase):
                                          "persistent record: %s" % (where, still_active))
 
 
+class TestGate3OutputFunnelCoversTheMcpServerToo(unittest.TestCase):
+    """GATE 3 (final-blockers spec 2026-07-26): the round-7 output-funnel
+    structural scan (test_bm_store.py's own
+    test_structural_round7_no_print_or_raw_stream_write_anywhere) only
+    ever looked at bm_store.py itself, so mcp/bm_mcp_server.py, added the
+    same day, sat entirely outside the guard: it called bm_store.verify()
+    and printed the raw problem strings straight into a tool response with
+    no redaction at all, while bm_store.py's own CLI showed [REDACTED] for
+    the identical value. "A guard that covers one file keeps being escaped
+    by the next file" is the literal lesson, so this widens the SAME scan
+    (imported from test_bm_store.py rather than re-implemented, so there
+    is exactly one regex to keep correct across both files) onto
+    mcp/bm_mcp_server.py, and separately proves the leak itself is closed
+    end to end against the real tool function.
+
+    NOT widened to bm_threads.py, bm_autosave.py, bm_telemetry.py, or
+    bm_score.py: none of them was ever brought under this funnel
+    discipline in the first place (bm_telemetry.py alone has dozens of
+    ordinary print() call sites doing plain CLI output with no equivalent
+    _out()/_warn() primitive to route through), and all four are OUTSIDE
+    this fix's fence (docs/superpowers/specs/2026-07-26-final-blockers.md
+    names them out of bounds for this change). Scanning them here would
+    fail on pre-existing code this fence forbids touching, not on
+    anything this change introduced; narrowed here rather than faked, and
+    stated plainly rather than left implicit."""
+
+    MCP_SERVER_PATH = os.path.join(HERE, "..", "mcp", "bm_mcp_server.py")
+
+    @staticmethod
+    def _load_scanner():
+        # Reused, not re-implemented: the exact regex test_bm_store.py's
+        # own round-7 scan already uses, loaded from that file (the same
+        # by-path loading convention this file already uses for
+        # bm_telemetry/bm_store/bm_threads above) so there is exactly one
+        # definition of "forbidden" to keep correct across both files.
+        spec = importlib.util.spec_from_file_location(
+            "test_bm_store_for_funnel_scan", os.path.join(HERE, "test_bm_store.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod._scan_for_forbidden_output_calls
+
+    @staticmethod
+    def _load_mcp_server():
+        spec = importlib.util.spec_from_file_location(
+            "bm_mcp_server_for_test", os.path.join(HERE, "..", "mcp", "bm_mcp_server.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_mcp_server_has_no_bare_print_or_raw_stream_write(self):
+        scan = self._load_scanner()
+        with io.open(self.MCP_SERVER_PATH, encoding="utf-8") as f:
+            lines = f.readlines()
+        hits = scan(lines)
+        self.assertEqual(hits, [],
+                          "bare print()/stream.write() call site(s) found in "
+                          "mcp/bm_mcp_server.py outside its own _raw_write "
+                          "primitive, at line(s): %s" % hits)
+
+    def test_calibrated_scan_catches_a_reintroduced_bare_write(self):
+        # Calibration, the same shape as test_bm_store.py's own companion
+        # test: proves the imported scanner genuinely flags the exact
+        # defect class this guard exists to catch, on a synthetic
+        # snippet, rather than trusting an untested regex import.
+        scan = self._load_scanner()
+        bad_source = ["def tool_bm_status(arguments):\n",
+                      "    sys.stdout.write('leaked')\n"]
+        self.assertEqual(scan(bad_source), [2])
+        good_source = ["def tool_bm_status(arguments):\n",
+                       "    _raw_write(sys.stdout, 'safe')\n"]
+        self.assertEqual(scan(good_source), [])
+
+    def test_calibrated_mcp_server_redacts_verify_problems_before_they_leave_the_tool(self):
+        # THE reproduction this gate exists to close: a record NAME shaped
+        # like a real secret used to reach bm_status completely
+        # unredacted, because bm_store.verify() returns RAW rows (an
+        # invariant checker, not a rendering funnel) and the server used
+        # to print them straight through. Reproduced by forcing verify()
+        # to surface a problem line naming a secret-shaped record (an
+        # active record whose lifecycle_uuid is missing from an otherwise
+        # well-formed STATE.md view), then calling the real tool function
+        # in-process and asserting the live secret never appears in its
+        # returned text.
+        mcp_mod = self._load_mcp_server()
+        secret = "AKIAIOSFODNN7EXAMPLE"
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.realpath(d)
+            store = bs.Store(root)
+            try:
+                store.claim(secret, "persistent", "objective", ["some/file.py"],
+                            session_id="s1")
+            finally:
+                store.close()
+            with io.open(os.path.join(root, "STATE.md"), "w", encoding="utf-8") as f:
+                f.write(bs._STATE_BEGIN + "\n(nothing rendered yet)\n" + bs._STATE_END + "\n")
+            problems = bs.verify(root)
+            self.assertTrue(any(secret in p for p in problems),
+                             "test setup failed to reproduce the pre-fix leak precondition")
+            text = mcp_mod.tool_bm_status({"project_root": root})
+            self.assertNotIn(secret, text,
+                             "GATE 3 regression: the live secret reached the tool's returned text")
+            self.assertIn("[REDACTED]", text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

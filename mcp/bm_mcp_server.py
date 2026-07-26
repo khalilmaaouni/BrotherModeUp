@@ -1,24 +1,75 @@
 #!/usr/bin/env python3
-"""bm_mcp_server.py: a minimal, read-only Model Context Protocol server for
-one BrotherMode project's store.
+"""bm_mcp_server.py: a read-only Model Context Protocol server for one
+BrotherMode project's store.
 
-WHAT THIS FILE WILL NEVER DO, stated once here so it never needs restating
-at a call site: it will never write to a store, delete anything, transition
-a record between states, claim a fence, park, resume, complete, adopt,
-checkpoint, decide, or send a directive. Every database access in this file
-goes through exactly two entry points from `tools/bm_store.py`:
-`bm_store.ReadOnlyStore` (which refuses to create a store that does not
-already exist, and enforces `PRAGMA query_only=ON` on its connection) and
-`bm_store.verify()` (which itself only opens a `ReadOnlyStore`). This file
-adds no database connection code of its own, invents no new query logic
-beyond simple in-memory filtering of what `ReadOnlyStore.dump()` already
-returns, and calls no `Store` (the writable class) anywhere.
+HOW "NEVER WRITES" IS ENFORCED, STRUCTURALLY, NOT BY PROMISE (BLOCKER 1,
+final-blockers spec 2026-07-26, VERIFIED BY ORCHESTRATOR): a single
+bm_status call against a store whose header bytes had been corrupted MOVED
+the founder's store.sqlite3 aside into a quarantine directory and reported
+isError: false, because bm_store.ReadOnlyStore's own corruption handling
+(the right call for a WRITER, catastrophic for a READER) ran directly
+against the real file; even the healthy path created -shm/-wal sidecars
+that were not there a moment before. The fix removes the founder's real
+files from the blast radius entirely rather than trusting any code path
+inside bm_store.py to behave: every tool below first copies
+`.brothermode/` and `STATE.md` from the real project root into a fresh,
+private temporary directory (`_snapshot_for_reading`), runs every
+bm_store.py call against THAT COPY, and deletes the copy before returning.
+Whatever bm_store.py's own corruption handling, schema checks, or sidecar
+creation do, including quarantining a file it decides is unreadable, they
+now do it to bytes that are not the founder's, inside a directory this
+file made and erases on every call, success or failure alike.
+
+A read-only sqlite URI (mode=ro or immutable=1) was considered and
+rejected on purpose, not merely left undone: bm_store.py's own GATE A
+(fix-round 6, 2026-07-26) already found and closed a real defect where a
+project path containing a '%' character was silently misread as a
+DIFFERENT file, because sqlite's URI filename grammar percent-decodes the
+whole path, not only its query string. Reusing a URI here to solve a
+different problem risks reopening that exact class; copying the file
+first avoids URIs altogether, which is why bm_store.py's own read-only
+connection helper does the same.
+
+Every database access in this file still goes through exactly two entry
+points from `tools/bm_store.py`: `bm_store.ReadOnlyStore` (which refuses to
+create a store that does not already exist, and enforces `PRAGMA
+query_only=ON` on its connection) and `bm_store.verify()` (which itself
+only opens a `ReadOnlyStore`) -- now always against the private copy
+`_snapshot_for_reading` builds, never against the path a caller named.
+This file adds no new query logic beyond simple in-memory filtering of
+what `ReadOnlyStore.dump()` already returns, and calls no `Store` (the
+writable class) anywhere; the one piece of machinery this file owns and
+bm_store.py does not is the copy-then-discard snapshot itself.
 
 WHAT THIS SERVER ANSWERS, matching the four questions ratified for the
 read-only project server: what work is active, what fences (claimed file
 paths) are live, what decisions were recorded, and whether the store is
 healthy. Four tools, one each: bm_status, bm_active_work, bm_fences,
-bm_decisions.
+bm_decisions. Every founder-typed value this server returns -- a record
+name, an objective, a tier, a claim path, a decision's topic or text, and
+every `bm_store.verify()` problem line, which is a raw invariant-checker
+string with no redaction of its own -- passes through
+`bm_store._protect_text`, the exact function `tools/bm_store.py`'s own CLI
+uses for its output (GATE 3, final-blockers spec 2026-07-26, VERIFIED BY
+ORCHESTRATOR: a `verify()` problem naming a secret-shaped record reached a
+client here completely unredacted while the CLI showed `[REDACTED]` for
+the identical value, because `verify()` is an invariant checker, not a
+rendering funnel, and this file used to print its problem strings
+straight through with no funnel of its own).
+
+project_root is REQUIRED and MUST be an absolute path (GATE 4, final-
+blockers spec 2026-07-26, VERIFIED BY ORCHESTRATOR: a relative
+project_root used to resolve against THIS SERVER PROCESS's own working
+directory, which a caller neither sets nor sees, and the BROTHERMODE_ROOT
+environment variable silently overrode an explicit argument outright, so a
+call naming one project answered with a different project's record and no
+sign anything had substituted). This server therefore never calls
+`bm_store.resolve_root` (which checks BROTHERMODE_ROOT first): it walks up
+from the given absolute path for a `.brothermode` marker, then a `.git`
+directory, reusing `bm_store._walk_up` (a private but pure helper) rather
+than reimplementing tree-walking a second time, and every tool names the
+project root it actually resolved in its own first line of output, so a
+substitution can never be silent.
 
 HONESTY ABOUT SCOPE. This implements the subset of the Model Context
 Protocol (2025-06-18) a read-only query tool over stdio actually needs:
@@ -29,23 +80,31 @@ prompts, sampling, elicitation, roots, pagination cursors, or any
 and never changes, so there is nothing to notify about). This is a
 deliberate, minimal cut, not an accidental gap; `mcp/README.md` says so
 again and states plainly what has and has not been verified end to end
-with a real MCP client.
+with a real MCP client. It also does not implement a crash-safe snapshot:
+copying `.brothermode/` while another process is actively writing to it
+(WAL mode) is a best-effort "hot copy", not a transactionally guaranteed
+one; a snapshot taken mid-write can itself read back as busy or corrupted
+on the COPY, which this server reports honestly rather than retrying
+silently, and which never touches the real store either way.
 
-Standard library only: json, os, sys, importlib.util. No MCP SDK, no
-network library, no subprocess. The stdio transport this implements is
-exactly what the spec defines it to be: newline-delimited JSON-RPC 2.0
-messages on stdin/stdout, UTF-8, one message per line, nothing else ever
-written to stdout. Confirmed against
+Standard library only: json, os, sys, shutil, tempfile, contextlib,
+importlib.util. No MCP SDK, no network library, no subprocess. The stdio
+transport this implements is exactly what the spec defines it to be:
+newline-delimited JSON-RPC 2.0 messages on stdin/stdout, UTF-8, one message
+per line, nothing else ever written to stdout. Confirmed against
 https://modelcontextprotocol.io/specification/2025-06-18/basic/transports
 and the adjoining lifecycle and tools pages on 2026-07-26; this header
 records that check rather than asking a reader to trust an unstated memory
 of the spec.
 """
 
+import contextlib
 import importlib.util
 import json
 import os
+import shutil
 import sys
+import tempfile
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "brothermode-project-readonly"
@@ -82,13 +141,29 @@ class ToolError(Exception):
     JSON-RPC error (unknown method, unknown tool name, malformed request)."""
 
 
+def _raw_write(stream, text):
+    """The ONE place any stream in this module is actually written to,
+    named and shaped the same way tools/bm_store.py's own lowest-level
+    primitive is: a stray direct write (a bare print call, or writing
+    straight to standard out or standard error by name) anywhere else in
+    this file is now a defect a shared structural scan in tools/test_bm.py
+    catches (GATE 3, final-blockers spec 2026-07-26), the same scan that
+    already covers tools/bm_store.py. Writing through a generically named
+    `stream` parameter here, rather than the literal stdout/stderr object
+    by name, is the one shape that scan recognizes as the approved bypass,
+    matching bm_store.py's own convention exactly so one scan works,
+    unmodified, across both files."""
+    stream.write(text)
+    stream.flush()
+
+
 def _log(message):
-    """Every diagnostic line goes to stderr, never stdout: the spec
-    requires the server MUST NOT write anything to stdout that is not a
-    valid MCP message, and a stray print() would corrupt the stream for
-    every message after it."""
-    sys.stderr.write("bm_mcp_server: %s\n" % message)
-    sys.stderr.flush()
+    """Every diagnostic line goes to standard error, never standard out:
+    the protocol requires nothing but a valid MCP message ever reach
+    standard out, and a stray direct write would corrupt the stream for
+    every message after it. Routed through `_raw_write`, this module's own
+    named primitive, exactly like `_send` below."""
+    _raw_write(sys.stderr, "bm_mcp_server: %s\n" % message)
 
 
 def _require_bm_store():
@@ -99,37 +174,128 @@ def _require_bm_store():
 
 
 def _resolve_root(arguments):
-    """Resolve a project root exactly the way the bm_store.py CLI does,
-    reusing bm_store.resolve_root rather than reimplementing root-finding:
-    BROTHERMODE_ROOT wins if set, then the nearest .brothermode marker
-    walking up from project_root, then the nearest .git. project_root is a
-    required argument on every tool here (never the server process's own
-    cwd, which is whatever the MCP client happened to launch it from and is
-    not guaranteed to have anything to do with the project a session is
-    actually working in)."""
+    """Resolve a project root WITHOUT ever consulting BROTHERMODE_ROOT and
+    WITHOUT ever joining a relative path to this SERVER PROCESS's own cwd
+    (GATE 4, final-blockers spec 2026-07-26, VERIFIED BY ORCHESTRATOR: the
+    old version did both, so a relative project_root silently resolved
+    against wherever the MCP client happened to launch this process from,
+    and an ambient BROTHERMODE_ROOT overrode an explicit argument outright;
+    a call naming one project answered with a different project's record,
+    with no sign anything had substituted). project_root is a required,
+    ABSOLUTE argument on every tool here: a relative path is refused
+    outright rather than silently anchored to an ambient directory the
+    caller does not control. Walks up from the given path for the nearest
+    `.brothermode` marker, then the nearest `.git`, reusing
+    `bm_store._walk_up` (a private but pure helper, no state) rather than
+    reimplementing tree-walking a second time; never `bm_store.resolve_root`
+    itself, since that function checks BROTHERMODE_ROOT before anything
+    else and this server must never let an environment variable a caller
+    cannot see from here override an argument the caller explicitly gave."""
     _require_bm_store()
     project_root = arguments.get("project_root")
     if not project_root or not isinstance(project_root, str):
         raise ToolError("project_root (a non-empty string path) is required")
-    start = os.path.abspath(os.path.expanduser(project_root))
-    root, source = bm_store.resolve_root(start=start)
-    if root is None:
+    expanded = os.path.expanduser(project_root)
+    if not os.path.isabs(expanded):
         raise ToolError(
-            "no BrotherMode project found at or above %r (checked "
-            "BROTHERMODE_ROOT, then .brothermode markers, then .git)" % project_root)
-    return root, source
+            "project_root must be an absolute path; got the relative path "
+            "%r. Resolving a relative path against this server process's "
+            "own working directory, which the caller neither sets nor "
+            "sees, is exactly the ambiguity that once made a call naming "
+            "one project return a different project's record (GATE 4, "
+            "final-blockers spec 2026-07-26)." % project_root)
+    start = os.path.realpath(expanded)
+    chain = bm_store._walk_up(start)
+    for d in chain:
+        if os.path.isdir(os.path.join(d, ".brothermode")):
+            return d, "marker"
+    for d in chain:
+        # .git is a directory in a normal clone and a FILE in a worktree;
+        # os.path.exists covers both, matching bm_store.resolve_root's own
+        # check exactly.
+        if os.path.exists(os.path.join(d, ".git")):
+            return d, "git"
+    raise ToolError(
+        "no BrotherMode project found at or above %r (checked for a "
+        ".brothermode marker, then a .git directory, walking up from "
+        "there). The BROTHERMODE_ROOT environment variable is deliberately "
+        "never consulted by this server: project_root is a required "
+        "argument precisely so a call is never silently answered about a "
+        "different project than the one it named." % project_root)
+
+
+@contextlib.contextmanager
+def _snapshot_for_reading(root):
+    """Yield a private, throwaway COPY of everything a read might need
+    (`.brothermode/` and `STATE.md`) from `root`, so every tool below
+    operates on the copy and never on the founder's real files (BLOCKER 1,
+    see the module docstring for the full reproduction and reasoning). The
+    copy is made with plain, read-only filesystem calls against `root`
+    (`shutil.copytree`/`shutil.copy2`, never a write), and is always
+    removed in the `finally` below, success or failure alike, so nothing
+    this context manager does ever leaves a trace next to `root` or inside
+    the caller's own process temp directory once a tool call finishes."""
+    store_dir_src = bm_store.store_dir(root)
+    state_src = os.path.join(root, "STATE.md")
+    snapshot_root = tempfile.mkdtemp(prefix="bm_mcp_readonly_snapshot_")
+    try:
+        if os.path.isdir(store_dir_src):
+            shutil.copytree(store_dir_src, bm_store.store_dir(snapshot_root))
+        if os.path.isfile(state_src):
+            shutil.copy2(state_src, os.path.join(snapshot_root, "STATE.md"))
+        yield snapshot_root
+    finally:
+        shutil.rmtree(snapshot_root, ignore_errors=True)
+
+
+def _protect(text):
+    """Redact then sanitize ONE line of founder-controlled text exactly
+    the way tools/bm_store.py's own output funnel does (GATE 3, VERIFIED
+    BY ORCHESTRATOR), by calling that exact function rather than
+    reimplementing redact-then-sanitize a second time: a second copy is
+    precisely how "a guard that covers one file keeps being escaped by the
+    next file" happens. Applied per LINE, before it joins a multi-line
+    `lines` list, never to an already-assembled multi-line document (which
+    would escape the document's OWN newlines as if they were injected
+    control characters, a regression tools/bm_store.py already hit once)."""
+    return bm_store._protect_text(text)
 
 
 def _dump_store(root):
     """Open read-only, dump every table with default-deny redaction
     (raw=False, the only mode this server ever uses), close. Reused by
     every tool below except bm_status, which calls bm_store.verify()
-    instead since it needs invariant checks, not row contents."""
+    instead since it needs invariant checks, not row contents. `root` is
+    always a snapshot directory from `_snapshot_for_reading`, never the
+    project root a caller named."""
     store = bm_store.ReadOnlyStore(root)
     try:
         return store.dump(raw=False)
     finally:
         store.close()
+
+
+def _dump_store_or_clean_error(snap, real_root):
+    """`_dump_store(snap)`, translating a corrupt or unreadable SNAPSHOT
+    into a clean ToolError that never names the snapshot's own path: that
+    path lives inside a temporary directory this call is about to delete
+    (`_snapshot_for_reading`'s `finally`), so printing it would name
+    something that no longer exists a moment later and could be misread as
+    something having happened to the founder's REAL store (BLOCKER 1).
+    Mirrors the same two exceptions tool_bm_status already handles this
+    way; factored out so bm_active_work, bm_fences, and bm_decisions do not
+    each grow their own copy of this handling."""
+    try:
+        return _dump_store(snap)
+    except bm_store.StoreCorrupt:
+        raise ToolError(
+            "store at %s could not be read as a database (it appears "
+            "corrupted or truncated). Nothing on disk was changed: this "
+            "check reads a private, temporary copy of the store, never "
+            "the store itself, and that copy has already been discarded."
+            % bm_store.store_path(real_root))
+    except bm_store.OwnershipRefused as e:
+        raise ToolError("could not open the store: %s: %s" % (e.reason, _protect(str(e))))
 
 
 # ---------------------------------------------------------------------------
@@ -139,27 +305,36 @@ def _dump_store(root):
 def tool_bm_status(arguments):
     root, source = _resolve_root(arguments)
     lines = ["project root: %s (found via %s)" % (root, source)]
-    store_file = bm_store.store_path(root)
-    if not os.path.isfile(store_file):
-        lines.append("no store exists at %s yet" % store_file)
-        lines.append("healthy: nothing to check (no store)")
-        return "\n".join(lines)
-    try:
-        problems = bm_store.verify(root)
-    except bm_store.OwnershipRefused as e:
-        lines.append("could not open the store: %s: %s" % (e.reason, e))
-        return "\n".join(lines)
-    except bm_store.StoreCorrupt as e:
-        lines.append("store is corrupt: %s" % e)
-        if e.quarantine_path:
-            lines.append("quarantined at: %s" % e.quarantine_path)
-        return "\n".join(lines)
-    if not problems:
-        lines.append("healthy: yes (0 problems)")
-    else:
-        lines.append("healthy: no (%d problem(s)):" % len(problems))
-        for p in problems:
-            lines.append("  - %s" % p)
+    real_store_file = bm_store.store_path(root)
+    with _snapshot_for_reading(root) as snap:
+        if not os.path.isfile(bm_store.store_path(snap)):
+            lines.append("no store exists at %s yet" % real_store_file)
+            lines.append("healthy: nothing to check (no store)")
+        else:
+            try:
+                problems = bm_store.verify(snap)
+            except bm_store.OwnershipRefused as e:
+                lines.append("could not open the store: %s: %s" % (e.reason, _protect(str(e))))
+            except bm_store.StoreCorrupt:
+                # BLOCKER 1: never name the snapshot's own quarantine path
+                # here. That path lives inside a temporary directory this
+                # function is about to delete, so printing it would name
+                # something that no longer exists a moment later and would
+                # wrongly imply the founder's OWN store had been moved,
+                # exactly the false report this whole fix exists to close.
+                lines.append(
+                    "store at %s could not be read as a database (it "
+                    "appears corrupted or truncated). Nothing on disk was "
+                    "changed: this check reads a private, temporary copy "
+                    "of the store, never the store itself, and that copy "
+                    "has already been discarded." % real_store_file)
+            else:
+                if not problems:
+                    lines.append("healthy: yes (0 problems)")
+                else:
+                    lines.append("healthy: no (%d problem(s)):" % len(problems))
+                    for p in problems:
+                        lines.append(_protect("  - %s" % p))
     return "\n".join(lines)
 
 
@@ -167,48 +342,57 @@ _VALID_STATES = ("active", "parked", "complete", "adopted")
 
 
 def tool_bm_active_work(arguments):
-    root, _source = _resolve_root(arguments)
+    root, source = _resolve_root(arguments)
     state = arguments.get("state", "active")
     if state != "all" and state not in _VALID_STATES:
         raise ToolError(
             "state must be one of %s or 'all', got %r"
             % (_VALID_STATES, state))
-    data = _dump_store(root)
+    header = "project root: %s (found via %s)" % (root, source)
+    with _snapshot_for_reading(root) as snap:
+        if not os.path.isfile(bm_store.store_path(snap)):
+            return "%s\nno store exists at %s yet" % (header, bm_store.store_path(root))
+        data = _dump_store_or_clean_error(snap, root)
     records = data["records"]
     if state != "all":
         records = [r for r in records if r["state"] == state]
     if not records:
-        return "no records in state %r at %s" % (state, root)
+        return "%s\nno records in state %r at %s" % (header, state, root)
     records = sorted(records, key=lambda r: (r["state"], r["name"] or "", r["lifecycle_uuid"]))
-    lines = []
+    lines = [header]
     for r in records:
-        lines.append(
+        lines.append(_protect(
             "- %s (%s, v%s, %s, state=%s) tier=%s objective=%s"
             % (r["name"] or "(unnamed)", r["lifecycle_uuid"][:8], r["version"],
                r["lifetime"], r["state"], r["tier"] or "(none)",
-               r["objective"] or "(none)"))
+               r["objective"] or "(none)")))
     return "\n".join(lines)
 
 
 def tool_bm_fences(arguments):
-    root, _source = _resolve_root(arguments)
-    data = _dump_store(root)
+    root, source = _resolve_root(arguments)
+    header = "project root: %s (found via %s)" % (root, source)
+    with _snapshot_for_reading(root) as snap:
+        if not os.path.isfile(bm_store.store_path(snap)):
+            return "%s\nno store exists at %s yet" % (header, bm_store.store_path(root))
+        data = _dump_store_or_clean_error(snap, root)
     active_by_uuid = {r["lifecycle_uuid"]: r for r in data["records"] if r["state"] == "active"}
     fences = [c for c in data["claims"] if c["lifecycle_uuid"] in active_by_uuid]
     if not fences:
-        return "no active fences at %s" % root
+        return "%s\nno active fences at %s" % (header, root)
     fences = sorted(fences, key=lambda c: (c["path"] or "", c["lifecycle_uuid"]))
-    lines = []
+    lines = [header]
     for c in fences:
         r = active_by_uuid[c["lifecycle_uuid"]]
-        lines.append(
+        lines.append(_protect(
             "- %s claimed by %s (%s)"
-            % (c["path"], r["name"] or "(unnamed)", c["lifecycle_uuid"][:8]))
+            % (c["path"], r["name"] or "(unnamed)", r["lifecycle_uuid"][:8])))
     return "\n".join(lines)
 
 
 def tool_bm_decisions(arguments):
-    root, _source = _resolve_root(arguments)
+    root, source = _resolve_root(arguments)
+    header = "project root: %s (found via %s)" % (root, source)
     limit = arguments.get("limit", 20)
     try:
         limit = int(limit)
@@ -217,25 +401,57 @@ def tool_bm_decisions(arguments):
     if limit <= 0:
         raise ToolError("limit must be a positive integer, got %d" % limit)
     record_name = arguments.get("record_name")
-    data = _dump_store(root)
+    with _snapshot_for_reading(root) as snap:
+        if not os.path.isfile(bm_store.store_path(snap)):
+            return "%s\nno store exists at %s yet" % (header, bm_store.store_path(root))
+        data = _dump_store_or_clean_error(snap, root)
+        matching_uuids = None
+        if record_name:
+            # SOFT 6 (final-blockers spec 2026-07-26, VERIFIED BY
+            # ORCHESTRATOR): filtering must compare against the record's
+            # REAL name, never the already-redacted one `data` above
+            # carries. Comparing a caller's real query against a redacted
+            # "[REDACTED]" name is a false negative the moment a record's
+            # name happens to look secret-shaped: "no decisions recorded"
+            # reads as fact, indistinguishable from a project that
+            # genuinely recorded none. A second, RAW dump is opened and
+            # closed here, against the same snapshot, purely to compute
+            # which lifecycle_uuids match; only those identifiers (never
+            # secret-shaped) leave this block, and the raw names are
+            # discarded immediately, never reaching `lines` below.
+            try:
+                raw_store = bm_store.ReadOnlyStore(snap)
+                try:
+                    raw_records = raw_store.dump(raw=True)["records"]
+                finally:
+                    raw_store.close()
+            except bm_store.StoreCorrupt:
+                raise ToolError(
+                    "store at %s could not be read as a database (it "
+                    "appears corrupted or truncated). Nothing on disk was "
+                    "changed: this check reads a private, temporary copy "
+                    "of the store, never the store itself, and that copy "
+                    "has already been discarded." % bm_store.store_path(root))
+            except bm_store.OwnershipRefused as e:
+                raise ToolError("could not open the store: %s: %s" % (e.reason, _protect(str(e))))
+            matching_uuids = {
+                r["lifecycle_uuid"] for r in raw_records if r["name"] == record_name
+            }
     by_uuid = {r["lifecycle_uuid"]: r for r in data["records"]}
     decisions = data["decisions"]
-    if record_name:
-        decisions = [
-            d for d in decisions
-            if by_uuid.get(d["lifecycle_uuid"], {}).get("name") == record_name
-        ]
+    if matching_uuids is not None:
+        decisions = [d for d in decisions if d["lifecycle_uuid"] in matching_uuids]
     decisions = sorted(decisions, key=lambda d: d["created_at"], reverse=True)[:limit]
     if not decisions:
-        return "no decisions recorded at %s" % root
-    lines = []
+        return "%s\nno decisions recorded at %s" % (header, root)
+    lines = [header]
     for d in decisions:
         r = by_uuid.get(d["lifecycle_uuid"], {})
-        lines.append(
+        lines.append(_protect(
             "- [%s] %s (%s) topic=%s: %s"
             % (d["created_at"], r.get("name") or "(unknown record)",
                d["lifecycle_uuid"][:8], d["topic"] or "(no topic)",
-               d["text"] or "(empty)"))
+               d["text"] or "(empty)")))
     return "\n".join(lines)
 
 
@@ -255,12 +471,17 @@ TOOLS = [
                 "project_root": {
                     "type": "string",
                     "description": (
-                        "A path at or inside the BrotherMode project to "
-                        "check. Resolved exactly like the bm_store.py CLI: "
-                        "the BROTHERMODE_ROOT environment variable wins if "
-                        "set, otherwise the nearest .brothermode marker "
-                        "walking up from this path, otherwise the nearest "
-                        ".git."
+                        "An ABSOLUTE path at or inside the BrotherMode "
+                        "project to check. A relative path is refused "
+                        "outright, never resolved against this server "
+                        "process's own working directory. Walks up from "
+                        "this path for the nearest .brothermode marker, "
+                        "then the nearest .git; the BROTHERMODE_ROOT "
+                        "environment variable is never consulted (GATE 4, "
+                        "final-blockers spec 2026-07-26): an explicit "
+                        "project_root argument is always authoritative, so "
+                        "a call naming one project can never be silently "
+                        "answered about another."
                     ),
                 }
             },
@@ -359,9 +580,7 @@ TOOL_HANDLERS = {
 # ---------------------------------------------------------------------------
 
 def _send(obj):
-    sys.stdout.write(json.dumps(obj, sort_keys=True))
-    sys.stdout.write("\n")
-    sys.stdout.flush()
+    _raw_write(sys.stdout, json.dumps(obj, sort_keys=True) + "\n")
 
 
 def _result(id_, result):
@@ -392,8 +611,15 @@ def handle_initialize(msg):
         "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
         "instructions": (
             "Read-only BrotherMode project queries. Every tool takes a "
-            "project_root path. This server never writes, deletes, or "
-            "transitions anything in the store it reads."
+            "required, ABSOLUTE project_root path (a relative path is "
+            "refused, and the BROTHERMODE_ROOT environment variable is "
+            "never consulted, so a call can never be silently answered "
+            "about a different project than the one it named). This "
+            "server never writes, deletes, or transitions anything: every "
+            "read runs against a private temporary copy of the store, "
+            "made and discarded within the same call, so nothing this "
+            "server does, including its own failure paths, ever touches "
+            "the founder's real files."
         ),
     })
 
