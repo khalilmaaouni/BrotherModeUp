@@ -643,7 +643,7 @@ class TestCalibratedJ(unittest.TestCase):
                               "no store exists yet; has_receipt must be an honest "
                               "False, never a guess")
 
-            bs.init_project(toplevel)
+            bs.init_project(toplevel).close()
             _write(os.path.join(repo, "wip.txt"), "WIP")
             res = autosave.snapshot(toplevel, "s1", "test")
             self.assertTrue(res["ok"], res)
@@ -781,7 +781,7 @@ class TestCalibratedGateFReceiptOutlivesPrunedSnapshot(unittest.TestCase):
             _git(repo, "commit", "-qm", "init")
             toplevel = autosave.resolve_toplevel(repo)
             wtid = autosave.worktree_id_for(toplevel)
-            bs.init_project(toplevel)
+            bs.init_project(toplevel).close()
             os.environ["BROTHERMODE_AUTOSAVE_RETAIN"] = "100"
             try:
                 results = []
@@ -833,7 +833,7 @@ class TestCalibratedGateFReceiptOutlivesPrunedSnapshot(unittest.TestCase):
                 _git(repo2, "commit", "-qm", "init")
                 toplevel2 = autosave.resolve_toplevel(repo2)
                 wtid2 = autosave.worktree_id_for(toplevel2)
-                bs.init_project(toplevel2)
+                bs.init_project(toplevel2).close()
                 original = autosave._delete_receipts_for_shas
                 autosave._delete_receipts_for_shas = lambda *a, **kw: None
                 os.environ["BROTHERMODE_AUTOSAVE_RETAIN"] = "100"
@@ -864,7 +864,7 @@ class TestCrossProjectReceiptGuard(unittest.TestCase):
     def test_receipt_never_written_into_a_parent_projects_store(self):
         with tempfile.TemporaryDirectory() as base:
             # The PARENT directory is its own BrotherMode project.
-            bs.init_project(base)
+            bs.init_project(base).close()
             child = os.path.join(base, "child")
             os.makedirs(child)
             _init_repo(child)
