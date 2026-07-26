@@ -96,10 +96,13 @@ page. The full, current list is
 - **This has not been used on a real project yet.** Everything behind the
   claims in this repository rests on its own test suites and adversarial
   review, not on a week of someone's actual work going through it.
-  Continuous integration has never executed against this content (the
-  workflow is configured; it has not run). Windows support is designed for,
-  and one real defect was caught by simulating Windows path behavior on this
-  machine, but no one has run it on an actual Windows machine.
+  Continuous integration HAS executed (corrected 2026-07-26: an earlier
+  version of this line said it never had, which was false and unchecked; it
+  has run 18 times and the record is public in the Actions tab). Its result
+  on the tagged release commit is FAILURE, on Windows, for a real defect:
+  database handles were never closed, which POSIX tolerates and Windows
+  refuses. Read `docs/KNOWN-LIMITS.md` for the verbatim error and the
+  current state of the fix before relying on any Windows claim here.
 
 Do not read anything in this README as implying otherwise. If a claim below
 and a claim in `KNOWN-LIMITS.md` seem to disagree, the limits file is the one
