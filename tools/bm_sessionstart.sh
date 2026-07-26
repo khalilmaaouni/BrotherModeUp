@@ -12,4 +12,10 @@ python3 "$DIR/tools/bm_telemetry.py" startup-nags 2>/dev/null
 python3 "$DIR/tools/bm_telemetry.py" check-update 2>/dev/null
 # If this session resumed from a compaction, point it at the autosave.
 printf '%s' "$PAYLOAD" | python3 "$DIR/tools/bm_telemetry.py" compact-hint 2>/dev/null
+# Store health: silent when healthy or when no store exists yet (verify's own
+# "no-root"/"no-store" refusals), printed whenever there is something real to
+# see (an unacknowledged quarantine, corruption, or anything else verify or
+# bm_store.py's own pre-command warning reports), so a lost database is never
+# a session's whole SessionStart output being nothing.
+STORE_HEALTH="$(python3 "$DIR/tools/bm_store.py" verify 2>&1)"; printf '%s\n' "$STORE_HEALTH" | grep -Eq 'problem\(s\) found|STORE CORRUPT|WARNING|unexpected error|db-busy|stale-identity|Traceback' && printf '%s\n' "$STORE_HEALTH"
 exit 0
