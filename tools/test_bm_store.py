@@ -10,6 +10,7 @@ and assert that V2 refuses what V1 silently allowed.
 """
 import ast
 import datetime
+import gc
 import glob
 import io
 import json
@@ -18,6 +19,7 @@ import os
 import pathlib
 import random
 import re
+import shutil
 import sqlite3
 import stat
 import subprocess
@@ -308,7 +310,7 @@ class TestCalibratedReinjections(unittest.TestCase):
         # weakened test: the secret must still be reachable via --raw.
         secret = "sk-test1234567890abcdef"
         with tempfile.TemporaryDirectory() as d:
-            bs.init_project(d)
+            bs.init_project(d).close()
             store = bs.Store(d)
             try:
                 rec = store.claim("thing", "ephemeral",
@@ -2600,6 +2602,105 @@ class TestStoreOpen(unittest.TestCase):
             finally:
                 store.close()
 
+class TestConnectionLifecycle(unittest.TestCase):
+    """The Windows CI defect this class guards against (GitHub Actions run
+    18, commit 7c2e0ec, job 'store (windows-latest, 3.x)'): a Store's
+    sqlite3 connection left open when its containing directory was removed
+    raised PermissionError: [WinError 32] on Windows, because Windows locks
+    an open file handle against deletion. POSIX (macOS, Linux) enforces no
+    such lock, so os.unlink/shutil.rmtree silently succeed there even with
+    the exact same leak; that is why every macOS/Linux CI leg passed and
+    only Windows caught it. Establishing scope for this fix-round: a grep
+    for every Store(/ReadOnlyStore( construction site across bm_store.py,
+    bm_autosave.py, and their three test files found 12 real leak sites
+    (11 direct bs.init_project(...) calls whose returned Store was
+    discarded unclosed, one inside the product CLI command cmd_init
+    itself), plus one exception-path leak in the random-sequence generator
+    (TestStoreInvariantsUnderRandomSequences._run_sequence) whose
+    store.close() sat after the loop and was skipped whenever a mid-loop
+    AssertionError fired, which its own two calibration tests deliberately
+    trigger. Every dropped connection this class checks used the raw
+    sqlite3.Connection ProgrammingError it raises once truly closed, not a
+    filesystem check, precisely because that is the ONE assertion capable
+    of failing on every platform including this one."""
+
+    def test_calibrated_store_context_manager_closes_on_normal_exit(self):
+        d = tempfile.mkdtemp()
+        try:
+            with bs.Store(d) as store:
+                raw_conn = store.conn
+                store.claim("thing", "ephemeral", "obj", [])
+            # CALIBRATION: raw_conn is the actual sqlite3.Connection,
+            # captured before __exit__ runs. sqlite3 only raises
+            # ProgrammingError here once the OS-level handle behind it is
+            # genuinely released; if close() ever regresses to a no-op (the
+            # exact leak class this fix-round exists for), raw_conn stays
+            # usable and this assertion fails, on every platform, not only
+            # Windows.
+            with self.assertRaises(sqlite3.ProgrammingError):
+                raw_conn.execute("SELECT 1")
+            self.assertIsNone(store.conn,
+                               "Store.__exit__ must null self.conn, not just close it")
+            # The literal Windows failure shape from the CI log:
+            # tempfile.TemporaryDirectory cleanup calls os.unlink on every
+            # file, store.sqlite3 included. POSIX allows this regardless of
+            # the leak (see the class docstring above), so this line cannot
+            # fail on this platform, but it is exactly the operation that
+            # raised PermissionError in the CI log, and it must keep
+            # working now that the connection really is closed.
+            shutil.rmtree(d)
+            self.assertFalse(os.path.exists(d))
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_calibrated_store_context_manager_closes_when_the_body_raises(self):
+        # _run_sequence (TestStoreInvariantsUnderRandomSequences) proved
+        # this exact gap for real: its store.close() used to sit AFTER the
+        # loop, so an AssertionError raised mid-loop (precisely what that
+        # class's own calibration tests deliberately trigger) skipped it
+        # and leaked. A context manager closes on the way out regardless of
+        # how the block exits, which is the whole reason to prefer it over
+        # a bare call at the end of a function body.
+        d = tempfile.mkdtemp()
+        try:
+            raw_conn = [None]
+            with self.assertRaises(ValueError):
+                with bs.Store(d) as store:
+                    raw_conn[0] = store.conn
+                    raise ValueError("simulated failure inside the with-block")
+            with self.assertRaises(sqlite3.ProgrammingError):
+                raw_conn[0].execute("SELECT 1")
+            shutil.rmtree(d)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_calibrated_readonly_store_context_manager_closes_on_normal_exit(self):
+        d = tempfile.mkdtemp()
+        try:
+            bs.init_project(d).close()
+            with bs.ReadOnlyStore(d) as store:
+                raw_conn = store.conn
+            with self.assertRaises(sqlite3.ProgrammingError):
+                raw_conn.execute("SELECT 1")
+            self.assertIsNone(store.conn)
+            shutil.rmtree(d)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_close_is_idempotent(self):
+        # A caller cannot always tell whether an earlier try/finally already
+        # closed a store (e.g. a shared helper called from more than one
+        # cleanup path); a second close() must be a harmless no-op, not a
+        # crash on an already-None connection.
+        d = tempfile.mkdtemp()
+        try:
+            store = bs.Store(d)
+            store.close()
+            store.close()
+            self.assertIsNone(store.conn)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
 class TestTransitionsIndexOnOpen(unittest.TestCase):
     """The measured optimization's other half (prerelease fix round): the
     transitions index must be created on EVERY open, not only inside
@@ -3233,21 +3334,21 @@ class TestInitProject(unittest.TestCase):
     def test_init_creates_store_and_appends_git_exclude(self):
         with tempfile.TemporaryDirectory() as d:
             os.makedirs(os.path.join(d, ".git", "info"))
-            bs.init_project(d)
+            bs.init_project(d).close()
             self.assertTrue(os.path.exists(bs.store_path(d)))
             exclude_path = os.path.join(d, ".git", "info", "exclude")
             with io.open(exclude_path, encoding="utf-8") as f:
                 content = f.read()
             for wanted in (".brothermode/", "threads/", "STATE.md"):
                 self.assertIn(wanted, content)
-            bs.init_project(d)  # idempotent
+            bs.init_project(d).close()  # idempotent
             with io.open(exclude_path, encoding="utf-8") as f:
                 content2 = f.read()
             self.assertEqual(content2.count(".brothermode/"), 1)
 
     def test_init_without_git_dir_does_not_create_exclude(self):
         with tempfile.TemporaryDirectory() as d:
-            bs.init_project(d)
+            bs.init_project(d).close()
             self.assertTrue(os.path.exists(bs.store_path(d)))
             self.assertFalse(os.path.exists(os.path.join(d, ".git")))
 
@@ -3328,7 +3429,7 @@ class TestCLIExitCodes(unittest.TestCase):
         # in-process (not via the CLI subprocess) so the patch is scoped to
         # this one test and cannot leak into any other.
         with tempfile.TemporaryDirectory() as d:
-            bs.init_project(d)
+            bs.init_project(d).close()
             # Sabotage: cmd_claim never calls store.claim() at all, exactly
             # the SOFT 11 reproduction. Call it directly (in-process, patch
             # scoped to this test only) the way the CLI dispatch table would.
@@ -3401,7 +3502,7 @@ class TestCLIExitCodes(unittest.TestCase):
         # test and cannot leak across the subprocess boundary).
         original = bs._reject_unknown_flags
         with tempfile.TemporaryDirectory() as d:
-            bs.init_project(d)
+            bs.init_project(d).close()
             with mock.patch.object(bs, "_reject_unknown_flags", lambda *a, **k: None):
                 with mock.patch.object(bs, "require_root", lambda *a, **k: (d, "test")):
                     bs.cmd_claim(["thing", "--lifetime", "ephemeral",
@@ -3511,79 +3612,90 @@ class TestStoreInvariantsUnderRandomSequences(unittest.TestCase):
     def _run_sequence(self, seed, steps=50):
         rng = random.Random(seed)
         with tempfile.TemporaryDirectory() as d:
-            bs.init_project(d)
+            bs.init_project(d).close()
             store = bs.Store(d)
-            model = {n: None for n in self.NAMES}
-            for step in range(steps):
-                # REUSE-AFTER-CLOSE / RESTART-WHILE-LIVE bias: close and
-                # reopen a FRESH Store handle onto the SAME root, whether or
-                # not a record is currently ACTIVE (deliberately not parked
-                # or completed first).
-                if rng.random() < 0.25:
-                    store.close()
-                    store = bs.Store(d)
+            # try/finally, not a bare store.close() after the loop (fix-
+            # round: found while establishing this leak's real scope): the
+            # two calibration tests below deliberately drive _check_
+            # invariants to raise AssertionError mid-loop, and a bare close()
+            # placed after the loop is skipped entirely when that exception
+            # propagates, leaking the handle every time the generator does
+            # exactly what it is calibrated to do.
+            try:
+                model = {n: None for n in self.NAMES}
+                for step in range(steps):
+                    # REUSE-AFTER-CLOSE / RESTART-WHILE-LIVE bias: close and
+                    # reopen a FRESH Store handle onto the SAME root, whether
+                    # or not a record is currently ACTIVE (deliberately not
+                    # parked or completed first).
+                    if rng.random() < 0.25:
+                        store.close()
+                        store = bs.Store(d)
 
-                name = rng.choice(self.NAMES)
-                cur = model[name]
-                enabled = ["claim"]
-                if cur is not None:
-                    if cur["state"] == "active":
-                        enabled += ["park", "park", "complete", "checkpoint",
-                                    "checkpoint", "decide"]
-                    elif cur["state"] == "parked":
-                        enabled += ["resume", "resume"]
-                # A smaller chance of a move that does NOT apply to the
-                # model's current belief, so refuse-don't-guess is exercised
-                # on illegal input too, not only ever-legal sequences.
-                op = (rng.choice(enabled) if rng.random() > 0.15
-                      else rng.choice(["claim", "park", "resume", "complete",
-                                       "checkpoint", "decide"]))
-                path = rng.choice(self.PATHS)
-
-                try:
-                    if op == "claim":
-                        rec = store.claim(name, "ephemeral", "step %d" % step,
-                                           [path], session_id="s1")
-                        model[name] = {"uuid": rec.lifecycle_uuid,
-                                       "version": rec.version, "state": rec.state}
-                    elif op == "park" and cur is not None:
-                        rec = store.transition(cur["uuid"], cur["version"], "parked",
-                                                session_id="s1")
-                        model[name] = {"uuid": rec.lifecycle_uuid,
-                                       "version": rec.version, "state": rec.state}
-                    elif op == "resume" and cur is not None:
-                        rec = store.transition(cur["uuid"], cur["version"], "active",
-                                                session_id="s1")
-                        model[name] = {"uuid": rec.lifecycle_uuid,
-                                       "version": rec.version, "state": rec.state}
-                    elif op == "complete" and cur is not None:
-                        store.transition(cur["uuid"], cur["version"], "complete",
-                                          session_id="s1", evidence="ok")
-                        # Completed is terminal for this model slot: the next
-                        # claim() under the same name starts a brand new
-                        # lifecycle, exactly like a real resumed project.
-                        model[name] = None
-                    elif op == "checkpoint" and cur is not None:
-                        store.checkpoint(cur["uuid"], cur["version"], "next %d" % step)
-                        model[name]["version"] = cur["version"] + 1
-                    elif op == "decide" and cur is not None:
-                        store.decide(cur["uuid"], cur["version"], "topic", "text %d" % step)
-                        model[name]["version"] = cur["version"] + 1
-                except (bs.OwnershipRefused, bs.StaleIdentity, ValueError):
-                    # A deliberately illegal move, or a legal one that lost a
-                    # race against the model's own drifted belief (an
-                    # overlap refusal from the shared PATHS pool, most
-                    # commonly): refusing is correct, not a test failure.
-                    # Re-sync the model from the store's OWN truth rather
-                    # than trust what this loop assumed.
+                    name = rng.choice(self.NAMES)
+                    cur = model[name]
+                    enabled = ["claim"]
                     if cur is not None:
-                        fresh = store.get(cur["uuid"])
-                        model[name] = ({"uuid": fresh.lifecycle_uuid,
-                                        "version": fresh.version, "state": fresh.state}
-                                       if fresh is not None else None)
+                        if cur["state"] == "active":
+                            enabled += ["park", "park", "complete", "checkpoint",
+                                        "checkpoint", "decide"]
+                        elif cur["state"] == "parked":
+                            enabled += ["resume", "resume"]
+                    # A smaller chance of a move that does NOT apply to the
+                    # model's current belief, so refuse-don't-guess is
+                    # exercised on illegal input too, not only ever-legal
+                    # sequences.
+                    op = (rng.choice(enabled) if rng.random() > 0.15
+                          else rng.choice(["claim", "park", "resume", "complete",
+                                           "checkpoint", "decide"]))
+                    path = rng.choice(self.PATHS)
 
-                self._check_invariants(store, seed, step, model)
-            store.close()
+                    try:
+                        if op == "claim":
+                            rec = store.claim(name, "ephemeral", "step %d" % step,
+                                               [path], session_id="s1")
+                            model[name] = {"uuid": rec.lifecycle_uuid,
+                                           "version": rec.version, "state": rec.state}
+                        elif op == "park" and cur is not None:
+                            rec = store.transition(cur["uuid"], cur["version"], "parked",
+                                                    session_id="s1")
+                            model[name] = {"uuid": rec.lifecycle_uuid,
+                                           "version": rec.version, "state": rec.state}
+                        elif op == "resume" and cur is not None:
+                            rec = store.transition(cur["uuid"], cur["version"], "active",
+                                                    session_id="s1")
+                            model[name] = {"uuid": rec.lifecycle_uuid,
+                                           "version": rec.version, "state": rec.state}
+                        elif op == "complete" and cur is not None:
+                            store.transition(cur["uuid"], cur["version"], "complete",
+                                              session_id="s1", evidence="ok")
+                            # Completed is terminal for this model slot: the
+                            # next claim() under the same name starts a brand
+                            # new lifecycle, exactly like a real resumed
+                            # project.
+                            model[name] = None
+                        elif op == "checkpoint" and cur is not None:
+                            store.checkpoint(cur["uuid"], cur["version"], "next %d" % step)
+                            model[name]["version"] = cur["version"] + 1
+                        elif op == "decide" and cur is not None:
+                            store.decide(cur["uuid"], cur["version"], "topic", "text %d" % step)
+                            model[name]["version"] = cur["version"] + 1
+                    except (bs.OwnershipRefused, bs.StaleIdentity, ValueError):
+                        # A deliberately illegal move, or a legal one that
+                        # lost a race against the model's own drifted belief
+                        # (an overlap refusal from the shared PATHS pool,
+                        # most commonly): refusing is correct, not a test
+                        # failure. Re-sync the model from the store's OWN
+                        # truth rather than trust what this loop assumed.
+                        if cur is not None:
+                            fresh = store.get(cur["uuid"])
+                            model[name] = ({"uuid": fresh.lifecycle_uuid,
+                                            "version": fresh.version, "state": fresh.state}
+                                           if fresh is not None else None)
+
+                    self._check_invariants(store, seed, step, model)
+            finally:
+                store.close()
 
     def test_random_sequences_hold_invariants(self):
         for seed in range(6):
@@ -3642,5 +3754,95 @@ class TestStoreInvariantsUnderRandomSequences(unittest.TestCase):
             bs.Store._find_overlap = original
 
 
+def tearDownModule():
+    """BACKSTOP for the Windows leak class (CI run 18, commit 7c2e0ec, job
+    'store (windows-latest, 3.x)'). The primary check is per-test, in
+    _LeakCheckingResult below; read that docstring for why end-of-run alone is
+    too weak to have caught the original defect. This still earns its place: it
+    is the only check that runs under `python -m unittest`, and it catches a
+    store opened outside any test (a module or class fixture).
+
+    That round fixed twelve known call sites by hand. Twelve hand-fixed sites
+    are not a fixed class: this file alone constructs a store 158 times, and
+    site 159 will be written by someone who never read the fix. So instead of
+    an allowlist of known-good sites, which rots the moment anyone adds a
+    test, both checks assert the invariant itself: no store is left open.
+
+    gc.collect() first, deliberately. A store nobody references any more has
+    already had its sqlite connection closed by CPython's finalizer, so it
+    holds no OS handle and cannot lock a file on any platform; reporting it
+    would be a false alarm. What is left after a collection is a store that is
+    still REFERENCED and still open, which is precisely the condition that
+    raised PermissionError on Windows.
+
+    This fails on macOS and Linux too. That matters more than it sounds: the
+    original defect was invisible on both for months because POSIX lets you
+    delete a file that still has an open handle, so the only signal was a
+    platform most contributors never run.
+    """
+    gc.collect()
+    still_open = list(bs._UNCLOSED) or list(bs._OPEN_STORES)
+    if still_open:
+        paths = sorted(set(getattr(s, "path", "<unknown>") for s in still_open))
+        raise AssertionError(
+            "%d store connection(s) were still open when the suite ended, which "
+            "is the leak class that failed Windows CI run 18. Close every store "
+            "(prefer 'with bs.Store(d) as store:' so it closes even when the "
+            "body raises). Still-open store path(s): %s"
+            % (len(still_open), ", ".join(paths)))
+
+
+class _LeakCheckingResult(unittest.TextTestResult):
+    """Fails the individual test that leaks, at the moment it leaks.
+
+    A module-level check was tried first and rejected, because it would not
+    have caught the original defect. The Windows failure happened INSIDE a
+    test: the store was constructed under `with tempfile.TemporaryDirectory()`
+    and the directory cleanup ran while the store local was still in scope. By
+    the end of the suite that store is long collected, so an end-of-run
+    assertion sees a clean set and reports success. Checking after each test is
+    what actually reproduces the window in which Windows failed.
+
+    The leaked stores are closed here after being reported. Without that, one
+    leak would fail every remaining test in the run and bury its own cause.
+    """
+
+    def startTest(self, test):
+        # Each test starts from a clean slate, so a failure names the test that
+        # actually leaked rather than the first one to run after it.
+        bs._TRACK_UNCLOSED = True
+        bs._UNCLOSED.clear()
+        super(_LeakCheckingResult, self).startTest(test)
+
+    def stopTest(self, test):
+        still_open = list(bs._UNCLOSED)
+        if still_open:
+            paths = sorted(set(getattr(s, "path", "<unknown>") for s in still_open))
+            for s in still_open:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+            bs._UNCLOSED.clear()
+            msg = (
+                "%d store(s) were opened by this test and never closed. "
+                "This is the leak class that failed Windows CI run 18 (commit "
+                "7c2e0ec): POSIX lets you delete a file that still has an open "
+                "handle, Windows does not, so the same code passes here and "
+                "raises PermissionError there. Close the store, preferring "
+                "'with bs.Store(d) as store:' so it closes even when the body "
+                "raises. Still-open path(s): %s" % (len(still_open), ", ".join(paths)))
+            self.addFailure(test, (AssertionError, AssertionError(msg), None))
+        super(_LeakCheckingResult, self).stopTest(test)
+
+
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    # The leak check lives in the runner, so it applies to every test without
+    # each of the ~40 TestCase classes having to opt in. Running this file
+    # through `python -m unittest` instead bypasses it and only tearDownModule
+    # applies; `python3 tools/test_bm_store.py`, which is what CI and the docs
+    # both use, gets the per-test check.
+    unittest.main(
+        verbosity=2,
+        testRunner=unittest.TextTestRunner(verbosity=2,
+                                            resultclass=_LeakCheckingResult))
