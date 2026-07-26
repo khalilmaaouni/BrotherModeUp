@@ -73,6 +73,32 @@ def _neutralize_markers(s):
     return s.replace(_STATE_BEGIN, _MARKER_ESCAPE).replace(_STATE_END, _MARKER_ESCAPE)
 
 
+def _sanitize_for_display(s):
+    """Neutralize every C0 control character (0x00-0x1F) and DEL (0x7F) in
+    founder-typed text before it enters a generated view or a terminal
+    (SOFT D + SOFT E, fix-round 5, 2026-07-26, unified into one pass since
+    both are "a control character reached somewhere it should not have"):
+    an objective containing a raw newline forged a complete counterfeit
+    record block inside STATE.md while verify() reported healthy (SOFT D),
+    and an objective containing a raw ANSI escape (ESC, 0x1b) reached a real
+    terminal and erased another record's line, reproduced as "HIJACKED: no
+    other work exists" (SOFT E). valid_name already rejects non-printables
+    in NAMES; free-text fields had no equivalent gate. Each offending byte
+    becomes a visible \\xHH escape, the same representation _out() already
+    uses for an unencodable character, so the founder sees one consistent
+    escape style everywhere."""
+    if not s:
+        return s
+    out = []
+    for ch in s:
+        cp = ord(ch)
+        if cp < 0x20 or cp == 0x7f:
+            out.append("\\x%02x" % cp)
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
 _SECTION_BUDGETS = {
     "header": 400,
     "next_intent": 900,
@@ -758,6 +784,29 @@ def _chmod_best_effort(path, mode):
         pass
 
 
+def _refuse_if_symlink_escape(expected_path):
+    """The ONE containment check for any path this module treats as living
+    LITERALLY at expected_path (GATE D, fix-round 3, extended to the store
+    file and its sidecars as GATE B, fix-round 5, 2026-07-26): a symlinked
+    .brothermode DIRECTORY was refused, but .brothermode/store.sqlite3 (and
+    its -wal/-shm) were never checked, so a symlinked store FILE still wrote
+    the raw sensitive database outside the project root (reproduced:
+    committed into git via a symlinked docs/leak.sqlite3 carrying a secret).
+    Only checks paths that already exist (os.path.lexists, which does not
+    follow the final symlink): a path about to be freshly created cannot be
+    an escape yet. Raises OwnershipRefused 'path-escape'."""
+    if not os.path.lexists(expected_path):
+        return
+    real_path = os.path.realpath(expected_path)
+    if real_path != expected_path:
+        raise OwnershipRefused(
+            "path-escape",
+            "%s is a symlink (or contains one) resolving to %s; refusing "
+            "to use it rather than write the sensitive store outside the "
+            "project root or chmod that target" % (expected_path, real_path),
+            details={"expected": expected_path, "resolved": real_path})
+
+
 def _resolve_git_common_dir(root):
     """The directory that actually holds info/exclude for this checkout
     (GATE C, fix-round 3, 2026-07-26). A normal checkout: <root>/.git. A
@@ -900,15 +949,15 @@ class Store(object):
         # -> ../shared) wrote the sensitive store outside the project root,
         # defeated the exclude line entirely, and chmod'd the LINK TARGET.
         # Same containment rule, checked BEFORE any chmod or DB open.
-        real_store_dir = os.path.realpath(expected_store_dir)
-        if real_store_dir != expected_store_dir:
-            raise OwnershipRefused(
-                "path-escape",
-                "%s is a symlink (or contains one) resolving to %s; "
-                "refusing to use it as the store directory rather than "
-                "write the sensitive store outside the project root or "
-                "chmod that target" % (expected_store_dir, real_store_dir),
-                details={"expected": expected_store_dir, "resolved": real_store_dir})
+        _refuse_if_symlink_escape(expected_store_dir)
+        # GATE B (fix-round 5, 2026-07-26): the DIRECTORY check above is not
+        # enough; the store FILE itself (and its -wal/-shm sidecars) must be
+        # checked too, or a symlinked store.sqlite3 alone writes the raw
+        # database outside the project root while the directory looks fine.
+        expected_path = store_path(self.root)
+        _refuse_if_symlink_escape(expected_path)
+        _refuse_if_symlink_escape(expected_path + "-wal")
+        _refuse_if_symlink_escape(expected_path + "-shm")
         # GATE 7 (fix-round 2026-07-26): every open protects itself, not
         # only `init`. A command run before anyone happens to `init` still
         # creates the store directory as a side effect, and that must never
@@ -1009,6 +1058,11 @@ class Store(object):
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%f")
         suffix = uuid.uuid4().hex[:8]
         qdir = self.path + ".quarantine-%s-%s" % (stamp, suffix)
+        # GATE B (fix-round 5, 2026-07-26): the quarantine TARGET is already
+        # containment-safe by construction, not by an extra check: exist_ok
+        # is False, so if anything (a symlink included) already sits at
+        # qdir, os.makedirs raises FileExistsError, caught below, and
+        # nothing is ever written through it.
         try:
             os.makedirs(qdir, exist_ok=False)
         except OSError as mkdir_err:
@@ -1036,14 +1090,19 @@ class Store(object):
                 "Nothing was deleted: the file is still at its original path."
                 % (self.path, cause, qdir, "; ".join(failed)),
                 quarantine_path=qdir)
+        # SOFT F (fix-round 5, 2026-07-26): this used to say "run init", but
+        # since fix-round 4, init REFUSES without --acknowledge-quarantine
+        # while this exact quarantine directory exists, so the printed
+        # instruction could not be followed. Name the command that actually
+        # works: inspect first, THEN acknowledge to start a fresh store.
         raise StoreCorrupt(
             "%s was not a readable SQLite database (%s). It has been "
             "quarantined, together with its -wal/-shm sidecars where "
             "present, to the directory %s (never deleted, never "
-            "overwritten: this directory name is unique per incident). Run "
-            "`python3 tools/bm_store.py init` to start a fresh store, then "
-            "inspect the quarantined directory by hand to recover any "
-            "records." % (self.path, cause, qdir),
+            "overwritten: this directory name is unique per incident). "
+            "Inspect that directory by hand to recover any records, then "
+            "run `python3 tools/bm_store.py init --acknowledge-quarantine` "
+            "to start a fresh store." % (self.path, cause, qdir),
             quarantine_path=qdir)
 
     def close(self):
@@ -1158,27 +1217,53 @@ class Store(object):
                              "name": name})
 
     def _raise_overlap(self, conflict):
+        # SOFT G (fix-round 5, 2026-07-26): the same path string is
+        # redacted in the dashboard but was printed raw here; a claim path
+        # that happens to contain a secret-shaped substring reached the
+        # terminal unredacted through this one message. The message is
+        # redacted; details["paths"] stays raw for programmatic callers,
+        # since main() only ever prints str(exception), never .details.
+        # Redaction here is best-effort: the OVERLAP REFUSAL itself is the
+        # safety mechanism and must never become unreliable (surfacing as
+        # 'redaction-unavailable' instead of 'overlap') just because the
+        # redactor happens to be unavailable at that moment.
         other_name, other_uuid, pair = conflict
+        def _safe(p):
+            try:
+                return _sanitize_for_display(redact_text(p))
+            except RedactionUnavailable:
+                return "(redacted: unavailable)"
+        safe_pair = (_safe(pair[0]), _safe(pair[1]))
         raise OwnershipRefused(
             "overlap",
             "claim overlaps active record '%s' (lifecycle %s): %r vs %r"
-            % (other_name, other_uuid, pair[0], pair[1]),
+            % (other_name, other_uuid, safe_pair[0], safe_pair[1]),
             details={"lifecycle_uuid": other_uuid, "name": other_name,
                      "paths": list(pair)})
 
     def _reclaim_active(self, conn, row, objective, norm, owner, tier, check_cmd, ttl_hours):
         """The same session re-declaring a name it already holds active.
         Updates in place, keeps the SAME lifecycle_uuid (this is still the
-        same life of the record), and still re-checks overlap against every
-        OTHER active record: skipping that check would let a same-session
-        reclaim silently seize a path a different session already holds,
-        which is exactly the collision the overlap check exists to prevent.
-        Mirrors bm_registry.claim()'s reclaim semantics: objective and files
-        are always overwritten, owner is left untouched, and tier/check_cmd/
-        ttl_hours are only overwritten when a new truthy value is given."""
-        conflict = self._find_overlap(conn, norm, exclude_uuid=row["lifecycle_uuid"])
-        if conflict is not None:
-            self._raise_overlap(conflict)
+        same life of the record). Mirrors bm_registry.claim()'s reclaim
+        semantics: objective is always overwritten, owner is left untouched,
+        and tier/check_cmd/ttl_hours are only overwritten when a new truthy
+        value is given.
+
+        norm is None when the caller did not supply files (GATE A,
+        fix-round 5, 2026-07-26): the existing claims are left COMPLETELY
+        untouched, no overlap re-check, no DELETE, no INSERT. Before this,
+        "not supplied" was treated as "supplied as empty", so a reclaim that
+        only wanted to update the objective silently deleted every file the
+        record was protecting and reported success. norm is a (possibly
+        empty) list when the caller explicitly supplied files: [] is a
+        deliberate, allowed release of every claim, since the caller had to
+        ask for it, and still re-checks overlap against every OTHER active
+        record, since skipping that check would let a same-session reclaim
+        silently seize a path a different session already holds."""
+        if norm is not None:
+            conflict = self._find_overlap(conn, norm, exclude_uuid=row["lifecycle_uuid"])
+            if conflict is not None:
+                self._raise_overlap(conflict)
         ts = now_iso()
         new_tier = tier if tier else row["tier"]
         new_check = check_cmd if check_cmd else row["check_cmd"]
@@ -1187,11 +1272,12 @@ class Store(object):
             "UPDATE records SET objective=?, tier=?, check_cmd=?, ttl_hours=?, "
             "version=version+1, updated_at=? WHERE lifecycle_uuid=?",
             (objective or "", new_tier, new_check, new_ttl, ts, row["lifecycle_uuid"]))
-        _exec(self, "DELETE FROM claims WHERE lifecycle_uuid=?", (row["lifecycle_uuid"],))
-        for path, is_glob in norm:
-            _exec(self,
-                "INSERT INTO claims (lifecycle_uuid, path, is_glob) VALUES (?,?,?)",
-                (row["lifecycle_uuid"], path, 1 if is_glob else 0))
+        if norm is not None:
+            _exec(self, "DELETE FROM claims WHERE lifecycle_uuid=?", (row["lifecycle_uuid"],))
+            for path, is_glob in norm:
+                _exec(self,
+                    "INSERT INTO claims (lifecycle_uuid, path, is_glob) VALUES (?,?,?)",
+                    (row["lifecycle_uuid"], path, 1 if is_glob else 0))
         return self._record_by_uuid(conn, row["lifecycle_uuid"])
 
     def claim(self, name, lifetime, objective, files, owner="", session_id="",
@@ -1207,12 +1293,22 @@ class Store(object):
         are resolved against BEFORE being canonicalized root-relative (GATE
         1): a claim typed from a subdirectory and the same claim typed from
         the root must store the identical string, never two different ones
-        that both "win" against overlap checking."""
+        that both "win" against overlap checking.
+
+        files=None (fix-round 5, 2026-07-26, GATE A) means "not supplied":
+        on a NEW claim that is an empty fence (unchanged from before); on a
+        RECLAIM it LEAVES the existing claims completely untouched. Before
+        this fix, a same-session reclaim that only wanted to update the
+        objective silently deleted every file the record was protecting,
+        reported success, and the next writer was granted the freed path.
+        files=[] (an explicit empty list) is a deliberate release and is
+        always honored, on both a new claim and a reclaim."""
         valid_name(name)
         if lifetime not in ("persistent", "ephemeral"):
             raise ValueError(
                 "lifetime must be 'persistent' or 'ephemeral', got %r" % (lifetime,))
-        norm = _normalize_files(files, self.root, cwd)
+        files_supplied = files is not None
+        norm = _normalize_files(files, self.root, cwd) if files_supplied else None
         with self._transaction() as conn:
             active = _exec(self,
                 "SELECT * FROM records WHERE name=? AND state='active'", (name,)).fetchone()
@@ -1254,7 +1350,11 @@ class Store(object):
                     % (name, active["lifecycle_uuid"], active["session_id"]),
                     details={"lifecycle_uuid": active["lifecycle_uuid"], "name": name,
                              "held_by_session_id": active["session_id"]})
-            self._admit(conn, name, lifetime, norm)
+            # A brand new record with files not supplied is simply an
+            # empty fence (unchanged prior behavior); only a RECLAIM (the
+            # branch above) treats "not supplied" as "leave alone".
+            new_claim_files = norm if files_supplied else []
+            self._admit(conn, name, lifetime, new_claim_files)
             lifecycle_uuid = uuid.uuid4().hex
             ts = now_iso()
             _exec(self,
@@ -1265,7 +1365,7 @@ class Store(object):
                 (lifecycle_uuid, name, lifetime, "active", objective or "",
                  owner or "", session_id or "", tier or "", check_cmd or "",
                  "", ttl_hours, 1, ts, ts))
-            for path, is_glob in norm:
+            for path, is_glob in new_claim_files:
                 _exec(self,
                     "INSERT INTO claims (lifecycle_uuid, path, is_glob) VALUES (?,?,?)",
                     (lifecycle_uuid, path, 1 if is_glob else 0))
@@ -1573,7 +1673,8 @@ class Store(object):
             "SELECT * FROM records WHERE lifecycle_uuid=?", (lifecycle_uuid,)).fetchone()
         if row is None:
             return "(no record with lifecycle_uuid %s)" % lifecycle_uuid
-        objective_text = redact_text(row["objective"]) if row["objective"] else "(no objective)"
+        objective_text = (_sanitize_for_display(redact_text(row["objective"]))
+                          if row["objective"] else "(no objective)")
         header = _truncate(
             "lifecycle %s: %s (%s, %s): %s"
             % (lifecycle_uuid[:8], row["name"], row["state"], row["lifetime"], objective_text),
@@ -1582,13 +1683,13 @@ class Store(object):
             "SELECT * FROM digests WHERE lifecycle_uuid=? ORDER BY seq DESC LIMIT 1",
             (lifecycle_uuid,)).fetchone()
         next_intent = _truncate(
-            redact_text(digest_row["next_intent"]) if digest_row else "",
+            _sanitize_for_display(redact_text(digest_row["next_intent"])) if digest_row else "",
             _SECTION_BUDGETS["next_intent"])
         blockers = _truncate(
-            redact_text(digest_row["blockers"]) if digest_row else "",
+            _sanitize_for_display(redact_text(digest_row["blockers"])) if digest_row else "",
             _SECTION_BUDGETS["blockers"])
         files_note = _truncate(
-            redact_text(digest_row["files_note"]) if digest_row else "",
+            _sanitize_for_display(redact_text(digest_row["files_note"])) if digest_row else "",
             _SECTION_BUDGETS["files_note"])
         decisions = _exec(self,
             "SELECT * FROM decisions WHERE lifecycle_uuid=? ORDER BY seq DESC",
@@ -1596,7 +1697,8 @@ class Store(object):
         new_lines, used, idx = [], 0, 0
         while idx < len(decisions):
             d = decisions[idx]
-            line = "- [%s] %s" % (redact_text(d["topic"]), redact_text(d["text"]))
+            line = "- [%s] %s" % (_sanitize_for_display(redact_text(d["topic"])),
+                                   _sanitize_for_display(redact_text(d["text"])))
             cost = len(line) + (1 if new_lines else 0)
             if used + cost > _SECTION_BUDGETS["decisions_new"]:
                 break
@@ -1613,7 +1715,8 @@ class Store(object):
             newest_block = "(none)"
         older_lines, older_used, older_shown = [], 0, 0
         for d in older:
-            line = "- [%s] %s" % (redact_text(d["topic"]), redact_text(d["text"]))
+            line = "- [%s] %s" % (_sanitize_for_display(redact_text(d["topic"])),
+                                   _sanitize_for_display(redact_text(d["text"])))
             cost = len(line) + (1 if older_lines else 0)
             if older_used + cost > _SECTION_BUDGETS["decisions_old"]:
                 break
@@ -1636,19 +1739,43 @@ class Store(object):
             sections.append(older_block if older_block else "(none)")
         return "\n\n".join(sections) + "\n"
 
-    def dump(self):
-        """Full JSON-serializable export of every table, RAW and UNREDACTED
-        on purpose: this is the one deliberate escape hatch for a human
-        inspecting the store by hand or a future migration, not a display
-        view. It never calls redact_text(). SECURITY.md documents the sqlite
-        file (and therefore this export) as sensitive; every OTHER function
-        in this module that renders founder-typed text for STATE.md, a
-        digest, or a terminal redacts it first (see the Redaction section
-        near the top of this file)."""
+    def dump(self, raw=False):
+        """Full JSON-serializable export of every table.
+
+        GATE C (fix-round 5, 2026-07-26, an authoring correction): redacts
+        BY DEFAULT, the same scope every other exit uses (objective, tier,
+        claim paths, decision topic/text, digest sections). Round 2's own
+        instruction called this "the raw export" and told bm_store.py to
+        leave it alone; the ratified design says redaction applies at every
+        exit, and the design wins over that instruction. dump is exactly
+        what a founder pipes into a file, a paste, or an issue, so silent
+        cleartext by default was the wrong direction. raw=True (CLI:
+        --raw) is the explicit, named escape hatch for a human who really
+        needs the unredacted sqlite contents (SECURITY.md documents the
+        file itself as sensitive); it is never the default."""
         out = {}
         for t in _TABLES:
             rows = _exec(self, "SELECT * FROM %s" % t).fetchall()
             out[t] = [dict(r) for r in rows]
+        if raw:
+            return out
+        for rec in out["records"]:
+            if rec.get("objective"):
+                rec["objective"] = redact_text(rec["objective"])
+            if rec.get("tier"):
+                rec["tier"] = redact_text(rec["tier"])
+        for c in out["claims"]:
+            if c.get("path"):
+                c["path"] = redact_text(c["path"])
+        for dec in out["decisions"]:
+            if dec.get("topic"):
+                dec["topic"] = redact_text(dec["topic"])
+            if dec.get("text"):
+                dec["text"] = redact_text(dec["text"])
+        for dg in out["digests"]:
+            for field in ("next_intent", "blockers", "files_note", "body"):
+                if dg.get(field):
+                    dg[field] = redact_text(dg[field])
         return out
 
 
@@ -1680,6 +1807,11 @@ class ReadOnlyStore(object):
     def __init__(self, root):
         self.root = os.path.realpath(root)
         self.conn = None
+        # GATE D (round 3) plus GATE B (round 5, 2026-07-26): the same
+        # containment checks the writable Store applies, so a diagnostic
+        # cannot be tricked by a symlinked .brothermode directory or a
+        # symlinked store file/sidecar either.
+        _refuse_if_symlink_escape(store_dir(self.root))
         self.path = store_path(self.root)
         if not os.path.isfile(self.path):
             raise OwnershipRefused(
@@ -1687,6 +1819,9 @@ class ReadOnlyStore(object):
                 "no store exists at %s; run `python3 tools/bm_store.py "
                 "init` to create one" % self.path,
                 details={"path": self.path})
+        _refuse_if_symlink_escape(self.path)
+        _refuse_if_symlink_escape(self.path + "-wal")
+        _refuse_if_symlink_escape(self.path + "-shm")
         if os.path.getsize(self.path) == 0:
             self._quarantine_and_raise(
                 ValueError("store file exists but is zero bytes (truncated, or never finished writing)"))
@@ -1717,10 +1852,10 @@ class ReadOnlyStore(object):
         # mechanism, not two copies to keep in sync.
         return Store._quarantine_and_raise(self, cause)
 
-    def dump(self):
+    def dump(self, raw=False):
         # Reuses Store.dump() verbatim: it only calls _exec(self, ...) over
         # _TABLES, which works identically against a read-only connection.
-        return Store.dump(self)
+        return Store.dump(self, raw=raw)
 
     def close(self):
         if self.conn is not None:
@@ -1830,12 +1965,14 @@ def _atomic_write_text(path, text):
 
 
 def _redacted_view_text(raw):
-    """redact_text() then _neutralize_markers(): the ONE pipeline every
-    founder-typed field goes through before entering a generated view
-    (GATE 8, fix-round 2026-07-26). Order matters: redaction runs on the
-    real content first, marker-neutralization runs last so it operates on
-    exactly what is about to be embedded."""
-    return _neutralize_markers(redact_text(raw))
+    """redact_text(), then _neutralize_markers(), then _sanitize_for_display():
+    the ONE pipeline every founder-typed field goes through before entering
+    a generated view (GATE 8, fix-round 2026-07-26; SOFT D/E, fix-round 5).
+    Order matters: redaction runs on the real content first; marker and
+    control-character neutralization run last, on exactly what is about to
+    be embedded, so neither a fake marker nor a forged newline/ANSI escape
+    can hide inside a secret pattern's replacement text either."""
+    return _sanitize_for_display(_neutralize_markers(redact_text(raw)))
 
 
 def render_state_md(root):
@@ -2076,15 +2213,30 @@ def cmd_init(argv):
 def cmd_claim(argv):
     if not argv:
         _out("usage: claim <name> --lifetime persistent|ephemeral --objective TEXT "
-             "[--files PATH ...] [--owner X] [--session SID] [--tier T] "
-             "[--check CMD] [--ttl-hours N]")
+             "[--files PATH ...] [--release-files] [--owner X] [--session SID] "
+             "[--tier T] [--check CMD] [--ttl-hours N]")
+        _out("  --files with at least one path REPLACES the fence (on a reclaim).")
+        _out("  --release-files explicitly releases every file (on a reclaim); "
+             "omitting --files entirely LEAVES the existing fence untouched, "
+             "it can never be dropped by accident.")
         sys.exit(2)
     name = argv[0]
     kv = _parse_kv(argv[1:])
     root, _source = require_root()
     lifetime = " ".join(kv.get("lifetime", [])) or "ephemeral"
     objective = " ".join(kv.get("objective", []))
-    files = kv.get("files", [])
+    # GATE A (fix-round 5, 2026-07-26): a bare '--files' with no paths and no
+    # '--release-files' is treated as NOT SUPPLIED (files=None, preserves an
+    # existing fence on reclaim), not as an accidental release. Only a
+    # non-empty '--files a.py ...' or the explicit '--release-files' counts
+    # as "the caller really means this".
+    explicit_files = kv.get("files", [])
+    if "release-files" in kv:
+        files = []
+    elif explicit_files:
+        files = explicit_files
+    else:
+        files = None
     owner = " ".join(kv.get("owner", []))
     # GATE 3: an omitted --session gets a fresh per-process id, never "".
     session_id = " ".join(kv.get("session", [])) or _default_cli_session_id()
@@ -2201,10 +2353,18 @@ def cmd_dashboard(argv):
 
 
 def cmd_dump(argv):
+    kv = _parse_kv(argv)
+    raw = "raw" in kv
     root, _source = require_root()
     store = ReadOnlyStore(root)  # fix-round 4: dump is a diagnostic, never creates
     try:
-        data = store.dump()
+        if raw:
+            # GATE C (fix-round 5): --raw prints every objective, tier,
+            # claim path, decision, and digest in CLEARTEXT, unredacted.
+            # Named and warned at the point of use, never the default.
+            _out("bm_store: --raw: printing objectives, tiers, claim paths, "
+                 "decisions, and digests UNREDACTED (cleartext).")
+        data = store.dump(raw=raw)
     finally:
         store.close()
     _out(json.dumps(data, indent=2, sort_keys=True))
