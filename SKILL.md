@@ -186,8 +186,11 @@ checkpoint state to disk and the vault so any kill is resumable.
 One writer per file, ever. FENCE THEN DISPATCH, never the reverse: the fence line
 is written to STATE.md BEFORE the agent launches and carries the FIVE-FIELD
 CONTRACT (objective, output format, tool guidance, boundaries, termination
-condition) plus files, agent id, session id, timestamp, lease TTL (a fence past
-its TTL is treated as released; fences acquire in one consistent file order),
+condition) plus files, agent id, session id, timestamp (fences acquire in one
+consistent file order; there is deliberately NO time-based expiry, because a law
+promising a lease that expires while no code expires anything is worse than no law:
+a fence is released by an explicit park, complete, adopt, or transfer, and a dead
+session's fence is ADOPTED at close by the orchestrator, never by a clock),
 declared tier, and check: a runnable done-check on the outcome plus, for agentic
 work, process assertions (max tool calls, required call order, no failed actions)
 so a tier overrun or a skipped step is caught mechanically at the boundary rather

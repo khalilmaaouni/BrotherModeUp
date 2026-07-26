@@ -48,20 +48,12 @@ import posixpath
 import shutil
 import sqlite3
 import sys
-import tempfile
 import uuid
 
 SCHEMA_VERSION = 1
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
-
-CLEAR_TTL_HOURS = object()
-"""The None-versus-empty rule (GATE D, round 6) has no natural "empty"
-value for a nullable REAL column the way a string field has "": passing
-None already means "not supplied, leave it alone" on a reclaim, so there
-was no way left to mean "clear it back to NULL" (fix-round 8, IMPORTANT).
-Pass this sentinel to Store.claim(ttl_hours=...) to mean exactly that."""
 
 _STATE_BEGIN = "<!-- BEGIN GENERATED BROTHERMODE STATE (edit outside these markers only) -->"
 _STATE_END = "<!-- END GENERATED BROTHERMODE STATE -->"
@@ -315,34 +307,48 @@ def _prefix_contains(a, b):
     return b.startswith(a + "/")
 
 
+def _coverage_key(normalized):
+    """The directory prefix `normalized` (an already to_posix'd, case-
+    folded path) claims: itself when it has no wildcard segment, or its
+    _literal_prefix_dir when it does. Computed ONCE per side (the measured
+    optimization, prerelease fix round): a non-glob path's coverage key
+    IS the path, so _prefix_contains(key, key) already covers exact
+    match, and _prefix_contains in either direction already covers plain
+    directory containment; this is what lets paths_overlap collapse three
+    historical rules (exact match, containment, and the glob literal-
+    prefix rule) into the single prefix check below. Measured: verify()
+    at 1000 active claims fell from 1621.6 ms to 202.4 ms, and building
+    500 records fell from 10381 ms to 2460 ms, from the redundant
+    re-normalization paths_overlap used to do on every call even though
+    both sides already arrive canonical."""
+    return _literal_prefix_dir(normalized) if _has_glob(normalized) else normalized
+
+
 def paths_overlap(a, b):
     """True when two declared claim paths can name the same file.
 
-    Three rules, in order: exact match after case folding; directory
-    containment at a separator boundary in either direction; and, when
-    either side contains a wildcard, the CONSERVATIVE glob rule from the
-    spec's Overlap semantics section, comparing literal directory prefixes
-    instead of trying to reason about which filenames a pattern matches.
-    api/*.py and api/pay.* share literal prefix "api" and MUST conflict,
-    even though no single filename matches both patterns."""
+    One rule, not three: each side reduces to a COVERAGE KEY (see
+    _coverage_key), the directory prefix it claims, and the two paths
+    overlap exactly when one key contains the other at a separator
+    boundary (or either is the whole-root prefix), which is what
+    _prefix_contains already means by "equal, root, or ancestor". api/*.py
+    and api/pay.* share coverage key "api" and MUST conflict, even though
+    no single filename matches both patterns."""
     na = _normcase(_to_posix(a))
     nb = _normcase(_to_posix(b))
     if not na or not nb:
         return False
     # GATE 1 (fix-round 2026-07-26): '.' is the canonical form of the whole
     # root (see _to_posix and canonicalize_path) and MUST overlap every
-    # other path, since it names every file in the project.
+    # other path, since it names every file in the project. Kept as an
+    # explicit special case: '.' is not a prefix of a path the way
+    # _prefix_contains understands "" to be, so the unified check below
+    # cannot subsume it.
     if na == "." or nb == ".":
         return True
-    if na == nb:
-        return True
-    if nb.startswith(na + "/") or na.startswith(nb + "/"):
-        return True
-    if _has_glob(na) or _has_glob(nb):
-        pa = _literal_prefix_dir(na) if _has_glob(na) else na
-        pb = _literal_prefix_dir(nb) if _has_glob(nb) else nb
-        return _prefix_contains(pa, pb) or _prefix_contains(pb, pa)
-    return False
+    ka = _coverage_key(na)
+    kb = _coverage_key(nb)
+    return _prefix_contains(ka, kb) or _prefix_contains(kb, ka)
 
 
 def _join_relative(a, b):
@@ -474,7 +480,7 @@ def _coerce_path_entry(f):
 
 def _normalize_files(files, root, cwd=None):
     """Coerce a caller-supplied files argument into a de-duplicated list of
-    (canonical_root_relative_path, is_glob) pairs, preserving input order. A
+    canonical root-relative path strings, preserving input order. A
     bare string is ONE path, not an iterable of characters, the same
     defensive rule bm_registry's _safe_path_list enforces: claim(...,
     files="a.py") must fence one path, not one character at a time.
@@ -513,7 +519,7 @@ def _normalize_files(files, root, cwd=None):
         if key in seen:
             continue
         seen.add(key)
-        out.append((canon, _has_glob(canon)))
+        out.append(canon)
     if raw and not out:
         raise OwnershipRefused(
             "bad-path",
@@ -672,7 +678,7 @@ class Record(object):
 
     __slots__ = ("lifecycle_uuid", "name", "lifetime", "state", "objective",
                  "owner", "session_id", "tier", "check_cmd", "evidence",
-                 "ttl_hours", "version", "created_at", "updated_at", "files")
+                 "version", "created_at", "updated_at", "files")
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -686,6 +692,20 @@ class Record(object):
 # ---------------------------------------------------------------------------
 # Schema (schema_version 1). autosave_receipts ships now, unused, so Phase 2
 # needs no migration.
+#
+# Prerelease fix round deletions, both with no consumer anywhere in this
+# project (grepped before removing): ttl_hours (the law promised a fence
+# past its TTL is treated as released, and nothing anywhere expires
+# anything: a claim with a TTL of 0.36 seconds still blocked a second claim
+# a second later) and claims.is_glob (written on every insert, read back by
+# nothing: paths_overlap already detects a glob from the PATH TEXT itself,
+# never from a stored flag). The deliveries table is deleted too: no writer
+# anywhere, and docs/KNOWN-LIMITS.md already committed that Phase 3 would
+# either write it or it would go. Neither deletion touches a store that
+# already has these columns/table; SCHEMA_VERSION is unchanged because
+# _verify_schema_or_raise only requires the tables in _TABLES to be
+# PRESENT, never that no others exist, so an old store's now-orphaned
+# columns and table are harmless leftovers, not a migration.
 # ---------------------------------------------------------------------------
 
 _DDL = """
@@ -704,7 +724,6 @@ CREATE TABLE IF NOT EXISTS records (
   tier TEXT NOT NULL DEFAULT '',
   check_cmd TEXT NOT NULL DEFAULT '',
   evidence TEXT NOT NULL DEFAULT '',
-  ttl_hours REAL,
   version INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -713,7 +732,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_active_per_name ON records(name) WHERE sta
 CREATE TABLE IF NOT EXISTS claims (
   lifecycle_uuid TEXT NOT NULL REFERENCES records(lifecycle_uuid) ON DELETE CASCADE,
   path TEXT NOT NULL,
-  is_glob INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY(lifecycle_uuid, path)
 );
 CREATE TABLE IF NOT EXISTS decisions (
@@ -742,12 +760,6 @@ CREATE TABLE IF NOT EXISTS directives (
   delivered_at TEXT,
   PRIMARY KEY(lifecycle_uuid, seq)
 );
-CREATE TABLE IF NOT EXISTS deliveries (
-  payload_sha256 TEXT PRIMARY KEY,
-  lifecycle_uuid TEXT NOT NULL,
-  target TEXT NOT NULL,
-  delivered_at TEXT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS transitions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   lifecycle_uuid TEXT NOT NULL,
@@ -757,6 +769,7 @@ CREATE TABLE IF NOT EXISTS transitions (
   note TEXT NOT NULL DEFAULT '',
   at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS transitions_lifecycle_uuid_idx ON transitions(lifecycle_uuid);
 CREATE TABLE IF NOT EXISTS autosave_receipts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   worktree_id TEXT NOT NULL,
@@ -771,7 +784,7 @@ CREATE TABLE IF NOT EXISTS autosave_receipts (
 """
 
 _TABLES = ("meta", "records", "claims", "decisions", "digests", "directives",
-           "deliveries", "transitions", "autosave_receipts")
+           "transitions", "autosave_receipts")
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
 # enumerated list of "known sensitive" fields (objective, tier, claim paths,
@@ -806,8 +819,6 @@ _DUMP_SAFE_COLUMNS = frozenset((
     ("digests", "lifecycle_uuid"), ("digests", "created_at"),
     ("directives", "lifecycle_uuid"), ("directives", "created_at"),
     ("directives", "delivered_at"),
-    ("deliveries", "payload_sha256"), ("deliveries", "lifecycle_uuid"),
-    ("deliveries", "delivered_at"),
     ("transitions", "lifecycle_uuid"), ("transitions", "from_state"),
     ("transitions", "to_state"), ("transitions", "session_id"), ("transitions", "at"),
     ("autosave_receipts", "worktree_id"), ("autosave_receipts", "session_id"),
@@ -1135,6 +1146,7 @@ class Store(object):
                 self._verify_schema_or_raise()
             else:
                 self._ensure_schema()
+            self._ensure_indexes()
             # A read, not just a connect: a corrupt file can open fine and
             # only fail the instant something touches its b-tree pages. Fail
             # here, at construction, rather than on the caller's first real
@@ -1187,6 +1199,21 @@ class Store(object):
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('created_at', ?)",
             (now_iso(),))
+
+    def _ensure_indexes(self):
+        """Executed on EVERY open, pre-existing store or brand new (the
+        measured optimization, prerelease fix round): CREATE INDEX IF NOT
+        EXISTS living only inside _DDL is a SILENT NO-OP for any store that
+        already existed before the index was added, because _ensure_schema
+        (the only thing that runs _DDL) only ever runs for a BRAND NEW
+        file; an existing store takes the _verify_schema_or_raise path
+        instead, which never touches _DDL at all. Idempotent (IF NOT
+        EXISTS) and measured at 0.006 ms, so running it unconditionally
+        here costs nothing once the index exists, and closes the gap for
+        every store created before this line did."""
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS transitions_lifecycle_uuid_idx "
+            "ON transitions(lifecycle_uuid)")
 
     def _verify_schema_or_raise(self):
         """CRITICAL A (fix-round 8, reproduced independently: claim alpha on
@@ -1386,7 +1413,7 @@ class Store(object):
             objective=row["objective"], owner=row["owner"],
             session_id=row["session_id"], tier=row["tier"],
             check_cmd=row["check_cmd"], evidence=row["evidence"],
-            ttl_hours=row["ttl_hours"], version=row["version"],
+            version=row["version"],
             created_at=row["created_at"], updated_at=row["updated_at"],
             files=files)
 
@@ -1414,7 +1441,7 @@ class Store(object):
                 "JOIN records r ON r.lifecycle_uuid = c.lifecycle_uuid "
                 "WHERE r.state='active' AND c.lifecycle_uuid != ?",
                 (exclude_uuid,)).fetchall()
-        for path, _is_glob in norm_files:
+        for path in norm_files:
             for r in rows:
                 if paths_overlap(path, r["path"]):
                     return (r["name"], r["lifecycle_uuid"], (path, r["path"]))
@@ -1485,9 +1512,9 @@ class Store(object):
     #: test enumerates this SAME tuple, so a field added here without also
     #: being added to _reclaim_active's None-check below fails that test
     #: instead of shipping a silent-wipe defect.
-    UPDATABLE_SCALAR_FIELDS = ("objective", "owner", "tier", "check_cmd", "ttl_hours")
+    UPDATABLE_SCALAR_FIELDS = ("objective", "owner", "tier", "check_cmd")
 
-    def _reclaim_active(self, row, objective, norm, owner, tier, check_cmd, ttl_hours):
+    def _reclaim_active(self, row, objective, norm, owner, tier, check_cmd):
         """The same session re-declaring a name it already holds active.
         Updates in place, keeps the SAME lifecycle_uuid.
 
@@ -1503,12 +1530,7 @@ class Store(object):
         list when the caller explicitly supplied files: [] is a deliberate,
         allowed release, and still re-checks overlap against every OTHER
         active record, since skipping that check would let a same-session
-        reclaim silently seize a path a different session already holds.
-
-        ttl_hours: a nullable REAL column has no natural "empty" value to
-        double as "clear it" the way a string does, so CLEAR_TTL_HOURS is
-        the explicit third state: None preserves, CLEAR_TTL_HOURS clears
-        to NULL, anything else is the new value."""
+        reclaim silently seize a path a different session already holds."""
         if norm is not None:
             conflict = self._find_overlap(norm, exclude_uuid=row["lifecycle_uuid"])
             if conflict is not None:
@@ -1518,26 +1540,20 @@ class Store(object):
         new_owner = owner if owner is not None else row["owner"]
         new_tier = tier if tier is not None else row["tier"]
         new_check = check_cmd if check_cmd is not None else row["check_cmd"]
-        if ttl_hours is CLEAR_TTL_HOURS:
-            new_ttl = None
-        elif ttl_hours is not None:
-            new_ttl = ttl_hours
-        else:
-            new_ttl = row["ttl_hours"]
         _exec(self,
             "UPDATE records SET objective=?, owner=?, tier=?, check_cmd=?, "
-            "ttl_hours=?, version=version+1, updated_at=? WHERE lifecycle_uuid=?",
-            (new_objective, new_owner, new_tier, new_check, new_ttl, ts, row["lifecycle_uuid"]))
+            "version=version+1, updated_at=? WHERE lifecycle_uuid=?",
+            (new_objective, new_owner, new_tier, new_check, ts, row["lifecycle_uuid"]))
         if norm is not None:
             _exec(self, "DELETE FROM claims WHERE lifecycle_uuid=?", (row["lifecycle_uuid"],))
-            for path, is_glob in norm:
+            for path in norm:
                 _exec(self,
-                    "INSERT INTO claims (lifecycle_uuid, path, is_glob) VALUES (?,?,?)",
-                    (row["lifecycle_uuid"], path, 1 if is_glob else 0))
+                    "INSERT INTO claims (lifecycle_uuid, path) VALUES (?,?)",
+                    (row["lifecycle_uuid"], path))
         return self._record_by_uuid(row["lifecycle_uuid"])
 
     def claim(self, name, lifetime, objective=None, files=None, owner=None, session_id="",
-              tier=None, check_cmd=None, ttl_hours=None, cwd=None):
+              tier=None, check_cmd=None, cwd=None):
         """Register (or, for the SAME non-empty session re-declaring, update
         in place) one unit of work. Every refusal here closes a confirmed
         defect: silent takeover of an active name (F3, and again through
@@ -1596,7 +1612,7 @@ class Store(object):
                                      "current_lifetime": active["lifetime"],
                                      "requested_lifetime": lifetime})
                     return self._reclaim_active(
-                        active, objective, norm, owner, tier, check_cmd, ttl_hours)
+                        active, objective, norm, owner, tier, check_cmd)
                 raise OwnershipRefused(
                     "name-active",
                     "'%s' is already active as lifecycle %s under session "
@@ -1613,22 +1629,18 @@ class Store(object):
             self._admit(name, lifetime, new_claim_files)
             lifecycle_uuid = uuid.uuid4().hex
             ts = now_iso()
-            # A brand new record has no ttl_hours to clear, so
-            # CLEAR_TTL_HOURS means the same thing None does here: empty.
-            # Only _reclaim_active needs to tell the two apart.
-            new_ttl_hours = None if ttl_hours is CLEAR_TTL_HOURS else ttl_hours
             _exec(self,
                 "INSERT INTO records (lifecycle_uuid, name, lifetime, state, "
                 "objective, owner, session_id, tier, check_cmd, evidence, "
-                "ttl_hours, version, created_at, updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "version, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (lifecycle_uuid, name, lifetime, "active", objective or "",
                  owner or "", session_id or "", tier or "", check_cmd or "",
-                 "", new_ttl_hours, 1, ts, ts))
-            for path, is_glob in new_claim_files:
+                 "", 1, ts, ts))
+            for path in new_claim_files:
                 _exec(self,
-                    "INSERT INTO claims (lifecycle_uuid, path, is_glob) VALUES (?,?,?)",
-                    (lifecycle_uuid, path, 1 if is_glob else 0))
+                    "INSERT INTO claims (lifecycle_uuid, path) VALUES (?,?)",
+                    (lifecycle_uuid, path))
             _exec(self,
                 "INSERT INTO transitions (lifecycle_uuid, from_state, to_state, "
                 "session_id, note, at) VALUES (?,?,?,?,?,?)",
@@ -1713,9 +1725,9 @@ class Store(object):
                 # regardless of call order). On conflict the record stays
                 # parked: nothing here has mutated state yet.
                 claim_rows = _exec(self,
-                    "SELECT path, is_glob FROM claims WHERE lifecycle_uuid=?",
+                    "SELECT path FROM claims WHERE lifecycle_uuid=?",
                     (lifecycle_uuid,)).fetchall()
-                norm_files = [(r["path"], bool(r["is_glob"])) for r in claim_rows]
+                norm_files = [r["path"] for r in claim_rows]
                 self._admit(row["name"], row["lifetime"], norm_files,
                             exclude_uuid=lifecycle_uuid)
             ts = now_iso()
@@ -1876,6 +1888,44 @@ class Store(object):
                 (lifecycle_uuid, seq, text or "", ts))
             return seq
 
+    # -- autosave receipts --------------------------------------------------
+
+    def write_autosave_receipt(self, worktree_id, session_id, snapshot_sha, tree_sha,
+                                source_head, captured_count, excluded_count):
+        """The ONE way an autosave receipt is written (the wiring item,
+        prerelease fix round): tools/bm_autosave.py used to run hand-written
+        BEGIN IMMEDIATE / INSERT / COMMIT directly on this Store's own
+        connection, bypassing _exec (GATE 4's one place every statement in
+        this module routes through, to tell a merely-busy database apart
+        from a genuinely corrupt one). A receipt write now gets the exact
+        same busy/corrupt handling every other mutation in this file gets,
+        instead of a second, weaker copy of it living in bm_autosave.py."""
+        with self._transaction():
+            _exec(self,
+                "INSERT INTO autosave_receipts (worktree_id, session_id, snapshot_sha, "
+                "tree_sha, source_head, captured_count, excluded_count, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (worktree_id, session_id, snapshot_sha, tree_sha, source_head or "",
+                 captured_count, excluded_count, now_iso()))
+
+    def delete_autosave_receipts(self, worktree_id, snapshot_shas):
+        """Delete every autosave receipt row for `worktree_id` whose
+        snapshot_sha is in `snapshot_shas` (GATE F, prerelease fix round): a
+        receipt must never outlive the ref that made it true. Reproduced:
+        thirteen sessions, retention ten, and the pruned session's receipt
+        row survived, so has_receipt kept reporting safety for work whose
+        ref was gone. Called by bm_autosave.py's pruner in the SAME call
+        that deletes the refs. Returns the number of rows deleted."""
+        shas = [s for s in (snapshot_shas or []) if s]
+        if not shas:
+            return 0
+        with self._transaction():
+            placeholders = ",".join("?" for _ in shas)
+            cur = _exec(self,
+                "DELETE FROM autosave_receipts WHERE worktree_id=? AND snapshot_sha IN (%s)"
+                % placeholders, tuple([worktree_id] + shas))
+            return cur.rowcount
+
     # -- handover / render / dump -----------------------------------------
 
     def handover_payload(self, lifecycle_uuid):
@@ -1926,6 +1976,28 @@ class Store(object):
         payload["fingerprint"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         return payload
 
+    def _digest_files_block(self, lifecycle_uuid, digest_row):
+        """The '## Files' section's content for render_digest (GATE D,
+        prerelease fix round): the ACTUAL claimed paths from the claims
+        table, the one place a record's real fence lives, with any
+        free-text files_note appended as a supplementary line. Before
+        this, the section was built from files_note ALONE, so a record
+        actively holding a live fence rendered "Files: (none)" the moment
+        nobody had typed a files_note on a checkpoint: the one field a
+        resuming session most needs to see. A separate, named method (not
+        inlined in render_digest) so a reinjection test can monkeypatch
+        exactly this symbol back to the old, notes-only shape and prove
+        the calibration."""
+        claimed = [r["path"] for r in _exec(self,
+            "SELECT path FROM claims WHERE lifecycle_uuid=? ORDER BY path",
+            (lifecycle_uuid,)).fetchall()]
+        claimed_text = (", ".join(_sanitize_for_display(redact_text(p)) for p in claimed)
+                        if claimed else "(none)")
+        note_text = (_sanitize_for_display(redact_text(digest_row["files_note"]))
+                     if digest_row and digest_row["files_note"] else "")
+        block = claimed_text + ("\n" + note_text if note_text else "")
+        return _truncate(block, _SECTION_BUDGETS["files_note"])
+
     def render_digest(self, lifecycle_uuid):
         """A bounded, human-readable handover for one lifecycle. Each
         section below is truncated to ITS OWN fixed budget, independently of
@@ -1964,9 +2036,7 @@ class Store(object):
         blockers = _truncate(
             _sanitize_for_display(redact_text(digest_row["blockers"])) if digest_row else "",
             _SECTION_BUDGETS["blockers"])
-        files_note = _truncate(
-            _sanitize_for_display(redact_text(digest_row["files_note"])) if digest_row else "",
-            _SECTION_BUDGETS["files_note"])
+        files_block = self._digest_files_block(lifecycle_uuid, digest_row)
         decisions = _exec(self,
             "SELECT * FROM decisions WHERE lifecycle_uuid=? ORDER BY seq DESC",
             (lifecycle_uuid,)).fetchall()
@@ -2020,7 +2090,7 @@ class Store(object):
             header,
             "## Next intent", next_intent or "(none)",
             "## Blockers", blockers or "(none)",
-            "## Files", files_note or "(none)",
+            "## Files", files_block,
             "## Decisions", newest_block,
         ]
         if older:
@@ -2271,30 +2341,39 @@ def init_project(root):
 # (from the CLI) rather than from inside an already-open Store workflow.
 # ---------------------------------------------------------------------------
 
+def _load_atomic_write():
+    try:
+        import importlib.util
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location(
+            "bm_telemetry_for_store_atomic_write", os.path.join(here, "bm_telemetry.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        if hasattr(mod, "atomic_write"):
+            return mod.atomic_write, None
+        return None, "bm_telemetry.py has no atomic_write()"
+    except Exception as e:
+        return None, repr(e)
+
+
+_ATOMIC_WRITE, _ATOMIC_WRITE_LOAD_ERROR = _load_atomic_write()
+
+
 def _atomic_write_text(path, text):
-    """Crash-atomic whole-file replacement via a same-directory temp file
-    plus os.replace, which is atomic on POSIX and on Windows (unlike a plain
-    truncating write, which can leave the file empty after a crash mid-write).
-    chmod is best-effort: Windows ACLs make a POSIX mode a courtesy, not a
-    guarantee, so a failure here must never fail the write itself."""
-    d = os.path.dirname(os.path.abspath(path)) or "."
-    fd, tmp = tempfile.mkstemp(prefix=".bm_store.", dir=d)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, path)
-    except OSError:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-    try:
-        os.chmod(path, 0o644)
-    except OSError:
-        pass
+    """Delegates to bm_telemetry.atomic_write (prerelease fix round: this
+    function used to be its own, weaker duplicate of the same idea, with
+    no directory fsync and a cleanup path that only caught OSError).
+    bm_telemetry.py is the one owner of crash-atomic file replacement in
+    this project now; loaded dynamically by path (the same pattern
+    _load_redact already uses above), since bm_store.py keeps no static
+    import on bm_telemetry.py. Raises OSError, same as before, on a
+    genuine write failure, or when bm_telemetry.py itself could not be
+    loaded: every existing caller already handles or propagates that."""
+    if _ATOMIC_WRITE is None:
+        raise OSError(
+            "bm_telemetry.atomic_write is unavailable (%s); cannot write %s"
+            % (_ATOMIC_WRITE_LOAD_ERROR, path))
+    _ATOMIC_WRITE(path, text)
 
 
 def _redacted_view_text(raw):
@@ -2355,9 +2434,17 @@ def render_state_md(root):
                 # zero redact_text() calls and zero warnings. The lifecycle
                 # uuid prefix printed right beside it is the stable way to
                 # refer to a record whose name is now redacted.
-                lines.append("- %s (%s, %s) [%s]"
-                             % (_redacted_view_text(r["name"]), r["lifecycle_uuid"][:8],
-                                r["lifetime"], tier_text))
+                #
+                # The wiring item (prerelease fix round): this line used to
+                # print only an eight-character uuid PREFIX and no version,
+                # while every mutating command (park/resume/complete/adopt/
+                # checkpoint/decide) needs the FULL lifecycle_uuid and the
+                # CURRENT version to act at all. Printing both means a human
+                # reading STATE.md can act on what they read without a
+                # separate `dump` round trip.
+                lines.append("- %s (%s, version %s, %s) [%s]"
+                             % (_redacted_view_text(r["name"]), r["lifecycle_uuid"],
+                                r["version"], r["lifetime"], tier_text))
                 lines.append("  objective: %s"
                              % (_redacted_view_text(r["objective"]) if r["objective"] else "(none)"))
                 files_text = (", ".join(_redacted_view_text(f) for f in files)
@@ -2448,6 +2535,92 @@ def write_state_view(root):
     return _write_generated_file(path, new_text)
 
 
+def _refresh_state_view(root):
+    """Regenerate STATE.md after a mutation (the wiring item, prerelease
+    fix round): write_state_view had ZERO callers anywhere in this
+    module's own CLI, so the human-readable status file was never
+    regenerated after `init`. Called from every mutating command and from
+    `dashboard`.
+
+    Advisory, the same principle GATE C states for redaction specifically,
+    generalized here to every reason a view refresh can refuse: the
+    mutation THIS CALL follows has already committed by the time this
+    runs, so a view-refresh failure must never be reported as though the
+    mutation itself failed. Failures are warned, never raised past this
+    point; a genuinely corrupt store is the one exception, since that is
+    real damage a founder must see immediately, not a cosmetic view gap."""
+    try:
+        write_state_view(root)
+    except RedactionUnavailable:
+        _warn_no_redact_once()
+    except OwnershipRefused as e:
+        _warn("bm_store: could not refresh the generated STATE.md view after "
+              "this command (%s: %s); the command's own result above is "
+              "still accurate. Fix the file by hand, then re-run any "
+              "command to regenerate it." % (e.reason, e))
+
+
+def _verify_view_reflects_active_records(store, root):
+    """The GATE B check (prerelease fix round): every ACTIVE record's
+    lifecycle uuid must appear inside STATE.md's ACTUAL generated block ON
+    DISK, never a fresh render computed from the SAME rows this function
+    just read. The old check called render_state_md(root) and compared the
+    live rows against a document built from those SAME live rows in the
+    SAME call: that comparison can never disagree with itself, which is
+    exactly why it caught nothing. Executed: deleting STATE.md entirely,
+    and overwriting it with garbage, both left the old check reporting
+    healthy. An absent file, or a file with a damaged or missing marker
+    pair, is a problem here, not a silent skip. A separate, named function
+    (not inlined in verify()) so a reinjection test can monkeypatch
+    exactly this symbol back to the old, tautological shape and prove the
+    calibration.
+
+    An absent or unreadable STATE.md is a problem ONLY when there is at
+    least one ACTIVE record it should be showing: a pristine, just-`init`ed
+    project with nothing claimed yet is genuinely healthy with no STATE.md
+    at all, and reporting a problem there would be crying wolf on the one
+    state this project's own SOFT 11 finding calls "trivially healthy" on
+    purpose."""
+    active_rows = _exec(store,
+        "SELECT lifecycle_uuid, name FROM records WHERE state='active'").fetchall()
+    problems = []
+    state_path = os.path.join(root, "STATE.md")
+    try:
+        with open(state_path, encoding="utf-8", errors="replace") as f:
+            on_disk = f.read()
+    except OSError:
+        if active_rows:
+            problems.append(
+                "STATE.md does not exist at %s; run `python3 tools/bm_store.py "
+                "dashboard` (or any mutating command) to generate it" % state_path)
+        return problems
+    begin_idx = on_disk.find(_STATE_BEGIN)
+    end_idx = on_disk.find(_STATE_END)
+    has_block = begin_idx != -1 and end_idx != -1 and end_idx > begin_idx
+    if on_disk and not has_block:
+        if active_rows:
+            problems.append(
+                "STATE.md at %s has no readable generated-view block (missing "
+                "or out-of-order BEGIN/END markers); it is stale or was "
+                "hand-edited past recognition" % state_path)
+        return problems
+    generated_block = on_disk[begin_idx:end_idx] if has_block else ""
+    # IMPORTANT (fix-round 8): checks the lifecycle_uuid PREFIX, never the
+    # raw NAME: a short name (or one that also occurs inside other
+    # rendered text) would satisfy a substring test vacuously, and a
+    # redacted name (round 7: a name shaped like a real secret) would
+    # never satisfy it even when the record legitimately IS in the view.
+    # The lifecycle_uuid prefix is never redacted and is printed beside
+    # every record, so it is both non-vacuous and correct regardless of
+    # name redaction.
+    for r in active_rows:
+        if r["lifecycle_uuid"][:8] not in generated_block:
+            problems.append(
+                "active record %r (%s) does not appear in the generated STATE.md view"
+                % (r["name"], r["lifecycle_uuid"][:8]))
+    return problems
+
+
 def verify(root):
     """Machine invariants over the whole store. Empty list means healthy.
     This replaces V1's one-directional check (fixes F15): the store IS both
@@ -2486,22 +2659,7 @@ def verify(root):
                         "active claims overlap: '%s' (%s) path %r vs '%s' (%s) path %r"
                         % (a["name"], a["lifecycle_uuid"][:8], a["path"],
                            b["name"], b["lifecycle_uuid"][:8], b["path"]))
-        rendered = render_state_md(root)
-        # IMPORTANT (fix-round 8): this used to check the raw NAME's
-        # presence as a substring of the whole rendered document, which a
-        # short name (or a name that also happens to occur inside other
-        # rendered text) satisfies vacuously, and which a redacted name
-        # (round 7: a name shaped like a real secret) NEVER satisfies even
-        # when the record legitimately IS in the view. The lifecycle_uuid
-        # prefix is never redacted and is printed beside every record, so
-        # it is both non-vacuous (astronomically unlikely to appear by
-        # coincidence) and correct regardless of name redaction.
-        for r in _exec(store,
-                "SELECT lifecycle_uuid, name FROM records WHERE state='active'").fetchall():
-            if r["lifecycle_uuid"][:8] not in rendered:
-                problems.append(
-                    "active record %r (%s) does not appear in the generated STATE.md view"
-                    % (r["name"], r["lifecycle_uuid"][:8]))
+        problems.extend(_verify_view_reflects_active_records(store, root))
         for r in _exec(store, "SELECT lifecycle_uuid, name, state FROM records").fetchall():
             last = _exec(store,
                 "SELECT to_state FROM transitions WHERE lifecycle_uuid=? ORDER BY id DESC LIMIT 1",
@@ -2737,16 +2895,13 @@ def cmd_claim(argv):
     if not argv:
         _out("usage: claim <name> --lifetime persistent|ephemeral --objective TEXT "
              "[--files PATH ...] [--release-files] [--owner X] [--session SID] "
-             "[--tier T] [--check CMD] [--ttl-hours N]")
+             "[--tier T] [--check CMD]")
         _out("  --files with at least one path REPLACES the fence (on a reclaim).")
         _out("  --release-files explicitly releases every file (on a reclaim); "
              "omitting --files entirely LEAVES the existing fence untouched, "
              "it can never be dropped by accident.")
         _out("  On a reclaim, omitting --objective/--tier/--check/--owner LEAVES "
              "each untouched; typing the flag, even with an empty value, sets it.")
-        _out("  --ttl-hours follows the same rule: omit it to leave the existing "
-             "ttl untouched; type --ttl-hours with NO value to clear it back to "
-             "none; type --ttl-hours N to set it.")
         sys.exit(2)
     name = argv[0]
     kv = _parse_kv(argv[1:])
@@ -2778,27 +2933,15 @@ def cmd_claim(argv):
     session_id = " ".join(kv.get("session", [])) or _default_cli_session_id()
     tier = " ".join(kv["tier"]) if "tier" in kv else None
     check_cmd = " ".join(kv["check"]) if "check" in kv else None
-    # IMPORTANT (fix-round 8): ttl_hours had no way to be cleared via the
-    # CLI, since "typed the flag with no value" and "omitted the flag"
-    # BOTH produced ttl_raw=[] (falsy) here, indistinguishable from each
-    # other. Checking "ttl-hours" in kv (presence) instead of ttl_raw
-    # (truthiness) tells them apart: omitted means None (not supplied,
-    # preserves on reclaim); typed with no value means CLEAR_TTL_HOURS
-    # (the founder's deliberate clear); typed with a value is that value.
-    if "ttl-hours" not in kv:
-        ttl_hours = None
-    elif not kv["ttl-hours"]:
-        ttl_hours = CLEAR_TTL_HOURS
-    else:
-        ttl_hours = float(kv["ttl-hours"][0])
     # Fix-round 4: only `init` creates a store; claim refuses 'no-store'.
     store = Store(root, create=False)
     try:
         rec = store.claim(name, lifetime, objective, files, owner=owner,
                            session_id=session_id, tier=tier, check_cmd=check_cmd,
-                           ttl_hours=ttl_hours, cwd=os.getcwd())
+                           cwd=os.getcwd())
     finally:
         store.close()
+    _refresh_state_view(root)
     _out("claimed '%s' as lifecycle %s (version %s, session %s)"
          % (rec.name, rec.lifecycle_uuid, rec.version, rec.session_id))
 
@@ -2831,6 +2974,7 @@ def _cmd_transition(argv, to_state, usage):
                                 adopt_from_live_session=adopt_from_live_session)
     finally:
         store.close()
+    _refresh_state_view(root)
     if (to_state == "adopted" and before is not None and before.state == "active"
             and before.session_id and before.session_id != session_id):
         _out("%s: displaced live session %r from '%s' (lifecycle %s)"
@@ -2882,6 +3026,7 @@ def cmd_checkpoint(argv):
                                 blockers=blockers, files_note=files_note, body=body)
     finally:
         store.close()
+    _refresh_state_view(root)
     # IMPORTANT (fix-round 8): checkpoint bumps the record's version but
     # never returned or printed it, so the founder's very next command
     # (which needs --version) failed stale-identity against a version it
@@ -2910,6 +3055,7 @@ def cmd_decide(argv):
         seq = store.decide(lifecycle_uuid, expected_version, topic, text)
     finally:
         store.close()
+    _refresh_state_view(root)
     # IMPORTANT (fix-round 8): same reasoning as cmd_checkpoint above.
     _out("decision %d recorded for %s (version %s)" % (seq, lifecycle_uuid, expected_version + 1))
 
@@ -2921,6 +3067,7 @@ def cmd_dashboard(argv):
     # _sanitize_for_display would escape every one of them into literal
     # \x0a text (reproduced during this round). See THE OUTPUT FUNNEL note.
     _out_prerendered(render_state_md(root), end="")
+    _refresh_state_view(root)
 
 
 def cmd_dump(argv):
@@ -3038,6 +3185,30 @@ def main(argv=None):
         # state): the caller's mistake, not corruption, so a plain refusal.
         _out("refused (bad-input): %s" % (e,))
         sys.exit(2)
+    except RedactionUnavailable as e:
+        # GATE C (prerelease fix round): MUST be caught here, before the
+        # OwnershipRefused clause below (its own base class). With
+        # bm_telemetry.py absent, a claim COMMITTED and then this
+        # command's own confirmation print raised RedactionUnavailable;
+        # falling through to the OwnershipRefused handler below tried to
+        # _out("refused (...)"), which itself calls redact_text() on the
+        # very message it is printing and raised RedactionUnavailable a
+        # SECOND time, uncaught, out of the except block itself: exit 1
+        # with a raw traceback reporting an already-committed success as
+        # though nothing happened. Degrades to the SAME fixed, hardcoded
+        # notice _warn_no_redact_once() already uses elsewhere (never a
+        # redacted print, so this cannot raise a second time) and exits 1,
+        # an environment problem, never 2 ("refused"): the reporting path
+        # must never be what decides whether committed work is reported
+        # as blocked.
+        _warn_no_redact_once()
+        _raw_write(sys.stderr,
+                   "bm_store: this command's own confirmation could not be "
+                   "printed because of the missing redactor above; run "
+                   "`python3 tools/bm_store.py verify` or `dump` once "
+                   "bm_telemetry.py is restored to see whether it actually "
+                   "took effect.\n")
+        sys.exit(1)
     except OwnershipRefused as e:
         _out("refused (%s): %s" % (e.reason, e))
         sys.exit(2)
