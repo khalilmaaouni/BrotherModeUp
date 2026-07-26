@@ -96,13 +96,13 @@ page. The full, current list is
 - **This has not been used on a real project yet.** Everything behind the
   claims in this repository rests on its own test suites and adversarial
   review, not on a week of someone's actual work going through it.
-  Continuous integration HAS executed (corrected 2026-07-26: an earlier
-  version of this line said it never had, which was false and unchecked; it
-  has run 18 times and the record is public in the Actions tab). Its result
-  on the tagged release commit is FAILURE, on Windows, for a real defect:
-  database handles were never closed, which POSIX tolerates and Windows
-  refuses. Read `docs/KNOWN-LIMITS.md` for the verbatim error and the
-  current state of the fix before relying on any Windows claim here.
+  Continuous integration runs on three platforms and is GREEN as of
+  2026-07-27 (commit `ba4eca2`, all eight jobs, both Windows legs included).
+  Getting there is worth one line of history: an earlier version of this
+  README claimed CI had never executed, which was false and unchecked; it had
+  run 18 times, and the run against the first tagged release FAILED on Windows
+  for a real handle leak. See `docs/KNOWN-LIMITS.md` for the arc and for what
+  is now guarded mechanically.
 
 Do not read anything in this README as implying otherwise. If a claim below
 and a claim in `KNOWN-LIMITS.md` seem to disagree, the limits file is the one
@@ -135,10 +135,10 @@ python3 tools/test_bm.py         # the tools that actually run today
 python3 tools/test_bm_store.py   # the store engine underneath them (see Status)
 ```
 
-Measured 2026-07-26: the first prints `Ran 54 tests` and finishes in about
+Measured 2026-07-27: the first prints `Ran 65 tests` and finishes in about
 nine seconds, ending `OK (skipped=2)` (one skip is a check for a shell-script
 autosave version this project no longer ships, the other is a file-permission
-test this sandbox does not support); the second prints `Ran 189 tests`,
+test this sandbox does not support); the second prints `Ran 201 tests`,
 finishes in about six seconds, and ends `OK`. If your numbers differ, treat
 that as a real signal something changed, not a typo on this page; re-measure
 rather than assume the page is stale.
