@@ -466,13 +466,18 @@ class TestFixRoundGates(unittest.TestCase):
         # are _exec's own body; Store.__init__'s and ReadOnlyStore.__init__'s
         # open-time probes (which by definition run before the connection is
         # confirmed healthy enough to trust _exec's quarantine path);
+        # _connect_read_only's own two pragmas (GATE A, fix-round 6: the
+        # ONE place a read-only connection is opened, deliberately not
+        # routed through _exec since it runs before self.conn exists);
         # _ensure_schema (called only from inside that same protected try
         # block); _transaction's ROLLBACK-during-cleanup (must never mask
-        # the exception already being handled); and
-        # _quarantine_record_count's standalone read of an ALREADY
-        # quarantined file (fix-round 4), which is not the live store and
-        # has nothing to route through. If this count grows, a new call
-        # site was added without routing it through _exec: update this test
+        # the exception already being handled); _quarantine_record_count's
+        # standalone read of an ALREADY quarantined file (fix-round 4),
+        # which is not the live store and has nothing to route through; and
+        # _text_columns' PRAGMA table_info (GATE C, fix-round 6: schema
+        # introspection, not data access, so it is exempt the same way the
+        # open-time probes are). If this count grows, a new call site was
+        # added without routing it through _exec: update this test
         # deliberately, the same way tools/write_sites.json makes a new
         # write site a conscious decision rather than a silent one.
         with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
@@ -480,7 +485,7 @@ class TestFixRoundGates(unittest.TestCase):
         bare = [i for i, line in enumerate(lines, 1)
                 if re.search(r"\.execute\(|\.executescript\(", line)
                 and "_exec(self" not in line and "_exec(store" not in line]
-        self.assertEqual(len(bare), 13,
+        self.assertEqual(len(bare), 15,
                           "raw execute call sites changed (now at lines %s); route any "
                           "new one through _exec or update this count deliberately" % bare)
 
@@ -698,12 +703,16 @@ class TestFixRoundGates(unittest.TestCase):
                 store.close()
 
     def test_calibrated_soft10_adopt_is_the_cross_session_exception(self):
+        # Updated fix-round 6 (SOFT E): adopting a record that is currently
+        # ACTIVE under a different, live session now requires the explicit
+        # adopt_from_live_session=True; this test's "dead-session" claim is
+        # still ACTIVE (never parked), so it needs the flag to pass.
         with tempfile.TemporaryDirectory() as d:
             store = bs.Store(d)
             try:
                 rec = store.claim("thing", "ephemeral", "obj", [], session_id="dead-session")
                 adopted = store.transition(rec.lifecycle_uuid, rec.version, "adopted",
-                                            session_id="rescuer")
+                                            session_id="rescuer", adopt_from_live_session=True)
                 self.assertEqual(adopted.state, "adopted")
                 self.assertEqual(adopted.session_id, "rescuer")
             finally:
@@ -1201,7 +1210,10 @@ class TestFixRound4Honesty(unittest.TestCase):
             self.assertNotIn("healthy", r2.stdout)
             qdirs = glob.glob(path + ".quarantine-*")
             self.assertEqual(len(qdirs), 1)
-            self.assertIn(os.path.basename(qdirs[0]), r2.stdout,
+            # SOFT F (fix-round 6, 2026-07-26): the pre-dispatch quarantine
+            # warning that names the directory now goes to stderr, so
+            # stdout (the payload stream) stays parseable.
+            self.assertIn(os.path.basename(qdirs[0]), r2.stderr,
                           "verify must name the quarantine directory")
 
     def test_calibrated_reinject_autocreate_would_report_healthy(self):
@@ -1336,8 +1348,11 @@ class TestFixRound4Honesty(unittest.TestCase):
                 pass
             _run_cli(["verify"], d)  # quarantines
             r = _run_cli(["verify"], d)
-            self.assertIn("WARNING", r.stdout)
-            self.assertIn("quarantine", r.stdout.lower())
+            # SOFT F (fix-round 6, 2026-07-26): warnings go to stderr now,
+            # so stdout stays a clean payload stream.
+            self.assertIn("WARNING", r.stderr)
+            self.assertIn("quarantine", r.stderr.lower())
+            self.assertNotIn("WARNING", r.stdout)
 
 
 # ---------------------------------------------------------------------------
@@ -1485,6 +1500,15 @@ class TestFixRound5(unittest.TestCase):
         # exist_ok=False): pre-create something at the exact path a
         # deterministic quarantine would use and confirm it is never
         # written through.
+        #
+        # GATE H (fix-round 6, 2026-07-26): the sentinel MUST be named
+        # store.sqlite3, the REAL basename os.replace(self.path, dst) uses.
+        # The prior version of this test named it "PRIOR", a name
+        # os.replace never targets, so the test stayed green even with
+        # exist_ok flipped to True: the real overwrite risk was never
+        # exercised. Checking CONTENT survival, not just file existence, is
+        # what actually distinguishes "refused before touching it" from
+        # "overwritten with different bytes".
         with tempfile.TemporaryDirectory() as d:
             store = bs.Store(d)
             path = store.path
@@ -1492,16 +1516,23 @@ class TestFixRound5(unittest.TestCase):
             fixed_uuid = uuid.UUID(int=0)
             qdir = path + ".quarantine-" + fixed_now.strftime("%Y%m%dT%H%M%S%f") + "-" + fixed_uuid.hex[:8]
             os.makedirs(qdir)
-            sentinel = os.path.join(qdir, "PRIOR")
-            with io.open(sentinel, "w"):
-                pass
+            sentinel = os.path.join(qdir, "store.sqlite3")
+            sentinel_bytes = b"PRIOR QUARANTINE CONTENTS, MUST SURVIVE"
+            with io.open(sentinel, "wb") as f:
+                f.write(sentinel_bytes)
             with mock.patch.object(bs, "datetime") as dt_mock, \
                  mock.patch.object(bs.uuid, "uuid4", return_value=fixed_uuid):
                 dt_mock.datetime.now.return_value = fixed_now
                 dt_mock.timezone = datetime.timezone
                 with self.assertRaises(bs.StoreCorrupt):
                     store._quarantine_and_raise(sqlite3.DatabaseError("simulated"))
-            self.assertTrue(os.path.isfile(sentinel), "must survive the collision")
+            # Binary read: if the guard regresses, the sentinel is
+            # overwritten with real (binary) sqlite bytes, and comparing as
+            # bytes gives a clean assertion failure instead of a
+            # UnicodeDecodeError burying the actual defect.
+            with io.open(sentinel, "rb") as f:
+                self.assertEqual(f.read(), sentinel_bytes,
+                                  "must survive the collision untouched, not be overwritten")
 
     # -- GATE C -------------------------------------------------------
 
@@ -1515,7 +1546,10 @@ class TestFixRound5(unittest.TestCase):
             self.assertNotIn(secret, r_default.stdout)
             r_raw = _run_cli(["dump", "--raw"], d)
             self.assertIn(secret, r_raw.stdout)
-            self.assertIn("cleartext", r_raw.stdout.lower())
+            # SOFT F (fix-round 6, 2026-07-26): the --raw notice is a
+            # warning, so it goes to stderr; stdout must be pure JSON.
+            self.assertIn("cleartext", r_raw.stderr.lower())
+            json.loads(r_raw.stdout)
 
     def test_calibrated_reinject_gateC_would_fail_above(self):
         def old_dump(self, raw=False):
@@ -1642,6 +1676,395 @@ class TestFixRound5(unittest.TestCase):
                               "reinjected old code must print the raw path")
             finally:
                 store.close()
+
+
+# ---------------------------------------------------------------------------
+# Fix round 6 (2026-07-26): GATE A (percent sign opens another project's
+# database), GATE B (bracket/star hides quarantine), GATE C (default dump
+# leaks note/text/evidence/check_cmd/owner), GATE D (objective wiped by a
+# tier-only reclaim, the SAME class as round 5's files bug, left open), SOFT
+# E (adopt bypasses not-owner), SOFT F (warnings on stdout break JSON), SOFT
+# G (gitdir pointer unvalidated).
+# ---------------------------------------------------------------------------
+
+class TestFixRound6(unittest.TestCase):
+    # -- GATE A -------------------------------------------------------
+
+    def test_calibrated_gateA_percent_sign_path_never_leaks_across_projects(self):
+        # VERIFIED BY ORCHESTRATOR: standing inside p%41, dump/dashboard
+        # used to return pA's record because the read-only sqlite URI
+        # percent-decoded the path to a different file.
+        with tempfile.TemporaryDirectory() as base:
+            pa = os.path.join(base, "pA")
+            ppercent = os.path.join(base, "p%41")
+            os.makedirs(pa)
+            os.makedirs(ppercent)
+            sa = bs.Store(pa)
+            sa.claim("victimwork", "ephemeral", "PRIVATE-PROJECT-A-OBJECTIVE", [])
+            sa.close()
+            sp = bs.Store(ppercent)
+            sp.claim("ownwork", "ephemeral", "own-objective", [])
+            sp.close()
+            ro = bs.ReadOnlyStore(ppercent)
+            try:
+                data = ro.dump(raw=True)
+            finally:
+                ro.close()
+            names = [r["name"] for r in data["records"]]
+            self.assertEqual(names, ["ownwork"])
+            view = bs.render_state_md(ppercent)
+            self.assertNotIn("PRIVATE-PROJECT-A-OBJECTIVE", view)
+            self.assertEqual(bs.verify(ppercent), [])
+
+    def test_calibrated_gateA_query_only_actually_refuses_a_write(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            store.claim("k", "ephemeral", "obj", [])
+            store.close()
+            ro = bs.ReadOnlyStore(d)
+            try:
+                with self.assertRaises(sqlite3.OperationalError):
+                    ro.conn.execute("INSERT INTO meta (key, value) VALUES ('x','y')")
+            finally:
+                ro.close()
+
+    def test_calibrated_reinject_gateA_would_leak(self):
+        def old_connect(path, timeout=5.0):
+            return sqlite3.connect(
+                "file:" + path.replace("?", "%3f").replace("#", "%23") + "?mode=ro",
+                uri=True, timeout=timeout, isolation_level=None)
+
+        with tempfile.TemporaryDirectory() as base:
+            pa = os.path.join(base, "pA")
+            ppercent = os.path.join(base, "p%41")
+            os.makedirs(pa)
+            os.makedirs(ppercent)
+            bs.Store(pa).claim("victimwork", "ephemeral", "obj", [])
+            bs.Store(ppercent).claim("ownwork", "ephemeral", "obj", [])
+            with mock.patch.object(bs, "_connect_read_only", old_connect):
+                ro = bs.ReadOnlyStore(ppercent)
+                try:
+                    ro.conn.row_factory = sqlite3.Row
+                    names = [r["name"] for r in
+                             ro.conn.execute("SELECT name FROM records").fetchall()]
+                finally:
+                    ro.close()
+            self.assertEqual(names, ["victimwork"],
+                              "reinjected old URI code must have opened the WRONG project")
+
+    # -- GATE B -------------------------------------------------------
+
+    def test_calibrated_gateB_bracket_path_quarantine_still_visible(self):
+        with tempfile.TemporaryDirectory() as base:
+            proj = os.path.join(base, "p[1]")
+            os.makedirs(proj)
+            store = bs.Store(proj)
+            store.claim("k", "ephemeral", "obj", [])
+            path = store.path
+            store.close()
+            with io.open(path, "wb"):
+                pass
+            with self.assertRaises(bs.StoreCorrupt):
+                bs.Store(proj)
+            found = bs._unacknowledged_quarantine_dirs(proj)
+            self.assertEqual(len(found), 1)
+
+    def test_calibrated_reinject_gateB_would_hide_quarantine(self):
+        def old_find(root):
+            pattern = bs.store_path(root) + ".quarantine-*"
+            return sorted((p for p in __import__("glob").glob(pattern) if os.path.isdir(p)),
+                          reverse=True)
+
+        with tempfile.TemporaryDirectory() as base:
+            proj = os.path.join(base, "p[1]")
+            os.makedirs(proj)
+            store = bs.Store(proj)
+            store.claim("k", "ephemeral", "obj", [])
+            path = store.path
+            store.close()
+            with io.open(path, "wb"):
+                pass
+            with self.assertRaises(bs.StoreCorrupt):
+                bs.Store(proj)
+            with mock.patch.object(bs, "_find_quarantine_dirs", old_find):
+                found = bs._unacknowledged_quarantine_dirs(proj)
+            self.assertEqual(found, [],
+                              "reinjected glob-based lookup must have missed it")
+
+    # -- GATE C (structural) --------------------------------------------
+
+    def test_structural_gateC_every_text_column_redacted_by_default(self):
+        # Enumerates EVERY text column from the LIVE schema (not a
+        # hand-maintained list), plants a secret directly via SQL in every
+        # row of every table (bypassing the public API, which cannot reach
+        # every column, e.g. created_at), and asserts the default dump
+        # shows none of them, while a safe-listed column stays readable.
+        secret = "sk-test1234567890abcdef"
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("thing", "ephemeral", "obj", ["a.py"], session_id="s1")
+                store.decide(rec.lifecycle_uuid, rec.version, "t", "x")
+                store.checkpoint(rec.lifecycle_uuid, rec.version + 1, "next")
+                store.send(rec.lifecycle_uuid, "directive")
+                conn = store.conn
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute(
+                    "INSERT INTO deliveries (payload_sha256, lifecycle_uuid, target, "
+                    "delivered_at) VALUES (?,?,?,?)",
+                    ("x" * 64, rec.lifecycle_uuid, "STATE.md", bs.now_iso()))
+                conn.execute(
+                    "INSERT INTO autosave_receipts (worktree_id, session_id, snapshot_sha, "
+                    "tree_sha, source_head, captured_count, excluded_count, created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    ("wt1", "s1", "a" * 40, "b" * 40, "c" * 40, 0, 0, bs.now_iso()))
+                conn.execute("COMMIT")
+                mutated_cols_by_table = {}
+                for t in bs._TABLES:
+                    cols = bs._text_columns(conn, t)
+                    rowcount = conn.execute("SELECT COUNT(*) FROM %s" % t).fetchone()[0]
+                    mutated = []
+                    if rowcount and cols:
+                        pk_cols = {r["name"] for r in
+                                   conn.execute("PRAGMA table_info(%s)" % t).fetchall() if r["pk"]}
+                        for col in cols:
+                            # Primary-key columns cannot be blindly set to
+                            # the SAME value across every row without
+                            # violating uniqueness or referential
+                            # integrity; they are exactly the
+                            # identifier-shaped columns already in
+                            # _DUMP_SAFE_COLUMNS by construction. A CHECK
+                            # constraint (state/lifetime enums) makes an
+                            # UPDATE to an arbitrary secret raise
+                            # IntegrityError too: caught and skipped, since
+                            # a column the schema itself refuses to hold an
+                            # arbitrary string in has nothing to redact.
+                            if col in pk_cols:
+                                continue
+                            conn.execute("BEGIN IMMEDIATE")
+                            try:
+                                conn.execute("UPDATE %s SET %s=?" % (t, col), (secret,))
+                            except sqlite3.IntegrityError:
+                                conn.execute("ROLLBACK")
+                                continue
+                            conn.execute("COMMIT")
+                            mutated.append(col)
+                    mutated_cols_by_table[t] = mutated
+                dumped = store.dump()
+            finally:
+                store.close()
+            offenders, safe_checked = [], []
+            for t, cols in mutated_cols_by_table.items():
+                for row in dumped[t]:
+                    for col in cols:
+                        if (t, col) in bs._DUMP_SAFE_COLUMNS:
+                            safe_checked.append((t, col))
+                            continue
+                        if row.get(col) == secret:
+                            offenders.append((t, col))
+            self.assertEqual(offenders, [],
+                              "these text columns leaked the secret unredacted: %s" % offenders)
+            self.assertGreater(len(safe_checked), 0, "sanity: the safe-column set must be non-empty")
+
+    def test_calibrated_reinject_gateC_would_leak_named_fields(self):
+        def old_dump(self, raw=False):
+            out = {}
+            for t in bs._TABLES:
+                rows = bs._exec(self, "SELECT * FROM %s" % t).fetchall()
+                out[t] = [dict(r) for r in rows]
+            if raw:
+                return out
+            for rec in out["records"]:
+                if rec.get("objective"):
+                    rec["objective"] = bs.redact_text(rec["objective"])
+            return out
+
+        secret = "sk-test1234567890abcdef"
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("thing", "ephemeral", "obj", [], owner=secret)
+                with mock.patch.object(bs.Store, "dump", old_dump):
+                    data = store.dump()
+                self.assertIn(secret, json.dumps(data),
+                              "reinjected enumerated-list redaction must have missed owner")
+            finally:
+                store.close()
+
+    # -- GATE D (structural) --------------------------------------------
+
+    def test_calibrated_gateD_reclaim_omitting_objective_preserves_it(self):
+        # VERIFIED BY ORCHESTRATOR reproduction: reclaim with only --tier.
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("thing", "ephemeral", "important objective", [],
+                            session_id="s1")
+                updated = store.claim("thing", "ephemeral", session_id="s1", tier="T2")
+                self.assertEqual(updated.objective, "important objective")
+            finally:
+                store.close()
+
+    def test_structural_gateD_every_updatable_field_preserved_when_omitted(self):
+        # Enumerates Store.UPDATABLE_SCALAR_FIELDS directly: a field added
+        # there without _reclaim_active also treating it as None-preserves
+        # fails this test.
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                seed = {"objective": "seed-objective", "owner": "seed-owner",
+                        "tier": "seed-tier", "check_cmd": "seed-check", "ttl_hours": 3.5}
+                self.assertEqual(set(seed), set(bs.Store.UPDATABLE_SCALAR_FIELDS),
+                                  "test seed must cover exactly the declared updatable fields")
+                store.claim("thing", "ephemeral", session_id="s1", **seed)
+                for omitted in bs.Store.UPDATABLE_SCALAR_FIELDS:
+                    kwargs = dict(seed)
+                    kwargs.pop(omitted)
+                    updated = store.claim("thing", "ephemeral", session_id="s1", **kwargs)
+                    self.assertEqual(getattr(updated, omitted), seed[omitted],
+                                      "omitting --%s must have left it untouched" % omitted)
+            finally:
+                store.close()
+
+    # -- SOFT E -------------------------------------------------------
+
+    def test_calibrated_soft_e_adopt_live_session_requires_explicit_flag(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("thing", "ephemeral", "obj", [], session_id="owner")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.transition(rec.lifecycle_uuid, rec.version, "adopted",
+                                      session_id="attacker")
+                self.assertEqual(ctx.exception.reason, "live-session-adopt-blocked")
+                still = store.get(rec.lifecycle_uuid)
+                self.assertEqual(still.state, "active")
+                self.assertEqual(still.session_id, "owner")
+                adopted = store.transition(rec.lifecycle_uuid, rec.version, "adopted",
+                                            session_id="attacker", adopt_from_live_session=True)
+                self.assertEqual(adopted.state, "adopted")
+                self.assertIn("displaced", adopted_note_of(store, adopted.lifecycle_uuid))
+            finally:
+                store.close()
+
+    def test_calibrated_reinject_soft_e_would_allow_silent_takeover(self):
+        # Reinject the pre-fix shape: adopt had NO live-session gate at all.
+        # Confirms that gate is what stands between "attacker" and a silent
+        # takeover of a live owner's record.
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("thing", "ephemeral", "obj", [], session_id="owner")
+                with mock.patch.object(bs.Store, "transition",
+                                        _make_pre_soft_e_transition(bs)):
+                    adopted = store.transition(rec.lifecycle_uuid, rec.version, "adopted",
+                                                session_id="attacker")
+                self.assertEqual(adopted.state, "adopted",
+                                  "reinjected old code must have allowed the silent takeover")
+            finally:
+                store.close()
+
+    # -- SOFT F -------------------------------------------------------
+
+    def test_soft_f_dump_stdout_is_valid_json_with_quarantine_warning_outstanding(self):
+        # A live, healthy store CAN coexist with a DORMANT, unacknowledged
+        # quarantine directory left over from an earlier, already-resolved
+        # incident: quarantine detection matches by name only, it does not
+        # know or care whether that directory is still "blocking" anything
+        # for the CURRENT store. Simulated directly (a real second
+        # corruption cycle would first require init --acknowledge-quarantine
+        # anyway, which would acknowledge it and defeat the scenario).
+        with tempfile.TemporaryDirectory() as d:
+            _run_cli(["init"], d)
+            _run_cli(["claim", "k", "--lifetime", "ephemeral", "--objective", "obj"], d)
+            leftover = bs.store_path(d) + ".quarantine-20260101T000000000000-deadbeef"
+            os.makedirs(leftover)
+            with io.open(os.path.join(leftover, "store.sqlite3"), "wb") as f:
+                f.write(b"leftover corrupt bytes from an earlier incident")
+            r = _run_cli(["dump"], d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            data = json.loads(r.stdout)  # must not raise
+            self.assertEqual([rec["name"] for rec in data["records"]], ["k"])
+            self.assertIn("quarantine", r.stderr.lower())
+
+    # -- SOFT G -------------------------------------------------------
+
+    def test_calibrated_soft_g_crafted_gitdir_refused_creates_nothing(self):
+        with tempfile.TemporaryDirectory() as base:
+            proj = os.path.join(base, "proj")
+            os.makedirs(proj)
+            victim = os.path.join(base, "victim")
+            with io.open(os.path.join(proj, ".git"), "w", encoding="utf-8") as f:
+                f.write("gitdir: %s\n" % victim)
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.Store(proj)
+            self.assertEqual(ctx.exception.reason, "path-escape")
+            self.assertFalse(os.path.exists(victim))
+
+    def test_calibrated_reinject_soft_g_would_create_arbitrary_directory(self):
+        def old_resolve(root):
+            git_path = os.path.join(root, ".git")
+            if os.path.isdir(git_path):
+                return git_path
+            if not os.path.isfile(git_path):
+                return None
+            with io.open(git_path, encoding="utf-8", errors="replace") as f:
+                content = f.read().strip()
+            if not content.startswith("gitdir:"):
+                return None
+            pointer = content[len("gitdir:"):].strip()
+            if not os.path.isabs(pointer):
+                pointer = os.path.join(root, pointer)
+            return os.path.realpath(pointer)
+
+        with tempfile.TemporaryDirectory() as base:
+            proj = os.path.join(base, "proj")
+            os.makedirs(proj)
+            victim = os.path.join(base, "victim")
+            with io.open(os.path.join(proj, ".git"), "w", encoding="utf-8") as f:
+                f.write("gitdir: %s\n" % victim)
+            with mock.patch.object(bs, "_resolve_git_common_dir", old_resolve):
+                bs.Store(proj)
+            self.assertTrue(os.path.isdir(victim),
+                             "reinjected old code must have created the arbitrary directory")
+
+
+def adopted_note_of(store, lifecycle_uuid):
+    row = store.conn.execute(
+        "SELECT note FROM transitions WHERE lifecycle_uuid=? AND to_state='adopted' "
+        "ORDER BY id DESC LIMIT 1", (lifecycle_uuid,)).fetchone()
+    return row["note"] if row else ""
+
+
+def _make_pre_soft_e_transition(bs_module):
+    """Builds the pre-SOFT-E transition() method: identical to the current
+    one except the adopted branch never checks for a live session at all."""
+    def old_transition(self, lifecycle_uuid, expected_version, to_state,
+                        session_id="", note="", evidence="", adopt_from_live_session=False):
+        if to_state not in bs_module._LEGAL_MOVES:
+            raise ValueError("unknown target state %r" % (to_state,))
+        if to_state == "complete" and not (evidence or "").strip():
+            raise bs_module.OwnershipRefused("missing-evidence", "x")
+        allowed_from = bs_module._LEGAL_MOVES[to_state]
+        with self._transaction() as conn:
+            row = bs_module._exec(self, "SELECT * FROM records WHERE lifecycle_uuid=?",
+                                   (lifecycle_uuid,)).fetchone()
+            if row is None or row["version"] != expected_version or row["state"] not in allowed_from:
+                raise bs_module.StaleIdentity("stale")
+            if to_state != "adopted" and row["session_id"] and row["session_id"] != (session_id or ""):
+                raise bs_module.OwnershipRefused("not-owner", "x")
+            ts = bs_module.now_iso()
+            bs_module._exec(self,
+                "UPDATE records SET state=?, version=version+1, updated_at=?, session_id=? "
+                "WHERE lifecycle_uuid=? AND version=? AND state=?",
+                (to_state, ts, session_id or row["session_id"], lifecycle_uuid,
+                 expected_version, row["state"]))
+            bs_module._exec(self,
+                "INSERT INTO transitions (lifecycle_uuid, from_state, to_state, session_id, "
+                "note, at) VALUES (?,?,?,?,?,?)",
+                (lifecycle_uuid, row["state"], to_state, session_id or "", note or "", ts))
+            return self._record_by_uuid(conn, lifecycle_uuid)
+    return old_transition
 
 
 # ---------------------------------------------------------------------------
