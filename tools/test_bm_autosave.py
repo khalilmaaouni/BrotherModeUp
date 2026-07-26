@@ -854,6 +854,20 @@ class TestCalibratedGateFReceiptOutlivesPrunedSnapshot(unittest.TestCase):
             # _delete_receipts_for_shas, and confirm the calibrated check
             # now fails for the GATE F reason: a pruned session's receipt
             # survives and has_receipt reports it as still safe.
+            #
+            # FINDING 1 (external audit, 2026-07-27) added a SECOND,
+            # independent guard on the same failure: has_receipt now
+            # re-resolves the row's own snapshot_sha against the refs that
+            # actually exist (_receipt_snapshot_is_live), so a surviving
+            # receipt for a deleted ref answers False even with the pruner's
+            # deletion neutralized. Reproducing the OLD world therefore
+            # requires neutralizing BOTH halves, which is what the second
+            # patch below does. This assertion is unchanged and is not
+            # weakened: each guard also has its own calibrated proof, GATE
+            # F's own non-calibration half above (receipts really are
+            # deleted with their refs) and
+            # TestCalibratedFinding1ReceiptOutlivesItsRef (the ref check
+            # really is load-bearing).
             with tempfile.TemporaryDirectory() as repo2:
                 _init_repo(repo2)
                 _write(os.path.join(repo2, "a.txt"), "v1")
@@ -863,7 +877,9 @@ class TestCalibratedGateFReceiptOutlivesPrunedSnapshot(unittest.TestCase):
                 wtid2 = autosave.worktree_id_for(toplevel2)
                 bs.init_project(toplevel2).close()
                 original = autosave._delete_receipts_for_shas
+                original_live = autosave._receipt_snapshot_is_live
                 autosave._delete_receipts_for_shas = lambda *a, **kw: None
+                autosave._receipt_snapshot_is_live = lambda *a, **kw: True
                 os.environ["BROTHERMODE_AUTOSAVE_RETAIN"] = "100"
                 try:
                     for i in range(13):
@@ -880,6 +896,7 @@ class TestCalibratedGateFReceiptOutlivesPrunedSnapshot(unittest.TestCase):
                         "calibrated")
                 finally:
                     autosave._delete_receipts_for_shas = original
+                    autosave._receipt_snapshot_is_live = original_live
                     os.environ.pop("BROTHERMODE_AUTOSAVE_RETAIN", None)
 
 
@@ -925,6 +942,507 @@ class TestCrossProjectReceiptGuard(unittest.TestCase):
                 len(rows), 0,
                 "the child worktree's receipt was written into the PARENT "
                 "project's store instead of being refused")
+
+
+def _repo_with_commit(base, name="repo"):
+    """A scratch repo with one commit, the shape almost every test below
+    starts from. Returns (repo path, toplevel, worktree_id)."""
+    repo = os.path.join(base, name)
+    os.makedirs(repo)
+    _init_repo(repo)
+    _write(os.path.join(repo, "a.txt"), "v1")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "init")
+    toplevel = autosave.resolve_toplevel(repo)
+    return repo, toplevel, autosave.worktree_id_for(toplevel)
+
+
+def _fail_step(step):
+    """A _run_git stand-in that fails one named git subcommand and passes
+    everything else through, so a snapshot can be made to fail at a REAL git
+    call rather than by patching the pipeline's own logic."""
+    original = autosave._run_git
+
+    def _patched(toplevel_arg, *args, **kw):
+        if args and args[0] == step:
+            return subprocess.CompletedProcess(args, 1, "", "simulated %s failure" % step)
+        return original(toplevel_arg, *args, **kw)
+    return original, _patched
+
+
+class TestCalibratedFinding1FalseAssurance(unittest.TestCase):
+    """FINDING 1 (external security audit, 2026-07-27), the highest-harm
+    defect in the audit: the tool claimed work was safe when it was not.
+
+    The exact sequence, reproduced here end to end:
+        10:00  a snapshot succeeds and writes a receipt
+        10:30  more files change
+        11:00  the next PreCompact snapshot FAILS
+        11:05  the session resumes; a receipt for this session still exists
+               -> the old reader said "your files are autosaved", and the
+                  work from 10:30 was in no snapshot at all.
+
+    The cause was the QUESTION, not the wording: has_receipt asked whether
+    this session had EVER snapshotted (historical), and the hint printed a
+    present-tense safety claim from that answer. verify_recoverable asks
+    whether the work is recoverable RIGHT NOW: a one-shot event that every
+    attempt resets to pending, marked saved only after the ref is written
+    and read back, and re-resolved to the recorded sha before any claim."""
+
+    def _ten_thirty_eleven(self, base):
+        repo, toplevel, wtid = _repo_with_commit(base)
+        bs.init_project(toplevel).close()
+        # 10:00 a snapshot that really succeeds.
+        _write(os.path.join(repo, "wip.txt"), "first hour of work")
+        first = autosave.snapshot(toplevel, "sess-1", "precompact")
+        self.assertTrue(first["ok"], first)
+        # 10:30 more work, not in any snapshot yet.
+        _write(os.path.join(repo, "wip2.txt"), "THE SECOND HOUR, THE PART THAT MATTERS")
+        return repo, toplevel, wtid, first
+
+    def _eleven_oclock_failure(self, toplevel):
+        original, patched = _fail_step("add")
+        autosave._run_git = patched
+        try:
+            failed = autosave.snapshot(toplevel, "sess-1", "precompact")
+        finally:
+            autosave._run_git = original
+        self.assertFalse(failed["ok"], "the 11:00 snapshot was supposed to fail")
+        return failed
+
+    def test_a_failed_attempt_revokes_the_earlier_claim(self):
+        with tempfile.TemporaryDirectory() as base:
+            repo, toplevel, wtid, first = self._ten_thirty_eleven(base)
+            cap = io.StringIO()
+            with contextlib.redirect_stderr(cap):
+                self._eleven_oclock_failure(toplevel)
+
+            # Ground truth: the 10:30 work is in NO snapshot.
+            self.assertNotEqual(
+                _git(toplevel, "cat-file", "-e", "%s:wip2.txt" % first["commit"]).returncode, 0,
+                "the scenario is wrong: the newest work is already in the snapshot")
+
+            # The HISTORICAL question still answers yes, exactly as it did
+            # when it was the basis for the claim: the 10:00 receipt and its
+            # ref both still exist. This is the false assurance, preserved
+            # here as evidence rather than argued about.
+            self.assertTrue(
+                autosave.has_receipt(toplevel, wtid, "sess-1"),
+                "the scenario is wrong: the earlier receipt must survive, or "
+                "there is no false assurance to close")
+
+            # The PRESENT-TENSE question refuses.
+            verdict = autosave.verify_recoverable(toplevel, wtid, "sess-1")
+            self.assertEqual(
+                verdict["state"], "unverified",
+                "a failed newest attempt must revoke the earlier claim: %r" % (verdict,))
+            self.assertIn("FAILED", verdict["detail"])
+
+    def test_calibrated_without_the_pending_reset_the_false_claim_returns(self):
+        # CALIBRATION: the reset-to-pending before every attempt is what
+        # makes a failure override an earlier success. Neutralize exactly
+        # that PRODUCT function for the failing attempt (the successful one
+        # ran normally first) and the tool goes straight back to reporting
+        # the 10:00 snapshot as though it covered the 10:30 work.
+        with tempfile.TemporaryDirectory() as base:
+            repo, toplevel, wtid, first = self._ten_thirty_eleven(base)
+            original = autosave.begin_snapshot_event
+            autosave.begin_snapshot_event = lambda *a, **kw: None
+            try:
+                cap = io.StringIO()
+                with contextlib.redirect_stderr(cap):
+                    self._eleven_oclock_failure(toplevel)
+            finally:
+                autosave.begin_snapshot_event = original
+            verdict = autosave.verify_recoverable(toplevel, wtid, "sess-1")
+            self.assertEqual(
+                verdict["state"], "verified",
+                "REINJECTION CHECK: with the pending reset neutralized, a FAILED "
+                "attempt must leave the previous success standing and the tool must "
+                "wrongly report the work as saved (this is FINDING 1); if this "
+                "assertion fails, the test is not calibrated: %r" % (verdict,))
+
+    def test_verified_claim_names_the_ref_and_sha_it_is_claiming(self):
+        with tempfile.TemporaryDirectory() as base:
+            repo, toplevel, wtid = _repo_with_commit(base)
+            _write(os.path.join(repo, "wip.txt"), "work")
+            res = autosave.snapshot(toplevel, "sess-1", "precompact")
+            self.assertTrue(res["ok"], res)
+            verdict = autosave.verify_recoverable(toplevel, wtid, "sess-1")
+            self.assertEqual(verdict["state"], "verified", verdict)
+            self.assertEqual(verdict["ref"], res["ref"])
+            self.assertEqual(verdict["sha"], res["commit"])
+            self.assertTrue(verdict["captured_at"], "a claim must say when it captured")
+
+    def test_event_is_consumed_once_so_a_later_resume_cannot_reuse_it(self):
+        with tempfile.TemporaryDirectory() as base:
+            repo, toplevel, wtid = _repo_with_commit(base)
+            _write(os.path.join(repo, "wip.txt"), "work")
+            self.assertTrue(autosave.snapshot(toplevel, "sess-1", "precompact")["ok"])
+            self.assertEqual(
+                autosave.verify_recoverable(toplevel, wtid, "sess-1")["state"], "verified")
+            self.assertEqual(
+                autosave.verify_recoverable(toplevel, wtid, "sess-1")["state"], "none",
+                "the event describes ONE compaction; a second resume must not be "
+                "handed the same claim again")
+
+    def test_a_deleted_ref_is_refused_even_with_a_saved_event(self):
+        with tempfile.TemporaryDirectory() as base:
+            repo, toplevel, wtid = _repo_with_commit(base)
+            _write(os.path.join(repo, "wip.txt"), "work")
+            res = autosave.snapshot(toplevel, "sess-1", "precompact")
+            self.assertTrue(res["ok"], res)
+            _git(toplevel, "update-ref", "-d", res["ref"])
+            verdict = autosave.verify_recoverable(toplevel, wtid, "sess-1")
+            self.assertEqual(verdict["state"], "unverified", verdict)
+            self.assertIn("no longer exists", verdict["detail"])
+
+    def test_unknown_is_never_a_claim_in_either_direction(self):
+        with tempfile.TemporaryDirectory() as base:
+            plain = os.path.join(base, "not-a-repo")
+            os.makedirs(plain)
+            verdict = autosave.verify_recoverable(plain, "deadbeef", "sess-1")
+            self.assertEqual(
+                verdict["state"], "unknown",
+                "with no readable git directory the tool must claim nothing, in "
+                "either direction: %r" % (verdict,))
+
+
+class TestCalibratedFinding1ReceiptOutlivesItsRef(unittest.TestCase):
+    """FINDING 1, the second half: has_receipt was a bare existence probe
+    (SELECT 1 ... LIMIT 1), with no read of the row's own snapshot_sha and
+    no check that the snapshot still existed. Receipt deletion is
+    best-effort, so any receipt that outlived its ref kept reporting safe."""
+
+    def test_a_receipt_whose_snapshot_ref_is_gone_is_not_safety(self):
+        with tempfile.TemporaryDirectory() as base:
+            repo, toplevel, wtid = _repo_with_commit(base)
+            bs.init_project(toplevel).close()
+            _write(os.path.join(repo, "wip.txt"), "work")
+            res = autosave.snapshot(toplevel, "sess-1", "precompact")
+            self.assertTrue(res["ok"], res)
+            self.assertTrue(autosave.has_receipt(toplevel, wtid, "sess-1"))
+
+            # Delete the ref BEHIND the receipt, the way a hand-run
+            # `git update-ref -d` or a failed best-effort cleanup would.
+            _git(toplevel, "update-ref", "-d", res["ref"])
+            _git(toplevel, "update-ref", "-d", autosave.latest_ref(wtid))
+            store = bs.Store(toplevel, create=False)
+            try:
+                rows = store.conn.execute(
+                    "SELECT COUNT(*) AS n FROM autosave_receipts WHERE session_id=?",
+                    ("sess-1",)).fetchone()
+            finally:
+                store.close()
+            self.assertEqual(rows["n"], 1, "the receipt row must still be there, or "
+                                            "this test proves nothing")
+            self.assertFalse(
+                autosave.has_receipt(toplevel, wtid, "sess-1"),
+                "a receipt whose snapshot ref no longer exists must not report as "
+                "safety (FINDING 1)")
+
+            # CALIBRATION: reinject the old shape by patching the PRODUCT
+            # function that re-resolves the row's sha back to "trust the
+            # row", and confirm the bare existence probe reports the deleted
+            # snapshot as still safe.
+            original = autosave._receipt_snapshot_is_live
+            autosave._receipt_snapshot_is_live = lambda *a, **kw: True
+            try:
+                self.assertTrue(
+                    autosave.has_receipt(toplevel, wtid, "sess-1"),
+                    "REINJECTION CHECK: with the ref re-resolution neutralized, a "
+                    "receipt for a deleted snapshot must report as safe (this is "
+                    "FINDING 1); if this assertion fails, the test is not calibrated")
+            finally:
+                autosave._receipt_snapshot_is_live = original
+
+
+class TestCalibratedFinding13LatestPointer(unittest.TestCase):
+    """FINDING 13: the shared latest pointer was last-writer-wins. Both
+    writes now carry the old value they expect, so a losing writer fails
+    loudly instead of silently winning."""
+
+    def test_a_clean_check_never_deletes_a_newer_pointer(self):
+        with tempfile.TemporaryDirectory() as base:
+            repo, toplevel, wtid = _repo_with_commit(base)
+            ref = autosave.latest_ref(wtid)
+            _write(os.path.join(repo, "wip.txt"), "first")
+            first = autosave.snapshot(toplevel, "s1", "test")
+            self.assertTrue(first["ok"], first)
+            _write(os.path.join(repo, "wip.txt"), "second")
+            second = autosave.snapshot(toplevel, "s1", "test")
+            self.assertTrue(second["ok"], second)
+
+            # The race, made deterministic: point latest back at the OLDER
+            # snapshot, let the clean path read that value, then move latest
+            # to the NEWER snapshot before the delete lands. That is exactly
+            # a concurrent dirty snapshot publishing between the read and
+            # the delete.
+            _git(toplevel, "update-ref", ref, first["commit"])
+            original = autosave._run_git
+            state = {"raced": False}
+
+            def _race(toplevel_arg, *args, **kw):
+                result = original(toplevel_arg, *args, **kw)
+                if not state["raced"] and args[:3] == ("rev-parse", "-q", "--verify") \
+                        and args[3:4] == (ref,):
+                    state["raced"] = True
+                    original(toplevel_arg, "update-ref", ref, second["commit"])
+                return result
+
+            autosave._run_git = _race
+            cap = io.StringIO()
+            try:
+                os.remove(os.path.join(repo, "wip.txt"))
+                with contextlib.redirect_stderr(cap):
+                    clean = autosave.snapshot(toplevel, "s1", "test")
+            finally:
+                autosave._run_git = original
+            self.assertEqual(clean["reason"], "clean", clean)
+            self.assertTrue(state["raced"], "the race never fired; the test is inert")
+            self.assertEqual(
+                _git(toplevel, "rev-parse", "-q", "--verify", ref).stdout.strip(),
+                second["commit"],
+                "a clean check deleted a pointer that a concurrent writer had just "
+                "moved to a NEWER snapshot (FINDING 13)")
+            self.assertIn("moved to a newer snapshot", cap.getvalue(),
+                          "losing the compare-and-swap must be loud, not silent")
+
+            # CALIBRATION: reinject last-writer-wins by patching the PRODUCT
+            # function back to a delete that ignores the expected old value.
+            _git(toplevel, "update-ref", ref, first["commit"])
+            _write(os.path.join(repo, "wip.txt"), "third")
+            self.assertTrue(autosave.snapshot(toplevel, "s1", "test")["ok"])
+            _git(toplevel, "update-ref", ref, first["commit"])
+            original_del = autosave._delete_ref_cas
+            autosave._delete_ref_cas = lambda toplevel_a, r, expected_old: original(
+                toplevel_a, "update-ref", "-d", r)
+            state["raced"] = False
+            autosave._run_git = _race
+            try:
+                os.remove(os.path.join(repo, "wip.txt"))
+                with contextlib.redirect_stderr(io.StringIO()):
+                    autosave.snapshot(toplevel, "s1", "test")
+            finally:
+                autosave._run_git = original
+                autosave._delete_ref_cas = original_del
+            self.assertNotEqual(
+                _git(toplevel, "rev-parse", "-q", "--verify", ref).returncode, 0,
+                "REINJECTION CHECK: without the expected old value, the clean check "
+                "must delete the newer writer's pointer outright (this is FINDING "
+                "13); if this assertion fails, the test is not calibrated")
+
+    def test_recover_falls_back_to_the_newest_snapshot_when_latest_is_lost(self):
+        with tempfile.TemporaryDirectory() as base:
+            repo, toplevel, wtid = _repo_with_commit(base)
+            _write(os.path.join(repo, "wip.txt"), "older work")
+            older = autosave.snapshot(toplevel, "s1", "test")
+            self.assertTrue(older["ok"], older)
+            time.sleep(0.002)
+            _write(os.path.join(repo, "wip.txt"), "THE NEWEST WORK")
+            newest = autosave.snapshot(toplevel, "s1", "test")
+            self.assertTrue(newest["ok"], newest)
+
+            # The pointer is lost (a racing deleter, a botched cleanup); the
+            # snapshots themselves are all still there.
+            _git(toplevel, "update-ref", "-d", autosave.latest_ref(wtid))
+
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                autosave.cmd_recover([repo])
+            text = out.getvalue()
+            self.assertIn("fell back", text, text)
+            lines = [l for l in text.splitlines() if l.strip()]
+            idx = next(i for i, l in enumerate(lines) if "NEW worktree at" in l)
+            recovered = lines[idx + 1].strip()
+            try:
+                self.assertEqual(_read(os.path.join(recovered, "wip.txt")),
+                                  "THE NEWEST WORK",
+                                  "the fallback recovered a snapshot, but not the newest")
+            finally:
+                _git(toplevel, "worktree", "remove", "--force", recovered)
+
+            # CALIBRATION: reinject the old world (no enumeration at all) by
+            # neutralizing the PRODUCT fallback, and confirm recovery goes
+            # back to reporting nothing found while two good snapshots sit
+            # right there.
+            original = autosave._fallback_snapshot
+            autosave._fallback_snapshot = lambda *a, **kw: ("", "")
+            try:
+                out2 = io.StringIO()
+                with contextlib.redirect_stdout(out2):
+                    autosave.cmd_recover([repo])
+                self.assertIn(
+                    "no autosave found", out2.getvalue(),
+                    "REINJECTION CHECK: without the enumerate-and-fall-back path, a "
+                    "lost pointer must read as no autosave at all (this is FINDING "
+                    "13); if this assertion fails, the test is not calibrated")
+            finally:
+                autosave._fallback_snapshot = original
+
+    def test_fallback_never_resurrects_deliberately_discarded_wip(self):
+        """FD and FINDING 13 meet here: the fallback must not undo the clean
+        clear. A snapshot older than the recorded clean check stays
+        unoffered, and recovery says so instead of silently handing back WIP
+        the founder threw away."""
+        with tempfile.TemporaryDirectory() as base:
+            repo, toplevel, wtid = _repo_with_commit(base)
+            _write(os.path.join(repo, "wip.txt"), "discarded WIP")
+            self.assertTrue(autosave.snapshot(toplevel, "s1", "test")["ok"])
+            os.remove(os.path.join(repo, "wip.txt"))
+            self.assertEqual(autosave.snapshot(toplevel, "s1", "test")["reason"], "clean")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                autosave.cmd_recover([repo])
+            text = out.getvalue()
+            self.assertIn("no autosave found", text, text)
+            self.assertIn("snapshot ref(s) do exist", text,
+                          "an unoffered snapshot must still be listed, never hidden")
+
+
+class TestFinding16Denylist(unittest.TestCase):
+    """FINDING 16: the secret denylist was a frozen ten-entry list inherited
+    from the deleted V1 shell script, so id_ed25519 (the modern default ssh
+    key), .npmrc, .netrc, cloud credentials, kube configs, and
+    service-account JSON all walked into snapshots."""
+
+    # The pin. If this tuple changes, someone changed what autosave will
+    # capture, and that is a decision a human makes deliberately, not a diff
+    # that slips through. Narrowing it fails here first.
+    PINNED = (
+        ":(exclude,glob)**/.env", ":(exclude).env", ":(exclude,glob)**/.env.*",
+        ":(exclude,glob)**/*.pem", ":(exclude,glob)**/*.key", ":(exclude,glob)**/*.p12",
+        ":(exclude,glob)**/*.keystore", ":(exclude,glob)**/id_rsa", ":(exclude,glob)**/id_dsa",
+        ":(exclude,glob)**/*.pfx",
+        ":(exclude,glob)**/id_ecdsa", ":(exclude,glob)**/id_ecdsa_sk",
+        ":(exclude,glob)**/id_ed25519", ":(exclude,glob)**/id_ed25519_sk",
+        ":(exclude,glob)**/.ssh/**", ":(exclude,glob)**/.gnupg/**",
+        ":(exclude,glob)**/.aws/**", ":(exclude,glob)**/.kube/**",
+        ":(exclude,glob)**/.docker/**",
+        ":(exclude,glob)**/.npmrc", ":(exclude,glob)**/.netrc", ":(exclude,glob)**/_netrc",
+        ":(exclude,glob)**/.pgpass", ":(exclude,glob)**/.git-credentials",
+        ":(exclude,glob)**/.htpasswd", ":(exclude,glob)**/.pypirc",
+        ":(exclude,glob)**/credentials.json",
+        ":(exclude,glob)**/*service?account*.json",
+        ":(exclude,glob)**/application_default_credentials.json",
+        ":(exclude,glob)**/*.p8", ":(exclude,glob)**/*.jks", ":(exclude,glob)**/*.ppk",
+        ":(exclude,glob)**/*.kdbx", ":(exclude,glob)**/*.ovpn",
+        ":(exclude,glob)**/*.asc", ":(exclude,glob)**/*.gpg",
+        ":(exclude,glob)**/*.tfvars", ":(exclude,glob)**/secrets.yaml",
+        ":(exclude,glob)**/secrets.yml",
+    )
+    # The original ten, listed separately so a future edit cannot drop one
+    # while keeping the total plausible.
+    V1_TEN = PINNED[:10]
+
+    SECRET_FILES = (
+        ".env", "sub/.env", ".env.local", "id_rsa", "id_ed25519", "sub/id_ed25519",
+        ".ssh/id_ed25519", "sub/.ssh/config", ".npmrc", ".netrc", "_netrc", ".pgpass",
+        ".git-credentials", ".htpasswd", ".pypirc", ".aws/credentials",
+        "deep/nested/.aws/credentials", ".kube/config", ".gnupg/secring.gpg",
+        "credentials.json", "service-account.json", "my-service_account-key.json",
+        "a.pem", "b.key", "c.p12", "d.keystore", "e.pfx", "f.p8", "g.jks", "h.ppk",
+        "i.kdbx", "j.ovpn", "k.asc", "l.gpg", "terraform.tfvars", "prod.auto.tfvars",
+        "secrets.yaml", "secrets.yml", "application_default_credentials.json",
+        ".docker/config.json",
+    )
+    KEEP_FILES = ("keep_me.txt", "src/main.py", "sub/config", "credentials/keep.py")
+
+    def test_denylist_is_pinned_and_never_narrows(self):
+        self.assertEqual(autosave.SECRET_EXCLUDE_PATHSPECS, self.PINNED,
+                          "the secret denylist changed. Adding is fine; confirm "
+                          "nothing was REMOVED, then update this pin deliberately.")
+        for p in self.V1_TEN:
+            self.assertIn(p, autosave.SECRET_EXCLUDE_PATHSPECS,
+                          "%s came from the V1 shell script and must never be "
+                          "dropped" % p)
+
+    def test_no_secret_shape_enters_a_snapshot(self):
+        with tempfile.TemporaryDirectory() as base:
+            repo, toplevel, _wtid = _repo_with_commit(base)
+            for rel in self.SECRET_FILES + self.KEEP_FILES:
+                path = os.path.join(repo, rel)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                _write(path, "PAYLOAD-%s" % rel)
+            with contextlib.redirect_stderr(io.StringIO()):
+                res = autosave.snapshot(toplevel, "s1", "test")
+            self.assertTrue(res["ok"], res)
+            staged = set(_git(toplevel, "ls-tree", "-r", "--name-only",
+                              res["commit"]).stdout.split())
+            leaked = sorted(set(self.SECRET_FILES) & staged)
+            self.assertEqual(leaked, [], "secret-shaped files entered the snapshot: %s" % leaked)
+            for keep in self.KEEP_FILES:
+                self.assertIn(keep, staged,
+                              "%s is not a secret and must still be captured; "
+                              "over-exclusion loses real work" % keep)
+
+    def test_gitignored_files_never_enter_a_snapshot(self):
+        """Layer one of the boundary: git's OWN ignore status. This was
+        always true and never tested, which makes it an assumption rather
+        than a guarantee."""
+        with tempfile.TemporaryDirectory() as base:
+            repo, toplevel, _wtid = _repo_with_commit(base)
+            _write(os.path.join(repo, ".gitignore"), "local-secrets/\n*.mysecret\n")
+            os.makedirs(os.path.join(repo, "local-secrets"))
+            _write(os.path.join(repo, "local-secrets", "token.txt"), "TOKEN")
+            _write(os.path.join(repo, "creds.mysecret"), "TOKEN")
+            _write(os.path.join(repo, "wip.txt"), "real work")
+            with contextlib.redirect_stderr(io.StringIO()):
+                res = autosave.snapshot(toplevel, "s1", "test")
+            self.assertTrue(res["ok"], res)
+            staged = set(_git(toplevel, "ls-tree", "-r", "--name-only",
+                              res["commit"]).stdout.split())
+            self.assertNotIn("local-secrets/token.txt", staged)
+            self.assertNotIn("creds.mysecret", staged)
+            self.assertIn("wip.txt", staged)
+
+    def test_founder_can_extend_the_denylist(self):
+        """Layer three: no enumeration is ever complete, so the list is
+        extensible at runtime."""
+        with tempfile.TemporaryDirectory() as base:
+            repo, toplevel, _wtid = _repo_with_commit(base)
+            _write(os.path.join(repo, "house-format.secretz"), "PRIVATE")
+            _write(os.path.join(repo, "wip.txt"), "real work")
+            old = os.environ.get(autosave.EXTRA_EXCLUDE_ENV)
+            os.environ[autosave.EXTRA_EXCLUDE_ENV] = "**/*.secretz"
+            try:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    res = autosave.snapshot(toplevel, "s1", "test")
+            finally:
+                if old is None:
+                    os.environ.pop(autosave.EXTRA_EXCLUDE_ENV, None)
+                else:
+                    os.environ[autosave.EXTRA_EXCLUDE_ENV] = old
+            self.assertTrue(res["ok"], res)
+            staged = set(_git(toplevel, "ls-tree", "-r", "--name-only",
+                              res["commit"]).stdout.split())
+            self.assertNotIn("house-format.secretz", staged)
+            self.assertIn("wip.txt", staged)
+
+    def test_newly_captured_untracked_files_are_named_in_a_warning(self):
+        """Enumeration can only block shapes someone thought of, so what
+        DOES get captured has to be visible when it happens."""
+        with tempfile.TemporaryDirectory() as base:
+            repo, toplevel, _wtid = _repo_with_commit(base)
+            _write(os.path.join(repo, "never-reviewed.txt"), "who knows what is in here")
+            cap = io.StringIO()
+            with contextlib.redirect_stderr(cap):
+                res = autosave.snapshot(toplevel, "s1", "test")
+            self.assertTrue(res["ok"], res)
+            self.assertIn("never-reviewed.txt", cap.getvalue(),
+                          "the founder must see which untracked files just entered a "
+                          "snapshot: %r" % cap.getvalue())
+
+    def test_classifier_does_not_call_every_file_secret(self):
+        """The directory shapes broke the old fnmatch classifier, whose '*'
+        crossed '/' and so matched everything once "**/.ssh/**" was added."""
+        self.assertTrue(autosave._is_secret_shaped(".ssh/id_ed25519"))
+        self.assertTrue(autosave._is_secret_shaped("a/b/.aws/credentials"))
+        self.assertTrue(autosave._is_secret_shaped(".env"))
+        self.assertTrue(autosave._is_secret_shaped("deep/dir/x.pem"))
+        self.assertFalse(autosave._is_secret_shaped("src/main.py"))
+        self.assertFalse(autosave._is_secret_shaped("sub/config"))
+        self.assertFalse(autosave._is_secret_shaped("credentials/keep.py"))
 
 
 class TestRetention(unittest.TestCase):

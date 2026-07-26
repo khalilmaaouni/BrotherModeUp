@@ -1,9 +1,10 @@
 {
-  "_comment": "Reviewed write sites. If this test fails, a write site was added or removed. Confirm the new site redacts any user or model text before updating these counts. bm_telemetry.py fell 23 to 15 on 2026-07-26: eight raw open-and-write pairs in the ledger maintenance paths were replaced by the audited atomic_write primitive, which also closes the audit finding about rewrites landing with default permissions.",
+  "_comment": "Reviewed write sites. If this test fails, a write site was added or removed. Confirm the new site redacts any user or model text before updating these counts. bm_telemetry.py fell 23 to 15 on 2026-07-26: eight raw open-and-write pairs in the ledger maintenance paths were replaced by the audited atomic_write primitive, which also closes the audit finding about rewrites landing with default permissions. bm_autosave.py rose 5 to 9 on 2026-07-27 when the snapshot-event record and the per-worktree lock landed (audit findings 1 and 13). Reviewed by the orchestrator site by site, not accepted on the agent's count: the lock is os.open with O_CREAT|O_EXCL at mode 0600 writing only a pid and a timestamp; one site is an integer counter; the rest funnel through _write_text_atomic, a single primitive that writes at 0600 and os.replace's into place. The event record carries git's own error text rather than user or model text, and lands owner-only inside the directory the new git-containment check protects. bm_fence_hook.py entered the inventory on 2026-07-27, and it entered because the gate CAUGHT it rather than because anyone remembered: a new file wrote secrets and the suite refused to pass until it was reviewed. Five sites by this scanner's count, which counts LINES rather than logical writes. Two are the output funnel (stdout for the hook decision, stderr for the fail-open reason). The other three are one single write: the session token file, opened O_CREAT|O_EXCL at mode 0600 inside a 0700 directory so two sessions cannot race for the same name and no other user can read it. The token is 32 random bytes and carries no user or model text. Worth recording that the orchestrator first counted three and was wrong; the number here is the one the gate actually measures, after looking at every line it flags.",
   "reviewed": {
     "bm_store.py": 6,
     "bm_telemetry.py": 15,
     "bm_threads.py": 8,
-    "bm_autosave.py": 5
+    "bm_autosave.py": 9,
+    "bm_fence_hook.py": 5
   }
 }
