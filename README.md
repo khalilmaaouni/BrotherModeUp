@@ -63,18 +63,36 @@ disk. Invoke with `/brothermode` at the start of a sizable task.
 This project is under active rebuild (a "V2" rewrite of its storage engine),
 and the honest state of that rebuild matters more than anything else on this
 page. The full, current list is
-[`docs/KNOWN-LIMITS.md`](docs/KNOWN-LIMITS.md); the two points that matter most:
+[`docs/KNOWN-LIMITS.md`](docs/KNOWN-LIMITS.md); the points that matter most:
 
-- **The new V2 storage engine is built but not wired into anything you run.**
-  `tools/bm_store.py` exists, has its own test suite
-  (`tools/test_bm_store.py`), and has been through several rounds of
-  adversarial review. But no other file in this project imports it or calls
-  it (checked directly: `grep -rn "bm_store" tools/*.py tools/*.sh` outside
-  of `bm_store.py` and its own test file returns nothing). The tools that
-  actually run today when you use this skill, `bm_threads.py`,
-  `bm_registry.py`, `bm_telemetry.py`, are the older ones, with the
-  limitations `KNOWN-LIMITS.md` describes. Rewiring them onto the new engine
-  is planned future work, not something already shipped.
+- **The new V2 storage engine is now wired into the tools you run (Phase 3,
+  landed 2026-07-26), and the old registry is deleted.** `tools/bm_store.py`
+  is imported by `tools/bm_autosave.py`, `tools/bm_sessionstart.sh`,
+  `tools/bm_telemetry.py`, and `tools/bm_threads.py`: 43 references across
+  those four production files, measured the same day with `grep -rn
+  "bm_store" tools/*.py tools/*.sh | grep -v "bm_store.py:" | grep -v
+  "test_bm_store.py:"` (61 lines if you count the two test files too).
+  `bm_registry.py` no longer exists in this repository. If your copy still
+  shows the old "not wired in" wording or still has `bm_registry.py`, you
+  have an older clone; re-run the command above rather than trust either
+  version of this paragraph.
+- **The rewiring surfaced five real defects on 2026-07-26; four are fixed as
+  of this page's last check, one is not.** All five are written up in
+  `docs/superpowers/specs/2026-07-26-release-blockers.md`. Re-verified by
+  direct execution, same day, after the fixes landed: a recovered autosave
+  snapshot now comes back owner-only (`drwx------`), turning thread mode off
+  and resuming a thread later from a different session now succeeds instead
+  of being wrongly refused, `verify` no longer reports a false problem after
+  a thread command, and both CLIs now reject an unrecognized flag instead of
+  silently ignoring it. **Still open, confirmed by direct execution just
+  now:** a refused adoption attempt (one session tries to adopt another's
+  live, active thread without the explicit override, and is correctly
+  told no) still permanently writes an "Adopted from dead/stalled thread"
+  handover into `STATE.md` anyway, which is misleading regardless of the
+  refusal. Code changes on this project's own timeline, sometimes within
+  the same hour; re-run the reproduction steps in the spec above rather
+  than trust either this paragraph or the spec's own dates once more time
+  has passed.
 - **This has not been used on a real project yet.** Everything behind the
   claims in this repository rests on its own test suites and adversarial
   review, not on a week of someone's actual work going through it.
@@ -111,23 +129,74 @@ the test suites yourself rather than trusting this page:
 
 ```bash
 python3 tools/test_bm.py         # the tools that actually run today
-python3 tools/test_bm_store.py   # the new engine, not yet wired in (see Status)
+python3 tools/test_bm_store.py   # the store engine underneath them (see Status)
 ```
 
-The first takes several minutes on an ordinary machine (one test deliberately
-runs hundreds of real subprocess calls to stress concurrent behavior); the
-second takes roughly a minute. Both should end in `OK`.
+Measured 2026-07-26: the first prints `Ran 54 tests` and finishes in about
+nine seconds, ending `OK (skipped=2)` (one skip is a check for a shell-script
+autosave version this project no longer ships, the other is a file-permission
+test this sandbox does not support); the second prints `Ran 189 tests`,
+finishes in about six seconds, and ends `OK`. If your numbers differ, treat
+that as a real signal something changed, not a typo on this page; re-measure
+rather than assume the page is stale.
 
 ## Uninstall
+
+Two different things get removed: the skill itself, and whatever it wrote
+inside each project you used it in. Doing only the first leaves real files,
+including the one file `SECURITY.md` calls sensitive, behind.
+
+**The skill:**
 
 ```bash
 rm -rf ~/.claude/skills/brothermode
 ```
 
 Then remove the four hook entries you added to `~/.claude/settings.json`
-(`docs/SETUP.md` lists them). Your vault (default `~/BrotherModeVault`) is a
-separate, ordinary folder: nothing above touches it, and it is yours to keep
-or delete on its own.
+(`docs/SETUP.md` lists them).
+
+**Per project.** Measured 2026-07-26 by actually installing, using, and then
+removing this skill in a scratch project: for every project where you ran
+it, it leaves behind
+
+- `.brothermode/store.sqlite3` (plus `-wal` and `-shm` sidecar files while a
+  session is open). This is the file `SECURITY.md` calls the raw sensitive
+  artifact: your objectives, decisions, and directives as you typed them,
+  before redaction.
+- `threads/`, including `threads/thread-mode.json` and a
+  `threads/<name>-<id>/` folder (`STATE.md`, `inbox.md`, `outbox.md`,
+  `digest.md`) for every thread you ever started, completed or not.
+- `STATE.md` at your project root, plus one `STATE.md.bak-<timestamp>` file
+  for every time it was regenerated (it is backed up before every rewrite,
+  by design, so these accumulate).
+- Local git refs under `refs/brothermode/autosave/...`, written by the
+  PreCompact hook. These live inside `.git` and are not touched by deleting
+  any of the files above.
+- Three lines in that project's `.git/info/exclude` (`.brothermode/`,
+  `threads/`, `STATE.md`), added by `bm_store.py init` so none of the above
+  is committed by accident. Harmless to leave, but they are this project's
+  lines, not git's own.
+
+To remove all of it, run this from the project root (run `git status` first
+if you want to see what is there before it goes; none of this touches your
+own tracked files):
+
+```bash
+git for-each-ref --format='%(refname)' refs/brothermode | \
+  while read -r ref; do git update-ref -d "$ref"; done
+rm -rf .brothermode threads STATE.md STATE.md.bak-*
+grep -vxE '\.brothermode/|threads/|STATE\.md' .git/info/exclude \
+  > .git/info/exclude.tmp && mv .git/info/exclude.tmp .git/info/exclude
+```
+
+Verified 2026-07-26 in a scratch project: after those three commands plus
+deleting the skill folder, `git status` reports a clean working tree with no
+BrotherMode trace, and `git for-each-ref` shows no `refs/brothermode/*`
+entries left.
+
+Your vault (default `~/BrotherModeVault`) is a separate, ordinary folder:
+none of the above touches it, and it is yours to keep or delete on its own,
+per project or entirely.
 
 ## What is in the box
 
@@ -143,7 +212,7 @@ or delete on its own.
 | `tools/bm_autosave.py` | On the PreCompact hook, snapshots your whole working tree (untracked files included) to a private local git reference. Never pushes. `recover` restores it |
 | `tools/bm_threads.py` | Thread mode (opt-in): one persistent thread per key feature, plus a dashboard. Reversible mid-project |
 | `tools/test_bm.py` | Regression tests for the tools that run today. Standard library only. Run `python3 tools/test_bm.py` |
-| `tools/bm_store.py`, `tools/test_bm_store.py` | The new V2 storage engine and its tests. Built, not yet wired into any of the tools above; see Status |
+| `tools/bm_store.py`, `tools/test_bm_store.py` | The V2 storage engine and its tests. Wired into the tools above since Phase 3 (2026-07-26); see Status for the defects that wiring surfaced |
 | `tools/WEEKLY-REVIEW.md` | The weekly self-review procedure |
 | `docs/QUICKSTART.md` | The literal ten-minute path, with expected output at every step |
 | `docs/SETUP.md` | The fuller installation and hooks reference |
