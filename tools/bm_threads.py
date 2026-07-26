@@ -59,12 +59,14 @@ INVARIANTS
     (bm_store.MAX_ACTIVE_PERSISTENT), not re-implemented here: one primitive,
     not two copies that can drift apart.
 """
+import contextlib
 import datetime
 import io
 import json
 import os
 import sys
 import tempfile
+import time
 import uuid
 
 _STORE_MOD = None
@@ -96,10 +98,23 @@ def _refresh_root_view(root):
     "1 problem(s) found" on every ordinary run after using thread mode,
     even though nothing was actually wrong. Fails open, like every other
     view refresh in this project: the mutation this follows has already
-    committed, so a view-refresh failure here is warned, never raised."""
+    committed, so a view-refresh failure here is warned, never raised.
+
+    FINDING 12 (external audit 2026-07-27): the refresh runs under the same
+    STATE.md lock the handover append takes, so this module can never
+    rebuild-and-replace that file while one of its own appends is in flight.
+    Losing the lock is warned and skipped, never raised: this is advisory,
+    and the next command regenerates the view anyway."""
     bs = _store()
     try:
-        bs._refresh_state_view(root)
+        with _state_lock(root) as got:
+            if not got:
+                _warn("bm_threads: another process is holding the STATE.md lock, "
+                      "so the generated view was not refreshed after this "
+                      "command; the command's own result is still accurate, and "
+                      "the next command regenerates the view.")
+                return
+            bs._refresh_state_view(root)
     except Exception as e:
         _warn("bm_threads: could not refresh the generated STATE.md view "
               "after this command (%r); the command's own result is still "
@@ -318,20 +333,58 @@ def _warn(s, end="\n"):
 # ---------------------------------------------------------------------------
 # Name resolution: the store's public API works by lifecycle_uuid to keep
 # ownership optimistic-concurrency-safe (Decision 3); a thread and a human
-# work by NAME. This is the one translation layer, and it goes through
-# store.dump() (redacted by default, GATE C) rather than a new store method,
-# so no change to bm_store.py is needed for it.
+# work by NAME. This is the one translation layer, and every command in this
+# file goes through it.
+#
+# IT RESOLVES THROUGH store.identity_by_name(), WHICH READS THE records TABLE
+# DIRECTLY, AND NEVER THROUGH store.dump() (FINDING 9, external audit
+# 2026-07-27). dump() is a PRESENTATION view: its default-deny redaction
+# (GATE C) rewrites records.name along with every other free-text column, so
+# a record whose NAME is secret-shaped came back as "[REDACTED]", matched
+# the founder's own query against nothing, and became unreachable for the
+# rest of its life while its fence stayed claimed. "password=hunter2" and
+# "AKIAIOSFODNN7EXAMPLE" are both LEGAL names here (valid_name rejects
+# reserved characters, whitespace and non-printable ASCII, nothing else),
+# and both trip the redactor, so this was reachable by typing, not only in
+# theory. Redaction belongs at the boundary where text LEAVES the machine
+# (_out/_protect below), never in the lookup that decides WHICH lifecycle a
+# command is talking about.
+#
+# The same rule is applied to every other record-resolving read in this file
+# (_records_by_identity below, used by `off` and `recommend`), because fixing
+# only the site the audit named leaves the next one open. Two dump() uses
+# remain on purpose and are NOT resolution: `send` renders the directives
+# table into inbox.md, and `dashboard` prints render_state_md. Both are
+# generated VIEWS, which is exactly where redaction belongs.
 # ---------------------------------------------------------------------------
 
 def _find_record(store, name, states=None, lifecycle_prefix=None):
-    """The record named `name`, optionally restricted to `states` and/or a
-    lifecycle_uuid prefix. Raises OwnershipRefused('not-found'/'ambiguous-name')
-    rather than guessing: a name that could mean two different lifecycles must
-    never be resolved by silently picking one, the same reasoning the store
-    itself applies to every other ambiguous input."""
+    """The ONE record named `name`, optionally restricted to `states` and/or
+    a lifecycle_uuid prefix. Raises OwnershipRefused('not-found') or
+    OwnershipRefused('ambiguous-name') rather than guessing.
+
+    MORE THAN ONE CANDIDATE ALWAYS REFUSES (FINDING 10, external audit
+    2026-07-27). This function's own docstring already promised it never
+    guesses, and it guessed: it sorted by updated_at and returned the newest
+    whenever the top two timestamps merely DIFFERED, reporting ambiguity
+    only when they were exactly EQUAL. Timestamps are second-resolution
+    strings, so in practice they nearly always differ, which made the
+    refusal all but unreachable and the silent guess the normal path: `park
+    alpha` after a park/adopt/reclaim cycle acted on whichever lifecycle
+    happened to be touched most recently, which is not the same question as
+    "which one did the founder mean". The refusal names every candidate
+    (full lifecycle_uuid plus state, so the founder can act on what they
+    read without a `dump` round trip) and the exact flag that resolves it.
+
+    Every name-addressed command inherits this one refusal instead of
+    carrying its own copy of the resolution logic: checkpoint, decide and
+    send call this directly, park/resume/complete come through
+    _transition_cmd, and adopt calls it with the states its transition
+    accepts. test_bm.py's TestFinding10AmbiguousNamesAlwaysRefuse asserts
+    that both behaviourally and by counting the resolution sites in this
+    file."""
     bs = _store()
-    data = store.dump()
-    matches = [r for r in data["records"] if r["name"] == name]
+    matches = store.identity_by_name(name)
     if lifecycle_prefix:
         matches = [r for r in matches if r["lifecycle_uuid"].startswith(lifecycle_prefix)]
     if states:
@@ -345,16 +398,45 @@ def _find_record(store, name, states=None, lifecycle_prefix=None):
                 (" matching lifecycle prefix %r" % lifecycle_prefix) if lifecycle_prefix else ""),
             details={"name": name, "states": states})
     if len(matches) > 1:
-        matches.sort(key=lambda r: r["updated_at"], reverse=True)
-        if matches[0]["updated_at"] != matches[1]["updated_at"]:
-            return matches[0]
-        candidates = ", ".join("%s (%s)" % (m["lifecycle_uuid"][:8], m["state"]) for m in matches)
+        candidates = "; ".join("%s (%s)" % (m["lifecycle_uuid"], m["state"]) for m in matches)
         raise bs.OwnershipRefused(
             "ambiguous-name",
-            "%d records are named %r: %s. Pass --lifecycle <prefix> to pick one."
-            % (len(matches), name, candidates),
+            "%d records are named %r and this command will not guess between "
+            "them: %s. Re-run with --lifecycle <prefix> naming the one you "
+            "mean (a unique leading portion of its lifecycle uuid above is "
+            "enough)." % (len(matches), name, candidates),
             details={"name": name, "candidates": [m["lifecycle_uuid"] for m in matches]})
     return matches[0]
+
+
+def _records_by_identity(store):
+    """Every record in the store as an AUTHORITATIVE bm_store.Record, newest
+    first, for the two commands that act on records they did not resolve by
+    name (`off` drains every active persistent one, `recommend` counts
+    them).
+
+    FINDING 9, the same defect one step removed: both commands used to read
+    store.dump() and then make decisions on its rows. state, lifetime,
+    session_id and lifecycle_uuid all happen to sit in bm_store's
+    _DUMP_SAFE_COLUMNS today, so those two commands worked; records.name did
+    NOT, so `off` wrote "[REDACTED]" into the drain heading, and the whole
+    arrangement rests on a DISPLAY allowlist staying exactly as it is. One
+    column moving out of that allowlist would silently stop `off` from
+    finding anything to drain. Decisions are made on rows read straight from
+    the records table (store.get), so no display policy can reach them; the
+    only field taken from dump() is lifecycle_uuid, the machine-generated
+    identity that is never founder text at all.
+
+    Callers still protect the name before it reaches a file or the terminal:
+    these rows are authoritative, which means unredacted, exactly like the
+    name a founder typed on the command line."""
+    out = []
+    for row in store.dump()["records"]:
+        rec = store.get(row["lifecycle_uuid"])
+        if rec is not None:
+            out.append(rec)
+    out.sort(key=lambda r: (r.updated_at, r.lifecycle_uuid), reverse=True)
+    return out
 
 
 def _thread_dir(root, name, lifecycle_uuid):
@@ -371,6 +453,148 @@ def _create_if_absent(path, text):
 
 
 # ---------------------------------------------------------------------------
+# THE STATE.md LOCK (FINDING 12, external audit 2026-07-27). A PARTIAL FIX,
+# NAMED AS PARTIAL, because the whole fix does not live in this file.
+#
+# THE DEFECT: _deliver_handover_once does an UNLOCKED check-then-append on
+# the project root STATE.md (read the file, look for the tag, append if it
+# is absent), while bm_store.write_state_view independently reads the WHOLE
+# file, rebuilds it, and atomically REPLACES it. Interleave read-append with
+# read-rebuild-replace and either a handover is ERASED (the replace lands on
+# a snapshot taken before the append) or DUPLICATED (two deliveries both
+# read a file that has no tag yet, then both append).
+#
+# THE REAL FIX IS TRANSACTIONAL AND IS NOT IN THIS FILE: handovers belong in
+# sqlite and should be GENERATED into the view, so that nothing ever appends
+# to a generated file. That needs a handovers table in bm_store.py, which is
+# outside this change's fence; the exact follow-up shape is written down in
+# _FOLLOWUP_TRANSACTIONAL_HANDOVERS below so it cannot be lost.
+#
+# WHAT THIS DELIVERS, EXACTLY: every STATE.md mutation THIS MODULE makes
+# (the handover append, and the generated-view refreshes this module
+# triggers) is serialized behind one lock, and every append is VERIFIED to
+# still be on disk before it is reported as delivered. That closes
+# bm_threads-against-bm_threads races completely, and turns a
+# bm_threads-against-bm_store race from a silent loss into an honest
+# failure the caller reports, which leaves the record exactly where it was
+# rather than parking a thread whose handover just vanished. It does NOT
+# make the two writers atomic with respect to each other: bm_store.py takes
+# no lock, and teaching it to would be a change to a file outside the fence.
+#
+# os.mkdir, not a lock FILE: mkdir is atomic and exclusive on POSIX and on
+# Windows (ratified scope, the reason bm_autosave._WorktreeLock uses
+# O_CREAT|O_EXCL instead of fcntl.flock), and a directory holds no bytes at
+# all, so this lock can never become a place founder text leaks into and
+# never adds a write site to this file's reviewed inventory. A lock whose
+# holder died is bounded by an age check, the same shape _WorktreeLock uses,
+# so a crashed process cannot wedge the CLI forever.
+# ---------------------------------------------------------------------------
+
+STATE_LOCK_DIRNAME = "state-md.lock"
+STATE_LOCK_WAIT_SECONDS = 10
+STATE_LOCK_STALE_SECONDS = 120
+
+#: The follow-up that makes FINDING 12 whole, kept next to the mitigation so
+#: the next change to bm_store.py has the shape in front of it:
+#:   1. A `handovers` table: (lifecycle_uuid TEXT NOT NULL, fingerprint TEXT
+#:      NOT NULL, heading TEXT NOT NULL, body TEXT NOT NULL, delivered_at
+#:      TEXT NOT NULL, reason TEXT NOT NULL) with UNIQUE(lifecycle_uuid,
+#:      fingerprint). The UNIQUE index IS the dedupe that _handover_tag
+#:      currently simulates by scanning a text file for a comment marker.
+#:   2. An API `Store.deliver_handover(lifecycle_uuid, version, heading,
+#:      reason)` that computes the payload and INSERTs inside the same
+#:      transaction as the state change it accompanies (park for `off`,
+#:      adopt for `adopt`), so a refused transition can never leave a
+#:      delivered handover behind and a crash can never split the two. It
+#:      returns "delivered" or "already" from the INSERT result, never from
+#:      reading a file, and both columns are stored raw exactly like every
+#:      other records/digests column (SECURITY.md already documents the
+#:      sqlite file itself as sensitive).
+#:   3. render_state_md() grows a "## Handovers" section, rendering every
+#:      handovers row through _redacted_view_text() like every other
+#:      founder-typed field, INSIDE the BEGIN/END generated markers.
+#:      write_state_view then remains the only writer of STATE.md in the
+#:      whole project, and this module stops appending entirely:
+#:      _deliver_handover_once, _handover_tag, _handover_landed and the lock
+#:      below all delete, and the architectural guard test that counts
+#:      appenders becomes a guard that there are ZERO.
+_FOLLOWUP_TRANSACTIONAL_HANDOVERS = (
+    "bm_store.py: handovers table + Store.deliver_handover() inside the "
+    "state-change transaction + a rendered section in render_state_md; "
+    "then this module's append path and its lock delete entirely.")
+
+
+class _StateFileLock(object):
+    """Serializes this module's writes to the project root STATE.md.
+    acquire() returns False rather than raising when the lock cannot be
+    taken, so each caller decides its own policy: the handover delivery
+    fails CLOSED (the record stays where it is), the advisory view refresh
+    fails OPEN (it warns and skips, and the next command regenerates it)."""
+
+    def __init__(self, root, wait=None):
+        self.dir = _store().store_dir(root)
+        self.path = os.path.join(self.dir, STATE_LOCK_DIRNAME)
+        self.wait = STATE_LOCK_WAIT_SECONDS if wait is None else wait
+        self.held = False
+
+    def _try_once(self):
+        try:
+            os.makedirs(self.dir, exist_ok=True)
+            os.mkdir(self.path)
+        except OSError:
+            return False
+        return True
+
+    def _clear_if_stale(self):
+        try:
+            age = time.time() - os.stat(self.path).st_mtime
+        except OSError:
+            return
+        if age > STATE_LOCK_STALE_SECONDS:
+            _warn("bm_threads: removing a stale STATE.md lock (%s, %d seconds "
+                  "old); the process holding it is gone." % (self.path, int(age)))
+            try:
+                os.rmdir(self.path)
+            except OSError:
+                pass
+
+    def acquire(self):
+        deadline = time.time() + max(self.wait, 0)
+        while True:
+            if self._try_once():
+                self.held = True
+                return True
+            self._clear_if_stale()
+            if time.time() >= deadline:
+                return False
+            time.sleep(0.02)
+
+    def release(self):
+        if not self.held:
+            return
+        self.held = False
+        try:
+            os.rmdir(self.path)
+        except OSError:
+            pass
+
+
+@contextlib.contextmanager
+def _state_lock(root, wait=None):
+    """Yields True when the STATE.md lock is held, False when it could not
+    be taken in time, and always releases what it took. NOT reentrant: no
+    caller here nests it (the delivery and the view refresh are sequential
+    inside every command that does both), and a reentrancy counter would
+    hide exactly the kind of nesting that should be noticed."""
+    lock = _StateFileLock(root, wait=wait)
+    got = lock.acquire()
+    try:
+        yield got
+    finally:
+        lock.release()
+
+
+# ---------------------------------------------------------------------------
 # Handover delivery: THE one place text is appended into the project's root
 # STATE.md (`off` and `adopt` both call this; nothing else may). Tagged by
 # lifecycle_uuid and the store's own 64-hex fingerprint (bm_store fixed F13,
@@ -384,13 +608,33 @@ def _handover_tag(lifecycle_uuid, fingerprint):
     return "<!-- brothermode-handover:%s:%s -->" % (lifecycle_uuid, fingerprint)
 
 
+def _handover_landed(state_path, tag):
+    """True when `tag` is in STATE.md ON DISK at this moment. Read twice per
+    delivery under the lock: once as the idempotence check, and once AFTER
+    the append as verification that what was written survived (FINDING 12).
+    Its own named function, not an inline `tag in text`, so a reinjection
+    test can monkeypatch exactly this symbol back to the old unverified
+    shape and prove the calibration."""
+    if not os.path.exists(state_path):
+        return False
+    return tag in _read(state_path)
+
+
 def _deliver_handover_once(root, store, lifecycle_uuid, heading):
     """Returns "delivered", "already" (idempotent retry, nothing written
     twice), "unavailable" (redaction could not be loaded: refuses, writes
-    nothing), or False (the file write itself failed). Every caller must
-    treat only "delivered"/"already" as license to change the record's
-    state; a False or "unavailable" here means the record must stay exactly
-    where it was, or the handover is lost the moment the state moves on."""
+    nothing), "busy" (the STATE.md lock could not be taken: nothing was
+    written), "lost" (the append was made but no longer on disk when it was
+    checked, so a concurrent writer replaced the file), or False (the file
+    write itself failed). Every caller must treat only "delivered"/"already"
+    as license to change the record's state; anything else means the record
+    must stay exactly where it was, or the handover is lost the moment the
+    state moves on.
+
+    The read-check-append-verify sequence runs entirely under the STATE.md
+    lock, so two of these can never interleave with each other or with the
+    view refreshes this module triggers (see THE STATE.md LOCK above for
+    what that does and does not cover)."""
     bs = _store()
     try:
         payload = store.handover_payload(lifecycle_uuid)
@@ -399,18 +643,46 @@ def _deliver_handover_once(root, store, lifecycle_uuid, heading):
         return "unavailable"
     tag = _handover_tag(lifecycle_uuid, payload["fingerprint"])
     state_path = os.path.join(root, STATE_FILENAME)
-    existing = _read(state_path) if os.path.exists(state_path) else ""
-    if tag in existing:
-        return "already"
     block = "\n%s\n## %s\n%s\n" % (tag, heading, digest_text.strip())
-    try:
-        with io.open(state_path, "a", encoding="utf-8") as f:
-            f.write(block)
-            f.flush()
-            os.fsync(f.fileno())
-        return "delivered"
-    except OSError:
-        return False
+    with _state_lock(root) as got:
+        if not got:
+            _warn("bm_threads: another process is holding the STATE.md lock "
+                  "(%s); no handover was written and nothing was changed. "
+                  "Retry when it releases."
+                  % os.path.join(_store().store_dir(root), STATE_LOCK_DIRNAME))
+            return "busy"
+        if _handover_landed(state_path, tag):
+            return "already"
+        try:
+            with io.open(state_path, "a", encoding="utf-8") as f:
+                f.write(block)
+                f.flush()
+                os.fsync(f.fileno())
+        except OSError:
+            return False
+        if not _handover_landed(state_path, tag):
+            _warn("bm_threads: the handover for lifecycle %s was appended to %s "
+                  "but is no longer there; another writer replaced the file "
+                  "underneath this command. Nothing about the record was "
+                  "changed, so the handover is still recoverable from the "
+                  "store (`dashboard`, or `dump`)." % (lifecycle_uuid, STATE_FILENAME))
+            return "lost"
+    return "delivered"
+
+
+#: Why a delivery that was not "delivered"/"already" failed, in the founder's
+#: words. One table, so `off` and `adopt` report the same outcome the same
+#: way instead of each inventing its own phrasing for the same value.
+_HANDOVER_FAILURE_REASONS = {
+    False: "the handover write itself failed (permissions or disk)",
+    "unavailable": "redaction unavailable",
+    "busy": "another process holds the STATE.md lock",
+    "lost": "the handover was written but a concurrent writer replaced STATE.md",
+}
+
+
+def _handover_failure_reason(outcome):
+    return _HANDOVER_FAILURE_REASONS.get(outcome, "unknown failure (%r)" % (outcome,))
 
 
 # --------------------------------------------------------------------------
@@ -437,8 +709,8 @@ def cmd_recommend(argv):
             try:
                 store = _store().Store(root, create=False)
                 try:
-                    n = sum(1 for r in store.dump()["records"]
-                            if r["state"] == "active" and r["lifetime"] == "persistent")
+                    n = sum(1 for r in _records_by_identity(store)
+                            if r.state == "active" and r.lifetime == "persistent")
                 finally:
                     store.close()
             except Exception:
@@ -490,9 +762,11 @@ def cmd_off(argv):
         return
     store = bs.Store(root, create=False)
     try:
-        data = store.dump()
-        candidates = [r for r in data["records"]
-                      if r["state"] == "active" and r["lifetime"] == "persistent"]
+        # Authoritative rows, never dump()'s presentation view (FINDING 9;
+        # see _records_by_identity for why a DISPLAY allowlist must not be
+        # what decides which records get drained).
+        candidates = [r for r in _records_by_identity(store)
+                      if r.state == "active" and r.lifetime == "persistent"]
         if not candidates:
             d["mode"] = "off"
             _history(d).append({"ts": now(), "event": "off", "drained": []})
@@ -507,25 +781,40 @@ def cmd_off(argv):
             return
         drained, failed = [], []
         for rec in candidates:
-            luid, ver, sid, name = (rec["lifecycle_uuid"], rec["version"],
-                                     rec["session_id"], rec["name"])
+            luid, ver, sid = rec.lifecycle_uuid, rec.version, rec.session_id
+            # The authoritative name is founder-typed text, so it is
+            # protected ONCE here and only the protected form is used below:
+            # the heading goes into STATE.md (exactly like cmd_adopt), and
+            # the drained list is both printed and written into
+            # thread-mode.json's history. dump() used to redact this field
+            # on the way in; reading the real row means this module does it
+            # itself, at the boundary where it belongs.
+            safe_name = _protect(rec.name)
             outcome = _deliver_handover_once(
-                root, store, luid, "Drained from thread mode: %s" % name)
+                root, store, luid, "Drained from thread mode: %s" % safe_name)
             if outcome not in ("delivered", "already"):
-                failed.append((name, luid, "handover write failed" if outcome is False
-                                            else "redaction unavailable"))
+                failed.append((safe_name, luid, _handover_failure_reason(outcome)))
                 continue
             try:
                 store.transition(luid, ver, "parked", session_id=sid,
                                   note="drained by thread-mode off")
-                drained.append(name)
+                drained.append(safe_name)
             except (bs.StaleIdentity, bs.OwnershipRefused) as e:
-                failed.append((name, luid, str(e)))
-        try:
-            bs.write_state_view(root)
-        except Exception as e:
-            _warn("bm_threads: could not refresh STATE.md's generated view (%r); "
-                  "every drained handover is safely on disk regardless." % (e,))
+                failed.append((safe_name, luid, str(e)))
+        # FINDING 12: under the same lock as the appends above, so this
+        # rebuild-and-replace cannot land on a snapshot taken before one of
+        # them.
+        with _state_lock(root) as got:
+            if not got:
+                _warn("bm_threads: another process is holding the STATE.md lock, "
+                      "so its generated view was not refreshed; every drained "
+                      "handover is safely on disk regardless.")
+            else:
+                try:
+                    bs.write_state_view(root)
+                except Exception as e:
+                    _warn("bm_threads: could not refresh STATE.md's generated view (%r); "
+                          "every drained handover is safely on disk regardless." % (e,))
         if failed:
             _out("HANDOVER INCOMPLETE: %d of %d active thread(s) could not be drained:"
                  % (len(failed), len(candidates)))
@@ -881,17 +1170,17 @@ def cmd_adopt(argv):
                 sys.exit(2)
             raise
         luid = rec["lifecycle_uuid"]
-        if outcome is False:
+        if outcome not in ("delivered", "already"):
+            # One branch, one reason table (_handover_failure_reason), so a
+            # NEW outcome value cannot fall through to the "see the warning
+            # above" line below with no warning ever printed. FINDING 12
+            # added two such values ("busy", "lost").
             _warn("bm_threads: adopted '%s' (lifecycle %s, version %s) in the "
-                  "store, but the handover could not be written into %s (a disk "
-                  "issue). The adoption itself is real; the store's digest is "
-                  "intact regardless (see `dashboard` or `dump`)."
-                  % (name, luid, result.version, STATE_FILENAME))
-        elif outcome == "unavailable":
-            _warn("bm_threads: adopted '%s' (lifecycle %s, version %s) in the "
-                  "store, but the redactor is unavailable, so the handover was "
-                  "NOT written into %s. The adoption itself is real; the store's "
-                  "digest is intact regardless." % (name, luid, result.version, STATE_FILENAME))
+                  "store, but the handover was NOT written into %s: %s. The "
+                  "adoption itself is real; the store's digest is intact "
+                  "regardless (see `dashboard` or `dump`)."
+                  % (name, luid, result.version, STATE_FILENAME,
+                     _handover_failure_reason(outcome)))
     finally:
         store.close()
     _refresh_root_view(root)
