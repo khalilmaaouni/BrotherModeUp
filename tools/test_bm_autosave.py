@@ -22,6 +22,7 @@ import io
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -229,6 +230,102 @@ class TestCalibratedFC(unittest.TestCase):
                     "calibrated to the defect it claims to catch")
             finally:
                 autosave._run_git = original_run_git
+
+
+class TestCalibratedBlocker1RecoveryPermissions(unittest.TestCase):
+    """BLOCKER 1 (release-blockers spec, 2026-07-26, VERIFIED BY
+    ORCHESTRATOR): `recover` used to mkdtemp() (0700) and then os.rmdir()
+    it so `git worktree add` could "create" the path, which let git
+    recreate the directory at the process umask instead (typically 0755
+    under the common 022 default) -- world-readable on a shared,
+    world-writable /tmp. Reproduced by hand: drwxr-xr-x on the recovered
+    directory, -rw-r--r-- on an untracked private file inside it."""
+
+    def _recover_and_get_dir(self, repo):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            autosave.cmd_recover([repo])
+        text = out.getvalue()
+        lines = [l for l in text.splitlines() if l.strip()]
+        idx = next(i for i, l in enumerate(lines) if "NEW worktree at" in l)
+        return lines[idx + 1].strip(), text
+
+    def test_recovered_worktree_dir_is_owner_only_even_under_a_permissive_umask(self):
+        with tempfile.TemporaryDirectory() as base:
+            repo = os.path.join(base, "repo")
+            os.makedirs(repo)
+            _init_repo(repo)
+            _write(os.path.join(repo, "tracked.txt"), "public")
+            _git(repo, "add", "-A")
+            _git(repo, "commit", "-qm", "init")
+            # Untracked, uncommitted: the snapshot must have real, DIRTY
+            # work to capture, or the working tree matches HEAD and (FD)
+            # clears the "latest" pointer instead of setting it.
+            _write(os.path.join(repo, "secret.txt"),
+                   "PRIVATE draft: acquisition terms, do not share")
+            toplevel = autosave.resolve_toplevel(repo)
+            res = autosave.snapshot(toplevel, "s1", "test")
+            self.assertTrue(res["ok"], res)
+
+            # Simulate a shared machine's permissive default umask (022, the
+            # common macOS/Linux default) so a directory git creates itself
+            # (rather than one this code deliberately preserves at 0700)
+            # would land at 0755 -- exactly the orchestrator's repro.
+            old_umask = os.umask(0o022)
+            try:
+                recovered_dir, printed = self._recover_and_get_dir(repo)
+            finally:
+                os.umask(old_umask)
+            try:
+                self.assertTrue(os.path.isdir(recovered_dir), printed)
+                mode = stat.S_IMODE(os.stat(recovered_dir).st_mode)
+                self.assertEqual(
+                    mode, 0o700,
+                    "recovered worktree dir must be owner-only (0700); got %04o "
+                    "(BLOCKER 1: mkdtemp's 0700 must survive, never be discarded "
+                    "and recreated at the process umask)" % mode)
+                secret_path = os.path.join(recovered_dir, "secret.txt")
+                self.assertTrue(os.path.exists(secret_path))
+                # The printed output must STATE the mode, not just achieve it.
+                self.assertIn("0700", printed,
+                              "the recovery output must state the permissions it gave "
+                              "the recovered directory")
+            finally:
+                _git(toplevel, "worktree", "remove", "--force", recovered_dir)
+
+            # CALIBRATION: reinject the OLD shape (mkdtemp, then rmdir so git
+            # recreates the path itself) onto the real PRODUCT symbol
+            # (_prepare_recovery_worktree_dir), and confirm the SAME
+            # permissive-umask environment now reproduces the world-readable
+            # directory the orchestrator found by hand.
+            original_prepare = autosave._prepare_recovery_worktree_dir
+
+            def _old_mkdtemp_then_rmdir():
+                d = tempfile.mkdtemp(prefix="bm-autosave-recover-")
+                try:
+                    os.rmdir(d)
+                except OSError:
+                    pass
+                return d
+
+            autosave._prepare_recovery_worktree_dir = _old_mkdtemp_then_rmdir
+            old_umask = os.umask(0o022)
+            try:
+                recovered_dir2, printed2 = self._recover_and_get_dir(repo)
+                try:
+                    mode2 = stat.S_IMODE(os.stat(recovered_dir2).st_mode)
+                    self.assertNotEqual(
+                        mode2, 0o700,
+                        "REINJECTION CHECK: with the old mkdtemp-then-rmdir shape "
+                        "restored, git must recreate the directory at the process "
+                        "umask (world-readable under umask 022), reproducing "
+                        "BLOCKER 1; if this assertion fails the test is not "
+                        "calibrated to the defect it claims to catch")
+                finally:
+                    _git(toplevel, "worktree", "remove", "--force", recovered_dir2)
+            finally:
+                os.umask(old_umask)
+                autosave._prepare_recovery_worktree_dir = original_prepare
 
 
 class TestCalibratedFD(unittest.TestCase):

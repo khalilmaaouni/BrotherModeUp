@@ -114,6 +114,19 @@ would sit locked forever. Complete and adopted are end states for that
 lifecycle; a new piece of work under the same name would get its own, brand
 new identity rather than reopening an old one.
 
+**Gap found and fixed, 2026-07-26.** "Only that same owning session" used to
+be applied unconditionally, which broke thread mode's reversibility promise:
+turning thread mode off parked every active thread, and resuming one
+afterward from a different (freshly started) session was refused rather than
+allowed, because a parked record still carries its last owner's session id.
+This was BLOCKER 2 in `docs/superpowers/specs/2026-07-26-release-blockers.md`,
+fixed the same day: the ownership guard now applies only to a record that is
+CURRENTLY active (a live writer to protect), so a parked record, which has
+none, can be resumed by any session. Re-verified directly: `resume` from a
+different session on a parked record now succeeds. See
+`docs/KNOWN-LIMITS.md` for what else from that same spec is fixed and what
+is still open.
+
 ---
 
 ## d. Recovery after a session dies

@@ -31,10 +31,11 @@ flowchart LR
     PRECOMPACT["PreCompact hook"] -->|"fires just before context is trimmed"| AUTOSAVE["bm_autosave.py"]
     AUTOSAVE -->|"snapshots the working tree to"| GITREF["local git ref, never pushed"]
     SESSIONEND["SessionEnd hook"] -->|"appends telemetry to"| VAULT["The vault, a folder outside this repo"]
-    V1["bm_registry.py and bm_threads.py, the V1 registries being replaced"] -.->|"the system whose defects motivated V2"| STORE
+    THREADS["bm_threads.py, thin CLI wrapper, Phase 3 landed 2026-07-26"] -->|"on, off, start, checkpoint, decide, send, park, resume, complete, adopt, dashboard, recommend"| STORE
+    HIST["bm_registry.py, the V1 registry, DELETED 2026-07-26"] -.->|"the system whose defects motivated V2, now gone"| STORE
     CI["Continuous integration, dot github slash workflows slash tests.yml"] -->|"runs on every push"| TESTS["test_bm.py and test_bm_store.py"]
     TESTS -->|"exercise"| STORE
-    TESTS -->|"exercise"| V1
+    TESTS -->|"exercise"| THREADS
     TESTS -->|"exercise"| TEL
     TESTS -->|"exercise"| AUTOSAVE
 ```
@@ -74,15 +75,32 @@ view, plus session events. Output: redacted text, and lines appended to
 cannot be loaded, the store engine refuses to render generated views at all,
 rather than showing founder-typed text unredacted.
 
-**`bm_registry.py` and `bm_threads.py`, the V1 registries.** One job (soon to
-be retired): the JSON-file-based system that came before the store engine.
-Input and output: `threads/registry.json`, `threads/REGISTRY.md`, and each
-thread's own working files. Failure mode: this is the exact system whose
-confirmed defects (silent name takeover, two registries minted for one
-project, a truncated fingerprint dropping a handover, and more) are what the
-V2 design was ratified to close. Planned (Phase 3): `bm_threads.py` becomes a
-thin command-line wrapper over the store engine instead of its own source of
-truth.
+**`bm_registry.py`, the deleted V1 registry.** Was one job: the JSON-file-based
+system that came before the store engine, writing `threads/registry.json` and
+`threads/REGISTRY.md`. DELETED 2026-07-26 (Phase 3, commit `c9e3540`), not
+shimmed: its confirmed defects (silent name takeover, two registries minted
+for one project, a truncated fingerprint dropping a handover, and more) are
+gone along with the file itself.
+
+**`bm_threads.py`, now a thin CLI wrapper over the store (Phase 3, landed
+2026-07-26).** One job: give thread mode (`on`, `off`, `start`, `checkpoint`,
+`decide`, `send`, `park`, `resume`, `complete`, `adopt`, `dashboard`,
+`recommend`) a command-line surface, with the store engine as the only place
+ownership or lifecycle state actually lives; this file keeps no second copy
+of "active." Input: CLI subcommands. Output: the same store records
+`bm_store.py` produces directly, plus each thread's own `STATE.md`,
+`inbox.md`, `outbox.md`, `digest.md` files under `threads/<name>-<id>/`.
+Failure mode: the rewiring surfaced five execution-confirmed defects on
+2026-07-26 (`docs/superpowers/specs/2026-07-26-release-blockers.md`); four
+were fixed the same day (a broken off/resume reversibility promise, a
+world-readable recovered worktree, a stale post-thread-command `verify`
+result, and missing flag-name validation), re-verified directly as fixed
+while this pack was corrected. One remains open, re-confirmed the same way:
+a refused adoption attempt still writes its "Adopted from dead/stalled
+thread" handover into `STATE.md` even though the adoption did not happen.
+See `docs/KNOWN-LIMITS.md` for the current detail; this project's code
+changes fast enough that either document can go stale within the hour, so
+re-run the reproduction steps rather than trust a date alone.
 
 **`bm_autosave.py`.** One job: snapshot the entire working tree, including
 files never added to git, at the moment a session's context is about to be
@@ -116,7 +134,7 @@ are invented here; each phase is separately gated rather than scheduled.
 |---|---|---|
 | 1. Engine core | The store, root resolution, identity rules, the two failure policies, and `verify` | MID-BUILD: `tools/bm_store.py` and `tools/test_bm_store.py` exist and are being actively fixed against the Phase 1 fix round |
 | 2. Recovery | `bm_autosave.py`, a Python port of the current shell script, per-worktree and per-session snapshot references, receipts written into `autosave_receipts`, retention, and recovery only into a separate worktree | Planned (Phase 2); the `autosave_receipts` table already exists in the schema so this phase needs no migration |
-| 3. Command surface | Thread mode rebuilt on top of the store; the off, adopt, and drain flows made transactional; a generated `STATE.md` everywhere; `bm_threads.py` reduced to a thin command-line layer over the store | Planned (Phase 3) |
+| 3. Command surface | Thread mode rebuilt on top of the store; the off, adopt, and drain flows made transactional; a generated `STATE.md` everywhere; `bm_threads.py` reduced to a thin command-line layer over the store | LANDED 2026-07-26, with open defects: see `docs/superpowers/specs/2026-07-26-release-blockers.md` and `docs/KNOWN-LIMITS.md` before relying on it |
 | 4. Method layer | Project scaffolding (README, an intake document, an architecture document, a documentation pack, a decisions folder), a simplicity law, problem-first intake, and a handover generator | Planned (Phase 4) |
 | 5. Product | Windows validation, the full continuous integration matrix, onboarding (an Obsidian-based vault by default, an optional off-by-default Mem0 adapter), a tagged 2.0.0 release with checksums, and a sync script between the public and private repositories | Planned (Phase 5) |
 | 6. Dogfood evidence | A recorded review of the store replacing the ephemeral fence mechanism in real use, with measured signals, dated 2026-08-08 in the ratified spec | Planned (Phase 6) |

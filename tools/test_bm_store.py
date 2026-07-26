@@ -842,6 +842,82 @@ class TestFixRoundGates(unittest.TestCase):
             finally:
                 store.close()
 
+    # -- BLOCKER 2 (release-blockers spec, 2026-07-26) ----------------------
+
+    def test_calibrated_blocker2_resume_from_a_different_session_succeeds_after_park(self):
+        # THE reproduced bug: monday `off` (which parks a persistent
+        # record) says "resumable"; tuesday `resume` from a DIFFERENT
+        # session used to be refused 'not-owner', because park() never
+        # clears session_id and the OLD guard compared it unconditionally.
+        # OWNERSHIP GUARDS ONLY ACTIVE RECORDS: a parked record has no live
+        # writer, so ANY session may resume it and becomes its owner in the
+        # same transition.
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("thing", "persistent", "obj", [], session_id="monday")
+                parked = store.transition(rec.lifecycle_uuid, rec.version, "parked",
+                                           session_id="monday")
+                self.assertEqual(parked.session_id, "monday",
+                                 "park must not clear the last owner's session_id "
+                                 "(that is the very column resume must tolerate "
+                                 "disagreeing with)")
+                resumed = store.transition(parked.lifecycle_uuid, parked.version, "active",
+                                            session_id="tuesday")
+                self.assertEqual(resumed.state, "active")
+                self.assertEqual(resumed.session_id, "tuesday",
+                                 "the resuming session must become the new owner "
+                                 "in the same transition")
+            finally:
+                store.close()
+
+    def test_calibrated_blocker2_active_records_still_guard_park_and_complete(self):
+        # The fix must not overcorrect: an ACTIVE record (a live writer)
+        # must still refuse park/complete from a different session, exactly
+        # as test_calibrated_soft10_cross_session_park_refused already
+        # proves for park; this adds the same check for complete.
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("thing", "ephemeral", "obj", [], session_id="owner")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.transition(rec.lifecycle_uuid, rec.version, "complete",
+                                      session_id="attacker", evidence="tests pass")
+                self.assertEqual(ctx.exception.reason, "not-owner")
+                still = store.get(rec.lifecycle_uuid)
+                self.assertEqual(still.state, "active")
+            finally:
+                store.close()
+
+    def test_calibrated_blocker2_reinjecting_the_unconditional_guard_breaks_resume(self):
+        # CALIBRATION: reinject the OLD, unconditional shape (the guard
+        # applies regardless of current state) onto the real PRODUCT
+        # symbol _ownership_guard_applies, and confirm the SAME
+        # resume-after-park-by-a-different-session now reproduces the
+        # reported defect (refused 'not-owner'); if this assertion fails,
+        # the test above is not calibrated to the defect it claims to catch.
+        original = bs._ownership_guard_applies
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("thing", "persistent", "obj", [], session_id="monday")
+                parked = store.transition(rec.lifecycle_uuid, rec.version, "parked",
+                                           session_id="monday")
+                bs._ownership_guard_applies = lambda current_state: True
+                try:
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        store.transition(parked.lifecycle_uuid, parked.version, "active",
+                                          session_id="tuesday")
+                    self.assertEqual(
+                        ctx.exception.reason, "not-owner",
+                        "REINJECTION CHECK: the old, unconditional ownership guard "
+                        "must refuse this legitimate cross-session resume the same "
+                        "way BLOCKER 2 was reported")
+                finally:
+                    bs._ownership_guard_applies = original
+            finally:
+                store.close()
+
 # ---------------------------------------------------------------------------
 # Fix-round 2 (2026-07-26): claim() silently dropped a non-str file entry
 # (pathlib.Path being the obvious case) and still reported success with a
@@ -3127,6 +3203,32 @@ class TestVerify(unittest.TestCase):
             problems = bs.verify(d)
             self.assertTrue(any("overlap" in p for p in problems), problems)
 
+    # -- GATE 4 (release-blockers spec, 2026-07-26) --------------------
+
+    def test_gate4_missing_state_md_remedy_names_an_absolute_resolvable_path(self):
+        # This project is installed once and used FROM other projects'
+        # roots, so a hardcoded RELATIVE "tools/bm_store.py" in a printed
+        # remedy names a path that does not exist at the affected root at
+        # all. The remedy must name THIS file's own absolute path instead
+        # (the same shape bm_autosave.py's recover nudge already uses).
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("thing", "ephemeral", "obj", [])
+            finally:
+                store.close()
+            problems = bs.verify(d)
+            self.assertTrue(any("STATE.md does not exist" in p for p in problems), problems)
+            remedy = next(p for p in problems if "STATE.md does not exist" in p)
+            named_path = remedy.split("run `python3 ", 1)[1].split(" dashboard`", 1)[0]
+            self.assertTrue(os.path.isabs(named_path),
+                             "the remedy's own command must be runnable regardless of "
+                             "the caller's cwd or which project's root triggered it: %r"
+                             % remedy)
+            self.assertTrue(os.path.exists(named_path), remedy)
+            self.assertEqual(os.path.realpath(named_path),
+                              os.path.realpath(os.path.join(HERE, "bm_store.py")))
+
 class TestInitProject(unittest.TestCase):
     def test_init_creates_store_and_appends_git_exclude(self):
         with tempfile.TemporaryDirectory() as d:
@@ -3246,6 +3348,76 @@ class TestCLIExitCodes(unittest.TestCase):
                               "the sabotaged claim really did create nothing, confirming "
                               "the strengthened CLI test (which checks dump) is the one "
                               "that would have failed here, not a plain verify check")
+
+    # -- BLOCKER 2 (release-blockers spec, 2026-07-26): dashboard surfaces owner --
+
+    def test_blocker2_dashboard_surfaces_the_owning_session(self):
+        # Reproduced: the owning session id appeared ZERO times in the
+        # dashboard (and zero times in any thread file), so a human could
+        # not tell who held a record without dumping the database.
+        with tempfile.TemporaryDirectory() as d:
+            _run_cli(["init"], d)
+            _run_cli(["claim", "thing", "--lifetime", "ephemeral", "--objective", "obj",
+                      "--session", "holder-session-42"], d)
+            r = _run_cli(["dashboard"], d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("holder-session-42", r.stdout,
+                          "the owning session id must be visible in the dashboard")
+            self.assertIn("owner-session:", r.stdout)
+
+    # -- GATE 5 (release-blockers spec, 2026-07-26): unknown flags refused --
+
+    def test_gate5_claim_refuses_an_unrecognized_flag(self):
+        with tempfile.TemporaryDirectory() as d:
+            _run_cli(["init"], d)
+            r = _run_cli(["claim", "thing", "--lifetime", "ephemeral",
+                          "--objectve", "typo'd flag name"], d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("unrecognized flag", r.stdout)
+            r_dump = _run_cli(["dump"], d)
+            data = json.loads(r_dump.stdout)
+            self.assertEqual(data["records"], [],
+                              "a refused claim must create nothing, not a half-formed record")
+
+    def test_gate5_transition_refuses_an_unrecognized_flag(self):
+        with tempfile.TemporaryDirectory() as d:
+            _run_cli(["init"], d)
+            _run_cli(["claim", "thing", "--lifetime", "ephemeral", "--objective", "obj",
+                      "--session", "s1"], d)
+            r_dump = _run_cli(["dump"], d)
+            luid = json.loads(r_dump.stdout)["records"][0]["lifecycle_uuid"]
+            ver = json.loads(r_dump.stdout)["records"][0]["version"]
+            r = _run_cli(["park", luid, "--version", str(ver), "--sesion", "s1"], d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("unrecognized flag", r.stdout)
+            still = json.loads(_run_cli(["dump"], d).stdout)["records"][0]
+            self.assertEqual(still["state"], "active",
+                             "a refused park (typo'd --session) must change nothing")
+
+    def test_calibrated_gate5_reinjecting_a_permissive_flag_check_lets_typos_through(self):
+        # CALIBRATION: reinject a no-op onto the real PRODUCT symbol
+        # _reject_unknown_flags, and confirm the SAME typo'd flag is now
+        # silently accepted (in-process, so the patch is scoped to this
+        # test and cannot leak across the subprocess boundary).
+        original = bs._reject_unknown_flags
+        with tempfile.TemporaryDirectory() as d:
+            bs.init_project(d)
+            with mock.patch.object(bs, "_reject_unknown_flags", lambda *a, **k: None):
+                with mock.patch.object(bs, "require_root", lambda *a, **k: (d, "test")):
+                    bs.cmd_claim(["thing", "--lifetime", "ephemeral",
+                                  "--objectve", "typo'd flag name", "--session", "s1"])
+            store = bs.Store(d)
+            try:
+                data = store.dump()
+            finally:
+                store.close()
+            self.assertEqual(
+                len(data["records"]), 1,
+                "REINJECTION CHECK: with flag validation disabled, the typo'd "
+                "--objectve must still silently create a record (the exact GATE 5 "
+                "defect shape), proving the real check above is what refuses it")
+            self.assertEqual(data["records"][0]["objective"], "",
+                             "the typo'd flag's value must never have reached 'objective'")
 
 
 # ---------------------------------------------------------------------------

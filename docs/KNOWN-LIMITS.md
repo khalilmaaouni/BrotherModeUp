@@ -5,17 +5,62 @@ file exists because an unstated gap is a failure even when it is small, and beca
 the single most useful thing a handover can contain is the list of things the last
 person was not sure about.
 
-## The biggest one: the new engine is not connected to anything yet
+## The biggest one, updated: the engine IS connected now, and that surfaced new defects
 
-`tools/bm_store.py` is built, hardened across eight rounds, and covered by a suite
-that has been mutation-tested. It is also **not used by any other file in this
-project**. The tools that actually run on the founder's machine today
-(`bm_threads.py`, `bm_registry.py`) still use the old JSON registries with every
-defect the original audit found. Phase 3 is what rewires them.
+Phase 3 landed 2026-07-26: `tools/bm_store.py` is now imported by
+`bm_autosave.py`, `bm_sessionstart.sh`, `bm_telemetry.py`, and `bm_threads.py`
+(43 references across those four files, measured the same day), and
+`bm_registry.py`, the old JSON registry, is deleted rather than shimmed. The
+defects the original audit found in that registry (silent name takeover, two
+registries minted for one project, a truncated fingerprint dropping a
+handover) go away with the file.
 
-Practical consequence: every operating restriction from the original audit still
-applies to daily work right now. Run commands from the repository root, do not
-reuse a thread name, avoid glob fences, do not run two worktrees of one repo in
+They were replaced by five real defects in the rewired thread commands,
+written up in `docs/superpowers/specs/2026-07-26-release-blockers.md`. This
+project's code changes fast: of the five, four were already fixed by the
+time this file was corrected, in the same session, some within the hour.
+Each line states what was found, and what direct re-execution just before
+this edit actually showed:
+
+- **Recovered work was world-readable. FIXED, re-verified 2026-07-26.**
+  `bm_autosave.py recover` used to leave its worktree `drwxr-xr-x` with
+  `-rw-r--r--` files inside (reproduced independently on this machine's own
+  macOS `/tmp`, not only the Linux case that found it first). Re-run just
+  now: the recovered directory comes back `drwx------` and the tool prints
+  the mode it achieved.
+- **The reversibility promise was broken. FIXED, re-verified 2026-07-26.**
+  Turning thread mode off and then resuming a thread from a different
+  session used to be refused with `not-owner`, breaking the founder's
+  ratified requirement that thread mode be reversible mid-project with
+  every thread resumable. Re-run just now: `resume` from a different
+  session on a parked thread succeeds and transfers ownership.
+- **`verify` reported a false problem after any thread command. FIXED,
+  re-verified 2026-07-26.** Used to report "1 problem(s) found" on an
+  otherwise healthy project and name an unresolvable relative path. Re-run
+  just now: `verify` reports "healthy, 0 problem(s)" after a thread `off`.
+- **Neither CLI validated flag names. FIXED, re-verified 2026-07-26.**
+  `start X --file f` (the wrong, singular flag) used to be accepted at exit
+  0 with no fence. Re-run just now: both `bm_store.py` and `bm_threads.py`
+  refuse an unrecognized flag by name at exit 2, for `start` and for
+  `checkpoint`.
+- **A refused adoption attempt still writes its handover into `STATE.md`.
+  STILL OPEN, confirmed by direct execution 2026-07-26, after the four
+  fixes above had already landed.** Start a persistent thread under one
+  session, then have a different session attempt `adopt` without the
+  explicit override: the attempt is correctly refused ("ADOPT REFUSED",
+  exit 2), but `STATE.md` still gains a permanent "Adopted from
+  dead/stalled thread" block for a thread that is, in fact, live and
+  active. The delivery write happens before the ownership check rather
+  than after it.
+
+Practical consequence: the fence and reversibility mechanics held up under
+direct testing just now, but do not trust anything written into `STATE.md`
+following a refused adopt attempt without separately checking whether the
+adoption actually succeeded. This project's code changes fast; re-run the
+reproduction steps in the release-blockers spec yourself rather than trust
+this file's dates once more time has passed. The general operating
+restrictions from the original audit still apply: run commands from the
+repository root, avoid glob fences, do not run two worktrees of one repo in
 parallel sessions, and never restore an autosave snapshot in place without
 inspecting it first in a separate worktree.
 

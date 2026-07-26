@@ -17,7 +17,7 @@ exists to prevent.
 |---|---|---|---|---|
 | Operating philosophy | 9.2 | 9.2 | n/a | Unchanged in substance, sharpened in one place: the learning target is now the founder model rather than the system's own scorecard, which is the founder's correction, not my idea |
 | Engineering discipline | 8.1 | 8.5 | 8.5 | Eight rounds where every fix was reproduced by execution before it was written, fixes at class level with structural tests that enumerate the class from code or schema. External evidence: an independent code review confirmed the four ratified decisions hold in the code |
-| Test discipline | 7.8 | 8.0 | 8.0 | Honest split: the V2 suite is mutation-audited, and that audit found 24 tests that could never fail, which were deleted. The count fell from 194 to 182 and the calibrated count is 104. External evidence: a systematic mutation audit that killed 19 tests with one broken function |
+| Test discipline | 7.8 | 8.0 | 8.0 | Honest split: the V2 suite is mutation-audited, and that audit found 24 tests that could never fail, which were deleted. The count fell from 194 to 182 and the calibrated count is 104 (re-measured later the same day, 2026-07-26, after Phase 3 added thread-mode coverage: 189; see the runnable check below). External evidence: a systematic mutation audit that killed 19 tests with one broken function |
 | Correctness and concurrency | 6.3 | 6.3 | 8.5 | Engine: 21 reproduced defects closed, including silent fence takeover, resume walking over another session's lock, and a percent sign in a path opening another project's database. System: UNCHANGED, because the tools that run still use the V1 registries |
 | Recovery and durability | 5.8 | 8.0 | 8.0 | Rebuilt in Python and verified BY MY OWN HAND, not by report: a snapshot taken from a subfolder now captures root files, a tracked .env survives in the snapshot (the defect that deleted a real file on restore), refs are namespaced per worktree and session so two projects cannot overwrite each other's only backup, and with no store present it warns once and exits 0. 14 tests, 7 of them calibrated by reinjecting the old behavior. The in-place restore path is DELETED, not documented with a warning. Held below 9 because CI has never run it and Windows is unverified |
 | Security and privacy | 6.6 | 8.0 | 8.0 | The no-network claim now has a mechanical gate, calibrated both ways, where before it was a command a reader was expected to run by hand. Redaction inverted to default-deny with a test that reads the schema itself. Store documented as the raw sensitive artefact |
@@ -48,13 +48,25 @@ correctness did not because it has not.
 
 ## The founder-legible check, runnable in under a minute
 
-```bash
-cd ~/Documents/BrotherModeUp && python3 tools/test_bm_store.py 2>&1 | tail -3
-```
-
-Expect `Ran 182 tests` and `OK`. Then this, which should print nothing at all, because
-it proves the tool makes no network calls:
+`cd` into wherever you cloned this repository, then:
 
 ```bash
-cd ~/Documents/BrotherModeUp && grep -rnE "^\s*(import|from)\s+(urllib|socket|requests)" tools/*.py
+python3 tools/test_bm_store.py 2>&1 | tail -3
 ```
+
+Expect `Ran 189 tests` and `OK` (measured 2026-07-26; the table above says
+182, an earlier count from the same day, before more tests were added the
+same day. Re-measure rather than trust either number if it drifts further).
+Then this, which should print nothing at all, because it proves the tool
+makes no network calls:
+
+```bash
+grep -rnE "^\s*(import|from)\s+(urllib|socket|requests)" tools/*.py
+```
+
+**Snapshot note, added later on 2026-07-26 while correcting this page:** the
+rows above describing "the tools that run still use the V1 registries"
+predate Phase 3, which landed later the same day and deleted
+`bm_registry.py`. For the current status, including new defects the Phase 3
+rewiring itself introduced, read `docs/KNOWN-LIMITS.md` rather than this
+dated snapshot.
