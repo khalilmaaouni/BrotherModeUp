@@ -1707,5 +1707,368 @@ class TestGate3OutputFunnelCoversTheMcpServerToo(unittest.TestCase):
             self.assertIn("[REDACTED]", text)
 
 
+class TestFinding3McpServerRefusesSourcesOutsideTheRequestedRoot(unittest.TestCase):
+    """FINDING 3 (HIGH, cross-project disclosure, EXECUTED AND CONFIRMED
+    2026-07-27, not theorised): mcp/bm_mcp_server.py probed for a project's
+    .brothermode marker with os.path.isdir, which FOLLOWS a directory
+    symlink, and then copied that directory with shutil.copytree at its
+    default symlinks=False, which DEREFERENCES. With project-b/.brothermode
+    symlinked at project-a/.brothermode, a tools/call naming ONLY project B
+    came back with project A's confidential objective and A's fenced path,
+    isError: false, over a real stdio JSON-RPC session.
+
+    bm_store.ReadOnlyStore's own containment checks (bm_store.py, the
+    _refuse_if_symlink_escape / _refuse_if_hardlinked block in its
+    __init__) could never catch this: the server hands ReadOnlyStore a
+    SNAPSHOT root, and by then the snapshot's .brothermode is a real,
+    already-dereferenced copy with nothing wrong with it. The escape
+    happened during the copy, so the check has to run against the root the
+    CALLER named, which is what the server now does before it probes or
+    copies anything.
+
+    Driven end to end through the real server process over stdio, not by
+    calling the tool function in-process: the defect lived in the handshake
+    between root resolution and the snapshot copy, and an in-process call
+    would prove less than the thing an MCP client actually does. Both
+    throwaway projects live under a temporary directory, never a real
+    project and never the founder's home."""
+
+    MCP_SERVER_PATH = os.path.join(HERE, "..", "mcp", "bm_mcp_server.py")
+    SECRET_OBJECTIVE = "PROJECT-A-CONFIDENTIAL-OBJECTIVE-DO-NOT-DISCLOSE"
+    SECRET_RECORD = "secretworkfinding3"
+    SECRET_CLAIM = "src/a-private-finding3.py"
+
+    def _make_project_a(self, base):
+        """A throwaway project holding one active record whose name,
+        objective, and claimed path are all distinctive enough that finding
+        any of them in another project's answer is unambiguous."""
+        a = os.path.join(base, "project-a")
+        os.makedirs(a)
+        store = bs.Store(a)
+        try:
+            store.claim(self.SECRET_RECORD, "ephemeral", self.SECRET_OBJECTIVE,
+                        [self.SECRET_CLAIM], session_id="s1")
+        finally:
+            store.close()
+        return a
+
+    def _drive_server(self, root, tool):
+        """One real stdio JSON-RPC session against the real server process:
+        initialize, notifications/initialized, then one tools/call. Returns
+        (isError, text, combined_stdout_and_stderr) so a test can assert
+        both on what the client was told and on what the process emitted
+        anywhere at all. BROTHERMODE_ROOT is scrubbed from the child's
+        environment, matching _run_threads above, so ambient developer state
+        can never decide the answer."""
+        msgs = [
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+             "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                        "clientInfo": {"name": "test_bm", "version": "1"}}},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+             "params": {"name": tool, "arguments": {"project_root": root}}},
+        ]
+        env = dict(os.environ)
+        env.pop("BROTHERMODE_ROOT", None)
+        p = subprocess.run(
+            [sys.executable, self.MCP_SERVER_PATH],
+            input="".join(json.dumps(m) + "\n" for m in msgs),
+            capture_output=True, text=True, env=env)
+        text = None
+        is_error = None
+        for line in p.stdout.splitlines():
+            obj = json.loads(line)
+            if obj.get("id") == 3:
+                result = obj.get("result") or {}
+                is_error = result.get("isError")
+                text = "".join(c.get("text", "") for c in result.get("content", []))
+        self.assertIsNotNone(text, "server sent no tools/call result; stderr: %s" % p.stderr)
+        return is_error, text, p.stdout + p.stderr
+
+    def _assert_no_project_a_data(self, everything, where):
+        for secret in (self.SECRET_OBJECTIVE, self.SECRET_RECORD, self.SECRET_CLAIM):
+            self.assertNotIn(
+                secret, everything,
+                "FINDING 3 regression: project A's %r reached the client (or "
+                "this process's output) from a call that named only project "
+                "B, via %s" % (secret, where))
+
+    def test_symlinked_brothermode_directory_cannot_disclose_another_project(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = os.path.realpath(d)
+            a = self._make_project_a(base)
+            b = os.path.join(base, "project-b")
+            os.makedirs(b)
+            # Project B has no store of its own: its .brothermode IS project
+            # A's, reached through a directory symlink.
+            os.symlink(bs.store_dir(a), bs.store_dir(b))
+            for tool in ("bm_active_work", "bm_fences", "bm_decisions", "bm_status"):
+                is_error, text, everything = self._drive_server(b, tool)
+                self.assertTrue(
+                    is_error,
+                    "%s answered isError: false for a project whose "
+                    ".brothermode is a symlink into another project; it must "
+                    "refuse: %s" % (tool, text))
+                self.assertIn("refusing to read", text)
+                self._assert_no_project_a_data(everything, tool)
+
+    def test_symlinked_store_file_inside_a_real_brothermode_is_refused(self):
+        # The narrower door: project B's .brothermode is a genuine directory
+        # of its own, so the marker probe is satisfied, and only the store
+        # FILE inside it links out. bm_store.py closed this exact class for
+        # itself (GATE B, its _refuse_if_symlink_escape covers the store file
+        # and its -wal/-shm sidecars); this proves the MCP server now applies
+        # that same check to the root a caller named, where it can still fire.
+        with tempfile.TemporaryDirectory() as d:
+            base = os.path.realpath(d)
+            a = self._make_project_a(base)
+            b = os.path.join(base, "project-b")
+            os.makedirs(bs.store_dir(b))
+            os.symlink(bs.store_path(a), bs.store_path(b))
+            is_error, text, everything = self._drive_server(b, "bm_active_work")
+            self.assertTrue(
+                is_error,
+                "a symlinked .brothermode/store.sqlite3 was not refused: %s" % text)
+            self.assertIn("refusing to read", text)
+            self._assert_no_project_a_data(everything, "symlinked store file")
+
+    def test_refusal_never_names_what_the_link_resolves_to(self):
+        # A refusal that prints the resolved target hands back a smaller
+        # piece of exactly the cross-project information it is denying: the
+        # other project's absolute path.
+        with tempfile.TemporaryDirectory() as d:
+            base = os.path.realpath(d)
+            a = self._make_project_a(base)
+            b = os.path.join(base, "project-b")
+            os.makedirs(b)
+            os.symlink(bs.store_dir(a), bs.store_dir(b))
+            _is_error, text, _everything = self._drive_server(b, "bm_active_work")
+            self.assertNotIn(bs.store_dir(a), text)
+            self.assertIn(bs.store_dir(b), text)
+
+    def test_an_ordinary_project_still_answers_normally(self):
+        # The control this fence needs: a refusal that fires on everything
+        # would also "pass" the tests above while breaking the server. A
+        # plain project, no links anywhere, must still answer with its own
+        # record and isError: false.
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.realpath(d)
+            store = bs.Store(root)
+            try:
+                store.claim("ordinary", "ephemeral", "an ordinary objective",
+                            ["src/ordinary.py"], session_id="s1")
+            finally:
+                store.close()
+            is_error, text, _everything = self._drive_server(root, "bm_active_work")
+            self.assertFalse(is_error, "an ordinary project was refused: %s" % text)
+            self.assertIn("ordinary", text)
+            self.assertIn("an ordinary objective", text)
+
+
+class TestFinding3bInternalErrorsGoThroughTheOutputFunnel(unittest.TestCase):
+    """FINDING 3b (LOW, output funnel bypass, 2026-07-27): the catch-all in
+    mcp/bm_mcp_server.py's handle_tools_call returned "internal error: %r"
+    % (e,) straight to the client. Every other response in that file passes
+    through _protect (redact, then sanitize); this one did not, so an
+    exception repr, which is not server-authored text and can carry
+    absolute paths and store rows the tool was mid-way through rendering,
+    bypassed the funnel entirely. Calibrated the same way the GATE 3 test
+    above is: force the real handler to raise an exception carrying a
+    secret-shaped value, then assert the client's response does not carry
+    it."""
+
+    def test_an_unexpected_exception_never_returns_its_own_repr(self):
+        mcp_mod = TestGate3OutputFunnelCoversTheMcpServerToo._load_mcp_server()
+        secret = "AKIAIOSFODNN7EXAMPLE"
+
+        def exploding_tool(_arguments):
+            raise RuntimeError("leaked %s from /private/some/real/path" % secret)
+
+        original = mcp_mod.TOOL_HANDLERS["bm_status"]
+        mcp_mod.TOOL_HANDLERS["bm_status"] = exploding_tool
+        try:
+            response = mcp_mod.handle_tools_call({
+                "jsonrpc": "2.0", "id": 7, "method": "tools/call",
+                "params": {"name": "bm_status", "arguments": {"project_root": "/nowhere"}},
+            })
+        finally:
+            mcp_mod.TOOL_HANDLERS["bm_status"] = original
+        text = "".join(c.get("text", "") for c in response["result"]["content"])
+        self.assertTrue(response["result"]["isError"])
+        self.assertNotIn(secret, text,
+                         "FINDING 3b regression: the exception's own text reached the client")
+        self.assertNotIn("/private/some/real/path", text)
+        self.assertIn("RuntimeError", text)
+
+
+class TestFinding4InstallVerifierSeesEveryEntryType(unittest.TestCase):
+    """FINDING 4 and 4B (2026-07-27, REPRODUCED BEFORE THE FIX): the install
+    verifier could not see a symlink at all, and the manifest never recorded
+    what KIND of entry it was attesting.
+
+    scripts/verify-install.sh enumerated the installed tree with
+    `find "$TARGET" -type f`. POSIX find without -L does not follow symlinks,
+    so a symlink is -type l and never matches -type f: an unmanifested
+    symlink was invisible to the extra-entry scan, and invisible to the
+    manifest scan too, because the manifest had never named it. The verifier
+    printed PASSED and exited 0 with a backdoor sitting in the tree. That is
+    a live code-execution path, not a tidiness problem: planting
+    tools/json.py as a symlink shadows the standard library for every session
+    hook that runs a tool out of tools/, because Python puts a script's own
+    directory at the front of sys.path.
+
+    scripts/checksums.sh had the mirror-image hole: `[ ! -f "$f" ]` follows
+    symlinks, so a tracked symlink pointing at a regular file passed the
+    guard and got its TARGET's bytes hashed into a manifest line that looked
+    exactly like an ordinary file.
+
+    Every assertion below was run against the pre-fix scripts and observed
+    failing (exit 0 where it now demands nonzero) before the fix landed.
+    Each test builds its own throwaway install under a temporary directory
+    and never reads or writes the real repository or the real home
+    directory.
+    """
+
+    SCRIPTS_DIR = os.path.join(os.path.dirname(HERE), "scripts")
+
+    def _make_install(self, root):
+        """Build a throwaway install: the two real scripts, a couple of
+        ordinary files, and a manifest generated by the real checksums.sh.
+        The tree is a git repo so that checksums.sh exercises its primary
+        `git ls-files -s` path, the one a real release goes through."""
+        os.makedirs(os.path.join(root, "scripts"))
+        os.makedirs(os.path.join(root, "tools"))
+        for name in ("checksums.sh", "verify-install.sh"):
+            shutil.copy2(os.path.join(self.SCRIPTS_DIR, name),
+                         os.path.join(root, "scripts", name))
+        with io.open(os.path.join(root, "tools", "bm_telemetry.py"), "w",
+                     encoding="utf-8") as f:
+            f.write("# throwaway stand-in, not the real tool\n")
+        with io.open(os.path.join(root, "README.md"), "w", encoding="utf-8") as f:
+            f.write("throwaway\n")
+        for args in (["init", "-q"], ["add", "-A"]):
+            r = subprocess.run(["git", "-C", root] + args,
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+        r = self._checksums(root)
+        self.assertEqual(r.returncode, 0,
+                         "checksums.sh failed on a clean throwaway tree: %s" % r.stderr)
+
+    def _checksums(self, root):
+        return subprocess.run(
+            ["sh", os.path.join(root, "scripts", "checksums.sh"), "CHECKSUMS.sha256"],
+            cwd=root, capture_output=True, text=True)
+
+    def _verify(self, root):
+        """Run the verifier as a script and read the SCRIPT's own exit code.
+        Never through a pipeline: `sh script | head` reports head's status,
+        not the script's, and that has produced a false pass here before."""
+        return subprocess.run(
+            ["sh", os.path.join(root, "scripts", "verify-install.sh"),
+             os.path.join(root, "CHECKSUMS.sha256"), root],
+            capture_output=True, text=True)
+
+    def test_clean_install_still_passes(self):
+        # Calibration for the three tests below: without this, a verifier
+        # that failed on absolutely everything would satisfy them all.
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.realpath(d)
+            self._make_install(root)
+            r = self._verify(root)
+            self.assertEqual(r.returncode, 0,
+                             "clean throwaway install should verify:\n%s\n%s"
+                             % (r.stdout, r.stderr))
+            self.assertIn("PASSED", r.stdout)
+
+    def test_unmanifested_symlink_file_is_rejected_and_named(self):
+        # TEST A. The backdoor shape: tools/json.py pointing at an
+        # attacker-controlled file, shadowing the standard library for
+        # anything run out of tools/. Pre-fix this exited 0 and said PASSED.
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as outside:
+            root = os.path.realpath(d)
+            self._make_install(root)
+            evil = os.path.join(os.path.realpath(outside), "evil.py")
+            with io.open(evil, "w", encoding="utf-8") as f:
+                f.write("# attacker controlled\n")
+            os.symlink(evil, os.path.join(root, "tools", "json.py"))
+            r = self._verify(root)
+            self.assertNotEqual(r.returncode, 0,
+                                "FINDING 4 regression: an unmanifested symlink "
+                                "passed verification:\n%s\n%s" % (r.stdout, r.stderr))
+            self.assertIn("tools/json.py", r.stdout,
+                          "the verifier failed but never named the planted entry")
+            self.assertIn("FAILED", r.stderr)
+
+    def test_unmanifested_symlinked_directory_is_rejected(self):
+        # TEST B. A symlink to a DIRECTORY is still -type l, so -type f
+        # missed it exactly the same way, and find is deliberately not asked
+        # to descend through it (no -L) so nothing under a planted link is
+        # traversed or trusted.
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as outside:
+            root = os.path.realpath(d)
+            self._make_install(root)
+            evil_dir = os.path.join(os.path.realpath(outside), "payloads")
+            os.makedirs(evil_dir)
+            with io.open(os.path.join(evil_dir, "payload.py"), "w",
+                         encoding="utf-8") as f:
+                f.write("# attacker controlled\n")
+            os.symlink(evil_dir, os.path.join(root, "tools", "vendor"))
+            r = self._verify(root)
+            self.assertNotEqual(r.returncode, 0,
+                                "FINDING 4 regression: an unmanifested symlinked "
+                                "directory passed verification:\n%s\n%s"
+                                % (r.stdout, r.stderr))
+            self.assertIn("tools/vendor", r.stdout)
+
+    def test_manifested_file_swapped_for_a_symlink_is_rejected(self):
+        # The type half of finding 4: same bytes, different entry type. A
+        # content hash cannot catch this on its own, because the hash of the
+        # link's target matches perfectly. Only an lstat does.
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as outside:
+            root = os.path.realpath(d)
+            self._make_install(root)
+            manifested = os.path.join(root, "tools", "bm_telemetry.py")
+            decoy = os.path.join(os.path.realpath(outside), "same_bytes.py")
+            shutil.copy2(manifested, decoy)
+            os.remove(manifested)
+            os.symlink(decoy, manifested)
+            r = self._verify(root)
+            self.assertNotEqual(r.returncode, 0,
+                                "FINDING 4 regression: a manifested regular file "
+                                "swapped for a symlink with identical target bytes "
+                                "passed verification:\n%s\n%s" % (r.stdout, r.stderr))
+            self.assertIn("TYPESWAP", r.stdout)
+            self.assertIn("tools/bm_telemetry.py", r.stdout)
+
+    def test_checksums_refuses_to_manifest_a_symlink(self):
+        # FINDING 4B: pre-fix, this wrote a manifest whose line for the
+        # symlink carried the hash of the LINK TARGET's bytes, with nothing
+        # recording that the entry was a link or where it pointed. The
+        # manifest's type claim (every entry is a regular file) is
+        # established here, by refusing, which is what lets the verifier
+        # treat a symlink at a manifested path as an attack.
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as outside:
+            root = os.path.realpath(d)
+            self._make_install(root)
+            target = os.path.join(os.path.realpath(outside), "target.txt")
+            with io.open(target, "w", encoding="utf-8") as f:
+                f.write("bytes that are not shipped by this repo\n")
+            os.symlink(target, os.path.join(root, "tools", "sneaky.py"))
+            r = subprocess.run(["git", "-C", root, "add", "-A"],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            modes = subprocess.run(["git", "-C", root, "ls-files", "-s",
+                                    "tools/sneaky.py"], capture_output=True, text=True)
+            self.assertTrue(modes.stdout.startswith("120000"),
+                            "test setup failed: git did not track the entry as a "
+                            "symlink, so this does not reproduce finding 4B (%r)"
+                            % modes.stdout)
+            r = self._checksums(root)
+            self.assertNotEqual(r.returncode, 0,
+                                "FINDING 4B regression: checksums.sh manifested a "
+                                "symlink:\n%s\n%s" % (r.stdout, r.stderr))
+            self.assertIn("tools/sneaky.py", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

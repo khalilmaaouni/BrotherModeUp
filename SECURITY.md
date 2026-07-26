@@ -14,13 +14,31 @@ server. Most of what it writes goes to your vault folder, which you choose with
 exception: it writes inside your project directory, not the vault, so you can
 find it there too:
 
-- `threads/registry.json`, `threads/REGISTRY.md`, `threads/.registry.lock`, and
-  `threads/thread-mode.json` live under your project root.
-- Each thread also gets `threads/<name>/STATE.md`, `inbox.md`, `outbox.md`, and
-  `digest.md`, plus a `threads/.mode.lock`. Everything written there is redacted
-  at the write, the same as everything else.
-- `STATE.md` is fully regenerated from the store on every mutating command
-  (a generated view, never hand-edited truth); nothing appends to it. Each
+CORRECTED 2026-07-27 (external audit finding 17). The list below previously named
+`threads/registry.json`, `threads/REGISTRY.md`, `threads/.registry.lock` and
+`threads/.mode.lock`. Phase 3 deleted `bm_registry.py` and rewrote thread storage
+on top of the sqlite store, so no shipped tool writes any of those four files any
+more. Verified by grep across `tools/*.py`. Stale security documentation is an
+operational risk in its own right, because a reviewer audits the data flow the
+document describes rather than the one the code has.
+
+What the code actually writes inside your project today:
+
+- `.brothermode/store.sqlite3` and its `-wal` / `-shm` sidecars: the raw store,
+  holding objectives, decisions, digests and directives BEFORE redaction. This is
+  the sensitive artefact. It is excluded from git and, as of the audit
+  remediation, the tools refuse to run when it is already tracked.
+- `threads/thread-mode.json` under your project root.
+- Each thread gets `threads/<name>-<id>/STATE.md`, `inbox.md`, `outbox.md` and
+  `digest.md`. Everything written there is redacted at the write.
+- There are no lock files. Ordering comes from single sqlite transactions, and a
+  test forbids importing `fcntl` anywhere in the toolchain.
+- `STATE.md` is regenerated from the store on every mutating command (a generated
+  view, never hand-edited truth). One honest exception, still open at the time of
+  writing: handover delivery APPENDS a block to `STATE.md` outside the store
+  transaction (audit finding 12). That is being moved into the store so the view
+  is generated rather than appended to. Until it lands, treat `STATE.md` as
+  "regenerated, plus one appender", not as purely generated. Each
   thread also gets its own `threads/<name>-<id>/digest.md`, a view of that
   thread's recorded handover. There is no `absorb` command in either CLI
   (confirmed by running `--help` on both, 2026-07-26: `bm_store.py`'s
@@ -42,9 +60,18 @@ find it there too:
   owner-only where the platform supports it (on Windows this is best-effort;
   rely on your user profile's access control).
 
-You can verify both claims yourself; the tools are about 12,008 lines of
-standard-library Python and shell (measured 2026-07-26; a test fails if this
+You can verify both claims yourself; the tools are about 14,704 lines of
+standard-library Python and shell (re-measured 2026-07-27; a test fails if this
 figure drifts more than 15 percent from what the command below returns).
+
+It went UP by roughly 2,700 lines on 2026-07-27, and that direction deserves
+an explanation rather than a quiet edit. The external security audit of that
+day found real escapes at the filesystem boundary, and closing them added one
+shared containment funnel plus the adversarial tests that prove each escape
+stays closed. Most of the growth is tests, which is the kind a reader of a
+security document should want. The small-toolchain claim is still a promise
+this project owes: if the non-test line count keeps climbing, the honest move
+is to withdraw the claim rather than restate it.
 
 This figure was raised three times in one day, then fell once Phase 3 landed
 the same day: the V2 store shipped ALONGSIDE the V1 registry and thread tools
