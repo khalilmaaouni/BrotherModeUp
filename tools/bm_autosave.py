@@ -305,9 +305,18 @@ def _clear_latest_if_present(toplevel, worktree_id):
 
 def _prune_old_snapshots(toplevel, worktree_id, retain=None):
     """Requirement 8 (retention): keep the last `retain` snapshot refs per
-    worktree (default 10), never the only one. The stamp component sorts
-    lexically in chronological order (see _stamp), so a plain string sort
-    over `for-each-ref` output is enough to find the oldest ones."""
+    worktree (default 10), never the only one.
+
+    Sort on the STAMP ALONE, never the whole ref name. A ref looks like
+    <namespace>/<worktree>/<session>/<stamp>, so sorting the full string ranks
+    the session id above the timestamp: a snapshot from a session whose id sorts
+    early is treated as older than every snapshot from a session whose id sorts
+    late, no matter when either was taken. That is not a cosmetic ordering bug.
+    Reproduced 2026-07-26: ten snapshots from session zzz-old, then the newest
+    snapshot from session aaa-new, and the pruner deleted THE NEWEST while
+    keeping all ten older ones. In a module whose entire purpose is not losing
+    work, sorting by the wrong key destroys exactly the snapshot the founder
+    would reach for."""
     if retain is None:
         retain = _parse_int_env("BROTHERMODE_AUTOSAVE_RETAIN", DEFAULT_RETAIN)
     prefix = "%s/%s/" % (REF_NAMESPACE, worktree_id)
@@ -315,7 +324,9 @@ def _prune_old_snapshots(toplevel, worktree_id, retain=None):
     if r.returncode != 0:
         return
     refs = [line.strip() for line in r.stdout.splitlines() if line.strip()]
-    snap_refs = sorted(ref for ref in refs if not ref.endswith("/latest"))
+    snap_refs = sorted(
+        (ref for ref in refs if not ref.endswith("/latest")),
+        key=lambda r: r.rsplit("/", 1)[-1])
     if len(snap_refs) <= 1:
         return  # never prune the only snapshot
     excess = snap_refs[: max(0, len(snap_refs) - max(retain, 1))]
