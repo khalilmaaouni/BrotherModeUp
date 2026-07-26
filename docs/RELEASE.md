@@ -24,15 +24,21 @@ inside that one sentence:
 
 This document is the discipline that answers both: tagged, immutable
 releases (problem 1) with a checksum manifest a user can check against
-(problem 2). It does not perform a release. As of this writing, no version of
-this project has ever been tagged, and continuous integration has never
-executed against this content (`docs/KNOWN-LIMITS.md`). Say that to whoever
-reads this next; do not let a later, cleaner-sounding paragraph replace it.
+(problem 2).
+
+CORRECTED 2026-07-27. The paragraph here used to say no version had ever been
+tagged and continuous integration had never executed. Both statements were false
+by the time anyone read them: `v2.0.0-rc.1` was tagged on 2026-07-26 and CI has
+run more than twenty times. The instruction attached to the old paragraph, "do
+not let a later, cleaner-sounding paragraph replace it", was well meant and
+became a defence of a stale fact. Prefer a statement that names its date and its
+evidence over one that asks to be preserved.
 
 ## The version scheme
 
 `VERSION`, one line, holds the current semantic version:
-`2.0.0-rc.1`.
+`2.0.0-rc.2`. The previous tag, `v2.0.0-rc.1`, is WITHDRAWN; see the section
+below for why.
 
 Reasoning, stated plainly because a version number is a claim and this one
 should be checked rather than trusted:
@@ -48,11 +54,11 @@ should be checked rather than trusted:
   pre-release identifier precisely for "believed feature-complete, not yet
   proven," and every fact needed to justify that sits in
   `docs/KNOWN-LIMITS.md` as of today: the engine has never run on a real
-  project (only test suites and adversarial review), continuous integration
-  HAS executed and FAILS on Windows for an unclosed database handle
-  (corrected 2026-07-26; this line previously claimed CI had never run,
-  which was false), and one confirmed defect is still open (a refused
-  `adopt` attempt still writes a permanent handover block into `STATE.md`).
+  project (only test suites and adversarial review), and one confirmed defect is
+  still open (a refused `adopt` attempt still writes a permanent handover block
+  into `STATE.md`). Continuous integration now passes on all three platforms and
+  both supported Python versions, including the recovery suite, which is a
+  change from rc.1 rather than a claim about it.
   Shipping `2.0.0` plain would assert a confidence this project does not
   have yet. `2.0.0-rc.1` sorts before `2.0.0` under semver precedence rules,
   which is the honest ordering: this is a candidate for `2.0.0`, not `2.0.0`
@@ -66,21 +72,22 @@ should be checked rather than trusted:
   candidate says "we believe this is right and are asking reality to
   confirm it," which matches the actual situation better than `0.x` would.
 
-Promoting `2.0.0-rc.1` to a plain `2.0.0` later should require, at minimum:
-one real project run through the V2 store for at least a week, one green CI
-run on every platform in the matrix, and the still-open `adopt` defect
-closed. Until then, do not describe this project as `2.0.0` anywhere.
+Promoting `2.0.0-rc.2` to a plain `2.0.0` later should require, at minimum:
+one real project run through the V2 store for at least a week, and the
+still-open `adopt` defect closed. The green-CI condition is now MET (all three
+platforms, both Python versions, recovery suite included), so it is struck from
+this list rather than left standing as if unfinished. Until the other two are
+met, do not describe this project as `2.0.0` anywhere.
 
 ## How a user pins a version instead of tracking a branch
 
-Once a tag exists (it does not yet; see "What has and has not happened" below),
-the install instruction becomes:
+Tags exist now, so this is the install instruction, not a future one:
 
 ```bash
-git clone --branch v2.0.0-rc.1 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.2 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
-`--branch v2.0.0-rc.1` checks out that exact tag, not a moving branch head.
+`--branch v2.0.0-rc.2` checks out that exact tag, not a moving branch head.
 `--depth 1` is optional (a shallow clone of just that tag), included because
 most users have no reason to carry this project's full history into their
 skills directory.
@@ -164,17 +171,38 @@ run of it as a test of the runbook, not just of the code.
    final sanity check before tagging: it should report every tracked file
    matching the manifest you just committed. This is the last automatic
    step; everything after this line is founder-gated.
-5. **FOUNDER-GATED: create the git tag.** `git tag -a v2.0.0-rc.1 -m "..."`
+5. **FOUNDER-GATED: create the git tag.** `git tag -a v2.0.0-rc.2 -m "..."`
    (annotated, not lightweight, so the tag carries its own message and
    date). A machine must not run this command on its own initiative; it is
    the moment a version becomes a permanent, citable release.
-6. **FOUNDER-GATED: push the tag.** `git push origin v2.0.0-rc.1`. Pushing a
+6. **FOUNDER-GATED: push the tag.** `git push origin v2.0.0-rc.2`. Pushing a
    tag is the moment this becomes visible and clonable by anyone; the
    founder decides when that happens, never a machine acting alone.
 7. **FOUNDER-GATED: publish anything else** (a GitHub Release entry
    attaching `CHECKSUMS.sha256` as a release asset, an announcement, a
    website update). Same reasoning as steps 5 and 6: irreversible,
    human-facing, and the founder's call.
+
+## v2.0.0-rc.1 is WITHDRAWN, and why that matters more than a version number
+
+Withdrawn 2026-07-27. Do not install it.
+
+The tag `v2.0.0-rc.1` points at commit `7c2e0ec`, whose CI run FAILED on Windows
+for a real handle leak. The branch then moved 14 commits past it while the
+`VERSION` file still read `2.0.0-rc.1`. So an immutable tag and a moving branch
+both claimed the same identity while containing materially different code, and
+one of the two was broken on a platform this project promises to support.
+
+That is worse than shipping a bug. A version number is a promise that two people
+saying "2.0.0-rc.1" are talking about the same bytes. Once that stops being true,
+every other honesty guarantee in this repository is unverifiable, because there is
+no way to say WHICH code a claim was ever about.
+
+`v2.0.0-rc.2` is cut from a commit whose full matrix is green on Linux, macOS and
+Windows, on both supported Python versions, with the recovery suite included.
+Checksums are regenerated LAST, after every other change, so the manifest
+describes exactly what the tag contains rather than what it contained partway
+through preparing it.
 
 ## What has and has not happened, stated honestly
 
