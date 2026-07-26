@@ -122,7 +122,7 @@ new identity rather than reopening an old one.
 flowchart TD
     A["Session working normally"] --> B{"Context running low, or the session dies unexpectedly?"}
     B -- "Approaching a context compaction" --> C["The PreCompact hook fires"]
-    C --> D["bm_autosave.sh snapshots the whole working tree, untracked files included, to the local git ref refs/brothermode/autosave"]
+    C --> D["bm_autosave.py snapshots the whole working tree, untracked files included, to the local git ref refs/brothermode/autosave"]
     D --> E["A write-ahead intent line and a brief summary of the dying conversation are logged before the moment of loss"]
     B -- "Session simply dies: a crash or a hard limit" --> F["The tree on disk is the truth; nothing beyond the last autosave is captured automatically"]
     E --> G["A new or resumed session starts"]

@@ -76,19 +76,30 @@ the automatic capture half of the learning loop; everything else keeps working.
 
 ## The autosave makes no network call either
 
-`tools/bm_autosave.sh` runs on the PreCompact hook (right before Claude Code
+`tools/bm_autosave.py` runs on the PreCompact hook (right before Claude Code
 compacts context, which is what happens when you run low on tokens). It snapshots
-your entire working tree, including untracked files, into a private git ref
-`refs/brothermode/autosave`, using a throwaway index so your real branch, index,
-and working tree are never touched. It runs git **locally only and never pushes**,
-so the zero-network property above still holds with autosave enabled. Recover a
-snapshot with:
+your tracked and untracked working-tree files into a private git ref namespaced per
+worktree and per session, using a throwaway index so your real branch, index, and
+working tree are never touched. Ignored files and uncommitted content inside nested
+repositories or submodules are NOT captured, so this is not literally your entire
+disk state; it is your working tree as git sees it.
+
+This module is the ONE documented exception to the no-subprocess rule above,
+because git is an external binary and there is no way to drive it otherwise. Every
+call it makes is local: never push, fetch, pull, clone, or remote, and a test
+enforces both halves (the named per-file exception, and the ban on any git command
+that reaches a remote). The zero-network property holds with autosave enabled.
+
+Recover a snapshot into a SEPARATE worktree, never over your live files:
 
 ```bash
-sh tools/bm_autosave.sh recover
+python3 tools/bm_autosave.py recover
 ```
 
-An optional continuous mode (`bm_autosave.sh tick`, off unless you set
+The previous shell version restored in place, which was measured to delete a
+tracked file that had been excluded from the snapshot. That path is gone.
+
+An optional continuous mode (`bm_autosave.py tick`, off unless you set
 `BROTHERMODE_AUTOSAVE`) also snapshots every N tool calls, for a crash that is not
 a compaction. To disable autosave entirely, remove the PreCompact hook.
 

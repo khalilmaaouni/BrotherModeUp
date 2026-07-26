@@ -452,9 +452,9 @@ or contradicts, so recall follows edges instead of scanning folders.
   duplicate a possibly-live writer.
 - Scratchpads are wiped: durable path under home the moment a deliverable exists;
   and because disk-first is prose the DYING context cannot be trusted to run, a
-  PreCompact hook (tools/bm_autosave.sh) snapshots the whole tree, untracked files
+  PreCompact hook (tools/bm_autosave.py) snapshots the whole tree, untracked files
   included, to refs/brothermode/autosave (local git only, never pushed) at the
-  token-death moment, and `bm_autosave.sh recover` restores it. A resumed session gets the THREAD back too: a PreCompact brief
+  token-death moment, and `bm_autosave.py recover` restores it. A resumed session gets the THREAD back too: a PreCompact brief
   (bm_telemetry.py precompact-brief) distills the dying transcript tail, and a
   write-ahead intent line (bm_telemetry.py intent) logged BEFORE a risky action
   means death leaves a forward-looking record, not just files.
