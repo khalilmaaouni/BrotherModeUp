@@ -237,7 +237,7 @@ any of it.
   `off`, `adopt`. Nothing ever flips mode automatically, the active-thread cap
   is enforced, and switching off is lossless.
 - `bm_score.py`: the nine rubric metrics, with a `--strict` mode for CI.
-- `bm_autosave.sh`: snapshots the whole tree, including untracked files, into a
+- `bm_autosave.py`: snapshots the whole tree, including untracked files, into a
   private local git ref before every context compaction. Never pushes, and
   excludes secret-shaped files.
 - `bm_sessionstart.sh`: injects the active-laws digest at session start.

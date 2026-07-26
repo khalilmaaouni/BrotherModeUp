@@ -28,7 +28,7 @@ flowchart LR
     STORE -->|"reads and writes"| DB["sqlite3 database, dot brothermode slash store.sqlite3"]
     STORE -->|"redacts founder-typed text through"| TEL["bm_telemetry.py, redaction plus telemetry"]
     STORE -->|"regenerates"| STATEMD["STATE.md, the generated status page"]
-    PRECOMPACT["PreCompact hook"] -->|"fires just before context is trimmed"| AUTOSAVE["bm_autosave.sh"]
+    PRECOMPACT["PreCompact hook"] -->|"fires just before context is trimmed"| AUTOSAVE["bm_autosave.py"]
     AUTOSAVE -->|"snapshots the working tree to"| GITREF["local git ref, never pushed"]
     SESSIONEND["SessionEnd hook"] -->|"appends telemetry to"| VAULT["The vault, a folder outside this repo"]
     V1["bm_registry.py and bm_threads.py, the V1 registries being replaced"] -.->|"the system whose defects motivated V2"| STORE
@@ -84,7 +84,7 @@ V2 design was ratified to close. Planned (Phase 3): `bm_threads.py` becomes a
 thin command-line wrapper over the store engine instead of its own source of
 truth.
 
-**`bm_autosave.sh`.** One job: snapshot the entire working tree, including
+**`bm_autosave.py`.** One job: snapshot the entire working tree, including
 files never added to git, at the moment a session's context is about to be
 trimmed. Input: the live working tree. Output: a private, local-only git
 reference that is never pushed; `recover` restores it. Failure mode: none
