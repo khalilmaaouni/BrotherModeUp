@@ -40,7 +40,6 @@ No em or en dashes anywhere in this file, its comments, or its output.
 """
 import contextlib
 import datetime
-import glob
 import hashlib
 import io
 import json
@@ -764,6 +763,51 @@ CREATE TABLE IF NOT EXISTS autosave_receipts (
 _TABLES = ("meta", "records", "claims", "decisions", "digests", "directives",
            "deliveries", "transitions", "autosave_receipts")
 
+# GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
+# enumerated list of "known sensitive" fields (objective, tier, claim paths,
+# decisions, digests) and print everything else in cleartext, which is
+# exactly why transitions.note, directives.text, records.evidence,
+# records.check_cmd, and records.owner leaked: nobody had listed them. This
+# is the inverse: every (table, column) pair below is the CLOSED,
+# deliberately reviewed set of structurally non-sensitive data (identifiers,
+# enums, versions, counts, hashes, timestamps); every OTHER text-typed
+# column, read live from the schema via PRAGMA table_info (see
+# _text_columns), is redacted automatically. A new text column added to
+# _DDL without being added here is redacted by default, not exposed by
+# default: the failure direction that matters is flipped.
+_DUMP_SAFE_COLUMNS = frozenset((
+    ("meta", "key"), ("meta", "value"),
+    ("records", "lifecycle_uuid"), ("records", "name"), ("records", "lifetime"),
+    ("records", "state"), ("records", "session_id"),
+    ("records", "created_at"), ("records", "updated_at"),
+    ("claims", "lifecycle_uuid"),
+    ("decisions", "lifecycle_uuid"), ("decisions", "created_at"),
+    ("digests", "lifecycle_uuid"), ("digests", "created_at"),
+    ("directives", "lifecycle_uuid"), ("directives", "created_at"),
+    ("directives", "delivered_at"),
+    ("deliveries", "payload_sha256"), ("deliveries", "lifecycle_uuid"),
+    ("deliveries", "delivered_at"),
+    ("transitions", "lifecycle_uuid"), ("transitions", "from_state"),
+    ("transitions", "to_state"), ("transitions", "session_id"), ("transitions", "at"),
+    ("autosave_receipts", "worktree_id"), ("autosave_receipts", "session_id"),
+    ("autosave_receipts", "snapshot_sha"), ("autosave_receipts", "tree_sha"),
+    ("autosave_receipts", "source_head"), ("autosave_receipts", "created_at"),
+))
+
+
+def _text_columns(conn, table):
+    """Column names in `table` with TEXT storage affinity, read from the
+    LIVE schema via PRAGMA table_info, not a hand-maintained list: a new
+    column joins this the moment it exists in _DDL, with no other code
+    change required for it to be redacted by default (GATE C)."""
+    out = []
+    for row in conn.execute("PRAGMA table_info(%s)" % table).fetchall():
+        col_type = (row["type"] or "").upper()
+        if any(kw in col_type for kw in ("CHAR", "TEXT", "CLOB")):
+            out.append(row["name"])
+    return out
+
+
 _LEGAL_MOVES = {
     "parked": ("active",),
     "active": ("parked",),
@@ -807,6 +851,23 @@ def _refuse_if_symlink_escape(expected_path):
             details={"expected": expected_path, "resolved": real_path})
 
 
+def _looks_like_git_admin_dir(path):
+    """True only when path ALREADY EXISTS and has the layout a real git
+    administrative directory has (a HEAD file plus an objects or refs
+    directory). Used to validate a .git file's 'gitdir:' pointer before
+    ever creating anything at the path it names (SOFT G, fix-round 6,
+    2026-07-26): a .git file's content is not a trusted input (it can be
+    crafted or corrupted), and following an unchecked pointer straight into
+    os.makedirs plus a write is an arbitrary-directory-creation primitive.
+    Never creates path; only inspects it."""
+    if not os.path.isdir(path):
+        return False
+    if not os.path.isfile(os.path.join(path, "HEAD")):
+        return False
+    return (os.path.isdir(os.path.join(path, "objects"))
+            or os.path.isdir(os.path.join(path, "refs")))
+
+
 def _resolve_git_common_dir(root):
     """The directory that actually holds info/exclude for this checkout
     (GATE C, fix-round 3, 2026-07-26). A normal checkout: <root>/.git. A
@@ -817,7 +878,14 @@ def _resolve_git_common_dir(root):
     code returned early on a .git FILE, so nothing was ever excluded inside
     a worktree and `git add -A` staged the raw store. Verified against a
     real `git worktree add`. Returns None when there is no git here at all,
-    or anything about it could not be read."""
+    or anything about it could not be read.
+
+    SOFT G (fix-round 6, 2026-07-26): the pointer is validated with
+    _looks_like_git_admin_dir before being trusted, and NEVER created by
+    us: a crafted .git file naming an arbitrary path (for example
+    'gitdir: /etc') used to make this function return that path verbatim,
+    and the caller would then os.makedirs a directory tree there and write
+    into it. Raises OwnershipRefused('path-escape') instead."""
     git_path = os.path.join(root, ".git")
     if os.path.isdir(git_path):
         return git_path
@@ -834,14 +902,31 @@ def _resolve_git_common_dir(root):
     if not os.path.isabs(pointer):
         pointer = os.path.join(root, pointer)
     worktree_gitdir = os.path.realpath(pointer)
+    if not _looks_like_git_admin_dir(worktree_gitdir):
+        raise OwnershipRefused(
+            "path-escape",
+            "the .git file at %s points to %s, which does not exist or "
+            "does not look like real git administrative state; refusing "
+            "to create directories or write anything there"
+            % (git_path, worktree_gitdir),
+            details={"git_file": git_path, "pointer_target": worktree_gitdir})
     commondir_file = os.path.join(worktree_gitdir, "commondir")
     if os.path.isfile(commondir_file):
         try:
             with open(commondir_file, encoding="utf-8", errors="replace") as f:
                 rel = f.read().strip()
-            return os.path.realpath(os.path.join(worktree_gitdir, rel))
         except OSError:
-            pass
+            return worktree_gitdir
+        common = os.path.realpath(os.path.join(worktree_gitdir, rel))
+        if not _looks_like_git_admin_dir(common):
+            raise OwnershipRefused(
+                "path-escape",
+                "the commondir file at %s points to %s, which does not "
+                "exist or does not look like real git administrative "
+                "state; refusing to create directories or write anything "
+                "there" % (commondir_file, common),
+                details={"commondir_file": commondir_file, "pointer_target": common})
+        return common
     return worktree_gitdir
 
 
@@ -1241,37 +1326,50 @@ class Store(object):
             details={"lifecycle_uuid": other_uuid, "name": other_name,
                      "paths": list(pair)})
 
+    #: Every field a reclaim can update, other than files (handled
+    #: separately because it is a list, not a scalar). GATE D's structural
+    #: test enumerates this SAME tuple, so a field added here without also
+    #: being added to _reclaim_active's None-check below fails that test
+    #: instead of shipping a silent-wipe defect.
+    UPDATABLE_SCALAR_FIELDS = ("objective", "owner", "tier", "check_cmd", "ttl_hours")
+
     def _reclaim_active(self, conn, row, objective, norm, owner, tier, check_cmd, ttl_hours):
         """The same session re-declaring a name it already holds active.
         Updates in place, keeps the SAME lifecycle_uuid (this is still the
-        same life of the record). Mirrors bm_registry.claim()'s reclaim
-        semantics: objective is always overwritten, owner is left untouched,
-        and tier/check_cmd/ttl_hours are only overwritten when a new truthy
-        value is given.
+        same life of the record).
 
-        norm is None when the caller did not supply files (GATE A,
-        fix-round 5, 2026-07-26): the existing claims are left COMPLETELY
-        untouched, no overlap re-check, no DELETE, no INSERT. Before this,
-        "not supplied" was treated as "supplied as empty", so a reclaim that
-        only wanted to update the objective silently deleted every file the
-        record was protecting and reported success. norm is a (possibly
-        empty) list when the caller explicitly supplied files: [] is a
-        deliberate, allowed release of every claim, since the caller had to
-        ask for it, and still re-checks overlap against every OTHER active
-        record, since skipping that check would let a same-session reclaim
-        silently seize a path a different session already holds."""
+        GATE D (fix-round 6, 2026-07-26): the None-versus-empty rule from
+        GATE A (round 5, for files) now applies to EVERY updatable scalar
+        field (see UPDATABLE_SCALAR_FIELDS): None means "not supplied" and
+        leaves the stored value completely untouched; any other value,
+        INCLUDING an explicit empty string, is a deliberate write, even to
+        clear the field. Before this, a reclaim that only wanted to change
+        the tier silently wiped the objective to empty, unrecoverable, exit
+        0: the identical defect class fixed for files last round, left open
+        here (this project's most expensive recurring failure: fix the
+        instance, leave the class).
+
+        norm is None when the caller did not supply files: the existing
+        claims are left COMPLETELY untouched, no overlap re-check, no
+        DELETE, no INSERT. norm is a (possibly empty) list when the caller
+        explicitly supplied files: [] is a deliberate, allowed release, and
+        still re-checks overlap against every OTHER active record, since
+        skipping that check would let a same-session reclaim silently seize
+        a path a different session already holds."""
         if norm is not None:
             conflict = self._find_overlap(conn, norm, exclude_uuid=row["lifecycle_uuid"])
             if conflict is not None:
                 self._raise_overlap(conflict)
         ts = now_iso()
-        new_tier = tier if tier else row["tier"]
-        new_check = check_cmd if check_cmd else row["check_cmd"]
+        new_objective = objective if objective is not None else row["objective"]
+        new_owner = owner if owner is not None else row["owner"]
+        new_tier = tier if tier is not None else row["tier"]
+        new_check = check_cmd if check_cmd is not None else row["check_cmd"]
         new_ttl = ttl_hours if ttl_hours is not None else row["ttl_hours"]
         _exec(self,
-            "UPDATE records SET objective=?, tier=?, check_cmd=?, ttl_hours=?, "
-            "version=version+1, updated_at=? WHERE lifecycle_uuid=?",
-            (objective or "", new_tier, new_check, new_ttl, ts, row["lifecycle_uuid"]))
+            "UPDATE records SET objective=?, owner=?, tier=?, check_cmd=?, "
+            "ttl_hours=?, version=version+1, updated_at=? WHERE lifecycle_uuid=?",
+            (new_objective, new_owner, new_tier, new_check, new_ttl, ts, row["lifecycle_uuid"]))
         if norm is not None:
             _exec(self, "DELETE FROM claims WHERE lifecycle_uuid=?", (row["lifecycle_uuid"],))
             for path, is_glob in norm:
@@ -1280,8 +1378,8 @@ class Store(object):
                     (row["lifecycle_uuid"], path, 1 if is_glob else 0))
         return self._record_by_uuid(conn, row["lifecycle_uuid"])
 
-    def claim(self, name, lifetime, objective, files, owner="", session_id="",
-              tier="", check_cmd="", ttl_hours=None, cwd=None):
+    def claim(self, name, lifetime, objective=None, files=None, owner=None, session_id="",
+              tier=None, check_cmd=None, ttl_hours=None, cwd=None):
         """Register (or, for the SAME non-empty session re-declaring, update
         in place) one unit of work. Every refusal here closes a confirmed
         defect: silent takeover of an active name (F3, and again through the
@@ -1295,14 +1393,19 @@ class Store(object):
         the root must store the identical string, never two different ones
         that both "win" against overlap checking.
 
-        files=None (fix-round 5, 2026-07-26, GATE A) means "not supplied":
-        on a NEW claim that is an empty fence (unchanged from before); on a
-        RECLAIM it LEAVES the existing claims completely untouched. Before
-        this fix, a same-session reclaim that only wanted to update the
-        objective silently deleted every file the record was protecting,
-        reported success, and the next writer was granted the freed path.
-        files=[] (an explicit empty list) is a deliberate release and is
-        always honored, on both a new claim and a reclaim."""
+        GATE D (fix-round 6, 2026-07-26): objective, owner, tier, and
+        check_cmd now default to None, the same "not supplied" sentinel
+        files has used since GATE A (round 5). On a NEW claim, None simply
+        means empty (unchanged prior behavior for a fresh record). On a
+        RECLAIM, None LEAVES the stored value completely untouched; any
+        other value (an explicit "" included) is a deliberate write, even
+        to clear the field. Before this fix, a reclaim that only wanted to
+        update the tier silently erased the objective to empty,
+        unrecoverable, exit 0 (the identical files defect from round 5,
+        left open for every other field). files follows the same rule:
+        None LEAVES existing claims untouched on a reclaim; files=[] (an
+        explicit empty list) is a deliberate release, always honored, on
+        both a new claim and a reclaim."""
         valid_name(name)
         if lifetime not in ("persistent", "ephemeral"):
             raise ValueError(
@@ -1378,7 +1481,7 @@ class Store(object):
     # -- transition ------------------------------------------------------
 
     def transition(self, lifecycle_uuid, expected_version, to_state,
-                    session_id="", note="", evidence=""):
+                    session_id="", note="", evidence="", adopt_from_live_session=False):
         """Move a record along its legal state graph. Every failure to match
         lifecycle_uuid, expected_version, AND a legal source state for
         to_state raises StaleIdentity naming the actual current state and
@@ -1390,6 +1493,17 @@ class Store(object):
         match the caller's, or the move is refused 'not-owner', EXCEPT for
         the 'adopted' target: adoption of a dead session's record is the one
         legitimate cross-session path, and it records the adopter's session.
+
+        SOFT E (fix-round 6, 2026-07-26): that exception was too wide.
+        Adopting a record that is CURRENTLY ACTIVE under a DIFFERENT, live
+        session is a takeover dressed up as adoption: a second session
+        could not claim or park a live owner's record, but COULD adopt it
+        and then re-claim the freed name, in two exit-0 commands. Real dead-
+        session detection is Phase 3 work; until then, adopting a live
+        session's ACTIVE record requires the caller to say
+        adopt_from_live_session=True (CLI: --adopt-from-live-session)
+        explicitly, and the displacement is named in the refusal and
+        recorded in the transition's note.
 
         GATE 6 (fix-round 2026-07-26): resuming (or parking/completing) into
         a name another lifecycle now holds active violates the
@@ -1418,15 +1532,31 @@ class Store(object):
                        ("no such record" if row is None else
                         "version %s state %r" % (cur_version, cur_state))),
                     current_state=cur_state, current_version=cur_version)
-            if (to_state != "adopted" and row["session_id"]
+            if to_state != "adopted":
+                if row["session_id"] and row["session_id"] != (session_id or ""):
+                    raise OwnershipRefused(
+                        "not-owner",
+                        "lifecycle %s is owned by a different session; only "
+                        "that session may move it to '%s' (adoption is the "
+                        "exception for a dead session's record)"
+                        % (lifecycle_uuid, to_state),
+                        details={"lifecycle_uuid": lifecycle_uuid,
+                                 "held_by_session_id": row["session_id"]})
+            elif (row["state"] == "active" and row["session_id"]
                     and row["session_id"] != (session_id or "")):
-                raise OwnershipRefused(
-                    "not-owner",
-                    "lifecycle %s is owned by a different session; only that "
-                    "session may move it to '%s' (adoption is the exception "
-                    "for a dead session's record)" % (lifecycle_uuid, to_state),
-                    details={"lifecycle_uuid": lifecycle_uuid,
-                             "held_by_session_id": row["session_id"]})
+                if not adopt_from_live_session:
+                    raise OwnershipRefused(
+                        "live-session-adopt-blocked",
+                        "lifecycle %s is ACTIVE under a different, live "
+                        "session %r; adopting it requires explicit "
+                        "adopt_from_live_session=True (CLI: "
+                        "--adopt-from-live-session), which displaces that "
+                        "session" % (lifecycle_uuid, row["session_id"]),
+                        details={"lifecycle_uuid": lifecycle_uuid,
+                                 "displaced_session_id": row["session_id"]})
+                displaced = row["session_id"]
+                note = ("%s (displaced live session %r)" % (note, displaced)
+                        if note else "displaced live session %r" % displaced)
             if to_state == "active":
                 # GATE A (fix-round 3, 2026-07-26): resume must clear the
                 # SAME admission gate claim() does, against the record's OWN
@@ -1742,40 +1872,35 @@ class Store(object):
     def dump(self, raw=False):
         """Full JSON-serializable export of every table.
 
-        GATE C (fix-round 5, 2026-07-26, an authoring correction): redacts
-        BY DEFAULT, the same scope every other exit uses (objective, tier,
-        claim paths, decision topic/text, digest sections). Round 2's own
-        instruction called this "the raw export" and told bm_store.py to
-        leave it alone; the ratified design says redaction applies at every
-        exit, and the design wins over that instruction. dump is exactly
-        what a founder pipes into a file, a paste, or an issue, so silent
-        cleartext by default was the wrong direction. raw=True (CLI:
-        --raw) is the explicit, named escape hatch for a human who really
-        needs the unredacted sqlite contents (SECURITY.md documents the
-        file itself as sensitive); it is never the default."""
+        GATE C (fix-round 6, 2026-07-26): redacts BY DEFAULT-DENY. Every
+        TEXT-typed column not in _DUMP_SAFE_COLUMNS (read live from the
+        schema, see _text_columns) is redacted, whatever its name. Round 5
+        redacted an ENUMERATED list of known-sensitive fields and missed
+        transitions.note, directives.text, records.evidence,
+        records.check_cmd, and records.owner precisely because nobody had
+        listed them; default-deny means a new text column is redacted
+        automatically, with no code change required, rather than exposed
+        by default. dump is exactly what a founder pipes into a file, a
+        paste, or an issue, so silent cleartext by default is the wrong
+        direction. raw=True (CLI: --raw) is the explicit, named escape
+        hatch for a human who really needs the unredacted sqlite contents
+        (SECURITY.md documents the file itself as sensitive); it is never
+        the default."""
         out = {}
         for t in _TABLES:
             rows = _exec(self, "SELECT * FROM %s" % t).fetchall()
             out[t] = [dict(r) for r in rows]
         if raw:
             return out
-        for rec in out["records"]:
-            if rec.get("objective"):
-                rec["objective"] = redact_text(rec["objective"])
-            if rec.get("tier"):
-                rec["tier"] = redact_text(rec["tier"])
-        for c in out["claims"]:
-            if c.get("path"):
-                c["path"] = redact_text(c["path"])
-        for dec in out["decisions"]:
-            if dec.get("topic"):
-                dec["topic"] = redact_text(dec["topic"])
-            if dec.get("text"):
-                dec["text"] = redact_text(dec["text"])
-        for dg in out["digests"]:
-            for field in ("next_intent", "blockers", "files_note", "body"):
-                if dg.get(field):
-                    dg[field] = redact_text(dg[field])
+        for t in _TABLES:
+            text_cols = _text_columns(self.conn, t)
+            redact_cols = [c for c in text_cols if (t, c) not in _DUMP_SAFE_COLUMNS]
+            if not redact_cols:
+                continue
+            for row_dict in out[t]:
+                for col in redact_cols:
+                    if row_dict.get(col):
+                        row_dict[col] = redact_text(row_dict[col])
         return out
 
 
@@ -1784,16 +1909,40 @@ class Store(object):
 # are diagnostics. A diagnostic that can write is a diagnostic that can
 # silently CREATE the very thing it claims to be checking, and then report
 # health about the empty shell it just made. This class never creates a
-# directory, a file, or a WAL sidecar, never runs schema DDL, and opens the
-# connection via sqlite3 URI mode=ro so a stray write anywhere in the read
-# path raises rather than silently succeeding.
+# directory, a file, or a WAL sidecar, never runs schema DDL, and enforces
+# read-only with PRAGMA query_only=ON on a PLAIN connection (GATE A,
+# fix-round 6, 2026-07-26: no sqlite URI, ever; see _connect_read_only).
 # ---------------------------------------------------------------------------
 
-def _sqlite_ro_uri(path):
-    # SQLite URI filenames treat '?' and '#' specially; percent-encode them
-    # so an unusual path (rare, but not impossible) does not corrupt the
-    # query string this builds.
-    return "file:" + path.replace("?", "%3f").replace("#", "%23") + "?mode=ro"
+def _connect_read_only(path, timeout=5.0):
+    """Open an EXISTING file read-only, without ever building a sqlite URI
+    (GATE A, fix-round 6, 2026-07-26, VERIFIED BY ORCHESTRATOR). A URI's
+    query string only escapes '?' and '#'; sqlite itself percent-DECODES
+    everything else in the filename, so a project path containing '%' (for
+    example p%41) silently resolved to a COMPLETELY DIFFERENT file, and
+    every read-only command opened another project's database, reported it
+    healthy, and never saw the caller's own real data. Escaping '%' too
+    would still leave a pattern-language bug waiting for the next special
+    character; deleting URIs from this path removes the whole class rather
+    than its current instance. The caller has already proven the file
+    exists with a plain os.path.isfile check, so a normal
+    sqlite3.connect(path) is unambiguous: no escaping, no decoding, no URI
+    grammar at all. Read-only is enforced at the SQL level with PRAGMA
+    query_only=ON, set as the FIRST statement on the connection, which
+    makes any write raise sqlite3.OperationalError rather than silently
+    succeed (verified in a test that attempts an INSERT)."""
+    conn = sqlite3.connect(path, timeout=timeout, isolation_level=None)
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA query_only = ON")
+        conn.execute("PRAGMA busy_timeout=5000")
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        raise
+    return conn
 
 
 class ReadOnlyStore(object):
@@ -1826,11 +1975,8 @@ class ReadOnlyStore(object):
             self._quarantine_and_raise(
                 ValueError("store file exists but is zero bytes (truncated, or never finished writing)"))
         try:
-            conn = sqlite3.connect(_sqlite_ro_uri(self.path), uri=True,
-                                    timeout=5.0, isolation_level=None)
-            conn.row_factory = sqlite3.Row
+            conn = _connect_read_only(self.path)
             self.conn = conn
-            conn.execute("PRAGMA busy_timeout=5000")
             self.conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
         except sqlite3.OperationalError as e:
             if self.conn is not None:
@@ -1867,9 +2013,28 @@ class ReadOnlyStore(object):
 
 def _find_quarantine_dirs(root):
     """Every quarantine directory currently sitting beside the store,
-    newest first (the timestamp-plus-uuid naming sorts lexicographically)."""
-    pattern = store_path(root) + ".quarantine-*"
-    return sorted((p for p in glob.glob(pattern) if os.path.isdir(p)), reverse=True)
+    newest first (the timestamp-plus-uuid naming sorts lexicographically).
+
+    GATE B (fix-round 6, 2026-07-26): NEVER glob. glob.glob interpolates
+    the root into a pattern string, so a project path containing [ ] * or ?
+    (for example a directory literally named 'p[1]') is itself read as
+    GLOB SYNTAX rather than a literal path, and an outstanding quarantine
+    silently stops matching: init then creates a fresh store over real data
+    loss and verify reports healthy. The fix deletes the pattern language
+    for this lookup entirely rather than escaping it (the same shape as
+    GATE A): list the containing directory literally with os.listdir and
+    match the quarantine marker by a plain string prefix, so no character
+    in the project's path is ever interpreted as syntax."""
+    store_dirname_path = store_dir(root)
+    prefix = STORE_FILENAME + ".quarantine-"
+    try:
+        entries = os.listdir(store_dirname_path)
+    except OSError:
+        return []
+    hits = [os.path.join(store_dirname_path, name) for name in entries
+            if name.startswith(prefix)
+            and os.path.isdir(os.path.join(store_dirname_path, name))]
+    return sorted(hits, reverse=True)
 
 
 def _is_quarantine_acknowledged(qdir):
@@ -1888,7 +2053,7 @@ def _quarantine_record_count(qdir):
     if not os.path.isfile(qpath) or os.path.getsize(qpath) == 0:
         return None
     try:
-        conn = sqlite3.connect(_sqlite_ro_uri(qpath), uri=True, timeout=1.0)
+        conn = _connect_read_only(qpath, timeout=1.0)
         try:
             row = conn.execute("SELECT COUNT(*) FROM records").fetchone()
             return row[0] if row else None
@@ -2149,6 +2314,27 @@ def _out(s, end="\n"):
             pass
 
 
+def _warn(s, end="\n"):
+    """Write one advisory/warning line to STDERR, never stdout (SOFT F,
+    fix-round 6, 2026-07-26): dump's payload is meant to be piped and
+    json.load()'d directly, and a quarantine warning or a --raw notice
+    mixed into that same stream made the redirected output invalid JSON.
+    Same UnicodeEncodeError safety as _out(), just aimed at stderr."""
+    text = s + end
+    try:
+        sys.stderr.write(text)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stderr, "encoding", None) or "ascii"
+        try:
+            sys.stderr.buffer.write(text.encode(enc, errors="backslashreplace"))
+        except Exception:
+            sys.stderr.write(text.encode("ascii", errors="backslashreplace").decode("ascii"))
+    try:
+        sys.stderr.flush()
+    except Exception:
+        pass
+
+
 def _parse_kv(argv):
     """"--flag value [value ...]" parsing: everything after a flag, up to
     the next flag, is that flag's value list. The same shape bm_threads.py
@@ -2219,12 +2405,22 @@ def cmd_claim(argv):
         _out("  --release-files explicitly releases every file (on a reclaim); "
              "omitting --files entirely LEAVES the existing fence untouched, "
              "it can never be dropped by accident.")
+        _out("  On a reclaim, omitting --objective/--tier/--check/--owner LEAVES "
+             "each untouched; typing the flag, even with an empty value, sets it.")
         sys.exit(2)
     name = argv[0]
     kv = _parse_kv(argv[1:])
     root, _source = require_root()
     lifetime = " ".join(kv.get("lifetime", [])) or "ephemeral"
-    objective = " ".join(kv.get("objective", []))
+    # GATE D (fix-round 6, 2026-07-26): the SAME None-vs-empty rule GATE A
+    # (round 5) applied only to --files now applies to every updatable
+    # scalar flag. Omitting a flag entirely means None (not supplied,
+    # leaves an existing value untouched on a reclaim); typing the flag AT
+    # ALL, even with an empty join result, is the caller's deliberate
+    # value, including a deliberate clear. Before this, cmd_claim always
+    # joined an absent flag to "", indistinguishable from "clear it", so a
+    # reclaim with only --tier silently erased the objective.
+    objective = " ".join(kv["objective"]) if "objective" in kv else None
     # GATE A (fix-round 5, 2026-07-26): a bare '--files' with no paths and no
     # '--release-files' is treated as NOT SUPPLIED (files=None, preserves an
     # existing fence on reclaim), not as an accidental release. Only a
@@ -2237,11 +2433,11 @@ def cmd_claim(argv):
         files = explicit_files
     else:
         files = None
-    owner = " ".join(kv.get("owner", []))
+    owner = " ".join(kv["owner"]) if "owner" in kv else None
     # GATE 3: an omitted --session gets a fresh per-process id, never "".
     session_id = " ".join(kv.get("session", [])) or _default_cli_session_id()
-    tier = " ".join(kv.get("tier", []))
-    check_cmd = " ".join(kv.get("check", []))
+    tier = " ".join(kv["tier"]) if "tier" in kv else None
+    check_cmd = " ".join(kv["check"]) if "check" in kv else None
     ttl_raw = kv.get("ttl-hours")
     ttl_hours = float(ttl_raw[0]) if ttl_raw else None
     # Fix-round 4: only `init` creates a store; claim refuses 'no-store'.
@@ -2271,13 +2467,23 @@ def _cmd_transition(argv, to_state, usage):
     session_id = " ".join(kv.get("session", []))
     note = " ".join(kv.get("note", []))
     evidence = " ".join(kv.get("evidence", []))
+    # SOFT E (fix-round 6, 2026-07-26): required only to adopt a record that
+    # is currently active under a DIFFERENT, live session; harmless to pass
+    # or omit for park/resume/complete, which never check it.
+    adopt_from_live_session = "adopt-from-live-session" in kv
     root, _source = require_root()
     store = Store(root, create=False)
     try:
+        before = store.get(lifecycle_uuid)
         rec = store.transition(lifecycle_uuid, expected_version, to_state,
-                                session_id=session_id, note=note, evidence=evidence)
+                                session_id=session_id, note=note, evidence=evidence,
+                                adopt_from_live_session=adopt_from_live_session)
     finally:
         store.close()
+    if (to_state == "adopted" and before is not None and before.state == "active"
+            and before.session_id and before.session_id != session_id):
+        _out("%s: displaced live session %r from '%s' (lifecycle %s)"
+             % (to_state, before.session_id, rec.name, rec.lifecycle_uuid))
     _out("%s: '%s' (lifecycle %s) is now %s at version %s"
          % (to_state, rec.name, rec.lifecycle_uuid, rec.state, rec.version))
 
@@ -2296,7 +2502,10 @@ def cmd_complete(argv):
 
 
 def cmd_adopt(argv):
-    _cmd_transition(argv, "adopted", "adopt <lifecycle_uuid> --version N [--session SID] [--note TEXT]")
+    _cmd_transition(argv, "adopted",
+                     "adopt <lifecycle_uuid> --version N [--session SID] [--note TEXT] "
+                     "[--adopt-from-live-session]  (required to adopt a record that is "
+                     "currently active under a different, live session)")
 
 
 def cmd_checkpoint(argv):
@@ -2359,11 +2568,13 @@ def cmd_dump(argv):
     store = ReadOnlyStore(root)  # fix-round 4: dump is a diagnostic, never creates
     try:
         if raw:
-            # GATE C (fix-round 5): --raw prints every objective, tier,
-            # claim path, decision, and digest in CLEARTEXT, unredacted.
-            # Named and warned at the point of use, never the default.
-            _out("bm_store: --raw: printing objectives, tiers, claim paths, "
-                 "decisions, and digests UNREDACTED (cleartext).")
+            # GATE C (fix-round 5, updated fix-round 6 for default-deny):
+            # --raw prints every non-structural text field UNREDACTED. Named
+            # and warned at the point of use, never the default. SOFT F
+            # (fix-round 6): to stderr, so `dump --raw > file.json` is still
+            # valid JSON.
+            _warn("bm_store: --raw: printing every non-structural text "
+                  "field UNREDACTED (cleartext).")
         data = store.dump(raw=raw)
     finally:
         store.close()
@@ -2403,11 +2614,14 @@ def _warn_if_unacknowledged_quarantine(root):
         return
     if not unacknowledged:
         return
-    _out("bm_store: WARNING: %d unacknowledged quarantine director%s: %s. "
-         "Run `python3 tools/bm_store.py init --acknowledge-quarantine` "
-         "after recovering what you need."
-         % (len(unacknowledged), "y" if len(unacknowledged) == 1 else "ies",
-            "; ".join(_quarantine_summary(d) for d in unacknowledged)))
+    # SOFT F (fix-round 6, 2026-07-26): to stderr. This prints before EVERY
+    # command, including dump; a warning on stdout made `dump > file.json`
+    # invalid JSON while a quarantine was outstanding.
+    _warn("bm_store: WARNING: %d unacknowledged quarantine director%s: %s. "
+          "Run `python3 tools/bm_store.py init --acknowledge-quarantine` "
+          "after recovering what you need."
+          % (len(unacknowledged), "y" if len(unacknowledged) == 1 else "ies",
+             "; ".join(_quarantine_summary(d) for d in unacknowledged)))
 
 
 def main(argv=None):
