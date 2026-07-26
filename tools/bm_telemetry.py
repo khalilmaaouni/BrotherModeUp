@@ -1369,11 +1369,29 @@ _BM_AUTOSAVE, _BM_AUTOSAVE_LOAD_ERROR = _load_bm_autosave()
 def _autosave_recovery_line(cwd, session_id):
     """GATE E, fix-round 2026-07-26: the honesty defect. The old code
     printed "Your files are autosaved" UNCONDITIONALLY, and pointed at
-    tools/bm_autosave.sh, which Phase 2 deleted. Fixed: the safety claim is
-    printed ONLY when bm_autosave.has_receipt finds a real receipt row for
-    THIS worktree and THIS session; every other path says plainly what is
-    actually known and names the command that exists
-    (tools/bm_autosave.py recover), never the deleted shell script.
+    tools/bm_autosave.sh, which Phase 2 deleted. Fixed then: the safety
+    claim printed only when a receipt row existed for THIS worktree and
+    THIS session.
+
+    FINDING 1, external audit 2026-07-27: a receipt ROW was still the wrong
+    thing to ask. It answered a historical question ("did this session ever
+    snapshot?"), so this sequence printed a false all-clear:
+
+        10:00  snapshot succeeds, receipt written
+        10:30  more files change
+        11:00  the next PreCompact snapshot FAILS
+        11:05  session resumes, the 10:00 receipt still exists
+               -> "Your files are autosaved". The newest work is NOT saved.
+
+    This now asks bm_autosave.verify_recoverable, which consumes ONE
+    compaction event (so a stale one cannot be re-read on a later resume)
+    and RE-RESOLVES the recorded git ref to the recorded sha before any
+    claim is made. Three outcomes, and the wording of each is deliberate:
+      verified   name the ref and the short sha, and the time it captured,
+                 so the claim says what it actually covers.
+      unverified say plainly that the newest work may not be captured, and
+                 give the exact command to check. Never softened.
+      unknown    make no claim in either direction.
 
     Never runs git: bm_telemetry.py's HARD CONSTRAINT (see the "Update
     awareness" section above) is no subprocess, ever, so this resolves a
@@ -1404,17 +1422,34 @@ def _autosave_recovery_line(cwd, session_id):
         if root is None:
             return unknown % ("no BrotherMode project root found from %s" % cwd, recover_cmd)
         worktree_id = _BM_AUTOSAVE.worktree_id_for(root)
-        found = _BM_AUTOSAVE.has_receipt(root, worktree_id, session_id)
+        verdict = _BM_AUTOSAVE.verify_recoverable(root, worktree_id, session_id)
     except Exception as e:
         return unknown % (repr(e), recover_cmd)
-    if found:
+
+    state = (verdict or {}).get("state")
+    if state == "verified":
+        captured = (verdict.get("captured_at") or "").strip()
+        when = ", captured %s," % captured if captured else ","
         return ("BROTHERMODE: resumed after a compaction. Your files are autosaved "
-                "(run `%s`) and the thread is below. Read it, re-read STATE.md and "
-                "git status, then continue." % recover_cmd)
+                "in snapshot %s at ref %s%s and that ref was re-checked just now "
+                "(run `%s`). Anything you changed after that snapshot is not in it, "
+                "so re-read STATE.md and git status, then continue."
+                % (verdict.get("short") or verdict.get("sha", ""), verdict.get("ref", ""),
+                   when, recover_cmd))
+    if state == "unverified":
+        detail = (verdict.get("detail") or "the last autosave could not be confirmed").rstrip(".")
+        return ("BROTHERMODE: resumed after a compaction. WARNING: your newest work "
+                "may NOT be captured. %s. Check for yourself before you continue: "
+                "run `%s`, and re-read STATE.md and git status."
+                % (detail[:1].upper() + detail[1:], recover_cmd))
+    if state == "unknown":
+        return unknown % (verdict.get("detail") or "the git directory could not be read",
+                          recover_cmd)
     return ("BROTHERMODE: resumed after a compaction. No autosave snapshot receipt "
-            "was found for this worktree and session. That may mean nothing was "
-            "captured yet, not that work was lost; run `%s` to look for a snapshot, "
-            "and re-read STATE.md and git status either way." % recover_cmd)
+            "was found for this worktree and session, so your newest work may NOT "
+            "be captured. That may mean nothing was ever snapshotted here, not that "
+            "work was lost; run `%s` to check, and re-read STATE.md and git status "
+            "either way." % recover_cmd)
 
 
 def cmd_compact_hint():
