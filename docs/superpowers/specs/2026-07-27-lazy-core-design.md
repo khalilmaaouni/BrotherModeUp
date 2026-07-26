@@ -112,3 +112,51 @@ because refuters from one family share one family's blind spots.
 - Chasing the report's numbers as a target.
 - Any public onboarding polish before Phase 1 is green.
 - Rewriting laws that are working; Phase 2 MOVES prose, it does not rewrite it.
+
+## Measured baseline and the extraction map (added 2026-07-27, by command)
+
+Always-on cost today: **10,407 tokens** before the first useful action
+(SKILL.md 10,062 plus the SessionStart hook 344). Target: under 400.
+
+Per-section weight, measured rather than estimated:
+
+| Section | Lines | ~Tokens | Tier |
+|---|---:|---:|---|
+| 8. Improvement loops | 100 | 1,984 | ON DEMAND (session close) |
+| 3. Delegation and routing | 55 | 1,079 | ON DEMAND (T2 and above) |
+| 1. Work profiles | 40 | 782 | ON DEMAND (after triage) |
+| 5. Fences and harness | 38 | 736 | HOOK (tier 0 mechanism) |
+| 11. Computer control | 40 | 709 | ON DEMAND |
+| 14. Founder model | 35 | 682 | ON DEMAND (decision work) |
+| 13. Known-mistakes ledger | 28 | 511 | ON DEMAND |
+| preamble | 25 | 448 | TRIM to about 150, always on |
+| 4. Token budgets | 24 | 431 | ON DEMAND (merge into delegation) |
+| 15. Scoring | 22 | 420 | ON DEMAND (session close) |
+| 7. Solutioning triage | 19 | 359 | ALWAYS (it is the router) |
+| 10. Honesty and push-back | 20 | 341 | TRIM, partly always on |
+| 12. Structured memory | 17 | 322 | ON DEMAND |
+| 9. Context hygiene | 17 | 304 | ON DEMAND |
+| 6. Research doctrine | 14 | 237 | ON DEMAND |
+| 2. Role assignment | 8 | 122 | ON DEMAND (merge into profiles) |
+| 0. Invocation sequence | 32 | 589 | BECOMES the router table |
+
+The single most valuable observation: **section 8 is 1,984 tokens, a fifth of the
+entire always-on cost, and it is needed at session CLOSE, not during work.** It
+has been charged on every trivial task since it was written.
+
+Second: section 5 (fences, 736 tokens) does not need to be prose at all once the
+PreToolUse hook exists. A law that the hook enforces does not also need to be
+recited into context. That is the clearest case of the whole design: mechanism
+REPLACES prose rather than sitting beside it.
+
+Proposed tier 0, target about 330 tokens:
+  - who you are, and the founder communication rule (about 80)
+  - the three-question complexity triage (about 100)
+  - the router table: which reference to load for which situation (about 150)
+
+Everything else becomes references/ loaded on demand:
+  profiles.md, delegation.md, fences.md, verification.md, founder-model.md,
+  improvement.md, recovery.md, context.md, machine.md
+
+Kill criterion stands: extract one at a time, re-measure, re-run all suites, and
+revert any extraction that degrades a dimension this project currently wins.
