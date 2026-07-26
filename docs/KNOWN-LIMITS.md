@@ -84,6 +84,29 @@ job `store (windows-latest, 3.x)` exited 1; the other matrix legs were cancelled
 fail-fast, so the Windows 3.9 leg and one macOS leg remain UNKNOWN rather than
 passing.
 
+## Recovered work is owner-only on POSIX ONLY, not on Windows
+
+Found 2026-07-27 by putting the recovery suite into CI for the first time (audit
+finding 14). It failed on both Windows legs and passed on all four POSIX legs.
+
+The guarantee "a recovered worktree, and any private untracked file inside it, is
+readable only by you" rests on a POSIX file mode of 0700. Windows governs access
+by ACLs instead, and there `os.chmod` can only toggle a read-only bit. So on
+Windows the recovered directory inherits whatever the parent temp directory
+grants, and this project does not currently set an ACL to narrow it.
+
+What this does and does not mean:
+
+- The tool does NOT lie about it. It prints the mode it actually achieved rather
+  than the mode it wanted, so a Windows user sees the real value.
+- The POSIX guarantee is unchanged and still asserted at full strength.
+- A Windows user on a shared machine should treat recovered work as readable by
+  other local accounts until this is closed with a real ACL call.
+
+Not fixed yet because doing it properly needs a Windows ACL API rather than a
+weaker assertion, and a security property is worth stating honestly while it is
+missing rather than quietly skipping the test that revealed it.
+
 ## Windows was BROKEN, was fixed, and is now GREEN (the full arc, kept on purpose)
 
 CORRECTED 2026-07-26. An earlier version said Windows was "designed for, not
