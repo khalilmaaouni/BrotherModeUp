@@ -757,19 +757,56 @@ def _chmod_best_effort(path, mode):
         pass
 
 
+def _resolve_git_common_dir(root):
+    """The directory that actually holds info/exclude for this checkout
+    (GATE C, fix-round 3, 2026-07-26). A normal checkout: <root>/.git. A
+    worktree: .git is a FILE containing 'gitdir: <path>' pointing at
+    <main>/.git/worktrees/<name>; info/exclude is NOT per-worktree, it is
+    shared once at the top of the MAIN checkout's .git, named by that
+    worktree gitdir's own 'commondir' file (present since git 2.5). The old
+    code returned early on a .git FILE, so nothing was ever excluded inside
+    a worktree and `git add -A` staged the raw store. Verified against a
+    real `git worktree add`. Returns None when there is no git here at all,
+    or anything about it could not be read."""
+    git_path = os.path.join(root, ".git")
+    if os.path.isdir(git_path):
+        return git_path
+    if not os.path.isfile(git_path):
+        return None
+    try:
+        with open(git_path, encoding="utf-8", errors="replace") as f:
+            content = f.read().strip()
+    except OSError:
+        return None
+    if not content.startswith("gitdir:"):
+        return None
+    pointer = content[len("gitdir:"):].strip()
+    if not os.path.isabs(pointer):
+        pointer = os.path.join(root, pointer)
+    worktree_gitdir = os.path.realpath(pointer)
+    commondir_file = os.path.join(worktree_gitdir, "commondir")
+    if os.path.isfile(commondir_file):
+        try:
+            with open(commondir_file, encoding="utf-8", errors="replace") as f:
+                rel = f.read().strip()
+            return os.path.realpath(os.path.join(worktree_gitdir, rel))
+        except OSError:
+            pass
+    return worktree_gitdir
+
+
 def _ensure_git_excludes(root):
-    """Append .brothermode/, threads/, STATE.md to .git/info/exclude when a
-    .git DIRECTORY exists and the entries are absent (fixes finding 30).
+    """Append .brothermode/, threads/, STATE.md to the resolved git common
+    dir's info/exclude when git is present here and the entries are absent
+    (fixes finding 30; worktree support is GATE C, fix-round 3, 2026-07-26).
     Called from Store.__init__ on EVERY open (GATE 7, fix-round 2026-07-26),
     not only from init: any command creates .brothermode/store.sqlite3 as a
     side effect, so a routine `git add -A` run before anyone happens to run
     `init` used to commit the store, cleartext founder secrets and all.
     Idempotent, so calling it on every open costs nothing once the entries
-    are already present. A worktree's .git FILE (not a directory) is left
-    alone, matching the literal spec wording; resolving its real common
-    gitdir is out of scope."""
-    git_dir = os.path.join(root, ".git")
-    if not os.path.isdir(git_dir):
+    are already present."""
+    git_dir = _resolve_git_common_dir(root)
+    if git_dir is None:
         return
     exclude_path = os.path.join(git_dir, "info", "exclude")
     wanted = [".brothermode/", "threads/", "STATE.md"]
@@ -837,14 +874,43 @@ class Store(object):
         constructor exactly."""
         self.root = os.path.realpath(root)
         self.conn = None
-        os.makedirs(store_dir(self.root), exist_ok=True)
+        expected_store_dir = store_dir(self.root)
+        os.makedirs(expected_store_dir, exist_ok=True)
+        # GATE D (fix-round 3, 2026-07-26): claim paths were already
+        # symlink-checked and refused as 'path-escape', but .brothermode
+        # itself was not, so a repository carrying .brothermode -> docs (or
+        # -> ../shared) wrote the sensitive store outside the project root,
+        # defeated the exclude line entirely, and chmod'd the LINK TARGET.
+        # Same containment rule, checked BEFORE any chmod or DB open.
+        real_store_dir = os.path.realpath(expected_store_dir)
+        if real_store_dir != expected_store_dir:
+            raise OwnershipRefused(
+                "path-escape",
+                "%s is a symlink (or contains one) resolving to %s; "
+                "refusing to use it as the store directory rather than "
+                "write the sensitive store outside the project root or "
+                "chmod that target" % (expected_store_dir, real_store_dir),
+                details={"expected": expected_store_dir, "resolved": real_store_dir})
         # GATE 7 (fix-round 2026-07-26): every open protects itself, not
         # only `init`. A command run before anyone happens to `init` still
         # creates the store directory as a side effect, and that must never
         # be one `git add -A` away from committing a cleartext secret.
         _ensure_git_excludes(self.root)
-        _chmod_best_effort(store_dir(self.root), 0o700)
+        _chmod_best_effort(expected_store_dir, 0o700)
         self.path = store_path(self.root)
+        if os.path.exists(self.path) and os.path.getsize(self.path) == 0:
+            # GATE B (fix-round 3, 2026-07-26): sqlite3 accepts a zero-byte
+            # file as a valid, brand-new empty database, so a truncated
+            # store never raised DatabaseError and never reached quarantine:
+            # every record silently gone, dashboard reporting "No records."
+            # at exit 0. An EXISTING zero-length file is corruption, never a
+            # fresh database; first-time creation is unaffected, since the
+            # file does not exist at all yet when this branch runs, and the
+            # normal open path below always ends construction with a real
+            # schema on disk, so a zero-byte file can never persist as a
+            # legitimate state to be mistaken for one later.
+            self._quarantine_and_raise(
+                ValueError("store file exists but is zero bytes (truncated, or never finished writing)"))
         try:
             conn = sqlite3.connect(self.path, timeout=5.0, isolation_level=None)
             conn.row_factory = sqlite3.Row
@@ -1038,6 +1104,41 @@ class Store(object):
                     return (r["name"], r["lifecycle_uuid"], (path, r["path"]))
         return None
 
+    def _admit(self, conn, name, lifetime, norm_files, exclude_uuid=None):
+        """The ONE admission check any path that grants a record ACTIVE
+        status over a set of claims must run (GATE A, fix-round 3,
+        2026-07-26): resume (parked -> active) used to re-run NONE of
+        claim()'s checks, so it walked straight over another session's
+        fence and the persistent cap, and verify() then reported the exact
+        overlap the store itself had just created. This is the project's
+        cross-cutting-concern law: one primitive, called by both claim()
+        and the resume path in transition(), so a third caller cannot
+        diverge. Name-uniqueness is NOT checked here: claim() checks it via
+        a SELECT before this runs, and resume relies on the UNIQUE INDEX
+        itself raising IntegrityError at the UPDATE site (GATE 6); both
+        funnel to the same 'name-active' refusal at their own call sites."""
+        conflict = self._find_overlap(conn, norm_files, exclude_uuid=exclude_uuid)
+        if conflict is not None:
+            self._raise_overlap(conflict)
+        if lifetime == "persistent":
+            if exclude_uuid is None:
+                active_persistent = _exec(self,
+                    "SELECT COUNT(*) AS c FROM records "
+                    "WHERE state='active' AND lifetime='persistent'").fetchone()["c"]
+            else:
+                active_persistent = _exec(self,
+                    "SELECT COUNT(*) AS c FROM records WHERE state='active' "
+                    "AND lifetime='persistent' AND lifecycle_uuid != ?",
+                    (exclude_uuid,)).fetchone()["c"]
+            if active_persistent >= MAX_ACTIVE_PERSISTENT:
+                raise OwnershipRefused(
+                    "cap",
+                    "%d active persistent records already exist (limit "
+                    "%d); park or complete one before claiming another"
+                    % (active_persistent, MAX_ACTIVE_PERSISTENT),
+                    details={"limit": MAX_ACTIVE_PERSISTENT, "active": active_persistent,
+                             "name": name})
+
     def _raise_overlap(self, conflict):
         other_name, other_uuid, pair = conflict
         raise OwnershipRefused(
@@ -1107,6 +1208,23 @@ class Store(object):
                 # door. Reclaiming in place now requires a NON-EMPTY session
                 # id equal to the one on file.
                 if session_id and active["session_id"] == session_id:
+                    if lifetime != active["lifetime"]:
+                        # SOFT F (fix-round 3, 2026-07-26): a reclaim used to
+                        # silently keep the OLD lifetime and return a Record
+                        # reporting it as though the request was honored,
+                        # the same silent-success class as round 2's files
+                        # bug. Refused, not silently changed: a lifetime
+                        # flip changes cap enforcement and is significant
+                        # enough to require an explicit park/re-claim.
+                        raise OwnershipRefused(
+                            "lifetime-mismatch",
+                            "'%s' is active as %r; claim requested %r. "
+                            "Reclaiming cannot silently change lifetime: "
+                            "park it and claim again with the new lifetime."
+                            % (name, active["lifetime"], lifetime),
+                            details={"lifecycle_uuid": active["lifecycle_uuid"],
+                                     "current_lifetime": active["lifetime"],
+                                     "requested_lifetime": lifetime})
                     return self._reclaim_active(
                         conn, active, objective, norm, owner, tier, check_cmd, ttl_hours)
                 raise OwnershipRefused(
@@ -1118,20 +1236,7 @@ class Store(object):
                     % (name, active["lifecycle_uuid"], active["session_id"]),
                     details={"lifecycle_uuid": active["lifecycle_uuid"], "name": name,
                              "held_by_session_id": active["session_id"]})
-            conflict = self._find_overlap(conn, norm)
-            if conflict is not None:
-                self._raise_overlap(conflict)
-            if lifetime == "persistent":
-                active_persistent = _exec(self,
-                    "SELECT COUNT(*) AS c FROM records "
-                    "WHERE state='active' AND lifetime='persistent'").fetchone()["c"]
-                if active_persistent >= MAX_ACTIVE_PERSISTENT:
-                    raise OwnershipRefused(
-                        "cap",
-                        "%d active persistent records already exist (limit "
-                        "%d); park or complete one before claiming another"
-                        % (active_persistent, MAX_ACTIVE_PERSISTENT),
-                        details={"limit": MAX_ACTIVE_PERSISTENT, "active": active_persistent})
+            self._admit(conn, name, lifetime, norm)
             lifecycle_uuid = uuid.uuid4().hex
             ts = now_iso()
             _exec(self,
@@ -1204,6 +1309,20 @@ class Store(object):
                     "for a dead session's record)" % (lifecycle_uuid, to_state),
                     details={"lifecycle_uuid": lifecycle_uuid,
                              "held_by_session_id": row["session_id"]})
+            if to_state == "active":
+                # GATE A (fix-round 3, 2026-07-26): resume must clear the
+                # SAME admission gate claim() does, against the record's OWN
+                # claims and lifetime, excluding itself from both checks
+                # (it is not active yet, so this is defensive, not required
+                # by the current schema, but keeps _admit's contract honest
+                # regardless of call order). On conflict the record stays
+                # parked: nothing here has mutated state yet.
+                claim_rows = _exec(self,
+                    "SELECT path, is_glob FROM claims WHERE lifecycle_uuid=?",
+                    (lifecycle_uuid,)).fetchall()
+                norm_files = [(r["path"], bool(r["is_glob"])) for r in claim_rows]
+                self._admit(conn, row["name"], row["lifetime"], norm_files,
+                            exclude_uuid=lifecycle_uuid)
             ts = now_iso()
             new_evidence = evidence if to_state == "complete" else row["evidence"]
             try:
@@ -1421,18 +1540,25 @@ class Store(object):
         needs first. Fixed per-section budgets mean next_intent can never be
         displaced, no matter how much decision history exists. Advisory for a
         missing record (renders a plain string instead of raising), but NOT
-        advisory for redaction: every founder-typed field below (next_intent,
-        blockers, files_note, each decision's topic and text) is passed
-        through redact_text() before truncation, and raises
-        RedactionUnavailable rather than rendering unredacted text if that
-        cannot happen."""
+        advisory for redaction: every founder-typed field below (the
+        objective, next_intent, blockers, files_note, each decision's topic
+        and text) is passed through redact_text() before truncation, and
+        raises RedactionUnavailable rather than rendering unredacted text if
+        that cannot happen.
+
+        SOFT E (fix-round 3, 2026-07-26): the header carries the objective,
+        as the ratified spec's own budget list names it ("header (lifecycle,
+        objective) 400 chars"); it used to carry name/state/lifetime only,
+        so a resuming session read a handover that never said what the work
+        was for."""
         row = _exec(self,
             "SELECT * FROM records WHERE lifecycle_uuid=?", (lifecycle_uuid,)).fetchone()
         if row is None:
             return "(no record with lifecycle_uuid %s)" % lifecycle_uuid
+        objective_text = redact_text(row["objective"]) if row["objective"] else "(no objective)"
         header = _truncate(
-            "lifecycle %s: %s (%s, %s)"
-            % (lifecycle_uuid[:8], row["name"], row["state"], row["lifetime"]),
+            "lifecycle %s: %s (%s, %s): %s"
+            % (lifecycle_uuid[:8], row["name"], row["state"], row["lifetime"], objective_text),
             _SECTION_BUDGETS["header"])
         digest_row = _exec(self,
             "SELECT * FROM digests WHERE lifecycle_uuid=? ORDER BY seq DESC LIMIT 1",
