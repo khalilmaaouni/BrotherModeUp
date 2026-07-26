@@ -49,6 +49,18 @@ def _run_cli(args, cwd, env=None):
         cwd=cwd, capture_output=True, text=True, env=e)
 
 
+def _scan_for_forbidden_output_calls(lines):
+    """Shared by the round-7 output-funnel structural test and its
+    calibration companion: any non-comment line containing a bare print(),
+    sys.stdout.write, sys.stderr.write, or an equivalent .stdout.write /
+    .stderr.write. Comment lines (stripped content starting with '#') are
+    skipped so this can never be tripped by the funnel's own explanatory
+    comments, which name these exact forbidden patterns on purpose."""
+    pat = re.compile(r"print\(|sys\.stdout\.write|sys\.stderr\.write|\.stdout\.write|\.stderr\.write")
+    return [i for i, line in enumerate(lines, 1)
+            if not line.lstrip().startswith("#") and pat.search(line)]
+
+
 # ---------------------------------------------------------------------------
 # The 10 calibrated reinjection tests: each is one confirmed V1 defect,
 # reproduced, then asserted fixed.
@@ -2065,6 +2077,573 @@ def _make_pre_soft_e_transition(bs_module):
                 (lifecycle_uuid, row["state"], to_state, session_id or "", note or "", ts))
             return self._record_by_uuid(conn, lifecycle_uuid)
     return old_transition
+
+
+class TestFixRound7(unittest.TestCase):
+    # -- THE OUTPUT FUNNEL: structural guards -------------------------
+
+    def test_structural_round7_no_print_or_raw_stream_write_anywhere(self):
+        # THE OUTPUT FUNNEL: every byte this module sends to stdout or
+        # stderr must go through a named funnel function (_out, _warn,
+        # _out_prerendered, _out_unprotected), never a bare print()/
+        # sys.stdout.write()/sys.stderr.write(). See the calibration
+        # companion below for proof this scan is not vacuous.
+        with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
+            lines = f.readlines()
+        hits = _scan_for_forbidden_output_calls(lines)
+        self.assertEqual(hits, [],
+                          "bare print()/stream.write() call site(s) found outside a "
+                          "comment, at line(s): %s" % hits)
+
+    def test_calibrated_round7_structural_scan_detects_a_reintroduced_print(self):
+        # Calibrates the structural test above against the exact detection
+        # function it uses, on a SYNTHETIC snippet rather than mutating the
+        # real source file mid test-run: proves the scan genuinely catches
+        # the defect class this round closed (a bare print() bypassing the
+        # funnel), and that it leaves a funneled call site alone.
+        bad_source = ["def cmd_example(argv):\n", "    print('leaked: ' + argv[0])\n"]
+        self.assertEqual(_scan_for_forbidden_output_calls(bad_source), [2])
+        good_source = ["def cmd_example(argv):\n", "    _out('safe: ' + argv[0])\n"]
+        self.assertEqual(_scan_for_forbidden_output_calls(good_source), [])
+
+    def test_structural_round7_file_writes_of_rendered_text_go_through_the_funnel(self):
+        # The only function allowed to write a RENDERED string to disk is
+        # _write_generated_file (THE FILE FUNNEL). The one other call site,
+        # write_state_view's own pre-rewrite backup, writes back EXISTING
+        # bytes already on disk verbatim, never a newly rendered string:
+        # the safety net GATE A exists to guarantee, not content this
+        # module is emitting, so redacting a true backup would defeat its
+        # purpose. If this count changes, a new file-write call site was
+        # added without routing it through the funnel; update deliberately.
+        with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
+            lines = f.readlines()
+        call_sites = [i for i, line in enumerate(lines, 1)
+                      if "_atomic_write_text(" in line and not line.lstrip().startswith("def ")]
+        self.assertEqual(len(call_sites), 2,
+                          "_atomic_write_text call sites changed (now at lines %s); route "
+                          "any new one through _write_generated_file or update deliberately"
+                          % call_sites)
+
+    def test_structural_round7_out_prerendered_restricted_to_named_call_sites(self):
+        with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
+            lines = f.readlines()
+        call_sites = [i for i, line in enumerate(lines, 1)
+                      if "_out_prerendered(" in line and not line.lstrip().startswith(("def ", "#"))]
+        self.assertEqual(len(call_sites), 1,
+                          "_out_prerendered call sites changed (now at lines %s); review "
+                          "and update this count deliberately" % call_sites)
+
+    def test_structural_round7_out_unprotected_restricted_to_named_call_sites(self):
+        with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
+            lines = f.readlines()
+        call_sites = [i for i, line in enumerate(lines, 1)
+                      if "_out_unprotected(" in line and not line.lstrip().startswith(("def ", "#"))]
+        self.assertEqual(len(call_sites), 3,
+                          "_out_unprotected call sites changed (now at lines %s); review "
+                          "and update this count deliberately" % call_sites)
+
+    # -- funnel behavior: the multi-line corruption regression --------
+
+    def test_calibrated_round7_dashboard_and_dump_survive_the_funnel_intact(self):
+        # THE OUTPUT FUNNEL's own blanket _sanitize_for_display, applied to
+        # an already-ASSEMBLED multi-line document, was a real regression
+        # introduced and caught within this same fix round: it escapes a
+        # document's OWN structural newlines (and JSON's indentation) as if
+        # they were founder-typed control-character injection, which is
+        # exactly backwards. cmd_dashboard/cmd_dump route around it via
+        # _out_prerendered/_out_unprotected; this proves both CLI paths
+        # still produce intact, parseable output.
+        with tempfile.TemporaryDirectory() as d:
+            r = _run_cli(["init"], d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            r = _run_cli(["claim", "thing", "--lifetime", "ephemeral", "--objective", "obj"], d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            r_dash = _run_cli(["dashboard"], d)
+            self.assertEqual(r_dash.returncode, 0, r_dash.stdout + r_dash.stderr)
+            self.assertIn("\n", r_dash.stdout)
+            self.assertNotIn("\\x0a", r_dash.stdout)
+            self.assertIn(bs._STATE_BEGIN, r_dash.stdout)
+            r_dump = _run_cli(["dump"], d)
+            self.assertEqual(r_dump.returncode, 0, r_dump.stdout + r_dump.stderr)
+            parsed = json.loads(r_dump.stdout)  # must not raise
+            self.assertEqual(parsed["records"][0]["name"], "thing")
+            r3 = _run_cli([], d)
+            self.assertNotIn("\\x0a", r3.stdout)
+            self.assertIn("\n", r3.stdout)
+
+    def test_calibrated_reinject_round7_blanket_sanitize_would_corrupt_a_document(self):
+        # Reinjects the exact old shape (cmd_dashboard/cmd_dump calling
+        # _out(), i.e. running _protect_text = redact_text +
+        # _sanitize_for_display, over the WHOLE assembled document) against
+        # the SAME rendered text the fixed CLI paths use, proving the old
+        # shape corrupts it and the current one does not.
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("thing", "ephemeral", "obj", [])
+            finally:
+                store.close()
+            rendered = bs.render_state_md(d)
+            old_way = bs._protect_text(rendered)
+            self.assertIn("\\x0a", old_way,
+                          "reinjected old blanket _out()-style protection must mangle "
+                          "newlines into literal escapes")
+            # _out_prerendered's own protection step, without touching
+            # sys.stdout: redact_text() alone, exactly what the fixed
+            # cmd_dashboard call site relies on.
+            new_way = bs.redact_text(rendered)
+            self.assertNotIn("\\x0a", new_way)
+            self.assertEqual(new_way.count("\n"), rendered.count("\n"),
+                              "redact_text() alone must preserve every structural newline")
+
+    # -- funnel behavior: record names redacted everywhere -------------
+
+    def test_calibrated_round7_record_name_redacted_everywhere(self):
+        secret_name = "AKIAIOSFODNN7EXAMPLE"
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim(secret_name, "ephemeral", "", [])
+                digest = store.render_digest(rec.lifecycle_uuid)
+            finally:
+                store.close()
+            view = bs.render_state_md(d)
+            self.assertNotIn(secret_name, view)
+            self.assertIn("[REDACTED]", view)
+            self.assertIn(rec.lifecycle_uuid[:8], view,
+                          "the lifecycle uuid prefix must still identify the record once "
+                          "its name is redacted")
+            self.assertNotIn(secret_name, digest)
+            self.assertIn("[REDACTED]", digest)
+            ro = bs.ReadOnlyStore(d)
+            try:
+                data_default = ro.dump()
+                data_raw = ro.dump(raw=True)
+            finally:
+                ro.close()
+            self.assertNotIn(secret_name, json.dumps(data_default),
+                              "dump()'s default mode must redact the name like every "
+                              "other founder-typed field")
+            self.assertIn(secret_name, json.dumps(data_raw),
+                          "dump(raw=True) remains the explicit, named escape hatch")
+            r = _run_cli(["dashboard"], d)
+            self.assertNotIn(secret_name, r.stdout)
+
+    def test_calibrated_reinject_round7_name_would_leak_in_dashboard_and_digest(self):
+        secret_name = "AKIAIOSFODNN7EXAMPLE"
+
+        def old_render_state_md(root):
+            store = bs.ReadOnlyStore(root)
+            try:
+                rows = bs._exec(store, "SELECT * FROM records ORDER BY state, name").fetchall()
+                lines = [bs._STATE_BEGIN, "", ""]
+                for r in rows:
+                    tier_text = bs._redacted_view_text(r["tier"]) if r["tier"] else "no tier"
+                    lines.append("- %s (%s, %s) [%s]"
+                                  % (r["name"], r["lifecycle_uuid"][:8], r["lifetime"], tier_text))
+                lines.append(bs._STATE_END)
+                return "\n".join(lines) + "\n"
+            finally:
+                store.close()
+
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim(secret_name, "ephemeral", "", [])
+            finally:
+                store.close()
+            old_view = old_render_state_md(d)
+            self.assertIn(secret_name, old_view,
+                          "reinjected pre-round-7 render_state_md (raw name interpolation) "
+                          "must leak the secret, proving the current per-field name "
+                          "redaction is load-bearing")
+            self.assertNotIn(secret_name, bs.render_state_md(d))
+
+    def test_calibrated_round7_dump_name_reinject_old_safe_columns_would_leak(self):
+        secret_name = "AKIAIOSFODNN7EXAMPLE"
+        old_safe_columns = frozenset(
+            set(bs._DUMP_SAFE_COLUMNS) | {("records", "name")})
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim(secret_name, "ephemeral", "obj", [])
+            finally:
+                store.close()
+            ro = bs.ReadOnlyStore(d)
+            try:
+                with mock.patch.object(bs, "_DUMP_SAFE_COLUMNS", old_safe_columns):
+                    old_data = ro.dump()
+                new_data = ro.dump()
+            finally:
+                ro.close()
+            self.assertIn(secret_name, json.dumps(old_data),
+                          "reinjected pre-round-7 allowlist (records.name treated as "
+                          "structurally safe) must leak the secret-shaped name")
+            self.assertNotIn(secret_name, json.dumps(new_data))
+
+    # -- funnel behavior: single-line CLI exits (--session, verify, path) -
+
+    def test_calibrated_round7_cli_session_echo_redacted(self):
+        secret_session = "password=hunter2"
+        with tempfile.TemporaryDirectory() as d:
+            r = _run_cli(["init"], d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            r = _run_cli(["claim", "thing", "--lifetime", "ephemeral", "--objective", "obj",
+                          "--session", secret_session], d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertNotIn(secret_session, r.stdout)
+            self.assertIn("[REDACTED]", r.stdout)
+
+    def test_calibrated_round7_cli_verify_problem_redacted(self):
+        secret_name = "AKIAIOSFODNN7EXAMPLE"
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim(secret_name, "persistent", "obj", [])
+                store.transition(rec.lifecycle_uuid, rec.version, "parked")
+                store.conn.execute("BEGIN IMMEDIATE")
+                store.conn.execute("DELETE FROM transitions")
+                store.conn.execute("COMMIT")
+            finally:
+                store.close()
+            r = _run_cli(["verify"], d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertNotIn(secret_name, r.stdout)
+            self.assertIn("[REDACTED]", r.stdout)
+
+    def test_calibrated_round7_cli_path_escape_message_redacted(self):
+        secret = "password=hunter2"
+        with tempfile.TemporaryDirectory() as d:
+            real_dir = os.path.join(d, "elsewhere-" + secret)
+            os.makedirs(real_dir)
+            os.symlink(real_dir, os.path.join(d, ".brothermode"))
+            r = _run_cli(["verify"], d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertNotIn(secret, r.stdout)
+            self.assertIn("[REDACTED]", r.stdout)
+
+    # -- GATE A: a generated view must never destroy human prose ------
+
+    def test_calibrated_gateA_damaged_markers_refuse_before_destroying_notes(self):
+        # VERIFIED BY ORCHESTRATOR reproduction: render, hand-edit the way
+        # a human would (delete the closing END marker line, add personal
+        # notes), then render again. Fixed by failing closed the moment
+        # the marker count stops being exactly (0,0) or (1,1): the notes
+        # must never be touched, not merely "eventually" recovered.
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("thing", "ephemeral", "obj", [])
+            finally:
+                store.close()
+            bs.write_state_view(d)
+            path = os.path.join(d, "STATE.md")
+            with io.open(path, encoding="utf-8") as f:
+                rendered = f.read()
+            damaged = (rendered.replace(bs._STATE_END, "")
+                       + "## My notes\nCALL BOB ABOUT THE CONTRACT\n")
+            with io.open(path, "w", encoding="utf-8") as f:
+                f.write(damaged)
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.write_state_view(d)
+            self.assertEqual(ctx.exception.reason, "view-markers-damaged")
+            with io.open(path, encoding="utf-8") as f:
+                after = f.read()
+            self.assertEqual(after, damaged, "a refusal must leave the file byte-for-byte untouched")
+            self.assertIn("CALL BOB ABOUT THE CONTRACT", after)
+
+    def test_calibrated_reinject_gateA_old_naive_check_destroys_human_notes(self):
+        def old_write_state_view(root):
+            generated = bs.render_state_md(root)
+            path = os.path.join(root, "STATE.md")
+            try:
+                with io.open(path, encoding="utf-8", errors="replace") as f:
+                    existing = f.read()
+            except OSError:
+                existing = ""
+            if bs._STATE_BEGIN in existing and bs._STATE_END in existing:
+                pre, rest = existing.split(bs._STATE_BEGIN, 1)
+                _mid, post = rest.split(bs._STATE_END, 1)
+                new_text = pre + generated + post
+            elif existing:
+                sep = "" if existing.endswith("\n\n") else ("\n" if existing.endswith("\n") else "\n\n")
+                new_text = existing + sep + generated
+            else:
+                new_text = generated
+            bs._atomic_write_text(path, new_text)
+            return new_text
+
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("thing", "ephemeral", "obj", [])
+            finally:
+                store.close()
+            old_write_state_view(d)
+            path = os.path.join(d, "STATE.md")
+            with io.open(path, encoding="utf-8") as f:
+                rendered = f.read()
+            damaged = (rendered.replace(bs._STATE_END, "")
+                       + "## My notes\nCALL BOB ABOUT THE CONTRACT\n")
+            with io.open(path, "w", encoding="utf-8") as f:
+                f.write(damaged)
+            old_write_state_view(d)  # render 1 under the old logic: appends a second block
+            old_write_state_view(d)  # render 2: naive check now sees BEGIN and END, splices wrong
+            with io.open(path, encoding="utf-8") as f:
+                after = f.read()
+            self.assertNotIn("CALL BOB ABOUT THE CONTRACT", after,
+                              "reinjected pre-fix logic must destroy the human's notes "
+                              "within two renders, proving the marker-count refusal in "
+                              "the current write_state_view is load-bearing")
+
+    def test_calibrated_gateA_backup_saved_before_a_normal_rewrite(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("thing", "ephemeral", "obj", [])
+            finally:
+                store.close()
+            bs.write_state_view(d)
+            path = os.path.join(d, "STATE.md")
+            with io.open(path, encoding="utf-8") as f:
+                first = f.read()
+            with mock.patch.object(bs, "_warn") as warn_mock:
+                bs.write_state_view(d)
+            backups = glob.glob(path + ".bak-*")
+            self.assertEqual(len(backups), 1, "exactly one backup on a normal re-render")
+            with io.open(backups[0], encoding="utf-8") as f:
+                backed_up = f.read()
+            self.assertEqual(backed_up, first, "the backup must hold the PREVIOUS content verbatim")
+            self.assertTrue(any(backups[0] in str(call) for call in warn_mock.call_args_list),
+                             "the backup path must be reported on stderr")
+
+    # -- GATE B: the fail-closed redaction promise must actually hold -
+
+    def test_calibrated_gateB_genuinely_absent_bm_telemetry_refuses_state_view(self):
+        # "Test with bm_telemetry.py genuinely absent", not merely _REDACT
+        # patched to None: only a real, fresh import proves _load_redact()'s
+        # own exception-handling path degrades the same way a pre-cleared
+        # _REDACT does.
+        telemetry_path = os.path.join(HERE, "bm_telemetry.py")
+        moved_path = telemetry_path + ".moved-for-test"
+        self.assertTrue(os.path.exists(telemetry_path), "sanity: the real file must exist")
+        os.rename(telemetry_path, moved_path)
+        try:
+            spec = importlib.util.spec_from_file_location(
+                "bm_store_gateB_no_telemetry", os.path.join(HERE, "bm_store.py"))
+            fresh = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(fresh)
+            self.assertIsNone(fresh._REDACT, "sanity: a fresh import must fail to load redact")
+            with tempfile.TemporaryDirectory() as d:
+                store = fresh.Store(d)
+                try:
+                    # Every optional field empty: the exact GATE B scenario,
+                    # since the pre-fix code only called redact_text() when
+                    # an optional field happened to be non-empty.
+                    store.claim("thing", "ephemeral", "", [])
+                finally:
+                    store.close()
+                with self.assertRaises(fresh.RedactionUnavailable):
+                    fresh.write_state_view(d)
+                self.assertFalse(os.path.exists(os.path.join(d, "STATE.md")),
+                                  "a genuinely absent redactor must write NOTHING")
+        finally:
+            os.rename(moved_path, telemetry_path)
+
+    def test_calibrated_reinject_gateB_conditional_redaction_missed_empty_record(self):
+        def old_render_state_md(root):
+            store = bs.ReadOnlyStore(root)
+            try:
+                rows = bs._exec(store, "SELECT * FROM records ORDER BY state, name").fetchall()
+                lines = [bs._STATE_BEGIN, "", ""]
+                for r in rows:
+                    tier_text = bs._redacted_view_text(r["tier"]) if r["tier"] else "no tier"
+                    lines.append("- %s (%s, %s) [%s]"
+                                  % (r["name"], r["lifecycle_uuid"][:8], r["lifetime"], tier_text))
+                    lines.append("  objective: %s" % (bs._redacted_view_text(r["objective"])
+                                                        if r["objective"] else "(none)"))
+                lines.append(bs._STATE_END)
+                return "\n".join(lines) + "\n"
+            finally:
+                store.close()
+
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("thing", "ephemeral", "", [])  # every optional field empty
+            finally:
+                store.close()
+            with mock.patch.object(bs, "_REDACT", None), \
+                 mock.patch.object(bs, "_REDACT_LOAD_ERROR", "simulated failure"):
+                rendered = old_render_state_md(d)  # must NOT raise: the bug
+                self.assertIn("thing", rendered,
+                              "reinjected old conditional-only redaction must silently "
+                              "succeed on an all-empty-optional-fields record, proving "
+                              "GATE B's hole was real")
+                with self.assertRaises(bs.RedactionUnavailable):
+                    bs.render_state_md(d)  # the fixed function correctly refuses
+
+    # -- GATE C: quarantine must not destroy what it promises to preserve -
+
+    def test_calibrated_gateC_sidecars_preserved_even_when_close_deletes_them(self):
+        """GATE C (fix-round 7): guards against a newer bundled SQLite
+        (3.53.1, shipped with a recent Python 3.13) whose Connection.close()
+        deletes stale -wal/-shm sidecar files as part of its own cleanup.
+        This machine's installed SQLite does not reproduce that on its own
+        (the pre-fix ordering already passes
+        test_calibrated_gate5_sidecars_are_quarantined_too here), so
+        close() is replaced with a fake that deletes the sidecars as a side
+        effect, deterministically simulating the version-dependent behavior
+        without depending on which SQLite is actually installed."""
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            path = store.path
+            with io.open(path + "-wal", "wb") as f:
+                f.write(b"wal sidecar bytes, pretend records live here")
+            with io.open(path + "-shm", "wb") as f:
+                f.write(b"shm sidecar bytes")
+            real_conn = store.conn
+
+            class _DestructiveCloseConn(object):
+                def close(self_inner):
+                    for suffix in ("-wal", "-shm"):
+                        try:
+                            os.remove(path + suffix)
+                        except OSError:
+                            pass
+
+            store.conn = _DestructiveCloseConn()
+            try:
+                with self.assertRaises(bs.StoreCorrupt) as ctx:
+                    store._quarantine_and_raise(sqlite3.DatabaseError("simulated corruption"))
+            finally:
+                real_conn.close()
+            qdir = ctx.exception.quarantine_path
+            self.assertTrue(os.path.isdir(qdir))
+            with io.open(os.path.join(qdir, "store.sqlite3-wal"), "rb") as f:
+                self.assertEqual(f.read(), b"wal sidecar bytes, pretend records live here")
+            with io.open(os.path.join(qdir, "store.sqlite3-shm"), "rb") as f:
+                self.assertEqual(f.read(), b"shm sidecar bytes")
+            self.assertFalse(os.path.exists(path + "-wal"))
+            self.assertFalse(os.path.exists(path + "-shm"))
+
+    def test_calibrated_reinject_gateC_old_order_loses_sidecars_to_a_destructive_close(self):
+        # Reinjects the pre-round-7 ordering (close the connection, THEN
+        # move the sidecars) against the SAME destructive-close fake,
+        # proving the old code really did lose the sidecars under exactly
+        # the SQLite behavior GATE C describes.
+        def old_quarantine_and_raise(store_obj):
+            if store_obj.conn is not None:
+                try:
+                    store_obj.conn.close()
+                except Exception:
+                    pass
+                store_obj.conn = None
+            stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+            suffix = uuid.uuid4().hex[:8]
+            qdir = store_obj.path + ".quarantine-%s-%s" % (stamp, suffix)
+            os.makedirs(qdir, exist_ok=False)
+            for src in (store_obj.path, store_obj.path + "-wal", store_obj.path + "-shm"):
+                if not os.path.exists(src):
+                    continue
+                os.replace(src, os.path.join(qdir, os.path.basename(src)))
+            return qdir
+
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            path = store.path
+            with io.open(path + "-wal", "wb") as f:
+                f.write(b"wal sidecar bytes")
+            with io.open(path + "-shm", "wb") as f:
+                f.write(b"shm sidecar bytes")
+            real_conn = store.conn
+
+            class _DestructiveCloseConn(object):
+                def close(self_inner):
+                    for suffix in ("-wal", "-shm"):
+                        try:
+                            os.remove(path + suffix)
+                        except OSError:
+                            pass
+
+            store.conn = _DestructiveCloseConn()
+            try:
+                qdir = old_quarantine_and_raise(store)
+            finally:
+                real_conn.close()
+            self.assertFalse(
+                os.path.exists(os.path.join(qdir, "store.sqlite3-wal")),
+                "reinjected old close-then-move ordering must LOSE the sidecar to a "
+                "destructive close(), proving the reordering fix is load-bearing")
+
+    # -- SOFT D: a hardlink bypasses a symlink-only containment check -
+
+    def test_calibrated_softD_hardlinked_store_file_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            store.close()
+            path = store.path
+            os.link(path, os.path.join(d, "leak.sqlite3"))
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.Store(d)
+            self.assertEqual(ctx.exception.reason, "path-escape")
+            self.assertIn("hard link", str(ctx.exception).lower())
+
+    def test_calibrated_reinject_softD_symlink_only_check_misses_a_hardlink(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            store.close()
+            path = store.path
+            os.link(path, os.path.join(d, "leak.sqlite3"))
+            try:
+                bs._refuse_if_symlink_escape(path)
+            except bs.OwnershipRefused:
+                self.fail("reinjected symlink-only check must NOT catch a hardlink "
+                          "(proving _refuse_if_hardlinked is the fix, not redundant)")
+            with self.assertRaises(bs.OwnershipRefused):
+                bs._refuse_if_hardlinked(path)
+
+    # -- SOFT E: an oversized single decision must truncate, not vanish -
+
+    def test_calibrated_softE_oversized_single_decision_is_truncated_not_dropped(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("thing", "ephemeral", "obj", [])
+                huge = "x" * 2000  # exceeds the 1200-char decisions_new budget alone
+                store.decide(rec.lifecycle_uuid, rec.version, "topic", huge)
+                digest = store.render_digest(rec.lifecycle_uuid)
+            finally:
+                store.close()
+            self.assertIn("(truncated)", digest)
+            self.assertIn("x" * 50, digest, "the beginning of the oversized decision must survive")
+            self.assertNotIn(huge, digest, "the full 2000-char decision must not fit whole")
+
+    def test_calibrated_reinject_softE_old_logic_drops_the_decision_entirely(self):
+        def old_newest_block(new_lines, decisions):
+            if new_lines:
+                return "\n".join(new_lines)
+            elif decisions:
+                return ("(truncated: newest decision does not fit the %d char budget)"
+                         % bs._SECTION_BUDGETS["decisions_new"])
+            return "(none)"
+
+        result = old_newest_block([], [{"topic": "topic", "text": "x" * 2000}])
+        self.assertNotIn("x", result,
+                          "reinjected old logic must produce ZERO decision content when "
+                          "the newest decision alone exceeds the budget")
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("thing", "ephemeral", "obj", [])
+                store.decide(rec.lifecycle_uuid, rec.version, "topic", "x" * 2000)
+                digest = store.render_digest(rec.lifecycle_uuid)
+            finally:
+                store.close()
+            decisions_section = digest.split("## Decisions")[1].split("###")[0]
+            self.assertIn("x", decisions_section,
+                          "the CURRENT render_digest must show partial decision content, "
+                          "unlike the reinjected old logic above")
 
 
 # ---------------------------------------------------------------------------
