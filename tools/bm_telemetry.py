@@ -34,15 +34,15 @@ Subcommands:
                     the vault, so a resumed session recovers the THREAD, not just the
                     files the git autosave saved. Pure: reads/writes files only.
   compact-hint      SessionStart(source=compact) helper. Reads the hook JSON on
-                    stdin; if the session just resumed from a compaction, prints a
-                    one-line pointer to the autosave recovery command. Pure: reads
-                    stdin and prints, no subprocess, no network.
+                    stdin; if the session just resumed from a compaction, checks
+                    for a real autosave receipt (via bm_autosave.has_receipt)
+                    before claiming safety, and prints the recovery command that
+                    actually exists (bm_autosave.py, not the deleted .sh). Pure:
+                    reads stdin and prints, no subprocess, no network.
   handoff           One shareable, SECRET-REDACTED markdown for handing a project
                     to a small team: overview + open items + latest session + recent
                     outcomes, assembled from the vault. Pure: reads vault files,
                     redacts, writes one file. No subprocess, no network.
-  attribute         Adds a session's output tokens to a work record's spend, so
-                    per-record cost can be compared against the baseline.
   purge-corrections Deletes captured correction candidates (excerpts of your own
                     messages, secret-redacted and owner-only, but still yours to
                     delete). Shows the count first; --yes to confirm.
@@ -995,26 +995,108 @@ def cmd_precompact_brief():
         pass
 
 
+def _load_bm_autosave():
+    """Load bm_autosave.py by path, exactly the pattern bm_store.py uses to
+    load bm_telemetry.redact (importlib.util.spec_from_file_location by
+    path, so this works regardless of the caller's cwd; see bm_store.py's
+    _load_redact and the module note above it). Returns (module, None) on
+    success or (None, repr(exception)) on failure; never raises, so a
+    caller can degrade to an honest message instead of crashing."""
+    try:
+        import importlib.util
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location(
+            "bm_autosave_for_telemetry", os.path.join(here, "bm_autosave.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod, None
+    except Exception as e:
+        return None, repr(e)
+
+
+# Loaded once at import time, the same shape bm_store.py caches _REDACT in:
+# a (module, error) pair at module scope rather than re-imported per call.
+_BM_AUTOSAVE, _BM_AUTOSAVE_LOAD_ERROR = _load_bm_autosave()
+
+
+def _autosave_recovery_line(cwd, session_id):
+    """GATE E, fix-round 2026-07-26: the honesty defect. The old code
+    printed "Your files are autosaved" UNCONDITIONALLY, and pointed at
+    tools/bm_autosave.sh, which Phase 2 deleted. Fixed: the safety claim is
+    printed ONLY when bm_autosave.has_receipt finds a real receipt row for
+    THIS worktree and THIS session; every other path says plainly what is
+    actually known and names the command that exists
+    (tools/bm_autosave.py recover), never the deleted shell script.
+
+    Never runs git: bm_telemetry.py's HARD CONSTRAINT (see the "Update
+    awareness" section above) is no subprocess, ever, so this resolves a
+    project root the same file-only way bm_store.resolve_root does (walk up
+    for .brothermode or .git) rather than calling bm_autosave.resolve_toplevel,
+    which shells out to `git rev-parse`. In the overwhelmingly common case
+    (no BROTHERMODE_ROOT override, no exotic marker placement) that root is
+    identical to the git toplevel bm_autosave itself used when it wrote the
+    receipt; on the rare path where the two diverge, the failure direction
+    is a false "no receipt found" (never a false claim of safety), which is
+    the safe side of this contract.
+
+    Advisory only: bm_autosave missing, a failed root resolution, or any
+    other exception here all degrade to an honest "not checked" message and
+    this function never raises, so a resumed session is never blocked."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    recover_cmd = "python3 %s/tools/bm_autosave.py recover" % skill_dir
+    unknown = ("BROTHERMODE: resumed after a compaction. Could not verify whether "
+               "your files are autosaved (%s). No claim is made either way; run "
+               "`%s` yourself to look for a snapshot.")
+    if _BM_AUTOSAVE is None:
+        return unknown % (_BM_AUTOSAVE_LOAD_ERROR, recover_cmd)
+    try:
+        bs = _BM_AUTOSAVE._load_bm_store()
+        if bs is None:
+            return unknown % ("bm_store.py could not be loaded", recover_cmd)
+        root, _source = bs.resolve_root(cwd)
+        if root is None:
+            return unknown % ("no BrotherMode project root found from %s" % cwd, recover_cmd)
+        worktree_id = _BM_AUTOSAVE.worktree_id_for(root)
+        found = _BM_AUTOSAVE.has_receipt(root, worktree_id, session_id)
+    except Exception as e:
+        return unknown % (repr(e), recover_cmd)
+    if found:
+        return ("BROTHERMODE: resumed after a compaction. Your files are autosaved "
+                "(run `%s`) and the thread is below. Read it, re-read STATE.md and "
+                "git status, then continue." % recover_cmd)
+    return ("BROTHERMODE: resumed after a compaction. No autosave snapshot receipt "
+            "was found for this worktree and session. That may mean nothing was "
+            "captured yet, not that work was lost; run `%s` to look for a snapshot, "
+            "and re-read STATE.md and git status either way." % recover_cmd)
+
+
 def cmd_compact_hint():
     """Read the SessionStart hook payload from stdin. When the session resumed
     from a context compaction (source == "compact"), the model has just lost the
     detail of what it was doing, so point it at the autosave and at STATE.md. This
-    is the READ side of work-preservation; bm_autosave.sh is the write side. Pure
-    by design: this never runs git (that would break the audited no-subprocess
-    property); it only prints the recovery command for the model or human to run."""
+    is the READ side of work-preservation; bm_autosave.py is the write side. Pure
+    by design: this never runs git itself (that would break the audited
+    no-subprocess property); see _autosave_recovery_line for how it checks the
+    receipt without doing so. It only ever prints, never raises (GATE E)."""
     try:
         payload = json.load(sys.stdin)
     except Exception:
         return
     if (payload or {}).get("source") != "compact":
         return
-    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    print("BROTHERMODE: resumed after a compaction. Your files are autosaved "
-          "(sh %s/tools/bm_autosave.sh recover) and the thread is below. Read it, "
-          "re-read STATE.md and git status, then continue." % skill_dir)
+    cwd = (payload or {}).get("cwd") or os.getcwd()
+    session_id = (payload or {}).get("session_id") or "unknown"
+    try:
+        print(_autosave_recovery_line(cwd, session_id))
+    except Exception as e:
+        # Absolute backstop (GATE E requirement: never block, never raise):
+        # even a bug in the honesty check itself must degrade to a message
+        # that claims nothing, not to the old unconditional claim.
+        print("BROTHERMODE: resumed after a compaction. Could not verify whether "
+              "your files are autosaved (%r). No claim is made either way." % (e,))
     # The thread: the resume brief written at the moment of death (the WHY/where),
     # which the git snapshot does not carry.
-    rp = _resume_path((payload or {}).get("cwd") or os.getcwd())
+    rp = _resume_path(cwd)
     try:
         with open(rp, "r", errors="replace") as f:
             print("")
@@ -1108,56 +1190,16 @@ def cmd_prediction_audit():
         print("AUDIT FLAG: zero sealed predictions; section 14 requires sealing BEFORE recommendations.")
 
 
-def cmd_attribute(argv):
-    """Attribute a session's output tokens to a work record, so per-record spend
-    can be compared against the pre-thread baseline. Pure file I/O through the
-    registry module; this function adds no network and no subprocess."""
-    if len(argv) < 2:
-        print("usage: attribute <record_id> <output_tokens>")
-        return
-    rid = argv[0]
-    try:
-        tokens = int(argv[1])
-    except ValueError:
-        print("attribute: token count must be an integer")
-        return
-    if tokens < 0:
-        print("attribute: token count must not be negative")
-        return
-    try:
-        import importlib.util
-        here = os.path.dirname(os.path.abspath(__file__))
-        spec = importlib.util.spec_from_file_location(
-            "bm_registry_for_telemetry", os.path.join(here, "bm_registry.py"))
-        reg = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(reg)
-    except Exception:
-        return
-
-    def _do():
-        d = reg.load()
-        rec = d["records"].get(rid)
-        if rec is None:
-            return False
-        if not isinstance(rec, dict):
-            return False
-        sp = rec.setdefault("spend", {"output_tokens": 0, "sessions": 0})
-        if not isinstance(sp, dict):
-            sp = {"output_tokens": 0, "sessions": 0}
-            rec["spend"] = sp
-        sp["output_tokens"] = sp.get("output_tokens", 0) + tokens
-        sp["sessions"] = sp.get("sessions", 0) + 1
-        # Report what the save did: printing "attributed N tokens" when the
-        # write failed puts a number in the founder's head that is not on disk,
-        # and the whole point of attribution is that spend is measured.
-        return reg.save(d)
-    try:
-        if reg.with_lock(_do):
-            print("attributed %d output tokens to record '%s'" % (tokens, rid))
-    except Exception:
-        pass
-
-
+# DELETED (fix-round 2026-07-26): `attribute <record_id> <output_tokens>` used
+# to load bm_registry.py by path and accumulate spend onto d["records"][rid],
+# a dict-shaped registry.json record. Phase 3 deleted bm_registry.py and
+# rewired ownership onto bm_store.py's sqlite schema, which has no "spend"
+# column or table at all, so the command had been silently no-op'ing behind
+# its own bare except (confirmed: nothing in this repo calls `attribute`
+# except historical design docs, and no test exercised its success path). A
+# command that silently does nothing is worse than one that does not exist,
+# and porting it forward would mean inventing a spend concept the store was
+# never given, which is out of scope here. Deleted rather than repaired.
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     argv = sys.argv[2:]
@@ -1190,8 +1232,6 @@ def main():
             cmd_check_update()
         elif cmd == "handoff":
             cmd_handoff(argv)
-        elif cmd == "attribute":
-            cmd_attribute(argv)
         elif cmd == "purge-corrections":
             cmd_purge_corrections(argv)
         elif cmd == "prediction-audit":
