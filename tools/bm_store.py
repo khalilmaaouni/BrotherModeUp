@@ -34,8 +34,26 @@ THE CONTRACT
     function that crashes a session over stale digest text is a worse
     failure than one ugly line of output.
 
-Python 3.9, standard library only. No network, no subprocess: root
-resolution walks the filesystem directly rather than shelling out to git.
+Python 3.9, standard library only. No network, no subprocess. That claim now
+covers strictly more code than it used to, and it was kept DELIBERATELY when
+FINDING 5 needed git's real state: root resolution walks the filesystem
+directly, and the git containment check reads git's own on-disk files
+(.git/index, .gitignore, .git/info/exclude) and parses them here in pure
+Python rather than shelling out to `git ls-files` or `git check-ignore`.
+Three reasons, all of them load-bearing:
+  * bm_telemetry.py loads this module by path and documents that doing so
+    "keeps this module's own no-subprocess property intact"; SECURITY.md
+    publishes that property and a mechanical test in test_bm.py enforces it
+    per file. An import here would silently break all three at once.
+  * this check runs on EVERY store open, including inside a repository the
+    founder did not create, and executing a PATH-resolved binary from that
+    position is a bigger surface than reading four files.
+  * a subprocess that cannot be spawned (no git on PATH, a locked-down hook
+    environment) gives an "unknown" answer that a security check has to
+    treat as a refusal anyway, so the dependency buys nothing.
+The cost is stated where it is paid: see _git_index_tracked_paths and
+_git_ignore_decision for exactly which git behaviours are implemented and
+which are deliberately not.
 No em or en dashes anywhere in this file, its comments, or its output.
 """
 import contextlib
@@ -46,6 +64,7 @@ import io
 import json
 import os
 import posixpath
+import re
 import shutil
 import sqlite3
 import sys
@@ -134,7 +153,7 @@ def _walk_up(start):
     return out
 
 
-def resolve_root(start=None):
+def resolve_root(start=None, refuse_past_git_boundary=False):
     """Return (root_path, source), source in ("env", "marker", "git"), or
     (None, None) when nothing anchors a project here.
 
@@ -142,7 +161,36 @@ def resolve_root(start=None):
     human or a script set it on purpose. Failing that, a marker directory
     ANYWHERE up the tree beats a closer .git, so once `init` has run, a
     nested .git (a submodule, a vendored dependency) can never shadow the
-    real project root (fixes F2 / F42 / the F2b class)."""
+    real project root (fixes F2 / F42 / the F2b class).
+
+    refuse_past_git_boundary (FINDING 11, MEDIUM) is OPT-IN and defaults
+    OFF, which is the whole point. The precedence above is CORRECT for the
+    bug class it was written for, and simply preferring the nearest .git
+    would reopen F2 / F42 / F2b, so this does NOT change the ordering for
+    anybody. What it adds is a second, requestable question: does the root
+    this resolver picked sit ABOVE a nearer git boundary, meaning the
+    caller is standing in a repository of its own that would silently
+    attach to a DIFFERENT parent project's store?
+
+    bm_autosave.py discovered that question privately (see
+    _resolve_receipt_root there: "resolve_root(toplevel) can walk UP PAST
+    this snapshot's own git toplevel") and carries its own copy of the
+    check. A private copy is a check the next consumer does not get, so it
+    lives here now and every consumer can ask for it.
+
+    When it fires, this REFUSES rather than picking a side: choosing the
+    nearer .git reopens the vendored-submodule bug, choosing the further
+    marker is the cross-project attachment being reported, and guessing
+    between two defensible answers is what got this class of bug shipped
+    twice already. The refusal names BROTHERMODE_ROOT, which is the
+    explicit answer.
+
+    Source "env" is exempt on purpose: BROTHERMODE_ROOT IS the explicit
+    root the refusal asks for, so checking it against the filesystem would
+    turn the only remedy into another dead end. A caller that also needs to
+    validate an explicitly-set root against its own expectations (as
+    bm_autosave does, comparing against its snapshot's toplevel) still has
+    to do that itself; this parameter does not cover it."""
     env = os.environ.get("BROTHERMODE_ROOT")
     if env:
         p = os.path.realpath(env)
@@ -152,6 +200,32 @@ def resolve_root(start=None):
     chain = _walk_up(cur)
     for d in chain:
         if os.path.isdir(os.path.join(d, ".brothermode")):
+            if refuse_past_git_boundary:
+                # chain is closest-first, so anything reached BEFORE the
+                # marker directory is strictly nearer to `start` than the
+                # root we were about to return. A .git ABOVE the marker is
+                # not a disagreement at all (the marker is still the
+                # innermost anchor), which is why the walk stops at d.
+                for nearer in chain:
+                    if nearer == d:
+                        break
+                    if os.path.exists(os.path.join(nearer, ".git")):
+                        raise OwnershipRefused(
+                            "root-ambiguous",
+                            "two different answers for 'which project is "
+                            "this': %s is its own git repository, but the "
+                            "nearest BrotherMode marker is further up at "
+                            "%s. Attaching this repository to that parent "
+                            "project's store would put this work in "
+                            "another project's ledger, and preferring the "
+                            "nearer .git would let a vendored submodule "
+                            "shadow a real project root again (F2 / F42). "
+                            "Say which you mean: run `python3 "
+                            "tools/bm_store.py init` inside %s to give it "
+                            "its own store, or set BROTHERMODE_ROOT=%s to "
+                            "attach to the parent on purpose."
+                            % (nearer, d, nearer, d),
+                            details={"git_boundary": nearer, "marker_root": d})
             return d, "marker"
     for d in chain:
         # .git is a directory in a normal clone and a FILE in a worktree
@@ -162,12 +236,13 @@ def resolve_root(start=None):
     return None, None
 
 
-def require_root(start=None):
+def require_root(start=None, refuse_past_git_boundary=False):
     """resolve_root(), or an OwnershipRefused the CLI (or any other caller)
     can render as a clear next step. "No root" is itself an ownership
     refusal, not a crash: nothing was touched, and the message says exactly
-    what to run."""
-    root, source = resolve_root(start)
+    what to run. refuse_past_git_boundary is passed straight through; see
+    resolve_root for what it does and why it is opt-in."""
+    root, source = resolve_root(start, refuse_past_git_boundary=refuse_past_git_boundary)
     if root is None:
         raise OwnershipRefused(
             "no-root",
@@ -1023,16 +1098,23 @@ def _looks_like_git_admin_dir(path):
             or os.path.isdir(os.path.join(path, "refs")))
 
 
-def _resolve_git_common_dir(root):
-    """The directory that actually holds info/exclude for this checkout
-    (GATE C). A normal checkout: <root>/.git. A worktree: .git is a FILE
-    containing 'gitdir: <path>' pointing at <main>/.git/worktrees/<name>;
-    info/exclude is NOT per-worktree, it is shared once at the top of the
-    MAIN checkout's .git, named by that worktree gitdir's own 'commondir'
-    file (present since git 2.5); returning early on a .git FILE used to
-    leave nothing excluded inside a worktree, so `git add -A` staged the
-    raw store. Returns None when there is no git here, or it could not be
-    read.
+def _resolve_git_dirs(root):
+    """(worktree_gitdir, common_dir) for the checkout whose TOP LEVEL is
+    root, or (None, None) when there is no git here or it could not be
+    read (GATE C, split into two values for FINDING 5).
+
+    A normal checkout: both are <root>/.git. A worktree: .git is a FILE
+    containing 'gitdir: <path>' pointing at <main>/.git/worktrees/<name>,
+    and the two answers DIVERGE, which is exactly why they are returned
+    separately now:
+      * common_dir holds info/exclude, which is NOT per-worktree; it is
+        shared once at the top of the MAIN checkout's .git, named by that
+        worktree gitdir's own 'commondir' file (present since git 2.5).
+        Returning early on a .git FILE used to leave nothing excluded
+        inside a worktree, so `git add -A` staged the raw store.
+      * worktree_gitdir holds the INDEX, which IS per-worktree. Reading the
+        common dir's index to answer "is the store tracked here" would
+        answer it for a DIFFERENT worktree.
 
     SOFT G: the pointer is validated with _looks_like_git_admin_dir before
     being trusted, and NEVER created by us: a crafted .git file naming an
@@ -1041,16 +1123,16 @@ def _resolve_git_common_dir(root):
     OwnershipRefused('path-escape') instead."""
     git_path = os.path.join(root, ".git")
     if os.path.isdir(git_path):
-        return git_path
+        return git_path, git_path
     if not os.path.isfile(git_path):
-        return None
+        return None, None
     try:
         with open(git_path, encoding="utf-8", errors="replace") as f:
             content = f.read().strip()
     except OSError:
-        return None
+        return None, None
     if not content.startswith("gitdir:"):
-        return None
+        return None, None
     pointer = content[len("gitdir:"):].strip()
     if not os.path.isabs(pointer):
         pointer = os.path.join(root, pointer)
@@ -1069,7 +1151,7 @@ def _resolve_git_common_dir(root):
             with open(commondir_file, encoding="utf-8", errors="replace") as f:
                 rel = f.read().strip()
         except OSError:
-            return worktree_gitdir
+            return worktree_gitdir, worktree_gitdir
         common = os.path.realpath(os.path.join(worktree_gitdir, rel))
         if not _looks_like_git_admin_dir(common):
             raise OwnershipRefused(
@@ -1079,8 +1161,16 @@ def _resolve_git_common_dir(root):
                 "state; refusing to create directories or write anything "
                 "there" % (commondir_file, common),
                 details={"commondir_file": commondir_file, "pointer_target": common})
-        return common
-    return worktree_gitdir
+        return worktree_gitdir, common
+    return worktree_gitdir, worktree_gitdir
+
+
+def _resolve_git_common_dir(root):
+    """The directory that actually holds info/exclude for this checkout.
+    Kept as its own name because _ensure_git_excludes wants exactly this
+    one value and nothing else; see _resolve_git_dirs for the reasoning
+    and for the worktree pointer validation (SOFT G)."""
+    return _resolve_git_dirs(root)[1]
 
 
 def _ensure_git_excludes(root):
@@ -1117,6 +1207,464 @@ def _ensure_git_excludes(root):
         # issue). The store itself is already created and usable. Routed
         # through the stderr funnel (fix-round 7) like every other warning.
         _warn("bm_store: warning: could not update %s (%s)" % (exclude_path, e))
+
+
+# ---------------------------------------------------------------------------
+# FINDING 5 (HIGH): git containment is now CHECKED, not merely attempted.
+#
+# The store holds founder objectives, decisions, digests and directives in
+# CLEARTEXT: redaction happens at the display boundary (dump, render_digest,
+# render_state_md), so the sqlite file itself is the sensitive artefact
+# SECURITY.md says it is. Everything protecting it from git was, until now,
+# a best-effort WRITE: _ensure_git_excludes appends three lines to
+# info/exclude and swallows OSError so the store still opens. Two holes
+# follow directly from "write, never verify":
+#   * an exclude rule does NOT untrack a file git already tracks. A repo
+#     that already has .brothermode/store.sqlite3 in its index (added by
+#     accident, or by someone else, or inherited by cloning a repo the
+#     founder did not create) keeps committing the raw store on every
+#     routine `git add -A`, with every exclude line present and correct.
+#   * when the write fails, the store opens anyway and nothing is excluded.
+#
+# So the write stays (it is what makes the healthy case healthy) and is now
+# followed by a CHECK of git's actual state, run on every writable open,
+# before sqlite3.connect creates or touches the database. Two questions,
+# both answered from git's own files:
+#   1. is any of .brothermode/, the store, or its -wal/-shm sidecars in the
+#      index? -> refuse 'git-tracked-store', naming the untracking command.
+#   2. are those paths genuinely ignored? -> refuse 'git-exposed-store'.
+# An answer that cannot be established (an index this parser does not
+# understand, an unreadable .gitignore) refuses 'git-state-unknown' rather
+# than assuming the safe answer, because assuming the safe answer is the
+# defect being closed.
+#
+# ESCAPE HATCH, documented rather than hidden: BROTHERMODE_SKIP_GIT_CONTAINMENT
+# set to any non-empty value skips the whole check and warns loudly, for the
+# founder who has looked and decided. The refusals also name BROTHERMODE_ROOT,
+# which is the pre-existing, better answer for "I want the store to live
+# outside this repository entirely": point it at a directory no git repo
+# contains and this check has nothing to complain about.
+# ---------------------------------------------------------------------------
+
+SKIP_GIT_CONTAINMENT_ENV = "BROTHERMODE_SKIP_GIT_CONTAINMENT"
+
+
+def _git_decode_varint(data, pos):
+    """(value, new_pos) for git's own varint encoding (varint.c
+    decode_varint), used by version 4 index entries. (None, pos) when the
+    buffer ends mid-number."""
+    if pos >= len(data):
+        return None, pos
+    c = data[pos]
+    pos += 1
+    val = c & 0x7F
+    while c & 0x80:
+        if pos >= len(data):
+            return None, pos
+        val += 1
+        c = data[pos]
+        pos += 1
+        val = (val << 7) + (c & 0x7F)
+    return val, pos
+
+
+def _git_index_tracked_paths(index_path):
+    """Every path recorded in a git index, as a set of posix strings
+    relative to the worktree top. Returns None for "cannot be established",
+    which callers MUST treat as unknown and refuse on, never as "nothing is
+    tracked": a parser that silently reports an empty set on an index it
+    does not understand is the same fail-open shape FINDING 5 is about.
+    A MISSING index is different and returns an empty set: a repository
+    with no index has nothing staged or tracked at all.
+
+    Pure parsing, no subprocess (see the module header for why). Format:
+    git's Documentation/gitformat-index.txt. A 12 byte header ("DIRC", a
+    big-endian version, a big-endian entry count), then one entry each:
+    62 bytes of stat data, sha and flags, plus 2 more flag bytes when the
+    extended bit is set (version 3+), then the path. Versions 2 and 3 store
+    the path literally and NUL-pad every entry to a multiple of 8; version
+    4 stores it prefix-compressed against the previous path (a varint of
+    how many trailing bytes to strip, then the new suffix, NUL terminated)
+    and does not pad. Extensions after the entries are not read: nothing
+    after the entry table changes which paths are tracked."""
+    try:
+        with open(index_path, "rb") as f:
+            data = f.read()
+    except FileNotFoundError:
+        return set()
+    except OSError:
+        return None
+    if len(data) < 12 or data[:4] != b"DIRC":
+        return None
+    version = int.from_bytes(data[4:8], "big")
+    count = int.from_bytes(data[8:12], "big")
+    if version not in (2, 3, 4):
+        return None
+    # A cheap sanity bound before looping `count` times: the smallest
+    # possible entry is well over 8 bytes, so a count this large cannot
+    # describe this file and means the header is not what it claims.
+    if count > max(len(data) - 12, 0) // 8:
+        return None
+    pos = 12
+    prev = b""
+    paths = set()
+    for _ in range(count):
+        start = pos
+        if start + 62 > len(data):
+            return None
+        flags = int.from_bytes(data[start + 60:start + 62], "big")
+        pos = start + 62
+        if version >= 3 and (flags & 0x4000):
+            if pos + 2 > len(data):
+                return None
+            pos += 2
+        if version == 4:
+            strip, pos = _git_decode_varint(data, pos)
+            if strip is None or strip > len(prev):
+                return None
+            end = data.find(b"\x00", pos)
+            if end < 0:
+                return None
+            name = prev[:len(prev) - strip] + data[pos:end]
+            pos = end + 1
+        else:
+            name_len = flags & 0x0FFF
+            if name_len == 0x0FFF:
+                # 0xFFF is a saturating marker, not a length: the real name
+                # runs to the terminating NUL.
+                end = data.find(b"\x00", pos)
+                if end < 0:
+                    return None
+                name = data[pos:end]
+            else:
+                if pos + name_len > len(data):
+                    return None
+                name = data[pos:pos + name_len]
+            pos += len(name)
+            # 1 to 8 NULs, padding the whole entry to a multiple of 8 while
+            # keeping the name NUL terminated (git's ondisk_ce_size).
+            pos += 8 - ((pos - start) % 8)
+            if pos > len(data):
+                return None
+        prev = name
+        paths.add(name.decode("utf-8", "replace"))
+    return paths
+
+
+def _gitignore_pattern_to_regex(pattern, anchored):
+    """Compile ONE gitignore pattern (already stripped of its '!' and of a
+    trailing '/') into a regex matched against a path relative to the
+    directory that pattern came from. Returns None when it cannot be
+    compiled, which the caller turns into "ignore status unknown" rather
+    than into a silently dropped rule.
+
+    Implemented: '*' and '?' stopping at '/', character classes, backslash
+    escapes, '**/' at the start, '/**' at the end, '/**/' in the middle,
+    anchoring (a pattern containing a slash is relative to its own
+    directory; one without matches at any depth below it)."""
+    out = []
+    i = 0
+    n = len(pattern)
+    while i < n:
+        c = pattern[i]
+        if c == "\\" and i + 1 < n:
+            out.append(re.escape(pattern[i + 1]))
+            i += 2
+            continue
+        if c == "*":
+            j = i
+            while j < n and pattern[j] == "*":
+                j += 1
+            if (j - i) >= 2 and (i == 0 or pattern[i - 1] == "/") \
+                    and (j >= n or pattern[j] == "/"):
+                if j >= n:
+                    out.append(".*")          # trailing '/**': everything inside
+                else:
+                    out.append("(?:[^/]*/)*")  # '**/': zero or more directories
+                    j += 1                     # consume the slash it owns
+                i = j
+                continue
+            # Anything else, including '**' not bounded by slashes, is a
+            # run of ordinary asterisks (git: "other consecutive asterisks
+            # are considered regular asterisks").
+            out.append("[^/]*")
+            i = j
+            continue
+        if c == "?":
+            out.append("[^/]")
+            i += 1
+            continue
+        if c == "[":
+            j = i + 1
+            if j < n and pattern[j] in "!^":
+                j += 1
+            if j < n and pattern[j] == "]":
+                j += 1
+            while j < n and pattern[j] != "]":
+                j += 1
+            if j >= n:
+                out.append(re.escape("["))     # unterminated class: literal
+                i += 1
+                continue
+            body = pattern[i + 1:j]
+            if body.startswith("!"):
+                body = "^" + body[1:]
+            out.append("[" + body + "]")
+            i = j + 1
+            continue
+        out.append(re.escape(c))
+        i += 1
+    prefix = "" if anchored else "(?:.*/)?"
+    try:
+        return re.compile(prefix + "".join(out) + r"\Z", re.DOTALL)
+    except re.error:
+        return None
+
+
+def _read_gitignore_rules(path):
+    """The rules in one .gitignore or info/exclude file, in file order, as
+    (regex, negated, dir_only) tuples. [] for a file that is not there (no
+    rules is a real, healthy answer). None when the file exists but cannot
+    be read or contains a pattern this module cannot compile, so an
+    unreadable rule can never be silently skipped: skipping a NEGATION
+    would flip the answer from "exposed" to "ignored", which is the one
+    direction that must not happen."""
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    rules = []
+    for line in lines:
+        if not line or line.startswith("#"):
+            continue
+        line = _strip_gitignore_trailing_space(line)
+        if not line:
+            continue
+        negated = line.startswith("!")
+        if negated:
+            line = line[1:]
+        dir_only = line.endswith("/")
+        if dir_only:
+            line = line[:-1]
+        if not line:
+            continue
+        anchored = "/" in line
+        if line.startswith("/"):
+            line = line[1:]
+        rx = _gitignore_pattern_to_regex(line, anchored)
+        if rx is None:
+            return None
+        rules.append((rx, negated, dir_only))
+    return rules
+
+
+def _strip_gitignore_trailing_space(line):
+    """Trailing spaces are not part of a gitignore pattern unless the last
+    one is backslash escaped."""
+    i = len(line)
+    while i > 0 and line[i - 1] in " \t":
+        backslashes = 0
+        k = i - 2
+        while k >= 0 and line[k] == "\\":
+            backslashes += 1
+            k -= 1
+        if backslashes % 2 == 1:
+            break
+        i -= 1
+    return line[:i]
+
+
+def _gitignore_sources(worktree_top, common_dir, relpath):
+    """(file_path, base_relpath) for every ignore file that can speak about
+    relpath, in INCREASING precedence: info/exclude first, then .gitignore
+    at the worktree top, then one per directory on the way down. Git's own
+    order, minus core.excludesFile and the global ~/.config/git/ignore,
+    which are deliberately not read: skipping them can only make this
+    module conclude "not ignored" where git would say "ignored", which
+    refuses a safe repo (recoverable, and the refusal names the escape
+    hatch) instead of admitting an exposed one."""
+    sources = [(os.path.join(common_dir, "info", "exclude"), "")]
+    sources.append((os.path.join(worktree_top, ".gitignore"), ""))
+    cur = ""
+    for part in relpath.split("/")[:-1]:
+        cur = (cur + "/" + part) if cur else part
+        sources.append(
+            (os.path.join(worktree_top, cur.replace("/", os.sep), ".gitignore"), cur))
+    return sources
+
+
+def _last_matching_gitignore_rule(worktree_top, common_dir, relpath, is_dir):
+    """True (ignored), False (not ignored), or None (cannot be
+    established), for ONE path, ignoring its parent directories. Git's
+    rule: the highest-precedence file that matches decides, and within a
+    file the LAST matching line decides, so walking sources low to high and
+    overwriting reproduces it."""
+    decision = False
+    for src_path, base in _gitignore_sources(worktree_top, common_dir, relpath):
+        rules = _read_gitignore_rules(src_path)
+        if rules is None:
+            return None
+        if not rules:
+            continue
+        if base:
+            if not relpath.startswith(base + "/"):
+                continue
+            rel = relpath[len(base) + 1:]
+        else:
+            rel = relpath
+        for rx, negated, dir_only in rules:
+            if dir_only and not is_dir:
+                continue
+            if rx.match(rel):
+                decision = not negated
+    return decision
+
+
+def _git_ignore_decision(worktree_top, common_dir, relpath, is_dir):
+    """Would git ignore relpath (posix, relative to worktree_top)? True,
+    False, or None for "cannot be established".
+
+    Checks every ancestor directory first, because git stops descending at
+    the first excluded directory and a file under one cannot be re-included
+    ("It is not possible to re-include a file if a parent directory of that
+    file is excluded"). That is also what makes the healthy case work: the
+    line _ensure_git_excludes writes is '.brothermode/', a DIRECTORY rule,
+    and the store file inside it is ignored by inheritance rather than by
+    any rule naming it."""
+    parts = [p for p in relpath.split("/") if p]
+    if not parts:
+        return None
+    for i in range(len(parts)):
+        sub = "/".join(parts[:i + 1])
+        sub_is_dir = True if i < len(parts) - 1 else is_dir
+        decision = _last_matching_gitignore_rule(
+            worktree_top, common_dir, sub, sub_is_dir)
+        if decision is None:
+            return None
+        if decision:
+            return True
+    return False
+
+
+def _enclosing_git_context(start):
+    """(worktree_top, worktree_gitdir, common_dir) for the git checkout
+    that CONTAINS start, or (None, None, None) when there is none.
+
+    Walks UP rather than only checking <start>/.git, which _ensure_git_excludes
+    does. That difference is deliberate and is part of FINDING 5: a
+    .brothermode marker can sit in a SUBDIRECTORY of a repository (run
+    `init` in a subdirectory and it does), in which case <root>/.git does
+    not exist, _ensure_git_excludes writes nothing at all, and `git add -A`
+    from the repository top commits the raw store with no rule anywhere
+    objecting. Looking only where the exclude file would have gone would
+    miss exactly the case where no exclude file was written."""
+    for d in _walk_up(os.path.realpath(start)):
+        if os.path.exists(os.path.join(d, ".git")):
+            worktree_gitdir, common_dir = _resolve_git_dirs(d)
+            if worktree_gitdir is None:
+                return None, None, None
+            return d, worktree_gitdir, common_dir
+    return None, None, None
+
+
+def _refuse_if_git_can_commit_store(root):
+    """THE CHECK (FINDING 5). Refuses when git's real state says the raw
+    store is, or could become, committable. Silent and fast when the store
+    is properly contained, and a no-op when there is no git here at all,
+    since nothing can commit what no repository contains."""
+    if os.environ.get(SKIP_GIT_CONTAINMENT_ENV, "").strip():
+        _warn("bm_store: WARNING: %s is set, so the git containment check is "
+              "SKIPPED. The raw store at %s holds founder objectives, "
+              "decisions, digests and directives in cleartext; nothing is "
+              "checking that git will not commit it."
+              % (SKIP_GIT_CONTAINMENT_ENV, store_path(root)))
+        return
+    worktree_top, worktree_gitdir, common_dir = _enclosing_git_context(root)
+    if worktree_top is None:
+        return
+    targets = [store_dir(root), store_path(root),
+               store_path(root) + "-wal", store_path(root) + "-shm"]
+    rels = []
+    for target in targets:
+        rel = os.path.relpath(os.path.realpath(target), worktree_top)
+        if rel == os.pardir or rel.startswith(os.pardir + os.sep):
+            return          # the store is not inside this checkout after all
+        rels.append(_to_posix(rel))
+    dir_rel, file_rels = rels[0], rels[1:]
+
+    tracked = _git_index_tracked_paths(os.path.join(worktree_gitdir, "index"))
+    if tracked is None:
+        raise OwnershipRefused(
+            "git-state-unknown",
+            "the git index at %s could not be read or parsed, so whether "
+            "this repository already tracks the raw store at %s cannot be "
+            "established. Refusing rather than assuming it does not: the "
+            "store holds founder objectives, decisions, digests and "
+            "directives in cleartext. Check the repository with `git -C %s "
+            "status`, or set %s=1 to open anyway once you have looked."
+            % (os.path.join(worktree_gitdir, "index"), store_path(root),
+               worktree_top, SKIP_GIT_CONTAINMENT_ENV),
+            details={"index": os.path.join(worktree_gitdir, "index"),
+                     "worktree_top": worktree_top})
+
+    hits = sorted(p for p in tracked
+                  if p in file_rels or p == dir_rel or p.startswith(dir_rel + "/"))
+    if hits:
+        raise OwnershipRefused(
+            "git-tracked-store",
+            "git already TRACKS the raw BrotherMode store in %s (tracked "
+            "path(s): %s). An ignore rule does not untrack a tracked file, "
+            "so the next routine `git add -A` would commit founder "
+            "objectives, decisions, digests and directives in cleartext. "
+            "Untrack it, keeping the file on disk, with `git -C %s rm "
+            "--cached -r --ignore-unmatch -- %s`, then commit that "
+            "removal. If it was ever COMMITTED, the contents are still in "
+            "history and removing them needs a history rewrite (git "
+            "filter-repo) plus a force push. To keep the store out of this "
+            "repository entirely, set BROTHERMODE_ROOT to a directory no "
+            "git repository contains. To open anyway, set %s=1."
+            % (worktree_top, ", ".join(hits), worktree_top, dir_rel,
+               SKIP_GIT_CONTAINMENT_ENV),
+            details={"worktree_top": worktree_top, "tracked": hits,
+                     "store_dir": dir_rel})
+
+    for rel, is_dir in [(dir_rel, True)] + [(r, False) for r in file_rels]:
+        decision = _git_ignore_decision(worktree_top, common_dir, rel, is_dir)
+        if decision is None:
+            raise OwnershipRefused(
+                "git-state-unknown",
+                "whether git ignores %s inside %s could not be established "
+                "(an ignore file could not be read, or holds a pattern this "
+                "checker cannot compile). Refusing rather than guessing, "
+                "because the raw store holds founder objectives, decisions, "
+                "digests and directives in cleartext. Check it yourself with "
+                "`git -C %s check-ignore -v %s`, or set %s=1 to open anyway."
+                % (rel, worktree_top, worktree_top, rel, SKIP_GIT_CONTAINMENT_ENV),
+                details={"worktree_top": worktree_top, "path": rel})
+        if not decision:
+            raise OwnershipRefused(
+                "git-exposed-store",
+                "git does NOT ignore %s inside the repository at %s, so the "
+                "raw store (founder objectives, decisions, digests and "
+                "directives, in cleartext) is one `git add -A` away from "
+                "being committed. BrotherMode tries to add the rule itself "
+                "on every open, so seeing this means the write failed, the "
+                "store sits somewhere that write does not cover, or a later "
+                "rule re-includes it. Fix it by adding the line '/%s' to "
+                "either %s or %s (and removing anything that re-includes "
+                "it), then confirm with `git -C %s check-ignore -v %s`. To "
+                "keep the store out of this repository entirely, set "
+                "BROTHERMODE_ROOT to a directory no git repository "
+                "contains. To open anyway, set %s=1."
+                % (rel, worktree_top, dir_rel,
+                   os.path.join(worktree_top, ".gitignore"),
+                   os.path.join(common_dir, "info", "exclude"),
+                   worktree_top, rel, SKIP_GIT_CONTAINMENT_ENV),
+                details={"worktree_top": worktree_top, "path": rel,
+                         "store_dir": dir_rel})
 
 
 def _is_transient_busy_error(e):
@@ -1315,6 +1863,16 @@ class Store(object):
         # creates the store directory as a side effect, and that must never
         # be one `git add -A` away from committing a cleartext secret.
         _ensure_git_excludes(self.root)
+        # FINDING 5 (2026-07-27): the write above is best effort and always
+        # was; this VERIFIES git's real state, and it runs here on purpose,
+        # AFTER the write (so the healthy case is made healthy first) and
+        # BEFORE sqlite3.connect below (so a refusal happens while the
+        # sensitive database still does not exist, or still has not been
+        # touched). An empty .brothermode/ directory may be left behind by
+        # a refusal, exactly as the symlink and hardlink refusals above
+        # already do; git does not track empty directories, so it carries
+        # nothing.
+        _refuse_if_git_can_commit_store(self.root)
         _chmod_best_effort(expected_store_dir, 0o700)
         self.path = store_path(self.root)
         if os.path.exists(self.path) and os.path.getsize(self.path) == 0:
@@ -1676,6 +2234,41 @@ class Store(object):
         to re-read a record without reaching into private methods: exposing
         it is a small, pure-read addition, not a behavior change."""
         return self._record_by_uuid(lifecycle_uuid)
+
+    def identity_by_name(self, name):
+        """Every record whose name is EXACTLY `name`, newest first, as a
+        list of dicts holding lifecycle_uuid plus structural metadata ONLY:
+        lifecycle_uuid, lifetime, state, version, session_id, created_at,
+        updated_at. No objective, no owner, no tier, no check_cmd, no
+        evidence, and not the name itself, which the caller already has
+        because it is the query.
+
+        THIS EXISTS BECAUSE IDENTITY RESOLUTION IS NOT PRESENTATION.
+        bm_threads.py resolves a thread name through store.dump(), and
+        dump() is a DISPLAY boundary whose default-deny redaction (GATE C)
+        rewrites records.name along with every other free-text column. A
+        name that trips the redactor ("AKIAIOSFODNN7EXAMPLE" is a legal
+        name: valid_name only rejects reserved characters and whitespace)
+        therefore comes back as "[REDACTED]", matches nothing, and the
+        thread that was stored perfectly well can never be found again
+        while its fence stays claimed. Redaction belongs at the boundary
+        where text LEAVES the machine, not in the lookup that decides which
+        lifecycle a caller is talking about, so this reads the records
+        table directly and returns nothing a redactor would have needed to
+        touch.
+
+        Ordering matches what bm_threads._find_record already does with
+        dump()'s rows (most recently updated first), with lifecycle_uuid
+        as a deterministic tie break so two records updated in the same
+        second do not come back in an order that depends on sqlite's row
+        layout. Callers keep their own ambiguity policy: this returns every
+        match rather than picking one, because picking one is the caller's
+        refusal to make."""
+        rows = _exec(self,
+            "SELECT lifecycle_uuid, lifetime, state, version, session_id, "
+            "created_at, updated_at FROM records WHERE name = ? "
+            "ORDER BY updated_at DESC, lifecycle_uuid ASC", (name,)).fetchall()
+        return [dict(r) for r in rows]
 
     # -- claim ---------------------------------------------------------
 
@@ -2465,6 +3058,14 @@ class ReadOnlyStore(object):
         # cannot be tricked by a symlinked .brothermode directory or a
         # symlinked store file/sidecar either.
         _refuse_if_symlink_escape(store_dir(self.root))
+        # FINDING 5 (2026-07-27): the diagnostics run through this class, and
+        # a diagnostic that reports a healthy store while git is committing
+        # its cleartext contents is the same failure shape fix-round 4
+        # already closed once ("report health about the empty shell it just
+        # made"). Refusing is not writing: nothing here moves, renames or
+        # creates anything, and the refusal message IS the diagnosis, naming
+        # both the remediation and the escape hatch.
+        _refuse_if_git_can_commit_store(self.root)
         self.path = store_path(self.root)
         if not os.path.isfile(self.path):
             raise OwnershipRefused(
@@ -2553,6 +3154,13 @@ class ReadOnlyStore(object):
         # Reuses Store.dump() verbatim: it only calls _exec(self, ...) over
         # _TABLES, which works identically against a read-only connection.
         return Store.dump(self, raw=raw)
+
+    def identity_by_name(self, name):
+        # Same reuse, same reason: one SELECT through _exec, no writes. A
+        # read-only consumer resolving a name needs this at least as much
+        # as a writable one, since it is the diagnostic that has to explain
+        # why a thread cannot be found.
+        return Store.identity_by_name(self, name)
 
     def close(self):
         """Idempotent, same contract as Store.close()."""

@@ -4074,13 +4074,18 @@ class TestFinding2BPathContainment(unittest.TestCase):
                           "_refuse_if_hardlinked explicitly by both "
                           "Store.__init__ and ReadOnlyStore.__init__ before "
                           "anything is opened or written",
-            "_resolve_git_common_dir": "git's own administrative directory, "
-                                        "which legitimately lives OUTSIDE the "
-                                        "project root in a worktree, so an "
-                                        "inside-the-root funnel would refuse a "
-                                        "valid checkout; it has its own "
-                                        "validation (SOFT G, "
-                                        "_looks_like_git_admin_dir)",
+            # Renamed from _resolve_git_common_dir on 2026-07-27 (finding 5),
+            # which now delegates to this. Same single exemption, same stated
+            # reason, same two call sites: the function was split to return
+            # the per-worktree gitdir (which holds the index) alongside the
+            # common dir (which holds info/exclude), not to widen anything.
+            "_resolve_git_dirs": "git's own administrative directory, "
+                                  "which legitimately lives OUTSIDE the "
+                                  "project root in a worktree, so an "
+                                  "inside-the-root funnel would refuse a "
+                                  "valid checkout; it has its own "
+                                  "validation (SOFT G, "
+                                  "_looks_like_git_admin_dir)",
         }
         exempt_concat_sinks = {
             "Store._quarantine_and_raise": "the quarantine directory is built "
@@ -4314,6 +4319,550 @@ class TestFinding7ReadOnlyNeverMoves(unittest.TestCase):
                              "%s(%s) is an environment problem, not a verdict on the "
                              "file; it must never move the founder's database"
                              % (type(cause).__name__, cause))
+
+
+def _git_env():
+    """A git environment with the developer's own global and system config
+    NEUTRALIZED. Every cross-check below compares this module's answer with
+    real git's answer, and a global core.excludesFile on the machine
+    running the suite would make git ignore things this module deliberately
+    does not read (see _gitignore_sources), turning a correct comparison
+    into a machine-dependent one."""
+    return dict(os.environ,
+                GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t.com",
+                GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t.com",
+                GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull,
+                GIT_CONFIG_NOSYSTEM="1")
+
+
+def _git(repo, *args):
+    return subprocess.run(["git", "-C", repo] + list(args),
+                          capture_output=True, text=True, env=_git_env())
+
+
+def _have_git():
+    try:
+        return subprocess.run(["git", "--version"],
+                              capture_output=True).returncode == 0
+    except OSError:
+        return False
+
+
+_HAVE_GIT = _have_git()
+
+
+@unittest.skipUnless(_HAVE_GIT, "git is not installed")
+class TestFinding5GitContainment(unittest.TestCase):
+    """FINDING 5 (HIGH), external audit 2026-07-27: the raw store holds
+    founder objectives, decisions, digests and directives in CLEARTEXT, and
+    everything keeping it out of git was a best-effort WRITE to
+    .git/info/exclude that was never CHECKED. An exclude rule does not
+    untrack an already-tracked file, and the store opened happily when the
+    write failed, so a repository that already tracked
+    .brothermode/store.sqlite3 committed the founder's raw data on the next
+    routine `git add -A`.
+
+    Every test here uses a throwaway git repository under the system temp
+    directory. None of them touches this repo, BROTHERMODE_ROOT, or the
+    real home directory, and _git_env neutralizes the developer's own git
+    config so the cross-checks compare code against git, not against one
+    machine's settings."""
+
+    def _repo(self, base, name="repo"):
+        repo = os.path.join(base, name)
+        os.makedirs(repo)
+        r = _git(repo, "init", "-q")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return repo
+
+    def _check_ignore(self, repo, rel):
+        """Real git's answer for one path: True, False, or a failed test."""
+        r = _git(repo, "check-ignore", "-q", "--", rel)
+        self.assertIn(r.returncode, (0, 1),
+                      "git check-ignore errored (rc=%s): %s" % (r.returncode, r.stderr))
+        return r.returncode == 0
+
+    # -- the confirmed defect, reproduced ---------------------------------
+
+    def test_calibrated_finding5_already_tracked_store_is_refused(self):
+        """THE REPRODUCTION. A store created before git existed here, then
+        swept into the index by an ordinary `git add -A`, is exactly the
+        shape the audit describes: every exclude line present and correct
+        afterwards, and the raw database staged anyway."""
+        with tempfile.TemporaryDirectory() as base:
+            repo = os.path.join(base, "repo")
+            os.makedirs(repo)
+            with bs.Store(repo) as store:      # no git here yet
+                store.claim("payments", "ephemeral", "founder objective text", [])
+            self.assertEqual(_git(repo, "init", "-q").returncode, 0)
+            self.assertEqual(_git(repo, "add", "-A").returncode, 0)
+
+            # The harm itself, asserted before the fix is asserted: git is
+            # now tracking the cleartext store.
+            tracked = _git(repo, "ls-files").stdout.split()
+            self.assertIn(".brothermode/store.sqlite3", tracked, tracked)
+
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.Store(repo)
+            self.assertEqual(ctx.exception.reason, "git-tracked-store")
+            msg = str(ctx.exception)
+            self.assertIn("rm --cached", msg)
+            self.assertIn(".brothermode", msg)
+
+    def test_finding5_untracking_makes_the_refusal_go_away(self):
+        """The remediation the refusal names has to actually work, or the
+        message is a dead end dressed up as help."""
+        with tempfile.TemporaryDirectory() as base:
+            repo = os.path.join(base, "repo")
+            os.makedirs(repo)
+            with bs.Store(repo) as store:
+                store.claim("payments", "ephemeral", "obj", [])
+            _git(repo, "init", "-q")
+            _git(repo, "add", "-A")
+            with self.assertRaises(bs.OwnershipRefused):
+                bs.Store(repo)
+            r = _git(repo, "rm", "--cached", "-r", "--ignore-unmatch", "-q",
+                     "--", ".brothermode")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            with bs.Store(repo) as store:      # must open cleanly now
+                self.assertEqual(len(store.identity_by_name("payments")), 1)
+
+    def test_calibrated_finding5_failed_exclude_write_is_refused(self):
+        """The second half of the finding: the exclude write is best effort
+        and swallows OSError, so a read-only or otherwise unwritable
+        .git/info/exclude left the store open and totally unprotected. The
+        write failing is simulated by neutralizing it, which is precisely
+        what its own except OSError branch does today."""
+        with tempfile.TemporaryDirectory() as base:
+            repo = self._repo(base)
+            with mock.patch.object(bs, "_ensure_git_excludes", lambda root: None):
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    bs.Store(repo)
+            self.assertEqual(ctx.exception.reason, "git-exposed-store")
+            # Cross-check: real git agrees the store would not be ignored.
+            self.assertFalse(self._check_ignore(repo, ".brothermode/store.sqlite3"))
+
+    def test_finding5_negating_gitignore_rule_beats_the_exclude_write(self):
+        """A rule this module WROTE is not a rule git OBEYS. .gitignore
+        outranks info/exclude, so a re-including pattern silently undoes
+        the containment, which is the case a write-only implementation can
+        never see."""
+        with tempfile.TemporaryDirectory() as base:
+            repo = self._repo(base)
+            with io.open(os.path.join(repo, ".gitignore"), "w", encoding="utf-8") as f:
+                f.write("!.brothermode/\n")
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.Store(repo)
+            self.assertEqual(ctx.exception.reason, "git-exposed-store")
+            self.assertFalse(self._check_ignore(repo, ".brothermode/store.sqlite3"))
+
+    def test_finding5_store_in_a_subdirectory_of_a_repo_is_refused(self):
+        """_ensure_git_excludes only looks at <root>/.git, so a marker in a
+        SUBDIRECTORY of a repository gets no exclude file written at all,
+        and `git add -A` from the top commits the store with nothing
+        objecting. The check walks up instead of looking only where the
+        exclude file would have gone."""
+        with tempfile.TemporaryDirectory() as base:
+            repo = self._repo(base)
+            sub = os.path.join(repo, "sub")
+            os.makedirs(sub)
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.Store(sub)
+            self.assertEqual(ctx.exception.reason, "git-exposed-store")
+            self.assertFalse(self._check_ignore(repo, "sub/.brothermode/store.sqlite3"))
+
+    def test_finding5_readonly_diagnostics_refuse_too(self):
+        """A diagnostic that reports a healthy store while git is
+        committing its cleartext contents is the fix-round 4 failure shape
+        again. Refusing is not writing: nothing is moved, renamed or
+        created, and the refusal message IS the diagnosis."""
+        with tempfile.TemporaryDirectory() as base:
+            repo = os.path.join(base, "repo")
+            os.makedirs(repo)
+            with bs.Store(repo) as store:
+                store.claim("payments", "ephemeral", "obj", [])
+            _git(repo, "init", "-q")
+            _git(repo, "add", "-A")
+            before = _sha256_file(os.path.join(repo, ".brothermode", "store.sqlite3"))
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.ReadOnlyStore(repo)
+            self.assertEqual(ctx.exception.reason, "git-tracked-store")
+            # Refusing must stay non-destructive: same path, same bytes.
+            self.assertEqual(
+                _sha256_file(os.path.join(repo, ".brothermode", "store.sqlite3")),
+                before)
+
+    def test_finding5_refusal_message_survives_the_output_funnel(self):
+        """The CLI's output funnel escapes every C0 control character, so a
+        refusal carrying a newline reaches the founder as a literal \\x0a
+        with the remediation command buried in it. Measured once, in a real
+        /tmp repository, and locked here."""
+        with tempfile.TemporaryDirectory() as base:
+            repo = os.path.join(base, "repo")
+            os.makedirs(repo)
+            with bs.Store(repo) as store:
+                store.claim("payments", "ephemeral", "obj", [])
+            _git(repo, "init", "-q")
+            _git(repo, "add", "-A")
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.Store(repo)
+            msg = str(ctx.exception)
+            self.assertNotIn("\n", msg)
+            self.assertEqual(msg, bs._sanitize_for_display(msg))
+
+    def test_finding5_unparseable_index_refuses_rather_than_assuming(self):
+        with tempfile.TemporaryDirectory() as base:
+            repo = self._repo(base)
+            with bs.Store(repo) as store:
+                store.claim("thing", "ephemeral", "obj", [])
+            with io.open(os.path.join(repo, ".git", "index"), "wb") as f:
+                f.write(b"NOTANINDEX" + os.urandom(64))
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.Store(repo)
+            self.assertEqual(ctx.exception.reason, "git-state-unknown")
+
+    def test_finding5_missing_index_is_not_unknown(self):
+        """A repository with no index tracks nothing. That is a real
+        answer, not an unknown one, or every `git init` would refuse."""
+        with tempfile.TemporaryDirectory() as base:
+            repo = self._repo(base)
+            self.assertFalse(os.path.exists(os.path.join(repo, ".git", "index")))
+            with bs.Store(repo) as store:
+                store.claim("thing", "ephemeral", "obj", [])
+
+    # -- the healthy cases must stay healthy -------------------------------
+
+    def test_finding5_healthy_repo_opens_and_git_confirms_it_is_ignored(self):
+        with tempfile.TemporaryDirectory() as base:
+            repo = self._repo(base)
+            with bs.Store(repo) as store:
+                store.claim("thing", "ephemeral", "obj", [])
+            self.assertTrue(self._check_ignore(repo, ".brothermode/store.sqlite3"))
+            self.assertTrue(self._check_ignore(repo, ".brothermode/store.sqlite3-wal"))
+            r = _git(repo, "status", "--porcelain")
+            self.assertNotIn(".brothermode", r.stdout, r.stdout)
+
+    def test_finding5_no_git_anywhere_is_not_a_refusal(self):
+        with tempfile.TemporaryDirectory() as base:
+            plain = os.path.join(base, "plain")
+            os.makedirs(plain)
+            with mock.patch.object(bs, "_enclosing_git_context",
+                                    return_value=(None, None, None)):
+                with bs.Store(plain) as store:
+                    store.claim("thing", "ephemeral", "obj", [])
+
+    def test_finding5_escape_hatch_opens_a_tracked_store_and_warns(self):
+        with tempfile.TemporaryDirectory() as base:
+            repo = os.path.join(base, "repo")
+            os.makedirs(repo)
+            with bs.Store(repo) as store:
+                store.claim("payments", "ephemeral", "obj", [])
+            _git(repo, "init", "-q")
+            _git(repo, "add", "-A")
+            captured = io.StringIO()
+            with mock.patch.dict(os.environ, {bs.SKIP_GIT_CONTAINMENT_ENV: "1"}), \
+                 mock.patch.object(sys, "stderr", captured):
+                with bs.Store(repo) as store:
+                    self.assertEqual(len(store.identity_by_name("payments")), 1)
+            self.assertIn(bs.SKIP_GIT_CONTAINMENT_ENV, captured.getvalue())
+            self.assertIn("SKIPPED", captured.getvalue())
+
+    # -- the two parsers, cross-checked against real git -------------------
+
+    def test_finding5_index_parser_agrees_with_git_ls_files(self):
+        with tempfile.TemporaryDirectory() as base:
+            repo = self._repo(base)
+            names = ["a.txt", "dir/b.txt", "dir/deeper/c d.txt",
+                     "z" * 200 + ".txt", "unicode-é中.txt"]
+            for rel in names:
+                path = os.path.join(repo, *rel.split("/"))
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with io.open(path, "w", encoding="utf-8") as f:
+                    f.write("x\n")
+            self.assertEqual(_git(repo, "add", "-A").returncode, 0)
+            # -z, because plain `ls-files` C-quotes any path outside ASCII
+            # and the comparison would be against git's DISPLAY form rather
+            # than against the bytes actually in the index.
+            expected = sorted(p for p in _git(repo, "ls-files", "-z").stdout.split("\0") if p)
+            parsed = bs._git_index_tracked_paths(os.path.join(repo, ".git", "index"))
+            self.assertIsNotNone(parsed, "the index should have parsed")
+            self.assertEqual(sorted(parsed), expected)
+
+    def test_finding5_index_parser_handles_index_version_4(self):
+        """Version 4 stores paths prefix-compressed with a varint and no
+        padding. A parser that only knows v2/v3 would either return the
+        wrong paths or refuse every store in a repo configured this way."""
+        with tempfile.TemporaryDirectory() as base:
+            repo = self._repo(base)
+            for rel in ("dir/aaa.txt", "dir/aab.txt", "dir/deeper/aac.txt"):
+                path = os.path.join(repo, *rel.split("/"))
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with io.open(path, "w", encoding="utf-8") as f:
+                    f.write("x\n")
+            self.assertEqual(_git(repo, "add", "-A").returncode, 0)
+            r = _git(repo, "update-index", "--index-version", "4")
+            if r.returncode != 0:
+                self.skipTest("this git cannot write a version 4 index: %s" % r.stderr)
+            with io.open(os.path.join(repo, ".git", "index"), "rb") as f:
+                self.assertEqual(int.from_bytes(f.read(8)[4:8], "big"), 4,
+                                  "sanity: the index must really be version 4")
+            expected = sorted(p for p in _git(repo, "ls-files", "-z").stdout.split("\0") if p)
+            parsed = bs._git_index_tracked_paths(os.path.join(repo, ".git", "index"))
+            self.assertEqual(sorted(parsed or []), expected)
+
+    def test_finding5_ignore_matcher_agrees_with_git_check_ignore(self):
+        """The gitignore subset this module implements, compared case by
+        case against real git rather than against its author's belief about
+        real git. Any disagreement here is a bug in _git_ignore_decision,
+        including a disagreement that would let it call an exposed store
+        contained."""
+        cases = [
+            # (.gitignore body, path, is_dir)
+            (".brothermode/\n", ".brothermode/store.sqlite3", False),
+            (".brothermode/\n!.brothermode/\n", ".brothermode/store.sqlite3", False),
+            ("/.brothermode/\n", "sub/.brothermode/store.sqlite3", False),
+            (".brothermode\n", "sub/.brothermode/store.sqlite3", False),
+            ("**/.brothermode/\n", "a/b/.brothermode/store.sqlite3", False),
+            ("a/**/c\n", "a/b/c", False),
+            ("a/**/c\n", "a/c", False),
+            ("*.sqlite3\n", ".brothermode/store.sqlite3", False),
+            ("*.sqlite3\n!store.sqlite3\n", ".brothermode/store.sqlite3", False),
+            ("store.sqlite?\n", ".brothermode/store.sqlite3", False),
+            ("store.sqlite[0-9]\n", ".brothermode/store.sqlite3", False),
+            ("nothing-matches\n", ".brothermode/store.sqlite3", False),
+            ("sub/\n", "sub/.brothermode/store.sqlite3", False),
+            ("# a comment\n\n.brothermode/\n", ".brothermode/store.sqlite3", False),
+        ]
+        for i, (body, rel, is_dir) in enumerate(cases):
+            with tempfile.TemporaryDirectory() as base:
+                repo = self._repo(base, name="repo%d" % i)
+                with io.open(os.path.join(repo, ".gitignore"), "w", encoding="utf-8") as f:
+                    f.write(body)
+                git_says = self._check_ignore(repo, rel)
+                gitdir = os.path.join(repo, ".git")
+                ours = bs._git_ignore_decision(repo, gitdir, rel, is_dir)
+                self.assertEqual(
+                    ours, git_says,
+                    "gitignore %r vs path %r: git says ignored=%s, this module "
+                    "says %r" % (body, rel, git_says, ours))
+
+    def test_finding5_unreadable_ignore_file_is_unknown_not_ignored(self):
+        with tempfile.TemporaryDirectory() as base:
+            repo = self._repo(base)
+            with mock.patch.object(bs, "_read_gitignore_rules", return_value=None):
+                self.assertIsNone(
+                    bs._git_ignore_decision(repo, os.path.join(repo, ".git"),
+                                            ".brothermode/store.sqlite3", False))
+
+    def test_finding5_worktree_index_is_the_per_worktree_one(self):
+        """In a linked worktree the index and info/exclude live in
+        DIFFERENT directories. Reading the shared common dir's index would
+        answer the tracked question for another worktree entirely."""
+        with tempfile.TemporaryDirectory() as base:
+            main = os.path.join(base, "main")
+            wt = os.path.join(base, "wt")
+            os.makedirs(main)
+            for cmd in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "i"]):
+                self.assertEqual(_git(main, *cmd).returncode, 0)
+            r = _git(main, "worktree", "add", "-q", wt, "-b", "feature")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            gitdir, common = bs._resolve_git_dirs(wt)
+            self.assertNotEqual(os.path.realpath(gitdir), os.path.realpath(common))
+            self.assertTrue(os.path.isfile(os.path.join(gitdir, "index")))
+            self.assertEqual(os.path.realpath(common),
+                              os.path.realpath(os.path.join(main, ".git")))
+            with bs.Store(wt) as store:        # must still open cleanly
+                store.claim("thing", "ephemeral", "obj", [])
+
+    def test_finding5_module_still_declares_and_keeps_no_subprocess(self):
+        """The subprocess question, decided in code rather than in prose:
+        git state is read by PARSING git's own files, so the module keeps
+        the no-subprocess property that SECURITY.md publishes, that
+        test_bm.py enforces per file, and that bm_telemetry.py explicitly
+        relies on when it loads this module by path. If a future round ever
+        does reach for subprocess here, this fails first and forces the
+        docstring, SECURITY.md and test_bm.py to be corrected in the same
+        change."""
+        with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
+            source = f.read()
+        offenders = [i for i, line in enumerate(source.splitlines(), 1)
+                     if re.match(r"^\s*(?:import|from)\s+subprocess\b", line)]
+        self.assertEqual(offenders, [], "bm_store.py imports subprocess at line(s) %s, "
+                                        "but its docstring, SECURITY.md and test_bm.py "
+                                        "all still claim it does not" % offenders)
+        self.assertIn("No network, no subprocess", source)
+
+
+class TestFinding11NestedRepoBoundary(unittest.TestCase):
+    """FINDING 11 (MEDIUM): resolve_root prefers ANY ancestor .brothermode
+    marker over a NEARER .git boundary, so a nested repository silently
+    attaches to a different parent project's store. That precedence is
+    DELIBERATE (it is the F2 / F42 / F2b fix, stopping a vendored
+    submodule's .git from shadowing the real root), so the fix is an opt-in
+    check that REFUSES the ambiguity, never a reordering."""
+
+    def _clean_env(self):
+        env = mock.patch.dict(os.environ, {}, clear=False)
+        env.start()
+        os.environ.pop("BROTHERMODE_ROOT", None)
+        self.addCleanup(env.stop)
+
+    def test_calibrated_finding11_nested_repo_refuses_instead_of_attaching(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._clean_env()
+            os.makedirs(os.path.join(d, ".brothermode"))
+            nested = os.path.join(d, "vendor", "sub")
+            os.makedirs(os.path.join(nested, ".git"))
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.resolve_root(start=nested, refuse_past_git_boundary=True)
+            self.assertEqual(ctx.exception.reason, "root-ambiguous")
+            msg = str(ctx.exception)
+            self.assertIn("BROTHERMODE_ROOT", msg)
+            self.assertIn(os.path.realpath(nested), msg)
+            self.assertIn(os.path.realpath(d), msg)
+
+    def test_finding11_default_still_prefers_the_marker(self):
+        """The F2 / F42 / F2b guarantee, asserted right beside its new
+        neighbour: the default is unchanged, so no existing caller starts
+        resolving a different root."""
+        with tempfile.TemporaryDirectory() as d:
+            self._clean_env()
+            os.makedirs(os.path.join(d, ".brothermode"))
+            nested = os.path.join(d, "vendor", "sub")
+            os.makedirs(os.path.join(nested, ".git"))
+            root, source = bs.resolve_root(start=nested)
+            self.assertEqual(os.path.realpath(root), os.path.realpath(d))
+            self.assertEqual(source, "marker")
+
+    def test_finding11_marker_at_the_git_root_is_not_ambiguous(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._clean_env()
+            os.makedirs(os.path.join(d, ".brothermode"))
+            os.makedirs(os.path.join(d, ".git"))
+            sub = os.path.join(d, "a", "b")
+            os.makedirs(sub)
+            root, source = bs.resolve_root(start=sub, refuse_past_git_boundary=True)
+            self.assertEqual(os.path.realpath(root), os.path.realpath(d))
+            self.assertEqual(source, "marker")
+
+    def test_finding11_git_above_the_marker_is_not_ambiguous(self):
+        """Only a NEARER .git disagrees. One further up is not a second
+        answer: the marker is still the innermost anchor."""
+        with tempfile.TemporaryDirectory() as d:
+            self._clean_env()
+            os.makedirs(os.path.join(d, ".git"))
+            inner = os.path.join(d, "inner")
+            os.makedirs(os.path.join(inner, ".brothermode"))
+            root, source = bs.resolve_root(start=inner, refuse_past_git_boundary=True)
+            self.assertEqual(os.path.realpath(root), os.path.realpath(inner))
+            self.assertEqual(source, "marker")
+
+    def test_finding11_explicit_env_root_is_exempt(self):
+        """BROTHERMODE_ROOT is the answer the refusal asks for, so it
+        cannot itself be refused, or the remedy is another dead end."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, ".brothermode"))
+            nested = os.path.join(d, "vendor", "sub")
+            os.makedirs(os.path.join(nested, ".git"))
+            with mock.patch.dict(os.environ, {"BROTHERMODE_ROOT": d}):
+                root, source = bs.resolve_root(start=nested,
+                                                refuse_past_git_boundary=True)
+            self.assertEqual(os.path.realpath(root), os.path.realpath(d))
+            self.assertEqual(source, "env")
+
+    def test_finding11_require_root_passes_the_flag_through(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._clean_env()
+            os.makedirs(os.path.join(d, ".brothermode"))
+            nested = os.path.join(d, "vendor", "sub")
+            os.makedirs(os.path.join(nested, ".git"))
+            root, source = bs.require_root(start=nested)
+            self.assertEqual(os.path.realpath(root), os.path.realpath(d))
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.require_root(start=nested, refuse_past_git_boundary=True)
+            self.assertEqual(ctx.exception.reason, "root-ambiguous")
+
+
+class TestIdentityByName(unittest.TestCase):
+    """The lookup bm_threads.py needs. Its _find_record resolves names
+    through store.dump(), which is a PRESENTATION view: GATE C's
+    default-deny redaction rewrites records.name along with every other
+    free-text column, so a thread whose NAME trips the redactor is stored
+    correctly and can then never be found again, with its fence stranded
+    active forever."""
+
+    # The structural metadata this API is allowed to return, and nothing
+    # else. Asserted as an exact set so a future column cannot be added to
+    # the SELECT without someone deciding, on purpose, that it is not free
+    # text.
+    EXPECTED_KEYS = {"lifecycle_uuid", "lifetime", "state", "version",
+                     "session_id", "created_at", "updated_at"}
+
+    def test_calibrated_name_that_redaction_rewrites_is_still_findable(self):
+        with tempfile.TemporaryDirectory() as d:
+            secret_shaped = "AKIAIOSFODNN7EXAMPLE"
+            self.assertEqual(bs.valid_name(secret_shaped), secret_shaped,
+                              "sanity: this really is a legal record name")
+            self.assertNotEqual(bs.redact_text(secret_shaped), secret_shaped,
+                                "sanity: this really does trip the redactor")
+            with bs.Store(d) as store:
+                rec = store.claim(secret_shaped, "ephemeral", "obj", [])
+                # THE DEFECT: the presentation view has lost the name, so a
+                # name-based lookup through dump() can never match it.
+                dumped = [r["name"] for r in store.dump()["records"]]
+                self.assertNotIn(secret_shaped, dumped, dumped)
+                # THE FIX: identity resolution does not go through display.
+                rows = store.identity_by_name(secret_shaped)
+                self.assertEqual([r["lifecycle_uuid"] for r in rows],
+                                  [rec.lifecycle_uuid])
+
+    def test_returns_structural_metadata_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.claim("payments", "ephemeral", "a secret objective",
+                            [], owner="sonnet", tier="t2",
+                            check_cmd="pytest -k secret")
+                rows = store.identity_by_name("payments")
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(set(rows[0]), self.EXPECTED_KEYS)
+            blob = json.dumps(rows)
+            for free_text in ("a secret objective", "sonnet", "t2", "pytest -k secret",
+                              "payments"):
+                self.assertNotIn(free_text, blob, blob)
+
+    def test_exact_match_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.claim("payments", "ephemeral", "obj", [])
+                self.assertEqual(store.identity_by_name("payment"), [])
+                self.assertEqual(store.identity_by_name("payments2"), [])
+                self.assertEqual(store.identity_by_name("PAYMENTS"), [])
+                self.assertEqual(store.identity_by_name(""), [])
+                self.assertEqual(len(store.identity_by_name("payments")), 1)
+
+    def test_returns_every_match_newest_first(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                first = store.claim("payments", "ephemeral", "obj", [])
+                store.transition(first.lifecycle_uuid, first.version, "complete",
+                                  evidence="suite green")
+                second = store.claim("payments", "ephemeral", "obj", [])
+                rows = store.identity_by_name("payments")
+                self.assertEqual(len(rows), 2)
+                self.assertEqual({r["lifecycle_uuid"] for r in rows},
+                                  {first.lifecycle_uuid, second.lifecycle_uuid})
+                self.assertGreaterEqual(rows[0]["updated_at"], rows[1]["updated_at"])
+                self.assertEqual([r["version"] for r in rows],
+                                  [r["version"] for r in rows])
+
+    def test_read_only_store_exposes_it_too(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rec = store.claim("payments", "ephemeral", "obj", [])
+            with bs.ReadOnlyStore(d) as ro:
+                rows = ro.identity_by_name("payments")
+            self.assertEqual([r["lifecycle_uuid"] for r in rows], [rec.lifecycle_uuid])
+            self.assertEqual(set(rows[0]), self.EXPECTED_KEYS)
 
 
 def tearDownModule():
