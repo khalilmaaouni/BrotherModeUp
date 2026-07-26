@@ -25,6 +25,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -586,6 +587,219 @@ class TestCalibratedJ(unittest.TestCase):
                     "calibrated")
             finally:
                 autosave._write_receipt = original
+
+
+class TestCalibratedGateARetentionSortKey(unittest.TestCase):
+    """GATE A (prerelease fix round): retention pruned the newest snapshot.
+    Snapshot refs were sorted as whole strings, so the session id outranked
+    the timestamp and a session whose id sorts early was treated as older
+    than every snapshot from a session whose id sorts late, no matter when
+    either was actually taken. Reproduced 2026-07-26: ten snapshots from
+    one session, then the newest from another, and the pruner deleted THE
+    NEWEST while keeping all ten older ones. Already fixed by hand (sorting
+    on the stamp alone, via _snapshot_sort_key); this test is the
+    calibrated proof the fix stays fixed."""
+
+    def _two_session_scenario(self, repo, old_session, new_session):
+        """Ten OLDER snapshots from a session whose id sorts LATE
+        ("zzz..."), then the ONE NEWEST from a session whose id sorts
+        EARLY ("aaa..."). A tiny sleep between snapshots keeps _stamp()'s
+        microsecond timestamps strictly increasing, so "newest" is
+        unambiguous regardless of how fast this machine runs git."""
+        _init_repo(repo)
+        _write(os.path.join(repo, "a.txt"), "v1")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-qm", "init")
+        toplevel = autosave.resolve_toplevel(repo)
+        wtid = autosave.worktree_id_for(toplevel)
+        old_env = os.environ.get("BROTHERMODE_AUTOSAVE_RETAIN")
+        os.environ["BROTHERMODE_AUTOSAVE_RETAIN"] = "100"  # no auto-prune while building
+        try:
+            for i in range(10):
+                _write(os.path.join(repo, "wip.txt"), "OLD-%d" % i)
+                res = autosave.snapshot(toplevel, old_session, "old %d" % i)
+                self.assertTrue(res["ok"], res)
+                time.sleep(0.002)
+            _write(os.path.join(repo, "marker.txt"), "THE-NEWEST-SNAPSHOT")
+            newest = autosave.snapshot(toplevel, new_session, "the newest")
+            self.assertTrue(newest["ok"], newest)
+        finally:
+            if old_env is None:
+                os.environ.pop("BROTHERMODE_AUTOSAVE_RETAIN", None)
+            else:
+                os.environ["BROTHERMODE_AUTOSAVE_RETAIN"] = old_env
+        return toplevel, wtid, newest
+
+    def test_prune_keeps_the_newest_snapshot_regardless_of_session_id_order(self):
+        with tempfile.TemporaryDirectory() as repo:
+            toplevel, wtid, newest = self._two_session_scenario(
+                repo, "zzz-old-session", "aaa-new-session")
+            autosave._prune_old_snapshots(toplevel, wtid, retain=5)
+            self.assertEqual(
+                _git(toplevel, "rev-parse", "-q", "--verify", newest["ref"]).returncode, 0,
+                "the newest snapshot (session 'aaa-new-session', taken LAST) was "
+                "pruned even though it is the most recent work; a session id "
+                "that sorts early must never be mistaken for old work")
+            shown = _git(toplevel, "show", "%s:marker.txt" % newest["commit"])
+            self.assertEqual(shown.returncode, 0)
+            self.assertIn("THE-NEWEST-SNAPSHOT", shown.stdout,
+                          "the newest snapshot survived the ref but lost its content")
+
+            # CALIBRATION: reinject the old whole-refname sort by patching
+            # the PRODUCT symbol _snapshot_sort_key back to identity, and
+            # confirm the calibrated check now fails for the GATE A reason:
+            # the newest snapshot (session id 'aaa...', sorts lexically
+            # BEFORE 'zzz...' regardless of timestamp) is pruned as though
+            # it were the oldest.
+            original = autosave._snapshot_sort_key
+            autosave._snapshot_sort_key = lambda ref: ref
+            try:
+                with tempfile.TemporaryDirectory() as repo2:
+                    toplevel2, wtid2, newest2 = self._two_session_scenario(
+                        repo2, "zzz-old-session", "aaa-new-session")
+                    autosave._prune_old_snapshots(toplevel2, wtid2, retain=5)
+                    self.assertNotEqual(
+                        _git(toplevel2, "rev-parse", "-q", "--verify",
+                             newest2["ref"]).returncode, 0,
+                        "REINJECTION CHECK: with the whole-refname sort restored, "
+                        "the newest snapshot must be pruned because its session id "
+                        "sorts lexically before the older session's (this is GATE "
+                        "A); if this assertion fails, the test is not calibrated")
+            finally:
+                autosave._snapshot_sort_key = original
+
+
+class TestCalibratedGateFReceiptOutlivesPrunedSnapshot(unittest.TestCase):
+    """GATE F (prerelease fix round): a receipt outlives the snapshot that
+    made it true. Reproduced: thirteen sessions, retention ten, and the
+    pruned session's receipt row survived, so has_receipt reported safety
+    for work whose ref was gone. Fixed by deleting the receipt rows for
+    refs the pruner deletes, in the same call."""
+
+    def test_pruned_snapshots_lose_their_receipts(self):
+        with tempfile.TemporaryDirectory() as repo:
+            _init_repo(repo)
+            _write(os.path.join(repo, "a.txt"), "v1")
+            _git(repo, "add", "-A")
+            _git(repo, "commit", "-qm", "init")
+            toplevel = autosave.resolve_toplevel(repo)
+            wtid = autosave.worktree_id_for(toplevel)
+            bs.init_project(toplevel)
+            os.environ["BROTHERMODE_AUTOSAVE_RETAIN"] = "100"
+            try:
+                results = []
+                for i in range(13):
+                    _write(os.path.join(repo, "wip.txt"), "WIP-%d" % i)
+                    res = autosave.snapshot(toplevel, "s%d" % i, "step %d" % i)
+                    self.assertTrue(res["ok"], res)
+                    results.append(res)
+                    time.sleep(0.001)
+                # Every one of the thirteen sessions has an honest receipt
+                # before pruning ever runs.
+                for i, res in enumerate(results):
+                    self.assertTrue(autosave.has_receipt(toplevel, wtid, "s%d" % i),
+                                     "session s%d has no receipt before pruning" % i)
+
+                autosave._prune_old_snapshots(toplevel, wtid, retain=10)
+                r = _git(toplevel, "for-each-ref", "--format=%(refname)",
+                          "%s/%s/" % (autosave.REF_NAMESPACE, wtid))
+                remaining_refs = [l for l in r.stdout.splitlines()
+                                   if l.strip() and not l.endswith("/latest")]
+                self.assertEqual(len(remaining_refs), 10, remaining_refs)
+
+                # The three OLDEST sessions (s0, s1, s2) were pruned: their
+                # receipts must be gone too, or has_receipt keeps reporting
+                # safety for work whose ref no longer exists.
+                for i in range(3):
+                    self.assertFalse(
+                        autosave.has_receipt(toplevel, wtid, "s%d" % i),
+                        "session s%d's ref was pruned but its receipt survived "
+                        "(this is GATE F): has_receipt reports safety for work "
+                        "that is actually gone" % i)
+                for i in range(3, 13):
+                    self.assertTrue(
+                        autosave.has_receipt(toplevel, wtid, "s%d" % i),
+                        "session s%d's ref was kept but its receipt was deleted "
+                        "too eagerly" % i)
+            finally:
+                os.environ.pop("BROTHERMODE_AUTOSAVE_RETAIN", None)
+
+            # CALIBRATION: reinject the old behavior (pruning never touches
+            # receipts) by neutralizing the PRODUCT function
+            # _delete_receipts_for_shas, and confirm the calibrated check
+            # now fails for the GATE F reason: a pruned session's receipt
+            # survives and has_receipt reports it as still safe.
+            with tempfile.TemporaryDirectory() as repo2:
+                _init_repo(repo2)
+                _write(os.path.join(repo2, "a.txt"), "v1")
+                _git(repo2, "add", "-A")
+                _git(repo2, "commit", "-qm", "init")
+                toplevel2 = autosave.resolve_toplevel(repo2)
+                wtid2 = autosave.worktree_id_for(toplevel2)
+                bs.init_project(toplevel2)
+                original = autosave._delete_receipts_for_shas
+                autosave._delete_receipts_for_shas = lambda *a, **kw: None
+                os.environ["BROTHERMODE_AUTOSAVE_RETAIN"] = "100"
+                try:
+                    for i in range(13):
+                        _write(os.path.join(repo2, "wip.txt"), "WIP-%d" % i)
+                        res = autosave.snapshot(toplevel2, "s%d" % i, "step %d" % i)
+                        self.assertTrue(res["ok"], res)
+                        time.sleep(0.001)
+                    autosave._prune_old_snapshots(toplevel2, wtid2, retain=10)
+                    self.assertTrue(
+                        autosave.has_receipt(toplevel2, wtid2, "s0"),
+                        "REINJECTION CHECK: with receipt deletion neutralized, a "
+                        "pruned session's receipt must still report as safe (this "
+                        "is GATE F); if this assertion fails, the test is not "
+                        "calibrated")
+                finally:
+                    autosave._delete_receipts_for_shas = original
+                    os.environ.pop("BROTHERMODE_AUTOSAVE_RETAIN", None)
+
+
+class TestCrossProjectReceiptGuard(unittest.TestCase):
+    """Wiring item (prerelease fix round): a snapshot must never write its
+    receipt into ANOTHER project's store when the resolved root points
+    elsewhere (a BrotherMode marker found further up the tree than this
+    snapshot's own git toplevel)."""
+
+    def test_receipt_never_written_into_a_parent_projects_store(self):
+        with tempfile.TemporaryDirectory() as base:
+            # The PARENT directory is its own BrotherMode project.
+            bs.init_project(base)
+            child = os.path.join(base, "child")
+            os.makedirs(child)
+            _init_repo(child)
+            _write(os.path.join(child, "a.txt"), "v1")
+            _git(child, "add", "-A")
+            _git(child, "commit", "-qm", "init")
+            child_top = autosave.resolve_toplevel(child)
+            self.assertEqual(os.path.realpath(child_top), os.path.realpath(child))
+
+            # Sanity: resolve_root from the child walks UP PAST the child's
+            # own .git and finds the PARENT's .brothermode marker, which is
+            # exactly the scenario the guard exists for.
+            resolved_root, _source = bs.resolve_root(child_top)
+            self.assertEqual(os.path.realpath(resolved_root), os.path.realpath(base))
+
+            _write(os.path.join(child, "wip.txt"), "WIP")
+            cap = io.StringIO()
+            with contextlib.redirect_stderr(cap):
+                res = autosave.snapshot(child_top, "s1", "test")
+            self.assertTrue(res["ok"], "the snapshot itself must still succeed")
+            self.assertIn("another project", cap.getvalue())
+
+            parent_store = bs.Store(base, create=False)
+            try:
+                rows = parent_store.conn.execute(
+                    "SELECT * FROM autosave_receipts").fetchall()
+            finally:
+                parent_store.close()
+            self.assertEqual(
+                len(rows), 0,
+                "the child worktree's receipt was written into the PARENT "
+                "project's store instead of being refused")
 
 
 class TestRetention(unittest.TestCase):
