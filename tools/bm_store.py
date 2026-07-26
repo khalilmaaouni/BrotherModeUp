@@ -45,6 +45,7 @@ import io
 import json
 import os
 import posixpath
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -622,14 +623,19 @@ _WARNED_NO_REDACT = []
 def _warn_no_redact_once():
     # Once, not every call: this fires from inside render functions that may
     # be invoked repeatedly, and a warning nobody can find under a wall of
-    # duplicates is the same as no warning.
+    # duplicates is the same as no warning. A FIXED, hardcoded message
+    # (never founder text), written with the same raw primitive the funnel
+    # uses (_raw_write is defined later in this file; resolved at call
+    # time, well after the whole module has loaded) so even this warning
+    # never raises UnicodeEncodeError.
     if _WARNED_NO_REDACT:
         return
     _WARNED_NO_REDACT.append(True)
-    print("bm_store: WARNING: could not load the bm_telemetry redactor (%s); "
-          "refusing to render generated views (STATE.md, render_digest, the "
-          "dashboard) rather than emit unredacted text. dump() and the raw "
-          "sqlite file are unaffected." % _REDACT_LOAD_ERROR, file=sys.stderr)
+    _raw_write(sys.stderr,
+               "bm_store: WARNING: could not load the bm_telemetry redactor (%s); "
+               "refusing to render generated views (STATE.md, render_digest, the "
+               "dashboard) rather than emit unredacted text. dump() and the raw "
+               "sqlite file are unaffected.\n" % _REDACT_LOAD_ERROR)
 
 
 def redact_text(t):
@@ -775,9 +781,20 @@ _TABLES = ("meta", "records", "claims", "decisions", "digests", "directives",
 # _text_columns), is redacted automatically. A new text column added to
 # _DDL without being added here is redacted by default, not exposed by
 # default: the failure direction that matters is flipped.
+# records.name was in this set until fix-round 7 (2026-07-26): it was
+# treated as an identifier-shaped column like lifecycle_uuid, but a NAME is
+# founder-typed free text (valid_name only rejects reserved characters and
+# whitespace; it happily accepts "AKIAIOSFODNN7EXAMPLE" or "password=hunter2"
+# as a name), so listing it here meant the one dump column an adversary
+# could put a real secret shape into was also the one this allowlist
+# exempted from redaction. Removing it means dump()'s existing default-deny
+# machinery (below) now redacts it exactly like every other free-text
+# column, with no new call site: the record is still identifiable via its
+# lifecycle_uuid, which is never redacted and sits right beside the name at
+# every other exit (render_state_md, render_digest).
 _DUMP_SAFE_COLUMNS = frozenset((
     ("meta", "key"), ("meta", "value"),
-    ("records", "lifecycle_uuid"), ("records", "name"), ("records", "lifetime"),
+    ("records", "lifecycle_uuid"), ("records", "lifetime"),
     ("records", "state"), ("records", "session_id"),
     ("records", "created_at"), ("records", "updated_at"),
     ("claims", "lifecycle_uuid"),
@@ -849,6 +866,34 @@ def _refuse_if_symlink_escape(expected_path):
             "to use it rather than write the sensitive store outside the "
             "project root or chmod that target" % (expected_path, real_path),
             details={"expected": expected_path, "resolved": real_path})
+
+
+def _refuse_if_hardlinked(expected_path):
+    """SOFT D (fix-round 7, 2026-07-26): the symlink check above cannot see
+    a HARDLINK. A second, git-visible filename hardlinked to
+    .brothermode/store.sqlite3 (or its -wal/-shm) shares the same inode, so
+    os.path.realpath(expected_path) still equals expected_path (there is no
+    symlink to resolve) even though the raw sqlite bytes are also reachable,
+    and committable, through that other name (reproduced: a secret found in
+    committed git history via a hardlinked docs/leak.sqlite3). st_nlink
+    counts every hard-linked name a file has; an ordinary, unshared regular
+    file always reports 1. Only checks paths that already exist: a file
+    about to be freshly created cannot yet be hardlinked to anything."""
+    if not os.path.lexists(expected_path):
+        return
+    try:
+        st = os.stat(expected_path)
+    except OSError:
+        return
+    if st.st_nlink > 1:
+        raise OwnershipRefused(
+            "path-escape",
+            "%s has %d hard links (expected exactly 1); a hardlink cannot "
+            "be detected by inspecting the path alone, unlike a symlink, so "
+            "refusing rather than risk the sensitive store also being "
+            "reachable, and committable, through another name. Find the "
+            "other name with `find <search-root> -samefile %s`, remove it, "
+            "and retry." % (expected_path, st.st_nlink, expected_path))
 
 
 def _looks_like_git_admin_dir(path):
@@ -962,9 +1007,9 @@ def _ensure_git_excludes(root):
     except OSError as e:
         # Advisory: opening the store must still succeed even when
         # .git/info/exclude is not writable (read-only worktree, permission
-        # issue). The store itself is already created and usable.
-        print("bm_store: warning: could not update %s (%s)" % (exclude_path, e),
-              file=sys.stderr)
+        # issue). The store itself is already created and usable. Routed
+        # through the stderr funnel (fix-round 7) like every other warning.
+        _warn("bm_store: warning: could not update %s (%s)" % (exclude_path, e))
 
 
 def _exec(store, sql, params=()):
@@ -1043,6 +1088,11 @@ class Store(object):
         _refuse_if_symlink_escape(expected_path)
         _refuse_if_symlink_escape(expected_path + "-wal")
         _refuse_if_symlink_escape(expected_path + "-shm")
+        # SOFT D (fix-round 7, 2026-07-26): same containment intent as the
+        # symlink checks above, for the threat a symlink check cannot see.
+        _refuse_if_hardlinked(expected_path)
+        _refuse_if_hardlinked(expected_path + "-wal")
+        _refuse_if_hardlinked(expected_path + "-shm")
         # GATE 7 (fix-round 2026-07-26): every open protects itself, not
         # only `init`. A command run before anyone happens to `init` still
         # creates the store directory as a side effect, and that must never
@@ -1133,13 +1183,21 @@ class Store(object):
         checkpoint) were left behind entirely. The directory name carries
         microsecond precision plus a uuid4 suffix and is created with
         os.makedirs(exist_ok=False), so a name can never be reused; nothing
-        is ever os.replace'd onto an existing path."""
-        if self.conn is not None:
-            try:
-                self.conn.close()
-            except Exception:
-                pass
-            self.conn = None
+        is ever os.replace'd onto an existing path.
+
+        GATE C (fix-round 7, 2026-07-26): the sidecars are now COPIED into
+        the quarantine directory BEFORE self.conn.close() runs, not after.
+        The previous order closed the connection first and moved files
+        second; on a newer bundled SQLite (3.53.1, shipped with a recent
+        Python 3.13), close() itself DELETES stale -wal/-shm files as part
+        of its own cleanup, so by the time the move ran there was nothing
+        left: destroyed, not merely left behind, which is worse than the
+        original defect this quarantine exists to prevent, and is silently
+        version-dependent (passes on an older SQLite, fails on a newer one,
+        same test). Copying their bytes while the handle is still open is
+        unaffected by whatever close() does to the originals afterward; the
+        main store file is still moved only after close(), since it is the
+        connection's own handle, not a sidecar, that close() can act on."""
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%f")
         suffix = uuid.uuid4().hex[:8]
         qdir = self.path + ".quarantine-%s-%s" % (stamp, suffix)
@@ -1151,23 +1209,75 @@ class Store(object):
         try:
             os.makedirs(qdir, exist_ok=False)
         except OSError as mkdir_err:
+            if self.conn is not None:
+                try:
+                    self.conn.close()
+                except Exception:
+                    pass
+                self.conn = None
             raise StoreCorrupt(
                 "%s is not a readable SQLite database (%s), and a quarantine "
                 "directory could not be created either (%s). Nothing was "
                 "moved: the damaged file is still at %s; move it aside by "
                 "hand, then run init again."
                 % (self.path, cause, mkdir_err, self.path))
-        moved, failed = [], []
-        for src in (self.path, self.path + "-wal", self.path + "-shm"):
+        # GATE C: preserve the sidecars' CURRENT bytes before close() gets
+        # any chance to delete or checkpoint them away. Best-effort: a copy
+        # failure here is not fatal by itself, since the finalize pass below
+        # (after close) still falls back to moving the original if it
+        # survived close() after all.
+        preserved = set()
+        for src in (self.path + "-wal", self.path + "-shm"):
             if not os.path.exists(src):
                 continue
             dst = os.path.join(qdir, os.path.basename(src))
             try:
-                os.replace(src, dst)
+                shutil.copy2(src, dst)
                 _chmod_best_effort(dst, 0o600)
-                moved.append(dst)
+                preserved.add(dst)
+            except OSError:
+                pass
+        if self.conn is not None:
+            try:
+                self.conn.close()
+            except Exception:
+                pass
+            self.conn = None
+        moved, failed = list(preserved), []
+        # The main file is not a WAL/SHM sidecar and was never at risk from
+        # close() the way GATE C describes, so it is moved here, after
+        # close, exactly as before fix-round 7.
+        main_dst = os.path.join(qdir, os.path.basename(self.path))
+        if os.path.exists(self.path):
+            try:
+                os.replace(self.path, main_dst)
+                _chmod_best_effort(main_dst, 0o600)
+                moved.append(main_dst)
             except OSError as move_err:
-                failed.append("%s (%s)" % (src, move_err))
+                failed.append("%s (%s)" % (self.path, move_err))
+        # A sidecar still present at its original path after close() (this
+        # SQLite version left it behind rather than deleting it) is now
+        # redundant with the copy already safely inside qdir: remove the
+        # stale original instead of leaving a duplicate scattered outside
+        # the quarantine directory. If no copy was preserved above (the
+        # copy itself failed), fall back to the original move-in-place
+        # behavior so a failed COPY is not also a failed quarantine.
+        for src in (self.path + "-wal", self.path + "-shm"):
+            if not os.path.exists(src):
+                continue
+            dst = os.path.join(qdir, os.path.basename(src))
+            if dst in preserved:
+                try:
+                    os.remove(src)
+                except OSError:
+                    pass
+            else:
+                try:
+                    os.replace(src, dst)
+                    _chmod_best_effort(dst, 0o600)
+                    moved.append(dst)
+                except OSError as move_err:
+                    failed.append("%s (%s)" % (src, move_err))
         if failed and not moved:
             raise StoreCorrupt(
                 "%s is not a readable SQLite database (%s), and it could not "
@@ -1798,16 +1908,26 @@ class Store(object):
         as the ratified spec's own budget list names it ("header (lifecycle,
         objective) 400 chars"); it used to carry name/state/lifetime only,
         so a resuming session read a handover that never said what the work
-        was for."""
+        was for.
+
+        Round 7 (2026-07-26): the NAME is founder-typed text too (valid_name
+        only rejects reserved characters and whitespace; it happily accepts
+        something shaped like a real secret), so it is redacted here exactly
+        like objective/next_intent/blockers/files_note/decisions, unlike the
+        conditional per-field calls in render_state_md that let redaction
+        get skipped entirely for an all-empty-optional-fields record (GATE
+        B): a record's name is never empty, so this call always runs, and a
+        missing redactor is always caught here rather than only sometimes."""
         row = _exec(self,
             "SELECT * FROM records WHERE lifecycle_uuid=?", (lifecycle_uuid,)).fetchone()
         if row is None:
             return "(no record with lifecycle_uuid %s)" % lifecycle_uuid
         objective_text = (_sanitize_for_display(redact_text(row["objective"]))
                           if row["objective"] else "(no objective)")
+        name_text = _sanitize_for_display(redact_text(row["name"]))
         header = _truncate(
             "lifecycle %s: %s (%s, %s): %s"
-            % (lifecycle_uuid[:8], row["name"], row["state"], row["lifetime"], objective_text),
+            % (lifecycle_uuid[:8], name_text, row["state"], row["lifetime"], objective_text),
             _SECTION_BUDGETS["header"])
         digest_row = _exec(self,
             "SELECT * FROM digests WHERE lifecycle_uuid=? ORDER BY seq DESC LIMIT 1",
@@ -1839,8 +1959,21 @@ class Store(object):
         if new_lines:
             newest_block = "\n".join(new_lines)
         elif decisions:
-            newest_block = ("(truncated: newest decision does not fit the "
-                             "%d char budget)" % _SECTION_BUDGETS["decisions_new"])
+            # SOFT E (fix-round 7, 2026-07-26): the loop above broke on its
+            # very FIRST iteration because the newest decision alone already
+            # exceeds the budget, so new_lines is empty even though a
+            # decision exists. The old behavior rendered a placeholder
+            # saying so with ZERO actual decision content: the one field
+            # this section exists to show. Truncate that single decision to
+            # fit instead (the same _truncate() every other section uses,
+            # so the marker is consistent), so a resuming session sees the
+            # BEGINNING of the decision rather than nothing. It is excluded
+            # from `older` below so it is not also shown a second time.
+            first = decisions[0]
+            first_line = "- [%s] %s" % (_sanitize_for_display(redact_text(first["topic"])),
+                                         _sanitize_for_display(redact_text(first["text"])))
+            newest_block = _truncate(first_line, _SECTION_BUDGETS["decisions_new"])
+            older = decisions[1:]
         else:
             newest_block = "(none)"
         older_lines, older_used, older_shown = [], 0, 0
@@ -1971,6 +2104,11 @@ class ReadOnlyStore(object):
         _refuse_if_symlink_escape(self.path)
         _refuse_if_symlink_escape(self.path + "-wal")
         _refuse_if_symlink_escape(self.path + "-shm")
+        # SOFT D (fix-round 7, 2026-07-26): same containment intent as the
+        # symlink checks above, for the threat a symlink check cannot see.
+        _refuse_if_hardlinked(self.path)
+        _refuse_if_hardlinked(self.path + "-wal")
+        _refuse_if_hardlinked(self.path + "-shm")
         if os.path.getsize(self.path) == 0:
             self._quarantine_and_raise(
                 ValueError("store file exists but is zero bytes (truncated, or never finished writing)"))
@@ -2077,8 +2215,8 @@ def _acknowledge_quarantine(qdir):
         with open(os.path.join(qdir, "ACKNOWLEDGED"), "w", encoding="utf-8") as f:
             f.write("acknowledged %s\n" % now_iso())
     except OSError as e:
-        print("bm_store: warning: could not write acknowledgement marker in "
-              "%s (%s)" % (qdir, e), file=sys.stderr)
+        _warn("bm_store: warning: could not write acknowledgement marker in "
+              "%s (%s)" % (qdir, e))
 
 
 # ---------------------------------------------------------------------------
@@ -2176,8 +2314,21 @@ def render_state_md(root):
                     "SELECT path FROM claims WHERE lifecycle_uuid=? ORDER BY path",
                     (r["lifecycle_uuid"],)).fetchall()]
                 tier_text = _redacted_view_text(r["tier"]) if r["tier"] else "no tier"
+                # Round 7 (2026-07-26): the record NAME is founder-typed text
+                # (valid_name only rejects reserved characters and
+                # whitespace; a name shaped like a real secret passes it
+                # cleanly), redacted here like every other field. Unlike
+                # tier/objective/files/next_intent below, name is NOT NULL
+                # and never empty, so this call is never conditional on
+                # emptiness: a missing redactor is always caught the moment
+                # this function renders anything at all, closing the GATE B
+                # hole where an all-empty-optional-fields record produced
+                # zero redact_text() calls and zero warnings. The lifecycle
+                # uuid prefix printed right beside it is the stable way to
+                # refer to a record whose name is now redacted.
                 lines.append("- %s (%s, %s) [%s]"
-                             % (r["name"], r["lifecycle_uuid"][:8], r["lifetime"], tier_text))
+                             % (_redacted_view_text(r["name"]), r["lifecycle_uuid"][:8],
+                                r["lifetime"], tier_text))
                 lines.append("  objective: %s"
                              % (_redacted_view_text(r["objective"]) if r["objective"] else "(none)"))
                 files_text = (", ".join(_redacted_view_text(f) for f in files)
@@ -2199,7 +2350,39 @@ def write_state_view(root):
     """Regenerate the view and write it into STATE.md between BEGIN/END
     GENERATED markers, preserving any human prose outside them. A file with
     no markers yet gets them appended after whatever prose already exists; a
-    file that does not exist yet gets just the generated block."""
+    file that does not exist yet gets just the generated block.
+
+    GATE A (fix-round 7, 2026-07-26, VERIFIED BY ORCHESTRATOR): reproduced
+    by hand-editing a rendered STATE.md the way a human actually would
+    (deleted the closing END line, added "## My notes / CALL BOB ABOUT THE
+    CONTRACT") and rendering twice. The OLD check here was a naive
+    containment test ("BEGIN in existing and END in existing"): render 1
+    found a lone BEGIN with no END and fell into the append branch,
+    appending a fresh complete block AFTER the human's notes, so the file
+    now held two BEGIN markers and one END; render 2's containment test was
+    satisfied by that damaged file and took the splice branch using the
+    FIRST BEGIN and the ONLY END, deleting everything between them,
+    including the human's notes. 330 bytes left, exit 0, no warning, no
+    backup. The guard neutralized markers arriving FROM THE STORE
+    (_neutralize_markers, GATE 8b) but trusted markers already IN THE FILE.
+
+    Fixed by failing closed: the existing file's marker COUNT must be
+    exactly (0, 0) [no markers yet] or (1, 1) [one intact block], or this
+    refuses ('view-markers-damaged') rather than guess which BEGIN belongs
+    to which END. Any other count means the file's structure cannot be
+    trusted to parse safely, whatever caused it. Whenever the file already
+    has content and passes that check, the previous content is saved
+    beside it as STATE.md.bak-<UTC stamp> first (reported on stderr) before
+    anything is overwritten, so even a render that turns out to be
+    unwanted can always be recovered from disk: a generated file may
+    overwrite its own block, but it may never silently discard, and never
+    irrecoverably lose, what a human wrote.
+
+    GATE B (fix-round 7): the final write routes through
+    _write_generated_file (THE FILE FUNNEL), never _atomic_write_text
+    directly, so a missing redactor refuses the ENTIRE write (nothing
+    reaches disk) instead of silently writing raw founder text (the record
+    NAME, round 7's other finding here) at exit 0 with no warning."""
     generated = render_state_md(root)
     path = os.path.join(root, "STATE.md")
     try:
@@ -2207,7 +2390,34 @@ def write_state_view(root):
             existing = f.read()
     except OSError:
         existing = ""
-    if _STATE_BEGIN in existing and _STATE_END in existing:
+    begin_count = existing.count(_STATE_BEGIN)
+    end_count = existing.count(_STATE_END)
+    if (begin_count, end_count) not in ((0, 0), (1, 1)):
+        raise OwnershipRefused(
+            "view-markers-damaged",
+            "%s has a damaged generated-view marker pair (found %d BEGIN "
+            "marker(s) and %d END marker(s); a healthy file has exactly "
+            "one of each, or neither). Refusing to write it: a partial or "
+            "duplicated marker pair cannot be told apart from human prose "
+            "that must be preserved, and guessing has destroyed a real "
+            "handover before. Repair by hand so the file has exactly one "
+            "'%s' line followed by exactly one '%s' line, or remove both "
+            "and let this command add a fresh block, then re-run it. "
+            "Nothing was changed." % (path, begin_count, end_count, _STATE_BEGIN, _STATE_END))
+    if existing:
+        # GATE A: back up whatever is already there before this write can
+        # touch it, whether the next step is a splice or an append. The
+        # stamp carries microsecond precision (like the quarantine
+        # directory name, GATE 5) plus a short random suffix on collision,
+        # so two renders in the same microsecond still each get their own
+        # backup rather than one silently overwriting the other.
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+        backup_path = path + ".bak-" + stamp
+        if os.path.lexists(backup_path):
+            backup_path = backup_path + "-" + uuid.uuid4().hex[:8]
+        _atomic_write_text(backup_path, existing)
+        _warn("bm_store: saved the previous STATE.md as %s before rewriting it" % backup_path)
+    if begin_count == 1:
         pre, rest = existing.split(_STATE_BEGIN, 1)
         _mid, post = rest.split(_STATE_END, 1)
         new_text = pre + generated + post
@@ -2216,8 +2426,7 @@ def write_state_view(root):
         new_text = existing + sep + generated
     else:
         new_text = generated
-    _atomic_write_text(path, new_text)
-    return new_text
+    return _write_generated_file(path, new_text)
 
 
 def verify(root):
@@ -2288,51 +2497,191 @@ def verify(root):
 # Exit 0 success, 2 refusal (reason code on stdout), 1 corruption/unexpected.
 # ---------------------------------------------------------------------------
 
-def _out(s, end="\n"):
-    """Write one piece of CLI output that can NEVER raise UnicodeEncodeError
-    (GATE 9, fix-round 2026-07-26). A name is now ASCII-only (valid_name), but
-    an objective, a decision, or a tier is free text and can carry anything;
-    on a stdout whose encoding cannot represent it, a bare print() raises
-    UnicodeEncodeError, whose ONLY ancestor besides UnicodeError is
-    ValueError (verified: UnicodeEncodeError.__mro__ includes ValueError,
-    not a sibling of it). Before this helper, that exception reached main()'s
-    ValueError handler and reported an already-committed success as a
-    'bad-input' refusal. Falling back to backslashreplace means the founder
-    always sees SOME text instead of a crash or a misreported outcome."""
-    text = s + end
+# ---------------------------------------------------------------------------
+# THE OUTPUT FUNNEL (fix-round 7, 2026-07-26). Five separate findings this
+# round were one root cause: a founder-typed string reached SOME exit
+# (verify's problems, the path-escape message, the record NAME, the
+# --session echo) without going through redaction, because redaction was
+# invoked per call site, per field, and a missed field is invisible until
+# someone reproduces it. THE FIX IS STRUCTURAL: every byte this module ever
+# sends to stdout, stderr, or a generated file passes through exactly one
+# of the named functions below; none of them can be bypassed with a bare
+# print()/sys.stdout.write()/sys.stderr.write() or a raw file write (a
+# structural test greps the source for exactly that).
+#
+# Two funnel functions (_out, _warn) redact AND sanitize UNCONDITIONALLY,
+# with no opt-out, and are for ORDINARY SINGLE-LINE messages (a claim
+# confirmation, a refusal, one verify problem, the --session echo): a
+# founder-controlled value like --session never goes through valid_name's
+# ASCII-printable check, so a stray control character reaching a real
+# terminal is a live risk _sanitize_for_display exists to close.
+#
+# _sanitize_for_display must NEVER run blanket over an already-ASSEMBLED
+# multi-line document (the dashboard's rendered markdown, dump's JSON): its
+# job is defusing a SINGLE VALUE's control characters before that value is
+# embedded in a document, so the value cannot forge the document's own
+# structure; a document's OWN newlines (or JSON's own indentation) are not
+# founder-typed injection; escaping them corrupts the document instead of
+# protecting it (reproduced during this exact round: JSON became invalid,
+# the dashboard became one unreadable line of literal \x0a text). Content
+# that is either (a) already protected per FIELD before assembly, or (b)
+# has zero founder influence, or (c) already had its own redact/no-redact
+# decision made upstream at the data level, uses one of the two narrower
+# exceptions below instead: _out_prerendered (redact only, no sanitize,
+# still fails closed: the dashboard) and _out_unprotected (neither: pure
+# static help text, and dump's already-decided JSON payload in both modes).
+# ---------------------------------------------------------------------------
+
+def _protect_text(t):
+    """The value-level half of the funnel: redact_text() then
+    _sanitize_for_display(), unconditionally, on ANY string before it can
+    reach a stream or a file. Called on the FULLY ASSEMBLED text at each
+    funnel boundary (not just on fields someone remembered were
+    "founder-typed"), so a record's NAME (round 7: was never redacted
+    anywhere, and valid_name happily accepts AKIAIOSFODNN7EXAMPLE or
+    password=hunter2 as a name) or any future field is covered automatically.
+    Raises RedactionUnavailable when the redactor cannot be loaded; never
+    returns unredacted text."""
+    return _sanitize_for_display(redact_text(t or ""))
+
+
+def _raw_write(stream, text):
+    """The lowest-level primitive: write text to stream, encoding-safe
+    (GATE 9, fix-round 2026-07-26: UnicodeEncodeError's only ancestor besides
+    UnicodeError is ValueError, so an unencodable character used to reach
+    main()'s ValueError handler and misreport an already-committed success
+    as 'bad-input'). Used ONLY by the three funnel functions; never called
+    directly by a command."""
     try:
-        sys.stdout.write(text)
+        stream.write(text)
     except UnicodeEncodeError:
-        enc = getattr(sys.stdout, "encoding", None) or "ascii"
+        enc = getattr(stream, "encoding", None) or "ascii"
         try:
-            sys.stdout.buffer.write(text.encode(enc, errors="backslashreplace"))
+            stream.buffer.write(text.encode(enc, errors="backslashreplace"))
         except Exception:
-            sys.stdout.write(text.encode("ascii", errors="backslashreplace").decode("ascii"))
-        try:
-            sys.stdout.flush()
-        except Exception:
-            pass
+            stream.write(text.encode("ascii", errors="backslashreplace").decode("ascii"))
+    try:
+        stream.flush()
+    except Exception:
+        pass
+
+
+def _out(s, end="\n"):
+    """THE STDOUT FUNNEL. Every byte reaching stdout is redacted and
+    sanitized first, unconditionally: if the redactor cannot be loaded,
+    this REFUSES (RedactionUnavailable propagates to main(), exit 2) rather
+    than print anything, even a purely structural message, because "call
+    sites lose the ability to opt out" is the whole point (GATE B: the old
+    per-field design let the missing-redactor check simply never fire when
+    the field that would have triggered it happened to be empty)."""
+    _raw_write(sys.stdout, _protect_text(s) + end)
+
+
+def _out_prerendered(s, end=""):
+    """For MULTI-LINE content already protected FIELD BY FIELD before
+    assembly (render_state_md's dashboard output: every value it embeds
+    already went through _redacted_view_text, including the record name as
+    of this round), where the document's own newlines and indentation are
+    this module's structure, not founder text. Runs redact_text() as a
+    defense-in-depth safety net across the whole assembled document (a
+    stateless pattern scan for secret SHAPES; it does not care about
+    newlines the way _sanitize_for_display does, so it cannot corrupt this
+    document's structure the way blanket sanitizing would), and still fails
+    CLOSED exactly like _out: if the redactor cannot be loaded, this raises
+    RedactionUnavailable and prints nothing, rather than let a generated
+    view escape the one round-6/7 promise it exists to keep."""
+    _raw_write(sys.stdout, redact_text(s or "") + end)
+
+
+def _out_unprotected(s, end="\n"):
+    """The narrow, named exception to the funnel, for the two cases where
+    running EITHER redact_text() or _sanitize_for_display() over the
+    OUTGOING TEXT would be wrong, not merely unnecessary:
+
+    1. main()'s usage/help text (this module's own __doc__ and its command
+       list): zero founder influence, ever, by construction, so there is
+       nothing for redaction to catch and nothing to sanitize; forcing a
+       working redactor to be loaded before a founder can see `--help` was
+       the earlier draft of this fix, and it was wrong, since a broken
+       bm_telemetry.py has nothing to do with whether help text is safe.
+
+    2. cmd_dump's JSON payload, in BOTH modes: store.dump() is ITSELF the
+       redaction boundary for the default mode (default-deny per column,
+       GATE C fix-round 6) and the documented, warned, deliberate absence
+       of one for raw=True; either way the redact/no-redact decision was
+       already made on the DATA before json.dumps() ever ran, so re-running
+       redact_text on the SERIALIZED text is redundant at best. Running
+       _sanitize_for_display on it is actively destructive: JSON escapes
+       control characters inside its OWN string values per the JSON spec,
+       and json.dumps(indent=2)'s structural newlines are not founder text
+       either, so blanket-sanitizing here does not add safety, it corrupts
+       the JSON (reproduced during this exact round: valid JSON became
+       unparseable, and, worse, --raw's own secret got re-redacted by the
+       print step after store.dump(raw=True) had correctly returned it,
+       silently defeating the documented escape hatch).
+
+    Restricted to exactly these two callers; the structural test enumerates
+    and counts them, so a new call site is a deliberate, reviewed choice,
+    not a silent bypass."""
+    _raw_write(sys.stdout, s + end)
 
 
 def _warn(s, end="\n"):
-    """Write one advisory/warning line to STDERR, never stdout (SOFT F,
-    fix-round 6, 2026-07-26): dump's payload is meant to be piped and
-    json.load()'d directly, and a quarantine warning or a --raw notice
-    mixed into that same stream made the redirected output invalid JSON.
-    Same UnicodeEncodeError safety as _out(), just aimed at stderr."""
-    text = s + end
+    """THE STDERR FUNNEL (advisory surfaces fail OPEN, per the project's two
+    failure policies: a warning must never block work). Redacts and
+    sanitizes like _out(), but if the redactor is unavailable, degrades to
+    the fixed, hardcoded _warn_no_redact_once() notice instead of raising:
+    the ORIGINAL text is discarded either way, so a warning can never leak
+    what redaction would have caught, but a broken redactor never silences
+    every warning in the program either."""
     try:
-        sys.stderr.write(text)
-    except UnicodeEncodeError:
-        enc = getattr(sys.stderr, "encoding", None) or "ascii"
-        try:
-            sys.stderr.buffer.write(text.encode(enc, errors="backslashreplace"))
-        except Exception:
-            sys.stderr.write(text.encode("ascii", errors="backslashreplace").decode("ascii"))
-    try:
-        sys.stderr.flush()
-    except Exception:
-        pass
+        safe = _protect_text(s)
+    except RedactionUnavailable:
+        _warn_no_redact_once()
+        return
+    _raw_write(sys.stderr, safe + end)
+
+
+def _write_generated_file(path, text):
+    """THE FILE FUNNEL: the third leg of the output funnel, for generated
+    files (currently only STATE.md, via write_state_view). Blanket-runs
+    redact_text() over the ENTIRE text handed in, unconditionally, before
+    _atomic_write_text ever sees it: if the redactor is unavailable, this
+    raises RedactionUnavailable and _atomic_write_text is never called, so
+    NOTHING is written (GATE B, fix-round 7, 2026-07-26).
+
+    Deliberately does NOT also run _sanitize_for_display here (unlike
+    _protect_text, which _out()/_warn() use for single-line messages): the
+    text handed in is a multi-line DOCUMENT whose own newlines (between
+    sections, and in any human prose preserved outside the markers) are
+    real structure, not founder-typed control-character injection, and
+    every founder-typed VALUE embedded in the generated block already went
+    through _redacted_view_text (which DOES sanitize) per field before
+    assembly. Blanket-sanitizing the whole document a second time here
+    would escape those legitimate newlines as literal \\x0a text,
+    corrupting the file into an unreadable single line, exactly the
+    corruption reproduced (and fixed) elsewhere in this same round for
+    _out()'s dashboard and dump call sites. redact_text() alone is safe for
+    multi-line text (a stateless pattern scan for secret SHAPES; it does
+    not touch newlines) and remains a defense-in-depth catch for any field
+    a future per-field call forgets, applied even to human prose preserved
+    outside the markers: a founder can hand-paste a real secret into their
+    own notes too, and it only ever rewrites text matching an actual secret
+    shape, never plain words, so ordinary prose passes through untouched.
+
+    Marker neutralization is deliberately NOT part of this pass either
+    (unlike _redacted_view_text, which callers use per-field before
+    assembly): the text handed in here already contains the REAL structural
+    BEGIN/END markers this module is about to write on purpose, and
+    redact_text() never touches those, so they survive intact.
+
+    Returns the protected text actually written, never the unprotected
+    input, so a caller that keeps the return value (write_state_view does,
+    for its own return value and its tests) never ends up holding a string
+    that disagrees with what is now on disk."""
+    protected = redact_text(text or "")
+    _atomic_write_text(path, protected)
+    return protected
 
 
 def _parse_kv(argv):
@@ -2558,7 +2907,11 @@ def cmd_decide(argv):
 
 def cmd_dashboard(argv):
     root, _source = require_root()
-    _out(render_state_md(root), end="")
+    # _out_prerendered, not _out (fix-round 7): render_state_md's own
+    # newlines are this document's structure, not founder text; blanket
+    # _sanitize_for_display would escape every one of them into literal
+    # \x0a text (reproduced during this round). See THE OUTPUT FUNNEL note.
+    _out_prerendered(render_state_md(root), end="")
 
 
 def cmd_dump(argv):
@@ -2578,7 +2931,14 @@ def cmd_dump(argv):
         data = store.dump(raw=raw)
     finally:
         store.close()
-    _out(json.dumps(data, indent=2, sort_keys=True))
+    # _out_unprotected, not _out (fix-round 7): store.dump() already made
+    # the redact/no-redact call on the DATA (default-deny per column, or
+    # the deliberate --raw skip warned above); re-running _out()'s blanket
+    # protect on the SERIALIZED JSON both redoes that decision and corrupts
+    # the JSON's own structural indentation, and for --raw it silently
+    # re-redacted the very secret the flag exists to show (reproduced
+    # during this round). See THE OUTPUT FUNNEL note.
+    _out_unprotected(json.dumps(data, indent=2, sort_keys=True))
 
 
 def cmd_verify(argv):
@@ -2630,8 +2990,15 @@ def main(argv=None):
     rest = argv[1:]
     fn = _COMMANDS.get(cmd)
     if fn is None:
-        _out((__doc__ or "").strip())
-        _out("\ncommands: %s" % ", ".join(sorted(_COMMANDS)))
+        # _out_unprotected, not _out (fix-round 7): this module's own
+        # docstring and command list have zero founder influence, ever, so
+        # there is nothing to redact; forcing bm_telemetry to load just to
+        # print --help would make an unrelated module's bug block a founder
+        # from seeing usage text, and _out()'s sanitize pass would mangle
+        # this multi-line docstring's own newlines into literal \x0a text
+        # (reproduced during this round). See THE OUTPUT FUNNEL note.
+        _out_unprotected((__doc__ or "").strip())
+        _out_unprotected("\ncommands: %s" % ", ".join(sorted(_COMMANDS)))
         sys.exit(0 if cmd == "" else 2)
     root_for_warning, _src = resolve_root()
     _warn_if_unacknowledged_quarantine(root_for_warning)
@@ -2650,13 +3017,12 @@ def main(argv=None):
         # whatever made stdout narrow) and exit 1: this is an environment
         # problem, not a business refusal, so it is never reported as
         # 'bad-input' (exit 2), which was the original misclassification.
-        try:
-            sys.stderr.write(
-                "bm_store: could not encode CLI output for this terminal "
-                "(%r); the command may have already succeeded or failed "
-                "before this print.\n" % (e,))
-        except Exception:
-            pass
+        # Routed through the stderr funnel (fix-round 7): _warn/_raw_write
+        # already carry their own layered encode-safety fallback, so the
+        # separate try/except this line used to need is no longer necessary.
+        _warn("bm_store: could not encode CLI output for this terminal "
+              "(%r); the command may have already succeeded or failed "
+              "before this print." % (e,))
         sys.exit(1)
     except ValueError as e:
         # A caller-input error (bad name, bad lifetime, unknown target

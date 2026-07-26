@@ -33,11 +33,19 @@ find it there too:
   owner-only where the platform supports it (on Windows this is best-effort;
   rely on your user profile's access control).
 
-You can verify both claims yourself; the tools are about 10,300 lines of
+You can verify both claims yourself; the tools are about 12,400 lines of
 standard-library Python and shell (measured 2026-07-26; a test fails if this
 figure drifts more than 15 percent from what the command below returns).
-That figure is temporarily inflated: the V2 store ships alongside the V1
-registry and thread tools it replaces, and Phase 3 removes them:
+
+This figure has been raised three times in one day, which is itself worth
+stating plainly rather than hiding in a number. Two reasons, one legitimate and
+one not: the V2 store currently ships ALONGSIDE the V1 registry and thread tools
+it replaces (Phase 3 removes about 1,668 lines of those), and roughly a third of
+the new store file is comment, much of it narrating which fix round changed what,
+which belongs in git rather than in the source. A pass to strip that provenance
+is contracted. If this number is not falling by the close of Phase 3, the growth
+is real and the claim that this is a small auditable toolchain should be
+withdrawn rather than restated:
 
 ```bash
 find tools -type f \( -name "*.py" -o -name "*.sh" \) | xargs wc -l
