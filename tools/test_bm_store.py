@@ -4336,8 +4336,24 @@ def _git_env():
 
 
 def _git(repo, *args):
+    """Decode git's output as UTF-8 EXPLICITLY, never at the machine's locale.
+
+    text=True alone decodes with locale.getpreferredencoding(), which is UTF-8 on
+    macOS and Linux and a legacy code page on Windows. Git stores path bytes in
+    the index as UTF-8, and bm_store's index parser reads them as UTF-8, so a
+    locale-decoded expectation disagreed with a correct parser on Windows only:
+    the same filename came back as 'unicode-\ufffd\u4e2d.txt' from the parser and
+    'unicode-é\ufffd\xad.txt' from git, and the cross-check failed on four green
+    POSIX legs' blind side.
+
+    The parser was right and the test was wrong, which is the important half: the
+    shipped code needed no change. surrogateescape rather than strict, because a
+    path that genuinely is not valid UTF-8 should surface as a comparison
+    mismatch here, not as a decode crash that hides which path caused it."""
     return subprocess.run(["git", "-C", repo] + list(args),
-                          capture_output=True, text=True, env=_git_env())
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="surrogateescape",
+                          env=_git_env())
 
 
 def _have_git():
