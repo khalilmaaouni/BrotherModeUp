@@ -18,7 +18,30 @@ bm_store.py call against THAT COPY, and deletes the copy before returning.
 Whatever bm_store.py's own corruption handling, schema checks, or sidecar
 creation do, including quarantining a file it decides is unreadable, they
 now do it to bytes that are not the founder's, inside a directory this
-file made and erases on every call, success or failure alike.
+file made and erases on every call, success or failure alike (and, when a
+removal genuinely fails, says so on standard error naming the directory it
+could not remove, rather than leaving an unannounced copy of a store on
+disk behind an `ignore_errors=True`: FINDING 3c, 2026-07-27).
+
+COPY-FIRST IS NOT, BY ITSELF, CONTAINMENT (FINDING 3, HIGH, cross-project
+disclosure, EXECUTED AND CONFIRMED 2026-07-27, not theorised). The copy
+above closed a write hazard and opened a read one. Root resolution probed
+for the `.brothermode` marker with `os.path.isdir`, which FOLLOWS a
+directory symlink, and the copy used `shutil.copytree` at its default
+`symlinks=False`, which DEREFERENCES. So with project-b/.brothermode
+symlinked at project-a/.brothermode, a call naming ONLY project B returned
+project A's records and fences with `isError: false`: bm_active_work
+answered with A's active record and objective, bm_fences with A's claimed
+path. `bm_store.ReadOnlyStore`'s own containment checks could never fire,
+because by the time they ran they were pointed at the SNAPSHOT, whose
+`.brothermode` was by then a real, already-dereferenced copy of A's. The
+fix applies this project's own containment checks (`bm_store.
+_refuse_if_symlink_escape` and `bm_store._refuse_if_hardlinked`, imported,
+never reimplemented) to the root the CALLER named, before anything is
+probed or copied, and refuses outright rather than copying carefully:
+every marker probe here now goes through `os.lstat`, never
+`os.path.isdir`, and every source inode this file copies must live
+literally beneath the requested root.
 
 A read-only sqlite URI (mode=ro or immutable=1) was considered and
 rejected on purpose, not merely left undone: bm_store.py's own GATE A
@@ -87,7 +110,7 @@ one; a snapshot taken mid-write can itself read back as busy or corrupted
 on the COPY, which this server reports honestly rather than retrying
 silently, and which never touches the real store either way.
 
-Standard library only: json, os, sys, shutil, tempfile, contextlib,
+Standard library only: json, os, stat, sys, shutil, tempfile, contextlib,
 importlib.util. No MCP SDK, no network library, no subprocess. The stdio
 transport this implements is exactly what the spec defines it to be:
 newline-delimited JSON-RPC 2.0 messages on stdin/stdout, UTF-8, one message
@@ -103,6 +126,7 @@ import importlib.util
 import json
 import os
 import shutil
+import stat
 import sys
 import tempfile
 
@@ -173,6 +197,122 @@ def _require_bm_store():
             "nothing to query without it." % _BM_STORE_LOAD_ERROR)
 
 
+def _path_kind(path):
+    """What is literally AT path, deciding with os.lstat and never with
+    os.path.isdir/isfile (FINDING 3): both of those follow a symlink, so
+    they answer about the TARGET, and a marker that is really a link into
+    another project reads back as an ordinary directory of this one.
+    Returns one of "absent", "symlink", "dir", "file", "other"; "symlink"
+    wins over every other answer, because that is the case the callers
+    below exist to refuse."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return "absent"
+    if stat.S_ISLNK(st.st_mode):
+        return "symlink"
+    if stat.S_ISDIR(st.st_mode):
+        return "dir"
+    if stat.S_ISREG(st.st_mode):
+        return "file"
+    return "other"
+
+
+def _uncontained_message(path, root, what):
+    """The one refusal wording for a source path that does not live where
+    it claims to. Names the offending path and the project root the caller
+    asked about, and deliberately NOT what the path resolves to: that
+    target is, in the very case this refusal exists for, another project's
+    directory, and naming it in a client-visible response would hand back a
+    smaller piece of exactly the cross-project information the refusal is
+    denying."""
+    return (
+        "refusing to read %s: it is %s, so it does not live beneath the "
+        "project root %s that this call named. This server answers about "
+        "one project, the one the caller named, and copies only inodes "
+        "that are literally inside it: following a link out of the "
+        "requested root is how a call naming one project came back with "
+        "another project's records and fences (FINDING 3, 2026-07-27). "
+        "The path this resolves to is deliberately not named here. Inspect "
+        "it yourself with `ls -l %s`, and if the link is intentional, "
+        "point this call at the project that really owns the store."
+        % (path, what, root, path))
+
+
+def _refuse_symlink_escape(path, root):
+    """bm_store._refuse_if_symlink_escape (imported, never reimplemented:
+    a second copy of a containment check is how one file's guard gets
+    escaped by the next file), translated into this server's own
+    ToolError so it reaches a client as isError: true with a message that
+    does not name the escape target."""
+    try:
+        bm_store._refuse_if_symlink_escape(path)
+    except bm_store.OwnershipRefused:
+        _log("containment refusal: %s does not resolve to itself" % path)
+        raise ToolError(_uncontained_message(path, root, "a symlink"))
+
+
+def _refuse_hardlink(path, root):
+    """bm_store._refuse_if_hardlinked, same translation. A hardlink is
+    invisible to the symlink check above (realpath still equals the path),
+    yet the same bytes are reachable, and copyable, through another name."""
+    try:
+        bm_store._refuse_if_hardlinked(path)
+    except bm_store.OwnershipRefused:
+        _log("containment refusal: %s is reachable through more than one "
+             "name" % path)
+        raise ToolError(_uncontained_message(
+            path, root, "reachable through more than one name (a hard link)"))
+
+
+_SIDECAR_SUFFIXES = ("", "-wal", "-shm")
+
+
+def _refuse_uncontained_sources(root):
+    """Apply THIS PROJECT'S OWN containment checks to the root a CALLER
+    named, before anything under it is probed, opened, or copied (FINDING
+    3, HIGH, executed 2026-07-27).
+
+    bm_store.ReadOnlyStore already runs these exact checks, and they could
+    never fire here: this server hands ReadOnlyStore a SNAPSHOT root, and
+    the snapshot's .brothermode is by then a real, already-dereferenced
+    copy of whatever the link pointed at. Nothing is wrong with it by the
+    time it is checked, because the escape happened during the copy. So
+    the checks have to run against the path the caller actually named,
+    which is what this function is for.
+
+    Refusing is preferred over copying carefully (shutil.copytree with
+    symlinks=True would preserve the link instead of dereferencing it) for
+    two reasons. First, a preserved dangling link inside a snapshot is
+    still a path this server would then open, and a link that happens to
+    resolve to a readable file once the snapshot is on disk reopens the
+    same hole from a different direction. Second, a refusal is legible: a
+    founder who genuinely shares one store between two checkouts is told
+    which path is a link and can name the owning project instead, whereas
+    a careful copy silently answers about whatever the link resolved to."""
+    _require_bm_store()
+    store_dir_src = bm_store.store_dir(root)
+    store_file = bm_store.store_path(root)
+    _refuse_symlink_escape(store_dir_src, root)
+    for suffix in _SIDECAR_SUFFIXES:
+        _refuse_symlink_escape(store_file + suffix, root)
+    # STATE.md is copied too, so it is a source inode like any other.
+    _refuse_symlink_escape(os.path.join(root, "STATE.md"), root)
+    for suffix in _SIDECAR_SUFFIXES:
+        _refuse_hardlink(store_file + suffix, root)
+    if _path_kind(store_dir_src) != "dir":
+        return
+    # Every OTHER entry beneath .brothermode as well, not only the store
+    # file and its sidecars this server knows about by name: copytree
+    # copies the whole directory, so any single symlinked entry anywhere
+    # under it is an inode outside the requested root being copied into a
+    # snapshot this server then reads. followlinks=False so the walk
+    # itself never descends through one.
+    for dirpath, dirnames, filenames in os.walk(store_dir_src, followlinks=False):
+        for entry in list(dirnames) + list(filenames):
+            _refuse_symlink_escape(os.path.join(dirpath, entry), root)
+
+
 def _resolve_root(arguments):
     """Resolve a project root WITHOUT ever consulting BROTHERMODE_ROOT and
     WITHOUT ever joining a relative path to this SERVER PROCESS's own cwd
@@ -207,7 +347,20 @@ def _resolve_root(arguments):
     start = os.path.realpath(expanded)
     chain = bm_store._walk_up(start)
     for d in chain:
-        if os.path.isdir(os.path.join(d, ".brothermode")):
+        marker = os.path.join(d, ".brothermode")
+        kind = _path_kind(marker)
+        if kind == "symlink":
+            # FINDING 3: os.path.isdir, which this loop used to call here,
+            # FOLLOWS a directory symlink, so a .brothermode symlinked at
+            # another project's .brothermode read as a perfectly ordinary
+            # marker and this server answered a call naming THIS project
+            # with THAT project's records. Refused outright, and refused
+            # HERE, before the marker is ever handed to anything that
+            # copies or opens it.
+            _log("refusing project root %s: its .brothermode marker is a "
+                 "symlink" % d)
+            raise ToolError(_uncontained_message(marker, d, "a symlink"))
+        if kind == "dir":
             return d, "marker"
     for d in chain:
         # .git is a directory in a normal clone and a FILE in a worktree;
@@ -231,21 +384,56 @@ def _snapshot_for_reading(root):
     operates on the copy and never on the founder's real files (BLOCKER 1,
     see the module docstring for the full reproduction and reasoning). The
     copy is made with plain, read-only filesystem calls against `root`
-    (`shutil.copytree`/`shutil.copy2`, never a write), and is always
-    removed in the `finally` below, success or failure alike, so nothing
-    this context manager does ever leaves a trace next to `root` or inside
-    the caller's own process temp directory once a tool call finishes."""
+    (`shutil.copytree`/`shutil.copy2`, never a write), and removal is
+    attempted in the `finally` below, success or failure alike, so in the
+    ordinary case nothing this context manager does leaves a trace next to
+    `root` or inside the caller's own process temp directory once a tool
+    call finishes. A removal that genuinely FAILS is reported, never
+    swallowed: see `_remove_snapshot`.
+
+    Every source inode copied here must live literally beneath `root`,
+    which `_refuse_uncontained_sources` establishes before the temporary
+    directory is even created (FINDING 3): copying first and checking the
+    copy is precisely what let another project's store be dereferenced
+    into a snapshot and read back as this project's."""
+    _refuse_uncontained_sources(root)
     store_dir_src = bm_store.store_dir(root)
     state_src = os.path.join(root, "STATE.md")
     snapshot_root = tempfile.mkdtemp(prefix="bm_mcp_readonly_snapshot_")
     try:
-        if os.path.isdir(store_dir_src):
-            shutil.copytree(store_dir_src, bm_store.store_dir(snapshot_root))
-        if os.path.isfile(state_src):
+        if _path_kind(store_dir_src) == "dir":
+            # symlinks=True, so even if a link somehow reached this line it
+            # would be copied AS a link rather than dereferenced into a copy
+            # of its target. The refusal above is the real guard; this is
+            # the second of two, because copytree's DEFAULT (symlinks=False,
+            # dereference) is the exact default that caused FINDING 3.
+            shutil.copytree(store_dir_src, bm_store.store_dir(snapshot_root),
+                            symlinks=True)
+        if _path_kind(state_src) == "file":
             shutil.copy2(state_src, os.path.join(snapshot_root, "STATE.md"))
         yield snapshot_root
     finally:
-        shutil.rmtree(snapshot_root, ignore_errors=True)
+        _remove_snapshot(snapshot_root)
+
+
+def _remove_snapshot(snapshot_root):
+    """Delete the snapshot, and SAY SO when that fails (FINDING 3c). This
+    used to be `shutil.rmtree(..., ignore_errors=True)` directly under a
+    docstring promising that nothing this context manager does ever leaves
+    a trace. A partially failed removal breaks that promise silently, and
+    what it leaves behind is not a harmless temp directory: it is a
+    complete copy of a project's store, sitting somewhere nobody is
+    watching, that no later call will ever revisit. Reported through this
+    module's own logging path, naming the directory, so an operator can
+    remove it; not raised, because this runs in a `finally` and an
+    exception here would replace whatever the tool was actually about to
+    report with an unrelated failure."""
+    try:
+        shutil.rmtree(snapshot_root)
+    except OSError as e:
+        _log("FAILED to remove the temporary snapshot directory %s (%s). It "
+             "holds a COPY OF A PROJECT'S STORE and it is still on disk. "
+             "Remove it by hand." % (snapshot_root, e))
 
 
 def _protect(text):
@@ -259,6 +447,21 @@ def _protect(text):
     would escape the document's OWN newlines as if they were injected
     control characters, a regression tools/bm_store.py already hit once)."""
     return bm_store._protect_text(text)
+
+
+def _safe_protect(text):
+    """`_protect`, for the one caller that must never itself become the
+    reason a response cannot be sent: the catch-all in
+    `handle_tools_call`, which is the last line between an unexpected
+    exception and the protocol, and which may be running precisely because
+    `bm_store` is the thing that failed. Falls back to the caller's own
+    text, which is always server-authored here and carries no founder
+    data, rather than raising a second exception out of the handler that
+    exists to stop the first one."""
+    try:
+        return _protect(text)
+    except Exception:
+        return text
 
 
 def _dump_store(root):
@@ -647,9 +850,24 @@ def handle_tools_call(msg):
             "isError": True,
         })
     except Exception as e:  # a bug here must still answer the protocol, not crash the process
+        # FINDING 3b: this used to return "internal error: %r" % (e,), the
+        # one response in this file that reached a client without passing
+        # through _protect. An exception repr is not server-authored text:
+        # it can carry an absolute path, a row this server was mid-way
+        # through rendering, or a founder-typed value that every other
+        # response in this file is careful to redact first. The class name
+        # is enough to tell a caller a bug happened here rather than a
+        # refusal; the repr itself goes to this server's own log, on
+        # standard error, and nowhere else.
         _log("tool %r raised an unexpected exception: %r" % (name, e))
         return _result(msg["id"], {
-            "content": [{"type": "text", "text": "internal error: %r" % (e,)}],
+            "content": [{"type": "text", "text": _safe_protect(
+                "internal error: this tool raised an unexpected %s. Its text "
+                "is deliberately not repeated here, because an exception's "
+                "own message can carry absolute paths and store contents "
+                "that every other response from this server redacts first. "
+                "The full detail is on this server's standard error."
+                % type(e).__name__)}],
             "isError": True,
         })
     return _result(msg["id"], {
