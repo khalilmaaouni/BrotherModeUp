@@ -1,0 +1,85 @@
+# Delegation, the decision ladder, model routing, and token budgets
+
+LOAD WHEN: deciding whether to delegate to an agent or fleet, picking a model tier, or setting a token budget for a phase or agent.
+
+(Extracted verbatim from SKILL.md sections 3, 4; see SKILL.md for the full law.)
+
+## 3. Delegation, the decision ladder, and model routing
+Not everything is an agent. Climb this ladder and stop at the first rung that
+suffices: (1) answer directly from knowledge, currency-checked when time-sensitive;
+(2) one search or docs lookup when a fact is verifiable in one pass; (3) ask the
+founder when the call is theirs or when their one-minute answer saves an hour of
+work; (4) work inline when the task is one seam, one file, or one decision; (5) one
+agent for isolated, parallel, or context-heavy work; (6) a fleet only for genuine
+scale. Before deep research, state the common-sense hypothesis and validate it
+cheaply; escalate only if it fails. Concurrency caps (from this machine's lived
+evidence): one writer per fence, at most 3 live fences in a SHARED tree, at most 3
+total concurrent agents when builds are involved (measured on the author's machine: one simulator
+and one build database serialize the gates; 4 of 6 agents died at caps), 6 for read-only fleets, exactly one full test suite running at a
+time, and exactly one GUI driver at a time. Parallel writers beyond the shared-tree
+cap get worktree isolation (each in its own git worktree), which turns the fence
+from convention into mechanism; merge order is declared at dispatch time.
+Any fleet of 3 or more agents, and any pipeline with deterministic control flow
+(fan out, verify each, synthesize), runs through the Workflow engine rather than
+loose agent calls: budgets become enforced ceilings, every agent's return is
+journaled, and a kill resumes from the last completed step instead of restarting. Spawn subagents ONLY
+when at least one holds: independent parallel work, context protection, or risk
+isolation. EFFORT SCALING (Anthropic multi-agent evidence: token spend explains most
+performance variance; overinvesting simple queries was their top failure mode):
+declare the tier in every brief and fence: T1 simple fact-find = 1 session, 3-10
+tool calls; T2 scoped comparison or fix = 2-4 subagents, 10-15 calls each; T3 full
+audit = 10+ subagents with divided fenced scopes. PARALLEL WAVE LAW (measured up to
+90 percent time cut): independent read-only or disjointly-fenced subagents launch
+as ONE wave, never serially (build-contenders still cap at 3); independent tool
+calls batch in one message. Model tiers: haiku for mechanical bulk (effort low),
+sonnet for well-scoped search and routine implementation from a precise spec, opus
+for architecture, hard debugging, adversarial review, judging, and synthesis
+(effort medium; high only for the hardest verify and judge stages). Unclear:
+inherit the session default.
+Every brief stands alone: goal, exact readable and writable files, the fence, the
+constraints, the return format, a runnable done-check, and its token budget. A brief
+that cannot name its files is not ready; explore first. Two additions proven by
+incident on 2026-07-26: every brief carries a mechanical FRESHNESS ASSERTION the agent
+must run and quote back before testing anything (a four-agent fleet spent a full round
+on a sandbox three commits stale and reported confident findings about code that no
+longer existed, detected only because its evidence quoted a test count that did not
+match reality), and the orchestrator RE-RUNS each done-check rather than trusting it.
+Read-only work fans out in parallel; IMPLEMENTATION STAYS SERIAL, one writer, because
+parallel implementers on shared files produce exactly the collisions the fence exists
+to prevent.
+
+THE METHOD SPINE, in order, with the mechanic that dies first if only the idea
+survives: BRAINSTORM to an approved written design before any creative or structural
+work (two gates, the design and then the spec file, and no exception for work that
+looks simple); RESEARCH what the design turns on, cross-referenced across two to three
+sources with a hard stop when a dependency turns out deprecated; PLAN; IMPLEMENT behind
+fences; DETERMINISTIC GATES; ADVERSARIAL REVIEW in parallel lenses; INDEPENDENT CODE
+REVIEW on a read-only checkout by an agent that did not write the code, returning
+severity-split findings where Critical blocks the merge; MERGE; then WRITE BACK to the
+registers. Aim matters: an independent code review found a Critical that six adversarial
+rounds missed, because it was pointed at the contract rather than at execution edges.
+
+## 4. Token budgets and economy
+Budgets are ENFORCED only where the harness enforces them (the Workflow engine);
+in loose dispatches they are advisory sizing guidance, and agents report observable
+proxies instead (tool calls, files touched, loops to green), because no invented
+number may enter the learning loop: absent real telemetry a field says "not
+measured", never an estimate. Sizing tracks the declared tier: T1 under 60k, T2 under
+150k per agent, T3 under 350k per wave; verify or judge under 100k. SPEND
+CHECKPOINTS (Omnigent pattern): long sessions post the spend delta at each phase
+boundary; the ledger records actual against declared tier. CACHE HYGIENE (cache
+reads bill near 10 percent of input): parallel sessions in the SHARED directory
+read each other's warm cache while worktrees break prefixes (one more reason
+worktrees stay overflow-only); never flip model, effort, or the MCP set mid-task;
+compact only at fence boundaries.
+Waits are notification-driven and BOUND TO TOOLS: background commands via
+run-in-background (re-invokes on exit), conditions via the Monitor tool; a foreground
+sleep-and-check loop is a named violation. Specs are briefs: write the spec
+once to a durable file and point implementers at the path plus line ranges. Read-only
+passes precede writers. One suite gate per commit train. Return contracts are
+HARD-CAPPED near 1,500 tokens: findings, absolute paths, verbatim gate lines,
+re-runnable commands, never pasted file contents (the orchestrator re-opens named
+paths just in time). Batch independent calls; use notification-driven
+waits, never polling. If total spend approaches the session's practical ceiling,
+checkpoint state to disk and the vault so any kill is resumable.
+
