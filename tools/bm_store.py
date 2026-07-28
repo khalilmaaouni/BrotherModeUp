@@ -70,7 +70,7 @@ import sqlite3
 import sys
 import uuid
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
@@ -859,8 +859,222 @@ CREATE TABLE IF NOT EXISTS autosave_receipts (
 );
 """
 
-_TABLES = ("meta", "records", "claims", "decisions", "digests", "directives",
-           "transitions", "autosave_receipts")
+_TABLES_V1 = ("meta", "records", "claims", "decisions", "digests", "directives",
+              "transitions", "autosave_receipts")
+
+# Schema 2 adds correction learning. Kept as a SEPARATE tuple, and the live
+# _TABLES chosen by SCHEMA_VERSION below, because _verify_schema_or_raise has to
+# know which tables a store at THAT version is supposed to have. Without this, a
+# perfectly healthy schema-1 store would fail the presence check against schema
+# 2's table list and be quarantined before the version check ever ran, which is
+# the exact destructive outcome the migration exists to prevent.
+_TABLES_LEARNING = ("learning_candidates", "learning_rules",
+                    "learning_rule_versions", "learning_evidence",
+                    "learning_edges", "learning_applications")
+
+_TABLES_V2 = _TABLES_V1 + _TABLES_LEARNING
+
+_TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2}
+
+_TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
+
+# The learning schema. Applied to a NEW store by _ensure_schema (via _DDL below)
+# and to an EXISTING schema-1 store by _migrate_1_to_2, which runs this exact
+# same text: one definition, so a migrated store and a fresh store cannot drift.
+#
+# Deliberately NOT included from the source plan: learning_evaluation_cases,
+# learning_evaluation_runs and learning_evaluation_outcomes. Those belong to
+# Loop 9, which the founder deferred on 2026-07-28 (see
+# docs/superpowers/specs/2026-07-28-correction-learning-program.md section 3.1).
+# Creating their tables now would be schema for a feature nobody is building,
+# and an empty table is a standing invitation to write a half-feature against it.
+#
+# content_hash carries NO global UNIQUE constraint, on purpose: the same words in
+# two different scopes are two different pieces of evidence, and a unique index
+# here would silently discard the second one. Deduplication is explicit logic
+# over (source, scope, normalized content), which is Loop 6's job.
+_LEARNING_DDL = """
+CREATE TABLE IF NOT EXISTS learning_rules (
+  rule_uuid TEXT PRIMARY KEY,
+  current_version INTEGER NOT NULL DEFAULT 1,
+  state TEXT NOT NULL CHECK(state IN (
+    'approved','confirmed','settled','contradicted',
+    'deprecated','superseded','forgotten')),
+  rule_type TEXT NOT NULL DEFAULT 'preference' CHECK(rule_type IN (
+    'preference','procedure','safety','communication',
+    'tooling','quality','delegation','decision_right')),
+  severity TEXT NOT NULL DEFAULT 'soft' CHECK(severity IN ('soft','gate')),
+  scope_type TEXT NOT NULL CHECK(scope_type IN (
+    'global','project','domain','artifact','relationship','tool')),
+  scope_key TEXT NOT NULL DEFAULT '',
+  founder_approved_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  superseded_by TEXT REFERENCES learning_rules(rule_uuid),
+  forgotten_at TEXT
+);
+CREATE TABLE IF NOT EXISTS learning_candidates (
+  candidate_uuid TEXT PRIMARY KEY,
+  source_type TEXT NOT NULL CHECK(source_type IN (
+    'explicit_correction','detected_correction','rework','escaped_defect',
+    'revealed_choice','verified_procedure','manual','imported')),
+  source_session_id TEXT NOT NULL DEFAULT '',
+  source_record_uuid TEXT REFERENCES records(lifecycle_uuid),
+  source_ref TEXT NOT NULL DEFAULT '',
+  raw_text TEXT NOT NULL DEFAULT '',
+  proposed_trigger TEXT NOT NULL DEFAULT '',
+  proposed_action TEXT NOT NULL DEFAULT '',
+  proposed_because TEXT NOT NULL DEFAULT '',
+  proposed_domain TEXT NOT NULL DEFAULT '',
+  proposed_scope_type TEXT NOT NULL DEFAULT 'project' CHECK(proposed_scope_type IN (
+    'global','project','domain','artifact','relationship','tool')),
+  proposed_scope_key TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN (
+    'pending','under_review','approved','merged','split','rejected','expired')),
+  content_hash TEXT NOT NULL,
+  redaction_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  reviewed_at TEXT,
+  review_note TEXT NOT NULL DEFAULT '',
+  resulting_rule_uuid TEXT REFERENCES learning_rules(rule_uuid)
+);
+CREATE TABLE IF NOT EXISTS learning_rule_versions (
+  rule_uuid TEXT NOT NULL REFERENCES learning_rules(rule_uuid) ON DELETE CASCADE,
+  version INTEGER NOT NULL,
+  trigger_text TEXT NOT NULL,
+  action_text TEXT NOT NULL,
+  because_text TEXT NOT NULL,
+  domain TEXT NOT NULL DEFAULT '',
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  change_type TEXT NOT NULL CHECK(change_type IN (
+    'created','edited','narrowed','broadened',
+    'contradiction_resolution','restored')),
+  change_reason TEXT NOT NULL DEFAULT '',
+  source_candidate_uuid TEXT REFERENCES learning_candidates(candidate_uuid),
+  approved_by TEXT NOT NULL DEFAULT 'founder',
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(rule_uuid, version)
+);
+CREATE TABLE IF NOT EXISTS learning_evidence (
+  evidence_uuid TEXT PRIMARY KEY,
+  rule_uuid TEXT REFERENCES learning_rules(rule_uuid) ON DELETE CASCADE,
+  candidate_uuid TEXT REFERENCES learning_candidates(candidate_uuid) ON DELETE CASCADE,
+  polarity TEXT NOT NULL CHECK(polarity IN ('support','contradict','neutral')),
+  evidence_type TEXT NOT NULL CHECK(evidence_type IN (
+    'founder_quote','founder_approval','revealed_choice','rework',
+    'escaped_defect','verified_application','ignored_application',
+    'manual_review','import_source')),
+  source_session_id TEXT NOT NULL DEFAULT '',
+  source_record_uuid TEXT REFERENCES records(lifecycle_uuid),
+  source_ref TEXT NOT NULL DEFAULT '',
+  excerpt TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  CHECK(rule_uuid IS NOT NULL OR candidate_uuid IS NOT NULL)
+);
+CREATE TABLE IF NOT EXISTS learning_edges (
+  from_rule_uuid TEXT NOT NULL REFERENCES learning_rules(rule_uuid) ON DELETE CASCADE,
+  to_rule_uuid TEXT NOT NULL REFERENCES learning_rules(rule_uuid) ON DELETE CASCADE,
+  relation TEXT NOT NULL CHECK(relation IN (
+    'duplicate_of','contradicts','supersedes',
+    'derived_from','supports','applies_to')),
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(from_rule_uuid, to_rule_uuid, relation),
+  CHECK(from_rule_uuid <> to_rule_uuid)
+);
+CREATE TABLE IF NOT EXISTS learning_applications (
+  application_uuid TEXT PRIMARY KEY,
+  rule_uuid TEXT NOT NULL,
+  rule_version INTEGER NOT NULL,
+  session_id TEXT NOT NULL,
+  record_uuid TEXT REFERENCES records(lifecycle_uuid),
+  task_fingerprint TEXT NOT NULL DEFAULT '',
+  task_excerpt TEXT NOT NULL DEFAULT '',
+  retrieved_at TEXT NOT NULL,
+  retrieval_rank INTEGER,
+  retrieval_score REAL,
+  scope_match TEXT NOT NULL DEFAULT '',
+  shown_to_model INTEGER NOT NULL DEFAULT 0 CHECK(shown_to_model IN (0,1)),
+  disposition TEXT NOT NULL DEFAULT 'unknown' CHECK(disposition IN (
+    'followed','ignored','not_relevant','unknown')),
+  disposition_reason TEXT NOT NULL DEFAULT '',
+  verification_ref TEXT NOT NULL DEFAULT '',
+  outcome TEXT NOT NULL DEFAULT 'pending' CHECK(outcome IN (
+    'pending','accepted','rework','escaped_defect',
+    'corrected_again','not_decidable')),
+  outcome_ref TEXT NOT NULL DEFAULT '',
+  closed_at TEXT,
+  FOREIGN KEY(rule_uuid, rule_version)
+    REFERENCES learning_rule_versions(rule_uuid, version)
+);
+"""
+
+_LEARNING_INDEX_DDL = """
+CREATE INDEX IF NOT EXISTS learning_candidates_status_idx
+  ON learning_candidates(status, created_at);
+CREATE INDEX IF NOT EXISTS learning_candidates_source_idx
+  ON learning_candidates(source_session_id, source_type);
+CREATE INDEX IF NOT EXISTS learning_candidates_hash_idx
+  ON learning_candidates(content_hash);
+CREATE INDEX IF NOT EXISTS learning_rules_scope_idx
+  ON learning_rules(scope_type, scope_key, state);
+CREATE INDEX IF NOT EXISTS learning_evidence_rule_idx
+  ON learning_evidence(rule_uuid, polarity);
+CREATE INDEX IF NOT EXISTS learning_applications_rule_idx
+  ON learning_applications(rule_uuid, rule_version);
+CREATE INDEX IF NOT EXISTS learning_applications_session_idx
+  ON learning_applications(session_id, retrieved_at);
+"""
+
+
+def _split_ddl(script):
+    """Split a DDL script into individual statements.
+
+    Exists because sqlite3.Connection.executescript() issues an implicit COMMIT
+    before it runs anything. Inside Store._migrate_from's BEGIN EXCLUSIVE that
+    silently ENDS the transaction, so the DDL lands piecemeal in autocommit and
+    the closing COMMIT fails with "cannot commit - no transaction is active".
+    Reproduced live on 2026-07-29 against a real schema-1 store: the migration
+    appeared to succeed while the all-or-nothing property it advertises was
+    false, which is precisely the half-migrated state the whole loop exists to
+    make impossible.
+
+    Safe as a plain split because this project's DDL contains no semicolon
+    inside any string literal or comment; a test asserts the statement count so
+    that adding one cannot pass unnoticed."""
+    return tuple(s.strip() for s in script.split(";") if s.strip())
+
+
+_LEARNING_DDL_STATEMENTS = _split_ddl(_LEARNING_DDL)
+_LEARNING_INDEX_STATEMENTS = _split_ddl(_LEARNING_INDEX_DDL)
+
+
+def _migrate_1_to_2(conn):
+    """Schema 1 to 2: add the correction-learning tables. ADDITIVE ONLY.
+
+    Not one existing row is read, rewritten, copied or deleted. The source
+    plan's rule "never rebuild the database by copying only parsed rows" is
+    satisfied trivially here because nothing is rebuilt at all: schema 1 data
+    survives byte for byte, which is the property the migration test asserts by
+    comparing every pre-migration row against its post-migration self.
+
+    Runs INSIDE the caller's exclusive transaction (Store._migrate_from). It
+    must therefore never COMMIT, never ROLLBACK and never open its own
+    transaction, or the caller's all-or-nothing guarantee is broken. That rules
+    out executescript(), which commits implicitly before it runs; see
+    _split_ddl for the incident that proved it."""
+    for statement in _LEARNING_DDL_STATEMENTS:
+        conn.execute(statement)
+    for statement in _LEARNING_INDEX_STATEMENTS:
+        conn.execute(statement)
+
+
+# The registry maps FROM-version to the step that raises it by exactly one.
+# Chained by Store._migrate_from, so a future 2->3 lands here as one more entry
+# and every older store still walks the whole way up.
+_MIGRATIONS = {
+    1: _migrate_1_to_2,
+}
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
 # enumerated list of "known sensitive" fields (objective, tier, claim paths,
@@ -1905,7 +2119,10 @@ class Store(object):
             conn.execute("PRAGMA busy_timeout=%d" % int(busy_timeout_ms))
             conn.execute("PRAGMA foreign_keys=ON")
             if pre_existing:
-                self._verify_schema_or_raise()
+                # migrate=True: this is the WRITABLE store, the only path
+                # allowed to raise an older store's schema. ReadOnlyStore keeps
+                # the safe default and refuses instead.
+                self._verify_schema_or_raise(migrate=True)
             else:
                 self._ensure_schema()
             self._ensure_indexes()
@@ -1956,6 +2173,12 @@ class Store(object):
 
     def _ensure_schema(self):
         self.conn.executescript(_DDL)
+        # A brand new store is created directly at SCHEMA_VERSION, never at 1
+        # and then migrated: one less path to get wrong. The learning tables
+        # come from the SAME _LEARNING_DDL text the migration runs, so a fresh
+        # store and a migrated store cannot drift apart.
+        if SCHEMA_VERSION >= 2:
+            self.conn.executescript(_LEARNING_DDL)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -1980,8 +2203,14 @@ class Store(object):
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS transitions_lifecycle_uuid_idx "
             "ON transitions(lifecycle_uuid)")
+        # Same reasoning as the line above, for the learning tables: an index
+        # living only inside a migration is a silent no-op for any store that
+        # migrated before the index was added. Guarded on the tables actually
+        # existing, so this stays inert while SCHEMA_VERSION is 1.
+        if SCHEMA_VERSION >= 2:
+            self.conn.executescript(_LEARNING_INDEX_DDL)
 
-    def _verify_schema_or_raise(self):
+    def _verify_schema_or_raise(self, migrate=False):
         """CRITICAL A (fix-round 8, reproduced independently: claim alpha on
         api/pay.py, drop the claims table, claim beta on the same path ->
         GRANTED at exit 0, verify -> healthy). _ensure_schema's CREATE TABLE
@@ -1992,19 +2221,170 @@ class Store(object):
         the realistic trigger. Called only when the file already existed
         before this open; a brand new file still gets _ensure_schema. Every
         expected table must be present and schema_version must match
-        exactly, or this quarantines rather than silently repairing."""
+        exactly, or this quarantines rather than silently repairing.
+
+        VERSION IS READ FIRST, tables second (correction-learning Loop 1,
+        2026-07-28). The original order checked _TABLES presence BEFORE the
+        version, which was correct while only one schema had ever existed and
+        becomes destructive the moment a second one does: a perfectly healthy
+        schema-1 store, opened by a schema-2 binary, is missing the schema-2
+        tables by definition, so it was quarantined before the version check
+        could route it to a migration. Quarantining a store whose only problem
+        is that it predates an upgrade is data loss dressed as caution.
+
+        Four outcomes, and only one of them quarantines:
+          * version matches -> verify this version's tables, as before;
+          * version is a KNOWN older one -> verify THAT version's tables, then
+            migrate if this caller may write, or raise a clear "needs
+            migration" refusal if it may not (a read-only diagnostic must never
+            migrate, and must never quarantine for this either);
+          * version is NEWER than this binary -> refuse and say so. The store
+            is fine; the binary is old. Touching it would be the damage.
+          * version is missing, unparseable, or an unknown older one -> that is
+            genuine corruption or an unsupported downgrade, and quarantines.
+
+        migrate=False is the SAFE default so that any caller which forgets to
+        opt in gets the refusal rather than a surprise write. ReadOnlyStore
+        borrows this method unbound and therefore inherits that default."""
         found = {r["name"] for r in self.conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-        missing = sorted(t for t in _TABLES if t not in found)
-        if missing:
-            self._quarantine_and_raise(
-                ValueError("existing store is missing expected table(s): %s" % ", ".join(missing)))
         row = self.conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
         found_version = row["value"] if row is not None else None
-        if found_version != str(SCHEMA_VERSION):
+        if found_version is None:
             self._quarantine_and_raise(
-                ValueError("existing store schema_version is %r, expected %r"
-                           % (found_version, str(SCHEMA_VERSION))))
+                ValueError("existing store has no schema_version row in meta"))
+        try:
+            fv = int(found_version)
+        except (TypeError, ValueError):
+            self._quarantine_and_raise(
+                ValueError("existing store schema_version is not an integer: %r"
+                           % (found_version,)))
+            return
+        if fv > SCHEMA_VERSION:
+            # Deliberately NOT a quarantine. Moving a newer, healthy store
+            # aside because an older binary opened it would destroy exactly the
+            # data the newer binary was looking after.
+            self._refuse_without_quarantine(
+                "store schema_version is %d but this BrotherMode understands at "
+                "most %d. Upgrade BrotherMode; do not downgrade the store. "
+                "Nothing was touched." % (fv, SCHEMA_VERSION))
+        expected = _TABLES_BY_VERSION.get(fv)
+        if expected is None:
+            self._quarantine_and_raise(
+                ValueError("existing store schema_version is %d, which this "
+                           "BrotherMode has no migration path from (known: %s)"
+                           % (fv, ", ".join(str(k) for k in sorted(_TABLES_BY_VERSION)))))
+            return
+        missing = sorted(t for t in expected if t not in found)
+        if missing:
+            self._quarantine_and_raise(
+                ValueError("existing store (schema %d) is missing expected "
+                           "table(s): %s" % (fv, ", ".join(missing))))
+        if fv == SCHEMA_VERSION:
+            return
+        # A known older version, structurally intact. Migrate, or refuse
+        # clearly if this caller is not allowed to write.
+        if not migrate:
+            self._refuse_without_quarantine(
+                "store is at schema %d and this BrotherMode is at %d. A "
+                "read-only command cannot migrate it. Run any normal "
+                "BrotherMode command (for example `verify` through the writable "
+                "path, or `claim`) once to migrate, then retry. Nothing was "
+                "touched." % (fv, SCHEMA_VERSION))
+        self._migrate_from(fv)
+
+    def _refuse_without_quarantine(self, message):
+        """Refuse an open WITHOUT moving the store aside, closing the handle on
+        the way out.
+
+        Quarantine is for a DAMAGED store. A store that is merely newer than
+        this binary, or merely older and awaiting migration, is undamaged, and
+        moving it would be the only data loss in the situation. But a refusal
+        still has to close the connection it opened: the leak detector in
+        test_bm_store.py exists because an unclosed handle passes on POSIX and
+        fails on Windows, which is how it reached CI run 18 undetected."""
+        try:
+            self.close()
+        except Exception:
+            pass
+        raise StoreCorrupt(message)
+
+    def _migrate_from(self, from_version):
+        """Walk the migration chain from `from_version` up to SCHEMA_VERSION.
+
+        Three properties, each a named requirement rather than a preference,
+        and each calibrated by a test:
+
+        BACKED UP FIRST. A copy of the store is written through sqlite's own
+        backup API before a single DDL statement runs. A filesystem copy is not
+        equivalent: with WAL enabled, recent committed writes can still live in
+        the -wal sidecar, so copying the main file alone can produce a backup
+        missing the newest records. The backup API checkpoints for us.
+
+        ONE EXCLUSIVE TRANSACTION, AND THE VERSION MOVES LAST. Every table and
+        index is created, and only then is meta.schema_version updated, all
+        inside BEGIN EXCLUSIVE. An interruption anywhere rolls the whole thing
+        back and leaves the store at its old version, structurally untouched
+        and re-runnable. This ordering is what makes a half-migration
+        impossible, which matters because _verify_schema_or_raise checks that
+        expected tables are PRESENT and deliberately does not check that no
+        others exist: a half-created table set with an already-bumped version
+        would otherwise pass verification and look healthy.
+
+        IDEMPOTENT. Every statement is CREATE ... IF NOT EXISTS, so running the
+        migration twice is a no-op rather than an error."""
+        backup_path = "%s.pre-schema%d-migration" % (self.path, SCHEMA_VERSION)
+        try:
+            bconn = sqlite3.connect(backup_path)
+            try:
+                self.conn.backup(bconn)
+            finally:
+                bconn.close()
+            _chmod_best_effort(backup_path, 0o600)
+        except (sqlite3.Error, OSError, AttributeError) as exc:
+            # Fail CLOSED. A migration whose backup did not land is exactly the
+            # operation nobody should be allowed to run unattended.
+            self._refuse_without_quarantine(
+                "refusing to migrate from schema %d: the pre-migration backup "
+                "could not be written to %s (%s). Nothing was changed."
+                % (from_version, backup_path, exc))
+        version = from_version
+        try:
+            self.conn.execute("BEGIN EXCLUSIVE")
+            while version < SCHEMA_VERSION:
+                step = _MIGRATIONS.get(version)
+                if step is None:
+                    raise StoreCorrupt(
+                        "no migration registered from schema %d to %d"
+                        % (version, version + 1))
+                step(self.conn)
+                version += 1
+            # LAST, inside the same transaction: see the docstring.
+            self.conn.execute(
+                "UPDATE meta SET value = ? WHERE key = 'schema_version'",
+                (str(SCHEMA_VERSION),))
+            self.conn.execute("COMMIT")
+        except BaseException:
+            try:
+                self.conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+            # Close before re-raising. Store.__init__ only catches sqlite3
+            # errors, so anything else raised in here escapes construction with
+            # the connection still open, and the caller has no object to close
+            # because __init__ never returned one. On POSIX that is invisible;
+            # on Windows the leaked handle makes the store file undeletable and
+            # unreopenable. Caught by the suite's leak detector while writing
+            # test_calibrated_interrupted_migration_rolls_back_completely.
+            try:
+                self.close()
+            except Exception:
+                pass
+            raise
+        # Re-verify from scratch: the migration CLAIMS to have produced a
+        # schema-N store, and this proves it rather than trusting it. Any
+        # shortfall now is genuine corruption, so the quarantine path is right.
+        self._verify_schema_or_raise(migrate=False)
 
     def _quarantine_and_raise(self, cause):
         """Quarantine store.sqlite3 AND its -wal/-shm sidecars into a
@@ -3148,7 +3528,19 @@ class ReadOnlyStore(object):
 
     def _verify_schema_or_raise(self):
         # Reuses Store's implementation verbatim, same reasoning as above.
+        # migrate is left at its default False: a read-only diagnostic must
+        # never migrate. It gets a clear "needs migration" refusal instead.
         return Store._verify_schema_or_raise(self)
+
+    def _refuse_without_quarantine(self, message):
+        """Borrowed for the same reason as _verify_schema_or_raise above, and
+        MISSING until a live probe caught it (correction-learning Loop 1,
+        2026-07-29): opening a real schema-1 store with a schema-2 binary
+        through `verify` raised AttributeError instead of the intended refusal.
+        All 419 tests were green, because not one of them opened an
+        out-of-date store through the READ-ONLY path. The regression test for
+        this is test_readonly_store_on_schema1_refuses_cleanly."""
+        return Store._refuse_without_quarantine(self, message)
 
     def dump(self, raw=False):
         # Reuses Store.dump() verbatim: it only calls _exec(self, ...) over

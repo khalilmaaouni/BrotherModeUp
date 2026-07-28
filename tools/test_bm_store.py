@@ -629,6 +629,15 @@ class TestFixRoundGates(unittest.TestCase):
             "Store._ensure_indexes": "same protected open-time try block, run right "
                                       "after schema creation/verification on EVERY open "
                                       "(prerelease fix round, the transitions index)",
+            "Store._migrate_from": "correction-learning Loop 1. Owns its own "
+                                    "BEGIN EXCLUSIVE / COMMIT / ROLLBACK and runs "
+                                    "inside the same protected open-time try block; "
+                                    "routing transaction control through _exec would "
+                                    "put _exec's quarantine path inside the very "
+                                    "transaction it would then be unable to roll back",
+            "_migrate_1_to_2": "correction-learning Loop 1. Pure additive DDL, same "
+                                "category as Store._ensure_schema above, executed "
+                                "inside the caller's exclusive transaction",
             "Store._transaction": "ROLLBACK during cleanup must never mask "
                                    "the exception already being handled",
             "_quarantine_record_count": "reads an ALREADY quarantined file, "
@@ -4980,6 +4989,224 @@ class _LeakCheckingResult(unittest.TextTestResult):
                 "raises. Still-open path(s): %s" % (len(still_open), ", ".join(paths)))
             self.addFailure(test, (AssertionError, AssertionError(msg), None))
         super(_LeakCheckingResult, self).stopTest(test)
+
+
+class TestSchema2Migration(unittest.TestCase):
+    """Correction-learning Loop 1. The first migration this project has ever
+    had, and the one whose failure mode is losing a founder's store.
+
+    A schema-1 fixture is built by CREATING A REAL STORE and then reverting it
+    to schema 1, rather than by hand-writing v1 DDL into this file. A
+    hand-written fixture drifts from the real thing the moment _DDL changes,
+    and would then be testing migration from a schema nobody ever had."""
+
+    def _schema1_store(self, d):
+        """A real, populated store, reverted to look exactly like schema 1:
+        learning tables dropped, version set back to 1."""
+        with bs.Store(d) as store:
+            store.claim("alpha", "persistent", "keep me", ["src/a.py"])
+        path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            for t in bs._TABLES_LEARNING:
+                conn.execute("DROP TABLE IF EXISTS %s" % t)
+            conn.execute("UPDATE meta SET value='1' WHERE key='schema_version'")
+            conn.execute("COMMIT")
+        finally:
+            conn.close()
+        return path
+
+    def _snapshot(self, path):
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        try:
+            out = {}
+            for t in bs._TABLES_V1:
+                rows = [dict(r) for r in conn.execute("SELECT * FROM %s" % t)]
+                if t == "meta":
+                    rows = [r for r in rows if r.get("key") != "schema_version"]
+                out[t] = json.dumps(rows, sort_keys=True, default=str)
+            return out
+        finally:
+            conn.close()
+
+    def test_schema1_store_migrates_instead_of_being_quarantined(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema1_store(d)
+            with bs.Store(d) as store:
+                row = store.conn.execute(
+                    "SELECT value FROM meta WHERE key='schema_version'").fetchone()
+                self.assertEqual(row["value"], str(bs.SCHEMA_VERSION))
+            found = self._tables(path)
+            for t in bs._TABLES_LEARNING:
+                self.assertIn(t, found)
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")), [],
+                "a healthy older store must MIGRATE, never be quarantined")
+
+    def _tables(self, path):
+        conn = sqlite3.connect(path)
+        try:
+            return {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            conn.close()
+
+    def test_migration_preserves_every_schema1_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema1_store(d)
+            before = self._snapshot(path)
+            with bs.Store(d):
+                pass
+            after = self._snapshot(path)
+            self.assertEqual(before, after,
+                             "migration is additive: not one schema-1 row may change")
+
+    def test_migration_writes_a_backup_before_touching_anything(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema1_store(d)
+            with bs.Store(d):
+                pass
+            backup = path + ".pre-schema%d-migration" % bs.SCHEMA_VERSION
+            self.assertTrue(os.path.exists(backup), "no pre-migration backup was written")
+            conn = sqlite3.connect(backup)
+            try:
+                v = conn.execute(
+                    "SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(v, "1", "the backup must capture the PRE-migration state")
+
+    def test_migration_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._schema1_store(d)
+            with bs.Store(d):
+                pass
+            path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+            first = self._snapshot(path)
+            with bs.Store(d):
+                pass
+            self.assertEqual(first, self._snapshot(path))
+
+    def test_calibrated_interrupted_migration_rolls_back_completely(self):
+        """CALIBRATION for the property the loop exists to provide. A failure
+        part way through must leave the store at schema 1 with NO learning
+        tables, so the next open re-runs the whole migration cleanly.
+
+        This is also the regression test for a defect found live on
+        2026-07-29: the migration originally used executescript(), which
+        COMMITS implicitly, so the DDL escaped the transaction and this test
+        would have found a half-migrated store."""
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema1_store(d)
+            original = bs._MIGRATIONS[1]
+
+            def _fail_half_way(conn):
+                conn.execute(bs._LEARNING_DDL_STATEMENTS[0])
+                raise RuntimeError("simulated interruption mid-migration")
+
+            bs._MIGRATIONS[1] = _fail_half_way
+            try:
+                with self.assertRaises(RuntimeError):
+                    bs.Store(d)
+            finally:
+                bs._MIGRATIONS[1] = original
+            conn = sqlite3.connect(path)
+            try:
+                v = conn.execute(
+                    "SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(v, "1", "an interrupted migration must not move the version")
+            found = self._tables(path)
+            for t in bs._TABLES_LEARNING:
+                self.assertNotIn(
+                    t, found,
+                    "an interrupted migration left %s behind: the DDL escaped the "
+                    "transaction (executescript commits implicitly)" % t)
+            # And it recovers: a clean open afterwards migrates properly.
+            with bs.Store(d):
+                pass
+            self.assertTrue(set(bs._TABLES_LEARNING) <= self._tables(path))
+
+    def test_newer_schema_is_refused_without_being_quarantined(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.claim("thing", "ephemeral", "obj", [])
+                store.conn.execute("BEGIN IMMEDIATE")
+                store.conn.execute("UPDATE meta SET value='99' WHERE key='schema_version'")
+                store.conn.execute("COMMIT")
+            with self.assertRaises(bs.StoreCorrupt) as ctx:
+                bs.Store(d)
+            self.assertIn("understands at most", str(ctx.exception))
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")), [],
+                "a NEWER store is healthy; moving it aside would be the only data loss")
+
+    def test_unknown_older_schema_quarantines(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.conn.execute("BEGIN IMMEDIATE")
+                store.conn.execute("UPDATE meta SET value='0' WHERE key='schema_version'")
+                store.conn.execute("COMMIT")
+            with self.assertRaises(bs.StoreCorrupt):
+                bs.Store(d)
+
+    def test_readonly_store_on_schema1_refuses_cleanly(self):
+        """Found by a LIVE probe on 2026-07-29 while all 419 tests were green,
+        because not one of them opened an out-of-date store through the
+        read-only path. ReadOnlyStore borrows Store._verify_schema_or_raise
+        unbound, so it also needed _refuse_without_quarantine; without it this
+        raised AttributeError instead of the intended refusal."""
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema1_store(d)
+            with self.assertRaises(bs.StoreCorrupt) as ctx:
+                bs.ReadOnlyStore(d)
+            msg = str(ctx.exception)
+            self.assertIn("read-only command cannot migrate it", msg)
+            self.assertNotIn("AttributeError", msg)
+            conn = sqlite3.connect(path)
+            try:
+                v = conn.execute(
+                    "SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(v, "1", "a read-only refusal must change nothing")
+
+    def test_ddl_split_matches_the_table_and_index_lists(self):
+        """_split_ddl is a plain semicolon split, which is only safe while no
+        DDL string literal contains one. Asserting the counts means adding such
+        a literal fails here rather than silently truncating a statement."""
+        self.assertEqual(len(bs._LEARNING_DDL_STATEMENTS), len(bs._TABLES_LEARNING))
+        self.assertEqual(len(bs._LEARNING_INDEX_STATEMENTS), 7)
+        for s in bs._LEARNING_DDL_STATEMENTS:
+            self.assertTrue(s.startswith("CREATE TABLE IF NOT EXISTS"), s[:40])
+
+    def test_new_learning_text_columns_are_redacted_by_default_in_dump(self):
+        """The default-deny machinery reads text columns live from the schema,
+        so the learning tables join it with no allowlist edit. Proved with
+        secret-SHAPED content, because redact_text is a secret scrubber.
+
+        KNOWN LIMIT, stated rather than implied: ordinary PROSE in raw_text
+        would pass through unchanged (docs/NOT-FINALIZED.md item 15). No writer
+        for these tables exists yet, so nothing can leak through this path
+        today; the withholding lands with the writer in Loop 2."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.conn.execute("BEGIN IMMEDIATE")
+                store.conn.execute(
+                    "INSERT INTO learning_candidates (candidate_uuid, source_type, "
+                    "raw_text, content_hash, created_at) VALUES (?,?,?,?,?)",
+                    ("c1", "manual", "token AKIAIOSFODNN7EXAMPLE here", "h1",
+                     bs.now_iso()))
+                store.conn.execute("COMMIT")
+                dumped = store.dump()
+            row = dumped["learning_candidates"][0]
+            self.assertNotIn("AKIAIOSFODNN7EXAMPLE", row["raw_text"])
+            self.assertIn("REDACTED", row["raw_text"])
+            self.assertEqual(row["candidate_uuid"], "c1",
+                             "identifiers stay readable; only free text is scrubbed")
 
 
 if __name__ == "__main__":
