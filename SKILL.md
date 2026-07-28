@@ -37,6 +37,33 @@ FEWER THAN TWO means COMPLEX. Probe before committing, and load what the table
 below says applies. A direct path taken on a complex problem is gambling and gets
 logged as UNDERTHOUGHT.
 
+## Founder rules, before a SUBSTANTIAL task
+
+Approved founder rules live in this project's store, not in your memory of the
+conversation. Before planning or delivering anything substantial, ask for them:
+
+```
+python3 tools/bm_learn.py relevant --query "<what you are about to do>"
+```
+
+Substantial means: a written artifact the founder will read or reuse, an
+architecture or design decision, a multi-file change, a risky or irreversible
+operation, or anything in an area where a correction has landed before. A
+one-line obvious edit does NOT need this, and the proportionality rule above
+still governs: retrieval on a trivial task is OVERTHOUGHT.
+
+Name the rule IDs you applied in the loop-close report, and state plainly when a
+retrieved GATE rule was not followed and why. A gate rule silently ignored is a
+compliance failure, and it is the failure this whole mechanism exists to make
+visible.
+
+The constitution outranks every learned rule. A learned rule may narrow how you
+work; it may never weaken a gate in this file. Conflicts are surfaced to the
+founder, never resolved by preferring the newer rule.
+
+Nothing here approves anything. Only the founder promotes a candidate into a
+rule, by running `bm_learn.py approve` themselves.
+
 ## The safety floor, unconditional whenever any write will occur
 
 Exempt from OVERTHOUGHT scoring so the learning loop can never train it away. It
