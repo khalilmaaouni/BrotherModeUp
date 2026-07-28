@@ -5188,10 +5188,13 @@ class TestSchema2Migration(unittest.TestCase):
         so the learning tables join it with no allowlist edit. Proved with
         secret-SHAPED content, because redact_text is a secret scrubber.
 
-        KNOWN LIMIT, stated rather than implied: ordinary PROSE in raw_text
-        would pass through unchanged (docs/NOT-FINALIZED.md item 15). No writer
-        for these tables exists yet, so nothing can leak through this path
-        today; the withholding lands with the writer in Loop 2."""
+        STRENGTHENED IN LOOP 2, which is when a writer first existed and the
+        gap became reachable: raw_text is now WITHHELD ENTIRELY rather than
+        scrubbed. The scrubber only removes secret-SHAPED substrings, so the
+        real exposure was never `sk-` tokens, it was ordinary prose: a
+        correction naming a client or a number carries no secret shape at all.
+        This test therefore asserts BOTH cases, and the prose case is the one
+        that was previously wide open (docs/NOT-FINALIZED.md item 15)."""
         with tempfile.TemporaryDirectory() as d:
             with bs.Store(d) as store:
                 store.conn.execute("BEGIN IMMEDIATE")
@@ -5200,13 +5203,270 @@ class TestSchema2Migration(unittest.TestCase):
                     "raw_text, content_hash, created_at) VALUES (?,?,?,?,?)",
                     ("c1", "manual", "token AKIAIOSFODNN7EXAMPLE here", "h1",
                      bs.now_iso()))
+                store.conn.execute(
+                    "INSERT INTO learning_candidates (candidate_uuid, source_type, "
+                    "raw_text, content_hash, created_at) VALUES (?,?,?,?,?)",
+                    ("c2", "manual",
+                     "never mention the Q3 revenue miss to Acme when writing to them",
+                     "h2", bs.now_iso()))
                 store.conn.execute("COMMIT")
                 dumped = store.dump()
-            row = dumped["learning_candidates"][0]
-            self.assertNotIn("AKIAIOSFODNN7EXAMPLE", row["raw_text"])
-            self.assertIn("REDACTED", row["raw_text"])
-            self.assertEqual(row["candidate_uuid"], "c1",
-                             "identifiers stay readable; only free text is scrubbed")
+                raw_dump = store.dump(raw=True)
+            rows = {r["candidate_uuid"]: r for r in dumped["learning_candidates"]}
+            # Secret-shaped content: withheld.
+            self.assertNotIn("AKIAIOSFODNN7EXAMPLE", rows["c1"]["raw_text"])
+            # PROSE: the case the scrubber could never catch. Withheld too.
+            for leaked in ("Q3", "revenue", "Acme"):
+                self.assertNotIn(leaked, rows["c2"]["raw_text"],
+                                 "prose in raw_text must not survive a dump")
+            self.assertIn("WITHHELD", rows["c2"]["raw_text"])
+            self.assertEqual(rows["c1"]["candidate_uuid"], "c1",
+                             "identifiers stay readable; only free text is withheld")
+            # The escape hatch still works and is still explicit.
+            raw_rows = {r["candidate_uuid"]: r for r in raw_dump["learning_candidates"]}
+            self.assertIn("Acme", raw_rows["c2"]["raw_text"],
+                          "--raw must still return the real contents")
+
+
+class TestLearningApi(unittest.TestCase):
+    """Correction-learning Loop 2. The lifecycle from observation to approved
+    rule, and the refusals that keep the founder in charge of it."""
+
+    def _cap(self, store, **kw):
+        kw.setdefault("source_type", "manual")
+        kw.setdefault("trigger", "writing an executive update")
+        kw.setdefault("action", "state customer impact before technical detail")
+        kw.setdefault("because", "leaders need the business state first")
+        kw.setdefault("scope_type", "global")
+        kw.setdefault("scope_key", "")
+        return store.capture_learning_candidate(**kw)
+
+    def test_capture_creates_a_candidate_and_never_a_rule(self):
+        """Invariant L1, at its most basic: capture changes no behaviour."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                c = self._cap(store)
+                self.assertEqual(c["status"], "pending")
+                self.assertEqual(store.list_learning_rules(), [])
+
+    def test_approval_is_atomic_and_creates_version_1_plus_evidence(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                c = self._cap(store)
+                rule = store.approve_learning_candidate(
+                    c["candidate_uuid"], founder_ref="founder said yes in chat")
+                self.assertEqual(rule["state"], "approved")
+                self.assertEqual(rule["current_version"], 1)
+                ev = store.list_learning_evidence(rule["rule_uuid"])
+                self.assertTrue(any(e["evidence_type"] == "founder_approval" for e in ev),
+                                "every approved rule needs founder provenance (L4)")
+                self.assertEqual(
+                    store.get_learning_candidate(c["candidate_uuid"])["status"],
+                    "approved")
+
+    def test_approval_without_a_founder_reference_is_refused(self):
+        """Invariant L1 enforced on the code path, not by convention: there is
+        no way to reach rule creation without a recorded approver."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                c = self._cap(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.approve_learning_candidate(c["candidate_uuid"], founder_ref="  ")
+                self.assertEqual(ctx.exception.reason, "no-founder-ref")
+                self.assertEqual(store.list_learning_rules(), [])
+
+    def test_failed_approval_leaves_the_candidate_pending(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                c = self._cap(store, action="do this and always do that")
+                with self.assertRaises(bs.OwnershipRefused):
+                    store.approve_learning_candidate(c["candidate_uuid"], founder_ref="me")
+                self.assertEqual(
+                    store.get_learning_candidate(c["candidate_uuid"])["status"], "pending")
+                self.assertEqual(store.list_learning_rules(), [])
+
+    def test_compound_action_is_refused_but_overridable_with_recorded_reason(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                c = self._cap(store, action="do this and always do that")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.approve_learning_candidate(c["candidate_uuid"], founder_ref="me")
+                self.assertEqual(ctx.exception.reason, "not-atomic")
+                rule = store.approve_learning_candidate(
+                    c["candidate_uuid"], founder_ref="me",
+                    atomicity_override="founder judged it one habit")
+                notes = [e["excerpt"] for e in store.list_learning_evidence(rule["rule_uuid"])]
+                self.assertTrue(any("atomicity override" in n for n in notes),
+                                "an override must be recorded as evidence, never silent")
+
+    def test_project_scope_without_a_key_is_refused(self):
+        """A project rule with no key matches everything while looking scoped,
+        which is exactly the contamination L5 exists to prevent."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    self._cap(store, scope_type="project", scope_key="")
+                self.assertEqual(ctx.exception.reason, "bad-scope")
+
+    def test_editing_appends_a_version_and_preserves_the_old_one(self):
+        """Invariant L8: an application recorded against version 1 must still
+        be able to say what version 1 actually said."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                c = self._cap(store)
+                rule = store.approve_learning_candidate(c["candidate_uuid"],
+                                                        founder_ref="yes")
+                edited = store.edit_learning_rule(
+                    rule["rule_uuid"], 1, action="lead with revenue impact",
+                    change_reason="narrowed after a miss")
+                self.assertEqual(edited["current_version"], 2)
+                rows = store.conn.execute(
+                    "SELECT version, action_text FROM learning_rule_versions "
+                    "WHERE rule_uuid=? ORDER BY version", (rule["rule_uuid"],)).fetchall()
+                self.assertEqual(len(rows), 2)
+                self.assertEqual(rows[0]["action_text"],
+                                 "state customer impact before technical detail")
+
+    def test_stale_version_edit_fails_closed(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                c = self._cap(store)
+                rule = store.approve_learning_candidate(c["candidate_uuid"],
+                                                        founder_ref="yes")
+                with self.assertRaises(bs.StaleIdentity):
+                    store.edit_learning_rule(rule["rule_uuid"], 99, action="x")
+                self.assertEqual(store.get_learning_rule(rule["rule_uuid"])["action_text"],
+                                 "state customer impact before technical detail")
+
+    def test_confirmed_requires_evidence_beyond_the_approval(self):
+        """Plan rule 6. Approval is the founder's INTENT; it is not evidence
+        that the rule worked, so it cannot promote a rule on its own."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                c = self._cap(store)
+                rule = store.approve_learning_candidate(c["candidate_uuid"],
+                                                        founder_ref="yes")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(rule["rule_uuid"], "confirmed")
+                self.assertEqual(ctx.exception.reason, "no-supporting-evidence")
+                store.add_learning_evidence(rule["rule_uuid"], "support",
+                                             "verified_application",
+                                             source_ref="test:exec_update_accepted")
+                moved = store.change_learning_rule_state(rule["rule_uuid"], "confirmed")
+                self.assertEqual(moved["state"], "confirmed")
+
+    def test_supersession_requires_a_real_successor_and_refuses_self(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = store.approve_learning_candidate(
+                    self._cap(store)["candidate_uuid"], founder_ref="yes")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(a["rule_uuid"], "superseded")
+                self.assertEqual(ctx.exception.reason, "no-successor")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(a["rule_uuid"], "superseded",
+                                                      successor_prefix=a["rule_uuid"])
+                self.assertEqual(ctx.exception.reason, "self-supersession")
+
+    def test_forgotten_rules_disappear_from_normal_reads_and_retrieval(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = store.approve_learning_candidate(
+                    self._cap(store)["candidate_uuid"], founder_ref="yes")
+                store.change_learning_rule_state(rule["rule_uuid"], "forgotten")
+                self.assertEqual(store.list_learning_rules(), [])
+                res = store.retrieve_learning_rules("executive update customer impact")
+                self.assertEqual(res["results"], [])
+                self.assertEqual(len(store.list_learning_rules(include_forgotten=True)), 1,
+                                 "the tombstone survives for integrity")
+
+    def test_cross_project_isolation(self):
+        """Invariant L5, the one whose failure contaminates unrelated work."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                c = self._cap(store, scope_type="project", scope_key="ProjectA")
+                store.approve_learning_candidate(c["candidate_uuid"], founder_ref="yes")
+                a = store.retrieve_learning_rules("executive update customer impact",
+                                                   context={"project": "ProjectA"})
+                b = store.retrieve_learning_rules("executive update customer impact",
+                                                   context={"project": "ProjectB"})
+                self.assertEqual(len(a["results"]), 1)
+                self.assertEqual(b["results"], [],
+                                 "a project rule must never appear in another project")
+
+    def test_retrieval_is_read_only(self):
+        """Invariant L10 depends on asking being free of consequence: merely
+        asking what applies must never create outcome data."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = store.approve_learning_candidate(
+                    self._cap(store)["candidate_uuid"], founder_ref="yes")
+                before = store.get_learning_rule(rule["rule_uuid"])["updated_at"]
+                store.retrieve_learning_rules("executive update")
+                n = store.conn.execute(
+                    "SELECT COUNT(*) AS n FROM learning_applications").fetchone()["n"]
+                self.assertEqual(n, 0, "retrieval must not record applications")
+                self.assertEqual(store.get_learning_rule(rule["rule_uuid"])["updated_at"],
+                                 before)
+
+    def test_irrelevant_rules_are_not_returned_but_gates_always_are(self):
+        """The relevance floor, added after a dogfood run on the founder's real
+        corrections returned a rule about pushing to GitHub in answer to a
+        question about the colour of a breathing orb."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                soft = store.approve_learning_candidate(
+                    self._cap(store, trigger="writing release notes",
+                              action="lead with the user visible change")["candidate_uuid"],
+                    founder_ref="yes")
+                self.assertEqual(
+                    store.retrieve_learning_rules("what colour is the orb")["results"], [],
+                    "a soft rule with no shared term must not be injected")
+                store.approve_learning_candidate(
+                    self._cap(store, trigger="pushing to github",
+                              action="use the desktop app")["candidate_uuid"],
+                    founder_ref="yes", severity="gate")
+                res = store.retrieve_learning_rules("what colour is the orb")
+                self.assertEqual(len(res["results"]), 1,
+                                 "a gate rule appears even without shared vocabulary")
+                self.assertEqual(res["results"][0]["severity"], "gate")
+                self.assertNotIn(soft["rule_uuid"],
+                                 [r["rule_uuid"] for r in res["results"]])
+
+    def test_uuid_prefix_ambiguity_is_refused_not_guessed(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._cap(store)
+                self._cap(store, trigger="second")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.get_learning_candidate("")
+                self.assertEqual(ctx.exception.reason, "ambiguous")
+
+    def test_structural_every_ownership_refusal_names_a_reason_code(self):
+        """OwnershipRefused takes (reason, message) in that order. Calling it
+        as (message, reason=...) raises TypeError instead of the intended
+        refusal, so the guard still stops the write but for the WRONG reason
+        and with a useless message. Sixteen call sites were written that way in
+        Loop 2 and only a live dogfood run exposed it, because a test that just
+        asserts 'something raised' passes either way. This asserts the shape."""
+        import re as _re
+        tree = ast.parse(io.open(os.path.join(HERE, "bm_store.py"),
+                                 encoding="utf-8").read())
+        kebab = _re.compile(r"^[a-z][a-z0-9-]*$")
+        bad = []
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id == "OwnershipRefused"):
+                continue
+            if len(node.args) < 2:
+                bad.append((node.lineno, "fewer than two positional arguments"))
+                continue
+            first = node.args[0]
+            if not (isinstance(first, ast.Constant) and isinstance(first.value, str)
+                    and kebab.match(first.value)):
+                bad.append((node.lineno, "first argument is not a literal reason code"))
+        self.assertEqual(bad, [],
+                         "OwnershipRefused(reason, message) violated at: %s" % bad)
 
 
 if __name__ == "__main__":

@@ -1099,6 +1099,68 @@ _MIGRATIONS = {
 # column, with no new call site: the record is still identifiable via its
 # lifecycle_uuid, which is never redacted and sits right beside the name at
 # every other exit (render_state_md, render_digest).
+_CANDIDATE_SOURCE_TYPES = (
+    "explicit_correction", "detected_correction", "rework", "escaped_defect",
+    "revealed_choice", "verified_procedure", "manual", "imported")
+
+_LEARNING_MOD = None
+
+
+def _learning():
+    """Load bm_learning.py from THIS file's directory, by path.
+
+    Same technique bm_telemetry.py uses to load this module, and for the same
+    reason: bm_store.py is loaded by path from several places, so a plain
+    `import bm_learning` would depend on whichever sys.path the caller happened
+    to have. Cached after the first load."""
+    global _LEARNING_MOD
+    if _LEARNING_MOD is None:
+        import importlib.util
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "bm_learning.py")
+        spec = importlib.util.spec_from_file_location("bm_learning", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _LEARNING_MOD = mod
+    return _LEARNING_MOD
+
+
+def _one_or_refuse(rows, kind, prefix):
+    """Resolve a uuid PREFIX to exactly one row, or refuse.
+
+    Refusing ambiguity is deliberate and matches how thread identity is
+    resolved elsewhere in this project: picking "the first match" for a short
+    prefix is how a founder edits the wrong rule and never finds out."""
+    if not rows:
+        raise OwnershipRefused("not-found", "no %s matches %r" % (kind, prefix))
+    if len(rows) > 1:
+        raise OwnershipRefused("ambiguous", "%r matches %d %ss (%s); use more characters"
+            % (prefix, len(rows), kind,
+               ", ".join(r[0][:8] for r in rows)))
+    return dict(rows[0])
+
+
+# WITHHELD ENTIRELY from dump, not merely passed through the scrubber.
+#
+# NOT-FINALIZED item 15, found by the Loop 0 baseline: redact_text is a secret
+# SCRUBBER. It removes secret-shaped substrings and lets ordinary prose through
+# untouched, which was harmless while every text column held a work objective
+# the founder had typed about their own project. These two columns are
+# different in kind: they hold the founder's VERBATIM WORDS, captured from a
+# correction, including whatever a frustrated founder happened to say about a
+# client, a number, or a person. A dump is exactly what gets piped into a file
+# or pasted into an issue.
+#
+# So these are replaced by a length marker rather than scrubbed. The marker
+# keeps a dump structurally honest (you can see evidence exists and how much of
+# it) without reproducing any of it. --raw still returns everything, and
+# SECURITY.md already documents the database file itself as sensitive.
+_DUMP_WITHHELD_COLUMNS = frozenset((
+    ("learning_candidates", "raw_text"),
+    ("learning_evidence", "excerpt"),
+    ("learning_applications", "task_excerpt"),
+))
+
 _DUMP_SAFE_COLUMNS = frozenset((
     ("meta", "key"), ("meta", "value"),
     ("records", "lifecycle_uuid"), ("records", "lifetime"),
@@ -2589,6 +2651,348 @@ class Store(object):
         else:
             _exec(self, "COMMIT")
 
+    # ------------------------------------------------------------------
+    # Correction learning (Loop 2). Every mutation below is transactional and
+    # every one of them fails CLOSED: a refusal raises a named error and
+    # changes nothing, rather than returning a soft failure a caller can
+    # mistake for success.
+    # ------------------------------------------------------------------
+
+    def capture_learning_candidate(self, source_type, raw_text="", trigger="",
+                                    action="", because="", domain="",
+                                    scope_type="project", scope_key="",
+                                    session_id="", record_uuid=None,
+                                    source_ref=""):
+        """Record an OBSERVATION. Never a rule.
+
+        This is the only way text enters the learning system, and nothing it
+        writes affects behaviour: a candidate is inert until a founder approves
+        it (invariant L1). raw_text is stored through the existing secret
+        scrubber and is additionally WITHHELD from dump (see
+        _DUMP_WITHHELD_COLUMNS), because it holds verbatim founder words."""
+        L = _learning()
+        if source_type not in _CANDIDATE_SOURCE_TYPES:
+            raise OwnershipRefused(
+                "bad-source-type",
+                "unknown source type %r (known: %s)"
+                % (source_type, ", ".join(_CANDIDATE_SOURCE_TYPES)))
+        scope_err = L.validate_scope(scope_type, scope_key)
+        if scope_err:
+            raise OwnershipRefused("bad-scope", scope_err)
+        clean_raw = redact_text(raw_text or "")
+        # Count, not a flag: how much was scrubbed is review-relevant, and it is
+        # the only signal a reviewer gets that raw_text was touched at all.
+        nred = clean_raw.count("[REDACTED]")
+        cuuid = uuid.uuid4().hex
+        chash = L.content_hash(trigger, action, scope_type, scope_key)
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO learning_candidates (candidate_uuid, source_type, "
+                  "source_session_id, source_record_uuid, source_ref, raw_text, "
+                  "proposed_trigger, proposed_action, proposed_because, "
+                  "proposed_domain, proposed_scope_type, proposed_scope_key, "
+                  "status, content_hash, redaction_count, created_at) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?,?)",
+                  (cuuid, source_type, session_id or "", record_uuid,
+                   source_ref or "", clean_raw,
+                   L.normalize_text(trigger), L.normalize_text(action),
+                   L.normalize_text(because), L.normalize_text(domain),
+                   scope_type, L.normalize_text(scope_key), chash, nred,
+                   now_iso()))
+        return self.get_learning_candidate(cuuid)
+
+    def get_learning_candidate(self, prefix):
+        rows = _exec(self, "SELECT * FROM learning_candidates "
+                           "WHERE candidate_uuid LIKE ? ORDER BY created_at",
+                     (prefix + "%",)).fetchall()
+        return _one_or_refuse(rows, "candidate", prefix)
+
+    def list_learning_candidates(self, status=None):
+        if status:
+            return [dict(r) for r in _exec(
+                self, "SELECT * FROM learning_candidates WHERE status = ? "
+                      "ORDER BY created_at", (status,)).fetchall()]
+        return [dict(r) for r in _exec(
+            self, "SELECT * FROM learning_candidates ORDER BY created_at").fetchall()]
+
+    def approve_learning_candidate(self, prefix, founder_ref, trigger=None,
+                                    action=None, because=None, scope_type=None,
+                                    scope_key=None, rule_type="preference",
+                                    severity="soft", domain=None,
+                                    atomicity_override=""):
+        """Promote a candidate into an approved rule. ATOMIC and FOUNDER-GATED.
+
+        founder_ref is mandatory and free-form (a command invocation, a message
+        reference). It exists so that invariant L1 is enforced by the schema
+        path rather than by convention: there is NO code path that creates a
+        rule without one, so a background hook cannot approve anything even if
+        it wanted to. A model's own judgement is not a founder_ref, and nothing
+        here checks that, which is stated honestly in docs rather than pretended
+        away: the guarantee is that approval is an explicit, recorded, attributed
+        act, not that a determined local process could not fake one.
+
+        All five writes (rule, version 1, approval evidence, candidate status,
+        resulting link) happen in ONE transaction. A failure part way leaves the
+        candidate pending, never half approved."""
+        L = _learning()
+        if not (founder_ref or "").strip():
+            raise OwnershipRefused("no-founder-ref", "approval requires an explicit founder reference; a rule with no "
+                "recorded approver is exactly what invariant L1 forbids")
+        cand = self.get_learning_candidate(prefix)
+        if cand["status"] != "pending":
+            raise OwnershipRefused("not-pending", "candidate %s is %r, only a pending candidate can be approved"
+                % (cand["candidate_uuid"][:8], cand["status"]))
+        trig = L.normalize_text(trigger if trigger is not None else cand["proposed_trigger"])
+        act = L.normalize_text(action if action is not None else cand["proposed_action"])
+        why = L.normalize_text(because if because is not None else cand["proposed_because"])
+        stype = scope_type or cand["proposed_scope_type"]
+        skey = L.normalize_text(scope_key if scope_key is not None else cand["proposed_scope_key"])
+        dom = L.normalize_text(domain if domain is not None else cand["proposed_domain"])
+        if not trig or not act:
+            raise OwnershipRefused("incomplete-rule", "a rule needs both a trigger and an action; got trigger=%r action=%r"
+                % (trig, act))
+        scope_err = L.validate_scope(stype, skey)
+        if scope_err:
+            raise OwnershipRefused("bad-scope", scope_err)
+        problems = L.atomicity_problems(act)
+        if problems and not atomicity_override.strip():
+            raise OwnershipRefused("not-atomic", "this action looks like more than one rule (%s). Split it, or "
+                "re-run with an explicit override reason. A compound rule cannot "
+                "be graded: when the outcome is bad you cannot tell which half "
+                "was wrong." % "; ".join(problems))
+        ruuid = uuid.uuid4().hex
+        ts = now_iso()
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO learning_rules (rule_uuid, current_version, state, "
+                  "rule_type, severity, scope_type, scope_key, founder_approved_at, "
+                  "created_at, updated_at) VALUES (?,1,'approved',?,?,?,?,?,?,?)",
+                  (ruuid, rule_type, severity, stype, skey, ts, ts, ts))
+            _exec(self,
+                  "INSERT INTO learning_rule_versions (rule_uuid, version, "
+                  "trigger_text, action_text, because_text, domain, change_type, "
+                  "change_reason, source_candidate_uuid, approved_by, created_at) "
+                  "VALUES (?,1,?,?,?,?,'created',?,?, 'founder', ?)",
+                  (ruuid, trig, act, why, dom,
+                   ("founder approval: %s" % founder_ref)[:500],
+                   cand["candidate_uuid"], ts))
+            _exec(self,
+                  "INSERT INTO learning_evidence (evidence_uuid, rule_uuid, "
+                  "candidate_uuid, polarity, evidence_type, source_session_id, "
+                  "source_ref, excerpt, created_at) "
+                  "VALUES (?,?,?,'support','founder_approval',?,?,?,?)",
+                  (uuid.uuid4().hex, ruuid, cand["candidate_uuid"],
+                   cand["source_session_id"], founder_ref[:500],
+                   redact_text(cand["raw_text"] or ""), ts))
+            if problems:
+                # The override is EVIDENCE, not a silent bypass.
+                _exec(self,
+                      "INSERT INTO learning_evidence (evidence_uuid, rule_uuid, "
+                      "polarity, evidence_type, source_ref, excerpt, created_at) "
+                      "VALUES (?,?,'neutral','manual_review',?,?,?)",
+                      (uuid.uuid4().hex, ruuid, founder_ref[:500],
+                       ("atomicity override: %s (flags: %s)"
+                        % (atomicity_override, "; ".join(problems)))[:500], ts))
+            _exec(self,
+                  "UPDATE learning_candidates SET status='approved', reviewed_at=?, "
+                  "resulting_rule_uuid=? WHERE candidate_uuid=?",
+                  (ts, ruuid, cand["candidate_uuid"]))
+        return self.get_learning_rule(ruuid)
+
+    def reject_learning_candidate(self, prefix, reason):
+        """Reject, KEEPING the evidence and the stated reason. A rejected
+        candidate is a decision worth remembering: it is what stops the same
+        suggestion being re-proposed forever."""
+        if not (reason or "").strip():
+            raise OwnershipRefused("no-reason", "rejection requires a reason")
+        cand = self.get_learning_candidate(prefix)
+        if cand["status"] != "pending":
+            raise OwnershipRefused("not-pending", "candidate %s is %r, not pending" % (cand["candidate_uuid"][:8],
+                                                     cand["status"]))
+        with self._transaction():
+            _exec(self, "UPDATE learning_candidates SET status='rejected', "
+                        "reviewed_at=?, review_note=? WHERE candidate_uuid=?",
+                  (now_iso(), _learning().normalize_text(reason)[:500],
+                   cand["candidate_uuid"]))
+        return self.get_learning_candidate(cand["candidate_uuid"])
+
+    def get_learning_rule(self, prefix):
+        rows = _exec(self, "SELECT r.*, v.trigger_text, v.action_text, "
+                           "v.because_text, v.domain FROM learning_rules r "
+                           "JOIN learning_rule_versions v "
+                           "  ON v.rule_uuid = r.rule_uuid AND v.version = r.current_version "
+                           "WHERE r.rule_uuid LIKE ?", (prefix + "%",)).fetchall()
+        return _one_or_refuse(rows, "rule", prefix)
+
+    def list_learning_rules(self, states=None, include_forgotten=False):
+        """Rules with their CURRENT version's text joined on.
+
+        Forgotten rules are excluded by default at the lowest level, so no
+        caller has to remember to filter them: a tombstone that leaks its text
+        through an ordinary list would defeat the point of forgetting."""
+        sql = ("SELECT r.*, v.trigger_text, v.action_text, v.because_text, v.domain "
+               "FROM learning_rules r JOIN learning_rule_versions v "
+               "  ON v.rule_uuid = r.rule_uuid AND v.version = r.current_version")
+        clauses, params = [], []
+        if not include_forgotten:
+            clauses.append("r.state != 'forgotten'")
+        if states:
+            clauses.append("r.state IN (%s)" % ",".join("?" * len(states)))
+            params.extend(states)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY r.created_at"
+        return [dict(r) for r in _exec(self, sql, tuple(params)).fetchall()]
+
+    def edit_learning_rule(self, prefix, expected_version, trigger=None,
+                            action=None, because=None, domain=None,
+                            change_type="edited", change_reason=""):
+        """Append a NEW version. Prior versions are never overwritten, so an
+        application recorded against version 2 still says exactly what the model
+        was shown (invariant L8).
+
+        expected_version is the same optimistic-concurrency guard the rest of
+        this store uses: a stale caller fails closed rather than clobbering."""
+        L = _learning()
+        rule = self.get_learning_rule(prefix)
+        if int(expected_version) != int(rule["current_version"]):
+            raise StaleIdentity(
+                "expected version %s; rule %s is at version %s"
+                % (expected_version, rule["rule_uuid"][:8], rule["current_version"]),
+                current_version=rule["current_version"])
+        trig = L.normalize_text(trigger if trigger is not None else rule["trigger_text"])
+        act = L.normalize_text(action if action is not None else rule["action_text"])
+        why = L.normalize_text(because if because is not None else rule["because_text"])
+        dom = L.normalize_text(domain if domain is not None else rule["domain"])
+        if not trig or not act:
+            raise OwnershipRefused("incomplete-rule", "a rule needs both a trigger and an action")
+        nv = int(rule["current_version"]) + 1
+        ts = now_iso()
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO learning_rule_versions (rule_uuid, version, "
+                  "trigger_text, action_text, because_text, domain, change_type, "
+                  "change_reason, approved_by, created_at) "
+                  "VALUES (?,?,?,?,?,?,?,?, 'founder', ?)",
+                  (rule["rule_uuid"], nv, trig, act, why, dom, change_type,
+                   L.normalize_text(change_reason)[:500], ts))
+            _exec(self, "UPDATE learning_rules SET current_version=?, updated_at=? "
+                        "WHERE rule_uuid=?", (nv, ts, rule["rule_uuid"]))
+        return self.get_learning_rule(rule["rule_uuid"])
+
+    def change_learning_rule_state(self, prefix, target, reason="",
+                                    successor_prefix=None):
+        """Move a rule between lifecycle states, refusing illegal moves and
+        refusing the ones that need evidence they do not have.
+
+        Two named refusals implement plan rules 6 and 8 directly: nothing
+        reaches 'confirmed' or 'settled' without at least one SUPPORTING
+        evidence row that is not the original approval, and nothing reaches
+        'superseded' without a real successor plus its edge."""
+        L = _learning()
+        rule = self.get_learning_rule(prefix)
+        err = L.state_transition_error(rule["state"], target)
+        if err:
+            raise OwnershipRefused("illegal-state-move", err)
+        if target in ("confirmed", "settled"):
+            n = _exec(self, "SELECT COUNT(*) AS n FROM learning_evidence "
+                            "WHERE rule_uuid=? AND polarity='support' "
+                            "AND evidence_type != 'founder_approval'",
+                      (rule["rule_uuid"],)).fetchone()["n"]
+            if not n:
+                raise OwnershipRefused("no-supporting-evidence", "a rule cannot become %r on its approval alone; it needs at "
+                    "least one independent supporting event. Approval is the "
+                    "founder's intent, not evidence the rule worked." % target)
+        successor = None
+        if target == "superseded":
+            if not successor_prefix:
+                raise OwnershipRefused("no-successor", "supersession requires the rule that replaces this one")
+            successor = self.get_learning_rule(successor_prefix)
+            if successor["rule_uuid"] == rule["rule_uuid"]:
+                raise OwnershipRefused("self-supersession", "a rule cannot supersede itself")
+        ts = now_iso()
+        with self._transaction():
+            if successor is not None:
+                _exec(self, "INSERT OR IGNORE INTO learning_edges (from_rule_uuid, "
+                            "to_rule_uuid, relation, note, created_at) "
+                            "VALUES (?,?,'supersedes',?,?)",
+                      (successor["rule_uuid"], rule["rule_uuid"],
+                       L.normalize_text(reason)[:500], ts))
+                _exec(self, "UPDATE learning_rules SET superseded_by=? WHERE rule_uuid=?",
+                      (successor["rule_uuid"], rule["rule_uuid"]))
+            _exec(self, "UPDATE learning_rules SET state=?, updated_at=?, "
+                        "forgotten_at=CASE WHEN ?='forgotten' THEN ? ELSE forgotten_at END "
+                        "WHERE rule_uuid=?",
+                  (target, ts, target, ts, rule["rule_uuid"]))
+        return self.get_learning_rule(rule["rule_uuid"])
+
+    def add_learning_evidence(self, rule_prefix, polarity, evidence_type,
+                               excerpt="", session_id="", source_ref="",
+                               record_uuid=None):
+        """Attach an observation to a rule. This is how a rule earns its way to
+        'confirmed': something happened that was not the founder saying yes."""
+        rule = self.get_learning_rule(rule_prefix)
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO learning_evidence (evidence_uuid, rule_uuid, polarity, "
+                  "evidence_type, source_session_id, source_record_uuid, source_ref, "
+                  "excerpt, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                  (uuid.uuid4().hex, rule["rule_uuid"], polarity, evidence_type,
+                   session_id or "", record_uuid, source_ref or "",
+                   redact_text(excerpt or ""), now_iso()))
+        return self.list_learning_evidence(rule["rule_uuid"])
+
+    def list_learning_evidence(self, rule_prefix):
+        rule = self.get_learning_rule(rule_prefix)
+        return [dict(r) for r in _exec(
+            self, "SELECT * FROM learning_evidence WHERE rule_uuid=? "
+                  "ORDER BY created_at", (rule["rule_uuid"],)).fetchall()]
+
+    def retrieve_learning_rules(self, query, context=None, limit=5,
+                                 include_reasons=True):
+        """Rules relevant to a task, most relevant first, each able to say why.
+
+        Read-only by contract: it writes nothing, records no application, and
+        does not store the query. Recording an application is a separate,
+        explicit call, so merely ASKING what applies can never pollute the
+        outcome data (invariant L10 depends on that separation).
+
+        Eligibility is a hard filter before ranking: only injectable states,
+        and only rules whose scope the supplied context actually matches."""
+        L = _learning()
+        context = context or {}
+        in_scope = [r for r in self.list_learning_rules(states=L.INJECTABLE_STATES)
+                    if L.scope_matches(r["scope_type"], r["scope_key"], context)]
+        # RELEVANCE FLOOR, added after a dogfood run on the founder's real
+        # corrections surfaced a rule about pushing to GitHub in response to a
+        # question about the colour of a breathing orb. Scope said eligible,
+        # relevance was zero, and it was still returned. That is the
+        # over-injection the dogfood review questions ask about, and a founder
+        # who sees one irrelevant rule stops reading the relevant ones.
+        #
+        # A rule with NO shared term with the task is not retrieved. The single
+        # exception is severity 'gate': a safety rule is exactly the thing that
+        # must appear even when the person did not use its vocabulary, and
+        # that asymmetry is the whole reason severity exists as a field.
+        eligible = [r for r in in_scope
+                    if r.get("severity") == "gate"
+                    or L.lexical_overlap(query, r.get("trigger_text", ""),
+                                         r.get("action_text", ""),
+                                         r.get("because_text", ""),
+                                         r.get("domain", "")) > 0]
+        eligible.sort(key=lambda r: L.rank_key(r, query, context))
+        chosen = eligible[:max(0, int(limit))]
+        out = []
+        for i, r in enumerate(chosen, 1):
+            row = dict(r)
+            row["rank"] = i
+            if include_reasons:
+                row["why"] = L.explain_rank(r, query, context)
+            out.append(row)
+        return {"mode": L.RETRIEVAL_MODE, "results": out,
+                "omitted": max(0, len(eligible) - len(chosen)),
+                "eligible": len(eligible)}
+
     def _record_by_uuid(self, lifecycle_uuid):
         row = _exec(self,
             "SELECT * FROM records WHERE lifecycle_uuid=?", (lifecycle_uuid,)).fetchone()
@@ -3378,7 +3782,13 @@ class Store(object):
                 continue
             for row_dict in out[t]:
                 for col in redact_cols:
-                    if row_dict.get(col):
+                    if not row_dict.get(col):
+                        continue
+                    if (t, col) in _DUMP_WITHHELD_COLUMNS:
+                        # Withheld, not scrubbed: see _DUMP_WITHHELD_COLUMNS.
+                        row_dict[col] = "[WITHHELD: %d chars of founder text]" % len(
+                            row_dict[col])
+                    else:
                         row_dict[col] = redact_text(row_dict[col])
         return out
 
