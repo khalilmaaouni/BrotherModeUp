@@ -1,0 +1,458 @@
+#!/usr/bin/env python3
+"""BrotherMode correction learning: the founder's command line.
+
+WHAT THIS IS FOR
+  You correct me. That correction should survive the session, apply when it is
+  relevant, and never change my behaviour until YOU said so. This command line
+  is the only path from "you said something" to "it is a rule", and every step
+  of it is yours.
+
+THE FIVE SEPARATE QUESTIONS, KEPT SEPARATE ON PURPOSE
+  Most systems collapse these into one claim that the assistant "learned":
+    1. capture       did you correct me, and what exactly did you say
+    2. interpretation what narrow trigger and action does that evidence support
+    3. approval      did you approve that interpretation as a rule
+    4. application   was the rule retrieved and followed when it mattered
+    5. outcome       did following it help
+  This tool keeps them auditable, so "it learned" is never a claim you have to
+  take on trust.
+
+WHAT THIS FILE MAY NOT DO
+  It never writes the database directly. Every mutation goes through
+  bm_store.py, which stays the single writer. It performs no network access and
+  spawns no subprocess.
+
+APPROVAL IS DELIBERATELY MANUAL
+  There is no --auto, no daemon, and no hook that can approve anything. The
+  approve command requires you to run it and to supply a reference recorded as
+  evidence. A background process cannot promote a candidate even by accident,
+  because the code path that creates rules refuses without that reference.
+
+RETRIEVAL MODE: lexical only today. No FTS5 index is built yet, and no output
+here claims full-text or BM25 ranking. `relevant` prints the mode it used.
+
+Python 3.9, standard library only.
+
+No em or en dashes anywhere in this file, its comments, or its output.
+"""
+
+import importlib.util
+import io
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _load(name):
+    """Load a sibling module by PATH, the same way bm_telemetry loads bm_store:
+    this file is invoked from arbitrary working directories and must not depend
+    on whatever sys.path the caller happened to have."""
+    spec = importlib.util.spec_from_file_location(name, os.path.join(HERE, name + ".py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+bs = _load("bm_store")
+L = _load("bm_learning")
+
+
+def _out(msg=""):
+    sys.stdout.write("%s\n" % msg)
+
+
+def _err(msg):
+    sys.stderr.write("%s\n" % msg)
+
+
+def _parse(argv, known, wants_value=()):
+    """Flags into a dict, REFUSING anything unrecognized.
+
+    An unknown flag exits non-zero and names itself. The sibling `bm_store.py
+    claim --help` treats an unknown flag as a record name and silently claims
+    something called "--help" (NOT-FINALIZED item 16); this file deliberately
+    does not inherit that behaviour."""
+    positional, kv, i = [], {}, 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok.startswith("--"):
+            name = tok[2:]
+            if name not in known:
+                _err("bm_learn: unrecognized flag --%s (recognized: %s)"
+                     % (name, ", ".join("--" + k for k in sorted(known))))
+                sys.exit(2)
+            if name in wants_value:
+                if i + 1 >= len(argv):
+                    _err("bm_learn: --%s needs a value" % name)
+                    sys.exit(2)
+                kv[name] = argv[i + 1]
+                i += 2
+                continue
+            kv[name] = True
+            i += 1
+            continue
+        positional.append(tok)
+        i += 1
+    return positional, kv
+
+
+def _root():
+    """require_root returns (root, source), not a bare path. Unpacked in ONE
+    place so a caller cannot pass the tuple into a path function; doing exactly
+    that raised "expected str, bytes or os.PathLike object, not tuple" on the
+    first live run of this file."""
+    root, _source = bs.require_root()
+    return root
+
+
+def _store(create=False):
+    return bs.Store(_root(), create=create)
+
+
+def _ctx(kv):
+    """Task context for scope matching. The project defaults to the resolved
+    project root's own name, so a project rule is scoped to where you actually
+    are rather than to a string you had to remember to type."""
+    ctx = {"project": os.path.basename(_root())}
+    for key in ("project", "domain", "artifact", "relationship", "tool"):
+        if kv.get(key):
+            ctx[key] = kv[key]
+    return ctx
+
+
+def _rule_line(r):
+    return "  %s  [%s%s, %s%s] v%d" % (
+        r["rule_uuid"][:8],
+        r["scope_type"],
+        "" if r["scope_type"] == "global" else ":" + r["scope_key"],
+        r["state"],
+        ", gate" if r.get("severity") == "gate" else "",
+        r["current_version"])
+
+
+def cmd_capture(argv):
+    pos, kv = _parse(argv, {"trigger", "action", "because", "domain", "scope",
+                            "scope-key", "source", "session", "raw", "json"},
+                     wants_value=("trigger", "action", "because", "domain",
+                                  "scope", "scope-key", "source", "session", "raw"))
+    scope = kv.get("scope", "project")
+    scope_key = kv.get("scope-key")
+    if scope_key is None and scope == "project":
+        scope_key = os.path.basename(_root())
+    store = _store()
+    try:
+        cand = store.capture_learning_candidate(
+            kv.get("source", "explicit_correction"),
+            raw_text=kv.get("raw", ""), trigger=kv.get("trigger", ""),
+            action=kv.get("action", ""), because=kv.get("because", ""),
+            domain=kv.get("domain", ""), scope_type=scope,
+            scope_key=scope_key or "", session_id=kv.get("session", ""))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(cand, indent=2, sort_keys=True))
+        return 0
+    _out("captured %s (pending, nothing changes until you approve it)"
+         % cand["candidate_uuid"][:8])
+    problems = L.atomicity_problems(cand["proposed_action"])
+    if problems:
+        _out("  heads up, this looks like more than one rule: %s" % "; ".join(problems))
+        _out("  approval will refuse it unless you split it or pass --override-reason")
+    return 0
+
+
+def cmd_candidates(argv):
+    pos, kv = _parse(argv, {"status", "json"}, wants_value=("status",))
+    store = _store()
+    try:
+        rows = store.list_learning_candidates(kv.get("status", "pending"))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+    if not rows:
+        _out("no candidates with that status")
+        return 0
+    for c in rows:
+        _out("  %s  [%s%s]  %s" % (
+            c["candidate_uuid"][:8], c["proposed_scope_type"],
+            "" if c["proposed_scope_type"] == "global" else ":" + c["proposed_scope_key"],
+            c["status"]))
+        if c["proposed_trigger"]:
+            _out("     When: %s" % L.safe_display(c["proposed_trigger"], 100))
+            _out("     Do  : %s" % L.safe_display(c["proposed_action"], 100))
+        if c["raw_text"]:
+            # The raw founder quote is NOT printed by default. It is the most
+            # sensitive thing in the store and the least necessary for triage.
+            _out("     source: %d chars captured, %d redactions (--show-source to read)"
+                 % (len(c["raw_text"]), c["redaction_count"]))
+    _out("")
+    _out("%d candidate(s). Approve with: bm_learn.py approve <id> --because \"...\"" % len(rows))
+    return 0
+
+
+def cmd_show_candidate(argv):
+    pos, kv = _parse(argv, {"show-source", "json"})
+    if not pos:
+        _err("usage: show-candidate <id> [--show-source] [--json]")
+        return 2
+    store = _store()
+    try:
+        c = store.get_learning_candidate(pos[0])
+    finally:
+        store.close()
+    if kv.get("json"):
+        if not kv.get("show-source"):
+            c = dict(c)
+            c["raw_text"] = "[withheld: pass --show-source]"
+        _out(json.dumps(c, indent=2, sort_keys=True))
+        return 0
+    _out("candidate %s" % c["candidate_uuid"])
+    for label, key in (("status", "status"), ("source", "source_type"),
+                       ("scope", "proposed_scope_type"), ("trigger", "proposed_trigger"),
+                       ("action", "proposed_action"), ("because", "proposed_because")):
+        _out("  %-8s %s" % (label, L.safe_display(str(c[key]), 300)))
+    if kv.get("show-source"):
+        _out("  WARNING: the following is your own verbatim text, secrets scrubbed but")
+        _out("           prose intact. Do not paste it somewhere public.")
+        _out("  source   %s" % L.safe_display(c["raw_text"], 2000))
+    else:
+        _out("  source   %d chars withheld (--show-source to read)" % len(c["raw_text"] or ""))
+    return 0
+
+
+def cmd_approve(argv):
+    pos, kv = _parse(argv, {"trigger", "action", "because", "domain", "scope",
+                            "scope-key", "type", "gate", "override-reason", "ref", "json"},
+                     wants_value=("trigger", "action", "because", "domain", "scope",
+                                  "scope-key", "type", "override-reason", "ref"))
+    if not pos:
+        _err("usage: approve <candidate-id> [--trigger ...] [--action ...] "
+             "[--because ...] [--scope global|project|domain|artifact|relationship|tool] "
+             "[--scope-key ...] [--gate] [--ref \"why you approved\"]")
+        return 2
+    # The invocation itself IS the founder act. Recording it as the default
+    # reference keeps approval attributable without inventing an identity.
+    ref = kv.get("ref") or ("bm_learn.py approve, run by the founder at %s" % bs.now_iso())
+    store = _store()
+    try:
+        rule = store.approve_learning_candidate(
+            pos[0], founder_ref=ref, trigger=kv.get("trigger"),
+            action=kv.get("action"), because=kv.get("because"),
+            domain=kv.get("domain"), scope_type=kv.get("scope"),
+            scope_key=kv.get("scope-key"),
+            rule_type=kv.get("type", "preference"),
+            severity="gate" if kv.get("gate") else "soft",
+            atomicity_override=kv.get("override-reason", ""))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(rule, indent=2, sort_keys=True))
+        return 0
+    _out("approved as rule %s" % rule["rule_uuid"][:8])
+    _out(_rule_line(rule))
+    _out("     When: %s" % L.safe_display(rule["trigger_text"], 160))
+    _out("     Do  : %s" % L.safe_display(rule["action_text"], 160))
+    return 0
+
+
+def cmd_reject(argv):
+    pos, kv = _parse(argv, {"because"}, wants_value=("because",))
+    if not pos or not kv.get("because"):
+        _err("usage: reject <candidate-id> --because \"why not\"")
+        return 2
+    store = _store()
+    try:
+        c = store.reject_learning_candidate(pos[0], kv["because"])
+    finally:
+        store.close()
+    _out("rejected %s. The reason is kept, so the same suggestion does not keep "
+         "coming back." % c["candidate_uuid"][:8])
+    return 0
+
+
+def cmd_rules(argv):
+    pos, kv = _parse(argv, {"json", "all"})
+    store = _store()
+    try:
+        rows = store.list_learning_rules(include_forgotten=bool(kv.get("all")))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+    if not rows:
+        _out("no approved rules yet")
+        return 0
+    for r in rows:
+        _out(_rule_line(r))
+        _out("     When: %s" % L.safe_display(r["trigger_text"], 120))
+        _out("     Do  : %s" % L.safe_display(r["action_text"], 120))
+    _out("")
+    _out("%d rule(s)." % len(rows))
+    return 0
+
+
+def cmd_relevant(argv):
+    """Loop 5's founder-facing surface. READ ONLY: asking what applies records
+    nothing, so the outcome data can never be polluted by mere curiosity."""
+    pos, kv = _parse(argv, {"query", "project", "domain", "artifact",
+                            "relationship", "tool", "limit", "json"},
+                     wants_value=("query", "project", "domain", "artifact",
+                                  "relationship", "tool", "limit"))
+    query = kv.get("query") or " ".join(pos)
+    if not query.strip():
+        _err("usage: relevant --query \"what you are about to do\" [--artifact ...] [--limit N]")
+        return 2
+    try:
+        limit = int(kv.get("limit", 5))
+    except ValueError:
+        _err("bm_learn: --limit needs a whole number")
+        return 2
+    store = _store()
+    try:
+        res = store.retrieve_learning_rules(query, context=_ctx(kv), limit=limit)
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(res, indent=2, sort_keys=True))
+        return 0
+    if not res["results"]:
+        _out("no founder rules apply here (%d in scope, none matched; mode=%s)"
+             % (res["eligible"], res["mode"]))
+        return 0
+    _out("RELEVANT FOUNDER RULES (mode=%s)" % res["mode"])
+    for r in res["results"]:
+        why = r["why"]
+        _out("")
+        _out("  %s  rank=%d" % (r["rule_uuid"][:8], r["rank"]))
+        _out("  Scope: %s     State: %s%s" % (
+            why["scope"], why["state"], "     GATE" if r.get("severity") == "gate" else ""))
+        _out("  When : %s" % L.safe_display(r["trigger_text"], 160))
+        _out("  Do   : %s" % L.safe_display(r["action_text"], 160))
+        if r.get("because_text"):
+            _out("  Why  : %s" % L.safe_display(r["because_text"], 160))
+        _out("  Match: terms %s, relevance %s"
+             % (why["matched_terms"] or "(none, shown because it is a gate)",
+                why["relevance"]))
+    _out("")
+    _out("Constitution overrides learned rules. %d omitted." % res["omitted"])
+    return 0
+
+
+def cmd_forget(argv):
+    pos, kv = _parse(argv, {"yes", "because"}, wants_value=("because",))
+    if not pos:
+        _err("usage: forget <rule-id> --yes")
+        return 2
+    if not kv.get("yes"):
+        _err("forget removes a rule from every future retrieval. Re-run with --yes "
+             "if that is what you want.")
+        return 2
+    store = _store()
+    try:
+        r = store.change_learning_rule_state(pos[0], "forgotten",
+                                              reason=kv.get("because", ""))
+    finally:
+        store.close()
+    _out("forgotten %s. It will not be retrieved again. A tombstone remains so "
+         "past applications stay honest." % r["rule_uuid"][:8])
+    return 0
+
+
+def cmd_deprecate(argv):
+    pos, kv = _parse(argv, {"because"}, wants_value=("because",))
+    if not pos:
+        _err("usage: deprecate <rule-id> --because \"...\"")
+        return 2
+    store = _store()
+    try:
+        r = store.change_learning_rule_state(pos[0], "deprecated",
+                                              reason=kv.get("because", ""))
+    finally:
+        store.close()
+    _out("deprecated %s (kept for history, not retrieved)" % r["rule_uuid"][:8])
+    return 0
+
+
+def cmd_why(argv):
+    pos, kv = _parse(argv, {"json"})
+    if not pos:
+        _err("usage: why <rule-id>")
+        return 2
+    store = _store()
+    try:
+        rule = store.get_learning_rule(pos[0])
+        ev = store.list_learning_evidence(rule["rule_uuid"])
+        versions = [dict(r) for r in store.conn.execute(
+            "SELECT version, change_type, change_reason, created_at "
+            "FROM learning_rule_versions WHERE rule_uuid=? ORDER BY version",
+            (rule["rule_uuid"],)).fetchall()]
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps({"rule": rule, "evidence": ev, "versions": versions},
+                        indent=2, sort_keys=True))
+        return 0
+    _out("rule %s" % rule["rule_uuid"])
+    _out(_rule_line(rule))
+    _out("  When: %s" % L.safe_display(rule["trigger_text"], 200))
+    _out("  Do  : %s" % L.safe_display(rule["action_text"], 200))
+    _out("  Why : %s" % L.safe_display(rule["because_text"], 200))
+    _out("")
+    _out("  versions:")
+    for v in versions:
+        _out("    v%d  %s  %s" % (v["version"], v["change_type"],
+                                   L.safe_display(v["change_reason"], 80)))
+    _out("  evidence (%d):" % len(ev))
+    for e in ev:
+        _out("    %s %s  %s" % (e["polarity"], e["evidence_type"],
+                                 L.safe_display(e["source_ref"], 70)))
+    return 0
+
+
+COMMANDS = {
+    "capture": cmd_capture,
+    "candidates": cmd_candidates,
+    "show-candidate": cmd_show_candidate,
+    "approve": cmd_approve,
+    "reject": cmd_reject,
+    "rules": cmd_rules,
+    "relevant": cmd_relevant,
+    "why": cmd_why,
+    "deprecate": cmd_deprecate,
+    "forget": cmd_forget,
+}
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        _out(__doc__.strip())
+        _out("")
+        _out("commands: %s" % ", ".join(sorted(COMMANDS)))
+        return 0
+    cmd = argv[0]
+    if cmd not in COMMANDS:
+        _err("bm_learn: unknown command %r (known: %s)"
+             % (cmd, ", ".join(sorted(COMMANDS))))
+        return 2
+    try:
+        return COMMANDS[cmd](argv[1:])
+    except bs.OwnershipRefused as e:
+        # Fail CLOSED and say which rule refused, so the next step is obvious
+        # rather than a guess. Matches bm_threads.py's failure policy.
+        _err("refused (%s): %s" % (e.reason, e))
+        return 2
+    except bs.StaleIdentity as e:
+        _err("refused (stale-identity): %s" % e)
+        return 2
+    except bs.BMStoreError as e:
+        _err("bm_learn: %s" % e)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
