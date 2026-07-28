@@ -216,6 +216,14 @@ the scrubber.
 
 Evidence: docs/superpowers/specs/2026-07-28-correction-learning-baseline.md section 6.
 
+Status after Loop 1 (2026-07-29): the learning tables exist and their free-text
+columns ARE covered by the default-deny scrubber, proved with secret-shaped
+content in test_bm_store.py. The prose gap is unchanged and still OPEN. It is
+not yet REACHABLE, because no writer for those tables exists: nothing can put a
+founder's sentence into the store today. Withholding raw_text and evidence
+excerpts from dump entirely lands with the writer in Loop 2, which is the first
+moment the gap becomes real.
+
 ## 16. `bm_store.py claim --help` claims a record named `--help`. OPEN. Found 2026-07-28.
 
 Reproduced: `python3 tools/bm_store.py claim --help` prints
