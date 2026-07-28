@@ -145,6 +145,43 @@ becomes flattery.
 Never individually re-proven. Stated in the limits file so nobody mistakes triage
 for verification. Unchanged this session.
 
+## 15. `dump` redaction is a secret scrubber, not a redactor. OPEN. Found 2026-07-28.
+
+Added by the correction-learning Loop 0 baseline, which probed `redact_text`
+directly rather than trusting the docstring.
+
+The default-deny plumbing is genuinely good: every TEXT column not in
+`_DUMP_SAFE_COLUMNS` is read live from the schema and passed through the
+scrubber, so a new column is covered the moment it exists. But the scrubber
+removes secret-SHAPED substrings only (`sk-`, `AKIA`, `password=`, `Bearer`).
+Ordinary prose and absolute filesystem paths pass through untouched, and were
+observed verbatim in real non-raw dump output for `records.evidence`,
+`records.objective`, `digests.body` and `transitions.note`.
+
+Why it matters now: correction learning will store verbatim founder messages. A
+correction naming a client, a number, or a person carries no secret-shaped token
+and would be dumped in full. SECURITY.md's export posture needs to say this
+plainly, and the learning schema's raw-text columns need stronger treatment than
+the scrubber.
+
+Evidence: docs/superpowers/specs/2026-07-28-correction-learning-baseline.md section 6.
+
+## 16. `bm_store.py claim --help` claims a record named `--help`. OPEN. Found 2026-07-28.
+
+Reproduced: `python3 tools/bm_store.py claim --help` prints
+`claimed '--help' as lifecycle 11783c30...`. Unknown and help flags are treated
+as a record name instead of exiting non-zero. Small, cosmetic in isolation, and
+recorded because the new learning CLI must NOT copy the pattern from its sibling.
+
+## 17. The English-only, 400-character correction filter. OPEN. Found 2026-07-28.
+
+Measured, not estimated: of five founder-shaped messages, two were captured. A
+4,000-character correction was dropped by the length cap, and a FRENCH correction
+was dropped by the English-only regex, both silently. The founder works in French.
+
+This is the gap the correction-learning program's Loop 4 exists to close, and it
+is stated here so the gap is on the record even if that loop slips.
+
 ---
 
 ## What is genuinely finished
