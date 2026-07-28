@@ -52,15 +52,41 @@ constraint, a store API inserting inside the same transaction as the park or
 adopt, and rendering inside the generated markers. After that lands, the lock and
 the append path delete entirely.
 
-## 5. The adopt defect. OPEN, carried over from the FIRST audit.
+## 5. The adopt defect. REFUTED and CLOSED, 2026-07-28. This entry was stale.
 
-A refused adoption attempt (one session tries to adopt another's live thread
-without the override, and is correctly told no) STILL writes a permanent
-"Adopted from dead/stalled thread" handover block into STATE.md. The refusal is
-correct; the side effect is a lie left on disk.
+Was recorded as: a refused adoption attempt still writes a permanent "Adopted
+from dead/stalled thread" handover block into STATE.md, having survived two
+audits and a full remediation session.
 
-This has now survived two audits and a full remediation session. It should go
-first next time.
+**It does not. It was already fixed, and this file had not caught up.** Found by
+the correction-learning Loop 0.5, which reproduced the scenario rather than
+trusting either the code comments or this entry.
+
+Reproduced in a scratch project: session A holds `alpha` live; session B runs
+`adopt alpha --session sessionB` without the override. Result:
+
+```
+ADOPT REFUSED (live-session-adopt-blocked): lifecycle af66631b... is ACTIVE
+under a different, live session 'sessionA'; adopting it requires explicit
+adopt_from_live_session=True
+exit=2
+```
+
+STATE.md contained no "Adopted from" block afterwards, and `alpha` remained
+active under sessionA at version 1, untouched.
+
+The fix is the GATE 3 ordering change in `_adopt_core` (tools/bm_threads.py:1109):
+the store transition happens FIRST, so a refusal raises before anything can be
+written into STATE.md. It is covered by
+`test_bm.py:779 test_adopt_without_the_flag_is_refused_and_changes_nothing`,
+which asserts STATE.md is byte-for-byte unchanged, and it is CALIBRATED at
+test_bm.py:813, where `_adopt_core` is monkeypatched back to the old
+deliver-then-transition order to prove the test fails for the intended reason.
+
+Lesson recorded rather than just the fact: a status file that is updated by hand
+drifts from the code it describes, and a stale OPEN is not harmless. It cost this
+program a planned remediation loop, and had nobody re-reproduced it, the "fix"
+would have been a second fix layered on a working one.
 
 ## 6. Recovered work is owner-only on POSIX only. OPEN.
 
@@ -100,10 +126,34 @@ Related and worth naming: this gate FAILS locally and PASSES in CI, because CI h
 no vault so the checks return NO-DATA. A gate that cannot fail where it runs is
 not really gating anything.
 
-## 10. The suites cannot be run concurrently. OPEN.
+## 10. The suites cannot be run concurrently. OPEN, now mitigated but not fixed.
 
 They rename a module aside mid-run, so two at once break each other. Reproduced
-tonight: the fence hook suite failed once under contention and passed on re-run.
+2026-07-27: the fence hook suite failed once under contention and passed on re-run.
+
+MITIGATION, 2026-07-28 (correction-learning Loop 0.5): `tools/test_all.py` runs
+all four suites SERIALLY, one subprocess each, and returns a single exit code.
+This makes the safe path the easy path and gives every loop close one quotable
+gate command instead of four remembered ones. It also REFUSES to run when a
+`test_*.py` file exists on disk but is not in its `SUITES` list, so a new suite
+cannot silently escape the gate.
+
+That is a mitigation, not a fix. The underlying design defect is unchanged: the
+suites still rename a module aside, so running `test_all.py` twice at once, or
+running it alongside a bare suite invocation, will still break. Fixing it
+properly means removing the module-rename technique from the suites themselves,
+which is a change to test architecture and not to a runner.
+
+Calibrated 2026-07-28, both directions proved:
+- a deliberately failing suite added to `SUITES` produced `1 SUITE(S) FAILED`,
+  exit 1;
+- the same suite present on disk but NOT in `SUITES` produced
+  `REFUSING to run ... not in the gate`, exit 2.
+Restored afterwards: 419 tests across 4 suites, 2 skipped, ALL GREEN, exit 0.
+
+Not in CI. CI deliberately splits the suites across platform legs to produce
+per-platform evidence, and `test_all.py` is the LOCAL loop-close gate. Wiring it
+into CI is a Loop 13 option, not done here.
 
 Related, and your own observation from tonight, recorded as a hypothesis rather
 than a finding because it is not yet measured: when the machine slows down, token
