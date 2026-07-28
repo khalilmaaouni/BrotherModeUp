@@ -238,10 +238,25 @@ python3 tools/test_bm_fence_hook.py
 
 | Loop | Name | Adds | Risk |
 |---|---|---|---|
-| 0 | Baseline freeze | a baseline spec with today's command output | none |
-| 0.5 | **NEW** Close the two evidence-corrupting open items | adopt-defect fix, serial test runner | low |
-| 1 | Schema v2 and migration safety | 7 tables, migration dispatch, redaction proof | **HIGH, see 2.2** |
-| 2 | Learning store API | transactional lifecycle methods, pure helpers | medium |
+| 0 | Baseline freeze | a baseline spec with today's command output | DONE `b5d246a` |
+| 0.5 | **NEW** Close the two evidence-corrupting open items | serial test runner; adopt defect turned out already fixed | DONE `c36291b` |
+| 1 | Schema v2 and migration safety | 6 tables, 7 indexes, first migration, version-first verify | DONE `6af94b8` |
+| 2 | Learning store API | transactional lifecycle methods, pure helpers | NEXT |
+
+Loop 1 outcome, recorded because it changes what Loop 2 inherits:
+
+- Six learning tables, not the plan's nine. Loop 9's three evaluation tables are
+  not created, because that loop is deferred and schema for an unbuilt feature
+  invites half of it to be written.
+- The read-only store REFUSES to migrate and says so, rather than migrating or
+  quarantining. A diagnostic that can write can change what it reports on.
+- Three defects were found by probing a REAL schema-1 store rather than a
+  hand-written fixture, every one of them while the suite was green:
+  `executescript` implicitly committing and so breaking the migration's
+  atomicity, `ReadOnlyStore` missing a borrowed helper, and a leaked database
+  handle when migration raised. The lesson for Loops 2 onward: build the fixture
+  from a real store, and probe the live CLI, not only the API.
+- Test count 419 to 429.
 
 Loop 0.5 detail. Two independent fixes, one commit each:
 - Move the handover write in the adopt path so a REFUSED adoption writes nothing.
