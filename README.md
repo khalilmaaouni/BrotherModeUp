@@ -55,8 +55,25 @@ git clone https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/br
 ```
 
 Then follow `docs/QUICKSTART.md` (or the longer reference, `docs/SETUP.md`) to
-run the tests, wire the four hooks, and point a vault folder somewhere on your
-disk. Invoke with `/brothermode` at the start of a sizable task.
+run the gate, wire the hooks (one installer command does it), and point a vault
+folder somewhere on your disk. Invoke with `/brothermode` at the start of a
+sizable task.
+
+Which release this is, and how many hooks get wired, are not typed by hand on
+this page. Both come out of the tree:
+
+```bash
+python3 tools/bm_project_facts.py
+```
+
+It prints the current version and release tag, the storage schema version, the
+hook events the installer writes (`SessionStart`, `SessionEnd`, `Stop`,
+`PreCompact`, and `PreToolUse`, which is the fence that can refuse a write), the
+suite files the gate runs, and the Python floor. What it deliberately does not
+print is a test count, for the reason given under "Verify the safety claims
+yourself" below. This is a release CANDIDATE,
+not a stable release; `docs/RELEASE.md` states what promoting it to a plain
+`2.0.0` would require.
 
 ## Status: read this before trusting anything above
 
@@ -68,31 +85,34 @@ page. The full, current list is
 - **The new V2 storage engine is now wired into the tools you run (Phase 3,
   landed 2026-07-26), and the old registry is deleted.** `tools/bm_store.py`
   is imported by `tools/bm_autosave.py`, `tools/bm_sessionstart.sh`,
-  `tools/bm_telemetry.py`, and `tools/bm_threads.py`: 43 references across
-  those four production files, measured the same day with `grep -rn
-  "bm_store" tools/*.py tools/*.sh | grep -v "bm_store.py:" | grep -v
-  "test_bm_store.py:"` (61 lines if you count the two test files too).
+  `tools/bm_telemetry.py`, and `tools/bm_threads.py`, and by the newer tools
+  that landed after them. The number of references is not quoted here, because
+  it moves with every commit and a stale number teaches you to distrust the
+  page rather than the tree. Measure it yourself:
+
+  ```bash
+  grep -rn "bm_store" tools/*.py tools/*.sh | grep -v "bm_store.py:" | grep -v "test_bm_store.py:"
+  ```
+
   `bm_registry.py` no longer exists in this repository. If your copy still
   shows the old "not wired in" wording or still has `bm_registry.py`, you
-  have an older clone; re-run the command above rather than trust either
-  version of this paragraph.
-- **The rewiring surfaced five real defects on 2026-07-26; four are fixed as
-  of this page's last check, one is not.** All five are written up in
-  `docs/superpowers/specs/2026-07-26-release-blockers.md`. Re-verified by
-  direct execution, same day, after the fixes landed: a recovered autosave
-  snapshot now comes back owner-only (`drwx------`), turning thread mode off
-  and resuming a thread later from a different session now succeeds instead
-  of being wrongly refused, `verify` no longer reports a false problem after
-  a thread command, and both CLIs now reject an unrecognized flag instead of
-  silently ignoring it. **Still open, confirmed by direct execution just
-  now:** a refused adoption attempt (one session tries to adopt another's
-  live, active thread without the explicit override, and is correctly
-  told no) still permanently writes an "Adopted from dead/stalled thread"
-  handover into `STATE.md` anyway, which is misleading regardless of the
-  refusal. Code changes on this project's own timeline, sometimes within
-  the same hour; re-run the reproduction steps in the spec above rather
-  than trust either this paragraph or the spec's own dates once more time
-  has passed.
+  have an older clone.
+- **The rewiring surfaced five real defects on 2026-07-26. All five are now
+  closed.** They are written up in
+  `docs/superpowers/specs/2026-07-26-release-blockers.md`, and their current
+  status lives in `docs/NOT-FINALIZED.md`, which is the register to believe
+  over this paragraph. Four were fixed on 2026-07-26 and re-verified by direct
+  execution the same day: a recovered autosave snapshot comes back owner-only
+  (`drwx------`), turning thread mode off and resuming a thread later from a
+  different session succeeds instead of being wrongly refused, `verify` no
+  longer reports a false problem after a thread command, and both CLIs reject
+  an unrecognized flag instead of silently ignoring it. The fifth, the adopt
+  defect (a refused adoption still writing an "Adopted from dead/stalled
+  thread" handover into `STATE.md`), was closed on 2026-07-28: the refusal now
+  happens before anything is written, and two tests hold that ordering in
+  place. See `docs/NOT-FINALIZED.md` item 5 for the reproduction and the test
+  names. Code changes on this project's own timeline, sometimes within the same
+  hour; re-run the reproduction rather than trust a date.
 - **This has not been used on a real project yet.** Everything behind the
   claims in this repository rests on its own test suites and adversarial
   review, not on a week of someone's actual work going through it.
@@ -126,36 +146,51 @@ disk. Do not take that on faith; it is checkable in under a minute:
 
 ```bash
 cd ~/.claude/skills/brothermode
+grep -rnE "^[[:space:]]*(import|from)[[:space:]]+(urllib|http|socket|requests|ftplib|smtplib|telnetlib|xmlrpc)\b" tools/*.py
+```
+
+Expected: no output. That is the check that matters, because a network call
+needs an import, and `tools/test_bm.py` enforces exactly this ban on every
+shipping module in `tools/` so it cannot regress quietly.
+
+The broader keyword sweep is worth running too, as long as you read its output
+rather than expecting silence:
+
+```bash
 grep -rnE "urllib|requests|socket|http|curl|wget" tools/*.py tools/*.sh | grep -v "^tools/test_"
 ```
 
-Expected: no output. (The `test_` files are excluded because they deliberately
-contain these words in fixture data and in the test that checks the OTHER
-files never do; run the grep without that filter and you will see exactly
-that test data, not a real network call. The one thing that does shell out at
-all is the autosave mechanism, and it only ever calls local `git`, never a
-network command; `grep -rn subprocess tools/*.py tools/*.sh | grep -v test_`
-shows exactly where.)
+Expected today: two lines, both in `tools/bm_fence_hook.py` (around lines 19 and
+427), both comments citing the URL of the Claude Code hooks documentation that
+the hook implements. A documentation URL inside a comment is not a call, and
+pretending the sweep comes back empty would have been the easier sentence to
+write and a false one. The `test_` files are excluded because they deliberately
+contain these words in fixture data and in the test that enforces the ban above.
+The one thing that shells out at all is the autosave mechanism, and it only ever
+calls local `git`, never a network command; `grep -rn subprocess tools/*.py
+tools/*.sh | grep -v test_` shows exactly where.
 
 To check the tools do what they claim mechanically (secret redaction,
-owner-only file permissions, no silent overwrite between two writers), run
-the test suites yourself rather than trusting this page:
+owner-only file permissions, no silent overwrite between two writers), run the
+gate yourself rather than trusting this page:
 
 ```bash
-python3 tools/test_bm.py         # the tools that actually run today
-python3 tools/test_bm_store.py   # the store engine underneath them (see Status)
+python3 tools/test_all.py
 ```
 
-Measured 2026-07-29, after the correction-learning loops landed: the first
-prints `Ran 144 tests` and ends `OK (skipped=2)` (one skip is a check for a
-shell-script autosave version this project no longer ships, the other is a
-file-permission test this sandbox does not support); the second prints
-`Ran 371 tests` and ends `OK`. If your numbers differ, treat that as a real
-signal something changed, not a typo on this page; re-measure rather than
-assume the page is stale. These two commands are a fraction of the full gate;
-`python3 tools/test_all.py` runs all four suites (`test_bm.py`,
-`test_bm_store.py`, `test_bm_autosave.py`, `test_bm_fence_hook.py`) serially
-with one exit code and is the command this project actually gates on.
+Expect it to end `ALL GREEN` and exit 0. It runs every suite serially, in its
+own process each, and is the command this project actually gates on. It takes
+several minutes; that is the real cost of the isolation, not a hang.
+
+No test count is quoted on this page on purpose. Counts move with every test
+that lands, and a reader who sees a mismatch cannot tell a stale README from a
+broken install, which is exactly backwards. If you want the suite list rather
+than the count, `python3 tools/bm_project_facts.py` prints it from
+`tools/test_all.py` itself. Exact counts, tied to the date and commit they were
+true of, live in `CHANGELOG.md` and in the dated evidence files under `docs/`.
+Individual suites still run on their own (`python3 tools/test_bm_store.py` and
+so on) when you are working on one of them; a single suite passing is not the
+gate.
 
 ## Uninstall
 
@@ -163,14 +198,19 @@ Two different things get removed: the skill itself, and whatever it wrote
 inside each project you used it in. Doing only the first leaves real files,
 including the one file `SECURITY.md` calls sensitive, behind.
 
-**The skill:**
+**The skill.** Unwire the hooks first, while the files are still there: the
+installer's counterpart removes only the entries it wrote, and leaves your own
+hooks and your vault alone.
 
 ```bash
+python3 ~/.claude/skills/brothermode/scripts/uninstall.py
 rm -rf ~/.claude/skills/brothermode
 ```
 
-Then remove the four hook entries you added to `~/.claude/settings.json`
-(`docs/SETUP.md` lists them).
+By hand instead, remove from `~/.claude/settings.json` every entry whose command
+names this installation's own `tools/bm_*` files, across every hook event this
+project wires (`python3 tools/bm_project_facts.py --field hook_events` lists
+them; `docs/SETUP.md` explains what each one does).
 
 **Per project.** Measured 2026-07-26 by actually installing, using, and then
 removing this skill in a scratch project: for every project where you ran
@@ -228,14 +268,20 @@ per project or entirely.
 | `tools/bm_sessionstart.sh` | Session-start hook: injects the digest, overdue-review nags, and a recovery pointer after a compaction |
 | `tools/bm_autosave.py` | On the PreCompact hook, snapshots your whole working tree (untracked files included) to a private local git reference. Never pushes. `recover` restores it |
 | `tools/bm_threads.py` | Thread mode (opt-in): one persistent thread per key feature, plus a dashboard. Reversible mid-project |
-| `tools/test_bm.py` | Regression tests for the tools that run today. Standard library only. Run `python3 tools/test_bm.py` |
+| `tools/bm_fence_hook.py` | The PreToolUse fence: the one hook that can REFUSE a write to a file another live session owns. Explained in `docs/HOOKS.md` |
 | `tools/bm_store.py`, `tools/test_bm_store.py` | The V2 storage engine and its tests. Wired into the tools above since Phase 3 (2026-07-26); see Status for the defects that wiring surfaced |
 | `tools/bm_learn.py` | The founder-facing correction-learning CLI: capture, approve, retrieve, grade. No direct database access, no automatic approval |
 | `tools/bm_learning.py` | Pure helper functions the CLI and store share: normalization, hashing, ranking. No database, clock, or file access |
-| `tools/test_all.py` | Runs all four test suites serially with one exit code. The actual gate; read this before running any single suite by hand |
+| `tools/bm_project_facts.py` | Prints the facts documentation is allowed to state (version, release tag, schema version, hook events, suite list, Python floor), read out of the tree rather than typed into a page |
+| `tools/test_bm.py`, `tools/test_bm_autosave.py`, `tools/test_bm_fence_hook.py`, `tools/test_install.py` | The other regression suites: the running tools, the autosave and its recovery, the fence hook, and the installer. Standard library only |
+| `tools/test_all.py` | Runs every suite serially, one process each, with one exit code. The actual gate; read this before running any single suite by hand |
 | `tools/WEEKLY-REVIEW.md` | The weekly self-review procedure |
+| `scripts/install.py`, `scripts/uninstall.py` | Wire and unwire the hooks in `~/.claude/settings.json`, backing it up first, touching no hook entry they did not write |
+| `scripts/doctor.py` | Proves the wired fence is LIVE: builds a throwaway project, has one session claim a file, then checks the hook refuses a foreign write and allows the owner's own |
 | `docs/QUICKSTART.md` | The literal ten-minute path, with expected output at every step |
 | `docs/SETUP.md` | The fuller installation and hooks reference |
+| `docs/HOOKS.md` | What each hook receives, what the fence can refuse, and the exact contract it implements |
+| `docs/RELEASE.md` | The release discipline: tags, checksums, and the steps a machine must refuse to take on its own |
 | `docs/HOW-IT-WORKS.md` | The mechanics of the tools that run today, explained exactly |
 | `docs/CORRECTION-LEARNING.md` | The correction-learning system in plain language, with real command output and honest limits |
 | `docs/KNOWN-LIMITS.md` | What is not proven yet. Read this before the rest |

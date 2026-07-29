@@ -27,26 +27,47 @@ ls ~/.claude/skills/brothermode/SKILL.md
 Expected: that exact path printed back. If you get "No such file or
 directory", the clone did not finish or landed somewhere else.
 
-## 2. Run the tests, to prove it works on your machine
+## 2. Run the gate, to prove it works on your machine
 
 ```bash
 cd ~/.claude/skills/brothermode
+python3 tools/test_all.py
+```
+
+Expected: a line per suite, then a closing line reading `ALL GREEN`, and exit
+code 0. Run it and expect ALL GREEN; that verdict is the check, not any
+particular number of tests. It runs each suite in its own process, one at a
+time, which is why it takes several minutes rather than seconds. That is the
+cost of the isolation, not a hang.
+
+A couple of skips are normal and are not failures: one is a check for a
+shell-script autosave version this project no longer ships, the other needs a
+filesystem that supports making a file read-only, which not every sandbox does.
+A skip is reported as a skip; the gate still ends ALL GREEN.
+
+No test count appears on this page on purpose. Counts move every time a test
+lands, so a page that pins one teaches you to distrust the page instead of the
+tree. If you want to know what the gate covers, `python3
+tools/bm_project_facts.py` prints the suite list straight out of
+`tools/test_all.py`. Dated counts, tied to the commit they were true of, live in
+`../CHANGELOG.md`.
+
+If you see any line starting `FAIL` or `ERROR`, or a closing line that is not
+`ALL GREEN`, stop here: something about your Python or platform does not match
+what this project expects, and installing the rest is not worth doing until that
+is understood.
+
+A single suite still runs on its own, and that is worth knowing while you are
+working on one of them:
+
+```bash
 python3 tools/test_bm.py
 ```
 
-Expected: `Ran 54 tests in <some number of seconds>` followed by `OK
-(skipped=2)`. Measured 2026-07-26 on an ordinary laptop: about nine seconds,
-not minutes. (An earlier version of this page said 124 tests, one skip, and
-four to five minutes; that was true before this project's Phase 3 rewire
-deleted the old registry module and its tests along with it, 2026-07-26. If
-your run shows the old numbers, you have an older copy of this repository.)
-The two skips are both environment-dependent, not failures: one is a check
-for a shell-script autosave version this project no longer ships, the other
-needs a filesystem that supports making a file read-only, which not every
-sandbox does. If you see any line starting `FAIL` or `ERROR`, stop here:
-something about your Python or platform does not match what this project
-expects, and installing the rest is not worth doing until that is
-understood.
+One suite passing is not the gate, though. Run them one at a time if you run
+them by hand: the suites rename a module aside mid-run, so two at once can
+corrupt each other (`docs/NOT-FINALIZED.md` item 10), which is exactly why
+`test_all.py` is serial.
 
 ## 3. Wire the hooks
 
@@ -120,9 +141,11 @@ pass `--remove-files`, and never touches your vault.
 
 ### If you would rather wire it by hand
 
-The installer writes the equivalent of the block below, plus the `PreToolUse`
-fence entry from `docs/HOOKS.md`. Merge it into any hooks you already have. Use
-the absolute path to your checkout rather than `~`: the installer writes
+The installer writes the equivalent of the block below. All five entries are
+here, fence included: an earlier version of this page stopped at four, which
+meant anyone wiring by hand ended up with the one-writer-per-file promise
+switched off and nothing saying so. Merge it into any hooks you already have.
+Use the absolute path to your checkout rather than `~`: the installer writes
 absolute, shell-quoted paths precisely because a home directory containing a
 space breaks the unquoted form.
 
@@ -140,10 +163,20 @@ space breaks the unquoted form.
     ],
     "PreCompact": [
       { "hooks": [ { "type": "command", "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_autosave.py precompact; printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py precompact-brief' " } ] }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_fence_hook.py", "timeout": 10 } ]
+      }
     ]
   }
 }
 ```
+
+The `matcher` on that last entry is the list of write tools the fence gates. Drop
+a tool from it and writes through that tool are ungated, which is one of the
+failure modes `scripts/doctor.py` looks for.
 
 A `json.decoder.JSONDecodeError` from the check above means a comma or brace is
 wrong; fix it before starting Claude Code, or Claude Code will simply ignore

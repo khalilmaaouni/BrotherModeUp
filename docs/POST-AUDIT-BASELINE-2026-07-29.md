@@ -1,5 +1,14 @@
 # Post-audit baseline, 2026-07-29 (Loop P0)
 
+**HISTORICAL DOCUMENT, frozen 2026-07-29. Do not read it as current state.** It
+is dated release evidence on purpose: a snapshot of the tree taken before the
+post-audit loops ran, kept so later claims can be compared against something
+that was actually measured. Superseded by: `README.md` and
+`docs/KNOWN-LIMITS.md` for status, `CHANGELOG.md` for what changed since, and
+`python3 tools/bm_project_facts.py` for version, release tag, hook events and
+suites. The test count below belongs to this date and this commit; it is not
+the number to expect from a run today.
+
 Every number below is tied to a command run on this machine on 2026-07-29, at the
 commit named here, before any post-audit-plan code change. Historical documents
 keep their own dated numbers; this file is the current truth at freeze time.
