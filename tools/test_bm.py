@@ -40,6 +40,15 @@ threads_mod = importlib.util.module_from_spec(_threads_spec)
 _threads_spec.loader.exec_module(threads_mod)
 sys.modules["bm_threads"] = threads_mod
 
+# bm_learn.py as a module object, for the same reason and under the same rule
+# as bm_threads above: behavioural tests drive the real binary by subprocess,
+# and ONLY calibration tests touch this object, to reinject a defect onto a
+# real product symbol in-process where a subprocess could never see it.
+_learn_spec = importlib.util.spec_from_file_location("bm_learn", os.path.join(HERE, "bm_learn.py"))
+learn_mod = importlib.util.module_from_spec(_learn_spec)
+_learn_spec.loader.exec_module(learn_mod)
+sys.modules["bm_learn"] = learn_mod
+
 
 def _read(path):
     with io.open(path, encoding="utf-8") as f:
@@ -3645,6 +3654,130 @@ class TestPostAuditLoop3ApprovalReceiptCli(unittest.TestCase):
                 cwd=root, env=dict(os.environ, BROTHERMODE_ROOT=root),
                 capture_output=True, text=True)
             self.assertNotIn(token, dump.stdout)
+
+
+class TestLoopP4bZeroResultDisclosure(unittest.TestCase):
+    """LOOP P4 follow-up, driven through the real binary because the defect was
+    in what the COMMAND printed, not in what retrieval returned.
+
+    Loop P4 added a two-sentence footer separating gate delivery from soft
+    omission, and put it at the BOTTOM of `relevant`. The zero-result branch
+    returns before that point. So with one soft rule that matched and a limit
+    that cut it (--limit 0, --limit -1), the founder read "none matched" and no
+    omission count at all, while `--json` on the identical call reported
+    eligible=1, omitted=1, soft_omitted=1. Reproduced on a throwaway store at
+    c78e5ea before this changed."""
+
+    def _learn(self, root, args):
+        env = dict(os.environ, BROTHERMODE_ROOT=root)
+        return subprocess.run([sys.executable, os.path.join(HERE, "bm_learn.py")]
+                              + args, cwd=root, env=env, capture_output=True,
+                              text=True)
+
+    def _init(self, root):
+        env = dict(os.environ, BROTHERMODE_ROOT=root)
+        r = subprocess.run([sys.executable, os.path.join(HERE, "bm_store.py"),
+                            "init"], cwd=root, env=env, capture_output=True,
+                           text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    QUERY = "deploying the website to production"
+
+    def _one_soft_global_rule(self, root):
+        """The exact fixture from the reproduction: ONE live soft global rule
+        whose trigger the query matches, so any empty result is the limit's
+        doing and nothing else."""
+        self._init(root)
+        c = self._learn(root, ["capture", "--scope", "global", "--scope-key", "",
+                               "--trigger", self.QUERY,
+                               "--action", "run the smoke tests first"])
+        self.assertEqual(c.returncode, 0, c.stderr)
+        cid = c.stdout.split()[1]
+        a = self._learn(root, ["approve", cid, "--ref", "test", "--receipt",
+                               _cli_receipt(self._learn, root, cid)])
+        self.assertEqual(a.returncode, 0, a.stderr)
+
+    def test_a_limit_that_cuts_every_soft_rule_says_so_instead_of_none_matched(self):
+        for limit in ("0", "-1"):
+            with tempfile.TemporaryDirectory() as root:
+                self._one_soft_global_rule(root)
+                r = self._learn(root, ["relevant", "--query", self.QUERY,
+                                       "--limit", limit])
+                self.assertEqual(r.returncode, 0, r.stderr)
+                # The JSON from the identical call is the ground truth the
+                # human output has to agree with.
+                j = self._learn(root, ["relevant", "--query", self.QUERY,
+                                       "--limit", limit, "--json"])
+                self.assertEqual(j.returncode, 0, j.stderr)
+                self.assertEqual(json.loads(j.stdout)["soft_omitted"], 1)
+                self.assertIn("1 omitted by --limit %s" % limit, r.stdout,
+                              "--limit %s hid a rule and the screen never said "
+                              "so: %r" % (limit, r.stdout))
+                self.assertNotIn("none matched", r.stdout,
+                                 "--limit %s reported a rule that DID match as "
+                                 "not matching: %r" % (limit, r.stdout))
+                # The gate half of the guarantee is stated on this path too,
+                # and stated truthfully: nothing was applicable, nothing hidden.
+                self.assertIn("Gates: 0 of 0 applicable returned", r.stdout)
+
+    def test_a_genuinely_empty_result_still_says_none_matched(self):
+        """The other direction, so the fix cannot pass by shouting "omitted" at
+        every empty result. Nothing in scope, nothing omitted, and the founder
+        is told exactly that."""
+        with tempfile.TemporaryDirectory() as root:
+            self._one_soft_global_rule(root)
+            r = self._learn(root, ["relevant", "--query",
+                                   "zebra xylophone quarantine", "--limit", "5"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("none matched", r.stdout)
+            self.assertIn("Soft rules: 0 shown, none omitted.", r.stdout)
+            self.assertNotIn("omitted by --limit", r.stdout)
+
+    def test_the_footer_has_exactly_one_definition_in_the_source(self):
+        """STRUCTURAL. The defect was two output paths that had to agree about
+        omissions and only one of which said anything. A second inline copy of
+        either sentence is that same divergence coming back, so the sentences
+        live in _delivery_footer and appear once."""
+        with io.open(os.path.join(HERE, "bm_learn.py"), encoding="utf-8") as f:
+            src = f.read()
+        for sentence in ("Gates: %d of %d applicable returned",
+                         "omitted by --limit %d"):
+            self.assertEqual(src.count(sentence), 1,
+                             "%r appears %d times; it must have one definition"
+                             % (sentence, src.count(sentence)))
+
+    def test_calibrated_reinjecting_the_silent_zero_result_path_reproduces_it(self):
+        """CALIBRATION. Replace the real product symbol
+        bm_learn._delivery_footer with the pre-fix behaviour (the gate sentence
+        alone, no soft omission count), call cmd_relevant IN-PROCESS so the
+        patch is actually seen, and confirm the assertion above fails. A green
+        suite without this means nothing."""
+        with tempfile.TemporaryDirectory() as root:
+            self._one_soft_global_rule(root)
+            original = learn_mod._delivery_footer
+            learn_mod._delivery_footer = lambda res, limit: learn_mod._out(
+                "0 of your %d applicable gate rules were held back; a result "
+                "limit cannot hide one." % res.get("gates_total", 0))
+            buf = io.StringIO()
+            old_root = os.environ.get("BROTHERMODE_ROOT")
+            os.environ["BROTHERMODE_ROOT"] = root
+            try:
+                with contextlib.redirect_stdout(buf):
+                    code = learn_mod.cmd_relevant(["--query", self.QUERY,
+                                                   "--limit", "0"])
+            finally:
+                learn_mod._delivery_footer = original
+                if old_root is None:
+                    del os.environ["BROTHERMODE_ROOT"]
+                else:
+                    os.environ["BROTHERMODE_ROOT"] = old_root
+            self.assertEqual(code, 0)
+            self.assertNotIn(
+                "omitted by --limit", buf.getvalue(),
+                "REINJECTION CHECK: with the footer reverted to its pre-fix "
+                "body, --limit 0 must go back to hiding the omission; if this "
+                "fails, the tests above are not calibrated to the defect they "
+                "claim to catch: %r" % buf.getvalue())
 
 
 if __name__ == "__main__":

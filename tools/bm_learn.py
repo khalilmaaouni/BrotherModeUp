@@ -441,6 +441,38 @@ def cmd_rules(argv):
     return 0
 
 
+def _soft_omitted(res):
+    """How many soft rules the caller's limit held back.
+
+    ONE definition, because two places read this number and they must agree.
+    soft_omitted is what retrieval reports since Loop P4; the older `omitted`
+    is the fallback for a result dict minted before that field existed."""
+    return res.get("soft_omitted", res.get("omitted", 0))
+
+
+def _delivery_footer(res, limit):
+    """TWO SENTENCES, BECAUSE THEY ARE TWO DIFFERENT FACTS (Loop P4).
+
+    The old single "%d omitted" covered gates and preferences alike, so a
+    founder reading it could not tell a hidden preference from a hidden safety
+    gate. Gate delivery is stated as the guarantee it is; the soft omission
+    count is stated separately as the tuning knob it is.
+
+    THIS IS A FUNCTION AND NOT INLINE TEXT ON PURPOSE. Loop P4 first shipped it
+    inline at the bottom of cmd_relevant, which meant the zero-result path
+    returned before ever reaching it and disclosed nothing. Every exit path
+    that prints for a human now calls this same block, so a path cannot go
+    quiet again without deleting the call."""
+    _out("Gates: %d of %d applicable returned. A result limit cannot hide one."
+         % (res.get("gates_returned", 0), res.get("gates_total", 0)))
+    omitted = _soft_omitted(res)
+    if omitted:
+        _out("Soft rules: %d shown, %d omitted by --limit %d. Raise the limit "
+             "to see them." % (res.get("soft_returned", 0), omitted, limit))
+    else:
+        _out("Soft rules: %d shown, none omitted." % res.get("soft_returned", 0))
+
+
 def cmd_relevant(argv):
     """Loop 5's founder-facing surface. READ ONLY BY DEFAULT: asking what
     applies records nothing, so the outcome data can never be polluted by mere
@@ -483,14 +515,23 @@ def cmd_relevant(argv):
         _out(json.dumps(res, indent=2, sort_keys=True))
         return 0
     if not res["results"]:
-        _out("no founder rules apply here (%d in scope, none matched; mode=%s)"
-             % (res["eligible"], res["mode"]))
-        # Said out loud rather than left to inference: an empty result here
-        # means there was no applicable gate either, not that a gate was
-        # filtered out. Loop P4 made that a guarantee, so it is reported even
-        # when the answer is zero.
-        _out("0 of your %d applicable gate rules were held back; a result "
-             "limit cannot hide one." % res.get("gates_total", 0))
+        # WHY THIS BRANCH IS NOT ALLOWED TO SAY "none matched" UNCONDITIONALLY.
+        #
+        # Zero results has two completely different causes and they were
+        # printed with the same sentence. Either nothing matched the query, or
+        # rules DID match and the limit cut every last one of them (--limit 0
+        # and negative limits both do exactly that). Telling the founder
+        # "none matched" in the second case is the same false clean answer
+        # Loop P4 exists to stop, moved onto the empty path: the JSON from the
+        # identical call reports the omission and the screen did not.
+        if _soft_omitted(res):
+            _out("no founder rules SHOWN here (%d in scope; mode=%s). Rules "
+                 "matched. The result limit cut every one of them."
+                 % (res["eligible"], res["mode"]))
+        else:
+            _out("no founder rules apply here (%d in scope, none matched; mode=%s)"
+                 % (res["eligible"], res["mode"]))
+        _delivery_footer(res, limit)
         return 0
     _out("RELEVANT FOUNDER RULES (mode=%s)" % res["mode"])
     for r in res["results"]:
@@ -523,21 +564,8 @@ def cmd_relevant(argv):
         _out("Decide with: bm_learn.py resolve-conflict <rule> --with <other> "
              "--how superseded|contradicted|deprecated --because \"...\"")
     _out("")
-    # TWO SENTENCES, BECAUSE THEY ARE TWO DIFFERENT FACTS (Loop P4).
-    #
-    # The old single "%d omitted" covered gates and preferences alike, so a
-    # founder reading it could not tell a hidden preference from a hidden
-    # safety gate. Gate delivery is now stated as the guarantee it is, and the
-    # soft omission count is stated separately as the tuning knob it is.
     _out("Constitution overrides learned rules.")
-    _out("Gates: %d of %d applicable returned. A result limit cannot hide one."
-         % (res.get("gates_returned", 0), res.get("gates_total", 0)))
-    if res.get("soft_omitted", res["omitted"]):
-        _out("Soft rules: %d shown, %d omitted by --limit %d. Raise the limit "
-             "to see them." % (res.get("soft_returned", 0),
-                               res.get("soft_omitted", res["omitted"]), limit))
-    else:
-        _out("Soft rules: %d shown, none omitted." % res.get("soft_returned", 0))
+    _delivery_footer(res, limit)
     if "recorded" in res:
         _out("")
         _out("recorded %d application(s), %d already recorded for this task "
