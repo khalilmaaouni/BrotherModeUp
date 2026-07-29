@@ -38,42 +38,63 @@ bs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(bs)
 sys.modules["bm_store"] = bs
 
-# Two tests below rename tools/bm_telemetry.py aside to prove the fail-closed
-# path with the module GENUINELY absent. That window is repo-wide: any other
-# test process importing bm_store at that moment sees a checkout with a missing
-# module and fails for a reason that has nothing to do with the code under test
-# (reproduced 2026-07-27). tools/test_all.py owns the interprocess lock that
-# closes the window; it is imported here rather than reimplemented so there is
-# exactly one lock, and it is a no-op when test_all is already holding it as our
-# parent. This GUARDS the hazard. The fix is removing the rename technique, which
-# stays open in docs/NOT-FINALIZED.md item 10.
-_gate_spec = importlib.util.spec_from_file_location(
-    "bm_test_all", os.path.join(HERE, "test_all.py"))
-_gate = importlib.util.module_from_spec(_gate_spec)
-_gate_spec.loader.exec_module(_gate)
+# Two tests below need a module to be GENUINELY absent, not merely patched to
+# None, because only a real failed import exercises _load_redact()'s own
+# exception path. Until the P9 fix round they got that by renaming
+# tools/bm_telemetry.py aside inside THIS checkout and putting it back in a
+# finally. That mutated the working tree for the length of the test, and:
+#   1. Any other process reading the checkout in that window (a second gate
+#      run, an editor, a build) saw a repository missing a production module
+#      and failed for a reason unrelated to the code under test (reproduced
+#      2026-07-27).
+#   2. A finally clause does not survive SIGKILL, and tools/test_all.py now
+#      kills a suite that exceeds its timeout. A timeout landing inside the
+#      window DELETED tools/bm_telemetry.py from the working tree and left
+#      bm_telemetry.py.moved-for-test behind, after which the rest of the gate
+#      ran against a broken checkout and reported ordinary failures
+#      (reproduced 2026-07-29).
+# The absence is now staged in a throwaway copy instead. Nothing in this
+# checkout is renamed, moved or removed by any test, so there is no window to
+# guard, no lock to hold, and no state for a kill to strand.
+def _tools_mirror_without(case, *omit):
+    """A private copy of the shipping modules in tools/, minus the named ones.
+    Returns its path. Import bm_store from HERE and it finds bm_telemetry.py
+    next to it; import the copy and it genuinely cannot, which is the whole
+    point. Test suites are not copied: nothing under test imports them, and
+    they are the bulk of the directory."""
+    mirror = tempfile.mkdtemp(prefix="bm-tools-without-")
+    case.addCleanup(shutil.rmtree, mirror, True)
+    for name in sorted(os.listdir(HERE)):
+        if not name.endswith(".py") or name.startswith("test_"):
+            continue
+        if name in omit:
+            continue
+        shutil.copy2(os.path.join(HERE, name), os.path.join(mirror, name))
+    for name in omit:
+        # Real assertions, not `assert`: python -O strips the bare statement,
+        # and a mirror that silently still contains the module would make the
+        # test below prove nothing.
+        case.assertFalse(os.path.exists(os.path.join(mirror, name)),
+                         "%s must be absent from the mirror" % name)
+        case.assertTrue(os.path.exists(os.path.join(HERE, name)),
+                        "%s must still be present in this checkout" % name)
+    return mirror
 
 
-def _hold_rename_window(case):
-    """Hold the checkout-wide test lock for as long as a module is moved aside.
-    Released through addCleanup so a failure inside the window cannot leave the
-    lock held and block the next run."""
-    handle = _gate.acquire_gate_lock(
-        owner="test_bm_store rename window pid %d" % os.getpid())
-    case.addCleanup(_gate.release_gate_lock, handle)
-
-
-def _run_cli(args, cwd, env=None):
+def _run_cli(args, cwd, env=None, script=None):
     """Invoke the CLI as a subprocess, always with BROTHERMODE_ROOT scrubbed
     from the child's environment so ambient developer state (this repo's own
     checkout, a shell export left over from another task) can never leak
     into a test that is trying to prove something about root resolution or
-    exit codes."""
+    exit codes. `script` points the run at a copy of bm_store.py somewhere
+    else, which is how a test proves behavior with a sibling module missing
+    without touching this checkout."""
     e = dict(os.environ)
     e.pop("BROTHERMODE_ROOT", None)
     if env:
         e.update(env)
     return subprocess.run(
-        [sys.executable, os.path.join(HERE, "bm_store.py")] + args,
+        [sys.executable, script or os.path.join(HERE, "bm_store.py")] + args,
         cwd=cwd, capture_output=True, text=True, env=e)
 
 def _scan_for_forbidden_output_calls(lines):
@@ -2291,32 +2312,27 @@ class TestFixRound7(unittest.TestCase):
         # patched to None: only a real, fresh import proves _load_redact()'s
         # own exception-handling path degrades the same way a pre-cleared
         # _REDACT does.
-        telemetry_path = os.path.join(HERE, "bm_telemetry.py")
-        moved_path = telemetry_path + ".moved-for-test"
-        self.assertTrue(os.path.exists(telemetry_path), "sanity: the real file must exist")
-        _hold_rename_window(self)
-        os.rename(telemetry_path, moved_path)
-        try:
-            spec = importlib.util.spec_from_file_location(
-                "bm_store_gateB_no_telemetry", os.path.join(HERE, "bm_store.py"))
-            fresh = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(fresh)
-            self.assertIsNone(fresh._REDACT, "sanity: a fresh import must fail to load redact")
-            with tempfile.TemporaryDirectory() as d:
-                store = fresh.Store(d)
-                try:
-                    # Every optional field empty: the exact GATE B scenario,
-                    # since the pre-fix code only called redact_text() when
-                    # an optional field happened to be non-empty.
-                    store.claim("thing", "ephemeral", "", [])
-                finally:
-                    store.close()
-                with self.assertRaises(fresh.RedactionUnavailable):
-                    fresh.write_state_view(d)
-                self.assertFalse(os.path.exists(os.path.join(d, "STATE.md")),
-                                  "a genuinely absent redactor must write NOTHING")
-        finally:
-            os.rename(moved_path, telemetry_path)
+        # The absence is staged in a throwaway copy of tools/, never by moving
+        # anything in this checkout. See _tools_mirror_without.
+        mirror = _tools_mirror_without(self, "bm_telemetry.py")
+        spec = importlib.util.spec_from_file_location(
+            "bm_store_gateB_no_telemetry", os.path.join(mirror, "bm_store.py"))
+        fresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        self.assertIsNone(fresh._REDACT, "sanity: a fresh import must fail to load redact")
+        with tempfile.TemporaryDirectory() as d:
+            store = fresh.Store(d)
+            try:
+                # Every optional field empty: the exact GATE B scenario,
+                # since the pre-fix code only called redact_text() when
+                # an optional field happened to be non-empty.
+                store.claim("thing", "ephemeral", "", [])
+            finally:
+                store.close()
+            with self.assertRaises(fresh.RedactionUnavailable):
+                fresh.write_state_view(d)
+            self.assertFalse(os.path.exists(os.path.join(d, "STATE.md")),
+                              "a genuinely absent redactor must write NOTHING")
 
     # -- GATE C: quarantine must not destroy what it promises to preserve -
 
@@ -3388,9 +3404,10 @@ class TestRedactionUnavailable(unittest.TestCase):
 
     def test_calibrated_prerelease_gateC_missing_telemetry_commits_and_reports_cleanly(self):
         # GATE C (prerelease fix round, distinct from the fix-round-5 GATE C
-        # above): with bm_telemetry.py GENUINELY absent (renamed aside, the
-        # same real-file pattern test_calibrated_gateB_genuinely_absent_
-        # bm_telemetry_refuses_state_view uses, not merely _REDACT patched
+        # above): with bm_telemetry.py GENUINELY absent (a real missing file
+        # in a throwaway copy of tools/, the same pattern
+        # test_calibrated_gateB_genuinely_absent_bm_telemetry_refuses_state_view
+        # uses, not merely _REDACT patched
         # to None), a claim used to COMMIT and then the CLI exited with an
         # UNCAUGHT RedactionUnavailable from inside main()'s own
         # OwnershipRefused handler (it tried to print "refused (...)",
@@ -3399,25 +3416,19 @@ class TestRedactionUnavailable(unittest.TestCase):
         # command had crashed. The fix must report exit 1 (an environment
         # problem), never exit 2 ("refused", implying nothing happened) and
         # never an uncaught traceback, and the record must have actually
-        # committed, verified independently below with the REAL telemetry
-        # restored.
-        telemetry_path = os.path.join(HERE, "bm_telemetry.py")
-        moved_path = telemetry_path + ".moved-for-gateC-prerelease-test"
-        self.assertTrue(os.path.exists(telemetry_path), "sanity: the real file must exist")
-        _hold_rename_window(self)
+        # committed, verified independently below through the REAL bm_store in
+        # this checkout, which never lost its telemetry module.
+        mirror = _tools_mirror_without(self, "bm_telemetry.py")
+        crippled_cli = os.path.join(mirror, "bm_store.py")
         with tempfile.TemporaryDirectory() as d:
-            os.rename(telemetry_path, moved_path)
-            try:
-                # `init` itself prints a confirmation through the same
-                # redacted funnel, so it degrades exactly like `claim` does;
-                # both are exercised so the fix is proven general, not
-                # special-cased to one command.
-                r_init = _run_cli(["init"], d)
-                r_claim = _run_cli(
-                    ["claim", "thing", "--lifetime", "ephemeral", "--objective", "obj",
-                     "--session", "s1"], d)
-            finally:
-                os.rename(moved_path, telemetry_path)
+            # `init` itself prints a confirmation through the same redacted
+            # funnel, so it degrades exactly like `claim` does; both are
+            # exercised so the fix is proven general, not special-cased to
+            # one command.
+            r_init = _run_cli(["init"], d, script=crippled_cli)
+            r_claim = _run_cli(
+                ["claim", "thing", "--lifetime", "ephemeral", "--objective", "obj",
+                 "--session", "s1"], d, script=crippled_cli)
             for label, r in (("init", r_init), ("claim", r_claim)):
                 self.assertNotIn("Traceback", r.stderr,
                                   "%s: an uncaught exception leaked past main(): %s"
