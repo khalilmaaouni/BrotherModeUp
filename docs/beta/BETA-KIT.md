@@ -70,6 +70,26 @@ the way you already do.
 
 ### 40 to 50 minutes: capture one correction
 
+First, once per project, create the database corrections are written to. The
+install in `docs/QUICKSTART.md` is global and does not create one, and nothing
+creates it for you on first use:
+
+```bash
+cd /path/to/your/project
+python3 ~/.claude/skills/brothermode/tools/bm_store.py init
+```
+
+Expected: `bm_store: initialized /path/to/your/project/.brothermode/store.sqlite3
+(root resolved via git)`. It also appends `.brothermode/` to that repo's
+`.git/info/exclude`, so the database stays out of your commits without touching
+a tracked `.gitignore`. Running it again on a project that already has a store
+is harmless; the trailing parenthetical may read `(root resolved via marker)`
+the second time, which is the same outcome reached a different way.
+
+Skip this step and the next command refuses with `refused (no-store)` and an
+exit code of 2. The refusal names this exact fix, so it costs you a minute, not
+a session.
+
 When you correct something and the correction would still be true next week,
 record it:
 
