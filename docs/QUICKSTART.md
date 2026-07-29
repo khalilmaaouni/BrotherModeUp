@@ -27,34 +27,127 @@ ls ~/.claude/skills/brothermode/SKILL.md
 Expected: that exact path printed back. If you get "No such file or
 directory", the clone did not finish or landed somewhere else.
 
-## 2. Run the tests, to prove it works on your machine
+## 2. Run the gate, to prove it works on your machine
 
 ```bash
 cd ~/.claude/skills/brothermode
+python3 tools/test_all.py
+```
+
+Expected: a line per suite, then a closing line reading `ALL GREEN`, and exit
+code 0. Run it and expect ALL GREEN; that verdict is the check, not any
+particular number of tests. It runs each suite in its own process, one at a
+time, which is why it takes several minutes rather than seconds. That is the
+cost of the isolation, not a hang.
+
+A couple of skips are normal and are not failures: one is a check for a
+shell-script autosave version this project no longer ships, the other needs a
+filesystem that supports making a file read-only, which not every sandbox does.
+A skip is reported as a skip; the gate still ends ALL GREEN.
+
+No test count appears on this page on purpose. Counts move every time a test
+lands, so a page that pins one teaches you to distrust the page instead of the
+tree. If you want to know what the gate covers, `python3
+tools/bm_project_facts.py` prints the suite list straight out of
+`tools/test_all.py`. Dated counts, tied to the commit they were true of, live in
+`../CHANGELOG.md`.
+
+If you see any line starting `FAIL` or `ERROR`, or a closing line that is not
+`ALL GREEN`, stop here: something about your Python or platform does not match
+what this project expects, and installing the rest is not worth doing until that
+is understood.
+
+A single suite still runs on its own, and that is worth knowing while you are
+working on one of them:
+
+```bash
 python3 tools/test_bm.py
 ```
 
-Expected: `Ran 54 tests in <some number of seconds>` followed by `OK
-(skipped=2)`. Measured 2026-07-26 on an ordinary laptop: about nine seconds,
-not minutes. (An earlier version of this page said 124 tests, one skip, and
-four to five minutes; that was true before this project's Phase 3 rewire
-deleted the old registry module and its tests along with it, 2026-07-26. If
-your run shows the old numbers, you have an older copy of this repository.)
-The two skips are both environment-dependent, not failures: one is a check
-for a shell-script autosave version this project no longer ships, the other
-needs a filesystem that supports making a file read-only, which not every
-sandbox does. If you see any line starting `FAIL` or `ERROR`, stop here:
-something about your Python or platform does not match what this project
-expects, and installing the rest is not worth doing until that is
-understood.
+One suite passing is not the gate, though. Run them one at a time if you run
+them by hand: the suites rename a module aside mid-run, so two at once can
+corrupt each other (`docs/NOT-FINALIZED.md` item 10), which is exactly why
+`test_all.py` is serial.
 
 ## 3. Wire the hooks
 
 This step makes the parts that must never be forgotten (telemetry, the
 pre-compaction safety snapshot) run automatically instead of depending on the
-model remembering to run them. Open `~/.claude/settings.json` (create it if it
-does not exist) and add this `hooks` block, merging it into any hooks you
-already have:
+model remembering to run them. One command does it:
+
+```bash
+python3 ~/.claude/skills/brothermode/scripts/install.py --dry-run
+python3 ~/.claude/skills/brothermode/scripts/install.py
+```
+
+Run the `--dry-run` first. It prints every change and writes nothing, so you
+see what is about to happen to your `settings.json` before it happens.
+
+Expected from the real run: a list of five hooks (`SessionStart`, `SessionEnd`,
+`Stop`, `PreCompact`, `PreToolUse`), a line naming the backup of your previous
+settings, and a closing line reading `smoke: the fence hook ran end to end and
+exited 0`. That last line is the point. The installer re-reads what it wrote
+and actually executes the one hook that can refuse a write, so "installed"
+means checked rather than attempted.
+
+Five, not the four an earlier version of this page listed: `PreToolUse` is the
+fence hook (`docs/HOOKS.md`), which was documented but was in no install
+instruction, so the fence shipped off unless you wired it yourself.
+
+What the installer will NOT do: overwrite an existing BrotherMode installation
+(it refuses and tells you to pass `--upgrade`), rewrite a `settings.json` that
+is not valid JSON (it refuses and points at the parse error rather than
+throwing away what you were editing), or remove a hook of your own. An entry
+counts as BrotherMode's only when every command in it names this
+installation's own `tools/bm_*` files.
+
+Check the result is valid JSON. The installer already did this and refuses to
+report success otherwise, but run it once yourself so you know the command:
+
+```bash
+python3 -m json.tool ~/.claude/settings.json
+```
+
+Expected: the file prints back, reformatted, with no error.
+
+Then prove the fence is not just wired but LIVE:
+
+```bash
+python3 ~/.claude/skills/brothermode/scripts/doctor.py
+```
+
+Expected: `OK: the wired hook denied a foreign write and allowed the owner's
+own write`, followed by three lines saying what that did not prove. Doctor
+builds a throwaway project in a temporary directory, claims one file under one
+session, then asks the hook you actually wired to approve an edit of that file
+from a different session. A healthy fence refuses. It then asks again as the
+owner, because a hook that denies everything would pass the first half and
+would be a brick rather than a fence. Nothing outside the temporary directory
+is touched, and it is deleted when doctor exits.
+
+Exit code 1 means the fence is not enforcing, and the output names which way it
+is dead: no `PreToolUse` entry at all, an entry pointing at a file that is not
+there, a matcher that leaves some write tools ungated, or a hook that runs and
+refuses nothing.
+
+To remove the wiring later:
+
+```bash
+python3 ~/.claude/skills/brothermode/scripts/uninstall.py
+```
+
+It removes only the entries it installed, leaves the files in place unless you
+pass `--remove-files`, and never touches your vault.
+
+### If you would rather wire it by hand
+
+The installer writes the equivalent of the block below. All five entries are
+here, fence included: an earlier version of this page stopped at four, which
+meant anyone wiring by hand ended up with the one-writer-per-file promise
+switched off and nothing saying so. Merge it into any hooks you already have.
+Use the absolute path to your checkout rather than `~`: the installer writes
+absolute, shell-quoted paths precisely because a home directory containing a
+space breaks the unquoted form.
 
 ```json
 {
@@ -70,22 +163,26 @@ already have:
     ],
     "PreCompact": [
       { "hooks": [ { "type": "command", "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_autosave.py precompact; printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py precompact-brief' " } ] }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_fence_hook.py", "timeout": 10 } ]
+      }
     ]
   }
 }
 ```
 
-That is four hooks, not three (an earlier version of this project's docs said
-three; see `docs/SETUP.md` for what each one actually costs you if it fails).
-Check the file is valid JSON before you trust it:
+The `matcher` on that last entry is the list of write tools the fence gates. Drop
+a tool from it and writes through that tool are ungated, which is one of the
+failure modes `scripts/doctor.py` looks for.
 
-```bash
-python3 -m json.tool ~/.claude/settings.json
-```
-
-Expected: the file prints back, reformatted, with no error. A `json.decoder.
-JSONDecodeError` means a comma or brace is wrong; fix it before starting
-Claude Code, or Claude Code will simply ignore the broken hooks block.
+A `json.decoder.JSONDecodeError` from the check above means a comma or brace is
+wrong; fix it before starting Claude Code, or Claude Code will simply ignore
+the broken hooks block and every hook is off with nothing saying so. That
+silent failure is the whole reason the installer exists. See `docs/SETUP.md`
+for what each hook actually costs you when it fails.
 
 ## 4. Point the vault somewhere
 
@@ -164,7 +261,7 @@ already running when you edited `settings.json` will not have it).
 
 ## What you have now
 
-The four hooks running automatically, a vault of your own, and one proof that
+The five hooks running automatically, a vault of your own, and one proof that
 the telemetry mechanism works end to end. What you do NOT yet have from this
 alone: a history (that takes real weeks of use), a felt-outcome rating trend,
 or a weekly review (`tools/WEEKLY-REVIEW.md`, run it once your first week of

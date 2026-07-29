@@ -9,9 +9,11 @@ a machine must refuse to perform them.
 
 The install instruction in `README.md` and `docs/SETUP.md` clones a git
 branch into `~/.claude/skills/brothermode`, and the code in that directory
-then runs automatically on every Claude Code session through four hooks
-(`SessionStart`, `SessionEnd`, `Stop`, `PreCompact`). The original external
-audit of this project named that combination, a moving branch feeding
+then runs automatically on every Claude Code session through five hooks
+(`SessionStart`, `SessionEnd`, `Stop`, `PreCompact`, `PreToolUse`; `python3
+tools/bm_project_facts.py --field hook_events` prints the live list). The
+original external audit of this project named that combination, a moving branch
+feeding
 auto-run code, as the weakest link in the whole design. Two problems live
 inside that one sentence:
 
@@ -36,9 +38,18 @@ evidence over one that asks to be preserved.
 
 ## The version scheme
 
-`VERSION`, one line, holds the current semantic version:
-`2.0.0-rc.2`. The previous tag, `v2.0.0-rc.1`, is WITHDRAWN; see the section
-below for why.
+`VERSION`, one line, holds the current semantic version. Read it rather than
+trusting a number typed into this paragraph:
+
+```bash
+cat VERSION
+python3 tools/bm_project_facts.py --field release_tag
+```
+
+The current candidate is `2.0.0-rc.3`, cut 2026-07-29 when V2 became the
+product on the default branch (`CHANGELOG.md` has the entry). `v2.0.0-rc.2`
+before it is superseded, not withdrawn. `v2.0.0-rc.1` IS withdrawn; see the
+section below for why that distinction matters.
 
 Reasoning, stated plainly because a version number is a claim and this one
 should be checked rather than trusted:
@@ -72,22 +83,25 @@ should be checked rather than trusted:
   candidate says "we believe this is right and are asking reality to
   confirm it," which matches the actual situation better than `0.x` would.
 
-Promoting `2.0.0-rc.2` to a plain `2.0.0` later should require, at minimum:
-one real project run through the V2 store for at least a week, and the
-still-open `adopt` defect closed. The green-CI condition is now MET (all three
-platforms, both Python versions, recovery suite included), so it is struck from
-this list rather than left standing as if unfinished. Until the other two are
-met, do not describe this project as `2.0.0` anywhere.
+Promoting the current candidate to a plain `2.0.0` later should require, at
+minimum, one real project run through the V2 store for at least a week. Two
+conditions that used to stand here are now MET and struck rather than left
+looking unfinished: green CI on all three platforms and both Python versions
+with the recovery suite included, and the `adopt` defect, closed 2026-07-28
+(`docs/NOT-FINALIZED.md` item 5). The dogfood window is the one that remains.
+Until it closes, do not describe this project as `2.0.0` anywhere.
 
 ## How a user pins a version instead of tracking a branch
 
 Tags exist now, so this is the install instruction, not a future one:
 
 ```bash
-git clone --branch v2.0.0-rc.2 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.3 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
-`--branch v2.0.0-rc.2` checks out that exact tag, not a moving branch head.
+`--branch v2.0.0-rc.3` checks out that exact tag, not a moving branch head. It
+is the current candidate; `python3 tools/bm_project_facts.py --field
+release_tag` prints the tag matching whatever tree you are reading.
 `--depth 1` is optional (a shallow clone of just that tag), included because
 most users have no reason to carry this project's full history into their
 skills directory.
@@ -171,11 +185,11 @@ run of it as a test of the runbook, not just of the code.
    final sanity check before tagging: it should report every tracked file
    matching the manifest you just committed. This is the last automatic
    step; everything after this line is founder-gated.
-5. **FOUNDER-GATED: create the git tag.** `git tag -a v2.0.0-rc.2 -m "..."`
+5. **FOUNDER-GATED: create the git tag.** `git tag -a v$(cat VERSION) -m "..."`
    (annotated, not lightweight, so the tag carries its own message and
    date). A machine must not run this command on its own initiative; it is
    the moment a version becomes a permanent, citable release.
-6. **FOUNDER-GATED: push the tag.** `git push origin v2.0.0-rc.2`. Pushing a
+6. **FOUNDER-GATED: push the tag.** `git push origin v$(cat VERSION)`. Pushing a
    tag is the moment this becomes visible and clonable by anyone; the
    founder decides when that happens, never a machine acting alone.
 7. **FOUNDER-GATED: publish anything else** (a GitHub Release entry
@@ -205,6 +219,15 @@ describes exactly what the tag contains rather than what it contained partway
 through preparing it.
 
 ## What has and has not happened, stated honestly
+
+CURRENT STATE, 2026-07-29, first, because the dated entries under it are a LOG
+and several of them were true only on the day they were written. Three tags
+exist (`v2.0.0-rc.1` withdrawn, `v2.0.0-rc.2` superseded, `v2.0.0-rc.3`
+current). CI is green on three platforms as of 2026-07-27; the Windows handle
+leak that failed on `rc.1` is fixed. The checksum manifest has now been
+regenerated at a tagged commit (`rc.3`), so the "never against an actual tagged
+release" line below is history rather than a live limit. Read the entries below
+as the arc, not as today's status; `docs/KNOWN-LIMITS.md` is the live one.
 
 - **A release IS tagged now.** Corrected 2026-07-26: `v2.0.0-rc.1` exists on
   commit `7c2e0ec`, published as a GitHub pre-release. The clone command above

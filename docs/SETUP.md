@@ -33,13 +33,65 @@ When the user types /brothermode (any casing), read and follow
 ~/.claude/skills/brothermode/SKILL.md before doing anything else.
 ```
 
-## Step 2: wire the four hooks
+## Step 2: wire the five hooks
 
-An earlier version of this page said three hooks. That was wrong: the block
-below installs four (`SessionStart`, `SessionEnd`, `Stop`, `PreCompact`),
-counted directly from the JSON. Hooks make the learning loop mechanical: the
-model cannot forget to write telemetry, because the model is not the one
-writing it. Add to `~/.claude/settings.json` (create the file if it does not exist, or merge into your existing `hooks` block):
+Hooks make the learning loop mechanical: the model cannot forget to write
+telemetry, because the model is not the one writing it. Run the installer:
+
+```bash
+python3 ~/.claude/skills/brothermode/scripts/install.py --dry-run
+python3 ~/.claude/skills/brothermode/scripts/install.py
+```
+
+`--dry-run` writes nothing and prints every change it would make. Run it first.
+
+Five hooks, not the four earlier versions of this page listed, and not the
+three the version before that listed. The fifth is `PreToolUse`, the fence hook
+(`docs/HOOKS.md`): the only hook that can actually refuse a write across
+another session's claim. It was documented for weeks and was in no install
+instruction, which meant the project's headline promise, one writer per file,
+was off by default on every installation that followed this page.
+
+Useful flags:
+
+- `--upgrade` is required before the installer will touch an installation that
+  already exists. Without it, a second run refuses and changes nothing.
+- `--target DIR` and `--settings FILE` install somewhere other than
+  `~/.claude/skills/brothermode` and `~/.claude/settings.json`.
+- `--no-hooks` copies the files and leaves your settings alone.
+
+What it guarantees, and these are tested rather than asserted
+(`tools/test_install.py`, run by `python3 tools/test_all.py`):
+
+- It never removes a hook entry it did not write. An entry is BrotherMode's
+  only when every command inside it names this installation's own `tools/bm_*`
+  files, so a group you have added your own hook to is left completely alone.
+- It refuses a `settings.json` that is not valid JSON instead of rewriting it,
+  and reports the parser's own line and column. Rewriting would throw away
+  whatever you were halfway through editing.
+- It backs up `settings.json` before every write, to
+  `settings.json.brothermode-backup-<timestamp>`.
+- It re-reads and re-parses what it wrote, then runs the fence hook end to end
+  from a throwaway directory and requires exit 0, before printing success.
+- Re-running with `--upgrade` is idempotent: no duplicated hook entries.
+
+Windows: the installer refuses, with a message naming the reason. Two of the
+five hook commands are POSIX shell, so on cmd.exe or PowerShell they would be
+wired and silently dead. Install inside WSL, or wire the three python3-only
+hooks by hand and accept that `SessionStart` and `PreCompact` are off.
+
+An upgrade adds and overwrites files; it never deletes. A file removed upstream
+since your last install stays behind, and `scripts/verify-install.sh` reports
+exactly those as `EXTRA`.
+
+### Wiring by hand instead
+
+The installer writes the equivalent of the block below, with absolute and
+shell-quoted paths. All five entries are here, fence included: earlier versions
+of this page listed four and left the `PreToolUse` fence to a cross-reference,
+which in practice meant a hand-wired install ran with the one-writer-per-file
+promise switched off. Add to `~/.claude/settings.json` (create the file if it
+does not exist, or merge into your existing `hooks` block):
 
 ```json
 {
@@ -55,12 +107,18 @@ writing it. Add to `~/.claude/settings.json` (create the file if it does not exi
     ],
     "PreCompact": [
       { "hooks": [ { "type": "command", "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_autosave.py precompact; printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py precompact-brief' " } ] }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_fence_hook.py", "timeout": 10 } ]
+      }
     ]
   }
 }
 ```
 
-What each hook does, and honestly, what a FAILED hook costs you. The four
+What each hook does, and honestly, what a FAILED hook costs you. The five
 hooks do not all cost the same thing when they break, and treating them as
 equivalent would be dishonest: losing a data point is not the same class of
 loss as losing your ability to recover from a crash.
@@ -88,6 +146,15 @@ loss as losing your ability to recover from a crash.
   missing autosave snapshot or resume brief, hit at the wrong moment, can
   mean redoing work or re-explaining context you would otherwise have gotten
   back for free.
+- **PreToolUse** is the fence hook (`docs/HOOKS.md`). It runs in front of every
+  `Edit`, `Write`, `MultiEdit` and `NotebookEdit` and denies the write when the
+  target is covered by an active claim another session owns. It is the only
+  hook here that can refuse anything.
+  If this hook fails: it fails OPEN, deliberately, and prints a line starting
+  `bm_fence_hook: FAILING OPEN` to stderr. Nothing is blocked and nothing is
+  lost, but the fence is back to being a ledger rather than a boundary for as
+  long as it stays broken. The cost is not a lost data point, it is a
+  guarantee quietly downgraded to a convention.
 
 Every hook is built to fail silent and exit 0, so a broken hook never blocks
 a session from continuing. But "never blocks" is not the same claim as "never
@@ -166,8 +233,24 @@ Working mostly alone but need to hand a project to someone occasionally? `python
 
 ## Uninstall
 
-Remove the four hook entries from `~/.claude/settings.json` and delete
-`~/.claude/skills/brothermode`. That removes the skill, but not what it wrote
+```bash
+python3 ~/.claude/skills/brothermode/scripts/uninstall.py --dry-run
+python3 ~/.claude/skills/brothermode/scripts/uninstall.py
+```
+
+It removes the five hook entries it installed and the install record, and
+nothing else. Every other hook and every other key in `settings.json` stays
+where it was, in order. Add `--remove-files` to also delete the skill
+directory, which it refuses to do unless the directory really looks like a
+BrotherMode checkout.
+
+Your vault is never deleted, with or without a flag. There is no code path in
+the uninstaller that removes one; it prints the path and leaves the decision to
+you.
+
+Doing it by hand instead: remove the five hook entries from
+`~/.claude/settings.json` and delete
+`~/.claude/skills/brothermode`. Either way, that removes the skill but not what it wrote
 inside each project you used it in: a per-project sqlite store, thread
 files, `STATE.md` and its backups, local autosave git refs, and three lines
 in `.git/info/exclude`. `../README.md`'s Uninstall section lists exactly

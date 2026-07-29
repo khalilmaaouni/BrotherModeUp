@@ -252,8 +252,15 @@ def cmd_candidates(argv):
             _out("     source: %d chars captured, %d redactions (--show-source to read)"
                  % (len(c["raw_text"]), c["redaction_count"]))
     _out("")
+    # The hint shows the SAME form docs/CORRECTION-LEARNING.md walks through,
+    # optional flags included. It used to show only --because, so a founder
+    # following the hint never met --gate or --ref and the page and the tool
+    # disagreed about what approving a candidate looks like. It now also carries
+    # the receipt step, because approving without a receipt refuses.
     _out("%d candidate(s). Ask the founder, then: bm_learn.py grant-approval "
-         "<id> --answer \"...\", then approve <id> --receipt <token>" % len(rows))
+         "<id> --answer \"...\"" % len(rows))
+    _out("  then: bm_learn.py approve <id> --receipt <token> "
+         "[--because \"...\"] [--gate] [--ref \"why you approved\"]")
     return 0
 
 
