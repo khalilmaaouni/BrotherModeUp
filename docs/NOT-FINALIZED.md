@@ -257,6 +257,32 @@ Still true, and stated rather than implied:
 - Nothing measures recall on a real day of the founder's work yet. That is item
   1, and it stays open.
 
+### 17b. What Loop 4 owed the plan and did not build. OPEN, added 2026-07-29.
+
+Item 17 above is the FILTER, and the filter is closed. The plan's Loop 4 asked
+for more than the filter, and the first pass shipped without saying which parts
+were missing. The correction round built three of them and left one open. Stated
+here so nobody reads "Loop 4 closed" as "Loop 4 complete":
+
+- BUILT: capture channel 3 (outcome-derived candidates). `bm_learn.py outcome`
+  and `Store.capture_outcome_candidate` create `rework` and `escaped_defect`
+  candidates carrying the work record and the artifact, and refuse when either
+  cannot be named.
+- BUILT: transcript pairing. Every correction row now carries a HASH of the
+  assistant response it answers, a bounded redacted excerpt of it, and the
+  artifact paths touched near it. The whole response is never persisted.
+- BUILT: false positive reason categories in `bm_learn.py metrics`, bucketed
+  from the founder's own rejection reason, with "other" for anything the buckets
+  do not fit.
+- OPEN: channel 3 is not a DETECTOR. Nothing watches the record stream and
+  decides on its own that a piece of work was rework or that a defect escaped a
+  completed record. Something that noticed has to run the command. Automatic
+  outcome detection is unbuilt, on purpose, because a wrong automatic verdict
+  about "this was rework" is review cost the founder did not ask for.
+- OPEN: the correction row does not carry the current work record. The plan says
+  "current work record if known" and telemetry does not resolve one, so it is
+  not written. The record travels with channel 3 candidates instead.
+
 ---
 
 ## What is genuinely finished
@@ -268,6 +294,7 @@ commit, `rc.1` withdrawn. The telemetry split is merged and its cause fixed.
 
 That is a real amount of ground. It is also, by the count above, fifteen open
 items away from being a finished product: seventeen numbered items, of which
-only 5 (refuted) and 17 (closed by Loop 4) are done. The word "fourteen" stood
-here until 2026-07-29 and was already stale when items 15 to 17 were added,
-which is its own small lesson about counts written by hand.
+only 5 (refuted) and 17 (closed by Loop 4) are done, plus 17b which Loop 4's own
+correction round opened and left open. The word "fourteen" stood here until
+2026-07-29 and was already stale when items 15 to 17 were added, which is its own
+small lesson about counts written by hand.

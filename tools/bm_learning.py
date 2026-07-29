@@ -440,3 +440,54 @@ def inbox_identity(session_id, text):
     normalized text is exactly what the vault file already deduplicates on, so
     the store and the inbox agree on what "the same row" means."""
     return content_hash("correction-inbox", session_id or "", text or "")
+
+
+def text_echo_key(text):
+    """The key that answers "have I seen these WORDS before, from anywhere".
+
+    Separate from inbox_identity on purpose: identity is session scoped, an
+    echo is not. Case and whitespace are folded (content_hash normalizes and
+    lowercases), because the founder restating a correction with sentence
+    capitalization is the same correction and the reviewer needs to be told so.
+    A raw SQL equality on the stored text was the defect this replaces: one
+    capital letter defeated it and the reviewer got no signal at all."""
+    return content_hash("correction-echo", text or "")
+
+
+# Why a rejected candidate was not a rule. Descriptive categories over the
+# founder's OWN stated reason, never an inference about what he meant: an
+# unmatched reason is "other" rather than being forced into a bucket. The
+# categories exist so the capture channels can be tuned against real review
+# cost; they are counts, not an accuracy measurement.
+_FP_CATEGORIES = (
+    ("not-a-correction", re.compile(
+        r"(?i)\bnot a (?:correction|rule|preference)\b|\bjust (?:a )?(?:question|asking)\b"
+        r"|\bbrainstorm|\bthinking out loud\b|\bdiscussion\b")),
+    ("one-off", re.compile(
+        r"(?i)\bone[- ]off\b|\bjust (?:this|that) once\b|\bonly (?:this|that) time\b"
+        r"|\bthis case only\b|\btemporar")),
+    ("duplicate", re.compile(r"(?i)\bduplicate\b|\balready (?:have|a rule|captured|covered)\b"
+                             r"|\bsame as\b|\bredundant\b")),
+    ("wrong-scope", re.compile(r"(?i)\bwrong (?:scope|project|repo)\b|\bother project\b"
+                               r"|\bnot global\b|\bproject specific\b")),
+    ("superseded", re.compile(r"(?i)\bchanged my mind\b|\bno longer\b|\bsupersed|\boutdated\b"
+                              r"|\bout of date\b")),
+    ("noise", re.compile(r"(?i)\bnoise\b|\bfalse positive\b|\bgarbage\b|\bmisdetect")),
+)
+
+FALSE_POSITIVE_CATEGORIES = tuple(name for name, _pat in _FP_CATEGORIES) + ("other",)
+
+
+def false_positive_category(reason):
+    """Bucket a rejection reason. Always returns one of FALSE_POSITIVE_CATEGORIES.
+
+    First match wins and the order is fixed, so the same reason always lands in
+    the same bucket. An empty or unrecognized reason is "other", which is the
+    honest answer when the founder's words do not say which kind it was."""
+    norm = normalize_text(reason)
+    if not norm:
+        return "other"
+    for name, pat in _FP_CATEGORIES:
+        if pat.search(norm):
+            return name
+    return "other"

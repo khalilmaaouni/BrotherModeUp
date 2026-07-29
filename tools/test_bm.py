@@ -2723,5 +2723,157 @@ class TestLoop4CaptureThroughTheRealHook(unittest.TestCase):
                              "no automatic path may reach rule creation (%s)" % forbidden)
 
 
+class TestLoop4PairingAndFileDedup(unittest.TestCase):
+    """The correction FILE, driven through the real SessionEnd hook: what a row
+    carries about the exchange it came from, and the guard that says a row
+    already in the file is never re-appended."""
+
+    MULTILINE = "No, that is wrong.\nFrom now on always ask first."
+
+    def _run(self, vault, msgs, session="sess-pair", said="", artifact=""):
+        repo = tempfile.mkdtemp()
+        tp = os.path.join(repo, "transcript.jsonl")
+        lines = []
+        for i in range(6):
+            content = [{"type": "tool_use", "name": "Write",
+                        "input": {"file_path": artifact} if artifact else {}}]
+            if said and i == 5:
+                content.insert(0, {"type": "text", "text": said})
+            lines.append({"type": "assistant", "timestamp": "2026-07-29T10:1%d:00Z" % i,
+                          "message": {"id": "m%d" % i, "model": "opus",
+                                      "usage": {"output_tokens": 10, "input_tokens": 10},
+                                      "content": content}})
+        for i, m in enumerate(msgs):
+            lines.append({"type": "user", "timestamp": "2026-07-29T10:2%d:00Z" % i,
+                          "message": {"content": m}})
+        with io.open(tp, "w", encoding="utf-8") as f:
+            f.write("\n".join(json.dumps(o) for o in lines) + "\n")
+        payload = json.dumps({"transcript_path": tp, "session_id": session,
+                              "cwd": repo, "reason": "other"})
+        subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
+                        "outcomes-append"],
+                       input=payload, env=dict(os.environ, BROTHERMODE_VAULT=vault),
+                       cwd=repo, capture_output=True, text=True)
+        p = os.path.join(vault, "99-System", "telemetry", "corrections.jsonl")
+        rows = []
+        if os.path.exists(p):
+            rows = [json.loads(l) for l in io.open(p, encoding="utf-8") if l.strip()]
+        return rows
+
+    def _seed(self, vault, session, text):
+        d = os.path.join(vault, "99-System", "telemetry")
+        os.makedirs(d, exist_ok=True)
+        with io.open(os.path.join(d, "corrections.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": "2026-07-28T10:00:00Z", "session_id": session,
+                                "project": "R", "text": text}) + "\n")
+
+    def test_a_row_written_before_loop_4_is_not_re_appended(self):
+        """The dedup set was built from the file's RAW text and compared against
+        the detector's NORMALIZED excerpt, so every multi-line correction
+        captured before Loop 4 came back on the next flush of that session."""
+        with tempfile.TemporaryDirectory() as v:
+            self._seed(v, "sess-old", self.MULTILINE)
+            rows = self._run(v, [self.MULTILINE], session="sess-old")
+            self.assertEqual(len(rows), 1,
+                             "a (session, text) already in the file is never "
+                             "re-appended, whatever whitespace it was stored with")
+
+    def test_a_junk_row_in_the_file_does_not_take_the_hook_down(self):
+        """The file is hand editable and the hook may never block work. A row
+        that is not an object, or whose text is not a string, is ignored."""
+        with tempfile.TemporaryDirectory() as v:
+            d = os.path.join(v, "99-System", "telemetry")
+            os.makedirs(d, exist_ok=True)
+            with io.open(os.path.join(d, "corrections.jsonl"), "w",
+                         encoding="utf-8") as f:
+                f.write('"a bare string"\n')
+                f.write(json.dumps({"session_id": "sess-junk", "text": 123}) + "\n")
+            rows = self._run(v, [self.MULTILINE], session="sess-junk")
+            self.assertEqual(len(rows), 3, "the real correction is still captured")
+            self.assertEqual(rows[-1]["session_id"], "sess-junk")
+
+    def test_a_row_carries_the_response_it_answers_and_the_artifact(self):
+        with tempfile.TemporaryDirectory() as v:
+            rows = self._run(v, [self.MULTILINE], session="sess-pair",
+                             said="I pushed it with a bare git push.",
+                             artifact="docs/report.md")
+            self.assertEqual(len(rows), 1)
+            row = rows[0]
+            self.assertEqual(len(row["prev_response_hash"]), 16,
+                             "the response is pinned by hash, never persisted whole")
+            self.assertIn("bare git push", row["prev_response_excerpt"])
+            self.assertEqual(row["artifacts"], ["docs/report.md"])
+
+    def test_the_paired_excerpt_is_redacted_like_every_other_captured_text(self):
+        with tempfile.TemporaryDirectory() as v:
+            rows = self._run(v, [self.MULTILINE], session="sess-secret",
+                             said="I used AKIAIOSFODNN7EXAMPLE for the upload.")
+            self.assertEqual(len(rows), 1)
+            self.assertNotIn("AKIAIOSFODNN7EXAMPLE", rows[0]["prev_response_excerpt"])
+            self.assertIn("[REDACTED]", rows[0]["prev_response_excerpt"])
+
+    def test_a_long_response_excerpt_is_bounded_and_says_so(self):
+        with tempfile.TemporaryDirectory() as v:
+            rows = self._run(v, [self.MULTILINE], session="sess-long",
+                             said="detail " * 400)
+            self.assertEqual(len(rows), 1)
+            self.assertLess(len(rows[0]["prev_response_excerpt"]), 400)
+            self.assertIn("characters omitted", rows[0]["prev_response_excerpt"])
+
+
+class TestLoop4FalsePositiveCategories(unittest.TestCase):
+    """Rejection reasons bucketed for the capture metrics. The founder's own
+    words decide the bucket; nothing is inferred about what he meant."""
+
+    def test_known_reasons_land_in_their_bucket(self):
+        for reason, want in (
+                ("this was a one-off, not a standing rule", "one-off"),
+                ("duplicate of the rule we already have", "duplicate"),
+                ("that was just a question, not a correction", "not-a-correction"),
+                ("wrong project, that belongs to the other repo", "wrong-scope"),
+                ("I changed my mind about this", "superseded"),
+                ("noise from the detector", "noise")):
+            self.assertEqual(bl.false_positive_category(reason), want, reason)
+
+    def test_an_unrecognized_or_empty_reason_is_other(self):
+        self.assertEqual(bl.false_positive_category("mumble mumble"), "other")
+        self.assertEqual(bl.false_positive_category(""), "other")
+        self.assertEqual(bl.false_positive_category(None), "other")
+
+    def test_every_category_is_declared(self):
+        for name in ("one-off", "duplicate", "other"):
+            self.assertIn(name, bl.FALSE_POSITIVE_CATEGORIES)
+
+    def test_the_inbox_cli_survives_a_line_that_is_not_a_row(self):
+        """Driven through the real binary, because that is where the traceback
+        was: read_jsonl returns any valid JSON value, so a bare string reached
+        r.get() and the founder got an AttributeError instead of an answer."""
+        with tempfile.TemporaryDirectory() as root:
+            env = dict(os.environ, BROTHERMODE_ROOT=root)
+            init = subprocess.run([sys.executable, os.path.join(HERE, "bm_store.py"),
+                                   "init"], cwd=root, env=env,
+                                  capture_output=True, text=True)
+            self.assertEqual(init.returncode, 0, init.stderr)
+            bad = os.path.join(root, "bad.jsonl")
+            with io.open(bad, "w", encoding="utf-8") as f:
+                f.write('"just a bare string"\n123\n')
+                f.write(json.dumps({"ts": "t", "session_id": "s1", "project": "P",
+                                    "text": "No, that is wrong. From now on ask "
+                                            "first."}) + "\n")
+            for args in (["inbox", "--file", bad], ["inbox", "--file", bad, "--backfill"]):
+                r = subprocess.run([sys.executable, os.path.join(HERE, "bm_learn.py")]
+                                   + args, cwd=root, env=env, capture_output=True,
+                                   text=True)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertNotIn("Traceback", r.stderr)
+                self.assertIn("2 line(s) parsed but were not a row object", r.stdout)
+
+    def test_an_echo_key_folds_case_and_spacing(self):
+        self.assertEqual(bl.text_echo_key("No, that is  wrong"),
+                         bl.text_echo_key("no, THAT is wrong"))
+        self.assertNotEqual(bl.text_echo_key("no, that is wrong"),
+                            bl.text_echo_key("no, that is fine"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

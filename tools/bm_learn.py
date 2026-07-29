@@ -437,6 +437,11 @@ def cmd_inbox(argv):
         _out("no correction inbox at %s (nothing captured yet)" % path)
         return 0
     rows, bad = bt.read_jsonl(path, report_bad=True)
+    # read_jsonl returns any valid JSON VALUE, so a hand-edited line holding a
+    # bare string or a number parses fine and is not a row. Counted and named,
+    # never a traceback in the founder's face.
+    malformed = sum(1 for r in rows if not isinstance(r, dict))
+    rows = [r for r in rows if isinstance(r, dict)]
     if not kv.get("backfill"):
         store = _store()
         try:
@@ -449,10 +454,13 @@ def cmd_inbox(argv):
                not in known]
         if kv.get("json"):
             _out(json.dumps({"path": path, "rows": len(rows), "not_yet_imported": len(new),
-                             "unparsable_lines": bad}, indent=2, sort_keys=True))
+                             "unparsable_lines": bad, "malformed_rows": malformed},
+                            indent=2, sort_keys=True))
             return 0
         _out("inbox %s" % path)
         _out("  %d row(s), %d not yet imported into this project" % (len(rows), len(new)))
+        if malformed:
+            _out("  %d line(s) parsed but were not a row object; skipped" % malformed)
         if bad:
             _out("  %d line(s) could not be parsed (line numbers %s); the text is not "
                  "printed because it is yours" % (len(bad), bad))
@@ -472,10 +480,50 @@ def cmd_inbox(argv):
         return 0
     _out("imported %d candidate(s), skipped %d already present"
          % (res["imported"], res["skipped"]))
+    bad_shape = malformed + res.get("malformed", 0)
+    if bad_shape:
+        _out("  %d line(s) parsed but were not a row object; skipped" % bad_shape)
     if res["possible_duplicates"]:
         _out("  %d flagged as a possible duplicate of an earlier candidate; the note "
              "is on the candidate, nothing was discarded" % res["possible_duplicates"])
     _out("All pending. Review with: bm_learn.py candidates")
+    return 0
+
+
+def cmd_outcome(argv):
+    """Capture channel 3: a candidate derived from an OUTCOME, not from words.
+
+    You redid the same artifact, or a defect escaped a record you had already
+    completed. That is evidence some preference was not followed, so it becomes
+    a pending candidate carrying the work record and the artifact it is about.
+    It is still only a candidate: the action text is empty, so it cannot become
+    a rule until you write one at approval.
+
+    usage: outcome <record-id> --kind rework|escaped_defect
+                   [--artifact PATH] [--note "what happened"]
+    The artifact defaults to the paths that record claims."""
+    pos, kv = _parse(argv, {"kind", "artifact", "note", "session", "scope-key", "json"},
+                     wants_value=("kind", "artifact", "note", "session", "scope-key"))
+    if not pos:
+        _err("usage: outcome <record-id> --kind rework|escaped_defect "
+             "[--artifact PATH] [--note \"what happened\"]")
+        return 2
+    store = _store()
+    try:
+        cand = store.capture_outcome_candidate(
+            kv.get("kind", "rework"), pos[0], artifact_ref=kv.get("artifact", ""),
+            summary=kv.get("note", ""), session_id=kv.get("session", ""),
+            scope_key=kv.get("scope-key"))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(cand, indent=2, sort_keys=True))
+        return 0
+    _out("captured %s from %s (pending, nothing changes until you approve it)"
+         % (cand["candidate_uuid"][:8], cand["source_type"]))
+    _out("  %s" % L.safe_display(cand["source_ref"], 160))
+    if cand["review_note"]:
+        _out("  %s" % L.safe_display(cand["review_note"], 160))
     return 0
 
 
@@ -494,6 +542,7 @@ def cmd_metrics(argv):
     _out("  candidates by status: %s" % (m["candidates_by_status"] or "none"))
     _out("  candidates by source: %s" % (m["candidates_by_source"] or "none"))
     _out("  possible duplicates flagged: %d" % m["possible_duplicates"])
+    _out("  false positive reasons: %s" % (m["false_positive_reasons"] or "none rejected yet"))
     _out("  approved rules: %d" % m["rules_total"])
     _out("")
     _out("There is no labelled review set, so none of these is a precision or a")
@@ -503,6 +552,7 @@ def cmd_metrics(argv):
 
 COMMANDS = {
     "capture": cmd_capture,
+    "outcome": cmd_outcome,
     "inbox": cmd_inbox,
     "metrics": cmd_metrics,
     "candidates": cmd_candidates,
