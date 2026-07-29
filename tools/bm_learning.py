@@ -246,3 +246,197 @@ def task_fingerprint(text):
     the store accumulating a copy of every prompt the founder ever typed. A
     hash prefix does that; the full text stays where it already was."""
     return content_hash(text)[:16]
+
+
+# ---------------------------------------------------------------------------
+# Loop 4: correction candidate DETECTION.
+#
+# What this closes, measured rather than assumed (docs/NOT-FINALIZED.md item
+# 17): the shipped filter was one English regex with a hard 400-character cap,
+# and of five real founder messages it captured two. A French correction and a
+# long correction were dropped SILENTLY. The founder works in French, so an
+# English-only filter is not a small gap, it is most of his corrections.
+#
+# Two rules govern everything below.
+#   1. A phrase pack produces CANDIDATES, never rules. A false positive costs
+#      one line in a review queue. A false negative costs a correction that the
+#      system will never see again, so the packs lean towards capture.
+#   2. Length never drops a message. A long correction is EXCERPTED with the
+#      omission stated in the row, so a reviewer always knows something was
+#      cut. Silence is the defect; truncation with a marker is not.
+# ---------------------------------------------------------------------------
+
+# Bounded excerpt budget for a captured correction. Larger than the old 400 so
+# a real paragraph survives intact, small enough that the inbox never becomes a
+# copy of the founder's transcript.
+CORRECTION_EXCERPT_LIMIT = 1200
+
+# (family, label, pattern). The family matters: an interrogative message that
+# only trips "negation" is a question, while one that trips "instruction" is a
+# standing order phrased as a question. See suppression_reasons.
+_PACK_EN = (
+    # The shipped regex, preserved verbatim as ONE feature rather than replaced,
+    # so nothing that was captured before stops being captured now.
+    ("negation", "legacy-en-regex", re.compile(
+        r"\b(no[,.]? (that|this|the)|not what i|wrong|you did not|you didn'?t|not even"
+        r"|i said|stop doing|never do|always use|from now on|instead of|do better)\b",
+        re.I)),
+    ("replacement", "asked-for-x-not-y", re.compile(
+        r"\bi (?:asked|wanted|said)\b[^.!?]{0,120}\bnot\b", re.I)),
+    ("instruction", "memory-instruction", re.compile(
+        r"\b(remember (?:that|to)?|from now on|going forward|never (?:again )?"
+        r"(?:do|use|write|say)|always (?:do|use|write|say)|please stop)\b", re.I)),
+    ("negation", "not-what-i-meant", re.compile(
+        r"\b(that'?s not (?:it|right|what)|not (?:like )?that|you missed|you ignored)\b",
+        re.I)),
+)
+
+_PACK_FR = (
+    ("negation", "fr-negation", re.compile(
+        r"(ce n'?est pas (?:ce que|ça|cela|bon)|c'?est faux|tu n'?as pas"
+        r"|ce n'?est pas ce que je|pas du tout ça)", re.I)),
+    ("replacement", "fr-asked-for-x-not-y", re.compile(
+        r"(j'?ai (?:demandé|dit)|je t'?ai (?:demandé|dit))[^.!?]{0,120}\bpas\b", re.I)),
+    ("instruction", "fr-memory-instruction", re.compile(
+        r"(désormais|dorénavant|à partir de maintenant|arrête de|arrete de"
+        r"|ne (?:fais|mets|écris|ecris|utilise) (?:plus |jamais)"
+        r"|(?:utilise|fais|mets|écris|ecris) toujours"
+        r"|il faut toujours|rappelle-toi|souviens-toi|au lieu de)", re.I)),
+)
+
+# Japanese has no word boundaries, so every pattern here is a plain substring
+# and \b is deliberately absent. Starter phrases only, each one backed by a
+# test, per the plan's language section.
+_PACK_JA = (
+    ("negation", "ja-negation", re.compile(
+        r"(違います|違う|そうじゃない|そうではない|間違って(?:います|いる)|ではありません)")),
+    ("instruction", "ja-memory-instruction", re.compile(
+        r"(今後は|これからは|次からは|必ず|覚えておいて|やめてください|しないでください)")),
+)
+
+PHRASE_PACKS = (("en", _PACK_EN), ("fr", _PACK_FR), ("ja", _PACK_JA))
+
+# Structural markers that the message is QUOTED law rather than a correction.
+# Deliberately structural, not topical: "from now on, follow SKILL.md" is a real
+# founder correction that mentions a document, and a topical filter would eat it.
+_QUOTE_LINE = re.compile(r"^\s*>")
+_QUOTE_ATTRIBUTION = re.compile(
+    r"^\s*(?:the\s+)?(?:skill|law|rule|constitution|spec|SKILL\.md|CLAUDE\.md)\s+"
+    r"(?:says|states|reads)\b", re.I)
+_FENCE = re.compile(r"```")
+
+_BRAINSTORM = re.compile(
+    r"^\s*(what if|maybe we|should we|could we|i wonder|how about"
+    r"|et si |peut-?[eê]tre |on pourrait )", re.I)
+_BUSINESS_CHANGE = re.compile(
+    r"(we (?:have )?(?:decided|changed our mind)|new plan is|the client changed"
+    r"|on a chang[ée] d'avis|nouveau plan)", re.I)
+
+
+def quotation_reasons(text):
+    """Reasons this message is QUOTED text rather than the founder correcting.
+
+    Structural only. A subagent pasting the constitution back into a message
+    trips these; the founder typing a correction that happens to name a
+    document does not."""
+    raw = text or ""
+    lines = [ln for ln in raw.splitlines() if ln.strip()]
+    reasons = []
+    if lines and all(_QUOTE_LINE.match(ln) for ln in lines):
+        reasons.append("every line is a blockquote")
+    if _QUOTE_ATTRIBUTION.match(raw):
+        reasons.append("the message opens by attributing the text to a document")
+    if len(_FENCE.findall(raw)) >= 2:
+        inside = sum(len(part) for part in raw.split("```")[1::2])
+        if inside >= 0.6 * len(raw):
+            reasons.append("the message is mostly a fenced code block")
+    return reasons
+
+
+def suppression_reasons(text, families):
+    """Reasons a phrase hit should NOT become a candidate.
+
+    `families` are the signal families that matched. The interrogative rule is
+    the load-bearing one: "why didn't you use the desktop app?" trips the
+    negation family and is a question, not a standing preference. The same
+    sentence carrying an instruction family ("from now on use the desktop app,
+    ok?") is a correction wearing a question mark, and is kept."""
+    norm = normalize_text(text)
+    reasons = []
+    if norm.endswith("?") and "instruction" not in families and "replacement" not in families:
+        reasons.append("reads as a question, not a standing instruction")
+    if _BRAINSTORM.search(norm):
+        reasons.append("reads as brainstorming, not a correction")
+    if _BUSINESS_CHANGE.search(norm):
+        reasons.append("reads as a changed decision, not a permanent preference")
+    return reasons
+
+
+def bounded_excerpt(text, limit=CORRECTION_EXCERPT_LIMIT):
+    """(excerpt, truncated). Long text is CUT WITH A MARKER, never dropped.
+
+    Head and tail are both kept because a correction usually states the problem
+    at the start and the instruction at the end, and keeping only the head was
+    how the old cap turned a 4,000 character correction into nothing at all."""
+    norm = normalize_text(text)
+    if len(norm) <= limit:
+        return norm, False
+    marker = " [... %d characters omitted ...] "
+    head = (limit * 2) // 3
+    tail = limit - head - len(marker % len(norm))
+    if tail < 0:
+        tail = 0
+    omitted = len(norm) - head - tail
+    cut = norm[:head] + (marker % omitted)
+    if tail:
+        cut += norm[len(norm) - tail:]
+    return cut, True
+
+
+def detect_correction(text, limit=CORRECTION_EXCERPT_LIMIT):
+    """None, or a description of why this founder message looks like a
+    correction.
+
+    Unicode-safe and language-agnostic at the boundary: nothing here assumes
+    ASCII, and every pack is optional. Explicit capture (bm_learn.py capture)
+    covers a language no pack knows yet, so a missing pack is a recall gap to
+    close and never a wall the founder cannot get past."""
+    norm = normalize_text(text)
+    if not norm:
+        return None
+    hits = []
+    for lang, pack in PHRASE_PACKS:
+        for family, label, pattern in pack:
+            if pattern.search(norm):
+                hits.append((lang, family, label))
+    if not hits:
+        return None
+    if quotation_reasons(text):
+        return None
+    families = set(h[1] for h in hits)
+    if suppression_reasons(norm, families):
+        return None
+    excerpt, truncated = bounded_excerpt(norm, limit)
+    langs = []
+    for lang, _family, _label in hits:
+        if lang not in langs:
+            langs.append(lang)
+    return {
+        "lang": langs[0],
+        "languages": langs,
+        "signals": ["%s:%s" % (lang, label) for lang, _family, label in hits],
+        "families": sorted(families),
+        "excerpt": excerpt,
+        "truncated": truncated,
+        "original_length": len(norm),
+    }
+
+
+def inbox_identity(session_id, text):
+    """The identity of ONE captured correction inbox row.
+
+    Backfill must be safe to run any number of times, so identity has to be a
+    property of the row itself and not of when it was imported. Session plus
+    normalized text is exactly what the vault file already deduplicates on, so
+    the store and the inbox agree on what "the same row" means."""
+    return content_hash("correction-inbox", session_id or "", text or "")

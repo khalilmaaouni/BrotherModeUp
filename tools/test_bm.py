@@ -2579,5 +2579,149 @@ class TestFinding12HandoverDeliveryIsSerializedAndVerified(unittest.TestCase):
                           "can be written from it" % required)
 
 
+_learning_spec = importlib.util.spec_from_file_location(
+    "bm_learning", os.path.join(HERE, "bm_learning.py"))
+bl = importlib.util.module_from_spec(_learning_spec)
+_learning_spec.loader.exec_module(bl)
+
+
+class TestLoop4CorrectionDetection(unittest.TestCase):
+    """docs/NOT-FINALIZED.md item 17, closed. The shipped filter was one English
+    regex with a hard 400-character cap: of five real founder messages it
+    captured two, dropping a FRENCH correction and a long one, both silently.
+    The founder works in French, so that was not an edge case."""
+
+    FR = ("Non, ce n'est pas ce que je voulais. Desormais utilise toujours "
+          "l'application GitHub Desktop pour pousser.")
+    JA = "違います。今後は必ずGitHub Desktopを使ってください。"
+    EN = "No, that is not what I asked for. From now on use the desktop app."
+
+    def test_the_old_english_regex_still_captures_what_it_used_to(self):
+        # The regex is preserved as ONE signal rather than replaced, so recall
+        # can only go up. If this fails, the rewrite lost coverage.
+        hit = bl.detect_correction(self.EN)
+        self.assertIsNotNone(hit)
+        self.assertIn("en:legacy-en-regex", hit["signals"])
+
+    def test_a_french_correction_is_captured(self):
+        hit = bl.detect_correction(self.FR)
+        self.assertIsNotNone(hit, "the founder works in French; this is the item 17 case")
+        self.assertEqual(hit["lang"], "fr")
+
+    def test_a_japanese_correction_is_captured(self):
+        hit = bl.detect_correction(self.JA)
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit["lang"], "ja")
+
+    def test_a_long_correction_is_excerpted_not_dropped(self):
+        long_text = ("No, that is wrong. " + ("lead with customer impact. " * 200)
+                     + " From now on always lead with the business state.")
+        self.assertGreater(len(long_text), 4000)
+        hit = bl.detect_correction(long_text)
+        self.assertIsNotNone(hit, "a long correction must never be dropped")
+        self.assertTrue(hit["truncated"])
+        self.assertEqual(hit["original_length"], len(bl.normalize_text(long_text)))
+        self.assertLessEqual(len(hit["excerpt"]), bl.CORRECTION_EXCERPT_LIMIT)
+        self.assertIn("characters omitted", hit["excerpt"],
+                      "the cut must be visible to the reviewer, never silent")
+        self.assertIn("business state", hit["excerpt"],
+                      "the instruction usually sits at the END; keeping only the head "
+                      "is how the old cap destroyed the useful half")
+
+    def test_quoted_law_text_is_not_a_founder_correction(self):
+        quoted = ("> from now on always use the desktop app\n"
+                  "> never do a bare git push")
+        self.assertIsNone(bl.detect_correction(quoted))
+        self.assertIsNone(bl.detect_correction(
+            "SKILL.md says never do a bare git push, from now on."))
+
+    def test_named_negative_fixtures_do_not_flood_the_queue(self):
+        for text, why in (
+                ("why didn't you use the desktop app?", "a question, not a standing order"),
+                ("What if we always use a different push flow?", "brainstorming"),
+                ("We decided to change the plan, never do the old flow",
+                 "a changed business decision"),
+                ("the weather is nice today", "no correction shape at all")):
+            self.assertIsNone(bl.detect_correction(text), "%s: %s" % (why, text))
+
+    def test_a_question_carrying_a_standing_instruction_is_still_captured(self):
+        # The interrogative rule must not swallow a real correction that ends
+        # in a question mark, which is how the founder often phrases them.
+        self.assertIsNotNone(bl.detect_correction("from now on use the desktop app, ok?"))
+
+    def test_inbox_identity_is_stable_and_session_scoped(self):
+        a = bl.inbox_identity("s1", "  No,  that is   wrong ")
+        self.assertEqual(a, bl.inbox_identity("s1", "No, that is wrong"),
+                         "identity must survive whitespace, or a re-import duplicates")
+        self.assertNotEqual(a, bl.inbox_identity("s2", "No, that is wrong"))
+
+
+class TestLoop4CaptureThroughTheRealHook(unittest.TestCase):
+    """The SessionEnd path end to end, through the real CLI, because in this
+    project every serious defect so far was found by driving the binary while
+    the suite was green."""
+
+    def _run(self, vault, msgs):
+        repo = tempfile.mkdtemp()
+        tp = os.path.join(repo, "transcript.jsonl")
+        lines = [{"type": "user", "timestamp": "2026-07-29T10:0%d:00Z" % i,
+                  "message": {"content": m}} for i, m in enumerate(msgs)]
+        for i in range(6):
+            lines.append({"type": "assistant", "timestamp": "2026-07-29T10:1%d:00Z" % i,
+                          "message": {"id": "m%d" % i, "model": "opus",
+                                      "usage": {"output_tokens": 10, "input_tokens": 10},
+                                      "content": [{"type": "tool_use", "name": "Bash"}]}})
+        with io.open(tp, "w", encoding="utf-8") as f:
+            f.write("\n".join(json.dumps(o) for o in lines) + "\n")
+        payload = json.dumps({"transcript_path": tp, "session_id": "sess-loop4",
+                              "cwd": repo, "reason": "other"})
+        subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
+                        "outcomes-append"],
+                       input=payload, env=dict(os.environ, BROTHERMODE_VAULT=vault),
+                       cwd=repo, capture_output=True, text=True)
+        p = os.path.join(vault, "99-System", "telemetry", "corrections.jsonl")
+        rows = []
+        if os.path.exists(p):
+            rows = [json.loads(l) for l in io.open(p, encoding="utf-8") if l.strip()]
+        return p, rows
+
+    def test_french_and_long_corrections_reach_the_file_owner_only(self):
+        long_text = "No, that is wrong. " + ("x " * 3000) + " From now on always ask first."
+        with tempfile.TemporaryDirectory() as v:
+            p, rows = self._run(v, [TestLoop4CorrectionDetection.FR, long_text,
+                                    TestLoop4CorrectionDetection.JA,
+                                    "why didn't you use the desktop app?"])
+            self.assertEqual(sorted(r.get("lang") for r in rows), ["en", "fr", "ja"],
+                             "French and Japanese must survive the hook, and the "
+                             "question must not be captured")
+            long_rows = [r for r in rows if r.get("truncated")]
+            self.assertEqual(len(long_rows), 1)
+            self.assertGreater(long_rows[0]["original_length"], 4000)
+            self.assertEqual(stat.S_IMODE(os.stat(p).st_mode), 0o600,
+                             "captured founder text stays owner-only")
+
+    def test_secret_shaped_content_is_redacted_before_it_is_written(self):
+        with tempfile.TemporaryDirectory() as v:
+            _p, rows = self._run(v, ["No, that is wrong. From now on use "
+                                     "AKIAIOSFODNN7EXAMPLE for the upload."])
+            self.assertEqual(len(rows), 1)
+            self.assertNotIn("AKIAIOSFODNN7EXAMPLE", rows[0]["text"])
+            self.assertIn("[REDACTED]", rows[0]["text"])
+
+    def test_a_duplicate_flush_does_not_duplicate_candidates(self):
+        with tempfile.TemporaryDirectory() as v:
+            self._run(v, [TestLoop4CorrectionDetection.FR])
+            _p, rows = self._run(v, [TestLoop4CorrectionDetection.FR])
+            self.assertEqual(len(rows), 1,
+                             "the SessionEnd hook fires more than once per session")
+
+    def test_capture_never_creates_an_approved_rule(self):
+        """The whole point of this loop: recall goes up, authority does not."""
+        src = io.open(os.path.join(HERE, "bm_telemetry.py"), encoding="utf-8").read()
+        for forbidden in ("approve_learning_candidate", "learning_rules"):
+            self.assertNotIn(forbidden, src,
+                             "no automatic path may reach rule creation (%s)" % forbidden)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

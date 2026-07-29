@@ -5469,6 +5469,107 @@ class TestLearningApi(unittest.TestCase):
                          "OwnershipRefused(reason, message) violated at: %s" % bad)
 
 
+class TestLoop4InboxBackfill(unittest.TestCase):
+    """Loop 4. The vault's corrections.jsonl is a GLOBAL capture inbox; this
+    per-project store is the system of record (founder decision 3.1.3). Triage
+    imports an inbox row into a project. Nothing here approves anything."""
+
+    ROWS = [
+        {"ts": "2026-07-20T10:00:00Z", "session_id": "s1", "project": "P",
+         "text": "No, that is not what I asked for. From now on use the desktop app."},
+        {"ts": "2026-07-21T10:00:00Z", "session_id": "s2", "project": "P",
+         "text": "Non, ce n'est pas ce que je voulais. Desormais utilise toujours "
+                 "l'application GitHub Desktop."},
+    ]
+
+    def test_backfill_is_idempotent(self):
+        """Running it twice must add nothing. Identity is a property of the ROW
+        (session plus normalized text), so this holds without any bookkeeping
+        file having to be correct."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                first = store.import_correction_inbox(self.ROWS)
+                self.assertEqual(first["imported"], 2)
+                second = store.import_correction_inbox(self.ROWS)
+                self.assertEqual(second["imported"], 0)
+                self.assertEqual(second["skipped"], 2)
+                self.assertEqual(len(store.list_learning_candidates("pending")), 2)
+
+    def test_whitespace_does_not_defeat_the_second_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.import_correction_inbox(self.ROWS)
+                noisy = [dict(r, text="  " + r["text"].replace(" ", "  ") + "\n")
+                         for r in self.ROWS]
+                self.assertEqual(store.import_correction_inbox(noisy)["imported"], 0)
+
+    def test_imported_candidates_are_pending_project_scoped_and_never_rules(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.import_correction_inbox(self.ROWS, scope_key="ProjectA")
+                cands = store.list_learning_candidates("pending")
+                self.assertEqual(store.list_learning_rules(), [],
+                                 "the automatic path must never create a rule")
+                for c in cands:
+                    self.assertEqual(c["source_type"], "detected_correction")
+                    self.assertEqual(c["proposed_scope_type"], "project")
+                    self.assertEqual(c["proposed_scope_key"], "ProjectA")
+                    self.assertEqual(c["proposed_action"], "",
+                                     "the founder writes the rule at approval, not the "
+                                     "importer")
+
+    def test_an_imported_candidate_cannot_be_approved_without_the_founder_writing_it(self):
+        """Global scope is an explicit choice at approval and the action text is
+        the founder's. An imported row carries no action, so approval refuses it
+        until he supplies one."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.import_correction_inbox(self.ROWS)
+                c = store.list_learning_candidates("pending")[0]
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.approve_learning_candidate(c["candidate_uuid"],
+                                                     founder_ref="me")
+                self.assertEqual(ctx.exception.reason, "incomplete-rule")
+                rule = store.approve_learning_candidate(
+                    c["candidate_uuid"], founder_ref="me",
+                    trigger="pushing to github", action="use the desktop app",
+                    scope_type="global", scope_key="")
+                self.assertEqual(rule["scope_type"], "global")
+
+    def test_secret_shaped_text_is_redacted_on_import(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.import_correction_inbox([
+                    {"ts": "t", "session_id": "s9", "project": "P",
+                     "text": "No, that is wrong, use AKIAIOSFODNN7EXAMPLE"}])
+                raw = store.list_learning_candidates("pending")[0]["raw_text"]
+                self.assertNotIn("AKIAIOSFODNN7EXAMPLE", raw)
+                self.assertIn("[REDACTED]", raw)
+
+    def test_the_same_text_from_another_session_is_flagged_not_discarded(self):
+        """The founder repeating himself is the strongest evidence there is, so
+        an echo is imported with a note rather than silently dropped."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.import_correction_inbox(self.ROWS[:1])
+                echo = [dict(self.ROWS[0], session_id="s99")]
+                res = store.import_correction_inbox(echo)
+                self.assertEqual(res["imported"], 1)
+                self.assertEqual(res["possible_duplicates"], 1)
+                notes = [c["review_note"] for c in store.list_learning_candidates("pending")]
+                self.assertTrue(any("possible duplicate" in n for n in notes))
+
+    def test_metrics_are_counts_and_do_not_claim_accuracy(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.import_correction_inbox(self.ROWS)
+                m = store.learning_capture_metrics()
+                self.assertEqual(m["candidates_by_status"], {"pending": 2})
+                self.assertEqual(m["candidates_by_source"], {"detected_correction": 2})
+                self.assertEqual(m["rules_total"], 0)
+                self.assertIn("not accuracy", m["note"])
+
+
 if __name__ == "__main__":
     # The leak check lives in the runner, so it applies to every test without
     # each of the ~40 TestCase classes having to opt in. Running this file
