@@ -5,6 +5,31 @@ file exists because an unstated gap is a failure even when it is small, and beca
 the single most useful thing a handover can contain is the list of things the last
 person was not sure about.
 
+## P5-fix: without `--record`, two units of work still cannot be told apart
+
+The idempotence key now includes the work record, so naming one with `--record`
+gives each unit of work its own application row. WITHOUT `--record` there is
+still nothing to key on beyond the task fingerprint, which comes from the query
+alone. Two different pieces of substantial work in one session phrased the same
+way therefore still land on one row. That is now DISCLOSED rather than hidden:
+`apply` prints which work record the row it found already belongs to and says it
+cannot tell a re-read from different work. It is disclosure, not detection, and
+the exit code is still 0. The founder has to act on the note.
+
+Also not closed by this round: nothing forces `--record` to be passed at all,
+and nothing verifies that the work record named is the work actually being done.
+A caller can pass a real but wrong work-record id and the row will link to it.
+
+## P5-fix: one pre-existing unrelated test is flaky on this machine
+
+`test_bm.py` `TestFinding12HandoverDeliveryIsSerializedAndVerified.
+test_calibrated_without_the_lock_the_same_pair_duplicates_the_handover` fails
+roughly 4 runs in 5, with "the reproduction did not reproduce". It is a timing
+race in a CALIBRATION test for the handover lock (`bm_threads.py`), not in the
+guard it calibrates, and it is unrelated to anything P5 touches. Confirmed
+pre-existing: stashed the P5-fix diff and reproduced the same 4-in-5 failure at
+fe0497b. Not fixed here, because this loop does not own `bm_threads.py`.
+
 ## Loop P5 left the older documentation naming the deprecated verb
 
 `SKILL.md` now names `bm_learn.py apply --session` as the substantial-work path,

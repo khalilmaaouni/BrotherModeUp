@@ -3938,6 +3938,121 @@ class LookupApplySplitTest(unittest.TestCase):
             self.assertIn("disk is on fire", out)
             self.assertNotIn("status: recorded.", out)
 
+    def test_a_bad_record_argument_still_prints_the_rules_and_exits_partial(self):
+        """A BOOKKEEPING ARGUMENT MUST NOT SWALLOW THE FOUNDER RULES.
+
+        Resolving --record used to happen before retrieval and outside the
+        block that turns write failures into a partial status, so a stale or
+        mistyped work id aborted the whole run: exit 2, EMPTY stdout, not one
+        rule shown. SKILL.md ships the sentence "never read a nonzero exit as
+        'no rules'", so an agent following the law it was given would read that
+        empty run as a partial success and do substantial work with zero
+        founder rules surfaced. The rules print, the status is loud, and the
+        remedy converges: re-running the identical command cannot fix a bad
+        argument, so the text must not tell anyone to."""
+        with tempfile.TemporaryDirectory() as root:
+            self._rule(root)
+            r = self._learn(root, ["apply", "--query", self.QUERY, "--session",
+                                   "s1", "--record", "deadbeef"])
+            self.assertEqual(r.returncode, 3, r.stderr)
+            self.assertIn("use the GitHub Desktop app", r.stdout,
+                          "a bad --record hid the founder rules")
+            self.assertIn("STATUS: PARTIAL. RULES RETRIEVED, APPLICATION NOT "
+                          "RECORDED.", r.stdout)
+            self.assertIn("no record matches 'deadbeef'", r.stdout)
+            self.assertIn("Re-running the identical command will fail "
+                          "identically.", r.stdout)
+            self.assertNotIn("re-run the identical apply", r.stdout,
+                             "prescribed a remedy that never converges")
+            self.assertEqual(self._rows(root), 0,
+                             "a refused --record still wrote a row")
+            j = self._learn(root, ["apply", "--query", self.QUERY, "--session",
+                                   "s1", "--record", "deadbeef", "--json"])
+            self.assertEqual(j.returncode, 3, j.stderr)
+            payload = json.loads(j.stdout)
+            self.assertEqual(payload["recording_status"],
+                             "partial-recording-failed")
+            self.assertEqual(payload["record_error_kind"], "not-found")
+            self.assertTrue(payload["results"], "the JSON twin lost the rules")
+
+    def test_a_second_unit_of_work_in_one_session_gets_its_own_row(self):
+        """TWO PIECES OF WORK ARE TWO APPLICATIONS OF THE RULE.
+
+        The idempotence key was (task fingerprint, rule, version, session), and
+        the fingerprint is derived from the query alone. Two different pieces of
+        substantial work in one session worded the same way therefore collapsed
+        onto ONE row: the second recorded nothing while printing
+        "status: recorded." and exiting 0, so "was this rule followed for that
+        work" was unanswerable and the run read as a clean success. That is the
+        exact hole this loop exists to close, moved off a forgotten flag and
+        onto a shared sentence."""
+        with tempfile.TemporaryDirectory() as root:
+            self._rule(root)
+            env = dict(os.environ, BROTHERMODE_ROOT=root)
+            records = []
+            for name in ("p5-work-a", "p5-work-b"):
+                c = subprocess.run(
+                    [sys.executable, os.path.join(HERE, "bm_store.py"),
+                     "claim", name], cwd=root, env=env, capture_output=True,
+                    text=True)
+                self.assertEqual(c.returncode, 0, c.stderr)
+                m = re.search(r"lifecycle ([0-9a-f]{32})", c.stdout)
+                self.assertIsNotNone(m, c.stdout)
+                records.append(m.group(1))
+            a = self._learn(root, ["apply", "--query", self.QUERY, "--session",
+                                   "s1", "--record", records[0]])
+            self.assertEqual(a.returncode, 0, a.stderr)
+            self.assertIn("recorded 1 application(s)", a.stdout)
+            b = self._learn(root, ["apply", "--query", self.QUERY, "--session",
+                                   "s1", "--record", records[1]])
+            self.assertEqual(b.returncode, 0, b.stderr)
+            self.assertIn("recorded 1 application(s)", b.stdout,
+                          "the second unit of work recorded nothing")
+            self.assertEqual(self._rows(root), 2)
+            db = os.path.join(root, ".brothermode", "store.sqlite3")
+            con = sqlite3.connect(db)
+            try:
+                linked = sorted(row[0] for row in con.execute(
+                    "SELECT record_uuid FROM learning_applications"))
+            finally:
+                con.close()
+            self.assertEqual(linked, sorted(records),
+                             "each unit of work must own exactly one row")
+            again = self._learn(root, ["apply", "--query", self.QUERY,
+                                       "--session", "s1", "--record",
+                                       records[1]])
+            self.assertEqual(again.returncode, 0, again.stderr)
+            self.assertIn("1 already recorded", again.stdout)
+            self.assertEqual(self._rows(root), 2, "re-run duplicated a row")
+
+    def test_apply_without_a_record_discloses_the_row_it_found(self):
+        """`already recorded` IS NOT `recorded FOR THIS WORK`.
+
+        With no --record there is nothing to key on beyond the shared task
+        wording, so an existing row may belong to a different unit of work. The
+        ambiguity is real and cannot be resolved here; printing a bare
+        "status: recorded." resolves it by guessing, in the direction that
+        looks like success. It is disclosed instead."""
+        with tempfile.TemporaryDirectory() as root:
+            self._rule(root)
+            env = dict(os.environ, BROTHERMODE_ROOT=root)
+            c = subprocess.run(
+                [sys.executable, os.path.join(HERE, "bm_store.py"), "claim",
+                 "p5-owned"], cwd=root, env=env, capture_output=True, text=True)
+            self.assertEqual(c.returncode, 0, c.stderr)
+            rec = re.search(r"lifecycle ([0-9a-f]{32})", c.stdout).group(1)
+            first = self._learn(root, ["apply", "--query", self.QUERY,
+                                       "--session", "s1", "--record", rec])
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertNotIn("NOTE: an already recorded row", first.stdout)
+            bare = self._learn(root, ["apply", "--query", self.QUERY,
+                                      "--session", "s1"])
+            self.assertEqual(bare.returncode, 0, bare.stderr)
+            self.assertIn("NOTE: an already recorded row for this task belongs "
+                          "to work record %s." % rec[:8], bare.stdout)
+            self.assertIn("If this is different work, re-run with --record",
+                          bare.stdout)
+
     def test_calibrated_the_old_optional_flag_reproduces_the_unrecorded_run(self):
         """CALIBRATION. Put the pre-fix contract back (recording opt-in, no
         session requirement) by driving the deprecated alias WITHOUT the flag,
