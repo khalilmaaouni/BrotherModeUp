@@ -1198,7 +1198,53 @@ _DUMP_WITHHELD_COLUMNS = frozenset((
 _DUMP_SCRUB_ONLY_COLUMNS = frozenset((
     ("records", "name"),
     ("records", "tier"),
+    # FIX-ROUND 11: claims.path was WITHHELD, which broke the thing the
+    # fence primitive exists for. A second agent asking bm_fences which file
+    # is fenced got "[WITHHELD: 5 chars of founder text]" and could not
+    # avoid the collision. A claimed path is RELATIVE, project-internal
+    # structure, which the path-masking comment below itself calls "exactly
+    # what the policy says stays"; withholding it was a collision-safety
+    # regression bought for no privacy. It is scrub-only, not safe, so a
+    # caller who claims an ABSOLUTE path still gets it masked and a
+    # secret-shaped one still gets it redacted.
+    ("claims", "path"),
 ))
+
+# FIX-ROUND 11 (reported and reproduced): session ids were listed as
+# structurally SAFE, i.e. returned unchanged, on the theory that they are
+# machine identifiers. They are not: --session is caller-supplied free text
+# (a uuid is only the fallback when the flag is absent), so
+# `claim --session "/Users/jane.doe/Clients/Acme"` put an absolute path, and
+# `--session sk-live_...` put a live vendor key, into an ordinary dump
+# VERBATIM, twice (records.session_id and transitions.session_id). Rather
+# than withhold them outright, which would break every join a dump is read
+# for, these columns are SHAPE-GATED: a value that looks like a generated
+# session identifier passes unchanged, and anything else is withheld like
+# any other founder text.
+_DUMP_ID_SHAPED_COLUMNS = frozenset((
+    ("records", "session_id"),
+    ("transitions", "session_id"),
+    ("autosave_receipts", "session_id"),
+    ("autosave_receipts", "worktree_id"),
+    ("learning_candidates", "source_session_id"),
+    ("learning_evidence", "source_session_id"),
+    ("learning_applications", "session_id"),
+))
+
+# "cli-<32 hex>" (_default_cli_session_id), a bare or dashed uuid, a worktree
+# label, a short hand-typed tag. No separator, no space, no punctuation
+# beyond . _ - and no room for a sentence.
+_ID_SHAPED_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
+
+
+def is_id_shaped(value):
+    """True when `value` is safe to export as an identifier: it has the shape
+    of a generated id AND survives the secret scrubber unchanged, so a
+    vendor key such as sk-live_abcdefghijklmnopqrstuvwx (which matches the
+    shape) is still caught."""
+    if not isinstance(value, str) or not _ID_SHAPED_RE.match(value):
+        return False
+    return redact_text(value) == value
 
 # ABSOLUTE PATHS (LOOP 11 workstream A). A path is not secret-shaped, so the
 # scrubber never touched it, yet "/Users/jane.doe/clients/acme-turnaround"
@@ -1207,17 +1253,59 @@ _DUMP_SCRUB_ONLY_COLUMNS = frozenset((
 # (\\server\share). Relative paths are left alone: they are project-internal
 # structure, which is exactly what the policy says stays.
 #
-# LIMIT, stated rather than hidden: the trailing character class excludes
-# spaces, so an absolute path CONTAINING a space is masked only up to that
-# space ("/Users/j/Dev Work/x" leaves "Work/x" visible). Including spaces
-# would swallow the rest of any sentence that merely mentions a path, which
-# is worse in the text exports this also runs in.
+# FIX-ROUND 11 (reported, reproduced, fixed here): the body class used to be
+# the ASCII allowlist [A-Za-z0-9_.~\-/\\]. A match STOPS at the first
+# character outside the class, and the (?<![A-Za-z0-9_]) lookbehind then
+# blocks re-matching at the next separator, so the mask removed the
+# WORTHLESS PREFIX and left the SENSITIVE TAIL standing:
+#   /Users/mueller/Kunden/Siemens (real u-umlaut) -> "[PATH WITHHELD]ller/..."
+#   /Users/<CJK name>/<CJK client>/ACME           -> both names visible
+#   /Users/j/C++Projects/acme-secret  -> "[PATH WITHHELD]++Projects/acme-secret"
+#   also @ % # & = and every other punctuation mark outside the allowlist.
+# Every non-ASCII path component (CJK, Cyrillic, Greek, accented Latin, which
+# is most of the world's home directories) leaked in full, and the stated
+# LIMIT below claimed the only gap was a SPACE. The class is therefore now a
+# DENYLIST: a path component is anything that is not whitespace, not a
+# control character, and not one of the few characters that really do end a
+# path in prose. Two flat classes in sequence, no alternation, no nesting, so
+# matching stays linear (400k characters still mask in single-digit ms).
+#
+# LIMITS, stated rather than hidden, and this is now the WHOLE list:
+#  - a path containing a SPACE is masked only up to that space
+#    ("/Users/j/Dev Work/x" leaves "Work/x" visible). Deliberate: swallowing
+#    spaces would eat the rest of any sentence that merely mentions a path,
+#    which is worse in the text exports this also runs in.
+#  - masking stops at " ' ` < > | , ; : ( ) [ ] { } for that same prose
+#    reason. Some of those (" < > | :) are illegal in a Windows path
+#    outright, the rest are legal but rare in a real one, and all of them
+#    are common sentence punctuation; a path that does contain one is masked
+#    only up to it.
+#  - a trailing . ! or ? stays outside the marker, so "see /Users/j/x." keeps
+#    its full stop.
+_ABS_PATH_BODY = r"[^\s\x00-\x1f\x7f\"'`<>|,;:()\[\]{}]"
 _ABS_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9_])"
     r"(?:[A-Za-z]:[\\/]|\\\\|/)"
-    r"[A-Za-z0-9_.~\-][A-Za-z0-9_.~\-/\\]*")
+    # First component character: the body class minus the separators, so a
+    # bare "/" or "//" in prose is not itself treated as a path.
+    + r"[^\s\x00-\x1f\x7f\"'`<>|,;:()\[\]{}/\\]"
+    + _ABS_PATH_BODY + r"*")
 
 PATH_WITHHELD_MARKER = "[PATH WITHHELD]"
+
+# Sentence punctuation that is legal in a POSIX filename but almost never
+# used in one, and very often ends the sentence a path sits in.
+_ABS_PATH_TRAILING = ".!?"
+
+
+def _mask_one_path(match):
+    """Replace one matched path, leaving trailing sentence punctuation."""
+    matched = match.group(0)
+    kept = matched.rstrip(_ABS_PATH_TRAILING)
+    if len(kept) < 2:
+        # Only a separator survived ("/." in prose): not a path, leave it.
+        return matched
+    return PATH_WITHHELD_MARKER + matched[len(kept):]
 
 
 def mask_absolute_paths(text):
@@ -1227,7 +1315,7 @@ def mask_absolute_paths(text):
     not a string, so a caller iterating sqlite rows never has to type-check."""
     if not isinstance(text, str) or not text:
         return text
-    return _ABS_PATH_RE.sub(PATH_WITHHELD_MARKER, text)
+    return _ABS_PATH_RE.sub(_mask_one_path, text)
 
 
 def withheld_marker(value):
@@ -1246,8 +1334,11 @@ def export_column(table, column, value):
     by default rather than by remembering to add it. Order matters:
 
       1. structurally safe column  -> value, unchanged
-      2. scrub-only column         -> secret-scrubbed, paths masked
-      3. anything else that is text-> WITHHELD entirely
+      2. id-shaped column          -> value if it really is id-shaped,
+                                      WITHHELD if the caller put prose,
+                                      a path or a key in it
+      3. scrub-only column         -> secret-scrubbed, paths masked
+      4. anything else that is text-> WITHHELD entirely
 
     Raises RedactionUnavailable through redact_text rather than falling back
     to cleartext, exactly like every other exit in this file."""
@@ -1255,6 +1346,8 @@ def export_column(table, column, value):
         return value
     if not isinstance(value, str) or not value:
         return value
+    if (table, column) in _DUMP_ID_SHAPED_COLUMNS:
+        return value if is_id_shaped(value) else withheld_marker(value)
     if (table, column) in _DUMP_SCRUB_ONLY_COLUMNS:
         return mask_absolute_paths(redact_text(value))
     return withheld_marker(value)
@@ -1262,7 +1355,7 @@ def export_column(table, column, value):
 _DUMP_SAFE_COLUMNS = frozenset((
     ("meta", "key"), ("meta", "value"),
     ("records", "lifecycle_uuid"), ("records", "lifetime"),
-    ("records", "state"), ("records", "session_id"),
+    ("records", "state"),
     ("records", "created_at"), ("records", "updated_at"),
     ("claims", "lifecycle_uuid"),
     ("decisions", "lifecycle_uuid"), ("decisions", "created_at"),
@@ -1270,8 +1363,7 @@ _DUMP_SAFE_COLUMNS = frozenset((
     ("directives", "lifecycle_uuid"), ("directives", "created_at"),
     ("directives", "delivered_at"),
     ("transitions", "lifecycle_uuid"), ("transitions", "from_state"),
-    ("transitions", "to_state"), ("transitions", "session_id"), ("transitions", "at"),
-    ("autosave_receipts", "worktree_id"), ("autosave_receipts", "session_id"),
+    ("transitions", "to_state"), ("transitions", "at"),
     ("autosave_receipts", "snapshot_sha"), ("autosave_receipts", "tree_sha"),
     ("autosave_receipts", "source_head"), ("autosave_receipts", "created_at"),
     # LOOP 11: the schema-2 learning tables were never listed here, because
@@ -1292,7 +1384,6 @@ _DUMP_SAFE_COLUMNS = frozenset((
     ("learning_rules", "forgotten_at"),
     ("learning_candidates", "candidate_uuid"),
     ("learning_candidates", "source_type"),
-    ("learning_candidates", "source_session_id"),
     ("learning_candidates", "source_record_uuid"),
     ("learning_candidates", "proposed_scope_type"),
     ("learning_candidates", "status"), ("learning_candidates", "content_hash"),
@@ -1305,14 +1396,12 @@ _DUMP_SAFE_COLUMNS = frozenset((
     ("learning_evidence", "evidence_uuid"), ("learning_evidence", "rule_uuid"),
     ("learning_evidence", "candidate_uuid"), ("learning_evidence", "polarity"),
     ("learning_evidence", "evidence_type"),
-    ("learning_evidence", "source_session_id"),
     ("learning_evidence", "source_record_uuid"),
     ("learning_evidence", "created_at"),
     ("learning_edges", "from_rule_uuid"), ("learning_edges", "to_rule_uuid"),
     ("learning_edges", "relation"), ("learning_edges", "created_at"),
     ("learning_applications", "application_uuid"),
     ("learning_applications", "rule_uuid"),
-    ("learning_applications", "session_id"),
     ("learning_applications", "record_uuid"),
     ("learning_applications", "task_fingerprint"),
     ("learning_applications", "retrieved_at"),

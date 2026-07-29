@@ -68,10 +68,25 @@ WHAT THIS SERVER ANSWERS, matching the four questions ratified for the
 read-only project server: what work is active, what fences (claimed file
 paths) are live, what decisions were recorded, and whether the store is
 healthy. Four tools, one each: bm_status, bm_active_work, bm_fences,
-bm_decisions. Every founder-typed value this server returns -- a record
-name, an objective, a tier, a claim path, a decision's topic or text, and
+bm_decisions.
+
+HOW MUCH OF EACH ANSWER IS ACTUALLY LEGIBLE, stated here because two of the
+four questions are now answered structurally rather than verbatim (LOOP 11
+plus its fix round). Rows arrive from `ReadOnlyStore.dump()` already carrying
+the central withholding policy, `bm_store.export_column`. A record name, a
+tier and a CLAIMED PATH are scrub-only, so they read as themselves: bm_fences
+still names the fenced file, which is the whole point of a fence primitive
+(the fix round restored this after claims.path was briefly withheld, leaving
+a second agent unable to see which file it must not touch). An objective, a
+decision's TOPIC and a decision's TEXT are founder prose and are WITHHELD:
+bm_decisions therefore reports that a decision exists, when, and under which
+record, but not what it said. That is deliberate, and a client that needs the
+words reads the store itself with `bm_store.py dump --raw` on the machine
+that owns it.
+
+Every founder-typed value this server returns -- including
 every `bm_store.verify()` problem line, which is a raw invariant-checker
-string with no redaction of its own -- passes through
+string with no redaction of its own -- also passes through
 `bm_store._protect_text`, the exact function `tools/bm_store.py`'s own CLI
 uses for its output (GATE 3, final-blockers spec 2026-07-26, VERIFIED BY
 ORCHESTRATOR: a `verify()` problem naming a secret-shaped record reached a
