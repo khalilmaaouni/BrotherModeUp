@@ -58,8 +58,17 @@ def _scan_for_forbidden_output_calls(lines):
     sys.stdout.write, sys.stderr.write, or an equivalent .stdout.write /
     .stderr.write. Comment lines (stripped content starting with '#') are
     skipped so this can never be tripped by the funnel's own explanatory
-    comments, which name these exact forbidden patterns on purpose."""
-    pat = re.compile(r"print\(|sys\.stdout\.write|sys\.stderr\.write|\.stdout\.write|\.stderr\.write")
+    comments, which name these exact forbidden patterns on purpose.
+
+    The lookbehind on print( was added on 2026-07-29 by Loop 7, which called
+    bm_learning.task_fingerprint() and was reported as a bare print, because
+    "task_fingerprint(" ends in the six characters "print(". The scan is
+    STRICTER after the change, not looser: a call is only a print when the
+    name STARTS there, so print(...) at the start of a line, after whitespace,
+    after a bracket or after a comma is still caught, and the calibration
+    companion below proves it on a reinjected defect."""
+    pat = re.compile(r"(?<![0-9A-Za-z_.])print\(|sys\.stdout\.write|"
+                     r"sys\.stderr\.write|\.stdout\.write|\.stderr\.write")
     return [i for i, line in enumerate(lines, 1)
             if not line.lstrip().startswith("#") and pat.search(line)]
 
@@ -2009,6 +2018,15 @@ class TestFixRound7(unittest.TestCase):
         self.assertEqual(_scan_for_forbidden_output_calls(bad_source), [2])
         good_source = ["def cmd_example(argv):\n", "    _out('safe: ' + argv[0])\n"]
         self.assertEqual(_scan_for_forbidden_output_calls(good_source), [])
+        # Every shape the lookbehind must still catch, and the two it must
+        # not, listed rather than trusted: an identifier that merely ENDS in
+        # print is not a print call.
+        for line in ("print('x')\n", "    print('x')\n", "  foo(print('x'))\n",
+                     "  f(a, print('x'))\n", "  sys.stdout.write('x')\n"):
+            self.assertEqual(_scan_for_forbidden_output_calls([line]), [1], line)
+        for line in ("    fp = L.task_fingerprint(query)\n",
+                     "    n = footprint(x)\n"):
+            self.assertEqual(_scan_for_forbidden_output_calls([line]), [], line)
 
     def test_structural_round7_file_writes_of_rendered_text_go_through_the_funnel(self):
         # The only function allowed to write a RENDERED string to disk is
@@ -6107,6 +6125,425 @@ class TestLoop6ConflictGraph(unittest.TestCase):
                 edges = store.list_learning_edges(a["rule_uuid"])
                 self.assertTrue(any("newer one stands" in e["note"] for e in edges))
 
+
+class TestLoop7ApplicationLifecycle(unittest.TestCase):
+    """Loop 7. learning_applications stops being an empty table.
+
+    The done gate for this loop is one question: for a given task, which rules
+    were retrieved, shown, followed, ignored, and why. Every test here is one
+    part of that answer, and the classification tests deliberately include the
+    cases where the honest answer is that there is not enough evidence."""
+
+    TRIGGER = "writing an executive update"
+    ACTION = "state customer impact before technical detail"
+
+    def _rule(self, store, action=None, trigger=None, severity="soft",
+              rule_type="preference", scope_type="global", scope_key=""):
+        c = store.capture_learning_candidate(
+            "manual", trigger=trigger or self.TRIGGER,
+            action=action or self.ACTION,
+            because="the founder said so", scope_type=scope_type,
+            scope_key=scope_key)
+        return store.approve_learning_candidate(
+            c["candidate_uuid"], founder_ref="founder in chat",
+            severity=severity, rule_type=rule_type)
+
+    def _count(self, store):
+        return store.conn.execute(
+            "SELECT COUNT(*) AS n FROM learning_applications").fetchone()["n"]
+
+    # -- recording ----------------------------------------------------
+
+    def test_retrieval_without_recording_creates_no_rows(self):
+        """The read path stays free of consequence even now that a write path
+        exists next to it. Asking what applies is not applying anything."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                res = store.retrieve_learning_rules("writing an executive update")
+                self.assertEqual(len(res["results"]), 1)
+                self.assertEqual(self._count(store), 0)
+                self.assertEqual(store.list_learning_applications(), [])
+
+    def test_recording_creates_one_row_per_returned_rule_version(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                res = store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                self.assertEqual(res["recorded"], 1)
+                self.assertEqual(res["record_error"], "")
+                apps = store.list_learning_applications(session_id="S1")
+                self.assertEqual(len(apps), 1)
+                self.assertEqual(apps[0]["rule_uuid"], rule["rule_uuid"])
+                self.assertEqual(apps[0]["rule_version"], 1)
+                self.assertEqual(apps[0]["retrieval_rank"], 1)
+                self.assertEqual(apps[0]["shown_to_model"], 1)
+                self.assertEqual(apps[0]["disposition"], "unknown")
+                self.assertEqual(apps[0]["scope_match"], "global")
+
+    def test_recording_is_idempotent_per_task_rule_version_and_session(self):
+        """A model that re-reads its rules mid-task has not applied them twice.
+        Without this, every re-read inflates whatever the applications table is
+        later asked to measure."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                first = store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                second = store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                self.assertEqual((first["recorded"], first["already_recorded"]), (1, 0))
+                self.assertEqual((second["recorded"], second["already_recorded"]), (0, 1))
+                self.assertEqual(self._count(store), 1)
+                self.assertEqual(first["applications"], second["applications"])
+
+    def test_a_second_session_records_its_own_row(self):
+        """Idempotency is per session on purpose: the same rule surfaced for
+        the same task in a DIFFERENT session is a second application, and
+        collapsing the two would erase one of the two chances to comply."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                store.record_learning_applications(
+                    "writing an executive update", session_id="S2")
+                self.assertEqual(self._count(store), 2)
+
+    def test_a_new_rule_version_records_a_new_application(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                store.edit_learning_rule(rule["rule_uuid"], 1,
+                                          action="lead with the customer number",
+                                          change_reason="sharper")
+                store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                versions = sorted(a["rule_version"]
+                                  for a in store.list_learning_applications())
+                self.assertEqual(versions, [1, 2])
+
+    def test_recording_never_breaks_a_retrieval(self):
+        """A learning system that can make retrieval FAIL is worse than one
+        that forgets. The rules come back whatever happens to the bookkeeping,
+        and the caller is told plainly that the write did not land."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                boom = bs.OwnershipRefused("db-busy", "the store is busy")
+
+                real = bs._exec
+
+                def failing(store_arg, sql, params=()):
+                    if sql.lstrip().upper().startswith("INSERT INTO LEARNING_APPLICATIONS"):
+                        raise boom
+                    return real(store_arg, sql, params)
+
+                with mock.patch.object(bs, "_exec", failing):
+                    res = store.record_learning_applications(
+                        "writing an executive update", session_id="S1")
+                self.assertEqual(len(res["results"]), 1,
+                                 "the rules must survive a failed write")
+                self.assertIn("busy", res["record_error"])
+                self.assertEqual(res["recorded"], 0)
+                self.assertEqual(self._count(store), 0,
+                                 "a failed recording leaves nothing partial behind")
+
+    def test_a_corrupt_store_is_never_absorbed_into_record_error(self):
+        """The narrow except is narrow on purpose: a damaged database is not a
+        degraded write to shrug off, and hiding it behind a retrieval that
+        looks successful is how a corrupt store keeps being used."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                real = bs._exec
+
+                def failing(store_arg, sql, params=()):
+                    if sql.lstrip().upper().startswith("INSERT INTO LEARNING_APPLICATIONS"):
+                        raise bs.StoreCorrupt("the database is damaged")
+                    return real(store_arg, sql, params)
+
+                with mock.patch.object(bs, "_exec", failing):
+                    with self.assertRaises(bs.StoreCorrupt):
+                        store.record_learning_applications(
+                            "writing an executive update", session_id="S1")
+
+    def test_an_unknown_work_record_is_refused_not_silently_dropped(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.record_learning_applications(
+                        "writing an executive update", session_id="S1",
+                        record_prefix="deadbeef")
+                self.assertEqual(ctx.exception.reason, "not-found")
+                self.assertEqual(self._count(store), 0)
+
+    # -- immutability -------------------------------------------------
+
+    def test_editing_a_rule_does_not_rewrite_old_application_history(self):
+        """Invariant L8, made structural rather than promised. An application
+        records what the model was ACTUALLY shown; a rule edited tomorrow may
+        not retroactively change what happened yesterday."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                store.edit_learning_rule(rule["rule_uuid"], 1,
+                                          action="do something else entirely",
+                                          change_reason="the founder changed his mind")
+                apps = store.list_learning_applications(session_id="S1")
+                self.assertEqual(len(apps), 1)
+                self.assertEqual(apps[0]["rule_version"], 1)
+                self.assertEqual(apps[0]["action_text"], self.ACTION)
+                self.assertEqual(
+                    store.get_learning_rule(rule["rule_uuid"])["action_text"],
+                    "do something else entirely")
+
+    def test_an_application_pointing_at_a_missing_version_is_a_verify_finding(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                self.assertTrue(store.learning_verify()["ok"])
+                with self.assertRaises(sqlite3.IntegrityError):
+                    store.conn.execute(
+                        "UPDATE learning_applications SET rule_version = 9")
+                # The foreign key refuses it, and that is the first line of
+                # defence. The integrity check below is for the store that
+                # arrived damaged anyway, so the constraint is forced off to
+                # build one rather than assumed unreachable.
+                store.conn.execute("PRAGMA foreign_keys=OFF")
+                store.conn.execute(
+                    "UPDATE learning_applications SET rule_version = 9")
+                store.conn.commit()
+                res = store.learning_verify()
+                self.assertFalse(res["ok"])
+                self.assertIn("application-without-version",
+                              [f["code"] for f in res["findings"]])
+
+    # -- disposition --------------------------------------------------
+
+    def test_ignoring_a_gate_rule_requires_a_reason(self):
+        """The refusal this loop exists for. A gate quietly skipped and never
+        explained is the compliance failure the whole mechanism is meant to
+        make visible, and a blank reason would let it pass as bookkeeping."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, severity="gate")
+                res = store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                app_id = res["applications"][0]
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.set_application_disposition(app_id, "ignored")
+                self.assertEqual(ctx.exception.reason, "no-ignore-reason")
+                self.assertEqual(
+                    store.get_learning_application(app_id)["disposition"],
+                    "unknown", "a refused disposition must change nothing")
+                app = store.set_application_disposition(
+                    app_id, "ignored", reason="the founder made a one off exception")
+                self.assertEqual(app["disposition"], "ignored")
+
+    def test_ignoring_a_substantial_rule_requires_a_reason(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, rule_type="safety")
+                res = store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.set_application_disposition(res["applications"][0], "ignored")
+                self.assertEqual(ctx.exception.reason, "no-ignore-reason")
+
+    def test_ignoring_a_plain_preference_does_not_require_a_reason(self):
+        """Proportionality applies to the refusals too. Demanding a written
+        justification for skipping a soft preference is the ceremony that makes
+        a founder stop using the tool."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                res = store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                app = store.set_application_disposition(res["applications"][0],
+                                                        "ignored")
+                self.assertEqual(app["disposition"], "ignored")
+
+    def test_following_and_ignoring_land_as_evidence_on_the_rule(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                res = store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                app_id = res["applications"][0]
+                store.set_application_disposition(app_id, "followed",
+                                                   verification_ref="test:update")
+                kinds = [(e["polarity"], e["evidence_type"])
+                         for e in store.list_learning_evidence(rule["rule_uuid"])]
+                self.assertIn(("support", "verified_application"), kinds)
+                store.set_application_disposition(
+                    app_id, "ignored", reason="one off exception")
+                kinds = [(e["polarity"], e["evidence_type"])
+                         for e in store.list_learning_evidence(rule["rule_uuid"])]
+                self.assertIn(("contradict", "ignored_application"), kinds)
+
+    def test_repeating_the_same_disposition_does_not_inflate_evidence(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                res = store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                app_id = res["applications"][0]
+                for _ in range(3):
+                    store.set_application_disposition(app_id, "followed")
+                n = len([e for e in store.list_learning_evidence(rule["rule_uuid"])
+                         if e["evidence_type"] == "verified_application"])
+                self.assertEqual(n, 1)
+
+    def test_an_unknown_disposition_or_outcome_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                res = store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                app_id = res["applications"][0]
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.set_application_disposition(app_id, "obeyed")
+                self.assertEqual(ctx.exception.reason, "bad-disposition")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.set_application_disposition(app_id, "followed",
+                                                       outcome="great")
+                self.assertEqual(ctx.exception.reason, "bad-outcome")
+
+    # -- classification -----------------------------------------------
+
+    def test_the_five_failure_classes_each_have_a_fixture(self):
+        """One fixture per class, in one store, so the classifier is exercised
+        against a real lifecycle rather than against hand-built dicts."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                broad = self._rule(store, action="mention the deployment window",
+                                   trigger="writing an executive update about deploys")
+                ignored = self._rule(store, action="never send it on a friday",
+                                     trigger="writing an executive update on a friday",
+                                     severity="gate")
+                bad = self._rule(store, action="open with a two page appendix",
+                                 trigger="writing an executive update appendix")
+                unknown = self._rule(store, action="use the customer name early",
+                                     trigger="writing an executive update naming customers")
+                query = ("writing an executive update about deploys on a friday "
+                         "with an appendix naming customers and revenue")
+                res = store.record_learning_applications(query, session_id="S1",
+                                                          limit=4)
+                self.assertEqual(res["recorded"], 4)
+                by_rule = dict((a["rule_uuid"], a["application_uuid"])
+                               for a in store.list_learning_applications(session_id="S1"))
+                # The fifth rule is created after the retrieval and BACKDATED,
+                # which is the only way to build a miss that does not depend on
+                # which of five equally scored rules the ranker put fourth.
+                missed = self._rule(store, action="attach the revenue number",
+                                    trigger="writing an executive update revenue")
+                store.conn.execute(
+                    "UPDATE learning_rules SET founder_approved_at="
+                    "'2000-01-01T00:00:00Z' WHERE rule_uuid=?",
+                    (missed["rule_uuid"],))
+                store.conn.commit()
+                self.assertNotIn(missed["rule_uuid"], by_rule)
+                store.set_application_disposition(
+                    by_rule[broad["rule_uuid"]], "not_relevant")
+                store.set_application_disposition(
+                    by_rule[ignored["rule_uuid"]], "ignored",
+                    reason="the founder overrode it")
+                store.set_application_disposition(
+                    by_rule[bad["rule_uuid"]], "followed", outcome="rework")
+                # `unknown` keeps its default disposition on purpose.
+                out = store.classify_learning_applications()
+                got = dict((a["rule_uuid"], a["classification"])
+                           for a in out["applications"])
+                self.assertEqual(got[broad["rule_uuid"]], "scope_error")
+                self.assertEqual(got[ignored["rule_uuid"]], "compliance_failure")
+                self.assertEqual(got[bad["rule_uuid"]], "bad_rule")
+                self.assertEqual(got[unknown["rule_uuid"]], "not_decidable")
+                self.assertEqual(
+                    [m["rule_uuid"] for m in out["retrieval_misses"]],
+                    [missed["rule_uuid"]])
+                for name in bs._learning().FAILURE_CLASSES:
+                    self.assertIn(name, out["counts"],
+                                  "every class this build knows must be counted")
+
+    def test_a_rule_approved_after_the_task_is_not_a_retrieval_miss(self):
+        """Without this the classifier blames every past task for not knowing
+        today's rules, which would make the miss count meaningless."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                store.record_learning_applications(
+                    "writing an executive update", session_id="S1", limit=1)
+                later = self._rule(store, action="keep it under one page",
+                                    trigger="writing an executive update briefly")
+                store.conn.execute(
+                    "UPDATE learning_rules SET founder_approved_at='2099-01-01T00:00:00Z' "
+                    "WHERE rule_uuid=?", (later["rule_uuid"],))
+                store.conn.commit()
+                out = store.classify_learning_applications()
+                self.assertEqual(out["retrieval_misses"], [])
+
+    def test_a_task_with_no_kept_text_is_not_decidable(self):
+        """Missing evidence returns not_decidable rather than a guess, which is
+        the whole difference between a classifier and an opinion."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                store.record_learning_applications(
+                    "writing an executive update", session_id="S1",
+                    task_excerpt="")
+                out = store.classify_learning_applications()
+                self.assertEqual(out["retrieval_misses"], [])
+                self.assertEqual(len(out["not_decidable_tasks"]), 1)
+                self.assertIn("no task text",
+                              out["not_decidable_tasks"][0]["reason"])
+
+    def test_ignored_but_never_shown_is_not_a_compliance_failure(self):
+        L = bs._learning()
+        self.assertEqual(
+            L.classify_application("ignored", False, "pending")[0], "not_decidable")
+        self.assertEqual(
+            L.classify_application("ignored", True, "pending")[0], "compliance_failure")
+
+    def test_followed_into_an_accepted_outcome_is_not_a_finding(self):
+        L = bs._learning()
+        self.assertIsNone(L.classify_application("followed", True, "accepted")[0])
+        self.assertEqual(
+            L.classify_application("followed", True, "pending")[0], "not_decidable")
+
+    # -- proportionality ----------------------------------------------
+
+    def test_the_trivial_task_bypass_is_explicit_and_records_nothing(self):
+        """A task that decided not to retrieve must never appear in the outcome
+        data, or the applications table fills with work that never happened."""
+        L = bs._learning()
+        decision = L.retrieval_advised({}, gate_rules_exist=False)
+        self.assertFalse(decision["advised"])
+        self.assertTrue(decision["reasons"])
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                self.assertEqual(self._count(store), 0)
+
+    def test_a_live_gate_rule_advises_retrieval_even_on_a_trivial_task(self):
+        L = bs._learning()
+        self.assertTrue(L.retrieval_advised({}, gate_rules_exist=True)["advised"])
+        for signal in L.RETRIEVAL_SIGNALS:
+            self.assertTrue(L.retrieval_advised({signal: True})["advised"], signal)
+
+    def test_an_unknown_signal_is_named_rather_than_silently_ignored(self):
+        L = bs._learning()
+        out = L.retrieval_advised({"vibes": True})
+        self.assertFalse(out["advised"])
+        self.assertEqual(out["unknown_signals"], ["vibes"])
 
 if __name__ == "__main__":
     # The leak check lives in the runner, so it applies to every test without
