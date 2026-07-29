@@ -7,19 +7,32 @@ person was not sure about.
 
 ## P6: what the retrieval run still cannot tell you
 
-The run row makes the denominator a stored fact, and four things are still out
+The run row makes the denominator a stored fact, and these things are still out
 of its reach. Stated here rather than discovered later.
 
 - ONE RUN IS THE AUTHORITY PER TASK. When the same task text is retrieved more
   than once in one session with DIFFERENT limits or contexts, the earliest run
-  is used and `retrieval_runs` reports how many there were. The later ones are
-  not merged and not compared. A reader can see the ambiguity; nothing resolves
-  it.
-- THE CORPUS CHECK IS PER RULE, NOT A FULL RECONSTRUCTION. A rule whose current
-  version was written after the retrieval is refused as not decidable. A rule
-  that was FORGOTTEN or superseded since then is simply not eligible today, so
-  it can never be reported as missed, and that undercounts rather than
-  overcounts. Rebuilding the whole corpus as it stood is not attempted.
+  is used and `retrieval_runs` reports how many there were. Earliest now means
+  insertion order, so it is the same run on every run of the classifier (fix
+  round P6 closed a random uuid tie-break on the one-second timestamp). The
+  later runs are still not merged and not compared. A reader can see the
+  ambiguity; nothing resolves it.
+- THE CORPUS CHECK COUNTS, IT DOES NOT IDENTIFY (fix round P6). A task is graded
+  only when the rules that existed at retrieval time still number exactly what
+  the run recorded as eligible; otherwise it is `corpus_changed_since_retrieval`
+  and nothing is attributed. The run stores HOW MANY rules were eligible, not
+  WHICH, so a removal and an addition that exactly cancel out still read as
+  equal and the task is graded against a corpus that is not the one that ran.
+  Narrower than the old behaviour, which re-ranked today's rules unconditionally,
+  and not the same thing as reconstruction.
+- A RELEVANCE MISS NOW MEANS ONE THING: the rule was eligible, ranked inside the
+  requested limit, and the ledger holds no application row for that run. With
+  the corpus pinned, that is a bookkeeping hole rather than a ranking verdict.
+  Ranking quality itself is not measured by this number.
+- MIXED-ERA TASKS ARE NOT SPECIAL-CASED. A task with both legacy application
+  rows (no run) and a run row counts only the run's own rows as surfaced. The
+  corpus count usually refuses such a task anyway, but that is a consequence,
+  not a check.
 - TIMESTAMPS ARE WHOLE SECONDS. A rule rewritten inside the same second as the
   retrieval reads as unchanged. Nothing in this design can separate them.
 - LEGACY ROWS STAY LEGACY. An application recorded before schema 4 has no run,

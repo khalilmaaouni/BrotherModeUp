@@ -6913,24 +6913,27 @@ class TestLoop7ApplicationLifecycle(unittest.TestCase):
                                  trigger="writing an executive update appendix")
                 unknown = self._rule(store, action="use the customer name early",
                                      trigger="writing an executive update naming customers")
+                missed = self._rule(store, action="attach the revenue number",
+                                    trigger="writing an executive update revenue")
                 query = ("writing an executive update about deploys on a friday "
                          "with an appendix naming customers and revenue")
                 res = store.record_learning_applications(query, session_id="S1",
-                                                          limit=4)
-                self.assertEqual(res["recorded"], 4)
+                                                          limit=5)
+                self.assertEqual(res["recorded"], 5)
                 by_rule = dict((a["rule_uuid"], a["application_uuid"])
                                for a in store.list_learning_applications(session_id="S1"))
-                # The fifth rule is created after the retrieval and BACKDATED,
-                # which is the only way to build a miss that does not depend on
-                # which of five equally scored rules the ranker put fourth.
-                missed = self._rule(store, action="attach the revenue number",
-                                    trigger="writing an executive update revenue")
+                # The retrieval returned all five. The fifth then loses its
+                # application row, which is what a relevance miss actually is:
+                # the rule was eligible and inside the limit, and the ledger
+                # cannot show it reached the model. It used to be built by
+                # adding a rule afterwards and backdating it, which made
+                # today's corpus bigger than the count the run recorded, and
+                # that is drift the classifier now refuses to grade at all
+                # (FIX ROUND P6).
                 store.conn.execute(
-                    "UPDATE learning_rules SET founder_approved_at="
-                    "'2000-01-01T00:00:00Z' WHERE rule_uuid=?",
+                    "DELETE FROM learning_applications WHERE rule_uuid=?",
                     (missed["rule_uuid"],))
                 store.conn.commit()
-                self.assertNotIn(missed["rule_uuid"], by_rule)
                 store.set_application_disposition(
                     by_rule[broad["rule_uuid"]], "not_relevant")
                 store.set_application_disposition(
@@ -6976,9 +6979,15 @@ class TestLoop7ApplicationLifecycle(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with bs.Store(d) as store:
                 self._rule(store)
-                store.record_learning_applications(
-                    "writing an executive update", session_id="S1",
-                    task_excerpt="")
+                # More distinct terms than a run is allowed to keep, so the
+                # run stores none and nothing can be re-ranked. Since FIX ROUND
+                # P6 the run keeps the task's TERMS rather than its text, so
+                # "no kept text" is this case, not an empty excerpt argument.
+                huge = "writing an executive update " + " ".join(
+                    "term%d" % i
+                    for i in range(bs._learning().MAX_QUERY_TERMS + 1))
+                store.record_learning_applications(huge, session_id="S1",
+                                                   task_excerpt="")
                 out = store.classify_learning_applications()
                 self.assertEqual(out["retrieval_misses"], [])
                 self.assertEqual(len(out["not_decidable_tasks"]), 1)
@@ -8273,7 +8282,8 @@ class TestPostAuditLoopP6RetrievalRuns(unittest.TestCase):
 
     def test_the_run_stores_a_query_hash_and_never_the_raw_query(self):
         L = bs._learning()
-        secret = "writing an executive update about ACME-INTERNAL-CODENAME"
+        secret = ("writing an executive update about the ACME-INTERNAL-CODENAME "
+                  "launch before the board hears it elsewhere")
         with tempfile.TemporaryDirectory() as d:
             with bs.Store(d) as store:
                 self._rule(store, "lead with the outcome")
@@ -8281,10 +8291,96 @@ class TestPostAuditLoopP6RetrievalRuns(unittest.TestCase):
                     secret, session_id="S1", task_excerpt="")
                 run = store.get_learning_retrieval_run(res["retrieval_uuid"])
                 self.assertEqual(run["query_hash"], L.content_hash(secret))
-                self.assertEqual(run["task_excerpt"], "")
+                # The prompt is not stored. What is stored is the term set the
+                # ranker reads: sorted, deduplicated, order destroyed, so the
+                # sentence the founder typed cannot be read back off the row.
+                self.assertEqual(run["task_excerpt"], L.query_terms(secret))
+                self.assertNotIn(secret, run["task_excerpt"])
+                self.assertNotIn("executive update about", run["task_excerpt"],
+                                 "word order must not survive into the store")
                 blob = json.dumps(store.dump(), sort_keys=True)
                 self.assertNotIn("ACME-INTERNAL-CODENAME", blob,
                                  "no dump may reproduce the founder's task text")
+
+    def test_the_stored_terms_rank_a_past_retrieval_the_way_the_query_did(self):
+        """The term set is only allowed to replace the prompt because the
+        ranker reads nothing else off it. This is that claim, checked."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, "lead with the outcome")
+                self._rule(store, "attach the revenue number",
+                           trigger=self.TASK + " revenue")
+                query = self.TASK + " with revenue, revenue and more revenue!"
+                by_query = store.retrieve_learning_rules(query, limit=5)
+                by_terms = store.retrieve_learning_rules(
+                    bs._learning().query_terms(query), limit=5)
+                self.assertEqual([r["rule_uuid"] for r in by_query["results"]],
+                                 [r["rule_uuid"] for r in by_terms["results"]])
+                self.assertEqual(by_query["eligible"], by_terms["eligible"])
+
+    def test_a_task_whose_terms_were_too_many_to_keep_is_not_decidable(self):
+        L = bs._learning()
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, "lead with the outcome")
+                huge = self.TASK + " " + " ".join(
+                    "term%d" % i for i in range(L.MAX_QUERY_TERMS + 1))
+                res = store.record_learning_applications(huge, session_id="S1",
+                                                          task_excerpt="")
+                run = store.get_learning_retrieval_run(res["retrieval_uuid"])
+                self.assertEqual(run["task_excerpt"], "",
+                                 "a truncated term set would re-rank as a "
+                                 "different task, so none is kept")
+                out = store.classify_learning_applications()
+                self.assertEqual(out["retrieval_misses"], [])
+                self.assertEqual(out["not_decidable_tasks"][0]["evidence"],
+                                 "no_task_text")
+
+    def test_a_scope_key_longer_than_a_display_line_is_stored_whole(self):
+        """FIX ROUND P6, reproduced on the real CLI. validate_scope puts no
+        length cap on a scope key; storing it through safe_display did, so a
+        long project key came back with an ellipsis, stopped matching the rule
+        it named, and the miss vanished with no not_decidable either."""
+        key = "Acme" + "x" * 250
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                proj = self._rule(store, "name the client early",
+                                  scope_type="project", scope_key=key)
+                res = store.record_learning_applications(
+                    self.TASK, context={"project": key}, limit=0,
+                    session_id="S1")
+                run = store.get_learning_retrieval_run(res["retrieval_uuid"])
+                self.assertEqual(run["project_key"], key)
+                out = store.classify_learning_applications()
+                self.assertEqual([m["rule_uuid"] for m in out["retrieval_misses"]],
+                                 [proj["rule_uuid"]])
+
+    def test_calibration_a_display_capped_scope_key_loses_the_miss(self):
+        key = "Acme" + "x" * 250
+        L = bs._learning()
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                proj = self._rule(store, "name the client early",
+                                  scope_type="project", scope_key=key)
+                with mock.patch.object(L, "storage_key",
+                                       lambda text: L.safe_display(text, 200)):
+                    store.record_learning_applications(
+                        self.TASK, context={"project": key}, limit=0,
+                        session_id="S1")
+                    blind = store.classify_learning_applications()
+                self.assertEqual(blind["retrieval_misses"], [],
+                                 "with the key truncated the rule is not even "
+                                 "eligible, so the miss is invisible")
+                # Restored: the same retrieval, storing the key whole, finds it.
+                store.record_learning_applications(
+                    self.TASK, context={"project": key}, limit=0,
+                    session_id="S2")
+                self.assertEqual(
+                    [m["rule_uuid"]
+                     for m in store.classify_learning_applications(
+                         session_id="S2")["retrieval_misses"]],
+                    [proj["rule_uuid"]],
+                    "and it is visible again with the key stored whole")
 
     def test_a_retrieval_that_records_nothing_new_still_records_the_run(self):
         """A repeat IS a retrieval: it happened, it had a limit and a context.
@@ -8364,15 +8460,30 @@ class TestPostAuditLoopP6RetrievalRuns(unittest.TestCase):
                 self.assertIn("result limit cut it",
                               miss["classification_reason"])
 
+    def _unrecord(self, store, rule):
+        """Remove the application row for one rule the retrieval DID return.
+
+        The fixture for a relevance miss, and it is this rather than "add a
+        rule afterwards and backdate it" (FIX ROUND P6). A backdated rule makes
+        today's corpus larger than the eligible count the run recorded, which
+        is exactly the drift the classifier now refuses to grade, so a fixture
+        built that way was asserting against invented history. A rule that WAS
+        eligible, ranked inside the limit, and has no application row is the
+        real shape of the class: the ledger cannot show it reached the model."""
+        store.conn.execute("DELETE FROM learning_applications WHERE rule_uuid=?",
+                           (rule["rule_uuid"],))
+        store.conn.commit()
+
     def test_a_miss_inside_the_limit_stays_a_relevance_miss(self):
         with tempfile.TemporaryDirectory() as d:
             with bs.Store(d) as store:
                 self._rule(store, "lead with the outcome")
-                store.record_learning_applications(self.TASK, session_id="S1",
-                                                   limit=5)
                 missed = self._rule(store, "attach the revenue number",
                                     trigger=self.TASK + " revenue")
-                self._backdate(store, missed)
+                res = store.record_learning_applications(
+                    self.TASK + " revenue", session_id="S1", limit=5)
+                self.assertEqual(res["recorded"], 2)
+                self._unrecord(store, missed)
                 out = store.classify_learning_applications()
                 self.assertEqual([m["rule_uuid"] for m in out["retrieval_misses"]],
                                  [missed["rule_uuid"]])
@@ -8387,15 +8498,179 @@ class TestPostAuditLoopP6RetrievalRuns(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with bs.Store(d) as store:
                 self._rule(store, "lead with the outcome")
-                store.record_learning_applications(self.TASK, session_id="S1",
-                                                   limit=1)
                 gate = self._rule(store, "never send it on a friday",
                                   severity="gate")
-                self._backdate(store, gate)
+                store.record_learning_applications(self.TASK, session_id="S1",
+                                                   limit=1)
+                self._unrecord(store, gate)
                 out = store.classify_learning_applications()
                 kinds = dict((m["rule_uuid"], m["miss_kind"])
                              for m in out["retrieval_misses"])
                 self.assertEqual(kinds.get(gate["rule_uuid"]), "relevance")
+
+    # -- one run is graded against ITS OWN rows ---------------------------
+
+    def test_a_later_wider_retrieval_does_not_erase_the_first_ones_miss(self):
+        """FIX ROUND P6, reproduced on the real CLI: limit was too low, the
+        founder raised it and re-ran, and the evidence of the first miss
+        disappeared because `seen` was built from every row in the session."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gate, proj, first = self._cut_fixture(store)
+                self.assertEqual(
+                    store.classify_learning_applications()
+                    ["counts"]["retrieval_limit_miss"], 1)
+                store.record_learning_applications(
+                    self.TASK, context={"project": "Acme"}, limit=5,
+                    session_id="S1")
+                out = store.classify_learning_applications()
+                self.assertEqual(out["counts"]["retrieval_limit_miss"], 1,
+                                 "the graded run still returned nothing")
+                miss = out["retrieval_misses"][0]
+                self.assertEqual(miss["rule_uuid"], proj["rule_uuid"])
+                self.assertEqual(miss["retrieval_uuid"], first["retrieval_uuid"])
+                self.assertEqual(miss["retrieval_runs"], 2)
+                self.assertTrue(gate["rule_uuid"])
+
+    def test_calibration_session_wide_seen_erases_that_miss(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gate, proj, first = self._cut_fixture(store)
+                store.record_learning_applications(
+                    self.TASK, context={"project": "Acme"}, limit=5,
+                    session_id="S1")
+                real = bs.Store.list_learning_applications
+
+                def blind_rows(self, **kw):
+                    # The reinjected defect: every application row in the
+                    # session claims to belong to the run being graded, which
+                    # is what a session-wide `seen` set amounts to.
+                    rows = real(self, **kw)
+                    for r in rows:
+                        r["retrieval_uuid"] = first["retrieval_uuid"]
+                    return rows
+
+                with mock.patch.object(bs.Store, "list_learning_applications",
+                                       blind_rows):
+                    blind = store.classify_learning_applications()
+                self.assertEqual(blind["counts"]["retrieval_limit_miss"], 0,
+                                 "rows from the later run hide the first run's "
+                                 "miss, which is the defect")
+                self.assertEqual(
+                    store.classify_learning_applications()
+                    ["counts"]["retrieval_limit_miss"], 1,
+                    "and the miss is back once rows belong to their own run")
+
+    # -- history that cannot be reconstructed is refused ------------------
+
+    def test_a_corpus_changed_since_the_retrieval_is_not_decidable(self):
+        """FIX ROUND P6, reproduced on the real CLI: deprecating an unrelated
+        rule flipped a stored retrieval_limit_miss into a retrieval_miss, which
+        is the difference between "your page size was too small" and "your
+        ranking is wrong", on facts that did not change."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                one = self._rule(store, "cite the source for every number",
+                                 trigger=self.TASK + " for investors")
+                self._rule(store, "name every assumption")
+                store.record_learning_applications(
+                    self.TASK + " for investors", session_id="S1", limit=1)
+                before = store.classify_learning_applications()
+                self.assertEqual(before["counts"]["retrieval_limit_miss"], 1)
+                shown = [a["rule_uuid"]
+                         for a in store.list_learning_applications(session_id="S1")]
+                store.change_learning_rule_state(
+                    shown[0] if shown else one["rule_uuid"], "deprecated",
+                    reason="no longer wanted")
+                after = store.classify_learning_applications()
+                self.assertEqual(after["retrieval_misses"], [])
+                self.assertEqual(after["counts"]["retrieval_limit_miss"], 0)
+                self.assertEqual(after["counts"]["retrieval_miss"], 0)
+                self.assertIn("corpus_changed_since_retrieval",
+                              [u["evidence"] for u in after["not_decidable_tasks"]])
+
+    def test_calibration_grading_todays_corpus_flips_that_class(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, "cite the source for every number",
+                           trigger=self.TASK + " for investors")
+                self._rule(store, "name every assumption")
+                store.record_learning_applications(
+                    self.TASK + " for investors", session_id="S1", limit=1)
+                shown = [a["rule_uuid"]
+                         for a in store.list_learning_applications(session_id="S1")]
+                store.change_learning_rule_state(shown[0], "deprecated",
+                                                 reason="no longer wanted")
+                with mock.patch.object(
+                        bs.Store, "_historical_corpus",
+                        staticmethod(lambda res, run: (res["results"], ""))):
+                    blind = store.classify_learning_applications()
+                self.assertEqual(blind["counts"]["retrieval_miss"], 1,
+                                 "today's corpus re-ranks the stored run and "
+                                 "reports the opposite cause, which is the defect")
+                self.assertEqual(
+                    store.classify_learning_applications()["retrieval_misses"], [],
+                    "and the refusal is back once the stored count rules")
+
+    def test_the_denominator_printed_is_the_one_the_run_recorded(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gate, proj, res = self._cut_fixture(store)
+                run = store.get_learning_retrieval_run(res["retrieval_uuid"])
+                miss = store.classify_learning_applications()["retrieval_misses"][0]
+                self.assertIn("of the %d rule(s)" % run["eligible_count"],
+                              miss["classification_reason"])
+                self.assertEqual(miss["eligible_at_retrieval"],
+                                 run["eligible_count"])
+
+    # -- which run is the authority is not a coin flip ---------------------
+
+    def test_two_runs_in_the_same_second_are_ordered_by_insertion(self):
+        """created_at has one-second resolution and two retrievals of one task
+        inside a second are routine. The tie used to be broken by the random
+        retrieval_uuid, so which run's limit and context every miss was judged
+        against changed between identical command sequences."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, "lead with the outcome")
+                first = store.record_learning_applications(self.TASK,
+                                                            session_id="S1")
+                second = store.record_learning_applications(self.TASK,
+                                                             session_id="S1")
+                store.conn.execute(
+                    "UPDATE learning_retrieval_runs SET created_at='%s'" % _PAST)
+                store.conn.commit()
+                runs = store.list_learning_retrieval_runs(session_id="S1")
+                self.assertEqual([r["retrieval_uuid"] for r in runs],
+                                 [first["retrieval_uuid"],
+                                  second["retrieval_uuid"]])
+                self.assertEqual(
+                    store._authority_run(list(reversed(runs)))["retrieval_uuid"],
+                    first["retrieval_uuid"],
+                    "the authority run does not depend on argument order")
+
+    def test_calibration_a_uuid_tie_break_picks_the_wrong_authority(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, "lead with the outcome")
+                first = store.record_learning_applications(self.TASK,
+                                                            session_id="S1")
+                second = store.record_learning_applications(self.TASK,
+                                                             session_id="S1")
+                store.conn.execute(
+                    "UPDATE learning_retrieval_runs SET created_at='%s'" % _PAST)
+                store.conn.commit()
+                runs = store.list_learning_retrieval_runs(session_id="S1")
+                by_uuid = sorted(
+                    runs, key=lambda r: (r["created_at"], r["retrieval_uuid"]))
+                # The reinjected defect is only VISIBLE when the random uuids
+                # happen to disagree with insertion order, which is the point:
+                # half of all such pairs graded the wrong run.
+                if by_uuid[0]["retrieval_uuid"] != first["retrieval_uuid"]:
+                    self.assertEqual(by_uuid[0]["retrieval_uuid"],
+                                     second["retrieval_uuid"])
+                self.assertEqual(store._authority_run(runs)["retrieval_uuid"],
+                                 first["retrieval_uuid"])
 
     # -- what it refuses to decide ---------------------------------------
 

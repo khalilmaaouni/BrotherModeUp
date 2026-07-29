@@ -4515,18 +4515,31 @@ class Store(object):
         ("tool", "tool_key"),
     )
 
-    def _write_retrieval_run(self, run_uuid, res, query, fingerprint, excerpt,
+    def _write_retrieval_run(self, run_uuid, res, query, fingerprint,
                              context, limit, session_id, record_uuid, ts):
         """Write the immutable record of ONE retrieval. Caller holds the
         transaction.
 
         Everything here is a fact from the moment of retrieval, and none of it
         is recomputable later: the corpus moves, rules are edited and
-        forgotten, and the caller's limit is not stored anywhere else. The
-        query itself is NOT written. Its hash is, because recognising the same
-        task text coming back needs no copy of the founder's prompt, and the
-        excerpt beside it is the same bounded, scrubbed 500 characters the
-        application row already keeps (empty when the caller passed none).
+        forgotten, and the caller's limit is not stored anywhere else.
+
+        THE PROMPT IS NOT WRITTEN, AND WAS (FIX ROUND P6). The first version
+        defaulted the excerpt to the query itself, so an ordinary `apply` put
+        up to 500 characters of the founder's verbatim task text in this table
+        on the default path, with nothing justified and no way to opt out.
+        What is stored instead is the query HASH, which recognises the same
+        task coming back, and the task's search TERMS: sorted, deduplicated,
+        stopword-free, order destroyed. That set is exactly what the ranker
+        reads, so a past retrieval can still be re-ranked faithfully, and it is
+        not the prompt. A task with more terms than L.MAX_QUERY_TERMS stores
+        none, and classification then refuses to decide rather than re-ranking
+        a truncated set.
+
+        Scope keys are stored WHOLE. safe_display's 200-character cap belongs
+        on a screen, not on a value a rule is looked up by: a longer legal key
+        came back with an ellipsis, stopped matching its own rule, and the miss
+        it should have exposed went silent.
 
         `limit` is stored as the caller passed it, negative values included:
         clamping it to zero here would hide that a caller asked for something
@@ -4537,10 +4550,7 @@ class Store(object):
                   "relationship_key": "", "tool_key": ""}
         for scope_type, column in self._RUN_CONTEXT_COLUMNS:
             supplied = (context or {}).get(scope_type) or ""
-            # safe_display before storage for the same reason scope keys are
-            # refused control characters at approval: this value is printed
-            # back in classification output.
-            values[column] = redact_text(L.safe_display(supplied, 200))
+            values[column] = redact_text(L.storage_key(supplied))
         _exec(self,
               "INSERT INTO learning_retrieval_runs (retrieval_uuid, session_id, "
               "record_uuid, task_fingerprint, task_excerpt, query_hash, "
@@ -4548,7 +4558,7 @@ class Store(object):
               "tool_key, requested_limit, retrieval_mode, eligible_count, "
               "returned_count, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
               (run_uuid, session_id, record_uuid, fingerprint,
-               redact_text(L.safe_display(excerpt, 500)) if excerpt else "",
+               L.query_terms(redact_text(query)),
                L.content_hash(query),
                values["project_key"], values["domain_key"],
                values["artifact_key"], values["relationship_key"],
@@ -4574,11 +4584,28 @@ class Store(object):
         if task_fingerprint:
             clauses.append("task_fingerprint = ?")
             params.append(task_fingerprint)
-        sql = "SELECT * FROM learning_retrieval_runs"
+        # `run_seq` IS THE INSERTION ORDER, AND IT IS HERE BECAUSE created_at
+        # ALONE IS NOT AN ORDER (FIX ROUND P6). created_at has one-second
+        # resolution, two retrievals of the same task inside one second are
+        # routine, and the tie used to be broken by retrieval_uuid, which is
+        # random. Which run the classifier treated as the authority therefore
+        # changed between byte-identical command sequences, and with it the
+        # limit and context every miss was judged against. rowid is monotonic
+        # per insert, needs no column and no migration, and orders the two runs
+        # the way they actually happened.
+        sql = "SELECT *, rowid AS run_seq FROM learning_retrieval_runs"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY created_at, retrieval_uuid"
+        sql += " ORDER BY created_at, rowid"
         return [dict(r) for r in _exec(self, sql, tuple(params)).fetchall()]
+
+    @staticmethod
+    def _authority_run(runs):
+        """The run a task is graded against: the EARLIEST one, deterministically.
+
+        A separate function so the ordering it depends on can be reinjected in
+        a calibration test instead of being asserted about from the outside."""
+        return sorted(runs, key=lambda r: (r["created_at"], r["run_seq"]))[0]
 
     def _run_context(self, run):
         """The scope context as it was AT RETRIEVAL TIME, from the stored row.
@@ -4657,7 +4684,7 @@ class Store(object):
             record_uuid = self._resolve_record_uuid(record_prefix)
             with self._transaction():
                 self._write_retrieval_run(run_uuid, res, query, fingerprint,
-                                          excerpt, context, limit,
+                                          context, limit,
                                           session_id or "", record_uuid, ts)
                 for r in res["results"]:
                     version = int(r["current_version"])
@@ -4898,9 +4925,12 @@ class Store(object):
         A gate is never a limit miss: gates are exempt from the limit by
         construction, so a missing gate is always the harder finding.
 
-        FOUR THINGS IT REFUSES TO DECIDE, each reported rather than guessed:
+        FIVE THINGS IT REFUSES TO DECIDE, each reported rather than guessed:
           - a task whose application rows predate the run table (legacy);
-          - a task that kept no text, so nothing can be re-ranked;
+          - a task that kept no terms, so nothing can be re-ranked;
+          - a task whose rule corpus no longer matches the eligible count the
+            run recorded, so today's ranking is not that retrieval's ranking
+            (see _historical_corpus);
           - a rule whose current version was written AFTER the retrieval, so
             today's text is not the text that would have been ranked;
           - a rule the founder approved after the task ran, which is not a
@@ -4937,20 +4967,21 @@ class Store(object):
         for key in sorted(set(tasks) | set(runs_by_task)):
             sid, fingerprint = key
             group = tasks.get(key, [])
-            # THE EARLIEST run for this task is the authority. A repeat
-            # retrieval of the same task text in the same session may have used
-            # a different limit or context, and the first one is when the
-            # acting model was actually equipped; `retrieval_runs` reports how
-            # many there were so a reader can see the ambiguity rather than
-            # having it silently averaged away.
-            runs = sorted(runs_by_task.get(key, []),
-                          key=lambda r: (r["created_at"], r["retrieval_uuid"]))
+            # THE EARLIEST run for this task is the authority, and earliest is
+            # decided by insertion order, not by a random uuid tie-break on a
+            # one-second timestamp (see _authority_run). A repeat retrieval of
+            # the same task text in the same session may have used a different
+            # limit or context, and the first one is when the acting model was
+            # actually equipped; `retrieval_runs` reports how many there were
+            # so a reader can see the ambiguity rather than having it silently
+            # averaged away.
+            runs = runs_by_task.get(key, [])
             excerpt = ""
             for a in group:
                 if a["task_excerpt"]:
                     excerpt = a["task_excerpt"]
                     break
-            run = runs[0] if runs else None
+            run = self._authority_run(runs) if runs else None
             kind, reason = L.retrieval_evidence(
                 run["retrieval_uuid"] if run else "",
                 (run["task_excerpt"] if run else "") or excerpt)
@@ -4962,21 +4993,34 @@ class Store(object):
             context = self._run_context(run)
             when = run["created_at"]
             requested_limit = max(0, int(run["requested_limit"]))
-            seen = set(a["rule_uuid"] for a in group)
+            # SEEN IS WHAT *THIS* RUN SURFACED, NOT WHAT THE SESSION EVER
+            # SURFACED (FIX ROUND P6). Built from every application row for the
+            # task, a later, wider retrieval of the same text in the same
+            # session marked the cut rules as seen, and the graded run's real
+            # misses vanished. That erased the flagship finding of this loop
+            # under the ordinary founder workflow: limit was too low, raise it,
+            # re-run, and the evidence of the first miss disappeared. Grading
+            # run one with knowledge produced by run two is the same
+            # circularity this loop removed from the context.
+            seen = set(a["rule_uuid"] for a in group
+                       if a["retrieval_uuid"] == run["retrieval_uuid"])
             res = self.retrieve_learning_rules(run["task_excerpt"] or excerpt,
                                                 context=context,
                                                 limit=self._ALL_ELIGIBLE)
+            historical, drift = self._historical_corpus(res, run)
+            if drift:
+                undecidable.append({
+                    "session_id": sid, "task_fingerprint": fingerprint,
+                    "evidence": "corpus_changed_since_retrieval",
+                    "retrieval_uuid": run["retrieval_uuid"],
+                    "reason": drift})
+                continue
             soft_position = 0
-            for r in res["results"]:
+            for r in historical:
                 gate = L.is_gate(r)
                 if not gate:
                     soft_position += 1
                 if r["rule_uuid"] in seen:
-                    continue
-                if r["founder_approved_at"] > when:
-                    # A rule the founder approved AFTER the task ran cannot
-                    # have been missed by it. Without this the classifier would
-                    # blame every past task for not knowing today's rules.
                     continue
                 written = self._current_version_written_at(r["rule_uuid"])
                 if written and written > when:
@@ -5023,8 +5067,14 @@ class Store(object):
                     "classification": cls,
                     "classification_reason":
                         "rule %s was approved before this task ran and ranks %d "
-                        "of %d for it, %s"
-                        % (r["rule_uuid"][:8], r["rank"], res["eligible"], tail)})
+                        "of the %d rule(s) that retrieval found eligible, %s"
+                        # THE DENOMINATOR IS THE STORED ONE. Printing today's
+                        # eligible count beside a stored run made the sentence
+                        # contradict the row it cites (run says 2 eligible,
+                        # line said "1 of 1"). The two can only differ when the
+                        # corpus moved, and that case no longer reaches here.
+                        % (r["rule_uuid"][:8], r["rank"],
+                           int(run["eligible_count"]), tail)})
         counts["retrieval_miss"] = sum(1 for m in misses
                                        if m["miss_kind"] == "relevance")
         counts["retrieval_limit_miss"] = sum(1 for m in misses
@@ -5032,6 +5082,49 @@ class Store(object):
         return {"applications": graded, "retrieval_misses": misses,
                 "not_decidable_tasks": undecidable, "counts": counts,
                 "classes": list(L.FAILURE_CLASSES)}
+
+    @staticmethod
+    def _historical_corpus(res, run):
+        """The rules that can stand in for the corpus AT RETRIEVAL TIME, or a
+        refusal saying why they cannot.
+
+        Returns (rules, drift_reason). A non-empty reason means the caller must
+        report not_decidable and grade nothing.
+
+        WHY THIS EXISTS (FIX ROUND P6). The miss split was decided by re-ranking
+        TODAY's corpus while claiming the stored run as its authority.
+        Deprecating one unrelated rule after the fact moved the missed rule's
+        position and flipped its class from retrieval_limit_miss to
+        retrieval_miss, which is the difference between "your page size was too
+        small" and "your ranking or scope is wrong": opposite fixes, on facts
+        that did not change. Reproduced on the real CLI before this was written.
+
+        TWO STEPS, AND THE ORDER MATTERS.
+          1. Rules the founder approved AFTER the retrieval are dropped. They
+             could not have been in that corpus, and leaving them in inflated
+             the soft positions of the rules that were.
+          2. What remains is COUNTED against the eligible_count the run itself
+             recorded. Equal means today's eligible set can stand in for the
+             one that ran. Different means rules have been deprecated,
+             forgotten or reworded out of eligibility since, the historical
+             corpus is not reconstructable, and the loop's own instruction
+             applies: say not_decidable rather than use the current corpus as
+             if it were historical.
+
+        The count is the strongest check available from what is stored: the run
+        records how many rules were eligible, not which ones. An add and a
+        removal that exactly cancel out still read as equal (KNOWN-LIMITS)."""
+        when = run["created_at"]
+        rules = [r for r in res["results"] if r["founder_approved_at"] <= when]
+        recorded = int(run["eligible_count"])
+        if len(rules) != recorded:
+            return ([], (
+                "the rule corpus has changed since this retrieval: it recorded "
+                "%d eligible rule(s) and %d of today's eligible rules existed "
+                "then, so what would have been retrieved cannot be "
+                "reconstructed and no miss can be attributed"
+                % (recorded, len(rules))))
+        return (rules, "")
 
     def _current_version_written_at(self, rule_uuid):
         """When the rule's CURRENT text was written, or '' if unknowable.
