@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-07-29 v2.0.0-rc.3: V2 becomes the public product, by founder decision
+
+The founder decided, recorded the same day: ship V2 as a release candidate now.
+The repository root previously showed the pre-V2 product; after this release the
+default branch carries V2, so the clone command in the README installs what the
+README describes. The STABLE claim still waits for the real dogfood window and an
+independent audit; this is a release candidate and says so.
+
+What changed in this cut:
+
+- `v2` merged into `main` (fast forward; pre-merge main preserved in a backup
+  branch). One product, one branch, one README.
+- `CHECKSUMS.sha256` regenerated at the tagged commit. The post-audit baseline
+  (docs/POST-AUDIT-BASELINE-2026-07-29.md) records that the previous manifest
+  had drifted 12 commits behind the tree and the verifier correctly refused it.
+- The post-audit execution plan and its frozen baseline ship in `docs/`, with
+  founder decisions recorded inline: Model A approval receipts chosen, four new
+  loops ratified (cross-runtime adapters, packaging, ecosystem launch kit,
+  external beta evidence).
+- Everything in the rc.2 entry below (the correction memory, 598-test gate)
+  is included unchanged.
+
 ## 2026-07-29 (still v2.0.0-rc.2, no version bump): a founder-approved correction memory, documented honestly
 
 No version bump: a release is founder-gated (`docs/RELEASE.md`), and this
