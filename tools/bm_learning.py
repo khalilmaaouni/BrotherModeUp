@@ -852,8 +852,50 @@ APPLICATION_OUTCOMES = ("pending", "accepted", "rework", "escaped_defect",
 # broken. Following a rule into one of these is what makes a rule suspect.
 NEGATIVE_OUTCOMES = ("rework", "escaped_defect", "corrected_again")
 
-FAILURE_CLASSES = ("retrieval_miss", "compliance_failure", "bad_rule",
+# retrieval_limit_miss is SEPARATE from retrieval_miss, and the split is the
+# point (post-audit LOOP P6). Both mean the rule never reached the acting
+# model, but they have different fixes and the founder cannot choose between
+# them if they arrive as one number. A relevance miss says the ranking or the
+# scope was wrong. A limit miss says the ranking was right and the caller's
+# result limit was too small, which is a one-word configuration fix, and
+# burying it inside the same count is how a limit set to 1 stays invisible
+# forever while the retrieval quality looks bad.
+FAILURE_CLASSES = ("retrieval_miss", "retrieval_limit_miss",
+                   "compliance_failure", "bad_rule",
                    "scope_error", "not_decidable")
+
+# How much of a past retrieval can be reconstructed from what was stored.
+# Named rather than free-form because the whole loop turns on refusing to
+# treat a guess as a fact.
+RETRIEVAL_EVIDENCE = ("complete", "legacy", "no_task_text")
+
+
+def retrieval_evidence(retrieval_uuid, task_excerpt):
+    """What can be reconstructed about ONE recorded retrieval. Pure.
+
+    Returns (kind, reason). 'complete' means a retrieval-run row exists, so
+    the task context, the requested limit and the counts are stored facts.
+    'legacy' means the application rows predate the run table: they are real
+    evidence that those rules WERE surfaced, and no evidence at all about
+    what else was retrievable, because the scope context of the day is gone.
+    Reconstructing it from the scope_match values that happen to have been
+    recorded is exactly the invented history this build refuses: a task whose
+    only recorded rule was global would report an empty context, and every
+    project rule it actually missed would be invisible."""
+    if not task_excerpt:
+        # Checked FIRST, and before the run. A run row proves the context and
+        # the limit were kept; it does not conjure text to re-rank, and a task
+        # with no text cannot be re-ranked at all.
+        return ("no_task_text",
+                "no task text was kept for this task, so what else was "
+                "retrievable cannot be reconstructed")
+    if retrieval_uuid:
+        return ("complete", "the retrieval run was recorded, so the task "
+                            "context and the requested limit are stored facts")
+    return ("legacy",
+            "this application predates the retrieval-run record, so the scope "
+            "context and the result limit used at the time were never stored; "
+            "what else was retrievable is incomplete evidence, not zero misses")
 
 # Rule types where ignoring the rule is a decision the founder is entitled to
 # see a reason for. A skipped communication PREFERENCE is a small thing; a
@@ -1026,6 +1068,9 @@ def retrieval_advised(signals=None, gate_rules_exist=False):
 # own words rather than off a loop failure.
 REPEATED_CORRECTION_POLARITY = {
     "retrieval_miss": "neutral",
+    # Same neutrality and the same reason: a rule the result limit cut is not
+    # shown to be wrong and is not shown to work either.
+    "retrieval_limit_miss": "neutral",
     "compliance_failure": "neutral",
     "bad_rule": "contradict",
     "scope_error": "contradict",

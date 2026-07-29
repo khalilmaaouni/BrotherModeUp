@@ -71,7 +71,7 @@ import sqlite3
 import sys
 import uuid
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
@@ -1049,7 +1049,16 @@ _TABLES_RECEIPTS = ("learning_approval_receipts",)
 
 _TABLES_V3 = _TABLES_V2 + _TABLES_RECEIPTS
 
-_TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3}
+# Schema 4 adds the retrieval run (post-audit LOOP P6). Its own tuple for the
+# third time and for the third identical reason: a healthy schema-3 store must
+# be checked against schema 3's table list, or the version check never runs and
+# a store whose only fault is predating the upgrade gets quarantined.
+_TABLES_RETRIEVAL = ("learning_retrieval_runs",)
+
+_TABLES_V4 = _TABLES_V3 + _TABLES_RETRIEVAL
+
+_TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3,
+                      4: _TABLES_V4}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -1270,6 +1279,106 @@ CREATE INDEX IF NOT EXISTS learning_approval_receipts_candidate_idx
 _RECEIPT_DDL_STATEMENTS = _split_ddl(_RECEIPT_DDL)
 _RECEIPT_INDEX_STATEMENTS = _split_ddl(_RECEIPT_INDEX_DDL)
 
+# The retrieval run (schema 4, post-audit LOOP P6). What a row here means: at
+# this moment, for THIS task in THIS scope context, the retrieval was asked for
+# with THESE parameters and returned this many of this many eligible rules.
+#
+# WHY IT EXISTS AS A ROW rather than as fields on the application rows. A
+# retrieval-miss finding is a statement about what was NOT returned, and the
+# rules that were not returned have no application row to hang context on. The
+# classifier used to rebuild the context by reading the scope_match values of
+# the rows that DID land, which is circular: a task where no project rule was
+# returned reported an empty project context, so every project rule it missed
+# was invisible and the miss count read zero. Reproduced on the real CLI before
+# this table was written (limit 0, one global gate and one project rule in
+# scope: the project rule was cut, and classify reported no misses at all).
+#
+# query_hash, NOT the query. The hash is enough to recognise the same task text
+# coming back and useless to anyone reading the file. task_excerpt is the same
+# bounded, scrubbed, redacted 500 characters learning_applications already
+# keeps, mirrored here so a run is self-contained; it is withheld from dump
+# like its twin, and a caller that passes task_excerpt="" stores none of it.
+#
+# eligible_count and returned_count are the DENOMINATOR, recorded at the time.
+# Recomputing them later against today's corpus is the thing this whole loop
+# refuses: rules get added, edited and forgotten, and a denominator that moves
+# under the founder is worse than no denominator.
+_RETRIEVAL_RUN_DDL = """
+CREATE TABLE IF NOT EXISTS learning_retrieval_runs (
+  retrieval_uuid TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL DEFAULT '',
+  record_uuid TEXT REFERENCES records(lifecycle_uuid),
+  task_fingerprint TEXT NOT NULL,
+  task_excerpt TEXT NOT NULL DEFAULT '',
+  query_hash TEXT NOT NULL,
+  project_key TEXT NOT NULL DEFAULT '',
+  domain_key TEXT NOT NULL DEFAULT '',
+  artifact_key TEXT NOT NULL DEFAULT '',
+  relationship_key TEXT NOT NULL DEFAULT '',
+  tool_key TEXT NOT NULL DEFAULT '',
+  requested_limit INTEGER NOT NULL,
+  retrieval_mode TEXT NOT NULL,
+  eligible_count INTEGER NOT NULL,
+  returned_count INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+"""
+
+_RETRIEVAL_RUN_INDEX_DDL = """
+CREATE INDEX IF NOT EXISTS learning_retrieval_runs_task_idx
+  ON learning_retrieval_runs(session_id, task_fingerprint, created_at);
+"""
+
+_RETRIEVAL_RUN_DDL_STATEMENTS = _split_ddl(_RETRIEVAL_RUN_DDL)
+_RETRIEVAL_RUN_INDEX_STATEMENTS = _split_ddl(_RETRIEVAL_RUN_INDEX_DDL)
+
+# The one column added to an existing table by any migration in this project.
+# NULL for every row written before schema 4, and it STAYS null: a legacy
+# application is reported as legacy by classify_learning_applications, never
+# backfilled with a run that did not happen.
+_APPLICATION_RUN_COLUMN = "retrieval_uuid"
+
+_APPLICATION_RUN_COLUMN_DDL = (
+    "ALTER TABLE learning_applications ADD COLUMN retrieval_uuid TEXT "
+    "REFERENCES learning_retrieval_runs(retrieval_uuid)")
+
+
+def _migrate_3_to_4(conn):
+    """Schema 3 to 4: add the retrieval run. ADDITIVE ONLY.
+
+    Also the ONE place schema 4 is applied, to a brand new store as well as to
+    a migrating one (Store._ensure_schema calls this function directly), for
+    the same reason _LEARNING_DDL is shared: two copies of a schema drift, and
+    a fresh store that differs from a migrated one is a bug nobody sees until a
+    founder who has been here since schema 1 hits it alone.
+
+    The ALTER is guarded on the live schema rather than on the version number,
+    which makes the step idempotent in the only way that matters: SQLite has no
+    ADD COLUMN IF NOT EXISTS, and re-running an unguarded ALTER raises
+    "duplicate column name" and would abort the caller's transaction.
+
+    Runs INSIDE the caller's exclusive transaction (Store._migrate_from), so it
+    must never COMMIT, never ROLLBACK and never open its own transaction. See
+    _split_ddl for the incident that proved executescript cannot be used here.
+
+    What it deliberately does NOT do: it does not invent a retrieval run for
+    any application row that already exists. Those retrievals happened without
+    their context being kept, and writing a plausible-looking run for them
+    would manufacture exactly the historical facts this loop exists to stop the
+    classifier from assuming."""
+    for statement in _RETRIEVAL_RUN_DDL_STATEMENTS:
+        conn.execute(statement)
+    for statement in _RETRIEVAL_RUN_INDEX_STATEMENTS:
+        conn.execute(statement)
+    columns = set()
+    for row in conn.execute("PRAGMA table_info(learning_applications)").fetchall():
+        # Index 1 rather than the name, because this runs against both a
+        # Row-factory connection (the live store) and a plain tuple one (a
+        # test building an old store by hand).
+        columns.add(row[1])
+    if _APPLICATION_RUN_COLUMN not in columns:
+        conn.execute(_APPLICATION_RUN_COLUMN_DDL)
+
 
 def _migrate_1_to_2(conn):
     """Schema 1 to 2: add the correction-learning tables. ADDITIVE ONLY.
@@ -1316,6 +1425,7 @@ def _migrate_2_to_3(conn):
 _MIGRATIONS = {
     1: _migrate_1_to_2,
     2: _migrate_2_to_3,
+    3: _migrate_3_to_4,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -1401,6 +1511,11 @@ _DUMP_WITHHELD_COLUMNS = frozenset((
     ("learning_candidates", "raw_text"),
     ("learning_evidence", "excerpt"),
     ("learning_applications", "task_excerpt"),
+    # The same founder text, mirrored onto the retrieval run (LOOP P6). Listed
+    # explicitly rather than by column name alone, because the withhold set is
+    # keyed on (table, column) and a new table carrying the same column name
+    # would otherwise be scrubbed instead of withheld.
+    ("learning_retrieval_runs", "task_excerpt"),
 ))
 
 # FIX ROUND P3, 2026-07-29. redact_text is PATTERN based: it finds things that
@@ -2501,6 +2616,10 @@ class Store(object):
             self.conn.executescript(_LEARNING_DDL)
         if SCHEMA_VERSION >= 3:
             self.conn.executescript(_RECEIPT_DDL)
+        if SCHEMA_VERSION >= 4:
+            # The migration step itself, not a copy of it: see _migrate_3_to_4
+            # on why a fresh store and a migrated store must run one text.
+            _migrate_3_to_4(self.conn)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -2533,6 +2652,8 @@ class Store(object):
             self.conn.executescript(_LEARNING_INDEX_DDL)
         if SCHEMA_VERSION >= 3:
             self.conn.executescript(_RECEIPT_INDEX_DDL)
+        if SCHEMA_VERSION >= 4:
+            self.conn.executescript(_RETRIEVAL_RUN_INDEX_DDL)
 
     def _verify_schema_or_raise(self, migrate=False):
         """CRITICAL A (fix-round 8, reproduced independently: claim alpha on
@@ -4382,6 +4503,94 @@ class Store(object):
         return _exec(self, base + " AND (record_uuid IS NULL OR record_uuid='')"
                      + tail, key).fetchone()
 
+    # The scope types that can appear in a retrieval context, mapped to the
+    # column that stores each one. Written out rather than derived by string
+    # concatenation so a renamed scope type breaks loudly at import review
+    # instead of silently writing a context key into no column at all.
+    _RUN_CONTEXT_COLUMNS = (
+        ("project", "project_key"),
+        ("domain", "domain_key"),
+        ("artifact", "artifact_key"),
+        ("relationship", "relationship_key"),
+        ("tool", "tool_key"),
+    )
+
+    def _write_retrieval_run(self, run_uuid, res, query, fingerprint, excerpt,
+                             context, limit, session_id, record_uuid, ts):
+        """Write the immutable record of ONE retrieval. Caller holds the
+        transaction.
+
+        Everything here is a fact from the moment of retrieval, and none of it
+        is recomputable later: the corpus moves, rules are edited and
+        forgotten, and the caller's limit is not stored anywhere else. The
+        query itself is NOT written. Its hash is, because recognising the same
+        task text coming back needs no copy of the founder's prompt, and the
+        excerpt beside it is the same bounded, scrubbed 500 characters the
+        application row already keeps (empty when the caller passed none).
+
+        `limit` is stored as the caller passed it, negative values included:
+        clamping it to zero here would hide that a caller asked for something
+        impossible, and the retrieval's own clamp is already visible in
+        returned_count."""
+        L = _learning()
+        values = {"project_key": "", "domain_key": "", "artifact_key": "",
+                  "relationship_key": "", "tool_key": ""}
+        for scope_type, column in self._RUN_CONTEXT_COLUMNS:
+            supplied = (context or {}).get(scope_type) or ""
+            # safe_display before storage for the same reason scope keys are
+            # refused control characters at approval: this value is printed
+            # back in classification output.
+            values[column] = redact_text(L.safe_display(supplied, 200))
+        _exec(self,
+              "INSERT INTO learning_retrieval_runs (retrieval_uuid, session_id, "
+              "record_uuid, task_fingerprint, task_excerpt, query_hash, "
+              "project_key, domain_key, artifact_key, relationship_key, "
+              "tool_key, requested_limit, retrieval_mode, eligible_count, "
+              "returned_count, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+              (run_uuid, session_id, record_uuid, fingerprint,
+               redact_text(L.safe_display(excerpt, 500)) if excerpt else "",
+               L.content_hash(query),
+               values["project_key"], values["domain_key"],
+               values["artifact_key"], values["relationship_key"],
+               values["tool_key"], int(limit), res["mode"],
+               int(res["eligible"]), len(res["results"]), ts))
+
+    def get_learning_retrieval_run(self, prefix):
+        rows = _exec(self, "SELECT * FROM learning_retrieval_runs "
+                           "WHERE retrieval_uuid LIKE ?",
+                     (prefix + "%",)).fetchall()
+        return _one_or_refuse(rows, "retrieval run", prefix)
+
+    def list_learning_retrieval_runs(self, session_id=None,
+                                     task_fingerprint=None):
+        clauses, params = [], []
+        if session_id is not None:
+            # `is not None` rather than truthiness, matching
+            # list_learning_applications: the empty string is a REAL session id
+            # in this schema (a caller that recorded without one), and treating
+            # it as "no filter" would silently widen the query.
+            clauses.append("session_id = ?")
+            params.append(session_id)
+        if task_fingerprint:
+            clauses.append("task_fingerprint = ?")
+            params.append(task_fingerprint)
+        sql = "SELECT * FROM learning_retrieval_runs"
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY created_at, retrieval_uuid"
+        return [dict(r) for r in _exec(self, sql, tuple(params)).fetchall()]
+
+    def _run_context(self, run):
+        """The scope context as it was AT RETRIEVAL TIME, from the stored row.
+
+        The one function that turns a run back into the dict retrieval takes,
+        so the reconstruction cannot drift from the recording."""
+        context = {}
+        for scope_type, column in self._RUN_CONTEXT_COLUMNS:
+            if run[column]:
+                context[scope_type] = run[column]
+        return context
+
     def record_learning_applications(self, query, context=None, limit=5,
                                       session_id="", record_prefix=None,
                                       shown_to_model=True, task_excerpt=None):
@@ -4429,11 +4638,27 @@ class Store(object):
         out["already_linked_records"] = []
         out["record_error"] = ""
         out["record_error_kind"] = ""
+        out["retrieval_uuid"] = ""
+        # Echoed back because the CLI prints it beside the run id, and reading
+        # it off the caller's own argument keeps the printed line true even
+        # when the write fails and no run row exists to read it from.
+        out["requested_limit"] = int(limit)
         ts = now_iso()
+        # ONE RUN ROW PER RECORDED RETRIEVAL, including a repeat that records no
+        # new application (LOOP P6). A repeat IS a retrieval: it happened, it
+        # had a limit and a context, and dropping it would leave the ledger
+        # unable to say the rules were asked for a second time. The uuid is
+        # minted before the transaction so the application rows written inside
+        # it can carry it, and the row itself is written inside, so a rollback
+        # takes the run and its applications together.
+        run_uuid = uuid.uuid4().hex
         recorded, already, linked, uuids, elsewhere = 0, 0, 0, [], set()
         try:
             record_uuid = self._resolve_record_uuid(record_prefix)
             with self._transaction():
+                self._write_retrieval_run(run_uuid, res, query, fingerprint,
+                                          excerpt, context, limit,
+                                          session_id or "", record_uuid, ts)
                 for r in res["results"]:
                     version = int(r["current_version"])
                     prior = self._prior_application(
@@ -4465,12 +4690,13 @@ class Store(object):
                           "rule_uuid, rule_version, session_id, record_uuid, "
                           "task_fingerprint, task_excerpt, retrieved_at, "
                           "retrieval_rank, retrieval_score, scope_match, "
-                          "shown_to_model) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                          "shown_to_model, retrieval_uuid) "
+                          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                           (au, r["rule_uuid"], version, session_id or "",
                            record_uuid, fingerprint,
                            redact_text(L.safe_display(excerpt, 500)), ts,
                            int(r["rank"]), score, scope_match,
-                           1 if shown_to_model else 0))
+                           1 if shown_to_model else 0, run_uuid))
                     recorded += 1
                     uuids.append(au)
             out["recorded"] = recorded
@@ -4478,6 +4704,7 @@ class Store(object):
             out["linked"] = linked
             out["applications"] = uuids
             out["already_linked_records"] = sorted(elsewhere)
+            out["retrieval_uuid"] = run_uuid
         except (OwnershipRefused, sqlite3.IntegrityError) as e:
             # PROPERTY 2 above, enforced here and nowhere else. The transaction
             # has already rolled back, so nothing partial survives; the caller
@@ -4652,17 +4879,37 @@ class Store(object):
         retrievable for that task, already approved when the task ran, and has
         no application row at all. That is a retrieval miss.
 
-        Two honest limits, stated rather than discovered later:
-          - The retrieval context is not stored, so it is reconstructed from
-            the scope_match values that WERE recorded. A project rule missed by
-            a task where no project-scoped rule was recorded stays invisible.
-            That undercounts misses, which is the safe direction.
-          - A rule that was eligible but fell below the caller's result limit
-            counts as a miss too, and the finding says at what rank. It did not
-            reach the acting model, which is what the class means, and calling
-            it something softer would hide a limit that is set too low.
-        A task whose excerpt was not kept returns not_decidable rather than a
-        guess."""
+        THE DENOMINATOR COMES FROM THE STORED RUN, NOT FROM A GUESS (LOOP P6).
+        The scope context, the requested limit and the eligible count are read
+        off the learning_retrieval_runs row written when the retrieval actually
+        happened. Before that row existed, the context was rebuilt from the
+        scope_match values of the rows that DID land, which is circular: a task
+        where no project rule was returned reported an empty project context,
+        so every project rule it missed was invisible and the miss count read
+        zero. Reproduced on the real CLI (limit 0, one global gate and one
+        project rule in scope: the project rule was cut and classify reported
+        no misses).
+
+        MISSES ARE SPLIT BY CAUSE, because the fixes differ:
+          - retrieval_miss: the rule ranked INSIDE the limit the caller asked
+            for and still has no application row. Ranking or scope is wrong.
+          - retrieval_limit_miss: the rule ranked outside that limit. The
+            ranking was right and the limit was too small.
+        A gate is never a limit miss: gates are exempt from the limit by
+        construction, so a missing gate is always the harder finding.
+
+        FOUR THINGS IT REFUSES TO DECIDE, each reported rather than guessed:
+          - a task whose application rows predate the run table (legacy);
+          - a task that kept no text, so nothing can be re-ranked;
+          - a rule whose current version was written AFTER the retrieval, so
+            today's text is not the text that would have been ranked;
+          - a rule the founder approved after the task ran, which is not a
+            miss at all and is skipped silently.
+
+        `not_decidable_tasks` entries carry `evidence` naming which of these it
+        was. Every miss carries `miss_kind`, and both kinds stay in
+        `retrieval_misses` so the denominator is not split across two lists;
+        `counts` reports them under their two separate class names."""
         L = _learning()
         apps = self.list_learning_applications(session_id=session_id)
         graded, counts = [], {}
@@ -4677,29 +4924,53 @@ class Store(object):
         tasks = {}
         for a in apps:
             tasks.setdefault((a["session_id"], a["task_fingerprint"]), []).append(a)
+        # THE MISS PASS WALKS RUNS, NOT APPLICATION ROWS. A retrieval that
+        # returned nothing at all has no application row to be found by, and it
+        # is exactly the retrieval most worth grading: with the pass keyed on
+        # application rows, a limit that cut every rule produced no findings
+        # because it produced no rows.
+        runs_by_task = {}
+        for run in self.list_learning_retrieval_runs(session_id=session_id):
+            runs_by_task.setdefault(
+                (run["session_id"], run["task_fingerprint"]), []).append(run)
         misses, undecidable = [], []
-        for (sid, fingerprint), group in sorted(tasks.items()):
+        for key in sorted(set(tasks) | set(runs_by_task)):
+            sid, fingerprint = key
+            group = tasks.get(key, [])
+            # THE EARLIEST run for this task is the authority. A repeat
+            # retrieval of the same task text in the same session may have used
+            # a different limit or context, and the first one is when the
+            # acting model was actually equipped; `retrieval_runs` reports how
+            # many there were so a reader can see the ambiguity rather than
+            # having it silently averaged away.
+            runs = sorted(runs_by_task.get(key, []),
+                          key=lambda r: (r["created_at"], r["retrieval_uuid"]))
             excerpt = ""
             for a in group:
                 if a["task_excerpt"]:
                     excerpt = a["task_excerpt"]
                     break
-            if not excerpt:
+            run = runs[0] if runs else None
+            kind, reason = L.retrieval_evidence(
+                run["retrieval_uuid"] if run else "",
+                (run["task_excerpt"] if run else "") or excerpt)
+            if kind != "complete":
                 undecidable.append({
                     "session_id": sid, "task_fingerprint": fingerprint,
-                    "reason": "no task text was kept for this task, so what else "
-                              "was retrievable cannot be reconstructed"})
+                    "evidence": kind, "reason": reason})
                 continue
-            context = {}
-            for a in group:
-                if a["scope_match"] and ":" in a["scope_match"]:
-                    kind, key = a["scope_match"].split(":", 1)
-                    context[kind] = key
-            when = min(a["retrieved_at"] for a in group)
+            context = self._run_context(run)
+            when = run["created_at"]
+            requested_limit = max(0, int(run["requested_limit"]))
             seen = set(a["rule_uuid"] for a in group)
-            res = self.retrieve_learning_rules(excerpt, context=context,
+            res = self.retrieve_learning_rules(run["task_excerpt"] or excerpt,
+                                                context=context,
                                                 limit=self._ALL_ELIGIBLE)
+            soft_position = 0
             for r in res["results"]:
+                gate = L.is_gate(r)
+                if not gate:
+                    soft_position += 1
                 if r["rule_uuid"] in seen:
                     continue
                 if r["founder_approved_at"] > when:
@@ -4707,24 +4978,75 @@ class Store(object):
                     # have been missed by it. Without this the classifier would
                     # blame every past task for not knowing today's rules.
                     continue
+                written = self._current_version_written_at(r["rule_uuid"])
+                if written and written > when:
+                    # The rule existed, but not in THIS shape. Ranking today's
+                    # text and calling the result a historical miss would blame
+                    # a rule for wording it did not have, which is precisely the
+                    # attribution error this loop was told to refuse.
+                    undecidable.append({
+                        "session_id": sid, "task_fingerprint": fingerprint,
+                        "rule_uuid": r["rule_uuid"],
+                        "evidence": "rule_changed_since_retrieval",
+                        "reason":
+                            "rule %s has been rewritten since this retrieval "
+                            "(version %s written %s, retrieval %s), so whether "
+                            "it would have been retrieved then cannot be "
+                            "decided from today's text"
+                            % (r["rule_uuid"][:8], r["current_version"],
+                               written, when)})
+                    continue
+                if gate or soft_position <= requested_limit:
+                    miss_kind, cls = "relevance", "retrieval_miss"
+                    tail = ("but no application row exists, so it never "
+                            "reached the acting model")
+                else:
+                    miss_kind, cls = "limit", "retrieval_limit_miss"
+                    tail = ("but the retrieval asked for %d soft rule(s) and "
+                            "this one sat at soft position %d, so the result "
+                            "limit cut it before the acting model saw it"
+                            % (requested_limit, soft_position))
                 misses.append({
                     "session_id": sid, "task_fingerprint": fingerprint,
                     "rule_uuid": r["rule_uuid"], "rank": r["rank"],
+                    "retrieval_uuid": run["retrieval_uuid"],
+                    "requested_limit": int(run["requested_limit"]),
+                    "eligible_at_retrieval": int(run["eligible_count"]),
+                    "returned_at_retrieval": int(run["returned_count"]),
+                    "retrieval_runs": len(runs),
+                    "miss_kind": miss_kind,
                     # The task's own timestamp, so a review window can include
                     # or exclude this miss. A miss has no row of its own, and
                     # without this it would be undateable and would therefore
                     # appear in every window forever.
                     "task_retrieved_at": when,
-                    "classification": "retrieval_miss",
+                    "classification": cls,
                     "classification_reason":
                         "rule %s was approved before this task ran and ranks %d "
-                        "of %d for it, but no application row exists, so it "
-                        "never reached the acting model"
-                        % (r["rule_uuid"][:8], r["rank"], res["eligible"])})
-        counts["retrieval_miss"] = len(misses)
+                        "of %d for it, %s"
+                        % (r["rule_uuid"][:8], r["rank"], res["eligible"], tail)})
+        counts["retrieval_miss"] = sum(1 for m in misses
+                                       if m["miss_kind"] == "relevance")
+        counts["retrieval_limit_miss"] = sum(1 for m in misses
+                                             if m["miss_kind"] == "limit")
         return {"applications": graded, "retrieval_misses": misses,
                 "not_decidable_tasks": undecidable, "counts": counts,
                 "classes": list(L.FAILURE_CLASSES)}
+
+    def _current_version_written_at(self, rule_uuid):
+        """When the rule's CURRENT text was written, or '' if unknowable.
+
+        Not the rule's creation date: the version's. A rule created last year
+        and rewritten this morning has today's text, and ranking that text
+        against a retrieval from last year proves nothing about what the
+        retrieval would have returned."""
+        row = _exec(self,
+                    "SELECT v.created_at AS at FROM learning_rules r "
+                    "JOIN learning_rule_versions v "
+                    "  ON v.rule_uuid = r.rule_uuid "
+                    " AND v.version = r.current_version "
+                    "WHERE r.rule_uuid = ?", (rule_uuid,)).fetchone()
+        return row["at"] if row else ""
 
     # -----------------------------------------------------------------
     # Loop 8: external grading.
@@ -5147,15 +5469,31 @@ class Store(object):
         counts = {}
         for name in L.FAILURE_CLASSES:
             counts[name] = len(by_class.get(name, ()))
-        counts["retrieval_miss"] += len(misses)
+        # Counted under their own names (LOOP P6). Folding a limit miss into
+        # retrieval_miss would tell the founder his retrieval is bad when his
+        # page size is small, and those have different fixes.
+        counts["retrieval_miss"] += sum(1 for m in misses
+                                        if m.get("miss_kind") == "relevance")
+        counts["retrieval_limit_miss"] += sum(1 for m in misses
+                                              if m.get("miss_kind") == "limit")
         notes = []
         if not apps and not misses:
             notes.append("no rule application falls in this window, so every "
                          "class below is not measured rather than zero")
-        if graded["not_decidable_tasks"]:
-            notes.append("%d task(s) kept no text, so what else was retrievable "
-                         "for them cannot be reconstructed"
-                         % len(graded["not_decidable_tasks"]))
+        for kind, sentence in (
+                ("no_task_text",
+                 "%d task(s) kept no text, so what else was retrievable for "
+                 "them cannot be reconstructed"),
+                ("legacy",
+                 "%d task(s) predate the retrieval-run record, so their misses "
+                 "are incomplete evidence rather than zero"),
+                ("rule_changed_since_retrieval",
+                 "%d rule(s) have been rewritten since the retrieval that "
+                 "might have missed them, so those are not decidable")):
+            n = sum(1 for u in graded["not_decidable_tasks"]
+                    if u.get("evidence") == kind)
+            if n:
+                notes.append(sentence % n)
         return {
             "window_days": window_days, "since": since,
             "applications_in_window": len(apps),
