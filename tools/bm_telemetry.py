@@ -320,13 +320,26 @@ def parse_transcript(path, collect_user_texts=False):
 # and keep the file owner-only. This is best-effort pattern matching, not a
 # guarantee: treat the file as sensitive and purge it when you no longer need it
 # (tools/bm_telemetry.py purge-corrections).
+#
+# LOOP 12, CRITICAL. Every vendor pattern below used to be anchored with \b, and
+# Python counts "_" as a word character. So a secret with any word character in
+# front of it never matched at all: OPENAI_KEY_sk-live_..., AWSKEY_AKIA...,
+# GITHUB_ghp_... and nid_123-45-6789 all went to disk in cleartext while the
+# redaction count recorded 0, which is the one signal a reviewer gets that the
+# text was touched. _BEFORE and _AFTER are the boundary this file actually
+# means: letters and digits bind a token, separators do not. "task-oriented"
+# still does not trip the sk-/rk- pattern, because the character before "sk"
+# there is a letter.
+_BEFORE = r"(?<![A-Za-z0-9])"
+_AFTER = r"(?![A-Za-z0-9])"
+
 SECRET_PATTERNS = [
-    re.compile(r"\b(sk|rk)[-_][A-Za-z0-9_-]{12,}", re.I),           # api keys
-    re.compile(r"\bgh[oprsu]_[A-Za-z0-9]{16,}"),                     # github tokens
-    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"),
-    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),                            # aws key id
-    re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}", re.I),             # slack
-    re.compile(r"\b[Bb]earer\s+[A-Za-z0-9._~+/=-]{16,}"),
+    re.compile(_BEFORE + r"(sk|rk)[-_][A-Za-z0-9_-]{12,}", re.I),   # api keys
+    re.compile(_BEFORE + r"gh[oprsu]_[A-Za-z0-9]{16,}"),             # github tokens
+    re.compile(_BEFORE + r"github_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(_BEFORE + r"AKIA[0-9A-Z]{16}" + _AFTER),             # aws key id
+    re.compile(_BEFORE + r"xox[abprs]-[A-Za-z0-9-]{10,}", re.I),     # slack
+    re.compile(_BEFORE + r"[Bb]earer\s+[A-Za-z0-9._~+/=-]{16,}"),
     # A private key is a BLOCK, not a line. Matching only the -----BEGIN-----
     # header left every line of base64 key material after it going to disk,
     # while SECURITY.md claims private keys are redacted. Prefer the real
@@ -336,17 +349,26 @@ SECRET_PATTERNS = [
     re.compile(r"-----BEGIN[ A-Z]*PRIVATE KEY-----"
                r"(?:[\s\S]*?-----END[ A-Z]*PRIVATE KEY-----"
                r"|(?:\s*[A-Za-z0-9+/=]{16,})*)"),
-    re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),      # jwt
+    re.compile(_BEFORE + r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),  # jwt
     # key=value and key: value where the key names a secret
     # key=value, key: value, and the natural-language "the password is hunter2".
     # Over-redaction is deliberate here: a masked non-secret costs nothing, a
     # stored secret costs a lot.
-    # Leading [A-Za-z0-9_]* so PROD_DB_PASSWORD= matches as well as password=.
-    re.compile(r"(?i)[A-Za-z0-9_]*(?:pass(?:word|wd|phrase)?|secret|token"
-               r"|api[_-]?key|access[_-]?key|private[_-]?key|credential)s?"
-               r"\s*(?:[:=]|\s+(?:is|was)\s+)\s*\S+"),
-    re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),                          # us ssn shape
-    re.compile(r"\b(?:\d[ -]?){13,16}\b"),                          # card-ish digits
+    # Leading prefix so PROD_DB_PASSWORD= matches as well as password=.
+    #
+    # LOOP 12: that prefix used to be an UNBOUNDED [A-Za-z0-9_]*, retried at
+    # every offset of a long alphanumeric run, which made this pattern O(n^2).
+    # Store.import_correction_inbox redacts the FULL untruncated inbox text, and
+    # the inbox is one file shared by every project on this machine, so one
+    # 20 KB row stalled the import for 75 seconds and a 4 MB row never finished.
+    # The {0,40} bound is what removes the retry: "PROD_DB_" is 8 characters,
+    # 40 is generous, and the boundary in front stops the scan restarting
+    # mid-word. 32 KB now redacts in milliseconds instead of 39 seconds.
+    re.compile(_BEFORE + r"[A-Za-z0-9_]{0,40}(?:pass(?:word|wd|phrase)?"
+               r"|secret|token|api[_-]?key|access[_-]?key|private[_-]?key"
+               r"|credential)s?\s*(?:[:=]|\s+(?:is|was)\s+)\s*\S+", re.I),
+    re.compile(_BEFORE + r"\d{3}-\d{2}-\d{4}" + _AFTER),           # us ssn shape
+    re.compile(_BEFORE + r"(?:\d[ -]?){13,16}" + _AFTER),           # card-ish digits
 ]
 
 
@@ -491,7 +513,21 @@ def scan_corrections(sid, project, user_texts):
             if xred:
                 rec["prev_response_redactions"] = xred
         if paired.get("artifacts"):
-            rec["artifacts"] = list(paired["artifacts"])[:PAIRED_ARTIFACTS]
+            # LOOP 12: these are file_path / notebook_path / path strings lifted
+            # straight out of tool_use inputs, and they were written verbatim
+            # while both neighbouring fields above went through redact(). Paths
+            # carry secrets routinely: a token-named key file, a per-tenant
+            # directory, a temp dir built from a credential. Same redactor, same
+            # counter, so the record cannot claim zero redactions while holding
+            # a secret-shaped path.
+            arts, ared = [], 0
+            for art in list(paired["artifacts"])[:PAIRED_ARTIFACTS]:
+                clean_art, k = redact(art)
+                arts.append(clean_art)
+                ared += k
+            rec["artifacts"] = arts
+            if ared:
+                rec["artifact_redactions"] = ared
         atomic_append(CORRECTIONS, rec, mode=0o600)
         seen.add(key)
         found += 1
