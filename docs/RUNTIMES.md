@@ -22,12 +22,12 @@ Retrieval and the store CLI need no such column. They are ordinary local process
 | Runtime | Instruction file | Store and retrieval CLI | Hook points | BrotherMode hooks |
 |---|---|---|---|---|
 | Claude Code | CLAUDE.md and SKILL.md (native, see docs/SETUP.md) | yes | yes | YES, this is the one verified runtime |
-| Generic AGENTS.md | AGENTS | yes | none found | not applicable, no hook points |
-| OpenAI Codex CLI | AGENTS | yes | yes: SessionStart, SessionEnd, PreToolUse, PostToolUse, and 7 more | UNVERIFIED, payload shape not captured |
-| GitHub Copilot |  | yes | none found | not applicable, no hook points |
-| Google Antigravity | A markdown rules file inside the | yes | yes: PreToolUse, PostToolUse, PreInvocation, PostInvocation, and 1 more | UNVERIFIED, payload shape not captured |
-| Qwen Code | QWEN | yes | yes: SessionStart, SessionEnd, PreToolUse, PostToolUse, and 12 more | UNVERIFIED, payload shape not captured |
-| iFlow CLI | IFLOW | yes | none found | not applicable, no hook points |
+| Generic AGENTS.md | `AGENTS.md` | yes | none found | not applicable, no hook points |
+| OpenAI Codex CLI | `AGENTS.md` | yes | yes: SessionStart, SessionEnd, PreToolUse, PostToolUse, and 7 more | UNVERIFIED, payload shape not captured |
+| GitHub Copilot | `.github/copilot-instructions.md` | yes | none found | not applicable, no hook points |
+| Google Antigravity | `.agents/rules/brothermode.md` | yes | yes: PreToolUse, PostToolUse, PreInvocation, PostInvocation, and 1 more | UNVERIFIED, payload shape not captured |
+| Qwen Code | `QWEN.md` | yes | yes: SessionStart, SessionEnd, PreToolUse, PostToolUse, and 12 more | UNVERIFIED, payload shape not captured |
+| iFlow CLI | `IFLOW.md` | yes | none found | not applicable, no hook points |
 
 ## Per runtime detail
 
