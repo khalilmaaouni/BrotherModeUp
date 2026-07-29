@@ -640,34 +640,46 @@ class TestOffReportsHonestly(unittest.TestCase):
         return _run_threads(a, cwd)
 
     def test_off_says_incomplete_and_keeps_the_thread_alive(self):
-        # Finding 5 (V1): with STATE.md unwritable the registry correctly
-        # refused to park anything, but `off` still flipped the mode and
-        # reported "nothing to absorb": the exact opposite of the truth. The
-        # new `off` must name the failure and refuse to flip the mode.
-        if hasattr(os, "geteuid") and os.geteuid() == 0:
-            self.skipTest("running as root: file permissions cannot be made to block a write")
+        # Finding 5 (V1): `off` flipped the mode and reported "nothing to
+        # absorb" while nothing had actually been parked, the exact opposite
+        # of the truth. It must still name a real failure and refuse to flip.
+        #
+        # LOOP P12 changed WHICH failures can happen. The old version of this
+        # test made STATE.md read-only, because STATE.md was where a handover
+        # lived; it also skipped on most machines, since write_state_view
+        # os.replace()s into a writable directory and a read-only file does
+        # not stop it. Handovers are store rows now, so the failure that
+        # genuinely blocks a drain is the store refusing the transition. That
+        # is what is injected here, and the founder-visible contract is
+        # unchanged: named failure, mode stays ON, record stays ACTIVE.
         with tempfile.TemporaryDirectory() as d:
-            self._run(d, "on")
-            self._run(d, "start", "payments", "pay", "--files", "api/pay.py")
-            self._run(d, "checkpoint", "payments", "--next", "wire the webhook handler")
-            state_path = os.path.join(d, "STATE.md")
-            io.open(state_path, "w").write("# Project STATE\n")
-            before = io.open(state_path).read()
-            os.chmod(state_path, stat.S_IREAD)
+            mod = _fresh_threads_module("off_incomplete")
+            store_mod = mod._store()
+            with contextlib.redirect_stdout(io.StringIO()):
+                _run_threads(["on"], d)
+                _run_threads(["start", "payments", "pay", "--files", "api/pay.py"], d)
+                _run_threads(["checkpoint", "payments", "--next",
+                              "wire the webhook handler"], d)
+            real = store_mod.Store.transition
+
+            def refuse(self_store, *a, **k):
+                raise store_mod.OwnershipRefused(
+                    "injected-refusal", "injected: the store refused this park")
+            store_mod.Store.transition = refuse
             try:
-                r = self._run(d, "off")
-                if io.open(state_path).read() != before:
-                    self.skipTest("could not make STATE.md unwritable in this environment")
-                self.assertEqual(r.returncode, 2, r.stdout)
-                self.assertIn("HANDOVER INCOMPLETE", r.stdout)
-                mode = json.load(io.open(os.path.join(d, "threads", "thread-mode.json")))
-                self.assertEqual(mode["mode"], "on",
-                                 "mode must not flip to off when the handover failed")
-                rec = _record(d, "payments")
-                self.assertEqual(rec["state"], "active",
-                                 "the record must stay active so a retry can still absorb it")
+                code, out = _call_thread_cmd_in_process(d, mod.cmd_off, [])
             finally:
-                os.chmod(state_path, stat.S_IREAD | stat.S_IWRITE)
+                store_mod.Store.transition = real
+            self.assertEqual(code, 2, out)
+            self.assertIn("HANDOVER INCOMPLETE", out)
+            self.assertIn("injected: the store refused this park", out,
+                          "the founder must be told WHY: %s" % out)
+            mode = json.load(io.open(os.path.join(d, "threads", "thread-mode.json")))
+            self.assertEqual(mode["mode"], "on",
+                             "mode must not flip to off when the drain failed")
+            rec = _record(d, "payments")
+            self.assertEqual(rec["state"], "active",
+                             "the record must stay active so a retry can still absorb it")
 
     def test_off_reports_nothing_to_absorb_when_no_active_persistent_records_exist(self):
         # The other half of V1's finding 5: "nothing to absorb" must keep
@@ -834,21 +846,27 @@ class TestLiveSessionAdoptGate(unittest.TestCase):
             self.assertEqual(_record(d, "payments")["state"], "adopted")
 
     def test_calibrated_gate3_reinjecting_deliver_then_transition_corrupts_state_md(self):
-        # CALIBRATION: reinject the OLD order (deliver the handover, THEN
-        # attempt the transition) onto the real PRODUCT symbol
-        # threads_mod._adopt_core, called IN-PROCESS (a subprocess re-execs
-        # bm_threads.py fresh and could never see this monkeypatch), and
-        # confirm the SAME refused adopt now corrupts STATE.md with a LIVE
-        # thread's handover -- the exact GATE 3 defect.
+        # CALIBRATION, updated for LOOP P12. The GATE 3 defect was ORDER:
+        # deliver the handover, THEN attempt the transition, so a REFUSED
+        # adopt still permanently recorded a LIVE thread as adopted. The fix
+        # then was to reorder; the fix NOW is that there is no second step to
+        # order at all (the handover row is written inside the transition).
+        # This reinjects the old two-step, deliver-first shape onto the real
+        # product symbol threads_mod._adopt_core, in-process, and confirms the
+        # SAME refused adopt still produces a handover for an adoption that
+        # never happened. Written against the store rather than STATE.md,
+        # because the store is where handover truth lives now.
         def _old_deliver_then_transition(store, root, rec, session_id, adopt_live, name):
             luid = rec["lifecycle_uuid"]
-            outcome = threads_mod._deliver_handover_once(
-                root, store, luid,
-                "Adopted from dead/stalled thread: %s" % threads_mod._protect(name))
-            result = store.transition(luid, rec["version"], "adopted",
-                                       session_id=session_id, note="adopted by the chief",
-                                       adopt_from_live_session=adopt_live)
-            return outcome, result
+            # Step one, on its own: a handover for an adoption nobody approved.
+            with store._transaction():
+                store._insert_handover(
+                    luid, None,
+                    "Adopted from dead/stalled thread: %s" % threads_mod._protect(name))
+            # Step two, which is the one that gets refused.
+            return store.transition(luid, rec["version"], "adopted",
+                                     session_id=session_id, note="adopted by the chief",
+                                     adopt_from_live_session=adopt_live)
 
         with tempfile.TemporaryDirectory() as d:
             _run_threads(["on"], d)
@@ -861,15 +879,23 @@ class TestLiveSessionAdoptGate(unittest.TestCase):
             finally:
                 threads_mod._adopt_core = original
             self.assertEqual(code, 2, printed)
-            state = _read(os.path.join(d, "STATE.md"))
-            self.assertIn(
-                "Adopted from dead/stalled thread", state,
-                "REINJECTION CHECK: with the old deliver-then-transition order "
-                "restored, a REFUSED adopt must still corrupt STATE.md with a LIVE "
-                "thread's handover, reproducing GATE 3; if this assertion fails, "
-                "the test above is not calibrated to the defect it claims to catch")
+            store = bs.Store(d, create=False)
+            try:
+                orphans = bs._exec(store, "SELECT * FROM handovers").fetchall()
+            finally:
+                store.close()
+            self.assertEqual(
+                len(orphans), 1,
+                "REINJECTION CHECK: with the old deliver-then-transition shape "
+                "restored, a REFUSED adopt must still leave a handover for an "
+                "adoption that never committed, reproducing GATE 3; if this "
+                "assertion fails, the test above is not calibrated to the defect "
+                "it claims to catch")
+            self.assertIsNone(orphans[0]["transition_id"],
+                              "the orphan is exactly the shape the schema now forbids: "
+                              "a handover with no transition behind it")
             rec = _record(d, "payments", states=("active",))
-            self.assertIsNotNone(rec, "only the delivered TEXT should have leaked, "
+            self.assertIsNotNone(rec, "only the handover should have leaked, "
                                  "not the record's own state")
 
 
@@ -1314,13 +1340,24 @@ class TestPartialOffAtomicity(unittest.TestCase):
                     mod.cmd_start(["beta", "b", "--files", "api/b.py"])
                     mod.cmd_checkpoint(["alpha", "--next", "next: A"])
                     mod.cmd_checkpoint(["beta", "--next", "next: B"])
-                real = mod._deliver_handover_once
+                # LOOP P12: the injection point moved with the code. The
+                # handover is no longer a separate call `off` makes, so the
+                # failure is injected where it now lives, inside the store's
+                # transaction. Beta's park must therefore roll back WITH its
+                # handover, which is a stronger result than before: beta ends
+                # with no handover AND no transition, not merely unparked.
+                store_mod = mod._store()
+                real = store_mod.Store._insert_handover
 
-                def beta_fails(root, store, lifecycle_uuid, heading):
+                def beta_fails(self_store, lifecycle_uuid, transition_id, heading,
+                               **kwargs):
                     if "beta" in heading:
-                        return False
-                    return real(root, store, lifecycle_uuid, heading)
-                mod._deliver_handover_once = beta_fails
+                        raise store_mod.OwnershipRefused(
+                            "injected-handover-failure",
+                            "injected: beta's handover cannot be built")
+                    return real(self_store, lifecycle_uuid, transition_id, heading,
+                                **kwargs)
+                store_mod.Store._insert_handover = beta_fails
                 try:
                     with contextlib.redirect_stdout(io.StringIO()), \
                          contextlib.redirect_stderr(io.StringIO()):
@@ -1329,7 +1366,7 @@ class TestPartialOffAtomicity(unittest.TestCase):
                         except SystemExit:
                             pass
                 finally:
-                    mod._deliver_handover_once = real
+                    store_mod.Store._insert_handover = real
             finally:
                 os.chdir(old)
             self.assertEqual(_record(d, "alpha")["state"], "parked",
@@ -1411,16 +1448,35 @@ class TestArchitecturalGuards(unittest.TestCase):
                          "cmd_attribute was deleted (fix-round 2026-07-26); it must not come back "
                          "without a store-backed spend concept to port it onto")
 
-    def test_handover_delivery_has_exactly_one_owner(self):
-        # THE ARCHITECTURAL GUARD, carried over from V1's own version of this
-        # test: delivering a handover into the project STATE.md may happen in
-        # exactly one place, so a new writer that appends its own fails here
-        # rather than shipping and waiting to be caught.
-        src = io.open(os.path.join(HERE, "bm_threads.py"), encoding="utf-8").read()
-        callers = [ln.strip() for ln in src.splitlines() if 'io.open(state_path, "a"' in ln]
-        self.assertEqual(len(callers), 1,
-                         "exactly one function may append to the project STATE.md "
-                         "(_deliver_handover_once); found: %s" % callers)
+    def test_nothing_appends_to_the_project_state_md_any_more(self):
+        # THE ARCHITECTURAL GUARD, carried from V1 and TIGHTENED by LOOP P12.
+        # It used to require exactly ONE appender (_deliver_handover_once);
+        # handovers are store rows now and STATE.md is a generated view, so
+        # the correct number of appenders is ZERO and
+        # bm_store.write_state_view is the only writer of that file anywhere.
+        # A future writer that appends its own text fails here rather than
+        # shipping and waiting for the erase-versus-duplicate race to be
+        # rediscovered.
+        threads_src = io.open(os.path.join(HERE, "bm_threads.py"), encoding="utf-8").read()
+        appenders = [ln.strip() for ln in threads_src.splitlines()
+                     if 'STATE_FILENAME' in ln and '"a"' in ln]
+        self.assertEqual(appenders, [],
+                         "nothing may append to the project STATE.md: %s" % appenders)
+        self.assertNotIn('io.open(state_path, "a"', threads_src)
+        writers = []
+        for fn in sorted(os.listdir(HERE)):
+            if not fn.endswith(".py") or fn.startswith("test_"):
+                continue
+            src = io.open(os.path.join(HERE, fn), encoding="utf-8").read()
+            for ln in src.splitlines():
+                stripped = ln.strip()
+                if stripped.startswith("#"):
+                    continue
+                if '"STATE.md"' in stripped and (
+                        "safe_project_path" in stripped or "_atomic_write" in stripped):
+                    writers.append((fn, stripped))
+        self.assertTrue(all(fn == "bm_store.py" for fn, _ in writers),
+                        "only bm_store.py may write the project STATE.md: %s" % writers)
 
     def test_root_resolution_is_independent_of_the_calling_subdirectory(self):
         # Closes the "working directory as identity" defect for thread
@@ -2381,228 +2437,314 @@ class TestFinding10AmbiguousNamesAlwaysRefuse(unittest.TestCase):
                           "its own copy" % command)
 
 
-class TestFinding12HandoverDeliveryIsSerializedAndVerified(unittest.TestCase):
-    """FINDING 12 (external audit 2026-07-27, HIGH): _deliver_handover_once
-    did an UNLOCKED check-then-append on STATE.md while
-    bm_store.write_state_view independently read, rebuilt and atomically
-    REPLACED the same file. Interleaved, that duplicates a handover or
-    erases one.
+class TestPostAuditLoopP12TransactionalHandovers(unittest.TestCase):
+    """LOOP P12. FINDING 12's lock is deleted and so is the append it guarded.
 
-    THIS IS THE IN-FENCE MITIGATION, NOT THE TRANSACTIONAL FIX. The real fix
-    stores handovers in sqlite and GENERATES them into the view; that needs a
-    new table in bm_store.py, which is outside this change's fence, and its
-    shape is recorded in bm_threads._FOLLOWUP_TRANSACTIONAL_HANDOVERS. What
-    is proven here is what the mitigation actually delivers: this module's
-    own STATE.md writes are serialized behind one lock, and an append that
-    does not survive is never reported as delivered."""
+    THE DEFECT, reproduced against a real store on 2026-07-29 before the
+    change: bm_threads appended a handover to the project root STATE.md while
+    bm_store.write_state_view independently read, rebuilt and REPLACED the same
+    file taking no lock at all. Park the record, deliver the handover, let the
+    replace land on its earlier snapshot, and the record reads 'parked' with
+    the handover text gone from disk and no second copy anywhere.
 
-    def _thread_with_a_handover(self, d, mod):
+    THE FIX: a handovers table, and the row is INSERTed inside the same sqlite
+    transaction as the lifecycle transition that produced it. STATE.md becomes
+    a pure render of undelivered rows. These tests are the plan's required
+    list: transition-commit failure leaves no handover, handover-insert failure
+    leaves no transition, render failure preserves database truth, retry after
+    a render failure does not duplicate, refused adoption changes nothing and
+    writes nothing, and concurrent handovers serialize through the store."""
+
+    def _thread(self, d, name="alpha", session="s1"):
         _run_threads(["on"], d)
-        _run_threads(["start", "alpha", "ship it", "--files", "api/a.py",
-                      "--session", "s1"], d)
-        _run_threads(["checkpoint", "alpha", "--next", "wire the webhook"], d)
-        return _identity_rows(d, "alpha")[0]["lifecycle_uuid"]
+        _run_threads(["start", name, "ship it", "--files", "api/%s.py" % name,
+                      "--session", session], d)
+        _run_threads(["checkpoint", name, "--next", "wire the webhook"], d)
+        return _identity_rows(d, name)[0]
 
-    def _deliver_twice_concurrently(self, root, mod, luid):
-        """Two deliveries of the SAME handover, forced to overlap: each waits
-        at a barrier the first time it checks whether the tag is already
-        there. With the lock, the second one cannot even reach the barrier
-        until the first has finished, so the barrier times out and the pair
-        is serialized; without it, both check before either appends."""
-        import threading
-        barrier = threading.Barrier(2)
-        real_landed = mod._handover_landed
-        first_call = {}
+    def _handover_rows(self, root, undelivered_only=False):
+        store = bs.Store(root, create=False)
+        try:
+            if undelivered_only:
+                return [dict(r) for r in store.undelivered_handovers()]
+            return [dict(r) for r in bs._exec(
+                store, "SELECT * FROM handovers ORDER BY rowid").fetchall()]
+        finally:
+            store.close()
 
-        def landed_at_the_barrier(state_path, tag):
-            # Keyed by THREAD, not by tag: both threads deliver the same tag,
-            # so a tag-keyed flag let the second one skip the barrier and the
-            # pair never overlapped at all (the harness proved nothing).
-            key = threading.get_ident()
-            if not first_call.get(key):
-                first_call[key] = True
-                try:
-                    barrier.wait(timeout=2)
-                except threading.BrokenBarrierError:
-                    pass
-            return real_landed(state_path, tag)
-
-        mod._handover_landed = landed_at_the_barrier
-        outcomes = []
-        lock = threading.Lock()
-
-        def deliver():
-            store = bs.Store(root, create=False)
+    def test_a_park_and_its_handover_commit_together(self):
+        with tempfile.TemporaryDirectory() as d:
+            rec = self._thread(d)
+            store = bs.Store(d, create=False)
             try:
-                out = mod._deliver_handover_once(root, store, luid, "Drained: alpha")
+                store.transition(rec["lifecycle_uuid"], rec["version"], "parked",
+                                  session_id="s1", note="drained",
+                                  handover_heading="Drained: alpha")
             finally:
                 store.close()
-            with lock:
-                outcomes.append(out)
+            rows = self._handover_rows(d)
+            self.assertEqual(len(rows), 1, rows)
+            self.assertEqual(rows[0]["lifecycle_uuid"], rec["lifecycle_uuid"])
+            self.assertIsNone(rows[0]["delivered_at"],
+                              "a fresh handover is undelivered until acknowledged")
+            self.assertIn("wire the webhook", rows[0]["body"])
+            self.assertIsNotNone(rows[0]["transition_id"],
+                                 "the handover must name the transition it committed with")
 
-        try:
-            workers = [threading.Thread(target=deliver) for _ in range(2)]
+    def test_a_refused_transition_leaves_no_handover(self):
+        # "Transition commit failure leaves no handover." The refusal used
+        # here is the real one a founder hits: adopting a record that is still
+        # ACTIVE under a different live session, without the explicit flag.
+        with tempfile.TemporaryDirectory() as d:
+            rec = self._thread(d, session="sessA")
+            store = bs.Store(d, create=False)
+            try:
+                with self.assertRaises(bs.OwnershipRefused):
+                    store.transition(rec["lifecycle_uuid"], rec["version"], "adopted",
+                                      session_id="sessB",
+                                      handover_heading="Adopted: alpha")
+            finally:
+                store.close()
+            self.assertEqual(self._handover_rows(d), [],
+                             "a refused transition wrote a handover anyway")
+            self.assertEqual([r["state"] for r in _identity_rows(d, "alpha")], ["active"])
+
+    def test_a_failing_handover_insert_leaves_no_transition(self):
+        # "Handover insert failure leaves no transition." _insert_handover is
+        # its own named symbol precisely so this can be reinjected onto it.
+        with tempfile.TemporaryDirectory() as d:
+            rec = self._thread(d)
+            store = bs.Store(d, create=False)
+            real = bs.Store._insert_handover
+            transitions_before = len(bs._exec(
+                store, "SELECT * FROM transitions").fetchall())
+
+            def boom(self_store, *a, **k):
+                raise bs.RedactionUnavailable(
+                    "redaction-unavailable", "injected: the redactor is gone")
+            bs.Store._insert_handover = boom
+            try:
+                with self.assertRaises(bs.RedactionUnavailable):
+                    store.transition(rec["lifecycle_uuid"], rec["version"], "parked",
+                                      session_id="s1",
+                                      handover_heading="Drained: alpha")
+            finally:
+                bs.Store._insert_handover = real
+                store.close()
+            self.assertEqual(self._handover_rows(d), [])
+            self.assertEqual([r["state"] for r in _identity_rows(d, "alpha")], ["active"],
+                             "the record moved even though its handover was never written")
+            store = bs.Store(d, create=False)
+            try:
+                after = len(bs._exec(store, "SELECT * FROM transitions").fetchall())
+            finally:
+                store.close()
+            self.assertEqual(after, transitions_before,
+                             "the transitions row survived a rolled-back handover")
+
+    def test_calibrated_a_two_step_deliver_after_commit_splits_the_pair(self):
+        # REINJECTION: do it the way every version before this loop did it,
+        # as two steps, and let the second step fail. The record moves and the
+        # handover does not exist: exactly the split state this loop closes.
+        # If this stops reproducing, the test above is not calibrated.
+        with tempfile.TemporaryDirectory() as d:
+            rec = self._thread(d)
+            store = bs.Store(d, create=False)
+            try:
+                store.transition(rec["lifecycle_uuid"], rec["version"], "parked",
+                                  session_id="s1", note="drained")
+                # step two, outside the transaction, fails
+                raised = False
+                try:
+                    raise OSError("injected: the handover write failed")
+                except OSError:
+                    raised = True
+                self.assertTrue(raised)
+            finally:
+                store.close()
+            self.assertEqual([r["state"] for r in _identity_rows(d, "alpha")], ["parked"],
+                             "REINJECTION CHECK: the old two-step order must still move "
+                             "the record")
+            self.assertEqual(
+                self._handover_rows(d), [],
+                "REINJECTION CHECK: with delivery as a SECOND step, a parked record "
+                "with no handover at all must still be reachable; if this fails, the "
+                "atomicity tests above are not calibrated to the defect they claim")
+
+    def test_render_failure_preserves_database_truth_and_regenerates(self):
+        # "Render failure preserves database truth" and "crash after commit
+        # but before render is recoverable by regeneration."
+        with tempfile.TemporaryDirectory() as d:
+            rec = self._thread(d)
+            store = bs.Store(d, create=False)
+            try:
+                store.transition(rec["lifecycle_uuid"], rec["version"], "parked",
+                                  session_id="s1", handover_heading="Drained: alpha")
+            finally:
+                store.close()
+            # The crash: STATE.md never gets written, or is destroyed after it was.
+            state_path = os.path.join(d, "STATE.md")
+            if os.path.exists(state_path):
+                os.remove(state_path)
+            self.assertEqual(len(self._handover_rows(d, undelivered_only=True)), 1,
+                             "the store must still hold the handover after a render crash")
+            bs.write_state_view(d)
+            self.assertIn("Drained: alpha", _read(state_path),
+                          "regeneration must put the handover back")
+            self.assertIn("wire the webhook", _read(state_path))
+
+    def test_retry_after_a_render_failure_does_not_duplicate(self):
+        # "Retry cannot duplicate text." The retry here is the honest one: the
+        # same handover asked for twice against the same lifecycle.
+        with tempfile.TemporaryDirectory() as d:
+            rec = self._thread(d)
+            store = bs.Store(d, create=False)
+            try:
+                store.transition(rec["lifecycle_uuid"], rec["version"], "parked",
+                                  session_id="s1", handover_heading="Drained: alpha")
+                back = _identity_rows(d, "alpha")[0]
+                store.transition(back["lifecycle_uuid"], back["version"], "active",
+                                  session_id="s1")
+                again = _identity_rows(d, "alpha")[0]
+                store.transition(again["lifecycle_uuid"], again["version"], "parked",
+                                  session_id="s1", handover_heading="Drained: alpha")
+            finally:
+                store.close()
+            rows = self._handover_rows(d)
+            self.assertEqual(len(rows), 1,
+                             "the same handover was stored twice: %s"
+                             % [r["payload_fingerprint"] for r in rows])
+            bs.write_state_view(d)
+            self.assertEqual(_read(os.path.join(d, "STATE.md")).count("Drained: alpha"), 1,
+                             "the retried handover was rendered twice")
+
+    def test_a_refused_adoption_writes_nothing_at_all(self):
+        # "Refused adoption changes no state and writes no handover."
+        with tempfile.TemporaryDirectory() as d:
+            self._thread(d, name="payments", session="sessA")
+            _run_threads(["dashboard"], d)
+            before = _read(os.path.join(d, "STATE.md"))
+            r = _run_threads(["adopt", "payments"], d)
+            self.assertEqual(r.returncode, 2, r.stdout)
+            self.assertIn("ADOPT REFUSED (live-session-adopt-blocked)", r.stdout)
+            self.assertEqual(self._handover_rows(d), [],
+                             "a refused adoption wrote a handover")
+            self.assertEqual(before, _read(os.path.join(d, "STATE.md")),
+                             "a refused adoption must leave STATE.md byte-for-byte unchanged")
+            self.assertEqual([r["state"] for r in _identity_rows(d, "payments")], ["active"])
+
+    def test_concurrent_handovers_serialize_through_the_store(self):
+        # "Concurrent handovers serialize through SQLite transaction." Two
+        # processes race the SAME park; exactly one wins the transition, and
+        # exactly one handover exists either way.
+        import threading
+        with tempfile.TemporaryDirectory() as d:
+            rec = self._thread(d)
+            outcomes, lock = [], threading.Lock()
+
+            def park():
+                store = bs.Store(d, create=False)
+                try:
+                    store.transition(rec["lifecycle_uuid"], rec["version"], "parked",
+                                      session_id="s1", handover_heading="Drained: alpha")
+                    result = "won"
+                except (bs.StaleIdentity, bs.OwnershipRefused) as e:
+                    result = type(e).__name__
+                finally:
+                    store.close()
+                with lock:
+                    outcomes.append(result)
+
+            workers = [threading.Thread(target=park) for _ in range(2)]
             for w in workers:
                 w.start()
             for w in workers:
                 w.join(timeout=30)
             for w in workers:
-                self.assertFalse(w.is_alive(), "a delivery thread never finished")
-        finally:
-            mod._handover_landed = real_landed
-        tags = _read(os.path.join(root, "STATE.md")).count("<!-- brothermode-handover:")
-        return sorted(str(o) for o in outcomes), tags
+                self.assertFalse(w.is_alive(), "a park thread never finished")
+            self.assertEqual(outcomes.count("won"), 1,
+                             "both parks committed: %s" % outcomes)
+            self.assertEqual(len(self._handover_rows(d)), 1,
+                             "a concurrent pair wrote more than one handover")
 
-    def test_two_concurrent_deliveries_write_exactly_one_handover(self):
+    def test_acknowledging_is_idempotent_and_stops_the_rendering(self):
         with tempfile.TemporaryDirectory() as d:
-            mod = _fresh_threads_module("finding12_concurrent")
-            luid = self._thread_with_a_handover(d, mod)
-            outcomes, tags = self._deliver_twice_concurrently(d, mod, luid)
-            self.assertEqual(tags, 1,
-                             "two concurrent deliveries wrote %d handover blocks; "
-                             "the STATE.md lock must serialize them so the second "
-                             "sees the first's tag" % tags)
-            self.assertEqual(outcomes, ["already", "delivered"],
-                             "one must deliver and the other must recognise it as "
-                             "already delivered: %s" % outcomes)
-
-    def test_calibrated_without_the_lock_the_same_pair_duplicates_the_handover(self):
-        # REINJECTION: the lock becomes a no-op, which is precisely the
-        # pre-fix code (an unlocked check-then-append).
-        with tempfile.TemporaryDirectory() as d:
-            mod = _fresh_threads_module("finding12_nolock")
-            luid = self._thread_with_a_handover(d, mod)
-
-            @contextlib.contextmanager
-            def no_lock(root, wait=None):
-                yield True
-
-            mod._state_lock = no_lock
-            outcomes, tags = self._deliver_twice_concurrently(d, mod, luid)
-            self.assertEqual(tags, 2,
-                             "the reproduction did not reproduce: without the lock "
-                             "the pair must duplicate the handover, or the test "
-                             "above proves nothing (%s)" % outcomes)
-
-    def test_an_appended_handover_that_does_not_survive_is_never_reported_delivered(self):
-        # A concurrent rebuild-and-replace lands between the append and the
-        # check: the file really is rewritten here, by the test, at exactly
-        # that instant. The record's state must then stay where it is, which
-        # is what keeps the handover recoverable instead of parking a thread
-        # whose digest just vanished.
-        with tempfile.TemporaryDirectory() as d:
-            mod = _fresh_threads_module("finding12_erase")
-            luid = self._thread_with_a_handover(d, mod)
-            state_path = os.path.join(d, "STATE.md")
-            before = _read(state_path)
-            real_read = mod._read
-            reads = {"n": 0}
-
-            def racing_read(path):
-                if os.path.abspath(path) == os.path.abspath(state_path):
-                    reads["n"] += 1
-                    if reads["n"] == 2:      # the post-append verification read
-                        with io.open(state_path, "w", encoding="utf-8") as f:
-                            f.write(before)
-                return real_read(path)
-
-            mod._read = racing_read
-            try:
-                store = bs.Store(d, create=False)
-                try:
-                    outcome = mod._deliver_handover_once(root=d, store=store,
-                                                         lifecycle_uuid=luid,
-                                                         heading="Drained: alpha")
-                finally:
-                    store.close()
-            finally:
-                mod._read = real_read
-            self.assertEqual(outcome, "lost",
-                             "an append erased by a concurrent writer must be "
-                             "reported, not counted as delivered")
-            self.assertNotIn("brothermode-handover:", _read(state_path),
-                             "test setup failed: the erase did not happen")
-            self.assertNotIn(outcome, ("delivered", "already"),
-                             "only delivered/already may license a state change")
-
-    def test_calibrated_without_the_readback_the_erased_handover_reports_delivered(self):
-        # REINJECTION: no verification read (the pre-fix code returned
-        # "delivered" the moment the append itself did not raise).
-        with tempfile.TemporaryDirectory() as d:
-            mod = _fresh_threads_module("finding12_noreadback")
-            luid = self._thread_with_a_handover(d, mod)
-            state_path = os.path.join(d, "STATE.md")
-            before = _read(state_path)
-            real_landed = mod._handover_landed
-            calls = {"n": 0}
-
-            def unverified(path, tag):
-                calls["n"] += 1
-                if calls["n"] == 1:
-                    return real_landed(path, tag)
-                with io.open(state_path, "w", encoding="utf-8") as f:
-                    f.write(before)          # the concurrent replace
-                return True                  # ... which the old code never checked
-            mod._handover_landed = unverified
+            rec = self._thread(d)
             store = bs.Store(d, create=False)
             try:
-                outcome = mod._deliver_handover_once(root=d, store=store,
-                                                     lifecycle_uuid=luid,
-                                                     heading="Drained: alpha")
+                store.transition(rec["lifecycle_uuid"], rec["version"], "parked",
+                                  session_id="s1", handover_heading="Drained: alpha")
+                huid = self._handover_rows(d)[0]["handover_uuid"]
+                self.assertEqual(store.acknowledge_handover(huid), "delivered")
+                self.assertEqual(store.acknowledge_handover(huid), "already",
+                                  "a second acknowledgement must change nothing")
+                with self.assertRaises(bs.StaleIdentity):
+                    store.acknowledge_handover("no-such-handover")
             finally:
                 store.close()
-            self.assertEqual(outcome, "delivered")
-            self.assertNotIn("brothermode-handover:", _read(state_path),
-                             "the reproduction did not reproduce: the file must be "
-                             "missing the handover it just reported as delivered")
+            bs.write_state_view(d)
+            self.assertNotIn("Drained: alpha", _read(os.path.join(d, "STATE.md")),
+                             "an acknowledged handover must stop rendering")
+            self.assertEqual(len(self._handover_rows(d)), 1,
+                             "acknowledging must never delete the row")
 
-    def test_off_holds_the_record_when_the_handover_cannot_be_written(self):
-        # The consequence that matters to a founder: an undelivered handover
-        # must never be followed by a state change, whatever the reason.
+    def test_the_handover_body_is_redacted_before_it_reaches_the_view(self):
         with tempfile.TemporaryDirectory() as d:
-            mod = _fresh_threads_module("finding12_off")
-            self._thread_with_a_handover(d, mod)
-            real = mod._deliver_handover_once
-            mod._deliver_handover_once = lambda *a, **k: "busy"
-            try:
-                code, out = _call_thread_cmd_in_process(d, mod.cmd_off, [])
-            finally:
-                mod._deliver_handover_once = real
-            self.assertEqual(code, 2, out)
-            self.assertIn("HANDOVER INCOMPLETE", out)
-            self.assertIn("STATE.md lock", out,
-                          "the founder must be told WHY it could not be written: %s" % out)
-            self.assertEqual([r["state"] for r in _identity_rows(d, "alpha")], ["active"],
-                             "the record must stay active and fenced")
-
-    def test_the_lock_is_a_directory_so_it_can_never_hold_founder_text(self):
-        with tempfile.TemporaryDirectory() as d:
-            mod = _fresh_threads_module("finding12_lockshape")
             _run_threads(["on"], d)
-            lock = mod._StateFileLock(d)
-            self.assertTrue(lock.acquire())
+            _run_threads(["start", "alpha", "ship it", "--files", "api/a.py",
+                          "--session", "s1"], d)
+            _run_threads(["checkpoint", "alpha", "--next", "wire it",
+                          "--topic", "notes", "--decision",
+                          "deploy key AKIAIOSFODNN7EXAMPLE password=hunter2swordfish"], d)
+            rec = _identity_rows(d, "alpha")[0]
+            store = bs.Store(d, create=False)
             try:
-                self.assertTrue(os.path.isdir(lock.path),
-                                "the lock must be a directory: it carries no bytes, so "
-                                "no founder text can ever leak into it")
-                second = mod._StateFileLock(d, wait=0)
-                self.assertFalse(second.acquire(),
-                                 "a second holder must be refused while it is held")
+                store.transition(rec["lifecycle_uuid"], rec["version"], "parked",
+                                  session_id="s1", handover_heading="Drained: alpha")
             finally:
-                lock.release()
-            self.assertFalse(os.path.exists(lock.path), "release must remove it")
-            self.assertTrue(mod._StateFileLock(d, wait=0).acquire(),
-                            "the lock must be takeable again after release")
+                store.close()
+            bs.write_state_view(d)
+            state = _read(os.path.join(d, "STATE.md"))
+            self.assertNotIn("AKIAIOSFODNN7EXAMPLE", state)
+            self.assertNotIn("hunter2swordfish", state)
+            self.assertIn("[REDACTED]", state)
+            self.assertIn("wire it", state, "redaction destroyed the real content")
 
-    def test_the_transactional_followup_is_written_down_not_lost(self):
-        # (b) of the audit's instruction: the in-fence mitigation must not be
-        # mistaken for the fix, so the follow-up shape ships in the file.
+    def test_the_rendered_body_keeps_its_line_structure(self):
+        # A handover body is a rendered DOCUMENT: running the per-FIELD view
+        # pipeline over it collapsed every newline into a literal \x0a
+        # (reproduced in this loop's probe). _redacted_view_block exists for
+        # exactly this, and every OTHER control character must still escape.
+        self.assertEqual(bs._redacted_view_block("a\nb"), "a\nb")
+        self.assertEqual(bs._redacted_view_block("a\x1b[2Kb"), "a\\x1b[2Kb")
+        self.assertIn("\n", bs._redacted_view_block("## Next intent\n\nship it"))
+
+    def test_the_old_appended_handovers_are_left_as_prose(self):
+        # The migration rule: old appended handovers stay human prose and are
+        # never parsed back in. Anything outside the generated markers must
+        # survive a regeneration untouched.
+        with tempfile.TemporaryDirectory() as d:
+            self._thread(d)
+            legacy = ("# Project STATE\n\n<!-- brothermode-handover:old:abc -->\n"
+                      "## Drained from thread mode: legacy\nkeep me\n")
+            io.open(os.path.join(d, "STATE.md"), "w", encoding="utf-8").write(legacy)
+            bs.write_state_view(d)
+            state = _read(os.path.join(d, "STATE.md"))
+            self.assertIn("<!-- brothermode-handover:old:abc -->", state,
+                          "an old appended handover was destroyed by regeneration")
+            self.assertIn("keep me", state)
+            self.assertEqual(self._handover_rows(d), [],
+                             "an old appended handover was parsed back into the store")
+
+    def test_the_append_path_and_its_lock_are_gone(self):
         src = io.open(os.path.join(HERE, "bm_threads.py"), encoding="utf-8").read()
-        self.assertIn("_FOLLOWUP_TRANSACTIONAL_HANDOVERS", src)
-        for required in ("handovers table", "deliver_handover", "render_state_md"):
-            self.assertIn(required, src,
-                          "the follow-up note must name %r so the bm_store change "
-                          "can be written from it" % required)
+        code = "\n".join(ln for ln in src.splitlines()
+                         if not ln.strip().startswith("#"))
+        for symbol in ("def _deliver_handover_once", "def _handover_tag",
+                       "def _handover_landed", "class _StateFileLock",
+                       "def _state_lock", "STATE_LOCK_WAIT_SECONDS"):
+            self.assertNotIn(symbol, code,
+                             "%s must be DELETED, not shimmed (LOOP P12)" % symbol)
 
 
 _learning_spec = importlib.util.spec_from_file_location(
