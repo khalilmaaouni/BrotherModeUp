@@ -256,11 +256,12 @@ def cmd_candidates(argv):
     # optional flags included. It used to show only --because, so a founder
     # following the hint never met --gate or --ref and the page and the tool
     # disagreed about what approving a candidate looks like. It now also carries
-    # the receipt step, because approving without a receipt refuses.
+    # the receipt step, because approving refuses without a receipt AND without
+    # a reference of your own.
     _out("%d candidate(s). Ask the founder, then: bm_learn.py grant-approval "
          "<id> --answer \"...\"" % len(rows))
     _out("  then: bm_learn.py approve <id> --receipt <token> "
-         "[--because \"...\"] [--gate] [--ref \"why you approved\"]")
+         "--ref \"why you approved\" [--because \"...\"] [--gate]")
     return 0
 
 
@@ -388,17 +389,40 @@ def cmd_approve(argv):
         _err("usage: approve <candidate-id> --receipt <token> [--trigger ...] "
              "[--action ...] "
              "[--because ...] [--scope global|project|domain|artifact|relationship|tool] "
-             "[--scope-key ...] [--gate] [--ref \"why you approved\"]")
+             "[--scope-key ...] [--gate] --ref \"why you approved\" (required)")
         _err("the token comes from `grant-approval`, run when the founder "
              "answered. BM_APPROVAL_RECEIPT is read when --receipt is absent.")
         return 2
-    # The receipt is the gate; this reference is the readable half of
-    # provenance. It no longer claims the founder ran anything, because the
-    # command line cannot know that and used to say so anyway.
-    ref = kv.get("ref") or ("bm_learn.py approve at %s" % bs.now_iso())
+    # TWO INDEPENDENT GUARDS, from two lanes, both kept at the release cut.
+    #
+    # The RECEIPT is the gate (post-audit LOOP 3): a one-time token minted by
+    # `grant-approval` against a real answer, bound to the exact rule shape the
+    # founder was shown.
+    #
+    # The REFERENCE IS THE FOUNDER'S, NOT THE TOOL'S (loop P18-fix). It once
+    # defaulted to a machine-written timestamp, which satisfied the store's
+    # "refuses without a founder reference" guard with a string the machine
+    # wrote about itself. A generated timestamp is not a reason, and a guard a
+    # tool can satisfy on its own behalf is not a guard. Merging the two lanes
+    # by letting the receipt excuse the missing reference would have restored
+    # exactly that hole, so approval still refuses rather than inventing one.
+    ref = (kv.get("ref") or "").strip()
     # argv is visible to every process on the machine through ps, so the token
     # may also arrive by environment. Neither path logs it.
     receipt = kv.get("receipt") or os.environ.get("BM_APPROVAL_RECEIPT", "")
+    if not ref:
+        # When BOTH are missing the refusal names both, rather than sending the
+        # caller back for one thing and then the other. The receipt clause
+        # keeps the store's own wording, "no-approval-receipt", because that is
+        # the string a reader greps for and the one the audit repro produced.
+        missing = "bm_learn: approve needs --ref \"why you approved this\". The "\
+                  "reference is your evidence, in your words, and this tool "\
+                  "will not write one for you."
+        if not receipt:
+            missing += (" It also needs a receipt (no-approval-receipt): run "
+                        "`grant-approval <candidate> --answer \"...\"` first.")
+        _err(missing)
+        return 2
     store = _store()
     try:
         rule = store.approve_learning_candidate(
@@ -1647,5 +1671,16 @@ def main(argv):
         return 2
 
 
-if __name__ == "__main__":
+def cli():
+    """Console-script entry point for a packaged install (pipx, uv, pip).
+
+    A packaging entry point must be callable with no arguments, and main()
+    takes argv. The __main__ block below calls this same function rather
+    than repeating the line, so `bm-learn` and
+    `python3 tools/bm_learn.py` cannot drift apart: there is exactly one
+    path into main() from a shell."""
     sys.exit(main(sys.argv[1:]))
+
+
+if __name__ == "__main__":
+    cli()

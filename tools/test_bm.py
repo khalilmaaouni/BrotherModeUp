@@ -7,7 +7,7 @@ brief that a test would have caught. Each test here guards a claim the project
 makes about itself: secrets are redacted, sensitive files are owner-only, project
 identity does not collide, and the autosave captures untracked work non-invasively.
 """
-import contextlib, glob, io, os, json, re, shutil, sqlite3, stat, sys, tempfile, time, subprocess, importlib.util
+import ast, contextlib, glob, io, os, json, re, shutil, sqlite3, stat, sys, tempfile, time, subprocess, importlib.util
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -3886,7 +3886,8 @@ class TestPostAuditLoop3ApprovalReceiptCli(unittest.TestCase):
                                    "yes, always the desktop app", "--json"])
             self.assertEqual(g.returncode, 0, g.stderr)
             token = json.loads(g.stdout)["token"]
-            a = self._learn(root, ["approve", cid, "--receipt", token])
+            a = self._learn(root, ["approve", cid, "--receipt", token,
+                                   "--ref", "the founder said yes in chat"])
             self.assertEqual(a.returncode, 0, a.stderr)
             self.assertIn("approved as rule", a.stdout)
 
@@ -3897,7 +3898,8 @@ class TestPostAuditLoop3ApprovalReceiptCli(unittest.TestCase):
             g = self._learn(root, ["grant-approval", cid, "--answer", "yes",
                                    "--json"])
             token = json.loads(g.stdout)["token"]
-            a = self._learn(root, ["approve", cid],
+            a = self._learn(root, ["approve", cid, "--ref",
+                                   "the founder said yes in chat"],
                             env_extra={"BM_APPROVAL_RECEIPT": token})
             self.assertEqual(a.returncode, 0, a.stderr)
 
@@ -3909,8 +3911,10 @@ class TestPostAuditLoop3ApprovalReceiptCli(unittest.TestCase):
                                    "--json"])
             token = json.loads(g.stdout)["token"]
             self.assertEqual(
-                self._learn(root, ["approve", cid, "--receipt", token]).returncode, 0)
-            second = self._learn(root, ["approve", cid, "--receipt", token])
+                self._learn(root, ["approve", cid, "--receipt", token,
+                                   "--ref", "the founder said yes"]).returncode, 0)
+            second = self._learn(root, ["approve", cid, "--receipt", token,
+                                        "--ref", "the founder said yes"])
             self.assertEqual(second.returncode, 2)
             rules = json.loads(self._learn(root, ["rules", "--json"]).stdout)
             self.assertEqual(len(rules), 1, "a replay created a second rule")
@@ -3922,7 +3926,8 @@ class TestPostAuditLoop3ApprovalReceiptCli(unittest.TestCase):
             g = self._learn(root, ["grant-approval", cid, "--answer",
                                    "yes, as a soft preference", "--json"])
             token = json.loads(g.stdout)["token"]
-            r = self._learn(root, ["approve", cid, "--receipt", token, "--gate"])
+            r = self._learn(root, ["approve", cid, "--receipt", token, "--gate",
+                                   "--ref", "the founder said yes"])
             self.assertEqual(r.returncode, 2,
                              "a soft answer was silently upgraded to a gate")
             self.assertIn("receipt-stale-candidate", r.stderr)
@@ -3934,7 +3939,8 @@ class TestPostAuditLoop3ApprovalReceiptCli(unittest.TestCase):
             g = self._learn(root, ["grant-approval", cid, "--answer", "yes"])
             self.assertEqual(g.returncode, 0, g.stderr)
             token = [w for w in g.stdout.split() if len(w) == 48][0]
-            a = self._learn(root, ["approve", cid, "--receipt", token])
+            a = self._learn(root, ["approve", cid, "--receipt", token,
+                                   "--ref", "the founder said yes"])
             self.assertEqual(a.returncode, 0, a.stderr)
             for cmd in (["candidates"], ["rules"], ["rules", "--json"],
                         ["why", json.loads(
@@ -4948,6 +4954,374 @@ class TestLoop11SecretScanHardening(unittest.TestCase):
         self.assertLess(elapsed, 10.0,
                         "redacting %d KB took %.1fs: suspect a quadratic pattern"
                         % (len(blob) // 1024, elapsed))
+
+
+class TestP17PackagingManifestMatchesTheRepository(unittest.TestCase):
+    """LOOP P17. pyproject.toml is a second, hand-maintained copy of two
+    facts that already exist in the repository: which modules ship, and what
+    version this is. Hand-maintained copies drift, and this one drifts
+    SILENTLY: a new tool lands in tools/, nobody adds it to py-modules, and
+    the wheel builds green while the installed command crashes on its first
+    import for whoever installed from PyPI. The failure surfaces on a
+    stranger's machine, never on ours.
+
+    So the list is not allowed to be a wildcard and is not allowed to be
+    stale. These tests are the reason the comment in pyproject.toml can
+    claim the list is checked.
+
+    No tomllib: this project's floor is Python 3.9 and tomllib arrived in
+    3.11. The parsing below is deliberately narrow (it reads exactly the
+    three constructs it needs, from a file we control) rather than a general
+    TOML parser pretending to be one."""
+
+    ROOT = os.path.dirname(HERE)
+    PYPROJECT = os.path.join(ROOT, "pyproject.toml")
+
+    def _text(self):
+        self.assertTrue(os.path.isfile(self.PYPROJECT),
+                        "pyproject.toml is missing: the packaging contract "
+                        "cannot be checked and must not be assumed")
+        return _read(self.PYPROJECT)
+
+    def _py_modules(self):
+        m = re.search(r"^py-modules\s*=\s*\[(.*?)\]", self._text(),
+                      re.S | re.M)
+        self.assertIsNotNone(m, "py-modules array not found in pyproject.toml")
+        return set(re.findall(r'"([^"]+)"', m.group(1)))
+
+    def _scripts(self):
+        m = re.search(r"^\[project\.scripts\]\s*$(.*?)(?=^\[|\Z)",
+                      self._text(), re.S | re.M)
+        self.assertIsNotNone(m, "[project.scripts] not found in pyproject.toml")
+        out = {}
+        for line in m.group(1).splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            name, _, target = line.partition("=")
+            out[name.strip()] = target.strip().strip('"')
+        self.assertTrue(out, "[project.scripts] is empty")
+        return out
+
+    def _shipping_modules(self):
+        """Every Python file in tools/ that is not a test. That is the set
+        a user who installed from PyPI must actually receive."""
+        names = set()
+        for f in os.listdir(HERE):
+            if f.endswith(".py") and not f.startswith("test_"):
+                names.add(f[:-3])
+        return names
+
+    def test_every_shipping_tool_is_in_py_modules(self):
+        missing = self._shipping_modules() - self._py_modules()
+        self.assertEqual(
+            set(), missing,
+            "these tools ship in tools/ but pyproject.toml would not install "
+            "them, so a pipx or pip install is missing them: %s"
+            % sorted(missing))
+
+    def test_py_modules_names_nothing_that_does_not_exist(self):
+        extra = self._py_modules() - self._shipping_modules()
+        self.assertEqual(
+            set(), extra,
+            "pyproject.toml names modules that are not shipping tools in "
+            "tools/ (a deleted or renamed file, or a test swept in): %s"
+            % sorted(extra))
+
+    #: P17-fix. The py-modules contract above can only ever see *.py, because
+    #: py-modules can only name modules. Anything else in tools/ is therefore
+    #: invisible to it, and `include-package-data = false` drops it from both
+    #: artifacts without a word. That is fine for a repo-only file and a
+    #: silent hole for a runtime asset (a future registry .json, a data table,
+    #: a template), which would install missing and fail on a stranger's
+    #: machine exactly the way a missing module would.
+    #:
+    #: So every non-.py file in tools/ carries a decision here, with the
+    #: reason. Repo-only files are listed below; files that must reach an
+    #: installed user go in SHIPPING_ASSETS and must then actually be carried
+    #: by the packaging. A new unclassified file fails this suite, which is
+    #: the whole point: the decision gets made by a person, once, on purpose.
+    REPO_ONLY_ASSETS = {
+        "bm_sessionstart.sh": (
+            "the SessionStart hook script. Documented in docs/SETUP.md as a "
+            "path inside a skill checkout, and it resolves its siblings by "
+            "its own location, so it is meaningless in site-packages. A "
+            "package install wires no hooks by design (docs/PACKAGING.md)."),
+        "write_sites.json": (
+            "the reviewed inventory of write sites. A review artifact for "
+            "this suite (test_no_unreviewed_write_sites), read by no "
+            "shipping tool at runtime."),
+        "WEEKLY-REVIEW.md": (
+            "a human checklist. Documentation, not runtime input."),
+    }
+
+    #: name -> why it must reach an installed user. Empty today, on purpose:
+    #: no shipping tool reads a non-.py file at runtime. The test below is
+    #: what makes adding an entry here mean something.
+    SHIPPING_ASSETS = {}
+
+    def _non_module_assets(self):
+        return set(f for f in os.listdir(HERE)
+                   if os.path.isfile(os.path.join(HERE, f))
+                   and not f.endswith(".py") and not f.startswith("."))
+
+    def test_every_non_module_asset_in_tools_carries_a_shipping_decision(self):
+        classified = set(self.REPO_ONLY_ASSETS) | set(self.SHIPPING_ASSETS)
+        found = self._non_module_assets()
+        self.assertEqual(
+            set(), found - classified,
+            "these non-.py files live in tools/ and nothing decides whether "
+            "an installed user gets them; py-modules cannot see them and "
+            "include-package-data = false drops them silently. Add each to "
+            "REPO_ONLY_ASSETS (with the reason it stays behind) or to "
+            "SHIPPING_ASSETS (and carry it in the packaging): %s"
+            % sorted(found - classified))
+        self.assertEqual(
+            set(), classified - found,
+            "these files are classified here but no longer exist in tools/, "
+            "so the classification is stale: %s" % sorted(classified - found))
+
+    def test_no_asset_is_classified_both_ways(self):
+        both = set(self.REPO_ONLY_ASSETS) & set(self.SHIPPING_ASSETS)
+        self.assertEqual(set(), both,
+                         "classified as both repo-only and shipping: %s"
+                         % sorted(both))
+
+    def test_assets_declared_shipping_are_actually_carried_by_the_packaging(self):
+        """Declaring an asset shipping is not the same as shipping it. With
+        flat py-modules there is no package directory to attach data to, so
+        carrying one takes an explicit construct (a data-files or
+        package-data table, or a MANIFEST.in). This test refuses the state
+        where the table says an asset ships and the build drops it."""
+        manifest_in = os.path.join(self.ROOT, "MANIFEST.in")
+        carried = self._text()
+        if os.path.isfile(manifest_in):
+            carried += _read(manifest_in)
+        for name in sorted(self.SHIPPING_ASSETS):
+            self.assertIn(
+                name, carried,
+                "%s is declared shipping but neither pyproject.toml nor "
+                "MANIFEST.in mentions it, so the wheel and sdist will not "
+                "contain it" % name)
+
+    def test_every_console_script_target_is_callable_with_no_arguments(self):
+        """A packaging entry point is invoked as target(), with no argv.
+        bm_learn.main and bm_runtimes.main take a required argv, so pointing
+        a script straight at them would install a command that raises
+        TypeError the first time anyone runs it, and no build step would
+        notice. Each target is imported and its signature checked here."""
+        import inspect
+        for script, target in sorted(self._scripts().items()):
+            mod_name, _, attr = target.partition(":")
+            self.assertTrue(attr, "%s has no attribute in its target %r"
+                            % (script, target))
+            self.assertIn(mod_name, self._py_modules(),
+                          "%s points at %s, which pyproject.toml does not "
+                          "install" % (script, mod_name))
+            path = os.path.join(HERE, mod_name + ".py")
+            self.assertTrue(os.path.isfile(path), "%s has no file" % mod_name)
+            spec = importlib.util.spec_from_file_location(mod_name, path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            fn = getattr(mod, attr, None)
+            self.assertTrue(callable(fn),
+                            "%s points at %s, which is missing or not "
+                            "callable" % (script, target))
+            required = [p for p in inspect.signature(fn).parameters.values()
+                        if p.default is inspect.Parameter.empty
+                        and p.kind in (p.POSITIONAL_ONLY,
+                                       p.POSITIONAL_OR_KEYWORD)]
+            self.assertEqual(
+                [], required,
+                "%s would install a broken command: %s requires argument(s) "
+                "%s but an entry point is called with none"
+                % (script, target, [p.name for p in required]))
+
+    def test_packaged_version_matches_the_VERSION_file(self):
+        """PEP 440 will not accept 2.0.0-rc.3, so the packaged version is
+        its normalized spelling. The two are allowed to LOOK different and
+        are not allowed to BE different: a wheel labelled with a version
+        that is not this release is a supply-chain lie, not a typo."""
+        declared = re.search(r'^version\s*=\s*"([^"]+)"', self._text(), re.M)
+        self.assertIsNotNone(declared, "no version in pyproject.toml")
+        repo = _read(os.path.join(self.ROOT, "VERSION")).strip()
+        normalized = repo.replace("-", "").replace("rc.", "rc")
+        self.assertEqual(
+            normalized, declared.group(1),
+            "VERSION says %r (PEP 440 spelling %r) but pyproject.toml would "
+            "publish %r" % (repo, normalized, declared.group(1)))
+
+    def test_the_package_declares_no_dependencies(self):
+        """Standard library only is an invariant of this project, not a
+        current state of affairs. If a dependency ever appears here it must
+        be because the founder decided to take one, and this test failing is
+        how that decision gets noticed."""
+        m = re.search(r"^dependencies\s*=\s*\[(.*?)\]", self._text(), re.S | re.M)
+        self.assertIsNotNone(m, "no dependencies key in pyproject.toml")
+        self.assertEqual(
+            [], re.findall(r'"([^"]+)"', m.group(1)),
+            "pyproject.toml declares dependencies; BrotherMode ships "
+            "standard library only")
+
+
+class TestP18FixApprovalReferenceIsTheFoundersOwn(unittest.TestCase):
+    """LOOP P18-fix. The launch drafts say a correction becomes a rule only
+    when you approve it by hand WITH A REASON RECORDED. The store enforced
+    "some founder_ref is present"; the command line satisfied that guard on
+    its own behalf with the string "bm_learn.py approve, run by the founder at
+    <timestamp>" whenever --ref was omitted. Reproduced by hand on 68eb4d8:
+    capture, then `bm_learn.py approve <id>` with no --ref, exit 0, live rule.
+    A guard a tool can satisfy for itself is not a guard, and public copy
+    asserting a control the code does not have is the claim class the drafts'
+    own preamble forbids."""
+
+    def _learn(self, root, args):
+        env = dict(os.environ, BROTHERMODE_ROOT=root)
+        return subprocess.run([sys.executable, os.path.join(HERE, "bm_learn.py")]
+                              + args, cwd=root, env=env, capture_output=True,
+                              text=True)
+
+    def _init(self, root):
+        env = dict(os.environ, BROTHERMODE_ROOT=root)
+        r = subprocess.run([sys.executable, os.path.join(HERE, "bm_store.py"),
+                            "init"], cwd=root, env=env, capture_output=True,
+                           text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def _candidate(self, root):
+        out = self._learn(root, ["capture", "--scope", "global", "--json",
+                                 "--trigger", "reviewing swift code",
+                                 "--action", "run swiftlint",
+                                 "--because", "style"])
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return json.loads(out.stdout)["candidate_uuid"]
+
+    def test_approve_without_a_reference_refuses_and_creates_no_rule(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            cid = self._candidate(root)
+            out = self._learn(root, ["approve", cid])
+            self.assertEqual(out.returncode, 2,
+                             "approve without --ref must refuse: %s%s"
+                             % (out.stdout, out.stderr))
+            self.assertIn("--ref", out.stdout + out.stderr)
+            rules = self._learn(root, ["rules", "--json"])
+            self.assertEqual(json.loads(rules.stdout), [],
+                             "a refused approval must leave no rule behind")
+
+    def test_a_whitespace_reference_is_not_a_reference(self):
+        """The refusal is on CONTENT, not on the flag being typed. Accepting
+        --ref "   " would restore the same hole with one more keystroke."""
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            cid = self._candidate(root)
+            out = self._learn(root, ["approve", cid, "--ref", "   "])
+            self.assertEqual(out.returncode, 2, out.stdout + out.stderr)
+
+    def test_approve_with_a_reference_still_works(self):
+        """The guard is calibrated only if the good path still passes."""
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            cid = self._candidate(root)
+            g = self._learn(root, ["grant-approval", cid, "--answer",
+                                   "yes, run swiftlint", "--json"])
+            self.assertEqual(g.returncode, 0, g.stderr)
+            token = json.loads(g.stdout)["token"]
+            out = self._learn(root, ["approve", cid, "--receipt", token, "--ref",
+                                     "I said this in session 2026-07-29"])
+            self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+            rules = json.loads(self._learn(root, ["rules", "--json"]).stdout)
+            self.assertEqual(len(rules), 1)
+            # The founder's words are the recorded evidence, verbatim.
+            why = self._learn(root, ["why", rules[0]["rule_uuid"]])
+            self.assertEqual(why.returncode, 0, why.stderr)
+            # The founder's words are the recorded evidence, verbatim. The
+            # receipt id sits in front of them since post-audit LOOP 3, so the
+            # assertion is on the words rather than on the whole line.
+            self.assertIn("founder approval (receipt", why.stdout)
+            self.assertIn("I said this in session 2026-07-29", why.stdout)
+            self.assertIn("support founder_approval", why.stdout)
+            self.assertEqual(
+                why.stdout.count("I said this in session 2026-07-29"), 2,
+                "the founder's own words must reach both the version line and "
+                "the evidence line")
+
+    def test_no_shipping_tool_fabricates_a_founder_reference(self):
+        """Structural, because the same shortcut can be reintroduced in any
+        other command that approves. No tool may build a founder reference out
+        of a timestamp or its own name. Checked over STRING LITERALS via the
+        AST, not over the file text, so the comment explaining the old bug
+        does not trip its own guard."""
+        for name in ("bm_learn.py", "bm_store.py"):
+            tree = ast.parse(_read(os.path.join(HERE, name)))
+            # Docstrings are excluded, the way the sibling sweep in
+            # test_bm_store.py excludes them: the module docstring of
+            # bm_learn.py QUOTES the old fabricated reference while explaining
+            # why it is gone, and a guard that forbids describing the bug it
+            # closed teaches people to delete the explanation.
+            docstrings = set()
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.Module, ast.FunctionDef,
+                                     ast.AsyncFunctionDef, ast.ClassDef)):
+                    body = node.body
+                    if (body and isinstance(body[0], ast.Expr)
+                            and isinstance(body[0].value, ast.Constant)
+                            and isinstance(body[0].value.value, str)):
+                        docstrings.add(id(body[0].value))
+            for node in ast.walk(tree):
+                if not (isinstance(node, ast.Constant)
+                        and isinstance(node.value, str)):
+                    continue
+                if id(node) in docstrings:
+                    continue
+                self.assertNotIn(
+                    "run by the founder", node.value,
+                    "%s line %s builds a founder reference for the founder"
+                    % (name, getattr(node, "lineno", "?")))
+
+
+class TestP18FixBenchmarkArgumentsCannotBuyAnUnearnedGreen(unittest.TestCase):
+    """LOOP P18-fix. scripts/benchmark.py read selectors as `int(a) for a in
+    argv if a.isdigit()` and never checked them against the scenario count,
+    and its exit code treated an empty result list as success. Reproduced by
+    hand on 68eb4d8: `python3 scripts/benchmark.py 99 --quiet` printed
+    "BENCHMARK: 0 passed, 0 failed, 0 skipped, of 0 run" and exited 0, so
+    anything wiring `benchmark.py $N` got a green as proof that scenario N
+    passed. A mistyped flag such as --quite was discarded just as quietly.
+
+    These run the harness with bad arguments only. They never run a scenario,
+    so they stay fast and add no subprocess-heavy scenario work to the suite."""
+
+    BENCH = os.path.join(os.path.dirname(HERE), "scripts", "benchmark.py")
+
+    def _run(self, args):
+        return subprocess.run([sys.executable, self.BENCH] + args,
+                              capture_output=True, text=True)
+
+    def test_a_scenario_number_that_does_not_exist_is_refused(self):
+        for arg in ("99", "0", "-1"):
+            out = self._run([arg, "--quiet"])
+            self.assertEqual(out.returncode, 2,
+                             "benchmark.py %s exited %d: %s"
+                             % (arg, out.returncode, out.stdout))
+            self.assertNotIn("0 passed, 0 failed", out.stdout,
+                             "a refused selector must not print a score line")
+
+    def test_an_unknown_option_is_refused_not_discarded(self):
+        out = self._run(["--quite"])
+        self.assertEqual(out.returncode, 2, out.stdout)
+        self.assertIn("unknown option", out.stdout)
+        out = self._run(["foo"])
+        self.assertEqual(out.returncode, 2, out.stdout)
+
+    def test_the_only_supported_option_still_parses(self):
+        """Calibration: the refusal above must not have eaten --quiet. Runs
+        one real scenario, the cheapest of the thirteen, so the good path is
+        proven rather than assumed."""
+        out = self._run(["1", "--quiet"])
+        self.assertIn(out.returncode, (0, 1),
+                      "a valid invocation must not be refused: %s" % out.stdout)
+        self.assertIn("of 1 run", out.stdout)
 
 
 if __name__ == "__main__":
