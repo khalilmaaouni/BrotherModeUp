@@ -3474,5 +3474,137 @@ class TestLoop12LearningCliPrivacy(unittest.TestCase):
             self.assertIn("2026-07-29T00:00:00", out.stdout)
 
 
+class TestP17PackagingManifestMatchesTheRepository(unittest.TestCase):
+    """LOOP P17. pyproject.toml is a second, hand-maintained copy of two
+    facts that already exist in the repository: which modules ship, and what
+    version this is. Hand-maintained copies drift, and this one drifts
+    SILENTLY: a new tool lands in tools/, nobody adds it to py-modules, and
+    the wheel builds green while the installed command crashes on its first
+    import for whoever installed from PyPI. The failure surfaces on a
+    stranger's machine, never on ours.
+
+    So the list is not allowed to be a wildcard and is not allowed to be
+    stale. These tests are the reason the comment in pyproject.toml can
+    claim the list is checked.
+
+    No tomllib: this project's floor is Python 3.9 and tomllib arrived in
+    3.11. The parsing below is deliberately narrow (it reads exactly the
+    three constructs it needs, from a file we control) rather than a general
+    TOML parser pretending to be one."""
+
+    ROOT = os.path.dirname(HERE)
+    PYPROJECT = os.path.join(ROOT, "pyproject.toml")
+
+    def _text(self):
+        self.assertTrue(os.path.isfile(self.PYPROJECT),
+                        "pyproject.toml is missing: the packaging contract "
+                        "cannot be checked and must not be assumed")
+        return _read(self.PYPROJECT)
+
+    def _py_modules(self):
+        m = re.search(r"^py-modules\s*=\s*\[(.*?)\]", self._text(),
+                      re.S | re.M)
+        self.assertIsNotNone(m, "py-modules array not found in pyproject.toml")
+        return set(re.findall(r'"([^"]+)"', m.group(1)))
+
+    def _scripts(self):
+        m = re.search(r"^\[project\.scripts\]\s*$(.*?)(?=^\[|\Z)",
+                      self._text(), re.S | re.M)
+        self.assertIsNotNone(m, "[project.scripts] not found in pyproject.toml")
+        out = {}
+        for line in m.group(1).splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            name, _, target = line.partition("=")
+            out[name.strip()] = target.strip().strip('"')
+        self.assertTrue(out, "[project.scripts] is empty")
+        return out
+
+    def _shipping_modules(self):
+        """Every Python file in tools/ that is not a test. That is the set
+        a user who installed from PyPI must actually receive."""
+        names = set()
+        for f in os.listdir(HERE):
+            if f.endswith(".py") and not f.startswith("test_"):
+                names.add(f[:-3])
+        return names
+
+    def test_every_shipping_tool_is_in_py_modules(self):
+        missing = self._shipping_modules() - self._py_modules()
+        self.assertEqual(
+            set(), missing,
+            "these tools ship in tools/ but pyproject.toml would not install "
+            "them, so a pipx or pip install is missing them: %s"
+            % sorted(missing))
+
+    def test_py_modules_names_nothing_that_does_not_exist(self):
+        extra = self._py_modules() - self._shipping_modules()
+        self.assertEqual(
+            set(), extra,
+            "pyproject.toml names modules that are not shipping tools in "
+            "tools/ (a deleted or renamed file, or a test swept in): %s"
+            % sorted(extra))
+
+    def test_every_console_script_target_is_callable_with_no_arguments(self):
+        """A packaging entry point is invoked as target(), with no argv.
+        bm_learn.main and bm_runtimes.main take a required argv, so pointing
+        a script straight at them would install a command that raises
+        TypeError the first time anyone runs it, and no build step would
+        notice. Each target is imported and its signature checked here."""
+        import inspect
+        for script, target in sorted(self._scripts().items()):
+            mod_name, _, attr = target.partition(":")
+            self.assertTrue(attr, "%s has no attribute in its target %r"
+                            % (script, target))
+            self.assertIn(mod_name, self._py_modules(),
+                          "%s points at %s, which pyproject.toml does not "
+                          "install" % (script, mod_name))
+            path = os.path.join(HERE, mod_name + ".py")
+            self.assertTrue(os.path.isfile(path), "%s has no file" % mod_name)
+            spec = importlib.util.spec_from_file_location(mod_name, path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            fn = getattr(mod, attr, None)
+            self.assertTrue(callable(fn),
+                            "%s points at %s, which is missing or not "
+                            "callable" % (script, target))
+            required = [p for p in inspect.signature(fn).parameters.values()
+                        if p.default is inspect.Parameter.empty
+                        and p.kind in (p.POSITIONAL_ONLY,
+                                       p.POSITIONAL_OR_KEYWORD)]
+            self.assertEqual(
+                [], required,
+                "%s would install a broken command: %s requires argument(s) "
+                "%s but an entry point is called with none"
+                % (script, target, [p.name for p in required]))
+
+    def test_packaged_version_matches_the_VERSION_file(self):
+        """PEP 440 will not accept 2.0.0-rc.3, so the packaged version is
+        its normalized spelling. The two are allowed to LOOK different and
+        are not allowed to BE different: a wheel labelled with a version
+        that is not this release is a supply-chain lie, not a typo."""
+        declared = re.search(r'^version\s*=\s*"([^"]+)"', self._text(), re.M)
+        self.assertIsNotNone(declared, "no version in pyproject.toml")
+        repo = _read(os.path.join(self.ROOT, "VERSION")).strip()
+        normalized = repo.replace("-", "").replace("rc.", "rc")
+        self.assertEqual(
+            normalized, declared.group(1),
+            "VERSION says %r (PEP 440 spelling %r) but pyproject.toml would "
+            "publish %r" % (repo, normalized, declared.group(1)))
+
+    def test_the_package_declares_no_dependencies(self):
+        """Standard library only is an invariant of this project, not a
+        current state of affairs. If a dependency ever appears here it must
+        be because the founder decided to take one, and this test failing is
+        how that decision gets noticed."""
+        m = re.search(r"^dependencies\s*=\s*\[(.*?)\]", self._text(), re.S | re.M)
+        self.assertIsNotNone(m, "no dependencies key in pyproject.toml")
+        self.assertEqual(
+            [], re.findall(r'"([^"]+)"', m.group(1)),
+            "pyproject.toml declares dependencies; BrotherMode ships "
+            "standard library only")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

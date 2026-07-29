@@ -1,0 +1,88 @@
+# BrotherMode packaging metadata (PEP 621).
+#
+# What this buys: `pipx install brothermode`, `uv tool install brothermode`,
+# or `pip install brothermode` puts the tool commands on PATH without the
+# founder cloning a repository or knowing where the Python files live.
+#
+# Three deliberate choices, each of which someone will want to change later,
+# so the reason is recorded here rather than in a commit message.
+#
+# 1. No dependencies. Not "few": none. Every shipping tool is standard
+#    library only, which is an invariant of this project rather than an
+#    accident, so the dependency list stays empty and any future addition is
+#    a decision the founder makes on purpose.
+#
+# 2. Flat top-level modules, not a package. The tools load each other by
+#    absolute path off their own directory (importlib against
+#    os.path.dirname(__file__)) rather than by import name, precisely so a
+#    hostile sys.path cannot shadow bm_store. Wrapping them in a package
+#    would mean rewriting that loader in every file. Instead the modules
+#    install side by side exactly as they sit in tools/, and the loader
+#    keeps working unchanged. The cost is real and named in
+#    docs/PACKAGING.md: nine bm_* names land at the top level of the
+#    environment's site-packages.
+#
+# 3. Console scripts cover the CLIs, not the hooks. bm_autosave and
+#    bm_fence_hook ship as modules so a packaged install has them, but they
+#    get no console script: Claude Code hooks are wired by explicit command
+#    path in settings.json, and a name on PATH is not what that wiring
+#    wants.
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "brothermode"
+version = "2.0.0rc3"
+description = "A Claude Code skill and toolchain that makes an AI coding session behave like a colleague: durable memory, single-writer fences, honest reporting."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "Khalil Maaouni" }]
+keywords = ["claude", "claude-code", "agent", "skill", "memory", "orchestration"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/khalilmaaouni/BrotherModeUp"
+Source = "https://github.com/khalilmaaouni/BrotherModeUp"
+Changelog = "https://github.com/khalilmaaouni/BrotherModeUp/blob/main/CHANGELOG.md"
+
+[project.scripts]
+bm-store = "bm_store:main"
+bm-threads = "bm_threads:main"
+bm-telemetry = "bm_telemetry:main"
+bm-learn = "bm_learn:cli"
+bm-runtimes = "bm_runtimes:cli"
+bm-score = "bm_score:cli"
+
+[tool.setuptools]
+package-dir = { "" = "tools" }
+# Explicit list, never a wildcard. A wildcard would sweep in test_*.py and
+# would also silently ship whatever new file lands in tools/ next. Adding a
+# module here is a decision, and the packaging test in tools/test_bm.py
+# fails if this list and the shipping tools in tools/ disagree.
+py-modules = [
+    "bm_store",
+    "bm_learning",
+    "bm_learn",
+    "bm_score",
+    "bm_telemetry",
+    "bm_threads",
+    "bm_runtimes",
+    "bm_autosave",
+    "bm_fence_hook",
+]
+include-package-data = false
