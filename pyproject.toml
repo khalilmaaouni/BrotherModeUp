@@ -19,8 +19,11 @@
 #    would mean rewriting that loader in every file. Instead the modules
 #    install side by side exactly as they sit in tools/, and the loader
 #    keeps working unchanged. The cost is real and named in
-#    docs/PACKAGING.md: nine bm_* names land at the top level of the
-#    environment's site-packages.
+#    docs/PACKAGING.md: 13 bm_* names land at the top level of the
+#    environment's site-packages. The figure was already stale at nine
+#    when the documentation engine landed on 2026-07-30; it is the length
+#    of the py-modules list below, which is the only thing that decides
+#    it.
 #
 # 3. Console scripts cover the CLIs, not the hooks. bm_autosave and
 #    bm_fence_hook ship as modules so a packaged install has them, but they
@@ -66,6 +69,8 @@ bm-threads = "bm_threads:main"
 bm-telemetry = "bm_telemetry:main"
 bm-learn = "bm_learn:cli"
 bm-packs = "bm_packs:cli"
+bm-docs = "bm_docs:cli"
+bm-docs-export = "bm_docs_export:cli"
 bm-runtimes = "bm_runtimes:cli"
 bm-score = "bm_score:cli"
 
@@ -80,6 +85,8 @@ py-modules = [
     "bm_learning",
     "bm_learn",
     "bm_packs",
+    "bm_docs",
+    "bm_docs_export",
     "bm_score",
     "bm_telemetry",
     "bm_threads",
