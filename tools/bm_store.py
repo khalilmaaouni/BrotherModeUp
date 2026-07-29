@@ -71,7 +71,7 @@ import sqlite3
 import sys
 import uuid
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
@@ -1057,8 +1057,17 @@ _TABLES_RETRIEVAL = ("learning_retrieval_runs",)
 
 _TABLES_V4 = _TABLES_V3 + _TABLES_RETRIEVAL
 
+# Schema 5 adds the transactional handover (post-audit LOOP P12). Its own tuple
+# for the fourth time and for the fourth identical reason: a healthy schema-4
+# store must be checked against schema 4's table list, or the version check
+# never runs and a store whose only fault is predating the upgrade gets
+# quarantined.
+_TABLES_HANDOVER = ("handovers",)
+
+_TABLES_V5 = _TABLES_V4 + _TABLES_HANDOVER
+
 _TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3,
-                      4: _TABLES_V4}
+                      4: _TABLES_V4, 5: _TABLES_V5}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -1332,6 +1341,73 @@ CREATE INDEX IF NOT EXISTS learning_retrieval_runs_task_idx
 _RETRIEVAL_RUN_DDL_STATEMENTS = _split_ddl(_RETRIEVAL_RUN_DDL)
 _RETRIEVAL_RUN_INDEX_STATEMENTS = _split_ddl(_RETRIEVAL_RUN_INDEX_DDL)
 
+# The handover (schema 5, post-audit LOOP P12). What a row here means: at the
+# moment a record changed lifecycle state, this is what the outgoing session was
+# leaving behind for whoever picks the work up.
+#
+# WHY IT IS A TABLE AND NOT AN APPEND. Until this loop, bm_threads.py delivered
+# a handover by APPENDING text to the project's root STATE.md under its own
+# directory lock, while write_state_view independently read that same file,
+# rebuilt it and atomically REPLACED it, taking no lock at all. Interleave the
+# two and the append lands on a file the replace is about to overwrite: the
+# record is parked, the handover text is gone, and nothing anywhere holds a
+# second copy. Reproduced on 2026-07-29 against a real store before this change
+# (record state 'parked', handover tag absent from STATE.md, no table to recover
+# it from). The fix is not a bigger lock. It is that the handover and the
+# lifecycle transition that produced it are ONE sqlite transaction, and STATE.md
+# becomes a pure render of that truth which can be regenerated at any time.
+#
+# transition_id carries the atomicity claim in the schema itself: it is the
+# rowid of the transitions row written by the SAME transaction, so a handover
+# whose transition rolled back cannot exist, and a transition whose handover
+# insert raised rolled back with it. The partial unique index on it means one
+# transition can own at most one handover.
+#
+# payload_fingerprint is the store's own full 64-hex handover_payload
+# fingerprint, and UNIQUE(lifecycle_uuid, payload_fingerprint) IS the retry
+# dedupe: a second attempt at
+# the same handover for the same lifecycle loses on the index instead of writing
+# the text twice. That replaces bm_threads' old trick of scanning a text file
+# for an HTML comment marker.
+#
+# body holds the rendered digest (already passed through redact_text by
+# render_digest, which refuses rather than render unredacted text), and it is
+# passed through _redacted_view_text AGAIN on the way into STATE.md like every
+# other founder-typed field: the store file itself is documented as sensitive in
+# SECURITY.md, the generated view is not.
+#
+# delivered_at is NULL until a founder acknowledges the handover
+# (`handover-ack`). An undelivered handover renders into STATE.md on every
+# regeneration, so a crash between the commit and the render costs nothing: the
+# next render puts it back. Acknowledging is idempotent; it never deletes the
+# row, so `dump` still holds the whole history.
+_HANDOVER_DDL = """
+CREATE TABLE IF NOT EXISTS handovers (
+  handover_uuid TEXT PRIMARY KEY,
+  lifecycle_uuid TEXT NOT NULL REFERENCES records(lifecycle_uuid),
+  transition_id INTEGER,
+  from_session_id TEXT NOT NULL DEFAULT '',
+  to_session_id TEXT NOT NULL DEFAULT '',
+  payload_fingerprint TEXT NOT NULL,
+  heading TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL DEFAULT '',
+  delivered_at TEXT,
+  created_at TEXT NOT NULL
+);
+"""
+
+_HANDOVER_INDEX_DDL = """
+CREATE UNIQUE INDEX IF NOT EXISTS handovers_lifecycle_fingerprint_idx
+  ON handovers(lifecycle_uuid, payload_fingerprint);
+CREATE UNIQUE INDEX IF NOT EXISTS handovers_transition_idx
+  ON handovers(transition_id) WHERE transition_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS handovers_undelivered_idx
+  ON handovers(created_at) WHERE delivered_at IS NULL;
+"""
+
+_HANDOVER_DDL_STATEMENTS = _split_ddl(_HANDOVER_DDL)
+_HANDOVER_INDEX_STATEMENTS = _split_ddl(_HANDOVER_INDEX_DDL)
+
 # The one column added to an existing table by any migration in this project.
 # NULL for every row written before schema 4, and it STAYS null: a legacy
 # application is reported as legacy by classify_learning_applications, never
@@ -1516,10 +1592,34 @@ def _migrate_2_to_3(conn):
         conn.execute(statement)
 
 
+def _migrate_4_to_5(conn):
+    """Schema 4 to 5: add the handovers table. ADDITIVE ONLY.
+
+    Same contract as every migration before it, and the same three
+    prohibitions: no existing row is read or rewritten, every statement is
+    CREATE ... IF NOT EXISTS, and it runs inside the caller's BEGIN EXCLUSIVE
+    so it must never commit, roll back, or open a transaction of its own (see
+    _split_ddl for the incident that proved executescript cannot be used here).
+
+    What this migration deliberately does NOT do: it does not parse the
+    handovers that older versions APPENDED into STATE.md and import them as
+    rows. Those are human prose in a human file, written with a marker that was
+    never a schema, and a parser guessing where one ends would either truncate a
+    founder's handover or swallow the prose around it. They stay exactly where
+    they are and stay readable; only NEW handovers use the table. That is the
+    migration rule the loop plan states, and it is also the only honest option:
+    there is no marker in those files reliable enough to round-trip."""
+    for statement in _HANDOVER_DDL_STATEMENTS:
+        conn.execute(statement)
+    for statement in _HANDOVER_INDEX_STATEMENTS:
+        conn.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_1_to_2,
     2: _migrate_2_to_3,
     3: _migrate_3_to_4,
+    4: _migrate_4_to_5,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -1643,6 +1743,18 @@ _DUMP_SAFE_COLUMNS = frozenset((
     ("autosave_receipts", "worktree_id"), ("autosave_receipts", "session_id"),
     ("autosave_receipts", "snapshot_sha"), ("autosave_receipts", "tree_sha"),
     ("autosave_receipts", "source_head"), ("autosave_receipts", "created_at"),
+    # LOOP P12. Identifiers, two session ids and two timestamps only. heading
+    # and body are DELIBERATELY absent: they are founder-typed handover prose
+    # and go through the default-deny redaction like every other free-text
+    # column. payload_fingerprint is not listed either, and does not need to
+    # be: it ends in _fingerprint, so _DUMP_DIGEST_SUFFIXES withholds it by
+    # shape. It is NAMED that way for exactly that reason: a bare 'fingerprint'
+    # slipped past the shape rule and dumped in cleartext (caught by this
+    # loop's own dump test), and matching the existing convention closes it
+    # without inventing a second mechanism.
+    ("handovers", "handover_uuid"), ("handovers", "lifecycle_uuid"),
+    ("handovers", "from_session_id"), ("handovers", "to_session_id"),
+    ("handovers", "delivered_at"), ("handovers", "created_at"),
 ))
 
 
@@ -2718,6 +2830,10 @@ class Store(object):
             # The migration step itself, not a copy of it: see _migrate_3_to_4
             # on why a fresh store and a migrated store must run one text.
             _migrate_3_to_4(self.conn)
+        if SCHEMA_VERSION >= 5:
+            # Same rule as schema 4 above: the migration step is the ONE text,
+            # run here for a fresh store and by _migrate_from for an old one.
+            _migrate_4_to_5(self.conn)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -2752,6 +2868,8 @@ class Store(object):
             self.conn.executescript(_RECEIPT_INDEX_DDL)
         if SCHEMA_VERSION >= 4:
             self.conn.executescript(_RETRIEVAL_RUN_INDEX_DDL)
+        if SCHEMA_VERSION >= 5:
+            self.conn.executescript(_HANDOVER_INDEX_DDL)
 
     # ------------------------------------------------------------------
     # The optional FTS5 fast path (LOOP P7). Read the block above
@@ -6484,7 +6602,8 @@ class Store(object):
     # -- transition ------------------------------------------------------
 
     def transition(self, lifecycle_uuid, expected_version, to_state,
-                    session_id="", note="", evidence="", adopt_from_live_session=False):
+                    session_id="", note="", evidence="", adopt_from_live_session=False,
+                    handover_heading=None):
         """Move a record along its legal state graph. Every failure to match
         lifecycle_uuid, expected_version, AND a legal source state for
         to_state raises StaleIdentity naming the actual current state and
@@ -6525,7 +6644,17 @@ class Store(object):
         GATE 6: resuming (or parking/completing) into a name another
         lifecycle now holds active violates the one-active-per-name unique
         index; caught here and turned into the same 'name-active' refusal
-        claim() uses, rather than an unhandled sqlite3.IntegrityError."""
+        claim() uses, rather than an unhandled sqlite3.IntegrityError.
+
+        LOOP P12: handover_heading, when given, writes the record's handover
+        into the handovers table INSIDE this same transaction (see
+        _insert_handover). That is the loop's whole invariant, and it is the
+        reason it is a parameter here rather than a second call the caller
+        makes afterwards: a refused transition can no longer leave a delivered
+        handover behind (the old GATE 3 defect, in a stronger form), and a
+        handover that cannot be built (redaction unavailable) rolls the
+        transition back instead of parking a thread whose context is gone.
+        Leave it None and nothing about this method changes."""
         if to_state not in _LEGAL_MOVES:
             raise ValueError("unknown target state %r" % (to_state,))
         if to_state == "complete" and not (evidence or "").strip():
@@ -6622,11 +6751,87 @@ class Store(object):
                 raise StaleIdentity(
                     "record changed between check and write; retry the transition",
                     current_state=row["state"], current_version=row["version"])
-            _exec(self,
+            tcur = _exec(self,
                 "INSERT INTO transitions (lifecycle_uuid, from_state, to_state, "
                 "session_id, note, at) VALUES (?,?,?,?,?,?)",
                 (lifecycle_uuid, row["state"], to_state, session_id or "", note or "", ts))
+            if handover_heading is not None:
+                self._insert_handover(lifecycle_uuid, tcur.lastrowid,
+                                       handover_heading,
+                                       from_session_id=row["session_id"],
+                                       to_session_id=session_id or "", at=ts)
             return self._record_by_uuid(lifecycle_uuid)
+
+    # -- handovers (LOOP P12) ---------------------------------------------
+
+    def _insert_handover(self, lifecycle_uuid, transition_id, heading,
+                          from_session_id="", to_session_id="", at=None):
+        """Write ONE handover row. Only ever called from inside an already-open
+        transaction (transition()'s), which is the whole invariant: the
+        lifecycle transition and the handover it produced commit together or
+        neither of them exists.
+
+        Its own named method rather than five inline statements so a
+        reinjection test can monkeypatch exactly this symbol (to raise, or to
+        write nothing) and prove the calibration of the atomicity tests.
+
+        RedactionUnavailable from render_digest propagates: it aborts the whole
+        transaction, so a store that cannot redact parks nothing and writes
+        nothing, rather than recording a transition whose handover was lost.
+
+        A duplicate (lifecycle_uuid, payload_fingerprint) loses on the index and
+        is swallowed HERE, not by the caller: that is the retry path. The
+        earlier row already holds this exact text, so the second attempt has
+        nothing to add, while the transition it accompanies is still legitimate
+        and still commits. Nothing is ever written twice."""
+        payload = self.handover_payload(lifecycle_uuid)
+        body = self.render_digest(lifecycle_uuid)
+        try:
+            _exec(self,
+                "INSERT INTO handovers (handover_uuid, lifecycle_uuid, "
+                "transition_id, from_session_id, to_session_id, payload_fingerprint, "
+                "heading, body, delivered_at, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,NULL,?)",
+                (uuid.uuid4().hex, lifecycle_uuid, transition_id,
+                 from_session_id or "", to_session_id or "",
+                 payload["fingerprint"], heading or "", body or "",
+                 at or now_iso()))
+            return "delivered"
+        except sqlite3.IntegrityError:
+            return "already"
+
+    def undelivered_handovers(self):
+        """Every handover nobody has acknowledged yet, oldest first. Read by
+        render_state_md so the generated view carries them, and by the
+        `handovers` command. A pure read: RENDERING a handover is not
+        DELIVERING it, so a crash between the commit and the render costs
+        nothing and the next regeneration puts the text back."""
+        return _exec(self,
+            "SELECT * FROM handovers WHERE delivered_at IS NULL "
+            "ORDER BY created_at, rowid").fetchall()
+
+    def acknowledge_handover(self, handover_uuid):
+        """Mark ONE handover as delivered, so it stops rendering into STATE.md.
+        Idempotent by construction: the UPDATE is guarded on delivered_at IS
+        NULL, so a second call changes nothing and reports 'already' rather
+        than restamping the time. Never deletes the row: `dump` keeps the whole
+        handover history. Raises StaleIdentity for an unknown uuid, because
+        acknowledging something that does not exist is a caller mistake worth
+        seeing, not a silent no-op."""
+        with self._transaction():
+            row = _exec(self,
+                "SELECT delivered_at FROM handovers WHERE handover_uuid=?",
+                (handover_uuid,)).fetchone()
+            if row is None:
+                raise StaleIdentity(
+                    "no handover with handover_uuid %s" % handover_uuid,
+                    current_state=None, current_version=None)
+            if row["delivered_at"] is not None:
+                return "already"
+            _exec(self,
+                "UPDATE handovers SET delivered_at=? WHERE handover_uuid=? "
+                "AND delivered_at IS NULL", (now_iso(), handover_uuid))
+            return "delivered"
 
     # -- checkpoint / decide / send ---------------------------------------
 
@@ -7332,6 +7537,26 @@ def _redacted_view_text(raw):
     return _sanitize_for_display(_neutralize_markers(redact_text(raw)))
 
 
+def _redacted_view_block(raw):
+    """The same pipeline as _redacted_view_text, applied LINE BY LINE so that
+    real newlines survive (LOOP P12).
+
+    Needed because a handover body is a rendered DOCUMENT, not a field: its
+    newlines are its structure. _redacted_view_text is right for every field
+    beside it, where a newline arriving in founder text is a forged record
+    block (SOFT D) and must become a visible \x0a. Run it on a whole digest
+    and every line break in the handover collapses into literal \x0a noise
+    (reproduced in the LOOP P12 probe before this existed), which is the same
+    mistake _out_prerendered exists to avoid at the terminal.
+
+    Every OTHER control character still becomes a visible escape, and each
+    line is still marker-neutralized, so a body cannot forge the generated
+    block's boundary or smuggle an ANSI escape through a line of its own."""
+    if not raw:
+        return raw
+    return "\n".join(_redacted_view_text(line) for line in raw.split("\n"))
+
+
 def render_state_md(root):
     """The generated human view of every record. Advisory for missing data
     (never raises for that), but every founder-typed field rendered below
@@ -7410,10 +7635,51 @@ def render_state_md(root):
                 if digest_row and digest_row["next_intent"]:
                     lines.append("  next intent: %s" % _redacted_view_text(digest_row["next_intent"]))
             lines.append("")
+        # LOOP P12: handovers are GENERATED here, inside the markers, from the
+        # store's own rows. Nothing appends to STATE.md any more, so the
+        # append-versus-replace race that used to erase a handover has no
+        # surface left. An undelivered handover reappears on every
+        # regeneration until it is acknowledged, which is what makes a crash
+        # between the commit and the render cost nothing.
+        handovers = _undelivered_handover_rows(store)
+        if handovers:
+            lines.append("## Handovers (undelivered: %d)" % len(handovers))
+            lines.append("_Acknowledge one with: python3 tools/bm_store.py "
+                         "handover-ack --handover <uuid>_")
+            lines.append("")
+            for h in handovers:
+                lines.append("### %s" % (_redacted_view_text(h["heading"])
+                                          if h["heading"] else "(no heading)"))
+                lines.append("handover %s (lifecycle %s, %s)"
+                             % (h["handover_uuid"], h["lifecycle_uuid"], h["created_at"]))
+                # Already redacted once by render_digest at insert time; run
+                # through the view funnel again so a body written by an older
+                # build, or one carrying the literal BEGIN/END marker text,
+                # still cannot corrupt this block's boundary (GATE 8b).
+                lines.append(_redacted_view_block(h["body"]) if h["body"] else "(empty)")
+                lines.append("")
         lines.append(_STATE_END)
         return "\n".join(lines) + "\n"
     finally:
         store.close()
+
+
+def _undelivered_handover_rows(store):
+    """The handovers STATE.md must show, or an empty list on a store whose
+    schema predates them.
+
+    The sqlite_master guard is not defensive clutter: _exec turns a "no such
+    table" OperationalError into structural damage and QUARANTINES the store,
+    so querying handovers on a schema-4 store that has not been migrated yet
+    would destroy it to render a section. Asking sqlite_master first cannot
+    fail that way, and an older store simply renders no handover section."""
+    present = store.conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='handovers'").fetchone()
+    if not present:
+        return []
+    return _exec(store,
+        "SELECT * FROM handovers WHERE delivered_at IS NULL "
+        "ORDER BY created_at, rowid").fetchall()
 
 
 def write_state_view(root):
@@ -7966,7 +8232,8 @@ def _cmd_transition(argv, to_state, usage):
     lifecycle_uuid = argv[0]
     kv = _parse_kv(argv[1:])
     _reject_unknown_flags("transition", kv,
-        ("version", "session", "note", "evidence", "adopt-from-live-session"))
+        ("version", "session", "note", "evidence", "adopt-from-live-session",
+         "handover"))
     ver_raw = kv.get("version")
     if not ver_raw:
         _out("usage: %s" % usage)
@@ -7980,13 +8247,20 @@ def _cmd_transition(argv, to_state, usage):
     # is currently active under a DIFFERENT, live session; harmless to pass
     # or omit for park/resume/complete, which never check it.
     adopt_from_live_session = "adopt-from-live-session" in kv
+    # LOOP P12: --handover "<heading>" writes the record's handover in the SAME
+    # transaction as this move. Absent, no handover is written at all, which is
+    # the right default for a park a session does mid-work and expects to
+    # resume itself. `" ".join` on the raw flag, so --handover with no value
+    # yields an empty heading rather than None, and still asks for a handover.
+    handover_heading = (" ".join(kv["handover"]) if "handover" in kv else None)
     root, _source = require_root()
     store = Store(root, create=False)
     try:
         before = store.get(lifecycle_uuid)
         rec = store.transition(lifecycle_uuid, expected_version, to_state,
                                 session_id=session_id, note=note, evidence=evidence,
-                                adopt_from_live_session=adopt_from_live_session)
+                                adopt_from_live_session=adopt_from_live_session,
+                                handover_heading=handover_heading)
     finally:
         store.close()
     _refresh_state_view(root)
@@ -8116,6 +8390,52 @@ def cmd_dump(argv):
     _out_unprotected(json.dumps(data, indent=2, sort_keys=True))
 
 
+def cmd_handovers(argv):
+    """List the handovers nobody has acknowledged yet. A diagnostic, so it
+    reads through ReadOnlyStore and never creates the store it is reporting
+    on, exactly like dump and dashboard."""
+    _reject_unknown_flags("handovers", _parse_kv(argv), ())
+    root, _source = require_root()
+    store = ReadOnlyStore(root)
+    try:
+        rows = _undelivered_handover_rows(store)
+        if not rows:
+            _out("handovers: none undelivered.")
+            return
+        _out("handovers: %d undelivered" % len(rows))
+        for h in rows:
+            _out("- %s  lifecycle %s  %s"
+                 % (h["handover_uuid"], h["lifecycle_uuid"], h["created_at"]))
+            _out("  %s" % (_redacted_view_text(h["heading"])
+                           if h["heading"] else "(no heading)"))
+    finally:
+        store.close()
+
+
+def cmd_handover_ack(argv):
+    """Acknowledge ONE handover so it stops rendering into STATE.md. The row
+    stays; only delivered_at changes. Re-running it is a no-op that says so,
+    which is the property that makes a retry after a crash safe."""
+    kv = _parse_kv(argv)
+    _reject_unknown_flags("handover-ack", kv, ("handover",))
+    handover_uuid = " ".join(kv.get("handover", []))
+    if not handover_uuid:
+        _out("usage: handover-ack --handover <handover_uuid>")
+        sys.exit(2)
+    root, _source = require_root()
+    store = Store(root, create=False)
+    try:
+        outcome = store.acknowledge_handover(handover_uuid)
+    finally:
+        store.close()
+    _refresh_state_view(root)
+    if outcome == "already":
+        _out("handover-ack: %s was already acknowledged; nothing changed." % handover_uuid)
+    else:
+        _out("handover-ack: %s acknowledged; it no longer renders into STATE.md."
+             % handover_uuid)
+
+
 def cmd_verify(argv):
     root, _source = require_root()
     problems = verify(root)
@@ -8132,7 +8452,8 @@ _COMMANDS = {
     "init": cmd_init, "claim": cmd_claim, "park": cmd_park, "resume": cmd_resume,
     "complete": cmd_complete, "adopt": cmd_adopt, "checkpoint": cmd_checkpoint,
     "decide": cmd_decide, "dashboard": cmd_dashboard, "dump": cmd_dump,
-    "verify": cmd_verify,
+    "verify": cmd_verify, "handovers": cmd_handovers,
+    "handover-ack": cmd_handover_ack,
 }
 
 

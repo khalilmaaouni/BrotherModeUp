@@ -721,6 +721,24 @@ class TestFixRoundGates(unittest.TestCase):
                                 "sqlite3.Error and every caller here switches "
                                 "the fast path to lexical. Statements against "
                                 "the REAL tables still go through _exec",
+            "_migrate_4_to_5": "a schema migration step, run INSIDE the "
+                               "caller's BEGIN EXCLUSIVE. _exec quarantines "
+                               "on DatabaseError, which is exactly wrong "
+                               "here: a CREATE TABLE failing mid-migration "
+                               "must roll the caller's transaction back, not "
+                               "move the founder's store aside. Same "
+                               "exemption and same reason as every other "
+                               "_migrate_*_to_* above",
+            "_undelivered_handover_rows": "one sqlite_master probe asking "
+                                          "whether the handovers table exists "
+                                          "at all (LOOP P12). Routing it "
+                                          "through _exec would turn 'no such "
+                                          "table' on a pre-schema-5 store "
+                                          "into structural damage and "
+                                          "QUARANTINE a healthy store to "
+                                          "render a section. The real SELECT "
+                                          "right after it does go through "
+                                          "_exec",
         }
         with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
             source = f.read()
@@ -8902,6 +8920,155 @@ class TestPostAuditLoopP6Schema4Migration(unittest.TestCase):
         self.assertEqual(len(bs._RETRIEVAL_RUN_DDL_STATEMENTS),
                          len(bs._TABLES_RETRIEVAL))
         self.assertEqual(len(bs._RETRIEVAL_RUN_INDEX_STATEMENTS), 1)
+
+
+class TestPostAuditLoopP12Schema5Migration(unittest.TestCase):
+    """LOOP P12: schema 4 to 5 adds the handovers table. Same three questions
+    every migration in this project has to answer: does a healthy older store
+    MIGRATE rather than get quarantined, does every existing row survive
+    byte for byte, and does an interruption roll the whole thing back."""
+
+    def _schema4_store(self, d):
+        """A real store, built by the product, then walked BACK to schema 4 by
+        dropping exactly what schema 5 adds. Same technique as the schema-3
+        fixture above: build forward with the shipping code so the fixture
+        cannot drift from a real store, then remove the newest layer."""
+        with bs.Store(d) as store:
+            rec = store.claim("payments", "persistent", objective="build payments",
+                              files=["api/pay.py"], session_id="sessA")
+            store.checkpoint(rec.lifecycle_uuid, rec.version, "wire the webhook")
+        path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            for t in bs._TABLES_HANDOVER:
+                conn.execute("DROP TABLE IF EXISTS %s" % t)
+            conn.execute("UPDATE meta SET value='4' WHERE key='schema_version'")
+            conn.execute("COMMIT")
+        finally:
+            conn.close()
+        return path
+
+    def _snapshot(self, path):
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        try:
+            out = {}
+            for t in bs._TABLES_V4:
+                rows = [dict(r) for r in conn.execute("SELECT * FROM %s" % t)]
+                if t == "meta":
+                    rows = [r for r in rows if r.get("key") != "schema_version"]
+                out[t] = json.dumps(rows, sort_keys=True, default=str)
+            return out
+        finally:
+            conn.close()
+
+    def _tables(self, path):
+        conn = sqlite3.connect(path)
+        try:
+            return {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            conn.close()
+
+    def test_a_schema4_store_migrates_instead_of_being_quarantined(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema4_store(d)
+            with bs.Store(d) as store:
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT value FROM meta WHERE key='schema_version'"
+                    ).fetchone()["value"], str(bs.SCHEMA_VERSION))
+            self.assertTrue(set(bs._TABLES_HANDOVER) <= self._tables(path))
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")), [],
+                "a healthy schema-4 store must MIGRATE, never be quarantined")
+
+    def test_migration_preserves_every_schema4_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema4_store(d)
+            before = self._snapshot(path)
+            with bs.Store(d):
+                pass
+            self.assertEqual(before, self._snapshot(path))
+
+    def test_migration_imports_no_appended_handover(self):
+        """The dishonest half of this change would be scraping the handovers
+        older versions appended into STATE.md and presenting them as records.
+        Those are human prose with no reliable end marker; they stay put."""
+        with tempfile.TemporaryDirectory() as d:
+            self._schema4_store(d)
+            io.open(os.path.join(d, "STATE.md"), "w", encoding="utf-8").write(
+                "# Project STATE\n\n<!-- brothermode-handover:old:abc -->\n"
+                "## Drained from thread mode: legacy\nkeep me\n")
+            with bs.Store(d) as store:
+                self.assertEqual(list(store.undelivered_handovers()), [])
+            self.assertIn("keep me", io.open(
+                os.path.join(d, "STATE.md"), encoding="utf-8").read())
+
+    def test_migration_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema4_store(d)
+            with bs.Store(d):
+                pass
+            first = self._snapshot(path)
+            with bs.Store(d):
+                pass
+            self.assertEqual(first, self._snapshot(path))
+
+    def test_calibrated_interrupted_migration_rolls_back_completely(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema4_store(d)
+            original = bs._MIGRATIONS[4]
+
+            def _fail_half_way(conn):
+                conn.execute(bs._HANDOVER_DDL_STATEMENTS[0])
+                raise RuntimeError("simulated interruption mid-migration")
+
+            bs._MIGRATIONS[4] = _fail_half_way
+            try:
+                with self.assertRaises(RuntimeError):
+                    bs.Store(d)
+            finally:
+                bs._MIGRATIONS[4] = original
+            conn = sqlite3.connect(path)
+            try:
+                v = conn.execute(
+                    "SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(v, "4",
+                             "an interrupted migration must not move the version")
+            for t in bs._TABLES_HANDOVER:
+                self.assertNotIn(t, self._tables(path))
+            with bs.Store(d):
+                pass
+            self.assertTrue(set(bs._TABLES_HANDOVER) <= self._tables(path))
+
+    def test_handover_ddl_split_matches_the_table_and_index_lists(self):
+        self.assertEqual(len(bs._HANDOVER_DDL_STATEMENTS),
+                         len(bs._TABLES_HANDOVER))
+        self.assertEqual(len(bs._HANDOVER_INDEX_STATEMENTS), 3)
+
+    def test_a_handover_body_is_redacted_in_dump_but_its_ids_are_not(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rec = store.claim("payments", "persistent", objective="build it",
+                                  files=["api/pay.py"], session_id="sessA")
+                store.checkpoint(rec.lifecycle_uuid, rec.version, "next step",
+                                 decisions=[("notes", "key AKIAIOSFODNN7EXAMPLE")])
+                rec = store.get(rec.lifecycle_uuid)
+                store.transition(rec.lifecycle_uuid, rec.version, "parked",
+                                 session_id="sessA", handover_heading="Drained: payments")
+                data = store.dump()
+            rows = data["handovers"]
+            self.assertEqual(len(rows), 1)
+            self.assertNotIn("AKIAIOSFODNN7EXAMPLE", json.dumps(rows),
+                             "dump leaked a secret out of a handover body")
+            self.assertEqual(rows[0]["lifecycle_uuid"], rec.lifecycle_uuid,
+                             "the identifier must stay readable so a dump is usable")
+            self.assertIn("WITHHELD", rows[0]["payload_fingerprint"],
+                          "a digest column is withheld by name shape")
 
 
 def _fts_env(on=True, forced_off=False):
