@@ -242,6 +242,33 @@ class TestCapabilityClaimsStaySeparate(unittest.TestCase):
                           "%s has no hook points, so the file must not let a "
                           "reader believe the fence is enforced there" % r["key"])
 
+    def test_every_capability_table_row_names_a_real_instruction_file(self):
+        # P16 regression, and the reason this assertion is per CELL rather than
+        # per row: the table cell used to be destinations[0].split(".")[0],
+        # which truncates a prose sentence at the dot inside the FILENAME.
+        # Copilot's cell rendered EMPTY (its path starts ".github/..."), and
+        # AGENTS.md, QWEN.md and IFLOW.md all lost their extension. Every row
+        # was present the whole time, so a row count test passed throughout.
+        doc = rt_mod.render_runtimes_doc("tools")
+        rows = {}
+        for line in doc.splitlines():
+            if line.startswith("| ") and line.count("|") >= 6:
+                cells = [c.strip() for c in line.strip("|").split("|")]
+                rows[cells[0]] = cells[1]
+        for r in rt_mod.RUNTIMES:
+            self.assertIn(r["title"], rows)
+            cell = rows[r["title"]]
+            self.assertTrue(cell, "%s has an EMPTY instruction file cell; a "
+                                  "founder reads that as 'no instruction file'"
+                                  % r["title"])
+            self.assertIn(r["install_file"], cell,
+                          "%s cell %r does not carry the registry's "
+                          "install_file %r" % (r["title"], cell,
+                                               r["install_file"]))
+            self.assertTrue(cell.count(".md") >= 1,
+                            "%s cell %r lost its file extension" % (r["title"],
+                                                                    cell))
+
     def test_the_capability_table_has_one_row_per_runtime_plus_claude_code(self):
         doc = rt_mod.render_runtimes_doc("tools")
         for r in rt_mod.RUNTIMES:
@@ -321,6 +348,44 @@ class TestEmitIsNonDestructiveAndRefusesCleanly(unittest.TestCase):
             for rr in rt_mod.RUNTIMES:
                 self.assertTrue(os.path.exists(
                     os.path.join(d, "docs", "runtimes", rr["staging_name"])))
+
+    def test_emit_refuses_to_overwrite_a_hand_written_capability_table(self):
+        # P16 regression. cmd_emit computed the capability table path from ROOT
+        # unconditionally, so a founder's hand written docs/RUNTIMES.md was
+        # destroyed with no backup and no warning, WHILE the banner printed
+        # "an existing AGENTS.md or rules file is never clobbered".
+        with tempfile.TemporaryDirectory() as d:
+            _new_project(d)
+            os.makedirs(os.path.join(d, "docs"))
+            doc = os.path.join(d, "docs", "RUNTIMES.md")
+            with io.open(doc, "w", encoding="utf-8") as f:
+                f.write("FOUNDER HAND WRITTEN RUNTIMES NOTES\n")
+            r = _run(["emit"], d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("refused", r.stderr)
+            self.assertEqual(io.open(doc, encoding="utf-8").read(),
+                             "FOUNDER HAND WRITTEN RUNTIMES NOTES\n",
+                             "the founder's file was overwritten")
+            self.assertFalse(os.path.exists(os.path.join(d, "docs", "runtimes")),
+                             "a refused emit must write nothing at all, not "
+                             "part of the staging directory")
+
+    def test_out_keeps_every_written_file_inside_the_named_directory(self):
+        # P16 regression. --out redirected the adapter files only; the
+        # capability table still went to <root>/docs/RUNTIMES.md, a file
+        # OUTSIDE the directory the founder named as the scratch target.
+        with tempfile.TemporaryDirectory() as d:
+            _new_project(d)
+            staging = os.path.join(d, "scratch")
+            os.makedirs(staging)
+            r = _run(["emit", "--out", staging], d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertTrue(os.path.exists(os.path.join(staging, "RUNTIMES.md")))
+            self.assertFalse(
+                os.path.exists(os.path.join(d, "docs", "RUNTIMES.md")),
+                "--out must not write anything outside the named directory")
+            self.assertEqual(_run(["check", "--out", staging], d).returncode, 0,
+                             "check must look where emit actually wrote")
 
     def test_emit_is_deterministic(self):
         with tempfile.TemporaryDirectory() as d:
@@ -429,6 +494,23 @@ class TestListAndHelp(unittest.TestCase):
             r = _run(["list"], d)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertIn("Codex", r.stdout)
+
+    def test_help_states_the_real_default_staging_directory(self):
+        # P16 regression. main() prints the module docstring verbatim as the
+        # primary help surface, and that docstring said the default staging
+        # directory was ".brothermode/runtimes" while DEFAULT_STAGING was
+        # "docs/runtimes". Those differ in the way that matters most here:
+        # .brothermode is git excluded, docs/runtimes is committed and ships.
+        doc = rt_mod.__doc__ or ""
+        self.assertIn(rt_mod.DEFAULT_STAGING.replace(os.sep, "/"), doc,
+                      "the help text must name the directory emit actually "
+                      "writes to")
+        self.assertNotIn(".brothermode/runtimes", doc,
+                         "the help text names a directory emit never uses")
+        with tempfile.TemporaryDirectory() as d:
+            r = _run(["--help"], d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn(rt_mod.DEFAULT_STAGING.replace(os.sep, "/"), r.stdout)
 
     def test_unknown_command_refuses(self):
         with tempfile.TemporaryDirectory() as d:
