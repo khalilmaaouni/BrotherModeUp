@@ -1,5 +1,207 @@
 # Changelog
 
+## 2.0.0-rc.4, 2026-07-29: four parallel lanes merged, fifteen loops landed
+
+The release cut for the work done on 2026-07-29. Everything below already ran
+its own gate on its own branch; this entry is the merge, the version bump, and
+the honest list of what is still open.
+
+WHAT LANDED TONIGHT, with the commit that carries it. Each loop closed with a
+full-gate run and a refutation round, and several were reopened by their own
+refuters and fixed in a second commit before landing.
+
+- Loop P2, one-command installer, safe uninstall, fence wired by default:
+  `06b9c03`, fix round `7afa110`.
+- Loop 3, approval needs a receipt from a real answer: `1fdf2c3`, fix round
+  `05441e7`.
+- Loop P4, a result limit could hide an applicable gate rule: `c78e5ea`, fix
+  round `bc25e06`.
+- Loop P5, substantial work no longer depends on remembering a flag: `fe0497b`,
+  fix round `03c0dab`.
+- Loop P6, persist complete retrieval-run context: `d3c24a3`, fix round
+  `358e00d`.
+- Loop P7, an optional FTS5 fast path with the lexical path intact behind it:
+  `085cb0b`, fix round `e2112f0`.
+- Loop P8, doctor proves the fence refuses, and the Bash boundary gets a
+  policy: `ee50996`, fix round `7fd0ddb`.
+- Loop 9, make the local and CI gates the same gate: `3aac9df`, fix round
+  `33f96d5`.
+- Loop P10, generated project facts and documentation that stops pinning stale
+  ones: `9bb5daa`, fix round `68f2515`.
+- Loop 11, one withholding policy for every export: `b3203b2`, fix round
+  `7175250`.
+- Loop P12, a parked thread could lose its handover: `4c37cdc`, fix round
+  `1098af8`.
+- Loop P16, cross-runtime adapters generated from one verified registry:
+  `f1ad260`, fix round `07fdb8f`.
+- Loop P17, BrotherMode installs from a package manager: `078e653`, fix round
+  `4332a90`.
+- Loop P18, the thirteen ratified benchmark scenarios run for real: `68eb4d8`,
+  fix round `e8836a9`.
+- Loop P19, a beta kit an outside founder can follow: `4084b4a`, fix round
+  `eec5327`.
+
+The four lane merges are `1c64e39` (install), `17c5183` (CI), `d2c7bec`
+(privacy) and `823640a` (ecosystem). Their commit messages carry every conflict
+resolution, including the one design pair that could not both be true.
+
+OPEN BY NATURE, not by neglect. Three things cannot be closed by writing code,
+and this release does not pretend otherwise.
+
+- Loop 13, founder dogfooding, has not happened. Nothing in this repository has
+  been through a real working day of someone's actual work. Every benchmark
+  scenario runs against a store built seconds earlier.
+- Loop 14, an independent adversarial audit by a different model, has not been
+  run. Every finding here was found by the same family of model that wrote the
+  code.
+- The beta kit shipped (Loop P19) and no outside founder has run it. The kit is
+  unexercised prose until the first real report comes back.
+
+STILL A RELEASE CANDIDATE. `docs/KNOWN-LIMITS.md` and `docs/NOT-FINALIZED.md`
+are the registers to believe over this entry, and `docs/RELEASE.md` states what
+promoting this to a plain `2.0.0` would require. No tag was created by this
+commit.
+
+## 2026-07-29: installation is now one command (Loop P2)
+
+- `scripts/install.py` copies the checkout, merges the hook configuration into
+  `~/.claude/settings.json` without touching any hook it did not write,
+  validates the result, and runs the fence hook end to end before reporting
+  success. `scripts/uninstall.py` removes only BrotherMode-owned entries and
+  never deletes a vault. FIVE hooks are installed, not four: `PreToolUse` (the
+  fence, `docs/HOOKS.md`) was documented and was in no install instruction, so
+  the one-writer-per-file promise was OFF by default on every installation that
+  followed the docs. `--dry-run`, `--upgrade`, `--no-hooks`, `--target`,
+  `--settings`. Windows is refused with the reason (two of the five hook
+  commands are POSIX shell) rather than half-installed. New suite
+  `tools/test_install.py` is in `tools/test_all.py`'s SUITES.
+- `docs/QUICKSTART.md` and `docs/SETUP.md` lead with the installer; the
+  hand-edited JSON block stays as a documented fallback.
+- Hook ownership is decided by the command string naming this installation's
+  path. The fix round replaced a substring match with a path-token match, kept
+  a symlinked settings file symlinked, and made the uninstaller honest about
+  what it left behind.
+
+## 2026-07-29: the fence is proven to REFUSE, and the Bash boundary gets a policy (Loop P8)
+
+- `scripts/doctor.py` proves the fence hook REFUSES, not merely that it runs.
+  It reads the wired `PreToolUse` command out of `settings.json` and runs a
+  blocked-write simulation against that exact command string in a throwaway
+  project: one file claimed by one session, an Edit requested by another (deny
+  expected), then the same edit by the owner (allow expected). It detects a
+  fence that is absent, points at a missing file, has a matcher leaving write
+  tools ungated, refuses nothing, or refuses everything. It prints what a green
+  result does not prove.
+- `scripts/bm_shell.py` is a declared-path wrapper for an unavoidable generated
+  shell write. Every declared path is judged by `bm_fence_hook.decide()` itself,
+  in strict mode, and the wrapper refuses on a fail-open, the deliberate inverse
+  of the hook's rule. `--declare-none` is screened against a short, explicitly
+  incomplete list of obvious write forms.
+- `scripts/install.py` now points at doctor after its smoke test, because the
+  smoke test proves the hook runs and not that it refuses. `docs/HOOKS.md` gains
+  an Installation section and a Bash-boundary section.
+
+## 2026-07-29: local and CI gates made equivalent (Loop 9)
+
+`tools/test_bm_fence_hook.py` now runs in CI on Linux and macOS. A new serial
+`gate` job runs `tools/test_all.py` itself, the same command a loop close runs
+locally, and uploads every suite's full output as an artifact when it fails.
+`tools/test_all.py` gained a CI inventory check (a suite cannot be in the local
+gate and absent from CI, or run by CI and unknown to the gate), an interprocess
+lock keyed to the checkout so two gate runs cannot corrupt each other, per-suite
+timeouts with hung-suite diagnostics, and `--artifacts DIR`. The fix round made
+the inventory check measure real execution rather than a mention, read job-level
+`if:` as well as step-level, and stopped a leftover lock file from silently
+disabling mutual exclusion.
+
+## 2026-07-29: documentation stopped pinning facts that move (Loop P10)
+
+`tools/bm_project_facts.py` prints version, release tag, schema version, hook
+events, suite files, retrieval modes and the Python floor read out of the tree.
+It deliberately prints NO test count: counts change with every test that lands,
+so active pages now say to run `python3 tools/test_all.py` and expect ALL GREEN,
+and exact counts stay in dated evidence. `tools/test_bm_docs.py` compares the
+pages against those facts. Fixed with it: QUICKSTART told installers to expect a
+test count that no longer matched and called the mismatch a broken install;
+README and RELEASE counted four hooks while five ship, and neither hand-wiring
+block wired the `PreToolUse` fence; README declared the adopt defect open two
+days after it closed; RELEASE pinned `rc.2`; the README safety grep promised no
+output while matching two documentation URLs; the README inventory omitted
+`bm_fence_hook.py`, the newer suites, `scripts/` and `docs/HOOKS.md`; the
+uninstall steps deleted the skill folder before running the unwire script that
+lives in it. Dated documents now carry a HISTORICAL banner with superseded-by
+pointers.
+
+## 2026-07-29: ONE withholding policy now governs every export (Loop 11)
+
+- `dump`, its JSON output, and the MCP server's responses WITHHOLD founder prose
+  instead of scrubbing it (objectives, evidence, digest bodies and next intents,
+  transition notes, decision text, directive text, claimed paths, captured
+  corrections), because the redactor only removes secret SHAPES and ordinary
+  sentences carry none. Structural data (identifiers, states, versions, hashes,
+  counts, timestamps) still passes, and the record name and tier stay readable,
+  scrubbed and absolute-path masked, so an export is still usable. Absolute
+  POSIX, Windows drive and UNC paths are masked, including in the MCP server's
+  `verify` problem lines. `dump --raw` still returns everything and now warns on
+  stderr that it includes prose an ordinary dump withholds.
+- `bm_threads send` regenerates `inbox.md` from authoritative store rows instead
+  of `dump()`. A local view the founder reads is not an export.
+- MCP copy-first is now covered by committed tests: real store bytes and
+  sidecars byte-identical across four read-only tools, no snapshot directory
+  surviving a call, and a cleanup failure reported by name rather than swallowed.
+- Secret-scan hardening, and no Windows ACL support is claimed anywhere: every
+  published owner-only sentence is scoped to POSIX or marked best-effort,
+  enforced by a test.
+- The fix round replaced the path-masking body class with a denylist, because
+  the old ASCII allowlist stopped at the first non-ASCII byte and left the
+  SENSITIVE TAIL of a path standing, and it shape-gated session ids, which are
+  caller-supplied free text.
+
+## 2026-07-29: cross-runtime adapters (Loop P16)
+
+`tools/bm_runtimes.py` generates the instruction file that wires BrotherMode
+into another AI coding runtime: OpenAI Codex CLI, GitHub Copilot, Google
+Antigravity, Qwen Code, iFlow CLI, and a generic AGENTS.md. `list`, `emit` and
+`check` are the three commands. Every destination path was read off the vendor's
+own documentation page on 2026-07-29, and the URL plus the date travels into
+each generated file's header and into `docs/RUNTIMES.md`, so a stale claim is
+visible rather than inherited. Emission is non-destructive. The adapters name
+subcommands only and tell the agent to run `--help`, so no flag name can be
+invented or go stale. Gated by `tools/test_bm_runtimes.py`.
+
+## 2026-07-29: packaging (Loop P17)
+
+- `pyproject.toml` (PEP 621, setuptools backend, zero dependencies, Python 3.9
+  floor) makes BrotherMode installable with pipx, uv, or pip. It ships the
+  `bm_*` modules and puts six commands on PATH. Nothing is published; publishing
+  is a founder decision and the runbook is `docs/PACKAGING.md`.
+- `bm_learn.py`, `bm_runtimes.py` and `bm_score.py` gained a `cli()` entry
+  point. The first two have `main(argv)` with a required argument, which an
+  entry point calls with none, so a console script pointed straight at `main`
+  would have installed a command that raised TypeError on first use.
+  `bm_score`'s never-block guard lived only in its `__main__` block, which a
+  console script bypasses, taking the `--strict` honesty rule with it.
+- Tests hold the packaging manifest to the repository: every non-test module in
+  `tools/` is in `py-modules` and nothing else is, every console script target
+  imports and is callable with no arguments, the published version matches
+  `VERSION`, and the dependency list is empty.
+- `scripts/bootstrap.sh` finds a Python 3.9 or later and hands off to
+  `scripts/install.py`.
+- The fix round made every instruction string resolve to a command that exists
+  in the reader's layout, because there is no `tools/` directory in a packaged
+  install and the first refusal such a user saw named a file that does not
+  exist.
+
+## 2026-07-29: a beta kit an outside founder can follow (Loop P19)
+
+`docs/beta/BETA-KIT.md` is the handout for an outside founder who has already
+agreed to a beta: what they are being asked to do, a first hour split into
+install, one real task, and one captured correction, five honest expectations
+for the first two weeks, a weekly report template whose five headings mirror the
+dogfood measurement categories, and a privacy note with two greps they can run
+themselves. Every command in it was executed against a throwaway store before
+publication. Recruiting is out of scope and the page says so.
+
 ## 2026-07-29 (no version bump): the handover dedupe was deleting handovers
 
 Fix round on Loop P12. The entry below promised that a park and its handover
