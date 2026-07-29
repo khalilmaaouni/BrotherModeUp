@@ -44,8 +44,12 @@ APPROVAL NEEDS A RECEIPT FROM A REAL ANSWER OF YOURS
   could run this file could manufacture an approved rule, and the reference it
   recorded said "run by the founder" whether or not anyone was there.
 
-RETRIEVAL MODE: lexical only today. No FTS5 index is built yet, and no output
-here claims full-text or BM25 ranking. Retrieval prints the mode it used.
+RETRIEVAL MODE: deterministic lexical matching by default, and that path is
+complete on its own. An OPTIONAL SQLite FTS5 index can be turned on with
+BROTHERMODE_FTS5=1, which adds stemmed matching and a BM25 component to the
+ranking; BROTHERMODE_NO_FTS5=1 forces it back off and wins over the first. Every
+retrieval prints the mode it actually used, and no output claims BM25 unless a
+real index answered. See `index-status` and `rebuild-index`.
 
 TWO RETRIEVAL VERBS, NOT ONE VERB AND A FLAG
   `lookup` reads and writes nothing. `apply` retrieves AND records that the
@@ -681,9 +685,27 @@ def _retrieve_command(mode, argv):
         _out("  Do   : %s" % L.safe_display(r["action_text"], 160))
         if r.get("because_text"):
             _out("  Why  : %s" % L.safe_display(r["because_text"], 160))
-        _out("  Match: terms %s, relevance %s"
-             % (why["matched_terms"] or "(none, shown because it is a gate)",
-                why["relevance"]))
+        # Named components, never one opaque score: the founder has to be able
+        # to see WHY this rule sits where it does. bm25 is printed only when a
+        # real index answered, because printing "bm25 0.0" in lexical mode
+        # would imply a number was computed and lost.
+        #
+        # The no-exact-terms line names the REAL reason, and there are now two
+        # of them. Saying "shown because it is a gate" about a rule the search
+        # index matched on a stem would be this tool explaining itself wrongly,
+        # which is the one thing the explanation exists to prevent.
+        if why["matched_terms"]:
+            terms = why["matched_terms"]
+        elif L.is_gate(r):
+            terms = "(none, shown because it is a gate)"
+        elif why["mode"] == L.FTS5_MODE and why.get("bm25"):
+            terms = "(no exact term; the search index matched a word stem)"
+        else:
+            terms = "(none)"
+        _out("  Match: terms %s, relevance %s%s"
+             % (terms, why["relevance"],
+                (", bm25 %s (mode=%s)" % (why.get("bm25", 0.0), why["mode"]))
+                if why["mode"] == L.FTS5_MODE else ""))
         if r.get("conflicts_with"):
             _out("  CONFLICT: contradicts %s. Both are live; see below."
                  % ", ".join(u[:8] for u in r["conflicts_with"]))
@@ -1508,8 +1530,56 @@ def cmd_verify(argv):
     return 1
 
 
+def cmd_index_status(argv):
+    """What the optional search index is doing. Read only."""
+    pos, kv = _parse(argv, {"json"})
+    store = _store()
+    try:
+        res = store.learning_index_status()
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(res, indent=2, sort_keys=True))
+        return 0
+    _out("search index: mode=%s" % res["mode"])
+    _out("  requested: %s     available: %s"
+         % ("yes" if res["requested"] else "no",
+            "yes" if res["available"] else "no"))
+    if res["available"]:
+        _out("  %s row(s) indexed for %s rule(s)"
+             % (res["indexed_rows"], res["rules"]))
+        _out("  drift is checked by: bm_learn.py verify")
+    else:
+        _out("  retrieval is lexical, which is complete on its own.")
+        _out("  turn the fast path on with %s (off again with %s)"
+             % (res["enable_with"], res["disable_with"]))
+    return 0
+
+
+def cmd_rebuild_index(argv):
+    """Rebuild the search index from the rules, atomically. Exit 0 when it
+    rebuilt, 2 when there was no index to rebuild and it said why."""
+    pos, kv = _parse(argv, {"json"})
+    store = _store()
+    try:
+        res = store.rebuild_learning_index()
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(res, indent=2, sort_keys=True))
+        return 0 if res["ok"] else 2
+    if not res["ok"]:
+        _err("bm_learn: %s" % res["reason"])
+        return 2
+    _out("search index rebuilt: %d row(s), mode=%s" % (res["indexed"], res["mode"]))
+    _out("Confirm with: bm_learn.py verify")
+    return 0
+
+
 COMMANDS = {
     "capture": cmd_capture,
+    "index-status": cmd_index_status,
+    "rebuild-index": cmd_rebuild_index,
     "outcome": cmd_outcome,
     "inbox": cmd_inbox,
     "metrics": cmd_metrics,

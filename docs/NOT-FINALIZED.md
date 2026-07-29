@@ -11,6 +11,52 @@ Status words mean exactly one thing each:
 
 ---
 
+## P7 (found in passing, NOT this loop's code): the loop-close gate flakes 1 run in 16. OPEN.
+
+`test_bm_store.py::TestPostAuditLoop3ApprovalReceipts::
+test_a_forged_token_refuses_and_says_nothing_useful_to_a_guesser` forges a token
+as `real["token"][:-1] + "0"`. The token is hex, so once every sixteen runs the
+last character IS already "0", the forged token is the real one, the approval
+succeeds and the test fails with "OwnershipRefused not raised". Observed twice
+while running the gate for Loop P7, both times on a tree whose only changes were
+elsewhere, and both times green on the next run.
+
+It is a defect in the test, not in the receipts: the fix is to forge a character
+that cannot collide, for example flipping the last character between "0" and "1"
+based on what it already is. Left untouched here deliberately, because that file
+region belongs to another loop and a green-looking gate is worth less than an
+honest note. Anyone reading a single red run of that test should re-run before
+believing it. OPEN.
+
+## P7: the FTS5 fast path ships DISABLED by default. DEFERRED, deliberately.
+
+The loop's plan calls FTS5 a fast path; this build makes it opt in
+(`BROTHERMODE_FTS5=1`). The project rule that an optional capability ships
+disabled and falls back to the standard library won, and it won for a reason
+that outlives the rule: FTS5's tokenizer decides what counts as a word and its
+BM25 is a number the founder cannot re-derive by hand, so it should not arrive
+by surprise in a tool whose selling point is explainable retrieval. The cost is
+that the measured retrieval gain is not on by default. DEFERRED.
+
+## P7: the retrieval gain is measured on ONE labelled fixture. PARTIAL.
+
+The improvement claim rests on the stemming case, reproduced on the real CLI
+both ways round: a rule written about "pushing", a task that says "pushed",
+found under fts5 and not under lexical. That is a demonstration, not a
+benchmark. No labelled corpus of founder rules with graded relevance exists yet,
+so "FTS5 improves measured retrieval" is true of the fixture and unproven at
+scale. PARTIAL.
+
+## P7: index maintenance covers approval and edit, not every future write. UNPROVEN in general.
+
+Rule text can only enter the store through approval and through edit, and both
+write the index row in their own transaction. A state change (forget, supersede,
+deprecate) does not touch the index because it does not touch the text, and
+state is filtered before ranking. That reasoning is correct today and is not
+enforced by anything mechanical: a future write site that inserts a rule version
+without calling `_fts_write_rule` would drift, and only `verify` would catch it.
+UNPROVEN.
+
 ## P6: the run stored the founder's prompt by default. CLOSED by fix round P6.
 
 The first version defaulted the run's excerpt to the query itself, so an
