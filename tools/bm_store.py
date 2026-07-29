@@ -742,6 +742,18 @@ def redact_text(t):
         raise RedactionUnavailable("bm_telemetry.redact raised on input (%r)" % (e,))
 
 
+def _scrubbed_field(L, t):
+    """Normalize, then scrub, one founder-supplied learning field.
+
+    LOOP 12. The learning tables used to scrub only raw_text, so a secret typed
+    into --trigger, --action, --because, --domain or --scope-key landed in
+    sqlite in cleartext and was copied forward into every rule version and every
+    display surface. This is the one place that pairing is decided, so a new
+    field cannot be added and quietly skip half of it. Normalize first so the
+    scrubber sees the same whitespace form that gets stored."""
+    return redact_text(L.normalize_text(t))
+
+
 # ---------------------------------------------------------------------------
 # Record: a read-only snapshot, never a live handle.
 # ---------------------------------------------------------------------------
@@ -2680,11 +2692,29 @@ class Store(object):
         if scope_err:
             raise OwnershipRefused("bad-scope", scope_err)
         clean_raw = redact_text(raw_text or "")
+        # LOOP 12: only raw_text used to be scrubbed. proposed_trigger,
+        # proposed_action, proposed_because, proposed_domain and
+        # proposed_scope_key went through normalize_text alone, so a secret
+        # typed into --action or --trigger was written to sqlite in cleartext,
+        # copied unscrubbed into learning_rule_versions at approval, and printed
+        # in cleartext by rules, why and candidates. Same scrubber, every
+        # founder-supplied field, at the one door text enters through.
+        clean_trigger = _scrubbed_field(L, trigger)
+        clean_action = _scrubbed_field(L, action)
+        clean_because = _scrubbed_field(L, because)
+        clean_domain = _scrubbed_field(L, domain)
+        clean_scope_key = _scrubbed_field(L, scope_key)
         # Count, not a flag: how much was scrubbed is review-relevant, and it is
-        # the only signal a reviewer gets that raw_text was touched at all.
-        nred = clean_raw.count("[REDACTED]")
+        # the only signal a reviewer gets that captured text was touched at all.
+        nred = (clean_raw.count("[REDACTED]")
+                + sum(t.count("[REDACTED]") for t in
+                      (clean_trigger, clean_action, clean_because,
+                       clean_domain, clean_scope_key)))
         cuuid = uuid.uuid4().hex
-        chash = L.content_hash(trigger, action, scope_type, scope_key)
+        # Hashed on what is actually STORED, so two captures that differ only
+        # inside a masked secret are one candidate rather than two.
+        chash = L.content_hash(clean_trigger, clean_action, scope_type,
+                               clean_scope_key)
         with self._transaction():
             _exec(self,
                   "INSERT INTO learning_candidates (candidate_uuid, source_type, "
@@ -2694,10 +2724,10 @@ class Store(object):
                   "status, content_hash, redaction_count, created_at) "
                   "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?,?)",
                   (cuuid, source_type, session_id or "", record_uuid,
-                   source_ref or "", clean_raw,
-                   L.normalize_text(trigger), L.normalize_text(action),
-                   L.normalize_text(because), L.normalize_text(domain),
-                   scope_type, L.normalize_text(scope_key), chash, nred,
+                   redact_text(source_ref or ""), clean_raw,
+                   clean_trigger, clean_action,
+                   clean_because, clean_domain,
+                   scope_type, clean_scope_key, chash, nred,
                    now_iso()))
         return self.get_learning_candidate(cuuid)
 
@@ -2967,12 +2997,16 @@ class Store(object):
         if cand["status"] != "pending":
             raise OwnershipRefused("not-pending", "candidate %s is %r, only a pending candidate can be approved"
                 % (cand["candidate_uuid"][:8], cand["status"]))
-        trig = L.normalize_text(trigger if trigger is not None else cand["proposed_trigger"])
-        act = L.normalize_text(action if action is not None else cand["proposed_action"])
-        why = L.normalize_text(because if because is not None else cand["proposed_because"])
+        # Scrubbed here as well as at capture: approval accepts NEW text typed
+        # on the command line, so the candidate having been cleaned says nothing
+        # about what the founder just passed in (LOOP 12).
+        trig = _scrubbed_field(L, trigger if trigger is not None else cand["proposed_trigger"])
+        act = _scrubbed_field(L, action if action is not None else cand["proposed_action"])
+        why = _scrubbed_field(L, because if because is not None else cand["proposed_because"])
         stype = scope_type or cand["proposed_scope_type"]
-        skey = L.normalize_text(scope_key if scope_key is not None else cand["proposed_scope_key"])
-        dom = L.normalize_text(domain if domain is not None else cand["proposed_domain"])
+        skey = _scrubbed_field(L, scope_key if scope_key is not None else cand["proposed_scope_key"])
+        dom = _scrubbed_field(L, domain if domain is not None else cand["proposed_domain"])
+        founder_ref = redact_text(founder_ref)
         if not trig or not act:
             raise OwnershipRefused("incomplete-rule", "a rule needs both a trigger and an action; got trigger=%r action=%r"
                 % (trig, act))
@@ -3047,7 +3081,8 @@ class Store(object):
                       "VALUES (?,?,'neutral','manual_review',?,?,?)",
                       (uuid.uuid4().hex, ruuid, founder_ref[:500],
                        ("atomicity override: %s (flags: %s)"
-                        % (atomicity_override, "; ".join(problems)))[:500], ts))
+                        % (redact_text(atomicity_override),
+                           "; ".join(problems)))[:500], ts))
             if conflict_override.strip() and (found["contradictions"] or found["duplicates"]):
                 _exec(self,
                       "INSERT INTO learning_evidence (evidence_uuid, rule_uuid, "
@@ -3055,7 +3090,7 @@ class Store(object):
                       "VALUES (?,?,'neutral','manual_review',?,?,?)",
                       (uuid.uuid4().hex, ruuid, founder_ref[:500],
                        ("conflict override: %s (against: %s)"
-                        % (conflict_override,
+                        % (redact_text(conflict_override),
                            ", ".join(o["rule_uuid"][:8] for o, _v
                                      in found["contradictions"] + found["duplicates"])))[:500],
                        ts))
@@ -3138,10 +3173,11 @@ class Store(object):
                 "expected version %s; rule %s is at version %s"
                 % (expected_version, rule["rule_uuid"][:8], rule["current_version"]),
                 current_version=rule["current_version"])
-        trig = L.normalize_text(trigger if trigger is not None else rule["trigger_text"])
-        act = L.normalize_text(action if action is not None else rule["action_text"])
-        why = L.normalize_text(because if because is not None else rule["because_text"])
-        dom = L.normalize_text(domain if domain is not None else rule["domain"])
+        # Same scrub as capture and approval: an edit is new founder text.
+        trig = _scrubbed_field(L, trigger if trigger is not None else rule["trigger_text"])
+        act = _scrubbed_field(L, action if action is not None else rule["action_text"])
+        why = _scrubbed_field(L, because if because is not None else rule["because_text"])
+        dom = _scrubbed_field(L, domain if domain is not None else rule["domain"])
         if not trig or not act:
             raise OwnershipRefused("incomplete-rule", "a rule needs both a trigger and an action")
         nv = int(rule["current_version"]) + 1
@@ -3153,7 +3189,7 @@ class Store(object):
                   "change_reason, approved_by, created_at) "
                   "VALUES (?,?,?,?,?,?,?,?, 'founder', ?)",
                   (rule["rule_uuid"], nv, trig, act, why, dom, change_type,
-                   L.normalize_text(change_reason)[:500], ts))
+                   _scrubbed_field(L, change_reason)[:500], ts))
             _exec(self, "UPDATE learning_rules SET current_version=?, updated_at=? "
                         "WHERE rule_uuid=?", (nv, ts, rule["rule_uuid"]))
         return self.get_learning_rule(rule["rule_uuid"])
@@ -3365,11 +3401,9 @@ class Store(object):
         notes, and the verbatim capture text is the most sensitive column in
         the store."""
         L = _learning()
-        scope = rule["scope_type"]
-        if scope != "global":
-            scope = "%s:%s" % (scope, rule["scope_key"])
         return {"rule_uuid": rule["rule_uuid"], "state": rule["state"],
-                "scope": scope, "severity": rule["severity"],
+                "scope": L.safe_scope(rule["scope_type"], rule["scope_key"]),
+                "severity": rule["severity"],
                 "trigger": L.safe_display(rule["trigger_text"], 160),
                 "action": L.safe_display(rule["action_text"], 160)}
 

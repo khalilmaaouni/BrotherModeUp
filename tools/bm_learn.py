@@ -131,10 +131,9 @@ def _ctx(kv):
 
 
 def _rule_line(r):
-    return "  %s  [%s%s, %s%s] v%d" % (
+    return "  %s  [%s, %s%s] v%d" % (
         r["rule_uuid"][:8],
-        r["scope_type"],
-        "" if r["scope_type"] == "global" else ":" + r["scope_key"],
+        L.safe_scope(r["scope_type"], r["scope_key"]),
         r["state"],
         ", gate" if r.get("severity") == "gate" else "",
         r["current_version"])
@@ -142,7 +141,8 @@ def _rule_line(r):
 
 def cmd_capture(argv):
     pos, kv = _parse(argv, {"trigger", "action", "because", "domain", "scope",
-                            "scope-key", "source", "session", "raw", "json"},
+                            "scope-key", "source", "session", "raw", "json",
+                            "show-source"},
                      wants_value=("trigger", "action", "because", "domain",
                                   "scope", "scope-key", "source", "session", "raw"))
     scope = kv.get("scope", "project")
@@ -160,7 +160,8 @@ def cmd_capture(argv):
     finally:
         store.close()
     if kv.get("json"):
-        _out(json.dumps(cand, indent=2, sort_keys=True))
+        _out(json.dumps(_withhold_source(cand, kv.get("show-source")),
+                        indent=2, sort_keys=True))
         return 0
     _out("captured %s (pending, nothing changes until you approve it)"
          % cand["candidate_uuid"][:8])
@@ -171,15 +172,41 @@ def cmd_capture(argv):
     return 0
 
 
+WITHHELD = "[withheld: pass --show-source]"
+
+
+def _withhold_source(row, show):
+    """Strip the verbatim founder columns out of a JSON row unless asked.
+
+    ONE definition of the withholding rule, used by every command that can emit
+    a candidate or a piece of evidence. It used to be re-implemented inline in
+    show-candidate only, which is exactly how `candidates --json` and
+    `why --json` came to print the same columns in full (LOOP 12)."""
+    if show:
+        return dict(row)
+    out = dict(row)
+    for col in ("raw_text", "excerpt", "task_excerpt"):
+        if col in out and out[col]:
+            out[col] = WITHHELD
+    return out
+
+
 def cmd_candidates(argv):
-    pos, kv = _parse(argv, {"status", "json"}, wants_value=("status",))
+    pos, kv = _parse(argv, {"status", "json", "show-source"},
+                     wants_value=("status",))
     store = _store()
     try:
         rows = store.list_learning_candidates(kv.get("status", "pending"))
     finally:
         store.close()
     if kv.get("json"):
-        _out(json.dumps(rows, indent=2, sort_keys=True))
+        # LOOP 12: this printed raw_text in full, with no flag and no warning,
+        # while show-candidate --json withheld the same column and dump()
+        # withheld it entirely. The gate was enforced in three places and
+        # bypassed here, so "verbatim founder words never reach a pipeable
+        # artifact" was not true. Same flag, same wording, same default.
+        _out(json.dumps([_withhold_source(r, kv.get("show-source")) for r in rows],
+                        indent=2, sort_keys=True))
         return 0
     if not rows:
         _out("no candidates with that status")
@@ -213,10 +240,8 @@ def cmd_show_candidate(argv):
     finally:
         store.close()
     if kv.get("json"):
-        if not kv.get("show-source"):
-            c = dict(c)
-            c["raw_text"] = "[withheld: pass --show-source]"
-        _out(json.dumps(c, indent=2, sort_keys=True))
+        _out(json.dumps(_withhold_source(c, kv.get("show-source")),
+                        indent=2, sort_keys=True))
         return 0
     _out("candidate %s" % c["candidate_uuid"])
     for label, key in (("status", "status"), ("source", "source_type"),
@@ -585,9 +610,9 @@ def cmd_deprecate(argv):
 
 
 def cmd_why(argv):
-    pos, kv = _parse(argv, {"json"})
+    pos, kv = _parse(argv, {"json", "show-source"})
     if not pos:
-        _err("usage: why <rule-id>")
+        _err("usage: why <rule-id> [--json] [--show-source]")
         return 2
     store = _store()
     try:
@@ -600,7 +625,14 @@ def cmd_why(argv):
     finally:
         store.close()
     if kv.get("json"):
-        _out(json.dumps({"rule": rule, "evidence": ev, "versions": versions},
+        # LOOP 12: evidence rows carry `excerpt`, which is the candidate's
+        # verbatim raw_text copied forward at approval. dump() withholds that
+        # column entirely and show-candidate withholds it behind a flag; this
+        # printed it in full with no flag at all.
+        _out(json.dumps({"rule": rule,
+                         "evidence": [_withhold_source(e, kv.get("show-source"))
+                                      for e in ev],
+                         "versions": versions},
                         indent=2, sort_keys=True))
         return 0
     _out("rule %s" % rule["rule_uuid"])
@@ -618,6 +650,16 @@ def cmd_why(argv):
         _out("    %s %s  %s" % (e["polarity"], e["evidence_type"],
                                  L.safe_display(e["source_ref"], 70)))
     return 0
+
+
+def _ts_cell(ts):
+    """The timestamp column for one inbox row, for a file edited by hand.
+
+    A non-string ts is a malformed row, not a crash: it is labelled so the
+    founder can see WHICH row is wrong, and every later row still prints."""
+    if not isinstance(ts, str):
+        return "(bad ts)" if ts is not None else "?"
+    return L.safe_display(ts, 40)[:19] or "?"
 
 
 def cmd_inbox(argv):
@@ -663,7 +705,12 @@ def cmd_inbox(argv):
             _out("  %d line(s) could not be parsed (line numbers %s); the text is not "
                  "printed because it is yours" % (len(bad), bad))
         for r in new:
-            _out("  %s  %s  %s" % (r.get("ts", "?")[:19], r.get("project", "?"),
+            # LOOP 12: this sliced r["ts"] straight, so ONE hand-edited row with
+            # a numeric or null ts raised TypeError mid-loop and every genuine
+            # correction after it was never shown, while --backfill still
+            # imported them. The docstring above promises malformed rows are
+            # counted and named, never a traceback in the founder's face.
+            _out("  %s  %s  %s" % (_ts_cell(r.get("ts")), r.get("project", "?"),
                                     L.safe_display(r.get("text", ""), 90)))
         _out("")
         _out("import them with: bm_learn.py inbox --backfill (nothing is approved)")
