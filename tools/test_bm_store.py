@@ -6670,6 +6670,434 @@ class TestLoop7ApplicationLifecycle(unittest.TestCase):
         self.assertFalse(out["advised"])
         self.assertEqual(out["unknown_signals"], ["vibes"])
 
+class TestLoop8ExternalGrading(unittest.TestCase):
+    """Loop 8. The difference between storage growth and learning.
+
+    Everything before this loop can be produced by the session being graded:
+    it retrieves its own rules, records its own applications, and closes them
+    'followed'. These tests are about the three signals it cannot fake, and
+    about the one thing they have to deliver: telling a retrieval miss from a
+    compliance failure from a bad rule, because those are three different
+    repairs and a single 'corrections went up' number names none of them."""
+
+    TRIGGER = "writing an executive update"
+    ACTION = "state customer impact before technical detail"
+
+    def _rule(self, store, state=None):
+        c = store.capture_learning_candidate(
+            "manual", trigger=self.TRIGGER, action=self.ACTION,
+            because="the board reads the first line", scope_type="global")
+        rule = store.approve_learning_candidate(
+            c["candidate_uuid"], founder_ref="founder in chat")
+        if state:
+            store.add_learning_evidence(rule["rule_uuid"], "support",
+                                        "manual_review",
+                                        excerpt="seen to work once")
+            # 'settled' is reachable only through 'confirmed'; the state
+            # machine refuses the shortcut, so the helper walks the path.
+            for step in (("confirmed", "settled") if state == "settled"
+                         else (state,)):
+                rule = store.change_learning_rule_state(
+                    rule["rule_uuid"], step, reason="held up in use")
+        return rule
+
+    def _record(self, store, name="exec-update", session="S1", path="notes.md"):
+        return store.claim(name, lifetime="ephemeral",
+                           objective="ship the executive update",
+                           files=[os.path.join(store.root, path)],
+                           session_id=session)
+
+    def _repeat(self, store, session="S1", record_uuid=None, text=None):
+        return store.capture_learning_candidate(
+            "explicit_correction", trigger=self.TRIGGER,
+            action=text or self.ACTION, because="said it again",
+            scope_type="global", session_id=session, record_uuid=record_uuid)
+
+    # -- outcome events linking back --------------------------------------
+
+    def test_rework_links_to_the_applications_of_that_work(self):
+        """The whole point of the event. Without the link it is a note that
+        something went wrong; with it, the rules that were supposed to prevent
+        it are named."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                rec = self._record(store)
+                res = store.record_learning_applications(
+                    self.TRIGGER, session_id="S1",
+                    record_prefix=rec.lifecycle_uuid)
+                store.set_application_disposition(res["applications"][0],
+                                                  "followed")
+                ev = store.record_outcome_event(
+                    "rework", rec.lifecycle_uuid, session_id="S1",
+                    summary="the board sent it back")
+                self.assertEqual(len(ev["linked_applications"]), 1)
+                link = ev["linked_applications"][0]
+                self.assertEqual(link["rule_uuid"], rule["rule_uuid"])
+                self.assertEqual(link["classification"], "bad_rule")
+                app = store.get_learning_application(link["application_uuid"])
+                self.assertEqual(app["outcome"], "rework")
+                self.assertEqual(ev["candidate"]["status"], "pending",
+                                 "an outcome event is evidence for review, "
+                                 "never a rule")
+
+    def test_an_escaped_defect_links_to_the_exact_rule_version_applied(self):
+        """A rule edited after the fact must not be able to rewrite which text
+        was actually shown when the defect escaped."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                rec = self._record(store)
+                store.record_learning_applications(
+                    self.TRIGGER, session_id="S1",
+                    record_prefix=rec.lifecycle_uuid)
+                store.edit_learning_rule(rule["rule_uuid"], 1,
+                                          action="lead with the number",
+                                          change_reason="tightened")
+                ev = store.record_outcome_event(
+                    "escaped_defect", rec.lifecycle_uuid, session_id="S1",
+                    defect_class="stale-doc", summary="found later")
+                link = ev["linked_applications"][0]
+                self.assertEqual(link["rule_version"], 1)
+                self.assertEqual(store.get_learning_rule(
+                    rule["rule_uuid"])["current_version"], 2)
+                rows = [e for e in store.list_learning_evidence(rule["rule_uuid"])
+                        if e["evidence_uuid"] == link["evidence_uuid"]]
+                self.assertEqual(len(rows), 1)
+                self.assertIn("rule_version=1", rows[0]["source_ref"])
+                self.assertIn("defect_class=stale-doc",
+                              ev["candidate"]["source_ref"])
+
+    def test_an_outcome_with_no_applications_is_not_measured_not_zero(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                rec = self._record(store)
+                ev = store.record_outcome_event("rework", rec.lifecycle_uuid)
+                self.assertEqual(ev["linked_applications"], [])
+                self.assertTrue(any("not measured" in n for n in ev["notes"]))
+
+    def test_recording_the_same_outcome_twice_does_not_inflate_the_evidence(self):
+        """Evidence counts events, not keystrokes. Otherwise a rule could be
+        argued out of 'confirmed' by reporting one rework repeatedly."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                rec = self._record(store)
+                res = store.record_learning_applications(
+                    self.TRIGGER, session_id="S1",
+                    record_prefix=rec.lifecycle_uuid)
+                store.set_application_disposition(res["applications"][0],
+                                                  "followed")
+                first = store.record_outcome_event("rework",
+                                                   rec.lifecycle_uuid)
+                app = first["linked_applications"][0]["application_uuid"]
+                before = len(store.list_learning_evidence(rule["rule_uuid"]))
+                store._grade_outcome_link(first["candidate"],
+                                          store.get_learning_application(app),
+                                          "rework", bs.now_iso(), "rework")
+                self.assertEqual(
+                    len(store.list_learning_evidence(rule["rule_uuid"])), before)
+
+    # -- repeated corrections ---------------------------------------------
+
+    def test_a_repeat_against_a_settled_rule_that_was_followed_is_a_bad_rule(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store, state="settled")
+                res = store.record_learning_applications(self.TRIGGER,
+                                                          session_id="S1")
+                store.set_application_disposition(res["applications"][0],
+                                                  "followed")
+                cand = self._repeat(store)
+                out = store.detect_repeated_correction(cand["candidate_uuid"],
+                                                        record=True)
+                self.assertEqual(len(out["repeats"]), 1)
+                self.assertEqual(out["repeats"][0]["classification"], "bad_rule")
+                self.assertEqual(out["repeats"][0]["polarity"], "contradict")
+                self.assertEqual(out["repeats"][0]["rule_uuid"], rule["rule_uuid"])
+                app = store.get_learning_application(res["applications"][0])
+                self.assertEqual(app["outcome"], "corrected_again")
+
+    def test_a_repeat_with_no_application_of_the_rule_is_a_retrieval_miss(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, state="confirmed")
+                cand = self._repeat(store, session="S9")
+                out = store.detect_repeated_correction(cand["candidate_uuid"])
+                self.assertEqual(out["repeats"][0]["classification"],
+                                 "retrieval_miss")
+                self.assertEqual(out["repeats"][0]["polarity"], "support",
+                                 "the founder repeating a rule is evidence he "
+                                 "still wants it, not evidence it is wrong")
+
+    def test_a_repeat_after_the_rule_was_shown_and_skipped_is_a_compliance_failure(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, state="confirmed")
+                res = store.record_learning_applications(self.TRIGGER,
+                                                          session_id="S1")
+                store.set_application_disposition(res["applications"][0],
+                                                  "ignored", reason="in a hurry")
+                cand = self._repeat(store)
+                out = store.detect_repeated_correction(cand["candidate_uuid"])
+                self.assertEqual(out["repeats"][0]["classification"],
+                                 "compliance_failure")
+
+    def test_a_repeat_after_the_rule_was_called_irrelevant_is_a_scope_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, state="confirmed")
+                res = store.record_learning_applications(self.TRIGGER,
+                                                          session_id="S1")
+                store.set_application_disposition(res["applications"][0],
+                                                  "not_relevant")
+                cand = self._repeat(store)
+                out = store.detect_repeated_correction(cand["candidate_uuid"])
+                self.assertEqual(out["repeats"][0]["classification"],
+                                 "scope_error")
+
+    def test_a_repeat_with_no_session_and_no_record_is_not_decidable(self):
+        """The required refusal. Blaming a rule for work that cannot be
+        identified is exactly the confident wrong label this loop exists to
+        avoid."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, state="confirmed")
+                store.record_learning_applications(self.TRIGGER, session_id="S1")
+                cand = store.capture_learning_candidate(
+                    "explicit_correction", trigger=self.TRIGGER,
+                    action=self.ACTION, scope_type="global")
+                out = store.detect_repeated_correction(cand["candidate_uuid"])
+                self.assertEqual(out["repeats"][0]["classification"],
+                                 "not_decidable")
+                self.assertTrue(any("neither a session nor a work record" in n
+                                    for n in out["notes"]))
+
+    def test_an_unrelated_correction_never_blames_a_rule(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, state="settled")
+                cand = store.capture_learning_candidate(
+                    "explicit_correction", trigger="choosing the orb colour",
+                    action="use warm amber, not blue", scope_type="global",
+                    session_id="S1")
+                out = store.detect_repeated_correction(cand["candidate_uuid"],
+                                                        record=True)
+                self.assertEqual(out["repeats"], [])
+                self.assertEqual(out["counts"], {})
+                self.assertTrue(any("does not repeat" in n for n in out["notes"]))
+
+    def test_a_repeat_of_an_approved_but_unconfirmed_rule_is_not_a_failure(self):
+        """An 'approved' rule has never been independently confirmed by
+        anything, so a correction repeating it is first evidence rather than a
+        loop failure, and grading it as one would manufacture findings out of
+        rules that were only just written."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                cand = self._repeat(store)
+                out = store.detect_repeated_correction(cand["candidate_uuid"])
+                self.assertEqual(out["repeats"], [])
+                self.assertEqual(len(out["unsettled_matches"]), 1)
+                self.assertEqual(out["unsettled_matches"][0]["state"], "approved")
+
+    def test_asking_whether_something_repeats_writes_nothing(self):
+        """Same separation retrieval has. If reviewing a candidate could
+        change the ledger, the act of reviewing would manufacture the evidence
+        being reviewed."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store, state="confirmed")
+                res = store.record_learning_applications(self.TRIGGER,
+                                                          session_id="S1")
+                store.set_application_disposition(res["applications"][0],
+                                                  "followed")
+                before = len(store.list_learning_evidence(rule["rule_uuid"]))
+                cand = self._repeat(store)
+                store.detect_repeated_correction(cand["candidate_uuid"])
+                self.assertEqual(
+                    len(store.list_learning_evidence(rule["rule_uuid"])), before)
+                self.assertEqual(
+                    store.get_learning_application(
+                        res["applications"][0])["outcome"], "pending")
+
+    def test_detection_approves_nothing_even_when_it_records(self):
+        """Invariant L1 under the one mechanism that could plausibly erode it:
+        automatic grading. It writes evidence and outcomes, never approval."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store, state="confirmed")
+                store.record_learning_applications(self.TRIGGER, session_id="S1")
+                cand = self._repeat(store)
+                store.detect_repeated_correction(cand["candidate_uuid"],
+                                                  record=True)
+                self.assertEqual(
+                    store.get_learning_candidate(
+                        cand["candidate_uuid"])["status"], "pending")
+                self.assertEqual(
+                    store.get_learning_rule(rule["rule_uuid"])["state"],
+                    "confirmed")
+
+    def test_recording_a_repeat_twice_writes_one_evidence_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store, state="confirmed")
+                store.record_learning_applications(self.TRIGGER, session_id="S1")
+                cand = self._repeat(store)
+                store.detect_repeated_correction(cand["candidate_uuid"],
+                                                  record=True)
+                after_one = len(store.list_learning_evidence(rule["rule_uuid"]))
+                store.detect_repeated_correction(cand["candidate_uuid"],
+                                                  record=True)
+                self.assertEqual(
+                    len(store.list_learning_evidence(rule["rule_uuid"])),
+                    after_one)
+
+    # -- the reports -------------------------------------------------------
+
+    def test_a_rule_never_repeats_itself_through_its_own_approval(self):
+        """Found by driving the CLI, not by a test. The founder_approval
+        evidence row carries the candidate the rule was BORN from, so counting
+        every candidate-linked evidence row reported every rule as repeating
+        itself the moment it was approved."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, state="confirmed")
+                out = store.learning_loop_failures()
+                self.assertEqual(out["repeated_corrections"], [])
+
+    def test_loop_failures_counts_only_rows_that_exist(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, state="confirmed")
+                res = store.record_learning_applications(self.TRIGGER,
+                                                          session_id="S1")
+                store.set_application_disposition(res["applications"][0],
+                                                  "ignored", reason="in a hurry")
+                out = store.learning_loop_failures()
+                self.assertEqual(out["counts"]["compliance_failure"], 1)
+                self.assertEqual(out["counts"]["bad_rule"], 0)
+                self.assertEqual(len(out["compliance_failures"]), 1)
+                for name in bs._learning().FAILURE_CLASSES:
+                    self.assertIn(name, out["counts"])
+
+    def test_an_empty_window_says_not_measured_rather_than_all_clear(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, state="confirmed")
+                store.record_learning_applications(self.TRIGGER, session_id="S1")
+                # A window that ended before the row was written. 0.00001 days
+                # is under a second and the timestamps are second-precision, so
+                # the cutoff has to be far enough back to be unambiguous and
+                # still exclude a row written now.
+                out = store.learning_loop_failures(window_days=-1)
+                self.assertEqual(out["applications_in_window"], 0)
+                self.assertTrue(any("not measured" in n for n in out["notes"]))
+
+    def test_an_outcome_that_grades_no_rule_is_listed_separately(self):
+        """Unattributed outcomes are real and are reported, never folded into
+        a rule's record where they would look like evidence about it."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, state="confirmed")
+                rec = self._record(store)
+                store.record_outcome_event("escaped_defect",
+                                           rec.lifecycle_uuid)
+                out = store.learning_loop_failures()
+                self.assertEqual(len(out["unattributed_outcomes"]), 1)
+                self.assertEqual(out["outcomes_linked_to_rules"], [])
+
+    def test_a_rule_nothing_ever_retrieved_is_named(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                out = store.learning_loop_failures()
+                self.assertEqual([r["rule_uuid"] for r in
+                                  out["rules_never_retrieved"]],
+                                 [rule["rule_uuid"]])
+
+    def test_a_rule_always_marked_irrelevant_is_named(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                res = store.record_learning_applications(self.TRIGGER,
+                                                          session_id="S1")
+                store.set_application_disposition(res["applications"][0],
+                                                  "not_relevant")
+                out = store.learning_loop_failures()
+                self.assertEqual([r["rule_uuid"] for r in
+                                  out["rules_always_not_relevant"]],
+                                 [rule["rule_uuid"]])
+
+    def test_rule_outcomes_refuses_a_rate_over_no_applications(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                out = store.learning_rule_outcomes(rule["rule_uuid"])
+                self.assertEqual(out["applications"], 0)
+                self.assertEqual(out["by_disposition"], {})
+                self.assertTrue(any("not measured" in n for n in out["notes"]))
+
+    def test_rule_outcomes_reports_per_version_counts(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                store.record_learning_applications(self.TRIGGER,
+                                                    session_id="S1")
+                store.edit_learning_rule(rule["rule_uuid"], 1,
+                                          action="lead with the number",
+                                          change_reason="tightened")
+                store.record_learning_applications("writing an executive update",
+                                                    session_id="S2")
+                out = store.learning_rule_outcomes(rule["rule_uuid"])
+                self.assertEqual(out["applications"], 2)
+                self.assertEqual(out["by_rule_version"], {"1": 1, "2": 1})
+
+    # -- the pure classifier ----------------------------------------------
+
+    def test_followed_outranks_every_other_class(self):
+        """The ordering IS the product claim. Wrong order and the founder
+        edits rule text that was already correct while the retrieval bug that
+        actually caused the failure stays untouched."""
+        L = bs._learning()
+        rows = [{"disposition": "ignored", "shown_to_model": 1},
+                {"disposition": "not_relevant", "shown_to_model": 1},
+                {"disposition": "followed", "shown_to_model": 1}]
+        self.assertEqual(L.classify_repeated_correction(rows, True)[0], "bad_rule")
+        self.assertEqual(
+            L.classify_repeated_correction(rows[:2], True)[0],
+            "compliance_failure")
+        self.assertEqual(
+            L.classify_repeated_correction(rows[1:2], True)[0], "scope_error")
+        self.assertEqual(L.classify_repeated_correction([], True)[0],
+                         "retrieval_miss")
+        self.assertEqual(L.classify_repeated_correction([], False)[0],
+                         "not_decidable")
+
+    def test_ignored_but_never_shown_is_not_a_compliance_failure(self):
+        L = bs._learning()
+        rows = [{"disposition": "ignored", "shown_to_model": 0}]
+        self.assertEqual(L.classify_repeated_correction(rows, True)[0],
+                         "not_decidable")
+
+    def test_every_class_has_a_polarity_and_no_class_is_missing_one(self):
+        L = bs._learning()
+        self.assertEqual(sorted(L.REPEATED_CORRECTION_POLARITY),
+                         sorted(L.FAILURE_CLASSES))
+        for cls, pol in L.REPEATED_CORRECTION_POLARITY.items():
+            self.assertIn(pol, ("support", "contradict", "neutral"), cls)
+
+    def test_a_window_is_read_exactly_or_refused(self):
+        L = bs._learning()
+        self.assertEqual(L.parse_window_days("30d")[0], 30.0)
+        self.assertEqual(L.parse_window_days("2w")[0], 14.0)
+        self.assertEqual(L.parse_window_days("7")[0], 7.0)
+        self.assertIsNone(L.parse_window_days("last month")[0])
+        self.assertIsNone(L.parse_window_days("-3d")[0])
+        self.assertIsNone(L.parse_window_days("")[0])
+
+
 if __name__ == "__main__":
     # The leak check lives in the runner, so it applies to every test without
     # each of the ~40 TestCase classes having to opt in. Running this file
