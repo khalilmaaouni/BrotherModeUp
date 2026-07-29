@@ -979,10 +979,37 @@ class TestStrictMode(unittest.TestCase):
 
 
 class TestProjectSecurityClaims(unittest.TestCase):
-    """Two project-wide gates that happen to have originally lived inside a
-    registry-focused test class; they are not about the registry at all
-    (they scan every module under tools/), so they moved here rather than
-    being deleted with the class around them."""
+    """Project-wide gates on published claims. Two of them happen to have
+    originally lived inside a registry-focused test class; they are not about
+    the registry at all (they scan every module under tools/), so they moved
+    here rather than being deleted with the class around them. The third gates
+    a published document against the tool behaviour it promises."""
+
+    def test_beta_kit_creates_a_store_before_it_uses_one(self):
+        """BETA-KIT.md's first hour is the only hands-on exercise an outside
+        beta user gets, and it published a bm_learn.py capture whose
+        precondition (a store) no command on the documented path ever created.
+        The reader's first exercise refused with exit 2. The prober's shell had
+        supplied the missing `bm_store.py init` by hand, so the page's own
+        "everything here was run, as written" claim survived a path no reader
+        could actually walk. Gate the order rather than trust it."""
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        kit = os.path.join(root, "docs", "beta", "BETA-KIT.md")
+        if not os.path.exists(kit):
+            self.skipTest("docs/beta/BETA-KIT.md not present")
+        text = io.open(kit, encoding="utf-8").read()
+        first_use = text.find("bm_learn.py")
+        if first_use < 0:
+            self.skipTest("BETA-KIT.md no longer runs bm_learn.py")
+        init = text.find("bm_store.py init")
+        self.assertNotEqual(init, -1,
+                            "BETA-KIT.md runs bm_learn.py but never tells the reader to "
+                            "run `bm_store.py init`. Without a store that command refuses "
+                            "with exit 2 on the reader's first hands-on exercise.")
+        self.assertLess(init, first_use,
+                        "BETA-KIT.md documents `bm_store.py init` only AFTER the first "
+                        "bm_learn.py command. A reader working top to bottom still hits "
+                        "the no-store refusal.")
 
     def test_security_md_line_count_claim_is_still_true(self):
         """SECURITY.md tells the reader how much code they have to audit, and
