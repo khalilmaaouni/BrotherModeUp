@@ -1027,5 +1027,16 @@ def main(argv):
         return 1
 
 
-if __name__ == "__main__":
+def cli():
+    """Console-script entry point for a packaged install (pipx, uv, pip).
+
+    A packaging entry point must be callable with no arguments, and main()
+    takes argv. The __main__ block below calls this same function rather
+    than repeating the line, so `bm-runtimes` and
+    `python3 tools/bm_runtimes.py` cannot drift apart: there is exactly one
+    path into main() from a shell."""
     sys.exit(main(sys.argv[1:]))
+
+
+if __name__ == "__main__":
+    cli()

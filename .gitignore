@@ -8,3 +8,11 @@ threads/
 *.bak*
 __pycache__/
 .superpowers/
+# Build artifacts from `uv build` or `python3 -m build`. They must never be
+# committed and they must never be left lying around either: scripts/
+# verify-install.sh walks the tree and fails on any entry the manifest does
+# not name, so a forgotten build/ directory makes a clean checkout look
+# tampered with. See docs/PACKAGING.md.
+build/
+dist/
+*.egg-info/
