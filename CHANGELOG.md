@@ -1,5 +1,51 @@
 # Changelog
 
+## 2026-07-29 (no version bump): approving a rule now needs a receipt from a real answer
+
+Post-audit LOOP 3, founder decision the same day: Model A. No version bump,
+because a release is founder-gated (`docs/RELEASE.md`) and this is a fix plus
+its tests.
+
+The thing that was wrong. The product said approval was founder-only and the
+code did not enforce it. Reproduced against d88abcc in a throwaway store on
+2026-07-29: `bm_learn.py approve <id> --gate`, with no reference and nothing
+from a human, exited 0 and created gate rule 61de7eb9. The command line
+manufactured the approval evidence itself, filling in the words "run by the
+founder" whether or not anyone was there, while the help text three lines from
+the top of the same file said approval refuses without that evidence.
+
+What you do now, in two steps instead of one:
+
+1. You are asked about one candidate. Whoever asked runs
+   `bm_learn.py grant-approval <id> --answer "<what you said>"`, which prints a
+   one-time token, good for fifteen minutes, for that candidate only, tied to
+   the exact rule text you were shown.
+2. `bm_learn.py approve <id> --receipt <token>` spends it, once. The token can
+   also arrive in `BM_APPROVAL_RECEIPT` so it stays out of your shell history.
+
+Change the candidate or the rule text after the question and the token dies.
+Use it twice and the second try refuses. Let it go stale and it refuses. There
+is no override and no break-glass: with no token, no rule is created, by any
+path, including an imported function call.
+
+What this does NOT claim. Nothing here authenticates WHICH human answered. The
+token proves an answer was given about this exact thing and has not been spent.
+It is not an identity check and no wording in this product may say it is. What
+it removes is the real hole: a background process can no longer produce an
+approved rule, because there is no default and nothing a hook can read.
+
+Store schema goes 2 to 3, additively. The migration adds one table and one
+index and touches no existing row. Rules approved before receipts existed keep
+their old, weaker provenance and are NOT rewritten to look receipt-backed; a
+schema-2 store migrates rather than being quarantined.
+
+Four guards were calibrated by reinjecting the bypass and confirming the right
+test fails: the receipt requirement, the fingerprint binding, the expiry check,
+and the conditional claim that makes consumption and rule creation one atomic
+act. That fourth calibration found a real gap: removing the claim guard failed
+nothing, because the ordinary replay was being caught earlier, so the race the
+guard exists for now has its own test.
+
 ## 2026-07-29 v2.0.0-rc.3: V2 becomes the public product, by founder decision
 
 The founder decided, recorded the same day: ship V2 as a release candidate now.

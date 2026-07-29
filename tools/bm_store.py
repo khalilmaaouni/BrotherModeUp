@@ -65,15 +65,25 @@ import json
 import os
 import posixpath
 import re
+import secrets
 import shutil
 import sqlite3
 import sys
 import uuid
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
+
+# How long an approval receipt stays usable. Short on purpose: the receipt
+# exists to carry ONE human answer across the gap between the question window
+# and the approve command, not to sit in a file being reusable tomorrow. The
+# CLI cannot ask for longer; a caller passing more is clamped to this.
+APPROVAL_RECEIPT_TTL_SECONDS = 900
+# Domain separation, so a hash of the same random string somewhere else in this
+# project can never be mistaken for a receipt token hash.
+_RECEIPT_TOKEN_DOMAIN = "brothermode-approval-receipt-v1:"
 
 _STATE_BEGIN = "<!-- BEGIN GENERATED BROTHERMODE STATE (edit outside these markers only) -->"
 _STATE_END = "<!-- END GENERATED BROTHERMODE STATE -->"
@@ -754,6 +764,55 @@ def _scrubbed_field(L, t):
     return redact_text(L.normalize_text(t))
 
 
+def _resolve_proposal(L, cand, trigger, action, because, scope_type, scope_key,
+                      domain, rule_type, severity):
+    """The exact rule a candidate plus a set of overrides would become.
+
+    ONE function, called by the receipt minting path and by the approval path,
+    because the whole Model A guarantee rests on both computing the same thing.
+    Two copies of this arithmetic would drift, and the drift would be silent: a
+    receipt that never matches (approval impossible) or, far worse, a
+    fingerprint that ignores a field the founder was shown.
+
+    Scrubbing happens HERE rather than after, so the fingerprint covers the text
+    that will actually be stored, not the text before the secret scrubber
+    rewrote it."""
+    return {
+        "trigger": _scrubbed_field(L, trigger if trigger is not None else cand["proposed_trigger"]),
+        "action": _scrubbed_field(L, action if action is not None else cand["proposed_action"]),
+        "because": _scrubbed_field(L, because if because is not None else cand["proposed_because"]),
+        "scope_type": scope_type or cand["proposed_scope_type"],
+        "scope_key": _scrubbed_field(L, scope_key if scope_key is not None else cand["proposed_scope_key"]),
+        "domain": _scrubbed_field(L, domain if domain is not None else cand["proposed_domain"]),
+        "rule_type": rule_type,
+        "severity": severity,
+    }
+
+
+def _proposal_fingerprint(L, cand, prop):
+    """Bind a receipt to the candidate AND to the rule text being approved.
+
+    candidate_uuid and content_hash cover "the candidate changed under me":
+    content_hash is computed from the captured words, so an edit to the source
+    text moves it. The proposal fields cover "the rule text changed between the
+    question and the approval", which is the case a candidate-only fingerprint
+    would miss entirely, because the approve command can override every one of
+    them on the command line."""
+    return L.approval_fingerprint((
+        cand["candidate_uuid"], cand["content_hash"],
+        prop["trigger"], prop["action"], prop["because"],
+        prop["scope_type"], prop["scope_key"], prop["domain"],
+        prop["rule_type"], prop["severity"]))
+
+
+def _receipt_token_hash(token):
+    """The only transformation a receipt token ever gets. Domain separated so a
+    sha256 of the same string computed elsewhere in this project cannot be
+    mistaken for a receipt hash."""
+    return hashlib.sha256(
+        (_RECEIPT_TOKEN_DOMAIN + token).encode("utf-8")).hexdigest()
+
+
 # ---------------------------------------------------------------------------
 # Record: a read-only snapshot, never a live handle.
 # ---------------------------------------------------------------------------
@@ -886,7 +945,16 @@ _TABLES_LEARNING = ("learning_candidates", "learning_rules",
 
 _TABLES_V2 = _TABLES_V1 + _TABLES_LEARNING
 
-_TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2}
+# Schema 3 adds the human approval receipt (post-audit LOOP 3, founder decision
+# 2026-07-29: Model A). Its own tuple for the same reason schema 2 got one: a
+# healthy schema-2 store must be checked against schema 2's table list, or the
+# version check never runs and a store whose only fault is predating the upgrade
+# gets quarantined.
+_TABLES_RECEIPTS = ("learning_approval_receipts",)
+
+_TABLES_V3 = _TABLES_V2 + _TABLES_RECEIPTS
+
+_TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -1060,6 +1128,53 @@ def _split_ddl(script):
 _LEARNING_DDL_STATEMENTS = _split_ddl(_LEARNING_DDL)
 _LEARNING_INDEX_STATEMENTS = _split_ddl(_LEARNING_INDEX_DDL)
 
+# The approval receipt (schema 3). What a row here means: a human was asked a
+# question about ONE candidate and answered it, and that answer has not yet been
+# spent.
+#
+# nonce_hash is the ONLY trace of the token. The token itself is shown once, by
+# the founder-side mint command, and is never written to the store, to a log, to
+# an error message or to a transcript. A stolen store therefore yields no usable
+# receipt: sha256 of a 48-hex-character secret is not reversible.
+#
+# founder_response_hash is a hash, not the words. The founder's literal answer
+# is the most sensitive text in this whole flow and the store has no reason to
+# keep it: the hash is enough to prove later that a given answer produced this
+# receipt, and useless to anyone who reads the file.
+#
+# candidate_fingerprint binds the receipt to WHAT WAS SHOWN. If the candidate
+# text, its scope, or the rule text being approved changes between the question
+# and the approval, the fingerprint no longer matches and the receipt is dead.
+# That is the difference between "the founder said yes" and "the founder said
+# yes TO THIS".
+#
+# consumed_rule_uuid carries NO foreign key on purpose: consumption is the FIRST
+# statement of the approval transaction, before the rule row exists, so that a
+# second approval racing for the same receipt loses on the UPDATE rather than
+# after having already written a rule.
+_RECEIPT_DDL = """
+CREATE TABLE IF NOT EXISTS learning_approval_receipts (
+  receipt_uuid TEXT PRIMARY KEY,
+  candidate_uuid TEXT NOT NULL REFERENCES learning_candidates(candidate_uuid) ON DELETE CASCADE,
+  approval_choice TEXT NOT NULL CHECK(approval_choice IN ('approve')),
+  nonce_hash TEXT NOT NULL UNIQUE,
+  candidate_fingerprint TEXT NOT NULL,
+  founder_response_hash TEXT NOT NULL,
+  issued_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  consumed_at TEXT,
+  consumed_rule_uuid TEXT
+);
+"""
+
+_RECEIPT_INDEX_DDL = """
+CREATE INDEX IF NOT EXISTS learning_approval_receipts_candidate_idx
+  ON learning_approval_receipts(candidate_uuid, consumed_at);
+"""
+
+_RECEIPT_DDL_STATEMENTS = _split_ddl(_RECEIPT_DDL)
+_RECEIPT_INDEX_STATEMENTS = _split_ddl(_RECEIPT_INDEX_DDL)
+
 
 def _migrate_1_to_2(conn):
     """Schema 1 to 2: add the correction-learning tables. ADDITIVE ONLY.
@@ -1084,8 +1199,28 @@ def _migrate_1_to_2(conn):
 # The registry maps FROM-version to the step that raises it by exactly one.
 # Chained by Store._migrate_from, so a future 2->3 lands here as one more entry
 # and every older store still walks the whole way up.
+def _migrate_2_to_3(conn):
+    """Schema 2 to 3: add the approval receipt table. ADDITIVE ONLY.
+
+    Same contract as _migrate_1_to_2 and for the same reasons: no existing row
+    is read or rewritten, every statement is CREATE ... IF NOT EXISTS, and it
+    runs inside the caller's BEGIN EXCLUSIVE so it must never commit, roll back
+    or open a transaction of its own.
+
+    What this migration deliberately does NOT do: it does not invalidate,
+    rewrite or annotate any rule approved before receipts existed. Those rules
+    were approved under the old, weaker guarantee, and rewriting history to make
+    them look receipt-backed would be the dishonest half of this change. The
+    honest half is that from here on, no NEW rule can be created without one."""
+    for statement in _RECEIPT_DDL_STATEMENTS:
+        conn.execute(statement)
+    for statement in _RECEIPT_INDEX_STATEMENTS:
+        conn.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_1_to_2,
+    2: _migrate_2_to_3,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -2253,6 +2388,8 @@ class Store(object):
         # store and a migrated store cannot drift apart.
         if SCHEMA_VERSION >= 2:
             self.conn.executescript(_LEARNING_DDL)
+        if SCHEMA_VERSION >= 3:
+            self.conn.executescript(_RECEIPT_DDL)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -2283,6 +2420,8 @@ class Store(object):
         # existing, so this stays inert while SCHEMA_VERSION is 1.
         if SCHEMA_VERSION >= 2:
             self.conn.executescript(_LEARNING_INDEX_DDL)
+        if SCHEMA_VERSION >= 3:
+            self.conn.executescript(_RECEIPT_INDEX_DDL)
 
     def _verify_schema_or_raise(self, migrate=False):
         """CRITICAL A (fix-round 8, reproduced independently: claim alpha on
@@ -2970,42 +3109,204 @@ class Store(object):
                 "false_positive_reasons": fp,
                 "note": "descriptive counts, not accuracy: there is no labelled review set"}
 
-    def approve_learning_candidate(self, prefix, founder_ref, trigger=None,
+    def mint_approval_receipt(self, prefix, founder_response, trigger=None,
+                               action=None, because=None, scope_type=None,
+                               scope_key=None, rule_type="preference",
+                               severity="soft", domain=None,
+                               ttl_seconds=APPROVAL_RECEIPT_TTL_SECONDS):
+        """Record that a human answered a question about ONE candidate, and
+        return a one-time token that lets `approve` act on that answer.
+
+        This is the founder-side half of Model A (post-audit LOOP 3, founder
+        decision 2026-07-29). It exists because the previous design was honest
+        about intent and dishonest about mechanism: `approve` took a free-text
+        founder_ref, the CLI GENERATED a default one saying "run by the
+        founder", and any process that could invoke the CLI, or import this
+        module, could therefore manufacture an approved rule with nobody
+        answering anything. Reproduced on 2026-07-29 against a throwaway store:
+        an imported call to bm_learn.main(["approve", id]) created rule 90dc290e
+        at exit 0 with no human in the loop.
+
+        WHAT THIS DOES AND DOES NOT PROVE. It proves that this token was minted,
+        against this candidate, against this exact rule text, and has not been
+        spent. It does NOT prove which human typed the answer: nothing here
+        authenticates an identity, and no wording in this project may claim it
+        does. What changes is that a background process can no longer approve by
+        accident or by default, because there is no default: the token is 48
+        hex characters of os.urandom that never touches the store, so it cannot
+        be derived from anything a hook can read.
+
+        founder_response is the founder's literal answer. It is HASHED, never
+        stored: the store keeps no copy of the words, which keeps the most
+        sensitive text in this flow out of the file, out of dump, and out of
+        every display surface.
+
+        The returned dict carries the token under "token". That value is the
+        secret. Print it once to the person who answered, never into a log."""
+        L = _learning()
+        if not (founder_response or "").strip():
+            raise OwnershipRefused(
+                "no-founder-response",
+                "minting an approval receipt requires the founder's actual "
+                "answer; a receipt with nothing behind it is the forgery this "
+                "whole mechanism exists to stop")
+        cand = self.get_learning_candidate(prefix)
+        if cand["status"] != "pending":
+            raise OwnershipRefused(
+                "not-pending",
+                "candidate %s is %r, only a pending candidate can be approved"
+                % (cand["candidate_uuid"][:8], cand["status"]))
+        prop = _resolve_proposal(L, cand, trigger, action, because, scope_type,
+                                 scope_key, domain, rule_type, severity)
+        try:
+            ttl = int(ttl_seconds)
+        except (TypeError, ValueError):
+            ttl = APPROVAL_RECEIPT_TTL_SECONDS
+        # Clamped, not validated: a caller asking for a week gets fifteen
+        # minutes rather than an error, because the ceiling is the property that
+        # matters and no caller has a reason to exceed it.
+        ttl = max(1, min(ttl, APPROVAL_RECEIPT_TTL_SECONDS))
+        token = secrets.token_hex(24)
+        ruuid = uuid.uuid4().hex
+        issued = datetime.datetime.now(datetime.timezone.utc)
+        expires = issued + datetime.timedelta(seconds=ttl)
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO learning_approval_receipts (receipt_uuid, "
+                  "candidate_uuid, approval_choice, nonce_hash, "
+                  "candidate_fingerprint, founder_response_hash, issued_at, "
+                  "expires_at) VALUES (?,?,'approve',?,?,?,?,?)",
+                  (ruuid, cand["candidate_uuid"], _receipt_token_hash(token),
+                   _proposal_fingerprint(L, cand, prop),
+                   hashlib.sha256(
+                       L.normalize_text(founder_response).encode("utf-8")).hexdigest(),
+                   issued.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                   expires.strftime("%Y-%m-%dT%H:%M:%SZ")))
+        out = dict(_exec(self, "SELECT * FROM learning_approval_receipts "
+                               "WHERE receipt_uuid=?", (ruuid,)).fetchone())
+        # nonce_hash back out of the returned dict: a caller printing the whole
+        # record must not print the one column that could be brute forced if the
+        # token were ever shortened.
+        out.pop("nonce_hash", None)
+        out["token"] = token
+        out["ttl_seconds"] = ttl
+        return out
+
+    def get_approval_receipt(self, receipt_uuid):
+        """Read a receipt by its PUBLIC uuid, for display and for verify. Never
+        returns nonce_hash, and there is deliberately no lookup that returns it:
+        the token hash leaves this module only through the private consumption
+        path below."""
+        row = _exec(self, "SELECT * FROM learning_approval_receipts "
+                          "WHERE receipt_uuid LIKE ?",
+                    (receipt_uuid + "%",)).fetchone()
+        if row is None:
+            raise OwnershipRefused("no-such-receipt",
+                                   "no approval receipt matches %r" % (receipt_uuid,))
+        out = dict(row)
+        out.pop("nonce_hash", None)
+        return out
+
+    def _receipt_for_token(self, token):
+        """Look a receipt up BY ITS TOKEN, or refuse.
+
+        The refusal deliberately says nothing about whether the token was
+        unknown, malformed or for another store: a caller guessing tokens
+        learns nothing from the message it gets back."""
+        row = _exec(self, "SELECT * FROM learning_approval_receipts "
+                          "WHERE nonce_hash=?",
+                    (_receipt_token_hash(token),)).fetchone()
+        if row is None:
+            raise OwnershipRefused(
+                "bad-approval-receipt",
+                "that approval receipt is not valid for this store. Ask the "
+                "founder the question again and mint a fresh one with "
+                "`bm_learn.py grant-approval`.")
+        return dict(row)
+
+    def approve_learning_candidate(self, prefix, founder_ref, receipt="",
+                                    trigger=None,
                                     action=None, because=None, scope_type=None,
                                     scope_key=None, rule_type="preference",
                                     severity="soft", domain=None,
                                     atomicity_override="", conflict_override=""):
-        """Promote a candidate into an approved rule. ATOMIC and FOUNDER-GATED.
+        """Promote a candidate into an approved rule. ATOMIC and RECEIPT-GATED.
 
-        founder_ref is mandatory and free-form (a command invocation, a message
-        reference). It exists so that invariant L1 is enforced by the schema
-        path rather than by convention: there is NO code path that creates a
-        rule without one, so a background hook cannot approve anything even if
-        it wanted to. A model's own judgement is not a founder_ref, and nothing
-        here checks that, which is stated honestly in docs rather than pretended
-        away: the guarantee is that approval is an explicit, recorded, attributed
-        act, not that a determined local process could not fake one.
+        `receipt` is a one-time token from mint_approval_receipt, and it is
+        MANDATORY. Without it this refuses and writes nothing. That is the whole
+        of Model A: the door into the injectable rule set opens only for an
+        answer a human actually gave, about this candidate, about this rule
+        text, within the last fifteen minutes, and only once.
 
-        All five writes (rule, version 1, approval evidence, candidate status,
-        resulting link) happen in ONE transaction. A failure part way leaves the
-        candidate pending, never half approved."""
+        Six checks, every one of them fail-CLOSED, and the last four repeated
+        inside the transaction as a single conditional UPDATE so that two
+        approvals racing for the same receipt cannot both win:
+          * the token resolves to a receipt in THIS store;
+          * the receipt is for THIS candidate;
+          * the receipt has not been consumed;
+          * the receipt has not expired;
+          * the candidate and the rule text still fingerprint the same as when
+            the founder was asked;
+          * consumption and rule creation are the same transaction.
+
+        founder_ref stays mandatory and stays free-form. It is now the
+        HUMAN-READABLE half of provenance (which question, which conversation),
+        not the gate: the receipt is the gate. A model's own judgement is still
+        not a founder_ref, and this still does not authenticate an identity.
+
+        All six writes (receipt consumption, rule, version 1, approval evidence,
+        candidate status, resulting link) happen in ONE transaction. A failure
+        part way leaves the candidate pending and the receipt unspent, never
+        half approved."""
         L = _learning()
         if not (founder_ref or "").strip():
             raise OwnershipRefused("no-founder-ref", "approval requires an explicit founder reference; a rule with no "
                 "recorded approver is exactly what invariant L1 forbids")
+        if not (receipt or "").strip():
+            raise OwnershipRefused(
+                "no-approval-receipt",
+                "approval requires a one-time receipt from a real founder "
+                "answer. Ask the question, then run `bm_learn.py "
+                "grant-approval <candidate> --answer \"<what he said>\"` and "
+                "pass the token to approve. There is no override and no "
+                "break-glass: a rule nobody answered for is the exact thing "
+                "this refuses to create.")
         cand = self.get_learning_candidate(prefix)
         if cand["status"] != "pending":
             raise OwnershipRefused("not-pending", "candidate %s is %r, only a pending candidate can be approved"
                 % (cand["candidate_uuid"][:8], cand["status"]))
+        rec = self._receipt_for_token(receipt.strip())
+        if rec["candidate_uuid"] != cand["candidate_uuid"]:
+            raise OwnershipRefused(
+                "receipt-wrong-candidate",
+                "that receipt was issued for candidate %s, not %s. One answer "
+                "approves one candidate."
+                % (rec["candidate_uuid"][:8], cand["candidate_uuid"][:8]))
+        if rec["consumed_at"] is not None:
+            raise OwnershipRefused(
+                "receipt-already-used",
+                "that receipt was already spent at %s. An answer approves once; "
+                "ask again for another rule." % rec["consumed_at"])
+        if rec["expires_at"] < now_iso():
+            raise OwnershipRefused(
+                "receipt-expired",
+                "that receipt expired at %s. A stale answer is not consent to "
+                "whatever the candidate says now: ask again."
+                % rec["expires_at"])
         # Scrubbed here as well as at capture: approval accepts NEW text typed
         # on the command line, so the candidate having been cleaned says nothing
         # about what the founder just passed in (LOOP 12).
-        trig = _scrubbed_field(L, trigger if trigger is not None else cand["proposed_trigger"])
-        act = _scrubbed_field(L, action if action is not None else cand["proposed_action"])
-        why = _scrubbed_field(L, because if because is not None else cand["proposed_because"])
-        stype = scope_type or cand["proposed_scope_type"]
-        skey = _scrubbed_field(L, scope_key if scope_key is not None else cand["proposed_scope_key"])
-        dom = _scrubbed_field(L, domain if domain is not None else cand["proposed_domain"])
+        prop = _resolve_proposal(L, cand, trigger, action, because, scope_type,
+                                 scope_key, domain, rule_type, severity)
+        if _proposal_fingerprint(L, cand, prop) != rec["candidate_fingerprint"]:
+            raise OwnershipRefused(
+                "receipt-stale-candidate",
+                "the candidate or the rule text has changed since receipt %s "
+                "was issued, so that answer was given about something else. "
+                "Show the founder what it says now and ask again."
+                % rec["receipt_uuid"][:8])
+        trig, act, why = prop["trigger"], prop["action"], prop["because"]
+        stype, skey, dom = prop["scope_type"], prop["scope_key"], prop["domain"]
         founder_ref = redact_text(founder_ref)
         if not trig or not act:
             raise OwnershipRefused("incomplete-rule", "a rule needs both a trigger and an action; got trigger=%r action=%r"
@@ -3052,6 +3353,25 @@ class Store(object):
         ruuid = uuid.uuid4().hex
         ts = now_iso()
         with self._transaction():
+            # FIRST statement in the transaction, and conditional on the receipt
+            # still being unspent and unexpired. Everything below is undone if
+            # this does not claim exactly one row, so two concurrent approvals
+            # holding the same token produce one rule and one refusal, never two
+            # rules. BEGIN IMMEDIATE already serializes writers; this is the
+            # belt to that braces, and it is also what makes consumption and
+            # rule creation the same atomic act rather than two steps with a
+            # window between them.
+            claimed = _exec(self,
+                  "UPDATE learning_approval_receipts SET consumed_at=?, "
+                  "consumed_rule_uuid=? WHERE receipt_uuid=? AND "
+                  "consumed_at IS NULL AND expires_at >= ?",
+                  (ts, ruuid, rec["receipt_uuid"], ts))
+            if claimed.rowcount != 1:
+                raise OwnershipRefused(
+                    "receipt-already-used",
+                    "receipt %s was spent or expired between the check and the "
+                    "write. Nothing was created."
+                    % rec["receipt_uuid"][:8])
             _exec(self,
                   "INSERT INTO learning_rules (rule_uuid, current_version, state, "
                   "rule_type, severity, scope_type, scope_key, founder_approved_at, "
@@ -3063,7 +3383,8 @@ class Store(object):
                   "change_reason, source_candidate_uuid, approved_by, created_at) "
                   "VALUES (?,1,?,?,?,?,'created',?,?, 'founder', ?)",
                   (ruuid, trig, act, why, dom,
-                   ("founder approval: %s" % founder_ref)[:500],
+                   ("founder approval (receipt %s): %s"
+                    % (rec["receipt_uuid"][:8], founder_ref))[:500],
                    cand["candidate_uuid"], ts))
             _exec(self,
                   "INSERT INTO learning_evidence (evidence_uuid, rule_uuid, "
@@ -3071,7 +3392,8 @@ class Store(object):
                   "source_ref, excerpt, created_at) "
                   "VALUES (?,?,?,'support','founder_approval',?,?,?,?)",
                   (uuid.uuid4().hex, ruuid, cand["candidate_uuid"],
-                   cand["source_session_id"], founder_ref[:500],
+                   cand["source_session_id"],
+                   ("receipt %s: %s" % (rec["receipt_uuid"][:8], founder_ref))[:500],
                    redact_text(cand["raw_text"] or ""), ts))
             if problems:
                 # The override is EVIDENCE, not a silent bypass.

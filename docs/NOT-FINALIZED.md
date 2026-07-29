@@ -494,6 +494,32 @@ What is still honestly open, stated rather than discovered later:
 
 ---
 
+## 21. Approval receipts landed in code; three documents still describe the old flow. OPEN. Added 2026-07-29.
+
+Post-audit LOOP 3 (Model A) closed the audit finding in `tools/bm_learn.py`,
+`tools/bm_learning.py` and `tools/bm_store.py`: approval now requires a
+one-time receipt, and the CLI no longer synthesizes the evidence it used to
+invent. The repro that produced gate rule 61de7eb9 at exit 0 against d88abcc
+now refuses with `no-approval-receipt` and creates nothing.
+
+What is NOT done, and it is wording rather than mechanism:
+
+- `README.md` line 109 and `docs/CORRECTION-LEARNING.md` line 179 both say
+  approval is "founder-only". That was already a stronger claim than the code
+  supported, and it is still stronger than Model A supports: the mechanism
+  proves an answer was given about this exact candidate, once, recently. It
+  does not prove who gave it. Those lines need to say so, and the two-step
+  `grant-approval` then `approve` flow needs its walkthrough.
+- `SECURITY.md` does not yet describe the receipt token as a secret with the
+  handling rules the code enforces (shown once, never stored, never logged,
+  fifteen-minute life).
+
+The loop plan assigns these three files to the Documentation Agent, so this
+loop deliberately did not edit them. Until it does, the shipped documentation
+overstates the guarantee, and `docs/KNOWN-LIMITS.md` carries the honest version.
+
+---
+
 ## What is genuinely finished
 
 All 17 findings of the second audit are closed in code, with CI green on Linux,

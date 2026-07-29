@@ -83,6 +83,31 @@ def content_hash(*parts):
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()
 
 
+# A unit separator, which normalize_text collapses out of any real text, so no
+# field value can contain it and no two different field splits can hash the
+# same. content_hash joins on a space and LOWERCASES, which is right for
+# spotting a repeated correction and wrong here: "never push" and "NEVER PUSH"
+# are the same evidence but not the same rule text, and a founder shown one of
+# them must not be held to have approved the other.
+_FINGERPRINT_SEP = "\x1f"
+
+
+def approval_fingerprint(parts):
+    """What the founder was actually shown, as one stable hash.
+
+    This is the difference between an approval receipt meaning "the founder said
+    yes" and meaning "the founder said yes TO THIS". Every field that changes
+    what the rule would DO goes in; bookkeeping stays out. Order matters and
+    belongs to the caller, so a change in either the values or their number
+    produces a different hash and the receipt stops matching.
+
+    Pure: no store, no clock, no randomness. Given the same parts it returns the
+    same hash in the minting path and in the approval path, which is the only
+    reason comparing the two proves anything."""
+    joined = _FINGERPRINT_SEP.join(normalize_text(p or "") for p in parts)
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
+
+
 # A compound correction carries more than one instruction. Splitting it is the
 # founder's call, never the parser's, so these only ever RAISE A FLAG.
 _COMPOUND_PATTERNS = (
