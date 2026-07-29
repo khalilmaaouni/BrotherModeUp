@@ -3184,5 +3184,295 @@ class TestLoop8TelemetryStaysUnforgeable(unittest.TestCase):
             self.assertEqual(rows[0]["artifact"], "notes.md")
 
 
+class TestLoop12SecretScrubberBoundary(unittest.TestCase):
+    """LOOP 12, CRITICAL. Every vendor pattern in SECRET_PATTERNS was anchored
+    with \b, and Python counts "_" as a word character. So a secret with any
+    word character in front of it never matched: the token went to sqlite and
+    to corrections.jsonl in cleartext while redaction_count recorded 0, which is
+    the one signal a reviewer gets that the text was touched at all."""
+
+    PREFIXED = (
+        "OPENAI_KEY_sk-live_ABCDEFGH12345678901234",
+        "AWSKEY_AKIAIOSFODNN7EXAMPLE",
+        "GITHUB_ghp_ABCDEFGHIJKLMNOPQRST",
+        "nid_123-45-6789",
+        "x_eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0",
+        "co_xoxb-1234567890-ABCDEFGHIJ",
+    )
+
+    def test_a_word_character_in_front_does_not_hide_a_secret(self):
+        for token in self.PREFIXED:
+            clean, n = bm.redact(token)
+            self.assertGreater(n, 0, "no redaction fired on: %s" % token)
+            self.assertIn("[REDACTED]", clean)
+
+    def test_the_unprefixed_form_still_redacts(self):
+        # The premise, asserted rather than assumed: if the bare shapes ever
+        # stopped matching, the test above would pass for the wrong reason.
+        for token in ("sk-live_ABCDEFGH12345678901234", "AKIAIOSFODNN7EXAMPLE",
+                      "ghp_ABCDEFGHIJKLMNOPQRST", "123-45-6789"):
+            self.assertGreater(bm.redact(token)[1], 0, token)
+
+    def test_ordinary_prose_is_still_left_alone(self):
+        # The boundary is "letters and digits bind", not "no boundary at all".
+        # A pattern with the anchor simply removed would eat "task-oriented".
+        for prose in ("task-oriented-development-plan",
+                      "always use the staging bucket, never production",
+                      "we should ask-the-platform-team about it"):
+            clean, n = bm.redact(prose)
+            self.assertEqual(n, 0, "over-redacted ordinary prose: %r" % clean)
+            self.assertEqual(clean, prose)
+
+
+class TestLoop12RedactionIsLinearInInputSize(unittest.TestCase):
+    """LOOP 12. The key=value pattern led with an UNBOUNDED [A-Za-z0-9_]*,
+    retried at every offset of a long alphanumeric run, so redact() was O(n^2).
+    Store.import_correction_inbox redacts the FULL untruncated inbox text and
+    the inbox is one file shared by every project on this machine, so one 20 KB
+    row stalled the import for 75 seconds of CPU and a 4 MB row never finished.
+    A wall-clock budget is a blunt instrument, so this asserts the SHAPE: four
+    times the input must not take anything like sixteen times the work."""
+
+    def _time(self, text):
+        import time
+        start = time.time()
+        bm.redact(text)
+        return time.time() - start
+
+    def test_quadratic_blowup_is_gone(self):
+        small = self._time("x " + "B" * 8000)
+        large = self._time("x " + "B" * 32000)
+        # Quadratic would be 16x. Linear is 4x. The ceiling is deliberately
+        # loose so a busy machine cannot fail this, and still an order of
+        # magnitude below the defect.
+        self.assertLess(large, max(small, 0.005) * 40,
+                        "redact() scaling looks superlinear: 8000 chars took "
+                        "%.4fs, 32000 took %.4fs" % (small, large))
+        self.assertLess(large, 2.0,
+                        "32 KB of text took %.2fs to redact" % large)
+
+    def test_a_run_of_underscores_does_not_blow_up_either(self):
+        # "_" is excluded from the boundary lookbehind on purpose, so it is the
+        # one character that can still start a match at every offset. The
+        # bounded prefix is what keeps that linear.
+        self.assertLess(self._time("_" * 32000), 2.0)
+
+
+class TestLoop12PairedArtifactsAreRedacted(unittest.TestCase):
+    """LOOP 12. The Loop 4 transcript-pairing field wrote tool_use file paths
+    verbatim into corrections.jsonl while both neighbouring fields (text and
+    prev_response_excerpt) went through redact(). Paths carry secrets routinely:
+    a token-named key file, a per-tenant directory, a temp dir built from a
+    credential."""
+
+    SECRET_PATH = "/home/f/sk-live-ABCDEFGHIJKLMNOP12345/AKIA1234567890ABCDEF/notes.txt"
+
+    def _run(self, vault):
+        repo = tempfile.mkdtemp()
+        tp = os.path.join(repo, "transcript.jsonl")
+        lines = []
+        for i in range(6):
+            lines.append({"type": "assistant",
+                          "timestamp": "2026-07-29T10:1%d:00Z" % i,
+                          "message": {"id": "m%d" % i, "model": "opus",
+                                      "usage": {"output_tokens": 10, "input_tokens": 10},
+                                      "content": [
+                                          {"type": "text", "text": "ok"},
+                                          {"type": "tool_use", "name": "Read",
+                                           "input": {"file_path": self.SECRET_PATH}}]}})
+        for i in range(6):
+            lines.append({"type": "user", "timestamp": "2026-07-29T10:2%d:00Z" % i,
+                          "message": {"content":
+                                      "no, that is wrong, do it the other way %d" % i}})
+        with io.open(tp, "w", encoding="utf-8") as f:
+            f.write("\n".join(json.dumps(o) for o in lines) + "\n")
+        payload = json.dumps({"transcript_path": tp, "session_id": "sess-art",
+                              "cwd": repo, "reason": "other"})
+        subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
+                        "outcomes-append"],
+                       input=payload, env=dict(os.environ, BROTHERMODE_VAULT=vault),
+                       cwd=repo, capture_output=True, text=True)
+        return os.path.join(vault, "99-System", "telemetry", "corrections.jsonl")
+
+    def test_a_secret_shaped_path_never_reaches_the_corrections_file(self):
+        with tempfile.TemporaryDirectory() as v:
+            path = self._run(v)
+            self.assertTrue(os.path.exists(path), "nothing was captured at all")
+            body = _read(path)
+            self.assertNotIn("sk-live-ABCDEFGHIJKLMNOP12345", body,
+                             "an api-key-shaped path segment was written verbatim")
+            self.assertNotIn("AKIA1234567890ABCDEF", body,
+                             "an aws-key-shaped path segment was written verbatim")
+            rec = json.loads(body.splitlines()[0])
+            self.assertTrue(rec.get("artifacts"), "the pairing field disappeared")
+            self.assertIn("[REDACTED]", rec["artifacts"][0])
+            self.assertEqual(rec.get("artifact_redactions"), 2,
+                             "the count must show the artifacts were touched")
+            # The non-secret part of the path survives, or the field would be
+            # useless for judging the pairing.
+            self.assertIn("notes.txt", rec["artifacts"][0])
+
+
+class TestLoop12LearningCliPrivacy(unittest.TestCase):
+    """LOOP 12, driven through the real binaries because the leak was in what
+    the COMMANDS print, not in what the store holds."""
+
+    def _learn(self, root, args):
+        env = dict(os.environ, BROTHERMODE_ROOT=root)
+        return subprocess.run([sys.executable, os.path.join(HERE, "bm_learn.py")]
+                              + args, cwd=root, env=env, capture_output=True,
+                              text=True)
+
+    def _init(self, root):
+        env = dict(os.environ, BROTHERMODE_ROOT=root)
+        r = subprocess.run([sys.executable, os.path.join(HERE, "bm_store.py"),
+                            "init"], cwd=root, env=env, capture_output=True,
+                           text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_every_field_the_founder_types_is_scrubbed_not_only_raw_text(self):
+        """proposed_trigger, proposed_action, proposed_because and
+        proposed_domain went through normalize_text alone, so a secret typed
+        into --action was on disk in cleartext and printed by `candidates`,
+        `rules` and `why`, while raw_text next to it was masked."""
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            r = self._learn(root, [
+                "capture", "--scope", "global",
+                "--raw", "RAW sk-live_ABCDEFGH12345678901234",
+                "--trigger", "TRIG sk-live_ABCDEFGH12345678901234",
+                "--action", "ACT AKIAIOSFODNN7EXAMPLE",
+                "--because", "BEC ghp_ABCDEFGHIJKLMNOPQRST"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            cid = r.stdout.split()[1]
+            store = bs.Store(root)
+            try:
+                cand = store.get_learning_candidate(cid)
+            finally:
+                store.close()
+            for col in ("raw_text", "proposed_trigger", "proposed_action",
+                        "proposed_because"):
+                self.assertIn("[REDACTED]", cand[col],
+                              "%s was stored unscrubbed: %r" % (col, cand[col]))
+            for secret in ("sk-live_ABCDEFGH12345678901234",
+                           "AKIAIOSFODNN7EXAMPLE", "ghp_ABCDEFGHIJKLMNOPQRST"):
+                self.assertNotIn(secret, json.dumps(dict(cand)))
+            self.assertEqual(cand["redaction_count"], 4,
+                             "the count must cover every scrubbed field, not "
+                             "only raw_text")
+            # And it stays scrubbed through approval into the rule version.
+            a = self._learn(root, ["approve", cid, "--ref", "test"])
+            self.assertEqual(a.returncode, 0, a.stderr)
+            rules = self._learn(root, ["rules"])
+            self.assertEqual(rules.returncode, 0, rules.stderr)
+            self.assertNotIn("AKIAIOSFODNN7EXAMPLE", rules.stdout)
+            self.assertIn("[REDACTED]", rules.stdout)
+
+    def test_no_json_command_pipes_the_founders_verbatim_words(self):
+        """dump withholds raw_text and evidence.excerpt entirely and
+        show-candidate --json withholds raw_text behind a flag. `candidates
+        --json` and `why --json` printed the same columns in full, with no flag
+        and no warning, so the property was enforced in three places and
+        bypassed in two."""
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            quote = "the client in Lyon keeps changing his mind about the price"
+            r = self._learn(root, ["capture", "--scope", "global", "--raw", quote,
+                                   "--trigger", "pushing to GitHub",
+                                   "--action", "use GitHub Desktop"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            cid = r.stdout.split()[1]
+            listed = self._learn(root, ["candidates", "--json"])
+            self.assertEqual(listed.returncode, 0, listed.stderr)
+            self.assertNotIn(quote, listed.stdout,
+                             "candidates --json piped the verbatim quote")
+            self.assertIn("[withheld: pass --show-source]", listed.stdout)
+            shown = self._learn(root, ["candidates", "--json", "--show-source"])
+            self.assertIn(quote, shown.stdout,
+                          "--show-source must still return it, or the flag is a lie")
+
+            a = self._learn(root, ["approve", cid, "--ref", "test"])
+            self.assertEqual(a.returncode, 0, a.stderr)
+            rules = json.loads(self._learn(root, ["rules", "--json"]).stdout)
+            rid = rules[0]["rule_uuid"][:8]
+            why = self._learn(root, ["why", rid, "--json"])
+            self.assertEqual(why.returncode, 0, why.stderr)
+            self.assertNotIn(quote, why.stdout,
+                             "why --json piped the evidence excerpt in full")
+            self.assertIn("[withheld: pass --show-source]", why.stdout)
+            why_open = self._learn(root, ["why", rid, "--json", "--show-source"])
+            self.assertIn(quote, why_open.stdout)
+
+    def test_a_control_character_in_a_scope_key_is_refused(self):
+        """safe_display is the containment for control characters in CLI and
+        injected output, and scope_key was the one displayed field that never
+        met it. An ESC in a scope key cleared the founder's screen and repainted
+        the neighbouring rule lines in the injected RELEVANT FOUNDER RULES
+        block."""
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            bad = "p\x1b[2J\x1b[31mPWNED"
+            r = self._learn(root, ["capture", "--trigger", "python style",
+                                   "--action", "use tabs", "--scope", "project",
+                                   "--scope-key", bad])
+            self.assertEqual(r.returncode, 2, r.stdout)
+            self.assertIn("bad-scope", r.stderr)
+            self.assertIn("control character", r.stderr)
+
+    def test_an_escape_already_in_the_store_still_cannot_reach_the_terminal(self):
+        """Validation only protects NEW rows. Every existing store keeps
+        printing, so the display path has to hold on its own."""
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            r = self._learn(root, ["capture", "--trigger", "python style",
+                                   "--action", "use tabs", "--scope", "project",
+                                   "--scope-key", "plain"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            cid = r.stdout.split()[1]
+            self.assertEqual(self._learn(root, ["approve", cid, "--ref", "t"]).returncode, 0)
+            store = bs.Store(root)
+            try:
+                store.conn.execute("UPDATE learning_rules SET scope_key = ?",
+                                   ("p\x1b[2J\x1b[31mPWNED",))
+                store.conn.commit()
+            finally:
+                store.close()
+            for args in (["rules"], ["relevant", "--query", "python style tabs",
+                                     "--project", "p\x1b[2J\x1b[31mPWNED"]):
+                out = self._learn(root, args)
+                self.assertEqual(out.returncode, 0, out.stderr)
+                self.assertNotIn("\x1b", out.stdout,
+                                 "a raw ESC reached the terminal from %s" % args[0])
+                self.assertIn("PWNED", out.stdout,
+                              "the key itself must still be readable, inert")
+
+    def test_one_malformed_timestamp_does_not_hide_every_later_correction(self):
+        """inbox promises malformed rows are counted and named, never a
+        traceback. A non-string ts crashed the display loop, so a bad row placed
+        FIRST silently suppressed every genuine correction after it while
+        --backfill still imported them."""
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            path = os.path.join(root, "bad.jsonl")
+            rows = [{"ts": 1, "project": "p", "session_id": "s0",
+                     "text": "always use spaces"},
+                    {"ts": None, "project": "p", "session_id": "s1",
+                     "text": "stop reformatting my files"},
+                    {"ts": "2026-07-29T00:00:00Z", "project": "p",
+                     "session_id": "s2", "text": "you never run the tests"}]
+            with io.open(path, "w", encoding="utf-8") as f:
+                for r in rows:
+                    f.write(json.dumps(r) + "\n")
+            out = self._learn(root, ["inbox", "--file", path])
+            self.assertEqual(out.returncode, 0, out.stderr)
+            self.assertNotIn("Traceback", out.stderr)
+            for text in ("always use spaces", "stop reformatting my files",
+                         "you never run the tests"):
+                self.assertIn(text, out.stdout,
+                              "a later correction was suppressed by an earlier "
+                              "malformed row")
+            self.assertIn("2026-07-29T00:00:00", out.stdout)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -52,6 +52,13 @@ What the code actually writes inside your project today:
   objectives, decisions, digests, and directives AS YOU TYPED THEM: redaction in
   V2 applies at every exit (generated `STATE.md` views, rendered digests,
   dashboard output), while the database itself is the raw, sensitive artifact.
+  The learning tables are the one part scrubbed on the way IN as well: every
+  field you type into a correction (trigger, action, reason, domain, scope key,
+  approval reference, override reason) has secret-shaped substrings masked
+  before it is stored, and the count of what was masked is on the candidate.
+  Your verbatim capture text and the evidence excerpts taken from it are
+  withheld from `dump` entirely and from every `--json` command unless you pass
+  `--show-source`.
   Treat it like the corrections file below. If the database is ever corrupt it
   is renamed to `store.sqlite3.quarantine-<timestamp>` and never deleted, so a
   quarantine file is exactly as sensitive as the store. `bm_store.py init` adds
@@ -98,8 +105,10 @@ Two files inside the vault deserve attention:
   messages** that look like corrections, so the weekly review can turn them into
   rules. Secret-shaped substrings (API keys, tokens, `password=`, private keys,
   national-ID and card shapes) are redacted before anything is written, and the
-  file is created owner-only (0600). Redaction is best-effort pattern matching,
-  not a guarantee. Treat the file as sensitive, keep it out of version control
+  file is created owner-only (0600). That includes the paired fields: the
+  previous response excerpt AND the file paths of the tools that ran, because a
+  path can carry a secret in a directory name. Redaction is best-effort pattern
+  matching, not a guarantee. Treat the file as sensitive, keep it out of version control
   (the shipped `vault-template/.gitignore` excludes it), and purge it whenever
   you like:
 
