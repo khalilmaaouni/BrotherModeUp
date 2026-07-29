@@ -71,7 +71,7 @@ import sqlite3
 import sys
 import uuid
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
@@ -675,6 +675,29 @@ class StoreCorrupt(BMStoreError):
         self.quarantine_path = quarantine_path
 
 
+class HandoverLost(OwnershipRefused):
+    """A transition asked for a handover and the store could not prove one
+    exists for it after the write. Raised INSIDE transition()'s transaction,
+    so the transition rolls back with it: the record does not move.
+
+    Fix round for LOOP P12 (2026-07-29). _insert_handover used to swallow the
+    UNIQUE-index IntegrityError unconditionally and return "already", and
+    transition() discarded that return value, so a losing insert committed a
+    lifecycle move with NO handover row anywhere. The dedupe index was keyed on
+    (lifecycle_uuid, payload_fingerprint) for all time, and the fingerprint does
+    not cover state, version, transition_id or heading, so the SECOND park of a
+    record whose payload had not changed wrote nothing at all once the first
+    handover had been acknowledged: `handovers` reported none, STATE.md had no
+    Handovers section, and `verify` called it healthy. This exception is what
+    that path raises now when the swallow cannot be justified by a
+    still-undelivered twin carrying the same text. Subclasses OwnershipRefused
+    because the outcome is a refusal with nothing changed, which is exactly how
+    every CLI already reports it."""
+
+    def __init__(self, message, details=None):
+        super(HandoverLost, self).__init__("handover-lost", message, details)
+
+
 class RedactionUnavailable(OwnershipRefused):
     """bm_telemetry.redact could not be loaded, or itself raised on the
     input. Refusing to render is the safe direction: the alternative is
@@ -1066,8 +1089,15 @@ _TABLES_HANDOVER = ("handovers",)
 
 _TABLES_V5 = _TABLES_V4 + _TABLES_HANDOVER
 
+# Schema 6 adds NO table: it only replaces the handover dedupe index (see
+# _migrate_5_to_6). It still needs its own entry, because _TABLES is looked up
+# by SCHEMA_VERSION and a missing key is an import-time KeyError. Sharing the
+# schema-5 tuple by name rather than copying it keeps the two versions provably
+# identical in what they require to be present.
+_TABLES_V6 = _TABLES_V5
+
 _TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3,
-                      4: _TABLES_V4, 5: _TABLES_V5}
+                      4: _TABLES_V4, 5: _TABLES_V5, 6: _TABLES_V6}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -1364,11 +1394,28 @@ _RETRIEVAL_RUN_INDEX_STATEMENTS = _split_ddl(_RETRIEVAL_RUN_INDEX_DDL)
 # transition can own at most one handover.
 #
 # payload_fingerprint is the store's own full 64-hex handover_payload
-# fingerprint, and UNIQUE(lifecycle_uuid, payload_fingerprint) IS the retry
-# dedupe: a second attempt at
-# the same handover for the same lifecycle loses on the index instead of writing
-# the text twice. That replaces bm_threads' old trick of scanning a text file
-# for an HTML comment marker.
+# fingerprint, and the retry dedupe is
+# UNIQUE(lifecycle_uuid, payload_fingerprint, heading) WHERE delivered_at IS
+# NULL: a second attempt at the same handover text for the same lifecycle,
+# while the first copy is still on the founder's screen, loses on the index
+# instead of writing the text twice. That replaces bm_threads' old trick of
+# scanning a text file for an HTML comment marker.
+#
+# Fix round (2026-07-29): that index used to be UNIQUE(lifecycle_uuid,
+# payload_fingerprint) over ALL rows, delivered or not, and that is a dedupe
+# that deletes handovers rather than deduplicating text. The fingerprint covers
+# objective, files, owner, tier, check, evidence, latest digest and decisions.
+# It does NOT cover state, version, transition_id, heading or the session ids.
+# So a record parked, acknowledged, resumed and parked again with no new
+# checkpoint produced the identical fingerprint, the insert lost, the swallow
+# hid it, and the second park had no handover ANYWHERE: no row, no STATE.md
+# section, and `verify` reported healthy. Two changes make that unreachable.
+# The index is now PARTIAL on delivered_at IS NULL, so an acknowledged row can
+# never suppress a new one (the founder has already seen and dismissed it, and
+# it no longer renders). And heading is part of the key, so a park heading the
+# founder typed and the adoption heading that follows it are two different
+# handovers instead of one, which is what stopped an adopted record from
+# rendering under a stale "Drained from thread mode" header forever.
 #
 # body holds the rendered digest (already passed through redact_text by
 # render_digest, which refuses rather than render unredacted text), and it is
@@ -1397,8 +1444,9 @@ CREATE TABLE IF NOT EXISTS handovers (
 """
 
 _HANDOVER_INDEX_DDL = """
-CREATE UNIQUE INDEX IF NOT EXISTS handovers_lifecycle_fingerprint_idx
-  ON handovers(lifecycle_uuid, payload_fingerprint);
+CREATE UNIQUE INDEX IF NOT EXISTS handovers_undelivered_text_idx
+  ON handovers(lifecycle_uuid, payload_fingerprint, heading)
+  WHERE delivered_at IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS handovers_transition_idx
   ON handovers(transition_id) WHERE transition_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS handovers_undelivered_idx
@@ -1615,11 +1663,38 @@ def _migrate_4_to_5(conn):
         conn.execute(statement)
 
 
+def _migrate_5_to_6(conn):
+    """Schema 5 to 6: replace the handover dedupe index. NO ROW IS TOUCHED.
+
+    Schema 5 shipped UNIQUE(lifecycle_uuid, payload_fingerprint) across every
+    handover row for all time. Schema 6 replaces it with
+    UNIQUE(lifecycle_uuid, payload_fingerprint, heading) WHERE delivered_at IS
+    NULL. See the _HANDOVER_DDL comment for why: the old key made an
+    acknowledged handover permanently suppress the next one for the same
+    lifecycle, so a second park could commit with no handover at all.
+
+    This is the first migration that DROPs anything, and the exception is
+    deliberate and narrow: an index is not data. Every handovers row survives
+    byte for byte, and the new key is strictly WEAKER than the old one (fewer
+    row pairs collide), so no existing row can fail it and the CREATE cannot
+    raise on a store that was legal a moment ago. Nothing recreates the old
+    index, and a store that has already been opened by schema 6 is left alone
+    by the IF EXISTS / IF NOT EXISTS pair.
+
+    Same contract as every migration before it otherwise: it runs inside the
+    caller's BEGIN EXCLUSIVE, so it must never commit, roll back, or open a
+    transaction of its own (see _split_ddl)."""
+    conn.execute("DROP INDEX IF EXISTS handovers_lifecycle_fingerprint_idx")
+    for statement in _HANDOVER_INDEX_STATEMENTS:
+        conn.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_1_to_2,
     2: _migrate_2_to_3,
     3: _migrate_3_to_4,
     4: _migrate_4_to_5,
+    5: _migrate_5_to_6,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -2834,6 +2909,13 @@ class Store(object):
             # Same rule as schema 4 above: the migration step is the ONE text,
             # run here for a fresh store and by _migrate_from for an old one.
             _migrate_4_to_5(self.conn)
+        if SCHEMA_VERSION >= 6:
+            # A fresh store already gets the schema-6 index shape from
+            # _migrate_4_to_5 (both run the same _HANDOVER_INDEX_STATEMENTS),
+            # so this is a no-op DROP of a name that was never created. It runs
+            # anyway for the same reason as the two above: one text, one path,
+            # no drift between a store born at 6 and one migrated to it.
+            _migrate_5_to_6(self.conn)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -6779,11 +6861,21 @@ class Store(object):
         transaction, so a store that cannot redact parks nothing and writes
         nothing, rather than recording a transition whose handover was lost.
 
-        A duplicate (lifecycle_uuid, payload_fingerprint) loses on the index and
-        is swallowed HERE, not by the caller: that is the retry path. The
-        earlier row already holds this exact text, so the second attempt has
-        nothing to add, while the transition it accompanies is still legitimate
-        and still commits. Nothing is ever written twice."""
+        A duplicate loses on handovers_undelivered_text_idx and is swallowed
+        HERE, not by the caller: that is the retry path. But the swallow is
+        conditional now (fix round, 2026-07-29). It is only honest while an
+        UNDELIVERED row carrying this exact lifecycle, fingerprint AND heading
+        is still there to render, which is what makes "the earlier row already
+        holds this exact text" true. So the swallow re-reads for that twin and
+        raises HandoverLost when it cannot find one, which aborts the caller's
+        transaction: no handover, no transition.
+
+        The old code returned "already" for ANY IntegrityError and transition()
+        discarded the value, so a park whose insert lost committed a lifecycle
+        move with nothing to hand over. The index change (partial on
+        delivered_at IS NULL, heading in the key) is what removes the loss; this
+        check is what makes a future regression impossible to commit silently
+        instead of merely unlikely."""
         payload = self.handover_payload(lifecycle_uuid)
         body = self.render_digest(lifecycle_uuid)
         try:
@@ -6798,6 +6890,19 @@ class Store(object):
                  at or now_iso()))
             return "delivered"
         except sqlite3.IntegrityError:
+            twin = _exec(self,
+                "SELECT handover_uuid FROM handovers WHERE lifecycle_uuid=? "
+                "AND payload_fingerprint=? AND heading=? AND delivered_at IS NULL",
+                (lifecycle_uuid, payload["fingerprint"], heading or "")).fetchone()
+            if twin is None:
+                raise HandoverLost(
+                    "the handover for lifecycle %s could not be written and no "
+                    "undelivered copy of it exists; the transition was rolled "
+                    "back rather than moving the record with its handover lost"
+                    % (lifecycle_uuid,),
+                    details={"lifecycle_uuid": lifecycle_uuid,
+                             "transition_id": transition_id,
+                             "heading": heading or ""})
             return "already"
 
     def undelivered_handovers(self):
