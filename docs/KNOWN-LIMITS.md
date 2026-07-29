@@ -167,14 +167,58 @@ never have failed; they are being deleted and the honest count reported. Treat a
 test count in this repository as a claim to be re-verified rather than a
 certificate.
 
-## The self-learning mechanism is designed, not built
+## The correction-learning system: built through Loop 12, never run on a real day
 
-The audit of it is in `docs/superpowers/specs/2026-07-26-self-learning-redesign.md`
-and it is unflattering: a hardcoded metric that can never move, five of nine scored
-metrics with no mechanical number, thirteen law amendments against one weekly
-review, and ratings the graded party could write itself. The redesign is approved
-but not implemented. Until it is, do not cite the scorecard as evidence of
-anything.
+UPDATED 2026-07-29. The paragraph below used to say the self-learning mechanism
+was designed and not implemented. That is now false and would mislead a reader
+who trusted it: capture, founder approval, scoped explainable retrieval,
+conflict and supersession detection, retrieval and application outcome
+tracking, and rework and escaped-defect grading are all built, tested, and
+were driven by hand against a real, throwaway store while writing this line.
+Plain-language explanation with real command output:
+`docs/CORRECTION-LEARNING.md`. Technical detail: `docs/NOT-FINALIZED.md`
+sections 15, 17 through 20.
+
+What has NOT changed, and matters more than what has:
+
+- **Never run on a real day of the founder's work.** Every command, every
+  count, every test in the whole system comes from a test suite or a scripted
+  probe against a throwaway store. `docs/NOT-FINALIZED.md` item 1 stays
+  UNPROVEN, ranked as the highest-harm open item in the project, until a real
+  dogfood window (Loop 14a) closes it. No amount of further testing closes
+  this; only using it does.
+- **No independent second-model review.** `docs/NOT-FINALIZED.md` item 12
+  stays open. The privacy and security fixes that landed in Loop 12 (the
+  secret scrubber and the withholding of raw founder text, described in item
+  15) were written and verified by the same model family that built the
+  feature. That is real evidence, but it is not the independent adversarial
+  pass item 12 asks for.
+- **Two loops of the program were deliberately not built.** Evaluation
+  partitions (Loop 9) and generated knowledge views (Loop 10) are both
+  unbuilt on purpose, with stated reopening conditions, because at the
+  current size of one founder's rule corpus (twenty to forty rules) neither
+  would produce a number large enough to support a decision. Building the
+  machinery anyway would make an unsupportable number look rigorous, which
+  is the exact failure this program's own principle forbids. See
+  `docs/CORRECTION-LEARNING.md` for the reopening conditions.
+- **The optional automatic-retrieval hook (Loop 11B) is gated on the dogfood
+  window, not built yet.** The skill-driven retrieval that already ships
+  (Stage A, Loop 11A) has to prove itself in real use first. A hook that
+  pushes the wrong rule into every prompt is worse than the opt-in retrieval
+  this project ships today.
+- **The old weekly scorecard's unflattering audit is still true where it was
+  never addressed.**
+  `docs/superpowers/specs/2026-07-26-self-learning-redesign.md` found a
+  hardcoded metric that could never move, five of nine scored metrics with no
+  mechanical number, thirteen law amendments against one weekly review, and
+  ratings the graded party could write itself. The correction-learning system
+  now gives several of those metrics a real, row-backed number
+  (`bm_learn.py loop-failures`, `bm_learn.py rule-outcomes`, see
+  `docs/CORRECTION-LEARNING.md`'s scorecard section), but `RUBRIC.md` itself
+  is a founder-frozen template that changes only by the founder's own
+  decision, so it has not been rewritten here. Do not cite the OLD scorecard
+  metric 1 as evidence of anything until the founder ratifies pointing it at
+  the new commands.
 
 ## What was checked by class rather than individually
 
