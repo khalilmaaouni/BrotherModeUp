@@ -6282,6 +6282,68 @@ class TestLoop7ApplicationLifecycle(unittest.TestCase):
                 self.assertEqual(ctx.exception.reason, "not-found")
                 self.assertEqual(self._count(store), 0)
 
+    def test_a_late_work_record_is_attached_to_the_application_that_exists(self):
+        """The order real work happens in: retrieve the rules, THEN claim the
+        work record, then re-run with --record. If the second call discarded
+        the link because the row already existed, nothing anywhere could ever
+        attach it, and the application would be permanently unlinked from the
+        work it belongs to."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                first = store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                app_id = first["applications"][0]
+                self.assertIsNone(
+                    store.get_learning_application(app_id)["record_uuid"])
+                rec = store.claim("report", "ephemeral", "write the report",
+                                  ["docs/report.md"])
+                second = store.record_learning_applications(
+                    "writing an executive update", session_id="S1",
+                    record_prefix=rec.lifecycle_uuid[:8])
+                self.assertEqual(
+                    (second["recorded"], second["already_recorded"],
+                     second["linked"]), (0, 1, 1))
+                self.assertEqual(self._count(store), 1)
+                self.assertEqual(
+                    store.get_learning_application(app_id)["record_uuid"],
+                    rec.lifecycle_uuid)
+                self.assertEqual(
+                    [a["application_uuid"] for a in
+                     store.list_learning_applications(
+                         record_prefix=rec.lifecycle_uuid[:8])],
+                    [app_id], "the row has to be findable BY that record")
+                third = store.record_learning_applications(
+                    "writing an executive update", session_id="S1",
+                    record_prefix=rec.lifecycle_uuid[:8])
+                self.assertEqual(third["linked"], 0,
+                                 "attaching the same link twice links nothing")
+
+    def test_an_application_is_never_moved_to_a_different_work_record(self):
+        """Completing a missing link is repair. Changing one is rewriting
+        history, so it is refused and the row is left exactly as it was."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                first = store.claim("report", "ephemeral", "write the report",
+                                    ["docs/report.md"])
+                res = store.record_learning_applications(
+                    "writing an executive update", session_id="S1",
+                    record_prefix=first.lifecycle_uuid[:8])
+                app_id = res["applications"][0]
+                other = store.claim("other", "ephemeral", "something else",
+                                    ["docs/other.md"])
+                again = store.record_learning_applications(
+                    "writing an executive update", session_id="S1",
+                    record_prefix=other.lifecycle_uuid[:8])
+                self.assertIn("already belongs to work record",
+                              again["record_error"])
+                self.assertEqual(again["linked"], 0)
+                self.assertEqual(
+                    store.get_learning_application(app_id)["record_uuid"],
+                    first.lifecycle_uuid,
+                    "a refused re-point must leave the original link intact")
+
     # -- immutability -------------------------------------------------
 
     def test_editing_a_rule_does_not_rewrite_old_application_history(self):
@@ -6402,6 +6464,69 @@ class TestLoop7ApplicationLifecycle(unittest.TestCase):
                 n = len([e for e in store.list_learning_evidence(rule["rule_uuid"])
                          if e["evidence_type"] == "verified_application"])
                 self.assertEqual(n, 1)
+
+    def test_flipping_a_disposition_back_and_forth_does_not_inflate_evidence(self):
+        """The repeat guard only ever blocked verbatim repeats. Alternating
+        followed and ignored on ONE application (the realistic "I closed that
+        wrong, fix it") used to append a row per flip, so a rule with a single
+        application could be handed unbounded support. That ledger is what the
+        founder reads and what admits a rule to 'confirmed'."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                res = store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                app_id = res["applications"][0]
+                for i in range(5):
+                    store.set_application_disposition(
+                        app_id, "ignored", reason="flip %d" % i)
+                    store.set_application_disposition(app_id, "followed")
+                kinds = [e["evidence_type"]
+                         for e in store.list_learning_evidence(rule["rule_uuid"])]
+                self.assertEqual(kinds.count("verified_application"), 1)
+                self.assertEqual(kinds.count("ignored_application"), 0,
+                                 "the losing side of a flip is a claim the "
+                                 "application no longer makes")
+                self.assertEqual(
+                    len(store.list_learning_applications(session_id="S1")), 1)
+
+    def test_a_disposition_that_asserts_nothing_removes_the_stale_evidence(self):
+        """Reopening an application as unknown withdraws its claim. Leaving the
+        old support row behind would keep counting an application that no
+        longer says anything, including towards promotion to 'confirmed'."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                res = store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                app_id = res["applications"][0]
+                store.set_application_disposition(app_id, "followed")
+                store.set_application_disposition(app_id, "unknown")
+                kinds = [e["evidence_type"]
+                         for e in store.list_learning_evidence(rule["rule_uuid"])]
+                self.assertEqual(kinds, ["founder_approval"])
+                store.set_application_disposition(app_id, "not_relevant")
+                kinds = [e["evidence_type"]
+                         for e in store.list_learning_evidence(rule["rule_uuid"])]
+                self.assertEqual(kinds, ["founder_approval"])
+
+    def test_two_applications_of_one_rule_each_keep_their_own_evidence(self):
+        """The dedupe is per APPLICATION, not per rule. Two genuine
+        applications are two genuine pieces of evidence, and collapsing them
+        would undercount a rule that really is working."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                a = store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                b = store.record_learning_applications(
+                    "writing an executive update", session_id="S2")
+                self.assertNotEqual(a["applications"], b["applications"])
+                store.set_application_disposition(a["applications"][0], "followed")
+                store.set_application_disposition(b["applications"][0], "followed")
+                kinds = [e["evidence_type"]
+                         for e in store.list_learning_evidence(rule["rule_uuid"])]
+                self.assertEqual(kinds.count("verified_application"), 2)
 
     def test_an_unknown_disposition_or_outcome_is_refused(self):
         with tempfile.TemporaryDirectory() as d:
