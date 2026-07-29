@@ -2715,6 +2715,99 @@ class Store(object):
         return [dict(r) for r in _exec(
             self, "SELECT * FROM learning_candidates ORDER BY created_at").fetchall()]
 
+    def import_correction_inbox(self, rows, scope_key=None, source_label="corrections.jsonl"):
+        """Loop 4 backfill: promote rows from the GLOBAL capture inbox into THIS
+        project's store as pending candidates. Imports nothing else, approves
+        nothing, and touches the inbox file not at all.
+
+        Architecture, per the founder's decision 3.1.3: the per-project store is
+        the system of record and the vault's corrections.jsonl is a global
+        capture inbox. Triage moves an inbox row into a project. Global scope is
+        an explicit choice the founder makes at APPROVAL, never a default here,
+        so an imported candidate lands project-scoped and stays that way until
+        he says otherwise.
+
+        IDEMPOTENT BY CONSTRUCTION. Identity is a property of the row itself
+        (session id plus normalized text, bm_learning.inbox_identity), not of
+        when the import ran, so running the backfill twice imports nothing the
+        second time and no bookkeeping file has to be trusted to make that true.
+
+        A row is deliberately imported with an EMPTY proposed action. The
+        founder writes the rule at approval; approval refuses an empty action as
+        non-atomic. So the automatic path cannot produce something approvable
+        without him typing the rule, which is invariant L1 held up by the shape
+        of the data rather than by a promise.
+
+        `rows` are already-parsed dicts, so this method reads no file and the
+        single-writer property of this module is unchanged."""
+        L = _learning()
+        imported, skipped, flagged = [], 0, 0
+        with self._transaction():
+            for row in rows or []:
+                text = (row or {}).get("text") or ""
+                if not L.normalize_text(text):
+                    skipped += 1
+                    continue
+                session_id = (row.get("session_id") or "")
+                chash = L.inbox_identity(session_id, text)
+                dup = _exec(self,
+                            "SELECT candidate_uuid FROM learning_candidates "
+                            "WHERE content_hash=? AND source_type='detected_correction'",
+                            (chash,)).fetchall()
+                if dup:
+                    skipped += 1
+                    continue
+                clean_raw = redact_text(text)
+                # Same normalized words, different session. NOT a silent drop:
+                # the founder repeating himself is the strongest evidence there
+                # is, so it is imported and the echo is written into the review
+                # note for the reviewer to judge.
+                echo = _exec(self,
+                             "SELECT candidate_uuid FROM learning_candidates "
+                             "WHERE source_type='detected_correction' AND raw_text=? "
+                             "ORDER BY created_at LIMIT 1", (clean_raw,)).fetchall()
+                note = ""
+                if echo:
+                    flagged += 1
+                    note = ("possible duplicate of candidate %s, same text from a "
+                            "different session" % echo[0]["candidate_uuid"][:8])
+                cuuid = uuid.uuid4().hex
+                ref = "%s ts=%s project=%s" % (source_label, row.get("ts") or "?",
+                                               row.get("project") or "?")
+                _exec(self,
+                      "INSERT INTO learning_candidates (candidate_uuid, source_type, "
+                      "source_session_id, source_ref, raw_text, proposed_scope_type, "
+                      "proposed_scope_key, status, content_hash, redaction_count, "
+                      "created_at, review_note) "
+                      "VALUES (?,'detected_correction',?,?,?,'project',?,'pending',?,?,?,?)",
+                      (cuuid, session_id, ref[:500], clean_raw,
+                       L.normalize_text(scope_key or os.path.basename(self.root)),
+                       chash, clean_raw.count("[REDACTED]"), now_iso(), note[:500]))
+                imported.append(cuuid)
+        return {"imported": len(imported), "skipped": skipped,
+                "possible_duplicates": flagged, "candidate_uuids": imported}
+
+    def learning_capture_metrics(self):
+        """DESCRIPTIVE counts only, and named that way on purpose.
+
+        Candidates detected, approved, rejected, and how many carry a possible
+        duplicate note. These are volumes, not accuracy: nothing here is a
+        precision or recall number, because no labelled review set exists and
+        calling a count an accuracy is the memory theatre the plan forbids."""
+        by_status, by_source = {}, {}
+        for r in _exec(self, "SELECT status, COUNT(*) AS n FROM learning_candidates "
+                             "GROUP BY status").fetchall():
+            by_status[r["status"]] = r["n"]
+        for r in _exec(self, "SELECT source_type, COUNT(*) AS n FROM learning_candidates "
+                             "GROUP BY source_type").fetchall():
+            by_source[r["source_type"]] = r["n"]
+        dups = _exec(self, "SELECT COUNT(*) AS n FROM learning_candidates "
+                           "WHERE review_note LIKE 'possible duplicate%'").fetchone()["n"]
+        rules = _exec(self, "SELECT COUNT(*) AS n FROM learning_rules").fetchone()["n"]
+        return {"candidates_by_status": by_status, "candidates_by_source": by_source,
+                "possible_duplicates": dups, "rules_total": rules,
+                "note": "descriptive counts, not accuracy: there is no labelled review set"}
+
     def approve_learning_candidate(self, prefix, founder_ref, trigger=None,
                                     action=None, because=None, scope_type=None,
                                     scope_key=None, rule_type="preference",
