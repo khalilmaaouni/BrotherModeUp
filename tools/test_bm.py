@@ -4092,5 +4092,94 @@ class LookupApplySplitTest(unittest.TestCase):
         self.assertIn("NOT a substantial-work path", law)
 
 
+class TestPostAuditLoopP7PureRanking(unittest.TestCase):
+    """LOOP P7, the pure half. bm_learning must be able to rank WITH a BM25 map
+    and WITHOUT one, and the without case has to be provably identical to the
+    order it produced before the fast path existed."""
+
+    RULE = {"rule_uuid": "a" * 32, "scope_type": "global", "scope_key": "",
+            "state": "approved", "trigger_text": "when pushing to github",
+            "action_text": "use the GitHub Desktop app",
+            "because_text": "", "domain": ""}
+
+    def _legacy_key(self, rule, query):
+        """The pre-P7 sort key, written out by hand. If rank_key in lexical
+        mode ever stops agreeing with this, the fallback has changed and the
+        founder's retrieval order moved under them."""
+        spec = bl.SCOPE_SPECIFICITY.index(rule["scope_type"])
+        state = bl.INJECTABLE_STATES.index(rule["state"])
+        rel = bl.lexical_overlap(query, rule["trigger_text"], rule["action_text"],
+                                 rule["because_text"], rule["domain"],
+                                 rule["scope_key"])
+        return (spec, state, -rel, rule["rule_uuid"])
+
+    def test_lexical_mode_orders_exactly_as_it_did_before_fts5(self):
+        rules = [dict(self.RULE, rule_uuid=u * 32, scope_type=s,
+                      state=st, action_text=a)
+                 for u, s, st, a in (("a", "global", "approved", "use the app"),
+                                     ("b", "project", "settled", "push with the app"),
+                                     ("c", "global", "settled", "never bare push"),
+                                     ("d", "domain", "confirmed", "ask first"))]
+        for r in rules:
+            if r["scope_type"] != "global":
+                r["scope_key"] = "k"
+        q = "pushing to github with the app"
+        by_new = [r["rule_uuid"] for r in sorted(rules, key=lambda r: bl.rank_key(r, q))]
+        by_old = [r["rule_uuid"] for r in sorted(rules, key=lambda r: self._legacy_key(r, q))]
+        self.assertEqual(by_new, by_old)
+
+    def test_bm25_outranks_lexical_overlap_but_never_scope_or_state(self):
+        a = dict(self.RULE, rule_uuid="a" * 32)
+        b = dict(self.RULE, rule_uuid="b" * 32)
+        q = "pushing to github"
+        # Same scope, same state: the better BM25 wins even though lexical
+        # overlap is identical.
+        scores = {a["rule_uuid"]: -0.0, b["rule_uuid"]: -5.0}
+        self.assertLess(bl.rank_key(b, q, None, scores),
+                        bl.rank_key(a, q, None, scores))
+        # A more specific scope still wins regardless of BM25.
+        narrow = dict(a, scope_type="project", scope_key="k")
+        self.assertLess(bl.rank_key(narrow, q, None, scores),
+                        bl.rank_key(b, q, None, scores))
+
+    def test_bm25_component_flips_the_sign_once_and_survives_junk(self):
+        self.assertEqual(bl.bm25_component(-2.5), 2.5)
+        self.assertEqual(bl.bm25_component(0.0), 0.0)
+        # A positive value is not a better match, it is nonsense; it must not
+        # become a NEGATIVE component and silently sort last-but-one.
+        self.assertEqual(bl.bm25_component(3.0), 0.0)
+        for junk in (None, "", "x", float("nan")):
+            self.assertEqual(bl.bm25_component(junk), 0.0)
+
+    def test_the_match_expression_quotes_every_token(self):
+        self.assertEqual(bl.fts_match_query("push github"), '"push" OR "github"')
+        self.assertEqual(bl.fts_match_query(""), "")
+        self.assertEqual(bl.fts_match_query("   ...   "), "")
+        # Operators arrive as ordinary words or not at all, never as syntax.
+        expr = bl.fts_match_query('github NEAR/2 "x* OR ^col:')
+        self.assertNotIn("*", expr)
+        self.assertNotIn("^", expr)
+        self.assertNotIn(":", expr)
+        self.assertTrue(all(part.startswith(chr(34)) and part.endswith(chr(34))
+                            for part in expr.split(" OR ")))
+
+    def test_explanation_names_its_components_and_never_lies_about_mode(self):
+        q = "pushing to github"
+        lex = bl.explain_rank(self.RULE, q)
+        self.assertEqual(lex["mode"], "lexical")
+        self.assertEqual(lex["bm25"], 0.0)
+        fast = bl.explain_rank(self.RULE, q, None,
+                               {self.RULE["rule_uuid"]: -1.25}, "fts5")
+        self.assertEqual(fast["mode"], "fts5")
+        self.assertEqual(fast["bm25"], 1.25)
+        for key in ("scope", "state", "mode", "matched_terms", "relevance",
+                    "bm25", "lexical_bonus"):
+            self.assertIn(key, fast)
+        # A rule with no FTS hit in an fts5 run still reports the run's mode.
+        miss = bl.explain_rank(self.RULE, q, None, {}, "fts5")
+        self.assertEqual(miss["mode"], "fts5")
+        self.assertEqual(miss["bm25"], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

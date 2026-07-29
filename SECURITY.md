@@ -67,7 +67,7 @@ What the code actually writes inside your project today:
   owner-only where the platform supports it (on Windows this is best-effort;
   rely on your user profile's access control).
 
-You can verify both claims yourself; the tools are about 27,130 lines of
+You can verify both claims yourself; the tools are about 32,640 lines of
 standard-library Python and shell (re-measured 2026-07-29 after the
 correction-learning loops landed; a test fails if this figure drifts more than
 15 percent from what the command below returns). Most of that growth is test

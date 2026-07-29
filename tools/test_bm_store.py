@@ -704,6 +704,17 @@ class TestFixRoundGates(unittest.TestCase):
             "_quarantine_record_count": "reads an ALREADY quarantined file, "
                                          "not the live store",
             "_text_columns": "PRAGMA table_info is schema introspection, not data access",
+            "_fts5_probe": "post-audit LOOP P7. Asks whether this SQLite can "
+                            "build an FTS5 table at all, in temp; a build "
+                            "without the module raises OperationalError, and "
+                            "_exec would read that as structural damage and "
+                            "quarantine a HEALTHY store over an optional "
+                            "capability being absent",
+            "Store._fts_scores": "post-audit LOOP P7. A malformed MATCH "
+                                  "expression raises OperationalError, which "
+                                  "_exec would quarantine the store for. The "
+                                  "fast path must degrade to lexical instead, "
+                                  "so this one query owns its own except",
         }
         with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
             source = f.read()
@@ -8885,6 +8896,376 @@ class TestPostAuditLoopP6Schema4Migration(unittest.TestCase):
         self.assertEqual(len(bs._RETRIEVAL_RUN_DDL_STATEMENTS),
                          len(bs._TABLES_RETRIEVAL))
         self.assertEqual(len(bs._RETRIEVAL_RUN_INDEX_STATEMENTS), 1)
+
+
+def _fts_env(on=True, forced_off=False):
+    """Patch the two environment switches the fast path reads. Used as a
+    context manager around a store OPEN, because the index is built (or not)
+    at open time and that is exactly the decision under test."""
+    env = {bs.FTS5_ENV: "1" if on else "",
+           bs.FTS5_DISABLE_ENV: "1" if forced_off else ""}
+    return mock.patch.dict(os.environ, env)
+
+
+class TestPostAuditLoopP7Fts5(unittest.TestCase):
+    """Post-audit LOOP P7: FTS5 as an OPTIONAL fast path.
+
+    The invariant every test here defends is one sentence: lexical retrieval
+    stays fully functional and honest when the index is off, absent, broken, or
+    unavailable. So the tests come in pairs wherever they can: the same fixture,
+    the same query, once with the index and once without, with the difference
+    stated rather than assumed."""
+
+    TRIGGER = "when pushing a branch to github"
+    ACTION = "use the GitHub Desktop app"
+    BECAUSE = "the house route is the app, not the command line"
+
+    def _rule(self, store, trigger=None, action=None, severity="soft",
+              because=None):
+        c = store.capture_learning_candidate(
+            "manual", trigger=trigger or self.TRIGGER,
+            action=action or self.ACTION,
+            because=because if because is not None else self.BECAUSE,
+            scope_type="global", scope_key="",
+            raw_text="RAWFOUNDERSOURCE the founder's actual words here")
+        return _approved(store, c["candidate_uuid"],
+                          founder_ref="founder in chat", severity=severity)
+
+    def _fts_rows(self, store):
+        return store.conn.execute(
+            "SELECT * FROM %s" % bs._FTS_TABLE).fetchall()
+
+    # -- off by default ------------------------------------------------
+
+    def test_index_is_off_until_the_founder_asks_for_it(self):
+        """An optional capability that arrives switched on is not optional.
+        A store opened with no environment at all must have no index table,
+        report lexical, and rank exactly as it did before this loop."""
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.dict(os.environ, {bs.FTS5_ENV: "",
+                                              bs.FTS5_DISABLE_ENV: ""}):
+                with bs.Store(d) as store:
+                    self._rule(store)
+                    self.assertFalse(store.fts_available())
+                    self.assertIsNone(store.conn.execute(
+                        "SELECT name FROM sqlite_master WHERE name=?",
+                        (bs._FTS_TABLE,)).fetchone())
+                    res = store.retrieve_learning_rules("pushing a branch")
+                    self.assertEqual(res["mode"], "lexical")
+                    self.assertEqual(res["results"][0]["why"]["mode"], "lexical")
+
+    def test_enabling_it_builds_and_populates_the_index_at_open(self):
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.dict(os.environ, {bs.FTS5_ENV: "",
+                                              bs.FTS5_DISABLE_ENV: ""}):
+                with bs.Store(d) as store:
+                    self._rule(store)
+            with _fts_env():
+                with bs.Store(d) as store:
+                    if not store.fts_available():
+                        self.skipTest("this SQLite build has no FTS5 module")
+                    # Populated, not merely created: an empty index would make
+                    # every query miss and the relevance floor would then hide
+                    # rules the lexical path finds.
+                    self.assertEqual(len(self._fts_rows(store)), 1)
+                    status = store.learning_index_status()
+                    self.assertEqual(status["mode"], "fts5")
+                    self.assertEqual(status["indexed_rows"], 1)
+
+    # -- the measured gain, and the fallback beside it ------------------
+
+    def test_stemmed_query_finds_a_rule_the_exact_path_cannot(self):
+        """The labeled fixture, reproduced from a real CLI run: the founder
+        writes 'pushed', the rule says 'pushing'. Lexical finds nothing (no
+        shared token), FTS5 finds it through the porter stemmer. This is the
+        only retrieval-quality claim this loop makes, and it is measured
+        against BOTH modes in one test so it cannot rot into a claim about
+        FTS5 alone."""
+        query = "already pushed everything upstream"
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.dict(os.environ, {bs.FTS5_ENV: "",
+                                              bs.FTS5_DISABLE_ENV: ""}):
+                with bs.Store(d) as store:
+                    self._rule(store, because="")
+                    lexical = store.retrieve_learning_rules(query)
+            self.assertEqual(lexical["mode"], "lexical")
+            self.assertEqual(lexical["results"], [])
+            with _fts_env():
+                with bs.Store(d) as store:
+                    if not store.fts_available():
+                        self.skipTest("this SQLite build has no FTS5 module")
+                    fast = store.retrieve_learning_rules(query)
+            self.assertEqual(fast["mode"], "fts5")
+            self.assertEqual(len(fast["results"]), 1)
+            self.assertGreater(fast["results"][0]["why"]["bm25"], 0)
+
+    def test_exact_query_returns_the_same_rules_in_both_modes(self):
+        """The fallback is only complete if it returns the same rules. Same
+        store, same query, both modes, compared as a set of uuids."""
+        query = "pushing a branch to github"
+        with tempfile.TemporaryDirectory() as d:
+            with _fts_env():
+                with bs.Store(d) as store:
+                    self._rule(store)
+                    self._rule(store, trigger="writing an executive update",
+                               action="state customer impact first")
+                    if not store.fts_available():
+                        self.skipTest("this SQLite build has no FTS5 module")
+                    fast = store.retrieve_learning_rules(query)
+            with _fts_env(on=True, forced_off=True):
+                with bs.Store(d) as store:
+                    self.assertFalse(store.fts_available())
+                    slow = store.retrieve_learning_rules(query)
+            self.assertEqual(fast["mode"], "fts5")
+            self.assertEqual(slow["mode"], "lexical")
+            self.assertEqual([r["rule_uuid"] for r in fast["results"]],
+                             [r["rule_uuid"] for r in slow["results"]])
+
+    def test_forced_unavailable_leaves_a_built_index_untouched_and_unused(self):
+        """The force-unavailable probe the plan asks for. The index still
+        exists on disk; the switch alone must be enough to prove the lexical
+        path is intact, with no file surgery."""
+        with tempfile.TemporaryDirectory() as d:
+            with _fts_env():
+                with bs.Store(d) as store:
+                    self._rule(store)
+                    if not store.fts_available():
+                        self.skipTest("this SQLite build has no FTS5 module")
+            with _fts_env(on=True, forced_off=True):
+                with bs.Store(d) as store:
+                    self.assertFalse(store.fts_available())
+                    self.assertIsNone(store._fts_scores("pushing"))
+                    res = store.retrieve_learning_rules("pushing a branch")
+                    self.assertEqual(res["mode"], "lexical")
+                    self.assertEqual(len(res["results"]), 1)
+                    # The table is still there. Disabling is not deleting.
+                    self.assertIsNotNone(store.conn.execute(
+                        "SELECT name FROM sqlite_master WHERE name=?",
+                        (bs._FTS_TABLE,)).fetchone())
+
+    def test_store_opens_and_retrieves_when_the_sqlite_build_has_no_fts5(self):
+        """The environment the plan names last and cares about most: FTS5
+        simply is not there. The probe is forced to say so."""
+        with tempfile.TemporaryDirectory() as d:
+            with _fts_env():
+                with mock.patch.object(bs, "_fts5_probe", lambda conn: False):
+                    with bs.Store(d) as store:
+                        rule = self._rule(store)
+                        self.assertFalse(store.fts_available())
+                        res = store.retrieve_learning_rules("pushing a branch")
+                        self.assertEqual(res["mode"], "lexical")
+                        self.assertEqual(res["results"][0]["rule_uuid"],
+                                          rule["rule_uuid"])
+                        self.assertTrue(store.learning_verify()["ok"])
+                        rebuilt = store.rebuild_learning_index()
+                        self.assertFalse(rebuilt["ok"])
+                        self.assertIn("no FTS5 module", rebuilt["reason"])
+
+    # -- gates survive everything --------------------------------------
+
+    def test_a_broken_index_never_costs_the_founder_a_gate(self):
+        """The index is destroyed under an OPEN store, mid-session, which is
+        the shape a real failure takes. The gate must still be delivered and
+        the mode must stop claiming fts5 the moment it stops being true."""
+        with tempfile.TemporaryDirectory() as d:
+            with _fts_env():
+                with bs.Store(d) as store:
+                    if not store.fts_available():
+                        self.skipTest("this SQLite build has no FTS5 module")
+                    gate = self._rule(store, severity="gate",
+                                       trigger="before any irreversible command",
+                                       action="print what it will affect and ask")
+                    store.conn.execute("DROP TABLE %s" % bs._FTS_TABLE)
+                    res = store.retrieve_learning_rules(
+                        "unrelated task about orb colours", limit=0)
+                    self.assertEqual(res["mode"], "lexical")
+                    self.assertEqual(res["gates_returned"], 1)
+                    self.assertEqual(res["results"][0]["rule_uuid"],
+                                      gate["rule_uuid"])
+                    self.assertFalse(store.fts_available())
+
+    def test_a_hostile_query_cannot_raise_or_quarantine(self):
+        """FTS5 reads NEAR, *, ^, - and column filters as operators. A founder
+        task containing them must be a search, not a syntax error, and above
+        all not a quarantined store."""
+        hostile = ['github NEAR/2 "x* OR ^col:',
+                   'push AND (github OR', '"unbalanced', '-*', 'col:trigger_text',
+                   'rule_uuid : "x"', '\\', 'push"" OR "']
+        with tempfile.TemporaryDirectory() as d:
+            with _fts_env():
+                with bs.Store(d) as store:
+                    if not store.fts_available():
+                        self.skipTest("this SQLite build has no FTS5 module")
+                    self._rule(store)
+                    for q in hostile:
+                        res = store.retrieve_learning_rules(q)
+                        self.assertIn(res["mode"], ("fts5", "lexical"))
+                    # Still healthy, still fast: nothing above was allowed to
+                    # switch the index off or move the file aside.
+                    self.assertTrue(store.fts_available())
+                    self.assertTrue(store.learning_verify()["ok"])
+
+    def test_unicode_french_and_japanese_queries_are_searches_not_crashes(self):
+        with tempfile.TemporaryDirectory() as d:
+            with _fts_env():
+                with bs.Store(d) as store:
+                    if not store.fts_available():
+                        self.skipTest("this SQLite build has no FTS5 module")
+                    fr = self._rule(store,
+                                     trigger="quand tu écris une révision",
+                                     action="cite la source à chaque fois",
+                                     because="")
+                    self._rule(store, trigger="日本語のドキュメント",
+                               action="敬語を使う", because="")
+                    hit = store.retrieve_learning_rules("une révision à faire")
+                    self.assertIn(fr["rule_uuid"],
+                                  [r["rule_uuid"] for r in hit["results"]])
+                    jp = store.retrieve_learning_rules("日本語のドキュメント")
+                    self.assertEqual(jp["mode"], "fts5")
+                    self.assertTrue(store.learning_verify()["ok"])
+
+    # -- what must never enter the index -------------------------------
+
+    def test_raw_founder_source_text_never_enters_the_index(self):
+        """The acceptance criterion with teeth. The candidate's raw_text and
+        the approval evidence excerpt both carry a marker; neither may appear
+        anywhere in the index, columns or content."""
+        with tempfile.TemporaryDirectory() as d:
+            with _fts_env():
+                with bs.Store(d) as store:
+                    if not store.fts_available():
+                        self.skipTest("this SQLite build has no FTS5 module")
+                    self._rule(store)
+                    blob = "\n".join(
+                        "|".join("" if v is None else str(v) for v in row)
+                        for row in self._fts_rows(store))
+                    self.assertNotIn("RAWFOUNDERSOURCE", blob)
+                    # And the columns themselves are the named five plus the
+                    # two identifiers, so a later edit cannot widen the index
+                    # without this failing.
+                    cols = [r[1] for r in store.conn.execute(
+                        "PRAGMA table_info(%s)" % bs._FTS_TABLE).fetchall()]
+                    self.assertEqual(cols, ["rule_uuid", "rule_version"]
+                                      + list(bs._FTS_TEXT_COLUMNS))
+
+    # -- drift, and the calibration that proves the check works ---------
+
+    def _drifted(self, store):
+        return [f for f in store.learning_verify()["findings"]
+                if f["code"] == "fts-drift"]
+
+    def test_drift_is_detected_and_rebuild_restores_parity(self):
+        """PASS, REINJECT, FAILS RIGHT, RESTORE, PASS, once per drift shape.
+        A verify check nobody has watched fail is decoration."""
+        shapes = {
+            "missing": "DELETE FROM %s" % bs._FTS_TABLE,
+            "text-mismatch": ("UPDATE %s SET trigger_text='tampered'"
+                              % bs._FTS_TABLE),
+            "stale-version": "UPDATE %s SET rule_version=99" % bs._FTS_TABLE,
+        }
+        with tempfile.TemporaryDirectory() as d:
+            with _fts_env():
+                with bs.Store(d) as store:
+                    if not store.fts_available():
+                        self.skipTest("this SQLite build has no FTS5 module")
+                    self._rule(store)
+                    self.assertEqual(self._drifted(store), [])
+                    for name, sql in shapes.items():
+                        store.conn.execute(sql)
+                        found = self._drifted(store)
+                        self.assertEqual(len(found), 1,
+                                          "%s drift went undetected" % name)
+                        self.assertFalse(store.learning_verify()["ok"])
+                        self.assertTrue(store.rebuild_learning_index()["ok"])
+                        self.assertEqual(self._drifted(store), [],
+                                          "rebuild did not restore parity "
+                                          "after %s" % name)
+                    # The extra-row shape, which no rebuild-in-place would
+                    # catch: a row for a rule that does not exist.
+                    store.conn.execute(
+                        "INSERT INTO %s (rule_uuid, rule_version, %s) "
+                        "VALUES ('deadbeef',1,'ghost','x','','','')"
+                        % (bs._FTS_TABLE, ", ".join(bs._FTS_TEXT_COLUMNS)))
+                    found = self._drifted(store)
+                    self.assertEqual(len(found), 1)
+                    self.assertIn("no current rule version", found[0]["detail"])
+                    self.assertTrue(store.rebuild_learning_index()["ok"])
+                    self.assertEqual(self._drifted(store), [])
+
+    def test_an_edit_reaches_the_index_in_the_same_transaction(self):
+        """The drift shape that would otherwise be normal operation."""
+        with tempfile.TemporaryDirectory() as d:
+            with _fts_env():
+                with bs.Store(d) as store:
+                    if not store.fts_available():
+                        self.skipTest("this SQLite build has no FTS5 module")
+                    rule = self._rule(store)
+                    _edited(store, rule["rule_uuid"], 1,
+                            trigger="when publishing a release note",
+                            action="run it past the founder first",
+                            change_type="narrowed",
+                            change_reason="the founder narrowed it")
+                    self.assertEqual(self._drifted(store), [])
+                    rows = self._fts_rows(store)
+                    self.assertEqual(len(rows), 1)
+                    self.assertEqual(rows[0]["rule_version"], 2)
+                    self.assertIn("release note", rows[0]["trigger_text"])
+                    hit = store.retrieve_learning_rules("publishing a release note")
+                    self.assertEqual([r["rule_uuid"] for r in hit["results"]],
+                                      [rule["rule_uuid"]])
+
+    def test_verify_note_always_states_which_situation_it_was_in(self):
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.dict(os.environ, {bs.FTS5_ENV: "",
+                                              bs.FTS5_DISABLE_ENV: ""}):
+                with bs.Store(d) as store:
+                    res = store.learning_verify()
+                    self.assertIn("fts-drift", res["checks"])
+                    self.assertTrue(any("no search index is enabled" in n
+                                        for n in res["notes"]))
+            with _fts_env():
+                with bs.Store(d) as store:
+                    if not store.fts_available():
+                        self.skipTest("this SQLite build has no FTS5 module")
+                    self.assertTrue(any("the search index is on" in n
+                                        for n in store.learning_verify()["notes"]))
+
+    # -- the schema is not allowed to depend on any of this -------------
+
+    def test_the_index_is_not_part_of_the_schema(self):
+        with tempfile.TemporaryDirectory() as d:
+            with _fts_env():
+                with bs.Store(d) as store:
+                    if not store.fts_available():
+                        self.skipTest("this SQLite build has no FTS5 module")
+                    self._rule(store)
+                    path = store.path
+            for tup in (bs._TABLES, bs._TABLES_LEARNING, bs._TABLES_RECEIPTS,
+                        bs._TABLES_RETRIEVAL):
+                self.assertNotIn(bs._FTS_TABLE, tup)
+            # Deleting the index by hand costs a founder nothing but speed:
+            # the store still opens, verifies and retrieves.
+            conn = sqlite3.connect(path)
+            conn.isolation_level = None
+            conn.execute("DROP TABLE %s" % bs._FTS_TABLE)
+            conn.close()
+            with mock.patch.dict(os.environ, {bs.FTS5_ENV: "",
+                                              bs.FTS5_DISABLE_ENV: ""}):
+                with bs.Store(d) as store:
+                    self.assertTrue(store.learning_verify()["ok"])
+                    self.assertEqual(
+                        store.retrieve_learning_rules("pushing a branch")["mode"],
+                        "lexical")
+
+    def test_env_switches_read_exactly_what_they_document(self):
+        self.assertTrue(bs.fts5_requested({bs.FTS5_ENV: "1"}))
+        self.assertTrue(bs.fts5_requested({bs.FTS5_ENV: " YES "}))
+        self.assertFalse(bs.fts5_requested({}))
+        self.assertFalse(bs.fts5_requested({bs.FTS5_ENV: "0"}))
+        self.assertFalse(bs.fts5_requested({bs.FTS5_ENV: "maybe"}))
+        # The safe direction wins.
+        self.assertFalse(bs.fts5_requested({bs.FTS5_ENV: "1",
+                                            bs.FTS5_DISABLE_ENV: "1"}))
 
 
 if __name__ == "__main__":

@@ -65,9 +65,32 @@ was exercised by hand for this document.
   ```
 
   Retrieval is honestly labelled `mode=lexical`: it matches on shared words,
-  the same technique a good search box uses. It is not full-text search
-  (FTS5) and it is not an AI judging relevance. Both are stated in the output
-  itself, not only in this document.
+  the same technique a good search box uses. It is not an AI judging
+  relevance, and that is stated in the output itself, not only in this
+  document.
+
+  Since Loop P7 there is a second, OPTIONAL mode. `BROTHERMODE_FTS5=1` builds a
+  SQLite full-text index over the fields that were already being shown to the
+  model (trigger, action, because, domain, scope key) and adds two things: word
+  stemming, so a rule about "pushing" is found by a task that says "pushed",
+  and a BM25 component in the ranking. `BROTHERMODE_NO_FTS5=1` forces it back
+  off. It is off by default on purpose: the lexical path is complete on its own,
+  and a ranking number the founder cannot re-derive by hand should be something
+  you switch on, not something you discover. Every result says which mode
+  answered, and `bm25` is printed only when a real index did.
+
+  ```
+  $ python3 tools/bm_learn.py index-status
+  search index: mode=lexical
+    requested: no     available: no
+    retrieval is lexical, which is complete on its own.
+    turn the fast path on with BROTHERMODE_FTS5=1 (off again with BROTHERMODE_NO_FTS5=1)
+  ```
+
+  When the index is on, `bm_learn.py verify` compares it against the rules and
+  reports any disagreement (a rule with no row, a row with no rule, a row
+  pinned to an old version, text that does not match the version it names).
+  `bm_learn.py rebuild-index` rebuilds it atomically.
 
 - **Skill-driven retrieval (Loop 11A).** `SKILL.md` requires a Claude session
   to run retrieval before substantial work and to name which rule IDs it
@@ -84,7 +107,7 @@ was exercised by hand for this document.
   ```
   $ python3 tools/bm_learn.py verify
   learning-verify: 1 rule(s), 0 edge(s), 9 check(s) run
-    note: fts-drift: no FTS index exists in this schema, retrieval mode is lexical, so there is nothing to drift from
+    note: fts-drift: no search index is enabled (BROTHERMODE_FTS5=1 turns it on), retrieval mode is lexical, so there is nothing to drift from
     no findings
   ```
 
