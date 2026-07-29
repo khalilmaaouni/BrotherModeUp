@@ -18,8 +18,8 @@ WHAT IT DELIBERATELY DOES NOT DO
   requires active pages not to quote one at all: counts move with every test
   that lands, and a page pinned to one trains readers to distrust the page.
   Exact counts stay in dated evidence (CHANGELOG.md, the dated files under
-  docs/), which this suite treats as historical and leaves alone, checking only
-  that they say so at the top.
+  docs/ and its subdirectories), which this suite treats as historical and
+  leaves alone, checking only that they say so at the top.
 
 Standard library only. Python 3.9. Reads files, writes none.
 No em or en dashes anywhere in this file or its output.
@@ -62,7 +62,22 @@ INSTALL_DOCS = ("README.md", os.path.join("docs", "QUICKSTART.md"),
                 os.path.join("docs", "SETUP.md"))
 
 # A file under docs/ whose NAME carries a date is dated evidence by convention.
+# The scan is recursive: the design specs and plans live in subdirectories, and
+# README links straight into one of them, so a marker check that only read the
+# top level left the linked page reading as current state.
 DATED_NAME = re.compile(r"\d{4}-\d{2}-\d{2}.*\.md$")
+
+# A version claim about the tree the reader is holding, as opposed to a mention
+# of an older release in a history section. Only the current-state phrasings.
+VERSION_TOKEN = r"[`'\"]?v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)"
+VERSION_CLAIM = re.compile(
+    r"(?:you are (?:installing|running|on)|"
+    r"this (?:is|release is|version is|tree is)|"
+    r"the current (?:version|release|candidate|tag)(?: is)?|"
+    r"current(?:ly)? at|"
+    r"the version (?:is|here is))"
+    r"(?:\s+(?:version|release|tag|candidate))?\s+" + VERSION_TOKEN,
+    re.IGNORECASE)
 
 NUMBER_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five",
                 6: "six", 7: "seven", 8: "eight"}
@@ -71,6 +86,16 @@ NUMBER_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five",
 def read(rel):
     with io.open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
         return fh.read()
+
+
+def dated_docs():
+    """Every dated document under docs/, at any depth, repo-relative."""
+    out = []
+    for dirpath, dirnames, filenames in os.walk(os.path.join(ROOT, "docs")):
+        for name in sorted(filenames):
+            if DATED_NAME.search(name):
+                out.append(os.path.relpath(os.path.join(dirpath, name), ROOT))
+    return sorted(out)
 
 
 class TestGeneratedFacts(unittest.TestCase):
@@ -223,6 +248,30 @@ class TestVersionAndSchemaAgree(unittest.TestCase):
                       "docs/RELEASE.md never names the current version %s"
                       % FACTS["version"])
 
+    def test_no_active_page_claims_a_version_other_than_the_current_one(self):
+        """The defect this suite was written after was docs/RELEASE.md pinning
+        rc.2 while VERSION said rc.3. Asserting that RELEASE.md CONTAINS the
+        current version does not catch it: a page can name the current version
+        in one paragraph and claim a stale one in the next. This forbids the
+        claim itself, on every active page.
+
+        It matches current-state phrasings only ("you are installing X", "the
+        current release is X"). A history section that names an older tag
+        ("v2.0.0-rc.1 IS withdrawn") is dated evidence and stays legal, which
+        is why the pattern is anchored to the claim and not to the number."""
+        offenders = []
+        for rel in ACTIVE_DOCS:
+            for i, line in enumerate(read(rel).split("\n"), 1):
+                for m in VERSION_CLAIM.finditer(line):
+                    if m.group(1) != FACTS["version"]:
+                        offenders.append("%s:%d %s" % (rel, i, m.group(0)))
+        self.assertEqual(
+            offenders, [],
+            "an active page claims a version other than %s (%s). VERSION is the "
+            "source; run python3 tools/bm_project_facts.py --field version, or "
+            "delegate the sentence to it."
+            % (FACTS["version"], "; ".join(offenders)))
+
     def test_no_active_page_states_a_different_schema_version(self):
         offenders = []
         pat = re.compile(r"schema[_ ]version[^\d\n]{0,12}(\d+)", re.IGNORECASE)
@@ -250,15 +299,14 @@ class TestHistoricalDocumentsSaySo(unittest.TestCase):
     def test_every_dated_document_is_marked_historical_at_the_top(self):
         """A dated handover that does not say it is historical reads as current
         state to anyone who lands on it, which is how a two-day-old branch name
-        and a stale test count get treated as today's truth."""
+        and a stale test count get treated as today's truth. Recursive on
+        purpose: README links into docs/superpowers/specs/, where a spec opens
+        with a DO NOT PUBLISH verdict that was resolved days ago."""
         offenders = []
-        docs = os.path.join(ROOT, "docs")
-        for name in sorted(os.listdir(docs)):
-            if not DATED_NAME.search(name):
-                continue
-            head = "\n".join(read(os.path.join("docs", name)).split("\n")[:25])
+        for rel in dated_docs():
+            head = "\n".join(read(rel).split("\n")[:25])
             if "HISTORICAL" not in head:
-                offenders.append(name)
+                offenders.append(rel)
         self.assertEqual(
             offenders, [],
             "dated document(s) with no HISTORICAL marker in the first 25 lines: "
@@ -267,13 +315,10 @@ class TestHistoricalDocumentsSaySo(unittest.TestCase):
 
     def test_the_marker_carries_a_superseded_by_pointer(self):
         offenders = []
-        docs = os.path.join(ROOT, "docs")
-        for name in sorted(os.listdir(docs)):
-            if not DATED_NAME.search(name):
-                continue
-            head = "\n".join(read(os.path.join("docs", name)).split("\n")[:25])
+        for rel in dated_docs():
+            head = "\n".join(read(rel).split("\n")[:25])
             if "HISTORICAL" in head and "uperseded by" not in head:
-                offenders.append(name)
+                offenders.append(rel)
         self.assertEqual(offenders, [],
                          "marked historical but names nothing to read instead: %s"
                          % ", ".join(offenders))
