@@ -2739,12 +2739,29 @@ class Store(object):
         of the data rather than by a promise.
 
         `rows` are already-parsed dicts, so this method reads no file and the
-        single-writer property of this module is unchanged."""
+        single-writer property of this module is unchanged. A row that parsed as
+        valid JSON but is NOT an object (a bare string, a number, a list) is
+        counted as malformed and skipped: the inbox file is edited by hand and
+        by other tools, and a founder-facing backfill may not die on a traceback
+        because one line was the wrong shape."""
         L = _learning()
-        imported, skipped, flagged = [], 0, 0
+        imported, skipped, flagged, malformed = [], 0, 0, 0
+        # One pass to learn which WORDS are already here, folded for case and
+        # whitespace. The previous version compared the stored text with a raw
+        # SQL equality, so a restatement with sentence capitalization produced a
+        # second unlinked candidate and no possible-duplicate note at all.
+        echoes = {}
+        for prior in _exec(self,
+                           "SELECT candidate_uuid, raw_text FROM learning_candidates "
+                           "WHERE source_type='detected_correction' "
+                           "ORDER BY created_at").fetchall():
+            echoes.setdefault(L.text_echo_key(prior["raw_text"]), prior["candidate_uuid"])
         with self._transaction():
             for row in rows or []:
-                text = (row or {}).get("text") or ""
+                if not isinstance(row, dict):
+                    malformed += 1
+                    continue
+                text = row.get("text") or ""
                 if not L.normalize_text(text):
                     skipped += 1
                     continue
@@ -2758,20 +2775,19 @@ class Store(object):
                     skipped += 1
                     continue
                 clean_raw = redact_text(text)
-                # Same normalized words, different session. NOT a silent drop:
-                # the founder repeating himself is the strongest evidence there
-                # is, so it is imported and the echo is written into the review
-                # note for the reviewer to judge.
-                echo = _exec(self,
-                             "SELECT candidate_uuid FROM learning_candidates "
-                             "WHERE source_type='detected_correction' AND raw_text=? "
-                             "ORDER BY created_at LIMIT 1", (clean_raw,)).fetchall()
+                # Same words, different session, whatever the capitalization or
+                # spacing. NOT a silent drop: the founder repeating himself is
+                # the strongest evidence there is, so it is imported and the
+                # echo is written into the review note for him to judge.
+                ekey = L.text_echo_key(clean_raw)
+                echo = echoes.get(ekey)
                 note = ""
                 if echo:
                     flagged += 1
                     note = ("possible duplicate of candidate %s, same text from a "
-                            "different session" % echo[0]["candidate_uuid"][:8])
+                            "different session" % echo[:8])
                 cuuid = uuid.uuid4().hex
+                echoes.setdefault(ekey, cuuid)
                 ref = "%s ts=%s project=%s" % (source_label, row.get("ts") or "?",
                                                row.get("project") or "?")
                 _exec(self,
@@ -2785,15 +2801,91 @@ class Store(object):
                        chash, clean_raw.count("[REDACTED]"), now_iso(), note[:500]))
                 imported.append(cuuid)
         return {"imported": len(imported), "skipped": skipped,
-                "possible_duplicates": flagged, "candidate_uuids": imported}
+                "possible_duplicates": flagged, "malformed": malformed,
+                "candidate_uuids": imported}
+
+    OUTCOME_SOURCE_TYPES = ("rework", "escaped_defect")
+
+    def capture_outcome_candidate(self, source_type, record_prefix, artifact_ref="",
+                                  summary="", session_id="", scope_key=None):
+        """Capture channel 3: a candidate derived from an OUTCOME rather than
+        from something the founder typed.
+
+        Rework (the same artifact redone) and an escaped defect (a problem found
+        after a record was completed) are evidence that some preference was not
+        followed. That evidence is worth reviewing, so it becomes a pending
+        candidate carrying the work record it came from and the artifact it is
+        about, which is what a reviewer needs to judge it.
+
+        FAILS CLOSED. An unknown source type, an unresolvable record, or an
+        artifact reference that can be neither given nor derived from the
+        record's claims is a refusal that writes nothing. A candidate that
+        cannot say WHICH work it came from is worse than no candidate.
+
+        Like every other capture path this writes an EMPTY proposed action, so
+        nothing here can become a rule without the founder writing it at
+        approval. This method is not a detector: something that observed the
+        rework calls it. Automatic detection of rework from the record stream is
+        NOT built, and docs/NOT-FINALIZED.md says so rather than implying it."""
+        L = _learning()
+        if source_type not in self.OUTCOME_SOURCE_TYPES:
+            raise OwnershipRefused(
+                "bad-source-type",
+                "outcome candidates are %s, not %r"
+                % (" or ".join(self.OUTCOME_SOURCE_TYPES), source_type))
+        rows = _exec(self, "SELECT * FROM records WHERE lifecycle_uuid LIKE ?",
+                     ((record_prefix or "") + "%",)).fetchall()
+        rec = _one_or_refuse(rows, "record", record_prefix or "")
+        artifact = L.normalize_text(artifact_ref or "")
+        if not artifact:
+            claimed = [r["path"] for r in _exec(
+                self, "SELECT path FROM claims WHERE lifecycle_uuid=? ORDER BY path",
+                (rec["lifecycle_uuid"],)).fetchall()]
+            artifact = ", ".join(claimed[:5])
+        if not artifact:
+            raise OwnershipRefused(
+                "no-artifact",
+                "record %s claims no path, so pass the artifact this is about"
+                % rec["lifecycle_uuid"][:8])
+        clean_raw = redact_text(summary or "")
+        cuuid = uuid.uuid4().hex
+        chash = L.content_hash(source_type, rec["lifecycle_uuid"], artifact, clean_raw)
+        prior = _exec(self, "SELECT candidate_uuid FROM learning_candidates "
+                            "WHERE content_hash=? AND source_type=? ORDER BY created_at "
+                            "LIMIT 1", (chash, source_type)).fetchall()
+        note = ""
+        if prior:
+            # Repeated rework on the same artifact is MORE evidence, not less,
+            # so it is recorded and linked rather than dropped.
+            note = ("possible duplicate of candidate %s, same outcome on the same "
+                    "artifact" % prior[0]["candidate_uuid"][:8])
+        ref = "%s record=%s artifact=%s" % (source_type, rec["lifecycle_uuid"][:8], artifact)
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO learning_candidates (candidate_uuid, source_type, "
+                  "source_session_id, source_record_uuid, source_ref, raw_text, "
+                  "proposed_scope_type, proposed_scope_key, status, content_hash, "
+                  "redaction_count, created_at, review_note) "
+                  "VALUES (?,?,?,?,?,?,'project',?,'pending',?,?,?,?)",
+                  (cuuid, source_type, session_id or rec["session_id"] or "",
+                   rec["lifecycle_uuid"], ref[:500], clean_raw,
+                   L.normalize_text(scope_key or os.path.basename(self.root)),
+                   chash, clean_raw.count("[REDACTED]"), now_iso(), note[:500]))
+        return self.get_learning_candidate(cuuid)
 
     def learning_capture_metrics(self):
         """DESCRIPTIVE counts only, and named that way on purpose.
 
-        Candidates detected, approved, rejected, and how many carry a possible
-        duplicate note. These are volumes, not accuracy: nothing here is a
+        Candidates detected, approved, rejected, how many carry a possible
+        duplicate note, and which KIND of reason the founder gave when he
+        rejected one. These are volumes, not accuracy: nothing here is a
         precision or recall number, because no labelled review set exists and
-        calling a count an accuracy is the memory theatre the plan forbids."""
+        calling a count an accuracy is the memory theatre the plan forbids.
+
+        The false positive categories are buckets over the founder's own stated
+        rejection reason (bm_learning.false_positive_category). A reason that
+        matches no bucket counts as "other" rather than being pushed into one."""
+        L = _learning()
         by_status, by_source = {}, {}
         for r in _exec(self, "SELECT status, COUNT(*) AS n FROM learning_candidates "
                              "GROUP BY status").fetchall():
@@ -2804,8 +2896,14 @@ class Store(object):
         dups = _exec(self, "SELECT COUNT(*) AS n FROM learning_candidates "
                            "WHERE review_note LIKE 'possible duplicate%'").fetchone()["n"]
         rules = _exec(self, "SELECT COUNT(*) AS n FROM learning_rules").fetchone()["n"]
+        fp = {}
+        for r in _exec(self, "SELECT review_note FROM learning_candidates "
+                             "WHERE status='rejected'").fetchall():
+            cat = L.false_positive_category(r["review_note"])
+            fp[cat] = fp.get(cat, 0) + 1
         return {"candidates_by_status": by_status, "candidates_by_source": by_source,
                 "possible_duplicates": dups, "rules_total": rules,
+                "false_positive_reasons": fp,
                 "note": "descriptive counts, not accuracy: there is no labelled review set"}
 
     def approve_learning_candidate(self, prefix, founder_ref, trigger=None,
