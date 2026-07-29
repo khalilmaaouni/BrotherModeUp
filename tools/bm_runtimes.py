@@ -23,9 +23,15 @@ WHAT THIS FILE REFUSES TO DO
   the founder's law into a file nothing reads.
 
   It also does not overwrite anything the founder owns. Emission writes into a
-  STAGING directory (.brothermode/runtimes by default) and prints an install map.
-  AGENTS.md at a repository root is frequently a file with real content in it
-  already; a generator that clobbers it would be worse than no generator.
+  STAGING directory (docs/runtimes by default, which is COMMITTED on purpose so
+  the adapter files are readable on the repository page) plus the capability
+  table, and prints an install map. AGENTS.md at a repository root is frequently
+  a file with real content in it already; a generator that clobbers it would be
+  worse than no generator. Every target is checked before anything is written:
+  a file that exists and does NOT carry this generator's marker line is treated
+  as founder owned, and the whole emit refuses rather than writing part of it.
+  --out moves the capability table too, so a redirected emit touches nothing
+  outside the directory the founder named.
 
 THE HONEST LIMIT, STATED ONCE HERE AND AGAIN IN EVERY FILE IT WRITES
   Two different questions get confused constantly, so they are kept apart:
@@ -117,8 +123,17 @@ CLI_SURFACE = (
 #                  Deliberately prefixed by runtime key: two runtimes can share
 #                  a DESTINATION (several read AGENTS.md) and staging must not
 #                  collide.
+#   install_file   the bare path the founder installs to, for the one line
+#                  capability table cell. It exists as its OWN field because the
+#                  first version derived it by splitting destinations[0] on ".",
+#                  which truncated at the dot inside the filename: Copilot's cell
+#                  rendered EMPTY and two others lost their extension. A prose
+#                  sentence is not a path and must never be parsed as one.
+#                  _check_registry ties it back to the verified prose so it
+#                  cannot drift into an invented path.
 #   destinations   where the founder copies the file to, verbatim from the
-#                  vendor page named in `sources`
+#                  vendor page named in `sources`. Prose, possibly several
+#                  sentences: rendered whole, never sliced.
 #   verified       True only when a vendor page was opened and the destination
 #                  read off it. False renders a GENERIC banner plus `reason`.
 #   reason         why it could not be verified. Required when verified is False.
@@ -132,6 +147,7 @@ RUNTIMES = (
         "key": "generic",
         "title": "Generic AGENTS.md",
         "staging_name": "generic.AGENTS.md",
+        "install_file": "AGENTS.md",
         "destinations": ("AGENTS.md at the repository root. In a monorepo, a "
                          "nested AGENTS.md may sit in each subproject and the "
                          "closest one to the edited file wins.",),
@@ -153,6 +169,7 @@ RUNTIMES = (
         "key": "codex",
         "title": "OpenAI Codex CLI",
         "staging_name": "codex.AGENTS.md",
+        "install_file": "AGENTS.md",
         "destinations": (
             "AGENTS.md, starting at the project root (typically the git root) "
             "and in any directory down to the working directory.",
@@ -189,6 +206,7 @@ RUNTIMES = (
         "key": "copilot",
         "title": "GitHub Copilot",
         "staging_name": "copilot.copilot-instructions.md",
+        "install_file": ".github/copilot-instructions.md",
         "destinations": (
             ".github/copilot-instructions.md at the repository root, for "
             "repository wide instructions.",
@@ -220,6 +238,7 @@ RUNTIMES = (
         "key": "antigravity",
         "title": "Google Antigravity",
         "staging_name": "antigravity.brothermode.md",
+        "install_file": ".agents/rules/brothermode.md",
         "destinations": (
             "A markdown rules file inside the .agents/rules folder in the "
             "workspace or git root. Older installs use .agent/rules. The "
@@ -258,6 +277,7 @@ RUNTIMES = (
         "key": "qwen",
         "title": "Qwen Code",
         "staging_name": "qwen.QWEN.md",
+        "install_file": "QWEN.md",
         "destinations": (
             "QWEN.md at the project root, shared with the team through version "
             "control.",
@@ -296,6 +316,7 @@ RUNTIMES = (
         "key": "iflow",
         "title": "iFlow CLI",
         "staging_name": "iflow.IFLOW.md",
+        "install_file": "IFLOW.md",
         "destinations": (
             "IFLOW.md at the project root.",
             "~/.iflow/IFLOW.md for global scope.",
@@ -598,7 +619,9 @@ def render_runtimes_doc(tools_path):
     L.append("| Claude Code | CLAUDE.md and SKILL.md (native, see docs/SETUP.md) "
              "| yes | yes | YES, this is the one verified runtime |")
     for rt in RUNTIMES:
-        first_dest = rt["destinations"][0].split(".")[0].strip()
+        # The registry's own field, NOT a slice of the destination prose. See
+        # the install_file note in the registry header for why that matters.
+        first_dest = "`%s`" % rt["install_file"]
         if not rt["verified"]:
             first_dest = "%s (GENERIC, unverified)" % first_dest
         if rt["hooks"] is None:
@@ -681,6 +704,35 @@ def _write_text(path, text):
     os.replace(tmp, path)
 
 
+def doc_target(root, out_dir, explicit_out):
+    """Where the capability table lives, for BOTH emit and check.
+
+    It used to be hard coded to <root>/docs/RUNTIMES.md in emit and in check,
+    which meant --out was a lie: the founder redirected staging to a scratch
+    directory and a file OUTSIDE that directory got overwritten anyway. If the
+    founder named a directory, everything this command writes goes inside it."""
+    if explicit_out:
+        return os.path.join(out_dir, "RUNTIMES.md")
+    return os.path.join(root, "docs", "RUNTIMES.md")
+
+
+def is_founder_owned(path):
+    """True when a file exists at `path` and was NOT written by this generator.
+
+    The marker line is the first line of everything this module emits. A file
+    without it is a file somebody wrote by hand, and this generator will not
+    overwrite it. Unreadable is treated as founder owned too: refusing costs a
+    regenerate, guessing costs the file."""
+    if not os.path.exists(path):
+        return False
+    try:
+        with io.open(path, encoding="utf-8", errors="replace") as f:
+            head = f.read(4096)
+    except OSError:
+        return True
+    return GENERATED_MARKER not in head
+
+
 def _check_registry():
     """Structural refusals that must hold before anything is written. These are
     programming errors in the registry, not user errors, so they raise."""
@@ -698,6 +750,24 @@ def _check_registry():
         if rt["verified"] and rt["reason"]:
             raise ValueError("%s is verified but carries an unverified reason"
                              % rt["key"])
+        # install_file is what the capability table prints, so it is the field
+        # most likely to be read and acted on without reading anything else. It
+        # must be a path, and it must be grounded in the destination prose that
+        # was read off the vendor page, not typed from memory.
+        inst = rt.get("install_file") or ""
+        if not inst.strip() or inst != inst.strip():
+            raise ValueError("%s has no usable install_file: %r"
+                             % (rt["key"], inst))
+        if " " in inst:
+            raise ValueError("%s install_file is prose, not a path: %r"
+                             % (rt["key"], inst))
+        dest0 = rt["destinations"][0]
+        for part in (os.path.dirname(inst), os.path.basename(inst)):
+            if part and part not in dest0:
+                raise ValueError(
+                    "%s install_file %r is not grounded in its verified "
+                    "destination: %r does not appear in %r"
+                    % (rt["key"], inst, part, dest0))
 
 
 def by_key(key):
@@ -810,7 +880,8 @@ def cmd_emit(argv):
             return 2
         chosen.append(rt)
 
-    out_dir = opts.get("out") or os.path.join(root, DEFAULT_STAGING)
+    explicit_out = opts.get("out")
+    out_dir = explicit_out or os.path.join(root, DEFAULT_STAGING)
     out_dir = os.path.realpath(os.path.expanduser(out_dir))
     tools_path = tools_reference(root)
     dry = bool(opts.get("dry-run"))
@@ -819,16 +890,39 @@ def cmd_emit(argv):
     _out("staging dir:  %s%s" % (out_dir, "  [DRY RUN, nothing written]" if dry else ""))
     _out("")
 
-    written = []
+    # Build the whole plan first, refuse on the whole plan, then write. A per
+    # file check would leave a half emitted staging directory behind the moment
+    # one target turned out to be founder owned.
+    plan = []
     for rt in chosen:
-        text = render_runtime_file(rt, tools_path)
-        path = os.path.join(out_dir, rt["staging_name"])
+        plan.append((rt, os.path.join(out_dir, rt["staging_name"]),
+                     render_runtime_file(rt, tools_path)))
+
+    doc_path = doc_target(root, out_dir, explicit_out)
+    write_doc = not opts.get("no-doc") and len(chosen) == len(RUNTIMES)
+
+    guarded = [p for _rt, p, _t in plan]
+    if write_doc:
+        guarded.append(doc_path)
+    owned = [p for p in guarded if is_founder_owned(p)]
+    if owned:
+        _err("refused: %d target file(s) exist and were not written by this "
+             "generator, so they are yours and nothing was written:"
+             % len(owned))
+        for p in owned:
+            _err("  %s" % p)
+        _err("Move or delete them, or point --out somewhere else. Every file "
+             "this generator owns starts with the line: <!-- %s ... -->"
+             % GENERATED_MARKER)
+        return 2
+
+    written = []
+    for rt, path, text in plan:
         if not dry:
             _write_text(path, text)
         written.append((rt, path))
 
-    doc_path = os.path.join(root, "docs", "RUNTIMES.md")
-    if not opts.get("no-doc") and len(chosen) == len(RUNTIMES):
+    if write_doc:
         if not dry:
             _write_text(doc_path, render_runtimes_doc(tools_path))
         _out("capability table: %s" % doc_path)
@@ -839,8 +933,10 @@ def cmd_emit(argv):
              "refresh it.")
         _out("")
 
-    _out("INSTALL MAP. Nothing was copied into place: these files are staged so "
-         "an existing AGENTS.md or rules file is never clobbered.")
+    _out("INSTALL MAP. Nothing was copied to the destinations below: these "
+         "files are staged, so an existing AGENTS.md or rules file is never "
+         "clobbered. The staging directory and the capability table above ARE "
+         "written, and only ever over files this generator wrote before.")
     _out("")
     for rt, path in written:
         _out("  %s" % rt["title"])
@@ -870,7 +966,8 @@ def cmd_check(argv):
     if root is None:
         _err("refused: %s" % src)
         return 2
-    out_dir = opts.get("out") or os.path.join(root, DEFAULT_STAGING)
+    explicit_out = opts.get("out")
+    out_dir = explicit_out or os.path.join(root, DEFAULT_STAGING)
     out_dir = os.path.realpath(os.path.expanduser(out_dir))
     tools_path = tools_reference(root)
 
@@ -878,7 +975,7 @@ def cmd_check(argv):
     missing = []
     targets = [(os.path.join(out_dir, rt["staging_name"]),
                 render_runtime_file(rt, tools_path)) for rt in RUNTIMES]
-    targets.append((os.path.join(root, "docs", "RUNTIMES.md"),
+    targets.append((doc_target(root, out_dir, explicit_out),
                     render_runtimes_doc(tools_path)))
     for path, expected in targets:
         if not os.path.exists(path):
@@ -899,8 +996,10 @@ def cmd_check(argv):
         _out("")
         _out("Regenerate: python3 %s/bm_runtimes.py emit" % tools_path)
         return 1
-    _out("check OK: %d adapter files and docs/RUNTIMES.md match the registry."
-         % len(RUNTIMES))
+    # Names the path it actually compared rather than a hard coded
+    # docs/RUNTIMES.md, which was wrong under --out.
+    _out("check OK: %d adapter files and %s match the registry."
+         % (len(RUNTIMES), doc_target(root, out_dir, explicit_out)))
     return 0
 
 
