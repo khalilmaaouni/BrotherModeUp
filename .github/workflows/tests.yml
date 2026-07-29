@@ -47,6 +47,47 @@ jobs:
       # The component with the highest cost of being wrong had the least coverage.
       - name: Run the recovery suite
         run: python3 tools/test_bm_autosave.py
+      # Loop 9 (2026-07-29): the fence hook suite was in the LOCAL gate and in no
+      # CI job at all, so the gate that stands in front of every founder edit was
+      # tested on one machine. POSIX only for now: the suite has deliberate
+      # win32 skips, but it has never been run on Windows, so claiming that leg
+      # would be claiming evidence that does not exist. Named in
+      # docs/KNOWN-LIMITS.md rather than left silent.
+      - name: Run the fence hook suite
+        run: python3 tools/test_bm_fence_hook.py
+  # One serial job that runs the SAME command a loop close runs locally
+  # (Loop 9 task 2, answered yes). The split jobs above exist for per-platform
+  # evidence and cannot be replaced by this one; this one exists because the
+  # local gate's own refusals (an unlisted suite, a suite CI never runs, a suite
+  # that exits 0 having run nothing) are code in tools/test_all.py, and code that
+  # CI never executes is not a gate CI shares. Running it here makes the local and
+  # CI meta-checks literally the same check.
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.x"
+      - name: Configure git (the recovery suite commits to a throwaway repo)
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name ci
+      # The artifact directory is under the runner temp dir, NOT in the checkout:
+      # several suites assert things about this repository's own working tree, and
+      # a log dropped inside it would be the runner inventing test failures.
+      - name: Run the full serial gate
+        run: python3 tools/test_all.py --artifacts "$RUNNER_TEMP/bm-test-output" --timeout 1200
+      # A red CI leg whose only evidence is a truncated log pane is a leg you
+      # debug by re-running it. The full per-suite output is kept instead.
+      - name: Keep the full test output when the gate fails
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gate-test-output
+          path: ${{ runner.temp }}/bm-test-output/
+          if-no-files-found: warn
+          retention-days: 14
   store:
     strategy:
       # See the note on the suite job above: a cancelled leg is a leg with no evidence.
