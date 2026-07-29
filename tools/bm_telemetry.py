@@ -193,6 +193,28 @@ def atomic_append(path, obj, mode=0o644):
                   % (path, e), file=sys.stderr)
 
 
+PAIRED_EXCERPT_CHARS = 240
+PAIRED_ARTIFACTS = 5
+_ARTIFACT_KEYS = ("file_path", "notebook_path", "path")
+
+
+def _response_digest(text):
+    """Hash plus a short head of the assistant turn a correction answers.
+
+    The plan is explicit that entire assistant responses are NOT persisted: a
+    hash pins WHICH response it was without keeping it, and a short excerpt is
+    what a reviewer needs to judge the pairing. The excerpt is redacted at write
+    time by the caller, like every other captured text."""
+    norm = " ".join((text or "").split())
+    if not norm:
+        return "", ""
+    digest = hashlib.sha256(norm.encode("utf-8")).hexdigest()[:16]
+    head = norm[:PAIRED_EXCERPT_CHARS]
+    if len(norm) > PAIRED_EXCERPT_CHARS:
+        head += " [...%d characters omitted]" % (len(norm) - PAIRED_EXCERPT_CHARS)
+    return digest, head
+
+
 def parse_transcript(path, collect_user_texts=False):
     agg = {"out": 0, "cache_w": 0, "cache_r": 0, "in": 0, "api_msgs": 0,
            "tool_calls": 0, "agent_spawns": 0, "workflow_calls": 0,
@@ -200,6 +222,11 @@ def parse_transcript(path, collect_user_texts=False):
            "user_texts": []}
     per_msg = {}
     anon = 0
+    # Transcript pairing state: what the assistant last said, and which files
+    # were touched near it. Both are bounded and both are dropped as soon as the
+    # next assistant turn replaces them.
+    prev_response = ""
+    recent_artifacts = []
     try:
         f = open(path, "r", errors="replace")
     except OSError:
@@ -229,7 +256,13 @@ def parse_transcript(path, collect_user_texts=False):
                 if txt and txt.strip() and "<system-reminder>" not in txt:
                     agg["human_msgs"] += 1
                     if collect_user_texts:
-                        agg["user_texts"].append(txt.strip())
+                        digest, head = _response_digest(prev_response)
+                        agg["user_texts"].append({
+                            "text": txt.strip(),
+                            "prev_response_hash": digest,
+                            "prev_response_excerpt": head,
+                            "artifacts": list(recent_artifacts[-PAIRED_ARTIFACTS:]),
+                        })
             if t != "assistant":
                 continue
             m = o.get("message") or {}
@@ -248,14 +281,31 @@ def parse_transcript(path, collect_user_texts=False):
                     v = u.get(k) or 0
                     if v > slot.get(k, 0):
                         slot[k] = v
+            said = []
             for b in (m.get("content") or []):
-                if isinstance(b, dict) and b.get("type") == "tool_use":
+                if not isinstance(b, dict):
+                    continue
+                if b.get("type") == "text" and isinstance(b.get("text"), str):
+                    said.append(b["text"])
+                if b.get("type") == "tool_use":
                     agg["tool_calls"] += 1
                     name = b.get("name", "")
                     if name in ("Task", "Agent"):
                         agg["agent_spawns"] += 1
                     elif name == "Workflow":
                         agg["workflow_calls"] += 1
+                    if collect_user_texts:
+                        inp = b.get("input")
+                        if isinstance(inp, dict):
+                            for key in _ARTIFACT_KEYS:
+                                val = inp.get(key)
+                                if isinstance(val, str) and val:
+                                    if val not in recent_artifacts:
+                                        recent_artifacts.append(val)
+                                    del recent_artifacts[:-PAIRED_ARTIFACTS]
+                                    break
+            if collect_user_texts and said:
+                prev_response = "\n".join(said)
     agg["api_msgs"] = len(per_msg)
     for s in per_msg.values():
         agg["out"] += s.get("output_tokens", 0)
@@ -338,6 +388,24 @@ def _get_bm_learning():
 CORRECTION_CAP_PER_SESSION = 8
 
 
+def _dedup_text(learning, text):
+    """The key the correction file deduplicates on.
+
+    Whitespace and Unicode form only, NOT case: two messages that differ only in
+    capitalization are two messages, and dropping one from this file would lose
+    founder evidence. The store's backfill folds case as well, but there a
+    collapse is a review NOTE and nothing is discarded.
+
+    A row whose text is not a string is a hand-edited file, not a correction:
+    it keys as empty rather than reaching normalize_text, which would raise on
+    an integer and take the whole SessionEnd hook down with it."""
+    if not isinstance(text, str):
+        return ""
+    if learning is not None:
+        return learning.normalize_text(text)
+    return " ".join(text.split())
+
+
 def scan_corrections(sid, project, user_texts):
     """Correction CANDIDATES from founder messages in the MAIN transcript only
     (subagent transcripts quote law text and would flood this). Nothing written
@@ -364,15 +432,33 @@ def scan_corrections(sid, project, user_texts):
     the packs ran. This module's law is that telemetry never blocks work, and
     the honest form of that is a labelled degradation, not a silent one.
 
+    Transcript pairing: each row also carries a HASH of the assistant response
+    the correction answers, a short redacted excerpt of it, and the artifact
+    paths touched near it. The whole response is never persisted. The work
+    record is not carried here (this module does not resolve one); outcome
+    candidates carry the record, see bm_store.capture_outcome_candidate.
+
     Dedup guard (interim-score fix 2026-07-23): the SessionEnd hook can fire more
     than once per session; a (session_id, text) already in the file is never
-    re-appended."""
+    re-appended. The comparison is over NORMALIZED text (whitespace collapsed,
+    NFC), because rows written before Loop 4 stored the message verbatim while
+    the detector now stores a normalized excerpt: comparing the two raw forms
+    re-appended every multi-line correction on the next flush."""
     learning, load_err = _get_bm_learning()
-    seen = {(c.get("session_id"), c.get("text")) for c in read_jsonl(CORRECTIONS)}
+    seen = {(c.get("session_id"), _dedup_text(learning, c.get("text")))
+            for c in read_jsonl(CORRECTIONS) if isinstance(c, dict)}
     found = 0
-    for txt in user_texts:
+    for item in user_texts:
         if found >= CORRECTION_CAP_PER_SESSION:
             break
+        # A caller may pass plain strings (older fixtures and any caller that
+        # has no transcript) or the paired dicts parse_transcript now builds.
+        if isinstance(item, dict):
+            txt = item.get("text") or ""
+            paired = item
+        else:
+            txt = item or ""
+            paired = {}
         rec = {"ts": now_iso(), "session_id": sid, "project": project}
         if learning is None:
             if len(txt) > 400 or not CORRECTION_RE.search(txt):
@@ -392,13 +478,22 @@ def scan_corrections(sid, project, user_texts):
                 # what they are reading is shorter than what was sent.
                 rec["truncated"] = True
                 rec["original_length"] = hit["original_length"]
-        if (sid, clean) in seen:
+        key = (sid, _dedup_text(learning, clean))
+        if key in seen:
             continue
         rec["text"] = clean
         if nred:
             rec["redactions"] = nred
+        if paired.get("prev_response_hash"):
+            rec["prev_response_hash"] = paired["prev_response_hash"]
+            excerpt_clean, xred = redact(paired.get("prev_response_excerpt") or "")
+            rec["prev_response_excerpt"] = excerpt_clean
+            if xred:
+                rec["prev_response_redactions"] = xred
+        if paired.get("artifacts"):
+            rec["artifacts"] = list(paired["artifacts"])[:PAIRED_ARTIFACTS]
         atomic_append(CORRECTIONS, rec, mode=0o600)
-        seen.add((sid, clean))
+        seen.add(key)
         found += 1
     return found
 

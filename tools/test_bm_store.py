@@ -5569,6 +5569,135 @@ class TestLoop4InboxBackfill(unittest.TestCase):
                 self.assertEqual(m["rules_total"], 0)
                 self.assertIn("not accuracy", m["note"])
 
+    def test_a_capitalized_restatement_is_flagged_as_a_possible_duplicate(self):
+        """The echo check compared the STORED TEXT with a raw SQL equality, so
+        one capital letter produced a second unlinked candidate and the reviewer
+        got no signal at all. Case and spacing are folded now; nothing is
+        discarded, the note is what changes."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.import_correction_inbox(self.ROWS[:1])
+                shouty = [{"ts": "t", "session_id": "s42", "project": "P",
+                           "text": "NO, that is not what I asked for.   From now on "
+                                   "USE the Desktop app."}]
+                res = store.import_correction_inbox(shouty)
+                self.assertEqual(res["imported"], 1, "never silently discarded")
+                self.assertEqual(res["possible_duplicates"], 1,
+                                 "a restatement with different capitalization is the "
+                                 "same correction and the reviewer must be told")
+
+    def test_a_row_that_is_not_an_object_is_counted_not_a_traceback(self):
+        """The inbox file is hand editable. A line that is valid JSON but not a
+        row (a bare string, a number, a list) used to raise AttributeError out of
+        a founder-facing command."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                res = store.import_correction_inbox(
+                    ["just a bare string", 123, None, ["a", "list"], self.ROWS[0]])
+                self.assertEqual(res["imported"], 1)
+                self.assertEqual(res["malformed"], 4)
+
+
+class TestLoop4OutcomeCandidates(unittest.TestCase):
+    """Capture channel 3: candidates derived from an OUTCOME (rework, an escaped
+    defect) rather than from something the founder typed. They must carry the
+    work record and the artifact, and they must still be inert."""
+
+    def _record(self, store, name="report", files=("docs/report.md",)):
+        return store.claim(name, "ephemeral", "write the report", list(files))
+
+    def test_an_outcome_candidate_carries_the_record_and_the_artifact(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rec = self._record(store)
+                cand = store.capture_outcome_candidate(
+                    "rework", rec.lifecycle_uuid[:8],
+                    summary="rewrote the same report after the first draft")
+                self.assertEqual(cand["source_type"], "rework")
+                self.assertEqual(cand["source_record_uuid"], rec.lifecycle_uuid)
+                self.assertIn("docs/report.md", cand["source_ref"],
+                              "the artifact defaults to what that record claims")
+                self.assertEqual(cand["status"], "pending")
+
+    def test_an_explicit_artifact_wins_over_the_claimed_paths(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rec = self._record(store)
+                cand = store.capture_outcome_candidate(
+                    "escaped_defect", rec.lifecycle_uuid,
+                    artifact_ref="docs/report-v2.md")
+                self.assertIn("docs/report-v2.md", cand["source_ref"])
+                self.assertNotIn("docs/report.md ", cand["source_ref"])
+
+    def test_an_outcome_candidate_is_never_a_rule_and_never_approvable_alone(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rec = self._record(store)
+                cand = store.capture_outcome_candidate("rework", rec.lifecycle_uuid)
+                self.assertEqual(cand["proposed_action"], "")
+                self.assertEqual(store.list_learning_rules(), [])
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.approve_learning_candidate(cand["candidate_uuid"],
+                                                     founder_ref="me")
+                self.assertEqual(ctx.exception.reason, "incomplete-rule")
+
+    def test_it_refuses_a_source_type_that_is_not_an_outcome(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rec = self._record(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.capture_outcome_candidate("detected_correction",
+                                                    rec.lifecycle_uuid)
+                self.assertEqual(ctx.exception.reason, "bad-source-type")
+                self.assertEqual(store.list_learning_candidates(), [])
+
+    def test_it_refuses_an_unknown_record_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused):
+                    store.capture_outcome_candidate("rework", "deadbeef")
+                self.assertEqual(store.list_learning_candidates(), [])
+
+    def test_it_refuses_when_no_artifact_can_be_named(self):
+        """A candidate that cannot say which work it came from is worse than no
+        candidate, so this fails closed rather than guessing."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rec = self._record(store, name="nofiles", files=())
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.capture_outcome_candidate("rework", rec.lifecycle_uuid)
+                self.assertEqual(ctx.exception.reason, "no-artifact")
+                self.assertEqual(store.list_learning_candidates(), [])
+
+    def test_the_same_outcome_twice_is_flagged_and_still_recorded(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rec = self._record(store)
+                store.capture_outcome_candidate("rework", rec.lifecycle_uuid,
+                                                summary="same")
+                again = store.capture_outcome_candidate("rework", rec.lifecycle_uuid,
+                                                        summary="same")
+                self.assertIn("possible duplicate", again["review_note"])
+                self.assertEqual(len(store.list_learning_candidates("pending")), 2)
+
+    def test_metrics_bucket_the_founders_own_rejection_reasons(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rec = self._record(store)
+                a = store.capture_outcome_candidate("rework", rec.lifecycle_uuid,
+                                                    summary="one")
+                b = store.capture_outcome_candidate("rework", rec.lifecycle_uuid,
+                                                    summary="two")
+                store.reject_learning_candidate(a["candidate_uuid"],
+                                                "this was a one-off, not a standing rule")
+                store.reject_learning_candidate(b["candidate_uuid"], "mumble")
+                m = store.learning_capture_metrics()
+                self.assertEqual(m["false_positive_reasons"],
+                                 {"one-off": 1, "other": 1},
+                                 "an unrecognized reason is 'other', never forced into "
+                                 "a bucket it does not fit")
+                self.assertEqual(m["candidates_by_source"], {"rework": 2})
+
 
 if __name__ == "__main__":
     # The leak check lives in the runner, so it applies to every test without
