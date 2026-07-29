@@ -51,6 +51,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # is reported in eight seconds rather than after a full minute of other suites.
 # The store suite is the foundation every other one stands on.
 SUITES = (
+    # Documentation consistency runs first: it takes a fraction of a second and
+    # it fails on a fact that has drifted rather than on code, so a stale README
+    # is reported before the long suites run rather than after them.
+    "test_bm_docs.py",
     "test_bm_store.py",
     "test_bm_fence_hook.py",
     "test_install.py",
