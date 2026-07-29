@@ -2807,7 +2807,8 @@ class Store(object):
     OUTCOME_SOURCE_TYPES = ("rework", "escaped_defect")
 
     def capture_outcome_candidate(self, source_type, record_prefix, artifact_ref="",
-                                  summary="", session_id="", scope_key=None):
+                                  summary="", session_id="", scope_key=None,
+                                  detail=""):
         """Capture channel 3: a candidate derived from an OUTCOME rather than
         from something the founder typed.
 
@@ -2860,6 +2861,14 @@ class Store(object):
             note = ("possible duplicate of candidate %s, same outcome on the same "
                     "artifact" % prior[0]["candidate_uuid"][:8])
         ref = "%s record=%s artifact=%s" % (source_type, rec["lifecycle_uuid"][:8], artifact)
+        # `detail` carries a caller-supplied classifier (Loop 8 passes the
+        # escaped defect's class). It joins the reference rather than the raw
+        # text so it survives the dump withholding that hides raw_text, which
+        # is what makes a defect class readable in a review without the
+        # founder's verbatim words coming with it.
+        detail = L.normalize_text(detail or "")
+        if detail:
+            ref = "%s %s" % (ref, detail)
         with self._transaction():
             _exec(self,
                   "INSERT INTO learning_candidates (candidate_uuid, source_type, "
@@ -3971,6 +3980,11 @@ class Store(object):
                 misses.append({
                     "session_id": sid, "task_fingerprint": fingerprint,
                     "rule_uuid": r["rule_uuid"], "rank": r["rank"],
+                    # The task's own timestamp, so a review window can include
+                    # or exclude this miss. A miss has no row of its own, and
+                    # without this it would be undateable and would therefore
+                    # appear in every window forever.
+                    "task_retrieved_at": when,
                     "classification": "retrieval_miss",
                     "classification_reason":
                         "rule %s was approved before this task ran and ranks %d "
@@ -3981,6 +3995,477 @@ class Store(object):
         return {"applications": graded, "retrieval_misses": misses,
                 "not_decidable_tasks": undecidable, "counts": counts,
                 "classes": list(L.FAILURE_CLASSES)}
+
+    # -----------------------------------------------------------------
+    # Loop 8: external grading.
+    #
+    # Everything above this line can be produced by the session being graded.
+    # A model can retrieve its own rules, record its own applications and
+    # close them 'followed', and the ledger would look excellent while the
+    # founder's actual experience got worse. That is memory theatre with a
+    # database behind it.
+    #
+    # The three signals here cannot be produced that way, and each is anchored
+    # outside the grader's own say-so:
+    #   REWORK            a work record that had to be done again.
+    #   ESCAPED DEFECT    a defect found after that record was called done.
+    #   REPEATED CORRECTION  the founder saying the same thing twice.
+    #
+    # None of them AUTO-APPROVES anything. A repeated correction produces
+    # evidence, a graded application outcome, and a named loop failure. It
+    # never promotes a candidate, never edits a rule, and never changes a
+    # rule's state. Approval stays founder-only, here as everywhere.
+    # -----------------------------------------------------------------
+
+    # States where a repeated correction is a genuine loop failure. An
+    # 'approved' rule has never been independently confirmed by anything, so a
+    # correction repeating it is closer to first evidence than to a failure,
+    # and grading it as a failure would manufacture findings out of rules that
+    # were only just written.
+    REPEAT_GRADED_STATES = ("confirmed", "settled")
+
+    # A candidate's source translated into the evidence type it produces. The
+    # mapping exists so a repeated correction carries the KIND of external
+    # evidence it actually is, rather than everything landing as one generic
+    # type nobody can filter later.
+    _REPEAT_EVIDENCE_TYPES = {
+        "rework": "rework",
+        "escaped_defect": "escaped_defect",
+        "explicit_correction": "founder_quote",
+        "detected_correction": "founder_quote",
+        "revealed_choice": "revealed_choice",
+        "imported": "import_source",
+    }
+
+    def _applications_for_work(self, rule_uuid, record_uuid, session_id):
+        """The applications of one rule inside one piece of work.
+
+        Matched by work record OR by session, not by both, because the two
+        links arrive at different times: an application recorded before the
+        record was claimed carries only the session. Requiring both would
+        report a retrieval miss for work that demonstrably did retrieve the
+        rule, which is the one error this whole loop must not make."""
+        out = []
+        for a in self.list_learning_applications(rule_prefix=rule_uuid):
+            if record_uuid and a["record_uuid"] == record_uuid:
+                out.append(a)
+            elif session_id and a["session_id"] == session_id:
+                out.append(a)
+        return out
+
+    def _grade_outcome_link(self, cand, app, kind, ts, mark_outcome):
+        """Write ONE application's share of an outcome event. Caller holds the
+        transaction, because the evidence and the outcome it describes have to
+        land together or not at all."""
+        L = _learning()
+        cls, why, polarity = L.classify_repeated_correction([app], True)
+        if mark_outcome and app["outcome"] != mark_outcome:
+            _exec(self,
+                  "UPDATE learning_applications SET outcome=?, outcome_ref=? "
+                  "WHERE application_uuid=?",
+                  (mark_outcome,
+                   ("%s candidate %s (was %s)"
+                    % (mark_outcome, cand["candidate_uuid"][:8],
+                       app["outcome"]))[:500],
+                   app["application_uuid"]))
+        ev = uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            "brothermode:outcome-evidence:%s:%s"
+            % (cand["candidate_uuid"], app["application_uuid"])).hex
+        # Replaced in place rather than appended. The same outcome event
+        # reported twice is one event, and letting it accumulate would let a
+        # rule be argued into or out of 'confirmed' by repetition alone.
+        _exec(self, "DELETE FROM learning_evidence WHERE evidence_uuid=?", (ev,))
+        _exec(self,
+              "INSERT INTO learning_evidence (evidence_uuid, rule_uuid, "
+              "candidate_uuid, polarity, evidence_type, source_session_id, "
+              "source_record_uuid, source_ref, excerpt, created_at) "
+              "VALUES (?,?,?,?,?,?,?,?,?,?)",
+              (ev, app["rule_uuid"], cand["candidate_uuid"], polarity,
+               self._REPEAT_EVIDENCE_TYPES.get(kind, "manual_review"),
+               app["session_id"], app["record_uuid"],
+               ("%s candidate=%s application=%s rule_version=%d"
+                % (kind, cand["candidate_uuid"][:8],
+                   app["application_uuid"][:8], app["rule_version"]))[:500],
+               redact_text(why[:300]), ts))
+        return {"application_uuid": app["application_uuid"],
+                "rule_uuid": app["rule_uuid"],
+                "rule_version": app["rule_version"],
+                "disposition": app["disposition"],
+                "classification": cls, "classification_reason": why,
+                "polarity": polarity, "evidence_uuid": ev}
+
+    def record_outcome_event(self, kind, record_prefix, session_id="",
+                             artifact_ref="", summary="", defect_class=""):
+        """Record rework or an escaped defect AND link it to what was applied.
+
+        Loop 4 already turned these into pending candidates. What was missing
+        was the other half: which rules were in play when that work happened.
+        Without the link the event is a note; with it, the event grades the
+        rules that were supposed to prevent it.
+
+        Every application of every rule inside that work record (or, when the
+        record link is not there yet, that session) gets the outcome recorded
+        against it and one evidence row pointing at the exact rule VERSION
+        that was shown. The candidate stays PENDING: an escaped defect is
+        evidence for review, never a rule.
+
+        When nothing is linked, the result says so in `notes` and the counts
+        stay at zero. It does not estimate, and it does not quietly imply the
+        rules were fine."""
+        L = _learning()
+        if kind not in self.OUTCOME_SOURCE_TYPES:
+            raise OwnershipRefused(
+                "bad-source-type",
+                "outcome events are %s, not %r"
+                % (" or ".join(self.OUTCOME_SOURCE_TYPES), kind))
+        detail = ""
+        if defect_class:
+            detail = "defect_class=%s" % L.normalize_text(defect_class)
+        cand = self.capture_outcome_candidate(
+            kind, record_prefix, artifact_ref=artifact_ref, summary=summary,
+            session_id=session_id, detail=detail)
+        apps = []
+        for a in self.list_learning_applications(
+                record_prefix=cand["source_record_uuid"]):
+            apps.append(a)
+        seen = set(a["application_uuid"] for a in apps)
+        if cand["source_session_id"]:
+            for a in self.list_learning_applications(
+                    session_id=cand["source_session_id"]):
+                if a["application_uuid"] not in seen:
+                    apps.append(a)
+                    seen.add(a["application_uuid"])
+        ts = now_iso()
+        graded = []
+        with self._transaction():
+            for a in sorted(apps, key=lambda x: x["application_uuid"]):
+                graded.append(self._grade_outcome_link(cand, a, kind, ts, kind))
+        notes = []
+        if not graded:
+            notes.append(
+                "no rule application was recorded for that work, so no rule can "
+                "be graded from this event: linkage not measured")
+        counts = {}
+        for g in graded:
+            counts[g["classification"]] = counts.get(g["classification"], 0) + 1
+        return {"kind": kind, "candidate": cand,
+                "candidate_uuid": cand["candidate_uuid"],
+                "record_uuid": cand["source_record_uuid"],
+                "session_id": cand["source_session_id"],
+                "artifact_ref": cand["source_ref"],
+                "defect_class": L.normalize_text(defect_class or ""),
+                "linked_applications": graded, "counts": counts,
+                "notes": notes}
+
+    def detect_repeated_correction(self, candidate_prefix, record=False):
+        """Is this correction one the founder already gave us?
+
+        Compares a candidate against the rules that are already CONFIRMED or
+        SETTLED, and for every match says why that rule failed to prevent it:
+        never retrieved, retrieved and skipped, retrieved into work it did not
+        fit, or followed and wrong anyway. That distinction is the entire
+        product claim. Incrementing a counter would tell the founder the same
+        thing happened again and nothing at all about which part of the system
+        to fix.
+
+        READ ONLY unless `record` is set, deliberately mirroring retrieval:
+        asking whether something repeats must never itself change the ledger,
+        or the act of reviewing would manufacture the evidence being reviewed.
+
+        Even with `record`, this APPROVES NOTHING. The candidate's status is
+        untouched and no rule changes state."""
+        L = _learning()
+        cand = self.get_learning_candidate(candidate_prefix)
+        parts = [cand["proposed_trigger"], cand["proposed_action"],
+                 cand["proposed_because"], cand["proposed_domain"],
+                 cand["raw_text"]]
+        query = " ".join(p for p in parts if p).strip()
+        context = {}
+        if cand["proposed_scope_type"] != "global" and cand["proposed_scope_key"]:
+            context[cand["proposed_scope_type"]] = cand["proposed_scope_key"]
+        links_known = bool(cand["source_record_uuid"] or cand["source_session_id"])
+        out = {"candidate_uuid": cand["candidate_uuid"],
+               "candidate_status": cand["status"],
+               "recorded": bool(record), "repeats": [], "unsettled_matches": [],
+               "counts": {}, "notes": [],
+               "classes": list(L.FAILURE_CLASSES)}
+        if not query:
+            out["notes"].append(
+                "this candidate carries no text to compare, so whether it "
+                "repeats an existing rule is not measured")
+            return out
+        res = self.retrieve_learning_rules(query, context=context,
+                                            limit=self._ALL_ELIGIBLE)
+        matches = []
+        for r in res["results"]:
+            if r["state"] in self.REPEAT_GRADED_STATES:
+                matches.append(r)
+            else:
+                out["unsettled_matches"].append({
+                    "rule_uuid": r["rule_uuid"], "state": r["state"],
+                    "reason": "rule %s matches this correction but is %r, not "
+                              "yet %s, so a repeat of it is first evidence "
+                              "rather than a loop failure"
+                              % (r["rule_uuid"][:8], r["state"],
+                                 " or ".join(self.REPEAT_GRADED_STATES))})
+        if not links_known:
+            out["notes"].append(
+                "this candidate names neither a session nor a work record, so "
+                "every match below is not_decidable rather than blamed on a rule")
+        ts = now_iso()
+        findings = []
+        for r in matches:
+            apps = self._applications_for_work(
+                r["rule_uuid"], cand["source_record_uuid"],
+                cand["source_session_id"])
+            cls, why, polarity = L.classify_repeated_correction(apps, links_known)
+            findings.append({
+                "rule_uuid": r["rule_uuid"], "rule_state": r["state"],
+                "rule_version": r["current_version"],
+                "classification": cls, "classification_reason": why,
+                "polarity": polarity,
+                "applications": [a["application_uuid"] for a in apps],
+                "recorded": False})
+            if not record:
+                continue
+            with self._transaction():
+                for a in apps:
+                    if a["outcome"] == "corrected_again":
+                        continue
+                    _exec(self,
+                          "UPDATE learning_applications SET outcome=?, "
+                          "outcome_ref=? WHERE application_uuid=?",
+                          ("corrected_again",
+                           ("corrected again by candidate %s (was %s)"
+                            % (cand["candidate_uuid"][:8], a["outcome"]))[:500],
+                           a["application_uuid"]))
+                ev = uuid.uuid5(
+                    uuid.NAMESPACE_URL,
+                    "brothermode:repeat-evidence:%s:%s"
+                    % (cand["candidate_uuid"], r["rule_uuid"])).hex
+                _exec(self, "DELETE FROM learning_evidence WHERE evidence_uuid=?",
+                      (ev,))
+                _exec(self,
+                      "INSERT INTO learning_evidence (evidence_uuid, rule_uuid, "
+                      "candidate_uuid, polarity, evidence_type, "
+                      "source_session_id, source_record_uuid, source_ref, "
+                      "excerpt, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                      (ev, r["rule_uuid"], cand["candidate_uuid"], polarity,
+                       self._REPEAT_EVIDENCE_TYPES.get(cand["source_type"],
+                                                        "manual_review"),
+                       cand["source_session_id"], cand["source_record_uuid"],
+                       ("repeated_correction candidate=%s rule_version=%d "
+                        "class=%s" % (cand["candidate_uuid"][:8],
+                                      int(r["current_version"]), cls))[:500],
+                       redact_text(why[:300]), ts))
+            findings[-1]["recorded"] = True
+            findings[-1]["evidence_uuid"] = ev
+        counts = {}
+        for f in findings:
+            counts[f["classification"]] = counts.get(f["classification"], 0) + 1
+        out["repeats"] = findings
+        out["counts"] = counts
+        if not findings and not out["unsettled_matches"]:
+            out["notes"].append(
+                "no confirmed or settled rule matches this correction, so it "
+                "does not repeat one this system already knows")
+        return out
+
+    def _repeat_evidence_pairs(self):
+        """(candidate, rule) pairs that are genuinely a REPEAT of that rule.
+
+        Two exclusions, each of which produced a wrong finding when driving the
+        real CLI. 'founder_approval' evidence carries the candidate the rule
+        was BORN from, and counting it would report every rule as repeating
+        itself the moment it was approved. The same candidate reaching the same
+        rule through some other evidence type is excluded for the same reason:
+        a rule's own origin is not a correction of it."""
+        rows = _exec(self,
+            "SELECT candidate_uuid AS c, rule_uuid AS r, "
+            "MIN(created_at) AS at FROM learning_evidence "
+            "WHERE candidate_uuid IS NOT NULL AND rule_uuid IS NOT NULL "
+            "AND evidence_type <> 'founder_approval' "
+            "GROUP BY candidate_uuid, rule_uuid ORDER BY at").fetchall()
+        out = []
+        for row in rows:
+            cand = self.get_learning_candidate(row["c"])
+            if cand["resulting_rule_uuid"] == row["r"]:
+                continue
+            out.append({"c": row["c"], "r": row["r"], "at": row["at"]})
+        return out
+
+    def _window_start(self, window_days=None):
+        """The ISO cutoff for a review window, or "" for no window.
+
+        The clock lives here rather than in bm_learning, which stays pure, and
+        rather than in the CLI, which would let two callers disagree about
+        what 'the last 30 days' means."""
+        if window_days is None:
+            return ""
+        delta = datetime.timedelta(days=float(window_days))
+        return (datetime.datetime.now(datetime.timezone.utc)
+                - delta).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def learning_loop_failures(self, window_days=None):
+        """The honest weekly answer to 'is this actually learning?'.
+
+        Every number here is a count of rows that exist. Nothing is estimated,
+        nothing is projected, and anything the data cannot decide comes back
+        under not_decidable or as a 'not measured' note instead of a figure.
+        That restraint is the point: a plausible number nobody can trace is
+        worse than an admitted gap, because the founder would act on it."""
+        L = _learning()
+        since = self._window_start(window_days)
+        graded = self.classify_learning_applications()
+        apps = [a for a in graded["applications"]
+                if not since or a["retrieved_at"] >= since]
+        misses = [m for m in graded["retrieval_misses"]
+                  if not since or m.get("task_retrieved_at", "") >= since]
+        by_class = {}
+        for a in apps:
+            if a["classification"]:
+                by_class.setdefault(a["classification"], []).append(a)
+        # Repeated corrections are RECOMPUTED from the application rows rather
+        # than read back from a stored label. A stored class would go stale the
+        # moment a disposition was corrected, and the founder correcting a
+        # mistaken disposition is exactly the thing this report must not punish.
+        repeats = []
+        pairs = [p for p in self._repeat_evidence_pairs()]
+        for p in pairs:
+            if since and p["at"] < since:
+                continue
+            cand = self.get_learning_candidate(p["c"])
+            rule = self.get_learning_rule(p["r"])
+            links_known = bool(cand["source_record_uuid"]
+                               or cand["source_session_id"])
+            work = self._applications_for_work(
+                rule["rule_uuid"], cand["source_record_uuid"],
+                cand["source_session_id"])
+            cls, why, polarity = L.classify_repeated_correction(work, links_known)
+            repeats.append({
+                "candidate_uuid": cand["candidate_uuid"],
+                "source_type": cand["source_type"],
+                "rule_uuid": rule["rule_uuid"], "rule_state": rule["state"],
+                "settled": rule["state"] in self.REPEAT_GRADED_STATES,
+                "classification": cls, "classification_reason": why,
+                "polarity": polarity, "at": p["at"]})
+        never, always_irrelevant = [], []
+        for rule in self.list_learning_rules():
+            rows = self.list_learning_applications(rule_prefix=rule["rule_uuid"])
+            if not rows:
+                never.append({"rule_uuid": rule["rule_uuid"],
+                              "state": rule["state"],
+                              "approved_at": rule["founder_approved_at"]})
+            elif all(x["disposition"] == "not_relevant" for x in rows):
+                always_irrelevant.append({"rule_uuid": rule["rule_uuid"],
+                                          "applications": len(rows)})
+        linked_candidates = set(p["c"] for p in pairs)
+        outcome_linked, unattributed = [], []
+        for c in self.list_learning_candidates():
+            if c["source_type"] not in self.OUTCOME_SOURCE_TYPES:
+                continue
+            if since and c["created_at"] < since:
+                continue
+            row = {"candidate_uuid": c["candidate_uuid"],
+                   "source_type": c["source_type"],
+                   "record_uuid": c["source_record_uuid"] or "",
+                   "created_at": c["created_at"]}
+            if c["candidate_uuid"] in linked_candidates:
+                outcome_linked.append(row)
+            else:
+                row["reason"] = ("no rule application was recorded for that "
+                                 "work, so this outcome is attributed to no rule")
+                unattributed.append(row)
+        contradictions = self.learning_conflicts()["contradictions"]
+        counts = {}
+        for name in L.FAILURE_CLASSES:
+            counts[name] = len(by_class.get(name, ()))
+        counts["retrieval_miss"] += len(misses)
+        notes = []
+        if not apps and not misses:
+            notes.append("no rule application falls in this window, so every "
+                         "class below is not measured rather than zero")
+        if graded["not_decidable_tasks"]:
+            notes.append("%d task(s) kept no text, so what else was retrievable "
+                         "for them cannot be reconstructed"
+                         % len(graded["not_decidable_tasks"]))
+        return {
+            "window_days": window_days, "since": since,
+            "applications_in_window": len(apps),
+            "counts": counts,
+            "repeated_corrections": repeats,
+            "repeated_settled_corrections": [r for r in repeats if r["settled"]],
+            "retrieval_misses": misses,
+            "compliance_failures": by_class.get("compliance_failure", []),
+            "bad_rule_candidates": by_class.get("bad_rule", []),
+            "scope_errors": by_class.get("scope_error", []),
+            "not_decidable": by_class.get("not_decidable", []),
+            "not_decidable_tasks": graded["not_decidable_tasks"],
+            "unresolved_contradictions": contradictions,
+            "rules_never_retrieved": never,
+            "rules_always_not_relevant": always_irrelevant,
+            "outcomes_linked_to_rules": outcome_linked,
+            "unattributed_outcomes": unattributed,
+            "classes": list(L.FAILURE_CLASSES), "notes": notes}
+
+    def learning_rule_outcomes(self, prefix):
+        """One rule's whole external record: what happened after it was shown.
+
+        Counts only. A rule with no applications reports 'not measured' rather
+        than a rate over zero, because a percentage of nothing is the most
+        confident-looking lie a report of this kind can tell."""
+        L = _learning()
+        rule = self.get_learning_rule(prefix)
+        apps = self.list_learning_applications(rule_prefix=rule["rule_uuid"])
+        dispositions, outcomes, versions = {}, {}, {}
+        for a in apps:
+            dispositions[a["disposition"]] = dispositions.get(a["disposition"], 0) + 1
+            outcomes[a["outcome"]] = outcomes.get(a["outcome"], 0) + 1
+            key = str(a["rule_version"])
+            versions[key] = versions.get(key, 0) + 1
+        evidence = self.list_learning_evidence(rule["rule_uuid"])
+        polarity = {}
+        for e in evidence:
+            polarity[e["polarity"]] = polarity.get(e["polarity"], 0) + 1
+        repeats = []
+        for pair in self._repeat_evidence_pairs():
+            if pair["r"] != rule["rule_uuid"]:
+                continue
+            cand = self.get_learning_candidate(pair["c"])
+            work = self._applications_for_work(
+                rule["rule_uuid"], cand["source_record_uuid"],
+                cand["source_session_id"])
+            cls, why, pol = L.classify_repeated_correction(
+                work, bool(cand["source_record_uuid"] or cand["source_session_id"]))
+            repeats.append({"candidate_uuid": cand["candidate_uuid"],
+                            "source_type": cand["source_type"],
+                            "classification": cls, "classification_reason": why,
+                            "polarity": pol})
+        graded = []
+        for a in apps:
+            cls, why = L.classify_application(a["disposition"],
+                                              a["shown_to_model"], a["outcome"])
+            graded.append({"application_uuid": a["application_uuid"],
+                           "rule_version": a["rule_version"],
+                           "session_id": a["session_id"],
+                           "disposition": a["disposition"],
+                           "outcome": a["outcome"],
+                           "classification": cls,
+                           "classification_reason": why})
+        notes = []
+        if not apps:
+            notes.append("this rule has never been recorded as applied, so "
+                         "whether it works is not measured")
+        return {"rule_uuid": rule["rule_uuid"], "state": rule["state"],
+                "severity": rule["severity"], "rule_type": rule["rule_type"],
+                "current_version": rule["current_version"],
+                "applications": len(apps),
+                "by_disposition": dispositions, "by_outcome": outcomes,
+                "by_rule_version": versions,
+                "evidence_by_polarity": polarity,
+                "graded_applications": graded,
+                "repeated_corrections": repeats, "notes": notes}
 
     def _record_by_uuid(self, lifecycle_uuid):
         row = _exec(self,

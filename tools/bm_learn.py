@@ -895,6 +895,230 @@ def cmd_resolve_conflict(argv):
     return 0
 
 
+def _outcome_event(kind, argv):
+    """Shared body of `rework` and `escaped-defect`.
+
+    Both record the same shape of thing (external evidence that work went
+    wrong, tied to the work record it went wrong in) and both link that
+    evidence to the rules that were applied at the time. They stay two
+    commands because the founder types the name of what happened, not a
+    --kind flag describing it."""
+    known = {"original-session", "record", "artifact", "because", "evidence",
+             "defect-class", "json"}
+    pos, kv = _parse(argv, known,
+                     wants_value=("original-session", "record", "artifact",
+                                  "because", "evidence", "defect-class"))
+    record = kv.get("record") or (pos[0] if pos else "")
+    if not record:
+        _err("usage: %s --record <record-id> [--original-session ID] "
+             "[--artifact PATH] %s" % (
+                 kind.replace("_", "-"),
+                 "[--defect-class NAME] [--evidence \"...\"]"
+                 if kind == "escaped_defect" else "[--because \"...\"]"))
+        _err("the work record is required: an outcome that cannot say WHICH "
+             "work it came from can grade nothing")
+        return 2
+    summary = kv.get("because", "") or kv.get("evidence", "")
+    store = _store()
+    try:
+        res = store.record_outcome_event(
+            kind, record, session_id=kv.get("original-session", ""),
+            artifact_ref=kv.get("artifact", ""), summary=summary,
+            defect_class=kv.get("defect-class", ""))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(res, indent=2, sort_keys=True))
+        return 0
+    _out("recorded %s as candidate %s (pending: nothing becomes a rule here)"
+         % (kind, res["candidate_uuid"][:8]))
+    _out("  %s" % L.safe_display(res["artifact_ref"], 160))
+    if res["defect_class"]:
+        _out("  defect class: %s" % L.safe_display(res["defect_class"], 80))
+    if not res["linked_applications"]:
+        for note in res["notes"]:
+            _out("  %s" % note)
+        return 0
+    _out("  %d rule application(s) graded by this outcome:"
+         % len(res["linked_applications"]))
+    for link in res["linked_applications"]:
+        _out("    %s v%d  %-18s %s"
+             % (link["rule_uuid"][:8], link["rule_version"],
+                link["classification"], L.safe_display(link["classification_reason"], 100)))
+    return 0
+
+
+def cmd_rework(argv):
+    """The same work had to be done again. External evidence, so it grades."""
+    return _outcome_event("rework", argv)
+
+
+def cmd_escaped_defect(argv):
+    """A defect reached you in work that was already called done."""
+    return _outcome_event("escaped_defect", argv)
+
+
+def cmd_confirm(argv):
+    """Promote a rule to confirmed, or a confirmed one to settled.
+
+    Loop 8 grades a repeated correction only against a CONFIRMED or SETTLED
+    rule, and until this command existed there was no founder-facing way to
+    reach either state: every rule stayed 'approved' forever and the repeat
+    check could never fire on real usage. Found by driving the CLI, not by a
+    test.
+
+    The store refuses this unless the rule already carries at least one
+    supporting event that is not the original approval. That refusal is the
+    point: approval is your intent, not evidence the rule worked."""
+    pos, kv = _parse(argv, {"to", "because", "json"},
+                     wants_value=("to", "because"))
+    target = kv.get("to", "confirmed")
+    if not pos or target not in ("confirmed", "settled"):
+        _err("usage: confirm <rule-id> [--to confirmed|settled] "
+             "[--because \"...\"]")
+        return 2
+    store = _store()
+    try:
+        r = store.change_learning_rule_state(pos[0], target,
+                                             reason=kv.get("because", ""))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(r, indent=2, sort_keys=True))
+        return 0
+    _out("%s is now %s. A correction that repeats it from here is graded as a "
+         "loop failure rather than as new evidence."
+         % (r["rule_uuid"][:8], r["state"]))
+    return 0
+
+
+def cmd_repeat_check(argv):
+    """Did you already tell me this? READ ONLY unless you pass --record.
+
+    Answers the question the counter cannot: not how often the same correction
+    came back, but WHY the rule you already approved failed to prevent it.
+    Never retrieved, retrieved and skipped, retrieved into the wrong work, or
+    followed and wrong anyway are four different repairs.
+
+    --record writes the finding down: evidence on the rule, and a
+    corrected_again outcome on the applications from that work. It approves
+    nothing and changes no rule's state."""
+    pos, kv = _parse(argv, {"record", "json"})
+    if not pos:
+        _err("usage: repeat-check <candidate-id> [--record] [--json]")
+        return 2
+    store = _store()
+    try:
+        res = store.detect_repeated_correction(pos[0], record=bool(kv.get("record")))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(res, indent=2, sort_keys=True))
+        return 0
+    _out("candidate %s (%s)" % (res["candidate_uuid"][:8], res["candidate_status"]))
+    for note in res["notes"]:
+        _out("  %s" % note)
+    for m in res["unsettled_matches"]:
+        _out("  %s" % L.safe_display(m["reason"], 160))
+    for f in res["repeats"]:
+        _out("  repeats %s (%s, v%d): %s"
+             % (f["rule_uuid"][:8], f["rule_state"], f["rule_version"],
+                f["classification"]))
+        _out("      %s" % L.safe_display(f["classification_reason"], 150))
+        if f["recorded"]:
+            _out("      evidence recorded as %s" % f["polarity"])
+        else:
+            _out("      nothing written; pass --record to keep this finding")
+    if not res["repeats"]:
+        return 0
+    _out("")
+    _out("A repeat is not an argument for deleting the rule. Which repair it "
+         "asks for is exactly what the class above names.")
+    return 0
+
+
+def cmd_loop_failures(argv):
+    """Where the loop broke, over a window, counted from rows that exist.
+
+    Nothing here is estimated. A class with no data says so rather than
+    printing a zero that reads like a clean bill of health."""
+    pos, kv = _parse(argv, {"since", "json"}, wants_value=("since",))
+    days = None
+    if kv.get("since"):
+        days, err = L.parse_window_days(kv["since"])
+        if err:
+            _err("bm_learn: %s" % err)
+            return 2
+    store = _store()
+    try:
+        res = store.learning_loop_failures(window_days=days)
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(res, indent=2, sort_keys=True))
+        return 0
+    _out("loop failures%s" % (" since %s" % res["since"] if res["since"] else
+                              " (all recorded history)"))
+    _out("  applications in window: %d" % res["applications_in_window"])
+    for name in res["classes"]:
+        _out("  %-20s %d" % (name, res["counts"].get(name, 0)))
+    _out("  repeated settled corrections: %d"
+         % len(res["repeated_settled_corrections"]))
+    for r in res["repeated_settled_corrections"]:
+        _out("    %s repeats %s: %s"
+             % (r["candidate_uuid"][:8], r["rule_uuid"][:8], r["classification"]))
+    _out("  unresolved contradictions: %d" % len(res["unresolved_contradictions"]))
+    _out("  rules never retrieved: %d" % len(res["rules_never_retrieved"]))
+    _out("  rules always marked not relevant: %d"
+         % len(res["rules_always_not_relevant"]))
+    _out("  rework and escaped defects linked to a rule: %d"
+         % len(res["outcomes_linked_to_rules"]))
+    _out("  unattributed outcomes (listed separately, never averaged in): %d"
+         % len(res["unattributed_outcomes"]))
+    for u in res["unattributed_outcomes"]:
+        _out("    %s %s: %s" % (u["candidate_uuid"][:8], u["source_type"],
+                                u["reason"]))
+    for note in res["notes"]:
+        _out("  NOT MEASURED: %s" % note)
+    return 0
+
+
+def cmd_rule_outcomes(argv):
+    """What happened after this rule was shown. Counts only, never a rate."""
+    pos, kv = _parse(argv, {"json"})
+    if not pos:
+        _err("usage: rule-outcomes <rule-id> [--json]")
+        return 2
+    store = _store()
+    try:
+        res = store.learning_rule_outcomes(pos[0])
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(res, indent=2, sort_keys=True))
+        return 0
+    _out("rule %s  [%s, %s, v%d]" % (res["rule_uuid"][:8], res["state"],
+                                      res["rule_type"], res["current_version"]))
+    _out("  applications: %d" % res["applications"])
+    _out("  by disposition: %s" % (res["by_disposition"] or "none recorded"))
+    _out("  by outcome: %s" % (res["by_outcome"] or "none recorded"))
+    _out("  by rule version: %s" % (res["by_rule_version"] or "none recorded"))
+    _out("  evidence by polarity: %s" % (res["evidence_by_polarity"] or "none"))
+    for r in res["repeated_corrections"]:
+        _out("  repeated by %s (%s): %s"
+             % (r["candidate_uuid"][:8], r["source_type"], r["classification"]))
+    for g in res["graded_applications"]:
+        if g["classification"]:
+            _out("  %s v%d: %s" % (g["application_uuid"][:8], g["rule_version"],
+                                    g["classification"]))
+    for note in res["notes"]:
+        _out("  NOT MEASURED: %s" % note)
+    _out("")
+    _out("These are counts of recorded events, not a success rate. No "
+         "denominator here is large enough for one.")
+    return 0
+
+
 def cmd_verify(argv):
     """Integrity of the learning tables, with an exit code a script can read.
 
@@ -945,6 +1169,12 @@ COMMANDS = {
     "merge": cmd_merge,
     "supersede": cmd_supersede,
     "resolve-conflict": cmd_resolve_conflict,
+    "confirm": cmd_confirm,
+    "rework": cmd_rework,
+    "escaped-defect": cmd_escaped_defect,
+    "repeat-check": cmd_repeat_check,
+    "loop-failures": cmd_loop_failures,
+    "rule-outcomes": cmd_rule_outcomes,
     "verify": cmd_verify,
 }
 

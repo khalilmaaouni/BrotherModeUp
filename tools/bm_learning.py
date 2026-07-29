@@ -912,3 +912,117 @@ def retrieval_advised(signals=None, gate_rules_exist=False):
             "reasons": ["no substantial signal fired, so retrieval here would "
                         "be ceremony rather than care"],
             "unknown_signals": unknown}
+
+
+# ---------------------------------------------------------------------------
+# Loop 8: grading a correction that came back.
+#
+# The whole program's claim is that BrotherMode learns. The only way to tell
+# learning from storage growth is to look at what happened AFTER a rule
+# existed: work redone, a defect that reached the founder, or the same
+# correction said twice. Those three are external evidence. The session being
+# graded cannot write any of them about itself in a way that flatters it,
+# because each one is anchored to a work record, an artifact, or the founder's
+# own words.
+#
+# These functions decide, and nothing else here does. No clock, no database,
+# no file, so the judgement is testable on its own and cannot drift with when
+# it ran.
+# ---------------------------------------------------------------------------
+
+# What each miss class says about the RULE itself, and therefore which way the
+# evidence points. A rule that was never retrieved, or was retrieved and
+# skipped, is not a bad rule: the founder saying it again is evidence he still
+# wants it, so that is SUPPORT. A rule that was followed and the correction
+# came back anyway is the opposite, and so is one retrieved into work it was
+# then judged irrelevant to.
+REPEATED_CORRECTION_POLARITY = {
+    "retrieval_miss": "support",
+    "compliance_failure": "support",
+    "bad_rule": "contradict",
+    "scope_error": "contradict",
+    "not_decidable": "neutral",
+}
+
+
+def classify_repeated_correction(applications, links_known):
+    """Why did a rule that already existed fail to prevent this correction?
+
+    Returns (class, reason, polarity). `applications` are the recorded
+    applications of that rule in the work the correction is about, each a dict
+    carrying 'disposition' and 'shown_to_model'. `links_known` says whether
+    the correction names a session or a work record at all.
+
+    The ordering is deliberate and is the point of the whole function:
+    'followed' outranks everything, because a rule that was obeyed and did not
+    work is the only case where the RULE is the problem. Getting that order
+    wrong would blame the rule for every failure to retrieve it, and the
+    founder would end up editing text that was already correct."""
+    if not links_known:
+        return ("not_decidable",
+                "this correction names neither a session nor a work record, so "
+                "what was retrieved when it happened cannot be established",
+                REPEATED_CORRECTION_POLARITY["not_decidable"])
+    rows = list(applications or [])
+    if not rows:
+        return ("retrieval_miss",
+                "the rule was live when this work ran and no application of it "
+                "was recorded, so it never reached the acting model",
+                REPEATED_CORRECTION_POLARITY["retrieval_miss"])
+    followed = [r for r in rows if r.get("disposition") == "followed"]
+    ignored = [r for r in rows if r.get("disposition") == "ignored"
+               and bool(r.get("shown_to_model"))]
+    irrelevant = [r for r in rows if r.get("disposition") == "not_relevant"]
+    if followed:
+        return ("bad_rule",
+                "the rule was followed in %d recorded application(s) and the "
+                "work went wrong anyway, so the rule as written did not "
+                "prevent it" % len(followed),
+                REPEATED_CORRECTION_POLARITY["bad_rule"])
+    if ignored:
+        return ("compliance_failure",
+                "the rule was shown in %d recorded application(s) and skipped, "
+                "and the work it applied to went wrong" % len(ignored),
+                REPEATED_CORRECTION_POLARITY["compliance_failure"])
+    if irrelevant:
+        return ("scope_error",
+                "the rule was retrieved for this work and marked not relevant, "
+                "yet the failure it covers happened here, so its scope does "
+                "not match where it is actually needed",
+                REPEATED_CORRECTION_POLARITY["scope_error"])
+    return ("not_decidable",
+            "%d application(s) exist but none carries a usable disposition, so "
+            "whether the rule was followed cannot be read from what was "
+            "recorded" % len(rows),
+            REPEATED_CORRECTION_POLARITY["not_decidable"])
+
+
+# Units a review window may be written in. Months and years are deliberately
+# absent: they are not fixed numbers of days, and a window that silently means
+# something different in February is a reporting bug waiting to happen.
+WINDOW_UNITS = (("d", 1.0), ("w", 7.0), ("h", 1.0 / 24.0))
+
+
+def parse_window_days(text):
+    """A window like '30d', '2w' or '48h' into days. Returns (days, error).
+
+    A bare number means days. Anything else returns (None, message) rather
+    than a default, because a window silently reinterpreted is a report about
+    a different period than the one asked for."""
+    raw = normalize_text(text or "")
+    if not raw:
+        return (None, "no window given")
+    body, factor = raw, 1.0
+    for suffix, mult in WINDOW_UNITS:
+        if raw.lower().endswith(suffix):
+            body, factor = raw[:-1], mult
+            break
+    try:
+        value = float(body)
+    except ValueError:
+        return (None, "cannot read %r as a window; use a number of days or a "
+                      "suffix from %s (for example 30d)"
+                      % (text, ", ".join(s for s, _ in WINDOW_UNITS)))
+    if value <= 0:
+        return (None, "a window must be positive, got %r" % (text,))
+    return (value * factor, "")
