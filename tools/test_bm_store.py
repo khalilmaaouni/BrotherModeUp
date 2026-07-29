@@ -26,6 +26,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import uuid
 from unittest import mock
@@ -7340,8 +7341,11 @@ class TestLoop11ExportWithholdingPolicy(unittest.TestCase):
                                  "%s survived an ordinary dump" % label)
                 self.assertIn(text, raw,
                               "--raw must still return %s verbatim" % label)
-            # The claimed path is founder-supplied structure, withheld too.
-            self.assertNotIn("api/pay.py", default)
+            # FIX-ROUND 11: the claimed path is RELATIVE, project-internal
+            # structure and it is what the fence primitive exists to report,
+            # so it is scrub-only and stays legible. An ABSOLUTE claimed path
+            # is still masked (test_default_dump_masks_an_absolute_claim_path).
+            self.assertIn("api/pay.py", default)
             self.assertIn("api/pay.py", raw)
             # Structural identity survives, or the export is useless.
             self.assertIn("payments", default)
@@ -7401,7 +7405,177 @@ class TestLoop11ExportWithholdingPolicy(unittest.TestCase):
         """Growing the scrub-only set is a privacy decision, so it fails here
         rather than passing quietly. Update this list deliberately."""
         self.assertEqual(sorted(bs._DUMP_SCRUB_ONLY_COLUMNS),
-                          [("records", "name"), ("records", "tier")])
+                          [("claims", "path"),
+                           ("records", "name"), ("records", "tier")])
+
+    def test_export_policy_id_shaped_set_stays_closed(self):
+        """Same rule for the shape-gated set: adding a column here is a
+        privacy decision and must be made on purpose."""
+        self.assertEqual(sorted(bs._DUMP_ID_SHAPED_COLUMNS), [
+            ("autosave_receipts", "session_id"),
+            ("autosave_receipts", "worktree_id"),
+            ("learning_applications", "session_id"),
+            ("learning_candidates", "source_session_id"),
+            ("learning_evidence", "source_session_id"),
+            ("records", "session_id"),
+            ("transitions", "session_id"),
+        ])
+        # ...and no column may be in two policy sets at once.
+        self.assertFalse(bs._DUMP_ID_SHAPED_COLUMNS & bs._DUMP_SAFE_COLUMNS)
+        self.assertFalse(bs._DUMP_ID_SHAPED_COLUMNS
+                         & bs._DUMP_SCRUB_ONLY_COLUMNS)
+
+    def test_claim_path_is_scrub_only_not_safe(self):
+        """claims.path is legible BECAUSE it is relative, and it is
+        scrub-only rather than SAFE so that an absolute or secret-shaped
+        value in that column is still masked/redacted on the way out. The
+        store's own canonicalize_path refuses an absolute path outside the
+        root before it can ever be stored (an older, separate guard), so
+        this is checked at the policy function, which is where the
+        defence-in-depth actually lives."""
+        with self.assertRaises(bs.OwnershipRefused):
+            with tempfile.TemporaryDirectory() as d:
+                store = bs.Store(d)
+                try:
+                    store.claim("plan", "ephemeral", "obj", [self.ABS_PATH],
+                                session_id="s1")
+                finally:
+                    store.close()
+        self.assertEqual(bs.export_column("claims", "path", self.ABS_PATH),
+                          bs.PATH_WITHHELD_MARKER)
+        self.assertEqual(bs.export_column("claims", "path", "api/pay.py"),
+                          "api/pay.py")
+        self.assertIn("REDACTED",
+                      bs.export_column("claims", "path",
+                                       "AKIAIOSFODNN7EXAMPLE"))
+
+    # -- FIX ROUND: caller-supplied session ids --------------------------
+
+    SESSION_PATH = "/Users/jane.doe/Clients/Acme-Turnaround"
+    SESSION_KEY = "sk-live_abcdefghijklmnopqrstuvwx"
+
+    def _seed_session(self, d, session_id):
+        store = bs.Store(d)
+        try:
+            rec = store.claim("payments", "ephemeral", "obj", [],
+                              session_id=session_id)
+            store.transition(rec.lifecycle_uuid, rec.version, "parked",
+                             session_id=session_id, note="n")
+        finally:
+            store.close()
+
+    def _default_dump(self, d):
+        store = bs.ReadOnlyStore(d)
+        try:
+            return json.dumps(store.dump())
+        finally:
+            store.close()
+
+    def test_caller_supplied_session_id_is_never_exported_verbatim(self):
+        """--session is free text, not a machine id: a founder who passes a
+        path or a key must not see it come back out of an ordinary dump."""
+        for bad in (self.SESSION_PATH, self.SESSION_KEY,
+                    "notes about the ACME Q3 miss"):
+            with tempfile.TemporaryDirectory() as d:
+                self._seed_session(d, bad)
+                default = self._default_dump(d)
+                self.assertNotIn(bad, default,
+                                 "session_id %r survived an ordinary dump" % bad)
+                self.assertIn("WITHHELD", default)
+
+    def test_generated_session_id_still_exports_so_rows_still_join(self):
+        """The gate must not cost the join a dump is read for."""
+        generated = bs._default_cli_session_id()
+        self.assertTrue(bs.is_id_shaped(generated), generated)
+        with tempfile.TemporaryDirectory() as d:
+            self._seed_session(d, generated)
+            default = self._default_dump(d)
+            # One records row plus the two transitions a claim-then-park
+            # writes: three carriers of the same session id, all still legible.
+            self.assertEqual(default.count('"%s"' % generated), 3,
+                             "records.session_id and transitions.session_id "
+                             "must both still carry the generated id")
+
+    def test_calibrated_reinjecting_session_id_as_safe_leaks_the_path(self):
+        """CALIBRATION for the session_id fix: put session_id back in the
+        SAFE set (its pre-fix home) and the reported leak returns verbatim;
+        restore the shipped policy and it is gone again."""
+        old_safe = frozenset(set(bs._DUMP_SAFE_COLUMNS) | {
+            ("records", "session_id"), ("transitions", "session_id")})
+        with tempfile.TemporaryDirectory() as d:
+            self._seed_session(d, self.SESSION_PATH)
+            shipped_before = self._default_dump(d)
+            with mock.patch.object(bs, "_DUMP_SAFE_COLUMNS", old_safe):
+                reinjected = self._default_dump(d)
+            shipped_after = self._default_dump(d)
+        self.assertNotIn(self.SESSION_PATH, shipped_before)
+        self.assertEqual(reinjected.count(self.SESSION_PATH), 3,
+                         "REINJECTION CHECK: the session_id path leak must "
+                         "come back under the pre-fix safe-column policy")
+        self.assertNotIn(self.SESSION_PATH, shipped_after)
+
+    # -- FIX ROUND: non-ASCII and punctuation path tails -----------------
+
+    LEAKY_PATHS = (
+        ("/Users/m\u00fcller/Kunden/Siemens-deal", "ller/Kunden"),
+        ("/Users/\u5c71\u7530/\u9867\u5ba2/ACME", "\u5c71\u7530"),
+        ("C:\\Users\\\u0418\u0432\u0430\u043d\u043e\u0432\\clients\\acme",
+         "\u0418\u0432\u0430\u043d\u043e\u0432"),
+        ("/Users/Jos\u00e9-Dupont/clients/acme-turnaround", "Dupont"),
+        ("/Users/j/C++Projects/acme-secret", "++Projects"),
+        ("/Users/j/proj@acme/secret", "@acme"),
+        ("/Users/j/50%off-acme/deal", "%off-acme"),
+        ("/home/user/clients/\u5317\u4eac-deal/notes", "\u5317\u4eac"),
+    )
+
+    def test_mask_absolute_paths_leaves_no_tail_after_a_non_ascii_component(self):
+        """The pre-fix ASCII-only body class stopped at the first non-ASCII
+        or punctuation byte and emitted the whole sensitive TAIL."""
+        for path, leaked_fragment in self.LEAKY_PATHS:
+            masked = bs.mask_absolute_paths(path)
+            self.assertEqual(masked, bs.PATH_WITHHELD_MARKER,
+                             "%r masked to %r" % (path, masked))
+            self.assertNotIn(leaked_fragment, masked)
+
+    def test_mask_absolute_paths_keeps_prose_and_relative_paths_intact(self):
+        """The wider class must not start eating sentences."""
+        self.assertEqual(bs.mask_absolute_paths("api/pay.py"), "api/pay.py")
+        self.assertEqual(bs.mask_absolute_paths("and/or"), "and/or")
+        self.assertEqual(bs.mask_absolute_paths("3/4 of the way"),
+                          "3/4 of the way")
+        self.assertEqual(bs.mask_absolute_paths("see /Users/j/x."),
+                          "see " + bs.PATH_WITHHELD_MARKER + ".")
+        self.assertEqual(bs.mask_absolute_paths("really/. no"), "really/. no")
+        self.assertEqual(
+            bs.mask_absolute_paths("the file (/Users/j/x) is gone"),
+            "the file (" + bs.PATH_WITHHELD_MARKER + ") is gone")
+
+    def test_calibrated_reinjecting_the_ascii_path_class_leaks_the_tail(self):
+        """CALIBRATION for the path fix: restore the pre-fix ASCII-only
+        regex and the exact reported tail leak returns."""
+        old_re = re.compile(r"(?<![A-Za-z0-9_])"
+                            r"(?:[A-Za-z]:[\\/]|\\\\|/)"
+                            r"[A-Za-z0-9_.~\-][A-Za-z0-9_.~\-/\\]*")
+        path = "/Users/m\u00fcller/Kunden/Siemens-deal"
+        self.assertEqual(bs.mask_absolute_paths(path), bs.PATH_WITHHELD_MARKER)
+        with mock.patch.object(bs, "_ABS_PATH_RE", old_re):
+            self.assertIn("ller/Kunden/Siemens-deal",
+                          bs.mask_absolute_paths(path),
+                          "REINJECTION CHECK: the ASCII-only class must leak "
+                          "the tail")
+        self.assertEqual(bs.mask_absolute_paths(path), bs.PATH_WITHHELD_MARKER)
+
+    def test_mask_absolute_paths_stays_linear_on_long_input(self):
+        """Workstream D asks for a redaction ceiling. A 400k-character worst
+        case (one enormous non-ASCII path, then path-dense prose) must stay
+        far under a second: catastrophic backtracking would blow past it."""
+        for big in ("/Users/" + "\u00fc" * 200000,
+                    "/Users/jane/clients/acme-deal notes here " * 10000):
+            start = time.time()
+            bs.mask_absolute_paths(big)
+            elapsed = time.time() - start
+            self.assertLess(elapsed, 2.0,
+                            "masking %d chars took %.2fs" % (len(big), elapsed))
 
     def test_export_column_is_the_one_policy_and_covers_unknown_columns(self):
         self.assertEqual(bs.export_column("records", "state", "active"), "active")

@@ -64,13 +64,23 @@ What the code actually writes inside your project today:
   output, and the MCP server's responses): founder prose is WITHHELD, not
   merely scrubbed, because the scrubber only removes secret SHAPES and
   ordinary sentences carry none. That covers objectives, evidence, digest
-  bodies and next intents, transition notes, decision text, directive text,
-  claimed paths, and absolute filesystem paths. What an export still shows is
-  structural: identifiers, states, versions, hashes, counts, timestamps, plus
-  the record name and tier, which stay readable so a dump is still usable and
-  are scrubbed and path-masked on the way out. `dump --raw` returns
-  everything, prints a warning on standard error saying so, and is the only
-  way to get the founder text back out of an export.
+  bodies and next intents, transition notes, decision text and directive text.
+  Absolute filesystem paths are masked wherever an export does still print
+  text, because `/Users/jane.doe/clients/acme` names a person, an employer and
+  a client in one string. Masking stops at a space and at a handful of
+  characters that end a path in ordinary prose (quotes, backtick, angle
+  brackets, pipe, comma, semicolon, colon, and paired brackets and braces),
+  so a path containing one of those is masked only up to it; everything else,
+  including every non-ASCII name, is covered.
+  What an export still shows is structural: identifiers, states, versions,
+  hashes, counts, timestamps, plus the record name, tier and claimed path,
+  which stay readable so a dump and the fence tools are still usable, and
+  which are scrubbed and path-masked on the way out. A session id is shown
+  only when it looks like a generated identifier: `--session` is free text, so
+  a session id carrying a path, a key or a sentence is withheld like any other
+  founder text. `dump --raw` returns everything, prints a warning on standard
+  error saying so, and is the only way to get the founder text back out of an
+  export.
   The local views you read yourself (`STATE.md`, `digest.md`, `inbox.md`) are
   NOT exports: they carry your real text, scrubbed at the display boundary,
   because they are the product.
