@@ -980,8 +980,18 @@ def cmd_signal(kind, argv):
     DEFECT, rather than a self-report. This only RECORDS the event; it does
     not try to auto-detect it from git history or the transcript (that is
     real analysis work, out of scope for this mechanical pass), so it is
-    invoked by whichever session or founder review notices the event."""
-    session, task, evidence, note = "", "", "", ""
+    invoked by whichever session or founder review notices the event.
+
+    --record and --artifact are the LINK pair (Loop 8). A signal that names
+    the work record and the artifact it is about can be joined to the rules
+    that were applied in that work, which is what turns it from a tally into
+    a grade. Both are optional and the signal is recorded either way, because
+    an unlinkable outcome is still a real outcome; it is flagged linked=false
+    so a report can list it separately instead of averaging it in. This file
+    still writes only its own jsonl: attaching the event to rule applications
+    is done by `bm_learn.py rework` and `bm_learn.py escaped-defect`, because
+    bm_store.py stays the single writer of the database."""
+    session, task, evidence, note, record, artifact = "", "", "", "", "", ""
     it = iter(argv)
     for a in it:
         if a == "--session":
@@ -992,12 +1002,18 @@ def cmd_signal(kind, argv):
             evidence = next(it, "")
         elif a == "--note":
             note = next(it, "")
+        elif a == "--record":
+            record = next(it, "")
+        elif a == "--artifact":
+            artifact = next(it, "")
     if not session or not task:
-        print("usage: %s --session ID --task \"...\" [--evidence \"...\"] [--note \"...\"]" % kind)
+        print("usage: %s --session ID --task \"...\" [--record ID] "
+              "[--artifact PATH] [--evidence \"...\"] [--note \"...\"]" % kind)
         return
     rec = {"ts": now_iso(), "kind": kind, "session_id": session,
            "task": redact(task)[0], "evidence": redact(evidence)[0],
-           "note": redact(note)[0]}
+           "note": redact(note)[0], "record_uuid": record,
+           "artifact": redact(artifact)[0], "linked": bool(record)}
     # Owner-only: task/evidence/note can carry founder-written prose, the
     # same sensitivity as RATINGS and CORRECTIONS above.
     atomic_append(SIGNALS, rec, mode=0o600)

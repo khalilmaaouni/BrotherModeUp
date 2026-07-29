@@ -3055,5 +3055,134 @@ class TestLoop6LearningVerifyCli(unittest.TestCase):
                              "pick one")
 
 
+class TestLoop8ExternalGradingCli(unittest.TestCase):
+    """Loop 8 driven through the real binaries. The store tests prove the
+    semantics; these prove the founder can actually reach them, which is a
+    different claim and the one this project keeps getting wrong."""
+
+    def _learn(self, root, args):
+        env = dict(os.environ, BROTHERMODE_ROOT=root)
+        return subprocess.run([sys.executable, os.path.join(HERE, "bm_learn.py")]
+                              + args, cwd=root, env=env, capture_output=True,
+                              text=True)
+
+    def _init(self, root):
+        env = dict(os.environ, BROTHERMODE_ROOT=root)
+        r = subprocess.run([sys.executable, os.path.join(HERE, "bm_store.py"),
+                            "init"], cwd=root, env=env, capture_output=True,
+                           text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_the_founder_can_reach_confirmed_and_grade_a_repeat(self):
+        """Found by driving the CLI: before `confirm` existed every rule stayed
+        'approved' forever, and the repeat check could never fire on real
+        usage even though its semantics were correct."""
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            cap = self._learn(root, ["capture", "--scope", "global",
+                                     "--trigger", "writing an executive update",
+                                     "--action", "state customer impact first",
+                                     "--source", "manual"])
+            self.assertEqual(cap.returncode, 0, cap.stderr)
+            cid = cap.stdout.split()[1]
+            app = self._learn(root, ["approve", cid, "--ref", "founder in chat"])
+            self.assertEqual(app.returncode, 0, app.stderr)
+            rid = app.stdout.split()[3]
+            rel = self._learn(root, ["relevant", "--query",
+                                     "writing an executive update",
+                                     "--record-applications", "--session", "S1"])
+            self.assertEqual(rel.returncode, 0, rel.stderr)
+            apps = self._learn(root, ["applications", "--session", "S1", "--json"])
+            aid = json.loads(apps.stdout)[0]["application_uuid"]
+            dis = self._learn(root, ["disposition", aid, "followed"])
+            self.assertEqual(dis.returncode, 0, dis.stderr)
+            conf = self._learn(root, ["confirm", rid, "--because", "held up once"])
+            self.assertEqual(conf.returncode, 0, conf.stderr)
+            self.assertIn("is now confirmed", conf.stdout)
+            again = self._learn(root, ["capture", "--scope", "global",
+                                       "--trigger", "writing an executive update",
+                                       "--action", "state customer impact first",
+                                       "--source", "manual", "--session", "S1"])
+            cid2 = again.stdout.split()[1]
+            dry = self._learn(root, ["repeat-check", cid2])
+            self.assertEqual(dry.returncode, 0, dry.stderr)
+            self.assertIn("bad_rule", dry.stdout)
+            self.assertIn("nothing written", dry.stdout)
+            wet = self._learn(root, ["repeat-check", cid2, "--record"])
+            self.assertEqual(wet.returncode, 0, wet.stderr)
+            self.assertIn("evidence recorded as contradict", wet.stdout)
+            fails = self._learn(root, ["loop-failures", "--since", "30d"])
+            self.assertEqual(fails.returncode, 0, fails.stderr)
+            self.assertIn("repeated settled corrections: 1", fails.stdout)
+            outc = self._learn(root, ["rule-outcomes", rid])
+            self.assertEqual(outc.returncode, 0, outc.stderr)
+            self.assertIn("not a success rate", outc.stdout)
+
+    def test_an_unreadable_window_is_refused_rather_than_defaulted(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            bad = self._learn(root, ["loop-failures", "--since", "last month"])
+            self.assertEqual(bad.returncode, 2)
+            self.assertIn("cannot read", bad.stderr)
+
+    def test_an_outcome_event_without_a_record_is_refused(self):
+        """An outcome that cannot say WHICH work it came from grades nothing,
+        so it fails closed rather than landing as an unlinkable row."""
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            r = self._learn(root, ["rework", "--because", "sent back"])
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("work record is required", r.stderr)
+
+
+class TestLoop8TelemetryStaysUnforgeable(unittest.TestCase):
+    """The signals Loop 8 grades on are only worth anything if the graded
+    session cannot manufacture them. These guard the two ways it could try."""
+
+    def test_a_rating_without_provenance_stays_unattributed(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "ratings.jsonl")
+            old = bm.RATINGS
+            bm.RATINGS = path
+            try:
+                bm.cmd_rate(["--score", "5", "--task", "the exec update"])
+                bm.cmd_rate(["--score", "4", "--task", "the exec update",
+                             "--reply", "yes that was right", "--session", "S1"])
+            finally:
+                bm.RATINGS = old
+            rows = [json.loads(x) for x in _read(path).splitlines() if x.strip()]
+            self.assertEqual([r["attributed"] for r in rows], [False, True])
+            self.assertNotIn("reply", rows[0])
+
+    def test_telemetry_cannot_write_founder_approval_evidence(self):
+        """Structural, not behavioural: bm_telemetry has no path to the
+        learning tables at all, so no session can promote its own candidate by
+        emitting a signal. A behavioural test would only prove that today's
+        code does not happen to do it."""
+        src = _read(os.path.join(HERE, "bm_telemetry.py"))
+        for forbidden in ("founder_approval", "approve_learning_candidate",
+                          "learning_evidence", "change_learning_rule_state"):
+            self.assertNotIn(forbidden, src,
+                             "telemetry must not be able to create approval "
+                             "evidence: found %r" % forbidden)
+
+    def test_an_outcome_signal_records_its_link_and_flags_when_it_has_none(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "signals.jsonl")
+            old = bm.SIGNALS
+            bm.SIGNALS = path
+            try:
+                bm.cmd_signal("rework", ["--session", "S1", "--task", "update",
+                                         "--record", "abc123",
+                                         "--artifact", "notes.md"])
+                bm.cmd_signal("rework", ["--session", "S1", "--task", "update"])
+            finally:
+                bm.SIGNALS = old
+            rows = [json.loads(x) for x in _read(path).splitlines() if x.strip()]
+            self.assertEqual([r["linked"] for r in rows], [True, False])
+            self.assertEqual(rows[0]["record_uuid"], "abc123")
+            self.assertEqual(rows[0]["artifact"], "notes.md")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

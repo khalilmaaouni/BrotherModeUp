@@ -60,9 +60,11 @@ What the code actually writes inside your project today:
   owner-only where the platform supports it (on Windows this is best-effort;
   rely on your user profile's access control).
 
-You can verify both claims yourself; the tools are about 22,401 lines of
-standard-library Python and shell (re-measured 2026-07-29; a test fails if this
-figure drifts more than 15 percent from what the command below returns).
+You can verify both claims yourself; the tools are about 27,130 lines of
+standard-library Python and shell (re-measured 2026-07-29 after the
+correction-learning loops landed; a test fails if this figure drifts more than
+15 percent from what the command below returns). Most of that growth is test
+code, which is the kind a reader of a security document should want.
 
 It went UP by roughly 2,700 lines on 2026-07-27, and that direction deserves
 an explanation rather than a quiet edit. The external security audit of that
