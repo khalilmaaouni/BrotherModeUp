@@ -11,6 +11,41 @@ Status words mean exactly one thing each:
 
 ---
 
+## rc.4 MERGE: the gate carry cap was REJECTED, and what that leaves open. OPEN. Added 2026-07-29.
+
+Two lanes fixed the same defect (a result limit could hide a safety gate) with
+designs that cannot both hold. The store lane returns EVERY applicable gate at
+every limit and reports `gates_returned == gates_total`. The ecosystem lane
+bounded the gates carried past a caller's limit at three, counted the rest in
+`gates_omitted`, and printed a warning naming the limit that shows them all.
+
+The merge kept the design that never withholds a safety rule, deleted
+`_GATE_CARRY_CAP` and the test that pinned it, and left a named comment where
+that test stood in `tools/test_bm_store.py`.
+
+WHAT THAT LEAVES OPEN, in the rejected lane's own words and reproduction: with
+twelve approved gates in a store, `bm_learn.py lookup --query "what colour is
+the breathing orb" --limit 1 --json` returns TWELVE results, ranks 1 to 12,
+every one at relevance 0.0, and an `apply` run records twelve application rows
+marked shown. Injection is therefore bounded by the number of approved gates and
+not by `--limit`. That is a real cost, it was reproduced on the real CLI on
+2026-07-29 (on commit `68eb4d8`), and nothing in the shipped code prevents it.
+Closing it needs a design that bounds volume WITHOUT ever dropping a gate,
+which neither lane wrote. OPEN.
+
+## rc.4 MERGE: approval now needs two things, and only one of them is mechanical. PARTIAL. Added 2026-07-29.
+
+`bm_learn.py approve` refuses without BOTH a one-time receipt (post-audit Loop
+3) and a founder-written `--ref` (Loop P18-fix). Merging the lanes by letting
+the receipt excuse a missing reference would have restored the hole P18-fix
+closed, so neither guard was dropped.
+
+The honest limit is unchanged by having two of them: the receipt proves that an
+answer was given about this exact rule text and has not been spent, and the
+reference is prose a caller types. Neither authenticates WHICH human answered.
+Anyone who can run `grant-approval` can mint a receipt and type a reference.
+PARTIAL.
+
 ## P7 (found in passing, NOT this loop's code): the loop-close gate flakes 1 run in 16. OPEN.
 
 `test_bm_store.py::TestPostAuditLoop3ApprovalReceipts::
