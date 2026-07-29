@@ -86,10 +86,12 @@ exactly those as `EXTRA`.
 
 ### Wiring by hand instead
 
-The installer writes the equivalent of the block below, plus the `PreToolUse`
-entry documented in `docs/HOOKS.md`, with absolute and shell-quoted paths. Add
-to `~/.claude/settings.json` (create the file if it does not exist, or merge
-into your existing `hooks` block):
+The installer writes the equivalent of the block below, with absolute and
+shell-quoted paths. All five entries are here, fence included: earlier versions
+of this page listed four and left the `PreToolUse` fence to a cross-reference,
+which in practice meant a hand-wired install ran with the one-writer-per-file
+promise switched off. Add to `~/.claude/settings.json` (create the file if it
+does not exist, or merge into your existing `hooks` block):
 
 ```json
 {
@@ -105,6 +107,12 @@ into your existing `hooks` block):
     ],
     "PreCompact": [
       { "hooks": [ { "type": "command", "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_autosave.py precompact; printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py precompact-brief' " } ] }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_fence_hook.py", "timeout": 10 } ]
+      }
     ]
   }
 }

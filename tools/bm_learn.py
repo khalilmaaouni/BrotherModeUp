@@ -225,7 +225,12 @@ def cmd_candidates(argv):
             _out("     source: %d chars captured, %d redactions (--show-source to read)"
                  % (len(c["raw_text"]), c["redaction_count"]))
     _out("")
-    _out("%d candidate(s). Approve with: bm_learn.py approve <id> --because \"...\"" % len(rows))
+    # The hint shows the SAME form docs/CORRECTION-LEARNING.md walks through,
+    # optional flags included. It used to show only --because, so a founder
+    # following the hint never met --gate or --ref and the page and the tool
+    # disagreed about what approving a candidate looks like.
+    _out("%d candidate(s). Approve with: bm_learn.py approve <id> "
+         "[--because \"...\"] [--gate] [--ref \"why you approved\"]" % len(rows))
     return 0
 
 
