@@ -7,7 +7,7 @@ brief that a test would have caught. Each test here guards a claim the project
 makes about itself: secrets are redacted, sensitive files are owner-only, project
 identity does not collide, and the autosave captures untracked work non-invasively.
 """
-import contextlib, glob, io, os, json, re, shutil, stat, sys, tempfile, subprocess, importlib.util
+import ast, contextlib, glob, io, os, json, re, shutil, stat, sys, tempfile, subprocess, importlib.util
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -3680,6 +3680,140 @@ class TestP17PackagingManifestMatchesTheRepository(unittest.TestCase):
             [], re.findall(r'"([^"]+)"', m.group(1)),
             "pyproject.toml declares dependencies; BrotherMode ships "
             "standard library only")
+
+
+class TestP18FixApprovalReferenceIsTheFoundersOwn(unittest.TestCase):
+    """LOOP P18-fix. The launch drafts say a correction becomes a rule only
+    when you approve it by hand WITH A REASON RECORDED. The store enforced
+    "some founder_ref is present"; the command line satisfied that guard on
+    its own behalf with the string "bm_learn.py approve, run by the founder at
+    <timestamp>" whenever --ref was omitted. Reproduced by hand on 68eb4d8:
+    capture, then `bm_learn.py approve <id>` with no --ref, exit 0, live rule.
+    A guard a tool can satisfy for itself is not a guard, and public copy
+    asserting a control the code does not have is the claim class the drafts'
+    own preamble forbids."""
+
+    def _learn(self, root, args):
+        env = dict(os.environ, BROTHERMODE_ROOT=root)
+        return subprocess.run([sys.executable, os.path.join(HERE, "bm_learn.py")]
+                              + args, cwd=root, env=env, capture_output=True,
+                              text=True)
+
+    def _init(self, root):
+        env = dict(os.environ, BROTHERMODE_ROOT=root)
+        r = subprocess.run([sys.executable, os.path.join(HERE, "bm_store.py"),
+                            "init"], cwd=root, env=env, capture_output=True,
+                           text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def _candidate(self, root):
+        out = self._learn(root, ["capture", "--scope", "global", "--json",
+                                 "--trigger", "reviewing swift code",
+                                 "--action", "run swiftlint",
+                                 "--because", "style"])
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return json.loads(out.stdout)["candidate_uuid"]
+
+    def test_approve_without_a_reference_refuses_and_creates_no_rule(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            cid = self._candidate(root)
+            out = self._learn(root, ["approve", cid])
+            self.assertEqual(out.returncode, 2,
+                             "approve without --ref must refuse: %s%s"
+                             % (out.stdout, out.stderr))
+            self.assertIn("--ref", out.stdout + out.stderr)
+            rules = self._learn(root, ["rules", "--json"])
+            self.assertEqual(json.loads(rules.stdout), [],
+                             "a refused approval must leave no rule behind")
+
+    def test_a_whitespace_reference_is_not_a_reference(self):
+        """The refusal is on CONTENT, not on the flag being typed. Accepting
+        --ref "   " would restore the same hole with one more keystroke."""
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            cid = self._candidate(root)
+            out = self._learn(root, ["approve", cid, "--ref", "   "])
+            self.assertEqual(out.returncode, 2, out.stdout + out.stderr)
+
+    def test_approve_with_a_reference_still_works(self):
+        """The guard is calibrated only if the good path still passes."""
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            cid = self._candidate(root)
+            out = self._learn(root, ["approve", cid, "--ref",
+                                     "I said this in session 2026-07-29"])
+            self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+            rules = json.loads(self._learn(root, ["rules", "--json"]).stdout)
+            self.assertEqual(len(rules), 1)
+            # The founder's words are the recorded evidence, verbatim.
+            why = self._learn(root, ["why", rules[0]["rule_uuid"]])
+            self.assertEqual(why.returncode, 0, why.stderr)
+            self.assertIn("founder approval: I said this in session 2026-07-29",
+                          why.stdout)
+            self.assertIn("support founder_approval  I said this in session "
+                          "2026-07-29", why.stdout)
+
+    def test_no_shipping_tool_fabricates_a_founder_reference(self):
+        """Structural, because the same shortcut can be reintroduced in any
+        other command that approves. No tool may build a founder reference out
+        of a timestamp or its own name. Checked over STRING LITERALS via the
+        AST, not over the file text, so the comment explaining the old bug
+        does not trip its own guard."""
+        for name in ("bm_learn.py", "bm_store.py"):
+            tree = ast.parse(_read(os.path.join(HERE, name)))
+            for node in ast.walk(tree):
+                if not (isinstance(node, ast.Constant)
+                        and isinstance(node.value, str)):
+                    continue
+                self.assertNotIn(
+                    "run by the founder", node.value,
+                    "%s line %s builds a founder reference for the founder"
+                    % (name, getattr(node, "lineno", "?")))
+
+
+class TestP18FixBenchmarkArgumentsCannotBuyAnUnearnedGreen(unittest.TestCase):
+    """LOOP P18-fix. scripts/benchmark.py read selectors as `int(a) for a in
+    argv if a.isdigit()` and never checked them against the scenario count,
+    and its exit code treated an empty result list as success. Reproduced by
+    hand on 68eb4d8: `python3 scripts/benchmark.py 99 --quiet` printed
+    "BENCHMARK: 0 passed, 0 failed, 0 skipped, of 0 run" and exited 0, so
+    anything wiring `benchmark.py $N` got a green as proof that scenario N
+    passed. A mistyped flag such as --quite was discarded just as quietly.
+
+    These run the harness with bad arguments only. They never run a scenario,
+    so they stay fast and add no subprocess-heavy scenario work to the suite."""
+
+    BENCH = os.path.join(os.path.dirname(HERE), "scripts", "benchmark.py")
+
+    def _run(self, args):
+        return subprocess.run([sys.executable, self.BENCH] + args,
+                              capture_output=True, text=True)
+
+    def test_a_scenario_number_that_does_not_exist_is_refused(self):
+        for arg in ("99", "0", "-1"):
+            out = self._run([arg, "--quiet"])
+            self.assertEqual(out.returncode, 2,
+                             "benchmark.py %s exited %d: %s"
+                             % (arg, out.returncode, out.stdout))
+            self.assertNotIn("0 passed, 0 failed", out.stdout,
+                             "a refused selector must not print a score line")
+
+    def test_an_unknown_option_is_refused_not_discarded(self):
+        out = self._run(["--quite"])
+        self.assertEqual(out.returncode, 2, out.stdout)
+        self.assertIn("unknown option", out.stdout)
+        out = self._run(["foo"])
+        self.assertEqual(out.returncode, 2, out.stdout)
+
+    def test_the_only_supported_option_still_parses(self):
+        """Calibration: the refusal above must not have eaten --quiet. Runs
+        one real scenario, the cheapest of the thirteen, so the good path is
+        proven rather than assumed."""
+        out = self._run(["1", "--quiet"])
+        self.assertIn(out.returncode, (0, 1),
+                      "a valid invocation must not be refused: %s" % out.stdout)
+        self.assertIn("of 1 run", out.stdout)
 
 
 if __name__ == "__main__":

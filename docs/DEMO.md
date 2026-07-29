@@ -58,7 +58,7 @@ python3 $BM/tools/bm_learn.py candidates
      When: pushing commits or publishing a branch to GitHub
      Do  : use the GitHub Desktop app, never a bare git push
 
-1 candidate(s). Approve with: bm_learn.py approve <id> --because "..."
+1 candidate(s). Approve with: bm_learn.py approve <id> --ref "why you approved"
 ```
 
 ## 2. Approve it, which is the only way anything becomes a rule (30 seconds)
