@@ -70,7 +70,7 @@ absent; nothing is invented. Token counts are labeled as-flushed (the transcript
 may lag the final turn). Old (schema 1) and new lines are both readable: use
 fld() everywhere.
 """
-import json, os, sys, glob, re, datetime, hashlib, tempfile, io, shutil
+import json, os, sys, glob, re, datetime, hashlib, tempfile, io, shutil, shlex
 
 # ---------------------------------------------------------------------------
 # Configuration. The vault is the durable memory folder every ledger lives in.
@@ -1620,8 +1620,17 @@ def _autosave_recovery_line(cwd, session_id):
     Advisory only: bm_autosave missing, a failed root resolution, or any
     other exception here all degrade to an honest "not checked" message and
     this function never raises, so a resumed session is never blocked."""
-    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    recover_cmd = "python3 %s/tools/bm_autosave.py recover" % skill_dir
+    # P17-fix: this used SKILL_DIR (this file's parent's parent) plus a
+    # hardcoded "tools/" segment, which named <venv>/lib/python3.9/tools/
+    # bm_autosave.py in a pipx, uv, or pip install: a file that does not
+    # exist, printed at the exact moment this line says the newest work may
+    # NOT be captured. bm_autosave.py is a SIBLING of this module in both
+    # layouts (tools/ in a checkout, site-packages/ in a package), so the
+    # sibling path is the one spelling that is right in both. It gets no
+    # console script by design (hooks are wired by explicit path), so the
+    # interpreter form is correct here rather than a name on PATH.
+    recover_cmd = "python3 %s recover" % shlex.quote(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "bm_autosave.py"))
     unknown = ("BROTHERMODE: resumed after a compaction. Could not verify whether "
                "your files are autosaved (%s). No claim is made either way; run "
                "`%s` yourself to look for a snapshot.")

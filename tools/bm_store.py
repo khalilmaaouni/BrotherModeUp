@@ -66,6 +66,7 @@ import os
 import posixpath
 import re
 import secrets
+import shlex
 import shutil
 import sqlite3
 import sys
@@ -85,6 +86,42 @@ APPROVAL_RECEIPT_TTL_SECONDS = 900
 # Domain separation, so a hash of the same random string somewhere else in this
 # project can never be mistaken for a receipt token hash.
 _RECEIPT_TOKEN_DOMAIN = "brothermode-approval-receipt-v1:"
+def invocation(script_name, module_file):
+    """The command a reader can actually paste, in the layout they have.
+
+    P17 put six commands on PATH, which made every hardcoded
+    `python3 tools/bm_*.py ...` instruction a lie for anyone who installed
+    from pipx, uv, or pip: there is no tools/ directory in a packaged
+    install, so the first refusal such a user sees names a file that does
+    not exist. This resolves the instruction instead of hardcoding it.
+
+    Two layouts, one rule. The console script is named only when this
+    module was imported FROM the environment that owns the script (module
+    under sys.prefix AND an executable of that name beside sys.executable),
+    because a founder running a repo checkout while some other environment
+    happens to have bm-store on PATH must not be pointed at that other
+    install. Otherwise the answer is the module's own absolute path, which
+    is correct from any cwd and in any project (the shape verify()'s
+    STATE.md nudge already used). Never raises: an instruction string is
+    not worth a traceback, so any surprise degrades to the path form."""
+    try:
+        here = os.path.abspath(module_file)
+        prefix = os.path.abspath(sys.prefix)
+        candidate = os.path.join(
+            os.path.dirname(os.path.abspath(sys.executable)), script_name)
+        if (here.startswith(prefix + os.sep)
+                and os.path.isfile(candidate)
+                and os.access(candidate, os.X_OK)):
+            return script_name
+        return "python3 %s" % shlex.quote(here)
+    except Exception:
+        return "python3 %s" % module_file
+
+
+def _cmd():
+    """This tool's own invocation, for user-facing instruction text."""
+    return invocation("bm-store", __file__)
+
 
 _STATE_BEGIN = "<!-- BEGIN GENERATED BROTHERMODE STATE (edit outside these markers only) -->"
 _STATE_END = "<!-- END GENERATED BROTHERMODE STATE -->"
@@ -231,11 +268,11 @@ def resolve_root(start=None, refuse_past_git_boundary=False):
                             "another project's ledger, and preferring the "
                             "nearer .git would let a vendored submodule "
                             "shadow a real project root again (F2 / F42). "
-                            "Say which you mean: run `python3 "
-                            "tools/bm_store.py init` inside %s to give it "
-                            "its own store, or set BROTHERMODE_ROOT=%s to "
-                            "attach to the parent on purpose."
-                            % (nearer, d, nearer, d),
+                            "Say which you mean: run `%s init` inside %s "
+                            "to give it its own store, or set "
+                            "BROTHERMODE_ROOT=%s to attach to the parent on "
+                            "purpose."
+                            % (nearer, d, _cmd(), nearer, d),
                             details={"git_boundary": nearer, "marker_root": d})
             return d, "marker"
     for d in chain:
@@ -259,8 +296,8 @@ def require_root(start=None, refuse_past_git_boundary=False):
             "no-root",
             "no BrotherMode project root found (checked BROTHERMODE_ROOT, "
             "then every parent directory for .brothermode/, then for .git). "
-            "Run `python3 tools/bm_store.py init` here or in the intended "
-            "project root, or set BROTHERMODE_ROOT to point at it.",
+            "Run `%s init` here or in the intended "
+            "project root, or set BROTHERMODE_ROOT to point at it." % _cmd(),
             details={"start": os.path.realpath(start or os.getcwd())})
     return root, source
 
@@ -3014,8 +3051,8 @@ class Store(object):
         if not create and not os.path.isfile(store_path(self.root)):
             raise OwnershipRefused(
                 "no-store",
-                "no store exists at %s; run `python3 tools/bm_store.py "
-                "init` to create one" % store_path(self.root),
+                "no store exists at %s; run `%s init` to create one"
+                % (store_path(self.root), _cmd()),
                 details={"path": store_path(self.root)})
         os.makedirs(expected_store_dir, exist_ok=True)
         # GATE D (fix-round 3, 2026-07-26): claim paths were already
@@ -3904,8 +3941,8 @@ class Store(object):
             "present, to the directory %s (never deleted, never "
             "overwritten: this directory name is unique per incident). "
             "Inspect that directory by hand to recover any records, then "
-            "run `python3 tools/bm_store.py init --acknowledge-quarantine` "
-            "to start a fresh store." % (self.path, cause, qdir),
+            "run `%s init --acknowledge-quarantine` "
+            "to start a fresh store." % (self.path, cause, qdir, _cmd()),
             quarantine_path=qdir)
 
     def close(self):
@@ -7656,8 +7693,8 @@ class ReadOnlyStore(object):
         if not os.path.isfile(self.path):
             raise OwnershipRefused(
                 "no-store",
-                "no store exists at %s; run `python3 tools/bm_store.py "
-                "init` to create one" % self.path,
+                "no store exists at %s; run `%s init` to create one"
+                % (self.path, _cmd()),
                 details={"path": self.path})
         _refuse_if_symlink_escape(self.path)
         _refuse_if_symlink_escape(self.path + "-wal")
@@ -8024,8 +8061,8 @@ def render_state_md(root):
         handovers = _undelivered_handover_rows(store)
         if handovers:
             lines.append("## Handovers (undelivered: %d)" % len(handovers))
-            lines.append("_Acknowledge one with: python3 tools/bm_store.py "
-                         "handover-ack --handover <uuid>_")
+            lines.append("_Acknowledge one with: %s handover-ack "
+                         "--handover <uuid>_" % _cmd())
             lines.append("")
             for h in handovers:
                 lines.append("### %s" % (_redacted_view_text(h["heading"])
@@ -8222,9 +8259,9 @@ def _verify_view_reflects_active_records(store, root):
             # nudge already uses, so it is resolvable regardless of the
             # caller's cwd or which project's root triggered the problem.
             problems.append(
-                "STATE.md does not exist at %s; run `python3 %s "
+                "STATE.md does not exist at %s; run `%s "
                 "dashboard` (or any mutating command) to generate it"
-                % (state_path, os.path.abspath(__file__)))
+                % (state_path, _cmd()))
         return problems
     begin_idx = on_disk.find(_STATE_BEGIN)
     end_idx = on_disk.find(_STATE_END)
@@ -8268,8 +8305,8 @@ def verify(root):
     unacknowledged = _unacknowledged_quarantine_dirs(root)
     problems = [
         "unacknowledged quarantine directory %s; recover what you need, "
-        "then run `python3 tools/bm_store.py init --acknowledge-quarantine`"
-        % _quarantine_summary(d) for d in unacknowledged]
+        "then run `%s init --acknowledge-quarantine`"
+        % (_quarantine_summary(d), _cmd()) for d in unacknowledged]
     store = ReadOnlyStore(root)
     try:
         dupes = _exec(store,
@@ -8529,11 +8566,11 @@ def cmd_init(argv):
         raise OwnershipRefused(
             "unacknowledged-quarantine",
             "%d quarantine director%s not been acknowledged: %s. Recover "
-            "what you need, then run `python3 tools/bm_store.py init "
+            "what you need, then run `%s init "
             "--acknowledge-quarantine` to continue (the directory is never "
             "deleted by this)."
             % (len(unacknowledged), "y has" if len(unacknowledged) == 1 else "ies have",
-               "; ".join(_quarantine_summary(d) for d in unacknowledged)),
+               "; ".join(_quarantine_summary(d) for d in unacknowledged), _cmd()),
             details={"quarantine_dirs": unacknowledged})
     # init_project returns the Store it just opened (its own schema-setup
     # side effects need a live connection); this command only needs the
@@ -8858,10 +8895,10 @@ def _warn_if_unacknowledged_quarantine(root):
     # command, including dump; a warning on stdout made `dump > file.json`
     # invalid JSON while a quarantine was outstanding.
     _warn("bm_store: WARNING: %d unacknowledged quarantine director%s: %s. "
-          "Run `python3 tools/bm_store.py init --acknowledge-quarantine` "
+          "Run `%s init --acknowledge-quarantine` "
           "after recovering what you need."
           % (len(unacknowledged), "y" if len(unacknowledged) == 1 else "ies",
-             "; ".join(_quarantine_summary(d) for d in unacknowledged)))
+             "; ".join(_quarantine_summary(d) for d in unacknowledged), _cmd()))
 
 
 def main(argv=None):
@@ -8929,9 +8966,9 @@ def main(argv=None):
         _raw_write(sys.stderr,
                    "bm_store: this command's own confirmation could not be "
                    "printed because of the missing redactor above; run "
-                   "`python3 tools/bm_store.py verify` or `dump` once "
+                   "`%s verify` or `dump` once "
                    "bm_telemetry.py is restored to see whether it actually "
-                   "took effect.\n")
+                   "took effect.\n" % _cmd())
         sys.exit(1)
     except OwnershipRefused as e:
         _out("refused (%s): %s" % (e.reason, e))

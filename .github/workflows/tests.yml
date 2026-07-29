@@ -65,6 +65,8 @@ jobs:
         run: python3 tools/test_bm_docs.py
       - name: Run the installer suite
         run: python3 tools/test_install.py
+      - name: Run the cross-runtime adapter suite
+        run: python3 tools/test_bm_runtimes.py
   # One serial job that runs the SAME command a loop close runs locally
   # (Loop 9 task 2, answered yes). The split jobs above exist for per-platform
   # evidence and cannot be replaced by this one; this one exists because the

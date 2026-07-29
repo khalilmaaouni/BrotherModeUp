@@ -90,6 +90,28 @@ def _store():
     return _STORE_MOD
 
 
+def _cmd():
+    """This tool's own invocation for user-facing instruction text, resolved
+    for the layout the reader actually has (repo checkout or packaged
+    install). See bm_store.invocation. Falls back to the repo spelling only
+    if bm_store cannot be loaded at all, in which case a wrong instruction
+    is the least of that session's problems."""
+    try:
+        return _store().invocation("bm-threads", __file__)
+    except Exception:
+        return "python3 %s" % os.path.abspath(__file__)
+
+
+def _store_cmd():
+    """bm_store's invocation, for the handover instructions this file prints.
+    Same resolution rule as _cmd above, for the other command, so a packaged
+    install is never told to run a tools/ path that it does not have."""
+    try:
+        return _store().invocation("bm-store", _store().__file__)
+    except Exception:
+        return "python3 bm_store.py"
+
+
 def _refresh_root_view(root):
     """Regenerate the project root's STATE.md after a mutation, calling
     bm_store's own advisory refresh (GATE 4, release-blockers spec,
@@ -507,7 +529,7 @@ def cmd_recommend(argv):
     root, _source = _resolve_root()
     mode = _load_mode(root) if root else {"mode": "off"}
     if mode.get("mode") == "on":
-        _out("thread mode is already ON. `bm_threads.py off` drains and parks it.")
+        _out("thread mode is already ON. `%s off` drains and parks it." % _cmd())
         return
     n = None
     if argv:
@@ -531,7 +553,7 @@ def cmd_recommend(argv):
         _out("RECOMMENDATION: %d parallel features detected or declared. Thread mode "
              "pays off at 3 or more (each thread keeps its own context, the chief "
              "stays small and stops compacting)." % n)
-        _out("  turn it on:  python3 tools/bm_threads.py on")
+        _out("  turn it on:  %s on" % _cmd())
         _out("  it stays off until you run that. Nothing flips by itself.")
     else:
         _out("RECOMMENDATION: stay single-orchestrator (%d feature(s)). Below 3 "
@@ -561,8 +583,8 @@ def cmd_on(argv):
     _out("thread mode ON. Cap: %d active persistent thread(s) (enforced by the store)."
          % bs.MAX_ACTIVE_PERSISTENT)
     _out("  root resolved via %s" % source)
-    _out("  start one:  python3 tools/bm_threads.py start <feature> \"<objective>\"")
-    _out("  review all: python3 tools/bm_threads.py dashboard")
+    _out("  start one:  %s start <feature> \"<objective>\"" % _cmd())
+    _out("  review all: %s dashboard" % _cmd())
 
 
 def cmd_off(argv):
@@ -624,7 +646,7 @@ def cmd_off(argv):
         except Exception as e:
             _warn("bm_threads: could not refresh STATE.md's generated view (%r); "
                   "every drained handover is in the store regardless (see "
-                  "`python3 tools/bm_store.py handovers`)." % (e,))
+                  "`%s handovers`)." % (e, _store_cmd()))
         if failed:
             _out("HANDOVER INCOMPLETE: %d of %d active thread(s) could not be drained:"
                  % (len(failed), len(candidates)))
@@ -997,8 +1019,9 @@ def cmd_adopt(argv):
     _refresh_root_view(root)
     _out("adopted '%s': its digest and fence are recorded, and its handover is "
          "in the store (lifecycle %s, version %s). %s renders it until it is "
-         "acknowledged (`python3 tools/bm_store.py handovers`)."
-         % (name, result.lifecycle_uuid, result.version, STATE_FILENAME))
+         "acknowledged (`%s handovers`)."
+         % (name, result.lifecycle_uuid, result.version, STATE_FILENAME,
+            _store_cmd()))
     _out("  DECIDE: respawn the thread, or continue this work solo. Nothing is orphaned.")
 
 
