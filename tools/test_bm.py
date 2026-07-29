@@ -121,6 +121,23 @@ def _claims(root, lifecycle_uuid):
 import unittest
 
 
+def _cli_receipt(runner, root, cid):
+    """Mint a real approval receipt THROUGH THE CLI and return its token.
+
+    Every CLI approval in this suite goes through here, so no test can keep
+    passing against the receipt-free approval path the product no longer has.
+    --json is used rather than scraping the human output, because the human
+    output is the one place a token is ever printed and parsing it by position
+    would break the moment that wording changes.
+
+    No shaping flags: the sites that call this approve the candidate exactly as
+    captured, which is what the receipt is then bound to."""
+    g = runner(root, ["grant-approval", cid, "--answer",
+                      "the founder answered yes, in a test", "--json"])
+    assert g.returncode == 0, g.stderr
+    return json.loads(g.stdout)["token"]
+
+
 class TestRedaction(unittest.TestCase):
     def test_secret_shapes_are_masked(self):
         cases = [
@@ -3032,7 +3049,9 @@ class TestLoop6LearningVerifyCli(unittest.TestCase):
                                      "--action", action, "--source", "manual"])
                 self.assertEqual(r.returncode, 0, r.stderr)
                 cid = r.stdout.split()[1]
-                return self._run(root, ["approve", cid, "--ref", "test"] + list(extra))
+                return self._run(root, ["approve", cid, "--ref", "test", "--receipt",
+                                        _cli_receipt(self._run, root, cid)]
+                                 + list(extra))
 
             first = capture_and_approve("always push through the GitHub Desktop app")
             self.assertEqual(first.returncode, 0, first.stderr)
@@ -3085,7 +3104,8 @@ class TestLoop8ExternalGradingCli(unittest.TestCase):
                                      "--source", "manual"])
             self.assertEqual(cap.returncode, 0, cap.stderr)
             cid = cap.stdout.split()[1]
-            app = self._learn(root, ["approve", cid, "--ref", "founder in chat"])
+            app = self._learn(root, ["approve", cid, "--ref", "founder in chat",
+                                     "--receipt", _cli_receipt(self._learn, root, cid)])
             self.assertEqual(app.returncode, 0, app.stderr)
             rid = app.stdout.split()[3]
             rel = self._learn(root, ["relevant", "--query",
@@ -3361,7 +3381,8 @@ class TestLoop12LearningCliPrivacy(unittest.TestCase):
                              "the count must cover every scrubbed field, not "
                              "only raw_text")
             # And it stays scrubbed through approval into the rule version.
-            a = self._learn(root, ["approve", cid, "--ref", "test"])
+            a = self._learn(root, ["approve", cid, "--ref", "test", "--receipt",
+                                   _cli_receipt(self._learn, root, cid)])
             self.assertEqual(a.returncode, 0, a.stderr)
             rules = self._learn(root, ["rules"])
             self.assertEqual(rules.returncode, 0, rules.stderr)
@@ -3391,7 +3412,8 @@ class TestLoop12LearningCliPrivacy(unittest.TestCase):
             self.assertIn(quote, shown.stdout,
                           "--show-source must still return it, or the flag is a lie")
 
-            a = self._learn(root, ["approve", cid, "--ref", "test"])
+            a = self._learn(root, ["approve", cid, "--ref", "test", "--receipt",
+                                   _cli_receipt(self._learn, root, cid)])
             self.assertEqual(a.returncode, 0, a.stderr)
             rules = json.loads(self._learn(root, ["rules", "--json"]).stdout)
             rid = rules[0]["rule_uuid"][:8]
@@ -3429,7 +3451,8 @@ class TestLoop12LearningCliPrivacy(unittest.TestCase):
                                    "--scope-key", "plain"])
             self.assertEqual(r.returncode, 0, r.stderr)
             cid = r.stdout.split()[1]
-            self.assertEqual(self._learn(root, ["approve", cid, "--ref", "t"]).returncode, 0)
+            self.assertEqual(self._learn(root, ["approve", cid, "--ref", "t", "--receipt",
+                                                _cli_receipt(self._learn, root, cid)]).returncode, 0)
             store = bs.Store(root)
             try:
                 store.conn.execute("UPDATE learning_rules SET scope_key = ?",
@@ -3472,6 +3495,146 @@ class TestLoop12LearningCliPrivacy(unittest.TestCase):
                               "a later correction was suppressed by an earlier "
                               "malformed row")
             self.assertIn("2026-07-29T00:00:00", out.stdout)
+
+
+class TestPostAuditLoop3ApprovalReceiptCli(unittest.TestCase):
+    """Post-audit LOOP 3 at the CLI boundary, which is where the audit finding
+    actually lived.
+
+    The repro, run against HEAD d88abcc in a throwaway store on 2026-07-29:
+    `bm_learn.py approve <id> --gate`, with no --ref and no receipt, exited 0
+    and printed "approved as rule 61de7eb9". The help text three lines from the
+    top of the same file said approval refuses without a recorded reference.
+    The CLI was synthesizing that reference itself, so the sentence was true
+    about the code and false about the world."""
+
+    def _learn(self, root, args, env_extra=None):
+        env = dict(os.environ, BROTHERMODE_ROOT=root)
+        env.update(env_extra or {})
+        return subprocess.run([sys.executable, os.path.join(HERE, "bm_learn.py")]
+                              + args, cwd=root, env=env, capture_output=True,
+                              text=True)
+
+    def _init(self, root):
+        env = dict(os.environ, BROTHERMODE_ROOT=root)
+        r = subprocess.run([sys.executable, os.path.join(HERE, "bm_store.py"),
+                            "init"], cwd=root, env=env, capture_output=True,
+                           text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def _candidate(self, root):
+        r = self._learn(root, ["capture", "--trigger", "pushing to github",
+                               "--action", "use the desktop app",
+                               "--source", "manual"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout.split()[1]
+
+    def test_the_exact_audit_repro_now_refuses_and_creates_nothing(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            cid = self._candidate(root)
+            r = self._learn(root, ["approve", cid, "--gate"])
+            self.assertEqual(r.returncode, 2,
+                             "the audit repro still succeeds: %s" % r.stdout)
+            self.assertIn("no-approval-receipt", r.stderr)
+            self.assertNotIn("approved as rule", r.stdout)
+            rules = self._learn(root, ["rules", "--json"])
+            self.assertEqual(json.loads(rules.stdout or "[]"), [])
+
+    def test_a_supplied_ref_alone_is_not_enough(self):
+        """--ref was the old gate. It is now the readable half of provenance,
+        and a test that only checked the no-ref case would let it quietly
+        become the gate again."""
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            cid = self._candidate(root)
+            r = self._learn(root, ["approve", cid, "--ref", "the founder said yes"])
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("no-approval-receipt", r.stderr)
+
+    def test_the_help_text_promises_only_what_the_code_enforces(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            h = self._learn(root, ["--help"])
+            self.assertEqual(h.returncode, 0, h.stderr)
+            self.assertIn("grant-approval", h.stdout,
+                          "the help must name the command that mints a receipt")
+            for claim in ("proves which human", "verifies your identity",
+                          "authenticates the founder"):
+                self.assertNotIn(claim, h.stdout.lower(),
+                                 "the help claims an identity guarantee that "
+                                 "does not exist")
+
+    def test_grant_then_approve_is_the_only_way_through(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            cid = self._candidate(root)
+            g = self._learn(root, ["grant-approval", cid, "--answer",
+                                   "yes, always the desktop app", "--json"])
+            self.assertEqual(g.returncode, 0, g.stderr)
+            token = json.loads(g.stdout)["token"]
+            a = self._learn(root, ["approve", cid, "--receipt", token])
+            self.assertEqual(a.returncode, 0, a.stderr)
+            self.assertIn("approved as rule", a.stdout)
+
+    def test_the_token_arrives_by_environment_so_it_stays_out_of_ps_and_history(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            cid = self._candidate(root)
+            g = self._learn(root, ["grant-approval", cid, "--answer", "yes",
+                                   "--json"])
+            token = json.loads(g.stdout)["token"]
+            a = self._learn(root, ["approve", cid],
+                            env_extra={"BM_APPROVAL_RECEIPT": token})
+            self.assertEqual(a.returncode, 0, a.stderr)
+
+    def test_a_replayed_token_refuses_at_the_cli(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            cid = self._candidate(root)
+            g = self._learn(root, ["grant-approval", cid, "--answer", "yes",
+                                   "--json"])
+            token = json.loads(g.stdout)["token"]
+            self.assertEqual(
+                self._learn(root, ["approve", cid, "--receipt", token]).returncode, 0)
+            second = self._learn(root, ["approve", cid, "--receipt", token])
+            self.assertEqual(second.returncode, 2)
+            rules = json.loads(self._learn(root, ["rules", "--json"]).stdout)
+            self.assertEqual(len(rules), 1, "a replay created a second rule")
+
+    def test_shaping_the_rule_differently_than_the_founder_saw_refuses(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            cid = self._candidate(root)
+            g = self._learn(root, ["grant-approval", cid, "--answer",
+                                   "yes, as a soft preference", "--json"])
+            token = json.loads(g.stdout)["token"]
+            r = self._learn(root, ["approve", cid, "--receipt", token, "--gate"])
+            self.assertEqual(r.returncode, 2,
+                             "a soft answer was silently upgraded to a gate")
+            self.assertIn("receipt-stale-candidate", r.stderr)
+
+    def test_the_token_is_printed_once_and_never_by_any_other_command(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            cid = self._candidate(root)
+            g = self._learn(root, ["grant-approval", cid, "--answer", "yes"])
+            self.assertEqual(g.returncode, 0, g.stderr)
+            token = [w for w in g.stdout.split() if len(w) == 48][0]
+            a = self._learn(root, ["approve", cid, "--receipt", token])
+            self.assertEqual(a.returncode, 0, a.stderr)
+            for cmd in (["candidates"], ["rules"], ["rules", "--json"],
+                        ["why", json.loads(
+                            self._learn(root, ["rules", "--json"]).stdout
+                        )[0]["rule_uuid"][:8]]):
+                out = self._learn(root, cmd)
+                self.assertNotIn(token, out.stdout + out.stderr,
+                                 "%r printed the receipt token" % (cmd,))
+            dump = subprocess.run(
+                [sys.executable, os.path.join(HERE, "bm_store.py"), "dump"],
+                cwd=root, env=dict(os.environ, BROTHERMODE_ROOT=root),
+                capture_output=True, text=True)
+            self.assertNotIn(token, dump.stdout)
 
 
 if __name__ == "__main__":

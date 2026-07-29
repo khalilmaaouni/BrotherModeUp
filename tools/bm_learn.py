@@ -22,11 +22,27 @@ WHAT THIS FILE MAY NOT DO
   bm_store.py, which stays the single writer. It performs no network access and
   spawns no subprocess.
 
-APPROVAL IS DELIBERATELY MANUAL
-  There is no --auto, no daemon, and no hook that can approve anything. The
-  approve command requires you to run it and to supply a reference recorded as
-  evidence. A background process cannot promote a candidate even by accident,
-  because the code path that creates rules refuses without that reference.
+APPROVAL NEEDS A RECEIPT FROM A REAL ANSWER OF YOURS
+  There is no --auto, no daemon, and no hook that can approve anything, and
+  since 2026-07-29 that is mechanical rather than a promise. Approval takes two
+  steps:
+
+    1. You are asked a question about one candidate. Whoever asked runs
+       `grant-approval <candidate> --answer "<what you said>"`, which prints a
+       one-time token, good for fifteen minutes, for that candidate only, and
+       tied to the exact rule text you were shown.
+    2. `approve <candidate> --receipt <token>` spends it. Once.
+
+  Change the candidate or the rule text after the question and the token dies.
+  Use it twice and the second try refuses. There is no override and no
+  break-glass: without a token, no rule is created.
+
+  WHAT THIS DOES NOT CLAIM. Nothing here authenticates WHICH human answered.
+  The token proves an answer was given about this exact thing and has not been
+  spent; it does not prove your identity, and no wording in this product says
+  it does. What it removes is the real hole: before this, any process that
+  could run this file could manufacture an approved rule, and the reference it
+  recorded said "run by the founder" whether or not anyone was there.
 
 RETRIEVAL MODE: lexical only today. No FTS5 index is built yet, and no output
 here claims full-text or BM25 ranking. `relevant` prints the mode it used.
@@ -225,7 +241,8 @@ def cmd_candidates(argv):
             _out("     source: %d chars captured, %d redactions (--show-source to read)"
                  % (len(c["raw_text"]), c["redaction_count"]))
     _out("")
-    _out("%d candidate(s). Approve with: bm_learn.py approve <id> --because \"...\"" % len(rows))
+    _out("%d candidate(s). Ask the founder, then: bm_learn.py grant-approval "
+         "<id> --answer \"...\", then approve <id> --receipt <token>" % len(rows))
     return 0
 
 
@@ -257,25 +274,96 @@ def cmd_show_candidate(argv):
     return 0
 
 
+_SHAPE_FLAGS = ("trigger", "action", "because", "domain", "scope", "scope-key", "type")
+
+
+def _shape_kwargs(kv):
+    """The flags that decide what the rule WOULD SAY, in the one shape both
+    grant-approval and approve pass down.
+
+    Shared on purpose: the receipt is fingerprinted over these values, so if the
+    two commands built them differently the token would never match and the
+    mismatch would look like tampering rather than a bug."""
+    return {"trigger": kv.get("trigger"), "action": kv.get("action"),
+            "because": kv.get("because"), "domain": kv.get("domain"),
+            "scope_type": kv.get("scope"), "scope_key": kv.get("scope-key"),
+            "rule_type": kv.get("type", "preference"),
+            "severity": "gate" if kv.get("gate") else "soft"}
+
+
+def cmd_grant_approval(argv):
+    """Turn one real answer from the founder into a one-time approval receipt.
+
+    Run this the moment he answers a question window, with the rule-shaping
+    flags set to EXACTLY what he was shown. The token it prints is the only copy
+    that will ever exist: the store keeps a hash, this command prints the
+    secret, and nothing else in the system ever sees it again.
+
+    The token goes to the person who ran the command, on stdout, once. Do not
+    paste it into a transcript, a commit message, a log or an issue: anyone
+    holding it can spend that one answer."""
+    pos, kv = _parse(argv, {"trigger", "action", "because", "domain", "scope",
+                            "scope-key", "type", "gate", "answer", "json"},
+                     wants_value=("trigger", "action", "because", "domain", "scope",
+                                  "scope-key", "type", "answer"))
+    if not pos or not (kv.get("answer") or "").strip():
+        _err("usage: grant-approval <candidate-id> --answer \"<what the founder "
+             "actually said>\" [--trigger ...] [--action ...] [--because ...] "
+             "[--scope ...] [--scope-key ...] [--gate]")
+        _err("the shaping flags must match what he was SHOWN: the receipt is "
+             "bound to that exact rule text and dies if it changes.")
+        return 2
+    store = _store()
+    try:
+        rec = store.mint_approval_receipt(pos[0], founder_response=kv["answer"],
+                                          **_shape_kwargs(kv))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(rec, indent=2, sort_keys=True))
+        return 0
+    _out("approval receipt %s for candidate %s"
+         % (rec["receipt_uuid"][:8], rec["candidate_uuid"][:8]))
+    _out("  expires %s (%d seconds), one candidate, one use"
+         % (rec["expires_at"], rec["ttl_seconds"]))
+    _out("  it dies if the candidate or the rule text changes before you approve")
+    _out("")
+    _out("  RECEIPT TOKEN, shown once and stored nowhere:")
+    _out("  %s" % rec["token"])
+    _out("")
+    _out("  spend it: bm_learn.py approve %s --receipt <token>"
+         % rec["candidate_uuid"][:8])
+    _out("  or put it in BM_APPROVAL_RECEIPT so it stays out of your shell history")
+    _out("  do not paste it into a log, a transcript or a commit message")
+    return 0
+
+
 def cmd_approve(argv):
     pos, kv = _parse(argv, {"trigger", "action", "because", "domain", "scope",
                             "scope-key", "type", "gate", "override-reason",
-                            "override-conflict", "ref", "json"},
+                            "override-conflict", "ref", "receipt", "json"},
                      wants_value=("trigger", "action", "because", "domain", "scope",
                                   "scope-key", "type", "override-reason",
-                                  "override-conflict", "ref"))
+                                  "override-conflict", "ref", "receipt"))
     if not pos:
-        _err("usage: approve <candidate-id> [--trigger ...] [--action ...] "
+        _err("usage: approve <candidate-id> --receipt <token> [--trigger ...] "
+             "[--action ...] "
              "[--because ...] [--scope global|project|domain|artifact|relationship|tool] "
              "[--scope-key ...] [--gate] [--ref \"why you approved\"]")
+        _err("the token comes from `grant-approval`, run when the founder "
+             "answered. BM_APPROVAL_RECEIPT is read when --receipt is absent.")
         return 2
-    # The invocation itself IS the founder act. Recording it as the default
-    # reference keeps approval attributable without inventing an identity.
-    ref = kv.get("ref") or ("bm_learn.py approve, run by the founder at %s" % bs.now_iso())
+    # The receipt is the gate; this reference is the readable half of
+    # provenance. It no longer claims the founder ran anything, because the
+    # command line cannot know that and used to say so anyway.
+    ref = kv.get("ref") or ("bm_learn.py approve at %s" % bs.now_iso())
+    # argv is visible to every process on the machine through ps, so the token
+    # may also arrive by environment. Neither path logs it.
+    receipt = kv.get("receipt") or os.environ.get("BM_APPROVAL_RECEIPT", "")
     store = _store()
     try:
         rule = store.approve_learning_candidate(
-            pos[0], founder_ref=ref, trigger=kv.get("trigger"),
+            pos[0], founder_ref=ref, receipt=receipt, trigger=kv.get("trigger"),
             action=kv.get("action"), because=kv.get("because"),
             domain=kv.get("domain"), scope_type=kv.get("scope"),
             scope_key=kv.get("scope-key"),
@@ -1214,6 +1302,7 @@ COMMANDS = {
     "metrics": cmd_metrics,
     "candidates": cmd_candidates,
     "show-candidate": cmd_show_candidate,
+    "grant-approval": cmd_grant_approval,
     "approve": cmd_approve,
     "reject": cmd_reject,
     "rules": cmd_rules,

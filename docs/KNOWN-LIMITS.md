@@ -187,6 +187,23 @@ What has NOT changed, and matters more than what has:
   UNPROVEN, ranked as the highest-harm open item in the project, until a real
   dogfood window (Loop 14a) closes it. No amount of further testing closes
   this; only using it does.
+- **Approval proves an answer, not an identity. UPDATED 2026-07-29 (post-audit
+  LOOP 3, Model A).** Until this date the "founder-only approval" claim was
+  wording, not mechanism: `bm_learn.py approve <id>` with no arguments beyond
+  the id created a rule and wrote its own approval evidence. Reproduced against
+  d88abcc, gate rule 61de7eb9, exit 0. Approval now needs a one-time receipt,
+  minted from a real answer, bound to one candidate and to the exact rule text
+  shown, valid fifteen minutes, spendable once, consumed in the same
+  transaction that creates the rule. What is still NOT true: nothing checks
+  WHICH human answered. Anyone who can run `grant-approval` can mint a receipt.
+  The guarantee is "an answer was given about this exact thing, once, recently",
+  not "the founder gave it". Read any wording that suggests otherwise as a
+  defect and report it.
+- **Rules approved before 2026-07-29 carry the old, weaker provenance.** The
+  schema 2 to 3 migration deliberately does not annotate or invalidate them.
+  If a store predates receipts, its existing rules were approved under the
+  mechanism described above as broken, and their approval evidence should be
+  read that way.
 - **No independent second-model review.** `docs/NOT-FINALIZED.md` item 12
   stays open. The privacy and security fixes that landed in Loop 12 (the
   secret scrubber and the withholding of raw founder text, described in item
