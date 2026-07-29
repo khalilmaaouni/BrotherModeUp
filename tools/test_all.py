@@ -53,6 +53,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SUITES = (
     "test_bm_store.py",
     "test_bm_fence_hook.py",
+    "test_install.py",
     "test_bm_autosave.py",
     "test_bm.py",
 )
