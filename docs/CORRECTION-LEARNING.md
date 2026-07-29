@@ -179,6 +179,27 @@ was exercised by hand for this document.
   `soft_returned` and `soft_omitted`. Retiring a gate still works: a
   deprecated or forgotten gate is not live, so it is not delivered.
 
+- **An empty screen says WHY it is empty (fix round P4-fix).** Zero results has
+  two causes that used to print the same sentence: nothing matched, or rules
+  matched and the limit cut every one of them. The first shipped wording said
+  "none matched" either way and, on the path that returns early, never printed
+  the omission count at all, so `--limit 0` in a store with a matching rule read
+  as a clean complete answer while the JSON from the same call reported the
+  omission. The two causes are now distinguishable, and the gate sentence and
+  the soft sentence are printed on every path out of the command.
+
+  ```
+  $ python3 tools/bm_learn.py relevant --query "deploying the website to production" --limit 0
+  no founder rules SHOWN here (1 in scope; mode=lexical). Rules matched. The result limit cut every one of them.
+  Gates: 0 of 0 applicable returned. A result limit cannot hide one.
+  Soft rules: 0 shown, 1 omitted by --limit 0. Raise the limit to see them.
+
+  $ python3 tools/bm_learn.py relevant --query "zebra xylophone quarantine"
+  no founder rules apply here (0 in scope, none matched; mode=lexical)
+  Gates: 0 of 0 applicable returned. A result limit cannot hide one.
+  Soft rules: 0 shown, none omitted.
+  ```
+
 ## What this does not claim, and why
 
 - **Not autonomous self-improvement.** Every rule that changes anything went
