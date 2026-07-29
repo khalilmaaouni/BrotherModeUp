@@ -990,15 +990,27 @@ def _approval_guards(store, L, prop, cand):
     alerts = store.blocking_alerts(cand)
     if alerts and not prop["override_alerts"]:
         first = alerts[0]
+        # An alert already overridden at ANOTHER gate still blocks this one (see
+        # blocking_alerts), so the refusal says so: without that sentence a
+        # founder who remembers overriding this alert last week reads the
+        # refusal as a bug rather than as a second gate asking about the same
+        # unanswered concern.
+        again = ""
+        if first["overridden_at"] is not None:
+            again = (" This alert was overridden at an earlier gate (%s: %s) "
+                     "and is still unresolved, so it stands in front of this "
+                     "one too."
+                     % (first["overridden_at"],
+                        L.safe_display(first["override_reason"], 120)))
         raise OwnershipRefused(
             "unresolved-critical-alert",
             "a critical alert is unresolved and stands in front of this "
             "approval: %s wrote %r about %s (note %s). Resolve it, or re-run "
             "with an explicit override reason. %d unresolved critical alert(s) "
-            "match this approval."
+            "match this approval.%s"
             % (L.safe_display(first["author"], 60),
                L.safe_display(first["body"], 160), first["matched"],
-               first["note_uuid"][:8], len(alerts)),
+               first["note_uuid"][:8], len(alerts), again),
             details={"note_uuids": [a["note_uuid"] for a in alerts]})
     return {"atomicity_problems": problems, "conflicts": found,
             "blocking_alerts": alerts}
@@ -4798,6 +4810,14 @@ class Store(object):
                 # alert it was forced past still reads as clean. The alert stays
                 # UNRESOLVED (nobody answered it) and stays visible as
                 # overridden, which is the founder decision, not a delete.
+                #
+                # THE ROW COLUMNS ARE A RECORD, NOT A SWITCH (fix round). They
+                # say the alert was forced past once, at this gate; they do not
+                # disarm it, because blocking_alerts no longer reads them. The
+                # UPDATE is still conditional on overridden_at IS NULL so the
+                # FIRST override keeps its reason and author, and each later
+                # gate's override is recorded as its own evidence row below,
+                # against the rule it let through.
                 for a in overridden_alerts:
                     _exec(self, "UPDATE notes SET overridden_at=?, "
                                 "override_reason=?, override_by=? "
@@ -4865,6 +4885,11 @@ class Store(object):
         also why blocking_alerts can compare an anchor against a work record's
         claimed paths at all: both sides are the same canonical string.
 
+        A 'candidate', 'rule' or 'record' anchor goes through
+        _resolve_note_anchor, which turns the prefix a human typed into the full
+        uuid it names or refuses. Read that method for the two silent failures
+        that used to come out of storing an unchecked string here.
+
         body and author are secret-scrubbed on the way in, like every other
         human-typed column."""
         if kind not in NOTE_KINDS:
@@ -4908,6 +4933,8 @@ class Store(object):
         key = anchor_key.strip()
         if anchor_type == "file":
             key = canonicalize_path(self.root, key)
+        else:
+            key = self._resolve_note_anchor(anchor_type, key)
         if anchor_line is not None:
             try:
                 anchor_line = int(anchor_line)
@@ -4929,6 +4956,71 @@ class Store(object):
                    author_kind, anchor_type, key, anchor_line,
                    redact_text(body), session_id or "", now_iso()))
         return self.get_note(nuuid)
+
+    # The resolvers an identifier anchor is checked against. One entry per
+    # anchor type that HAS an identity in the schema, so a new anchor type
+    # cannot be added and quietly skip resolution: anything absent from here is
+    # named in the refusal below as unresolvable, rather than silently accepted.
+    _ANCHOR_RESOLVERS = {
+        "candidate": ("candidate",
+                      lambda self, key: self.get_learning_candidate(key)["candidate_uuid"]),
+        "rule": ("rule",
+                 lambda self, key: self.get_learning_rule(key)["rule_uuid"]),
+        "record": ("work record",
+                   lambda self, key: self._resolve_record_uuid(key)),
+    }
+
+    def _resolve_note_anchor(self, anchor_type, key):
+        """An identifier anchor to the FULL uuid it names, or a refusal.
+
+        FIX ROUND, phase A: add_note used to range-check only a 'file' anchor
+        and take any non-empty string for the other four. Two silent failures
+        came out of that, both of them the same shape (an author believes a gate
+        is held and nothing is held):
+
+          * `--anchor candidate:deadbeefdeadbeef` naming no candidate was stored
+            open, reported as an alert that "REFUSES an approval anchored here",
+            and refused nothing, ever, because blocking_alerts had nothing to
+            match it against;
+          * a SHORT prefix (`--anchor candidate:e`) matched every candidate
+            whose uuid started with it, so one note blanketed unrelated gates
+            with a refusal nobody had written about them.
+
+        Resolving here fixes both at once: the prefix a human types is resolved
+        exactly as every other prefix in this project is resolved (one match or
+        a named refusal, never "the first match"), and what lands in the row is
+        the full uuid, which is why blocking_alerts can compare by equality.
+
+        'decision' has no single-column identity at schema 7 (a decision is
+        (lifecycle_uuid, seq)), so it is stored as typed and stated to be
+        toothless by the CLI that writes it, rather than validated against a
+        table that cannot answer."""
+        entry = self._ANCHOR_RESOLVERS.get(anchor_type)
+        if entry is None:
+            return key
+        label, resolve = entry
+        try:
+            resolved = resolve(self, key)
+        except OwnershipRefused as e:
+            if e.reason == "ambiguous":
+                # Named separately from the not-found case because the way out is
+                # different: type more characters, rather than find the right id.
+                raise OwnershipRefused(
+                    "ambiguous-anchor",
+                    "%r names more than one %s, and an alert that blankets "
+                    "several gates refuses work nobody wrote it about: %s"
+                    % (key, label, e))
+            raise OwnershipRefused(
+                "anchor-not-found",
+                "no %s matches %r, so an alert anchored there could never "
+                "refuse anything and nobody would find out: %s"
+                % (label, key, e))
+        if not resolved:
+            raise OwnershipRefused(
+                "anchor-not-found",
+                "no %s matches %r, so an alert anchored there could never "
+                "refuse anything and nobody would find out" % (label, key))
+        return resolved
 
     def get_note(self, prefix):
         rows = _exec(self, "SELECT * FROM notes WHERE note_uuid LIKE ?",
@@ -5052,10 +5144,27 @@ class Store(object):
     def blocking_alerts(self, cand):
         """Unresolved critical alerts standing in front of THIS approval.
 
-        Anchored to the candidate itself, or to any file the approval would
-        change (gate_change_set). Overridden alerts are excluded here and
-        nowhere else: the override is what lets the approval proceed, and the
-        row keeps saying it was overridden.
+        Anchored to the candidate itself, to the work record it came from, or to
+        any file the approval would change (gate_change_set).
+
+        AN OVERRIDE IS NOT A DISARM, and this is the fix round's central
+        correction. This method used to skip any note whose overridden_at was
+        set, and the override is written on the NOTE ROW, so one founder
+        override recorded at one gate made a still-unresolved critical alert
+        invisible to every later gate: the next approval saw no alert, printed no
+        stakes line about it, asked the founder nothing, and closed clean, while
+        `notes --open --severity critical` still listed the alert as unanswered.
+        A blocking alert now keeps blocking until it is RESOLVED (someone
+        answered it) or until the founder overrides it AT THIS GATE, where the
+        override is bound to a receipt minted against a fingerprint that
+        includes it. The row's own overridden_at stays exactly what it was, a
+        record of the first override, and is reported beside the refusal so a
+        founder can see the alert was forced past before.
+
+        Matching is by EQUALITY on the identifier anchors, which is safe because
+        add_note resolves a typed prefix to a full uuid at the door. It used to
+        be a startswith against the raw anchor, so a one-character anchor
+        blanketed every candidate in the store.
 
         Returns a list of note rows, oldest first, each carrying an extra
         'matched' key naming WHY it blocks, because a refusal that cannot say
@@ -5067,14 +5176,15 @@ class Store(object):
             return []
         changed = self.gate_change_set(cand)
         cuuid = cand["candidate_uuid"]
+        record_uuid = cand.get("source_record_uuid") or ""
         out = []
         for note in alerts:
-            if note["overridden_at"] is not None:
-                continue
             matched = ""
-            if note["anchor_type"] == "candidate" and cuuid.startswith(
-                    note["anchor_key"]):
+            if note["anchor_type"] == "candidate" and note["anchor_key"] == cuuid:
                 matched = "candidate %s" % cuuid[:8]
+            elif (note["anchor_type"] == "record" and record_uuid
+                    and note["anchor_key"] == record_uuid):
+                matched = "work record %s" % record_uuid[:8]
             elif note["anchor_type"] == "file":
                 for claimed in changed:
                     if paths_overlap(claimed, note["anchor_key"]):
@@ -8917,13 +9027,123 @@ def _warn(s, end="\n"):
     _raw_write(sys.stderr, safe + end)
 
 
-def _write_generated_file(path, text):
+# THE HUMAN BLOCK MARKERS, owned here because the FUNNEL has to know them.
+#
+# They live in the store module rather than in bm_packs.py for one reason: the
+# funnel below is the only code allowed to write a generated file, and it cannot
+# protect a block whose boundaries it cannot see. Phase B's documentation engine
+# writes files with the same markers (spec section B.4), so one definition also
+# keeps the pack and the engine from drifting into two spellings of the same
+# promise. bm_packs.py imports these rather than declaring its own.
+HUMAN_BLOCK_BEGIN = "<!-- bm-human:begin -->"
+HUMAN_BLOCK_END = "<!-- bm-human:end -->"
+
+
+def _human_block_spans(text):
+    """1-based line numbers of the lines INSIDE human blocks, as a set.
+
+    The markers themselves are generated structure and are not included: they
+    are redacted with the rest of the document, which changes nothing because
+    they are fixed strings this project writes.
+
+    Deliberately tolerant, for the same reason read_existing in bm_packs.py is:
+    an unterminated block runs to the end of the file rather than being treated
+    as absent, because guessing "no human text here" is the guess that destroys
+    it. A second begin marker INSIDE a block is content, not a nested block."""
+    inside = set()
+    depth = 0
+    for i, line in enumerate(text.split("\n"), 1):
+        stripped = line.strip()
+        if stripped == HUMAN_BLOCK_BEGIN and not depth:
+            depth = 1
+            continue
+        if stripped == HUMAN_BLOCK_END and depth:
+            depth = 0
+            continue
+        if depth:
+            inside.add(i)
+    return inside
+
+
+def human_block_secret_hits(text):
+    """Lines inside human blocks that the redactor WOULD have changed.
+
+    Returns a list of 1-based line numbers, empty when there is nothing to say.
+    The funnel preserves those lines (see _write_generated_file), so this is how
+    a generator tells a human that their own paragraph contains something
+    secret-shaped: preserved, and reported, rather than rewritten in silence.
+
+    Raises RedactionUnavailable, like every other caller of redact_text, because
+    "I could not check" must never read as "there was nothing to find"."""
+    inside = _human_block_spans(text or "")
+    if not inside:
+        return []
+    hits = []
+    for i, line in enumerate((text or "").split("\n"), 1):
+        if i in inside and redact_text(line) != line:
+            hits.append(i)
+    return hits
+
+
+def _redact_outside_human_blocks(text):
+    """redact_text over the generated parts of a document, VERBATIM inside the
+    human blocks.
+
+    I10 SAYS GENERATED OUTPUT NEVER DESTROYS HUMAN TEXT, and this funnel used to
+    break it in the one way nobody would notice. It ran redact_text over the
+    whole rendered document, human blocks included, and the redactor is a
+    PATTERN scrubber, not a secret oracle: 'the DB password: ask Sam' comes back
+    as 'the DB [REDACTED] Sam'. So a reviewer's paragraph was silently rewritten
+    on the next regeneration, the CLI reported the block as preserved, the change
+    was convergent (a later diff showed nothing), and there was no copy of the
+    original anywhere.
+
+    The human block is text a human typed into a file on disk. It never came out
+    of the store, so scrubbing it protects nothing that is not already written
+    down; what it does is destroy the one thing this project promises never to
+    destroy. It is therefore carried through byte for byte, and
+    human_block_secret_hits reports anything secret-shaped in it so the founder
+    can decide.
+
+    Everything OUTSIDE the markers, which is every line assembled from store
+    rows and repository text, is redacted exactly as before. A document with no
+    markers (STATE.md) takes the identical whole-text path it always did."""
+    inside = _human_block_spans(text or "")
+    if not inside:
+        return redact_text(text or "")
+    out = []
+    generated = []
+
+    def _flush():
+        if generated:
+            out.append(redact_text("\n".join(generated)))
+            del generated[:]
+
+    for i, line in enumerate((text or "").split("\n"), 1):
+        if i in inside:
+            _flush()
+            out.append(line)
+        else:
+            generated.append(line)
+    _flush()
+    return "\n".join(out)
+
+
+def _write_generated_file(path, text, protect_human_blocks=False):
     """THE FILE FUNNEL (see THE OUTPUT FUNNEL note below): the only path
     allowed to write a generated file (STATE.md, via write_state_view, and any
     generated document a sibling tool writes through
-    write_generated_document). Runs redact_text() over the whole text unconditionally
-    before _atomic_write_text ever sees it; if the redactor is unavailable
-    this raises RedactionUnavailable and nothing is written.
+    write_generated_document). Runs redact_text() over the whole text
+    unconditionally before _atomic_write_text ever sees it; if the redactor is
+    unavailable this raises RedactionUnavailable and nothing is written.
+
+    protect_human_blocks is OPT IN, and it is off for STATE.md on purpose. A
+    caller passing it promises the text is a DOCUMENT THIS PROJECT RENDERED with
+    the human markers as its own structure (read _redact_outside_human_blocks for
+    what the exemption buys and costs). STATE.md is assembled partly from
+    founder-typed store fields, and a field whose value happened to be the begin
+    marker would otherwise switch redaction off for the rest of the file, so that
+    door stays closed rather than trusted.
 
     Deliberately skips _sanitize_for_display (unlike _protect_text, for
     single-line messages): the text is a multi-line DOCUMENT whose own
@@ -8932,12 +9152,16 @@ def _write_generated_file(path, text):
     document a second time would escape them into literal \\x0a text and
     corrupt the file. Every founder-typed VALUE was already sanitized per
     field before assembly (_redacted_view_text); redact_text() here is a
-    defense-in-depth secret-pattern scan that does not touch newlines, so it
-    is safe even over human prose preserved outside the markers.
+    defense-in-depth secret-pattern scan that does not touch newlines. It is
+    NOT run over the human blocks, because a pattern scrubber over human prose
+    is not defense, it is deletion: see _redact_outside_human_blocks.
 
     Returns the protected text actually written (never the unprotected
     input), so a caller holding the return value never disagrees with disk."""
-    protected = redact_text(text or "")
+    if protect_human_blocks:
+        protected = _redact_outside_human_blocks(text or "")
+    else:
+        protected = redact_text(text or "")
     _atomic_write_text(path, protected)
     return protected
 
@@ -8949,15 +9173,19 @@ def write_generated_document(path, text):
     markdown document out of store rows and repository text, and a second
     private copy of "redact, then write atomically" in that file would be the
     third time this project grew a weaker duplicate of this exact primitive.
-    So there is one funnel and this is its public door: same unconditional
-    redact_text, same crash-atomic replacement, same refusal to write anything
-    at all when the redactor is unavailable.
+    So there is one funnel and this is its public door: same redact_text over
+    everything the generator assembled, same crash-atomic replacement, same
+    refusal to write anything at all when the redactor is unavailable, and the
+    human blocks carried through verbatim per I10.
 
     The caller owns the path, and is expected to have built it with
     safe_project_path so it cannot land outside the project. The directory must
     exist; this creates nothing, because a funnel that makes directories is a
-    funnel that can write somewhere nobody meant."""
-    return _write_generated_file(path, text)
+    funnel that can write somewhere nobody meant.
+
+    This door, and only this door, protects the human blocks: the text is a
+    document a sibling generator rendered, whose markers it wrote itself."""
+    return _write_generated_file(path, text, protect_human_blocks=True)
 
 
 def _parse_kv(argv):

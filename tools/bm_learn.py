@@ -1682,8 +1682,21 @@ def cmd_note(argv):
     _out("note %s recorded" % n["note_uuid"][:8])
     _out("  " + _note_line(n))
     if n["kind"] == bs.BLOCKING_NOTE_KIND and n["severity"] == bs.BLOCKING_NOTE_SEVERITY:
-        _out("  this REFUSES an approval anchored here until it is resolved, or "
-             "until the founder overrides it with a recorded reason")
+        # WHAT THIS SAYS DEPENDS ON THE ANCHOR, because the store's teeth do.
+        # bm_store.blocking_alerts matches a file, a candidate and a work
+        # record; a rule or a decision anchor is recorded and rendered but
+        # refuses nothing. Printing one promise for all five anchor types told an
+        # author a gate was held when nothing was held, which is the one thing an
+        # alert must never do.
+        if n["anchor_type"] in ("file", "candidate", "record"):
+            _out("  this REFUSES an approval anchored here until it is resolved, "
+                 "or until the founder overrides it AT THAT GATE with a recorded "
+                 "reason. An override at one gate does not clear it for the next.")
+        else:
+            _out("  recorded and rendered at its anchor, but an alert anchored to "
+                 "a %s refuses no approval by itself: anchor it to the file, the "
+                 "candidate or the work record if it must hold a gate."
+                 % n["anchor_type"])
     return 0
 
 
