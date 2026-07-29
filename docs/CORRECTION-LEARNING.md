@@ -232,10 +232,20 @@ applies, its author, the file, candidate, rule, record or decision it is
 anchored to, and its body. Notes are written by people, never generated.
 
 One kind has teeth. An UNRESOLVED `alert` at severity `critical`, anchored to a
-candidate or to any file that candidate's approval would change, REFUSES the
-approval. The refusal names the alert, its author and its anchor, and it fires
-both when the approval receipt is minted and when it is spent, so an alert
-raised after the founder answered still stops the rule being created.
+candidate, to the work record that candidate came from, or to any file that
+candidate's approval would change, REFUSES the approval. The refusal names the
+alert, its author and its anchor, and it fires both when the approval receipt is
+minted and when it is spent, so an alert raised after the founder answered still
+stops the rule being created. An alert anchored to a rule or to a decision is
+recorded and rendered at its anchor but refuses nothing by itself, and the
+command that writes it says so rather than promising teeth it does not have.
+
+An identifier anchor is resolved when the note is written: the prefix you type
+becomes the full uuid it names, or the write is refused because it names nothing
+(`anchor-not-found`) or more than one thing (`ambiguous-anchor`). Both refusals
+exist because of the same failure: an alert nobody can match is an alert whose
+author believes a gate is held while nothing is held, and a one-character anchor
+used to stand in front of every gate in the project.
 
 ```
 $ python3 tools/bm_learn.py note --kind alert --severity critical \
@@ -256,6 +266,13 @@ reference, the alert stays visible as overridden and stays unresolved, and the
 override is part of the approval fingerprint, so a receipt minted for a clean
 question cannot be spent with an override attached. There is no delete for a
 note anywhere in the code.
+
+An override is PER GATE, not a switch on the alert. The alert is still
+unresolved, so it stands in front of the next approval that touches its anchor
+too, and that refusal says when it was overridden before and with what reason.
+Anything else would mean one recorded override at one gate silently disarming a
+concern nobody ever answered, for every later gate in the project, including the
+gates that were never told the alert existed.
 
 The change set the refusal uses is what the store recorded: the claimed paths of
 the work record the candidate came from, plus the scope key when the scope is an
@@ -289,6 +306,16 @@ was written, so a citation whose lines moved, or whose body changed underneath a
 stable anchor, FAILS generation and names the remedy; a pack never quietly quotes
 code that is no longer there. And anything written between the human markers in
 the document survives regeneration byte for byte.
+
+Byte for byte means byte for byte, including the two ways it used not to. The
+secret scrubber every generated file is written through is not run over a human
+block, because it is a pattern scrubber and "the DB password: ask Sam" came back
+as "the DB [REDACTED] Sam"; when a line in a block does look secret shaped, the
+command says which line and leaves it alone. And a `bm-cite` comment inside a
+human block is prose, not configuration: an excerpt header pasted into a review
+note used to become a citation of the pack, which either added a code excerpt
+nobody asked for or refused every future regeneration until somebody edited the
+one part of the file that is supposed to be untouchable.
 
 ## What this does not claim, and why
 

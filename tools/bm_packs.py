@@ -93,8 +93,11 @@ SECTIONS = (
     "Review",
 )
 
-HUMAN_BEGIN = "<!-- bm-human:begin -->"
-HUMAN_END = "<!-- bm-human:end -->"
+# The human block markers come from bm_store, which owns them because the file
+# funnel has to see them to protect what is between them (I10). One definition,
+# so this file and the funnel can never disagree about where human text begins.
+HUMAN_BEGIN = bs.HUMAN_BLOCK_BEGIN
+HUMAN_END = bs.HUMAN_BLOCK_END
 
 # The machine-readable citation record. Written by the generator, re-read by the
 # generator. This is what makes I11 enforceable across runs: without a recorded
@@ -315,34 +318,49 @@ def read_existing(path):
     Returns {"human": [str, ...], "cites": [dict, ...]} and never raises on a
     malformed file: an unparseable pack is regenerated, and the human blocks
     are recovered by marker scan, which is the one part that must survive a
-    file somebody hand-edited."""
+    file somebody hand-edited.
+
+    THE MARKERS ARE READ FIRST, AND A CITATION IS ONLY READ OUTSIDE THEM. This
+    used to be one scan of every line for a bm-cite comment, with no regard for
+    where the line was, which made human prose executable as machine
+    configuration: a reviewer who pasted an excerpt header into the block the
+    file TELLS them to write in silently added a citation to the pack. A
+    resolving one appeared in section 3 as a generated excerpt nobody had asked
+    for; a non-resolving one wedged every future regeneration at exit 2, and the
+    only way out was to edit the human block I10 says must be preserved.
+    Reviewers quote code. That has to be safe.
+
+    A second begin marker inside a block is CONTENT, not a nested block, for the
+    same reason: the old scan reset its buffer on it and dropped every line
+    written before it."""
     out = {"human": [], "cites": []}
     if not os.path.isfile(path):
         return out
     with io.open(path, encoding="utf-8", errors="replace") as fh:
         text = fh.read()
+    inside = 0
+    buf = []
     for line in text.split("\n"):
-        m = _CITE_RE.match(line.strip())
+        stripped = line.strip()
+        if stripped == HUMAN_BEGIN and not inside:
+            inside = 1
+            buf = []
+            continue
+        if stripped == HUMAN_END and inside:
+            inside = 0
+            out["human"].append("\n".join(buf))
+            buf = []
+            continue
+        if inside:
+            buf.append(line)
+            continue
+        m = _CITE_RE.match(stripped)
         if m:
             out["cites"].append({
                 "path": m.group("path"), "start": int(m.group("start")),
                 "end": int(m.group("end")), "sha": m.group("sha"),
                 "anchor": _unquote_anchor(m.group("anchor"))})
-    depth = 0
-    buf = []
-    for line in text.split("\n"):
-        if line.strip() == HUMAN_BEGIN:
-            depth += 1
-            buf = []
-            continue
-        if line.strip() == HUMAN_END and depth:
-            depth -= 1
-            out["human"].append("\n".join(buf))
-            buf = []
-            continue
-        if depth:
-            buf.append(line)
-    if depth and buf:
+    if inside and buf:
         # An unterminated human block. Kept, because losing a paragraph because
         # somebody forgot the closing marker is exactly the destruction I10
         # forbids. The regenerated file closes it.
@@ -374,11 +392,21 @@ def merge_citations(recorded, added, recited):
       * a --cite adds one, or replaces a recorded one at the same range;
       * everything else recorded stays, so regeneration without arguments
         re-checks exactly what the pack already claims.
+
+    RECORDED ROWS ARE DEDUPED BY KEY, and that is a fix, not a tidy-up. This
+    function used to index seen[key] while appending EVERY recorded row, so two
+    rows could share path:start-end while only the first was reachable by key.
+    The --recite loop then replaced the first match and stopped, the unreachable
+    twin kept its stale hash, and the pack refused forever with a remedy printed
+    on the refusal that could not work. Two rows claiming the same range are one
+    citation; the first one wins, because that is the one the generator wrote.
     """
     out = []
     seen = {}
     for c in recorded:
         key = _cite_key(c["path"], c["start"], c["end"])
+        if key in seen:
+            continue
         seen[key] = len(out)
         out.append(dict(c))
     for c in added:
@@ -392,14 +420,25 @@ def merge_citations(recorded, added, recited):
             seen[key] = len(out)
             out.append(dict(c))
     for c in recited:
-        replaced = False
-        for i, existing in enumerate(out):
-            if existing["path"] == c["path"]:
-                out[i] = dict(c)
-                replaced = True
-                break
-        if not replaced:
-            out.append(dict(c))
+        key = _cite_key(c["path"], c["start"], c["end"])
+        if key in seen:
+            # The remedy the refusal prints names the exact range, so this is
+            # the path a founder following the printed instruction takes.
+            out[seen[key]] = dict(c)
+            continue
+        same_path = [i for i, existing in enumerate(out)
+                     if existing["path"] == c["path"]]
+        if len(same_path) == 1:
+            # The excerpt MOVED: one citation in that file, new line numbers.
+            out[same_path[0]] = dict(c)
+            seen[key] = same_path[0]
+            continue
+        # Either nothing cited that file yet, or several ranges in it and no way
+        # to know which one moved. Added rather than guessed: replacing an
+        # arbitrary one of several would silently retarget a review at code
+        # nobody chose.
+        seen[key] = len(out)
+        out.append(dict(c))
     return out
 
 
@@ -999,15 +1038,18 @@ def _mermaid(cites, deps):
 def _notes_for(store, cand, cites):
     """Every note anchored to this candidate or to a cited file, oldest first.
 
-    Matched the same two ways the store's own refusal matches, rather than by
-    equality: a candidate anchor may be any uuid PREFIX, and a file anchor may be
-    a glob or a parent directory. Equality would silently drop a note from the
-    one document a reviewer reads, which is the failure the anchored-note design
-    exists to prevent."""
+    Matched the same way the store's own refusal matches, so the pack and the
+    gate can never disagree about which notes are in front of this approval: a
+    candidate anchor by equality (bm_store.add_note resolves the prefix a human
+    typed to the full uuid at the door, so equality is what a resolved anchor
+    compares as), and a file anchor through paths_overlap, because a file anchor
+    may be a glob or a parent directory. It used to be a startswith on the
+    candidate anchor, which rendered one short anchor as an open critical alert
+    on every pack in the project."""
     cuuid = cand["candidate_uuid"]
     out = []
     for n in store.list_notes():
-        if n["anchor_type"] == "candidate" and cuuid.startswith(n["anchor_key"]):
+        if n["anchor_type"] == "candidate" and n["anchor_key"] == cuuid:
             out.append(n)
             continue
         if n["anchor_type"] == "file" and any(
@@ -1077,6 +1119,12 @@ def cmd_pack(argv):
         directory = os.path.dirname(path)
         if not os.path.isdir(directory):
             os.makedirs(directory)
+        # Checked BEFORE the write, on the text about to be written, so the
+        # numbers reported below are line numbers in the file on disk. The funnel
+        # carries a human block through verbatim (I10), which is the whole point;
+        # this is how a human hears that their own paragraph holds something
+        # secret-shaped, instead of finding it quietly rewritten.
+        human_hits = bs.human_block_secret_hits(text)
         bs.write_generated_document(path, text)
     finally:
         store.close()
@@ -1084,6 +1132,7 @@ def cmd_pack(argv):
         _out(json.dumps({"pack_path": rel, "index": n,
                          "citations": len(resolved),
                          "preserved_human_blocks": len(prior["human"]),
+                         "human_block_secret_shaped_lines": human_hits,
                          "blocking_alerts": len(alerts),
                          "sections": list(SECTIONS)},
                         indent=2, sort_keys=True))
@@ -1091,6 +1140,11 @@ def cmd_pack(argv):
     _out("wrote %s" % rel)
     _out("  %d section(s), %d citation(s) re-read from disk, %d human block(s) "
          "preserved" % (len(SECTIONS), len(resolved), len(prior["human"])))
+    if human_hits:
+        _out("  KEPT VERBATIM AND WORTH READING: line(s) %s inside a human "
+             "block look secret shaped. Nothing was rewritten (I10). If that is "
+             "a real credential, edit the block and rotate it."
+             % ", ".join(str(i) for i in human_hits))
     if alerts:
         _out("  %d UNRESOLVED CRITICAL ALERT(S): this gate will refuse to close"
              % len(alerts))
