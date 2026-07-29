@@ -678,6 +678,220 @@ class TestGatePacks(unittest.TestCase):
                 "the destructive variant did NOT lose the human block, so the "
                 "preservation test above proves nothing")
 
+    # -- FIX ROUND: the two ways generation still destroyed or obeyed
+    # -- human text -----------------------------------------------------
+
+    # Ordinary review prose that the SECRET SCRUBBER rewrites. This is not a
+    # credential; it is how an engineer writes a handover note, and
+    # bm_telemetry.redact turns "password: ask" into "[REDACTED] ".
+    REDACTABLE_HUMAN = ("Dana: the DB password: ask Sam before you touch the "
+                        "migration.")
+
+    def _plant_human_text(self, path, body):
+        with io.open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        marker = "<!-- bm-human:begin -->\n<!-- bm-human:end -->"
+        self.assertIn(marker, text, "the pack has no empty human block to fill")
+        with io.open(path, "w", encoding="utf-8") as fh:
+            fh.write(text.replace(
+                marker,
+                "<!-- bm-human:begin -->\n%s\n<!-- bm-human:end -->" % body, 1))
+
+    def test_regeneration_keeps_human_prose_the_redactor_would_rewrite(self):
+        """THE DEFECT THIS FIXES. The pack is written through the file funnel,
+        which ran the secret scrubber over the WHOLE document including the
+        reinjected human blocks. The scrubber is pattern based, so a reviewer's
+        sentence came back as 'the DB [REDACTED] Sam', with no warning, no copy
+        anywhere, and '1 human block(s) preserved' on stdout. Convergent after
+        one pass, so a later diff showed nothing."""
+        with tempfile.TemporaryDirectory() as d:
+            cid = self._project(d)
+            self._generate(d, cid)
+            path, _text = self._pack_text(d)
+            self._plant_human_text(path, self.REDACTABLE_HUMAN)
+            r = self._run(d, "pack", cid)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            _p, text = self._pack_text(d)
+            self.assertIn(self.REDACTABLE_HUMAN, text,
+                          "the funnel rewrote human prose, which I10 forbids")
+            self.assertNotIn("REDACTED", text)
+            self.assertIn("KEPT VERBATIM AND WORTH READING", r.stdout,
+                          "preserving it silently is not enough: the founder has "
+                          "to be told what it looks like")
+
+    def test_calibrated_a_funnel_that_redacts_everything_eats_the_paragraph(self):
+        """The reinjection for the test above: put whole-text redaction back and
+        the reviewer's sentence is destroyed on disk."""
+        with tempfile.TemporaryDirectory() as d:
+            cid = self._project(d)
+            self._generate(d, cid)
+            path, _text = self._pack_text(d)
+            self._plant_human_text(path, self.REDACTABLE_HUMAN)
+            bs = self._bs()
+            spec = importlib.util.spec_from_file_location(
+                "bm_packs_whole_text_redact", self.PACKS)
+            bp = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(bp)
+            original = bp.bs._redact_outside_human_blocks
+            bp.bs._redact_outside_human_blocks = (
+                lambda text: bp.bs.redact_text(text or ""))
+            cwd = os.getcwd()
+            os.chdir(d)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(bp.main(["pack", cid]), 0)
+            finally:
+                os.chdir(cwd)
+                bp.bs._redact_outside_human_blocks = original
+            _p, text = self._pack_text(d)
+            self.assertNotIn(
+                self.REDACTABLE_HUMAN, text,
+                "the reinjected whole-text redaction did NOT eat the paragraph, "
+                "so the test above proves nothing")
+            self.assertIn("REDACTED", text)
+            self.assertTrue(bs.human_block_secret_hits(text) is not None)
+
+    CITE_IN_PROSE = ('<!-- bm-cite: path=README.md lines=1-1 sha256=%s '
+                     'anchor="# demo" -->' % ("0" * 64))
+
+    def test_a_citation_pasted_into_a_human_block_is_prose_not_configuration(self):
+        """A reviewer quoting an excerpt header in the block the file TELLS them
+        to write in used to add a citation to the pack. A non-resolving one
+        wedged every future regeneration at exit 2, and the remedy the refusal
+        printed did not work, so the only way out was editing the human block
+        I10 says must be preserved. Reviewers quote code; that has to be safe."""
+        with tempfile.TemporaryDirectory() as d:
+            cid = self._project(d)
+            self._generate(d, cid)
+            path, before = self._pack_text(d)
+            citations_before = before.count("<!-- bm-cite:")
+            self._plant_human_text(
+                path, "%s\n%s" % (self.CITE_IN_PROSE, self.HUMAN))
+            r = self._run(d, "pack", cid)
+            self.assertEqual(r.returncode, 0,
+                             "prose wedged generation: %s" % (r.stdout + r.stderr))
+            _p, after = self._pack_text(d)
+            self.assertIn(self.HUMAN, after)
+            self.assertIn(self.CITE_IN_PROSE, after,
+                          "the pasted line is human text and stays verbatim")
+            self.assertEqual(after.count("<!-- bm-cite:"),
+                             citations_before + 1,
+                             "a citation was adopted out of human prose")
+            self.assertNotIn("README.md` lines 1 to 1", after,
+                             "human prose produced a generated code excerpt")
+            r2 = self._run(d, "pack", cid)
+            self.assertEqual(r2.returncode, 0, r2.stdout + r2.stderr)
+            _p, again = self._pack_text(d)
+            self.assertEqual(after, again, "regeneration is no longer idempotent")
+
+    def test_calibrated_the_old_whole_file_scan_adopts_the_pasted_citation(self):
+        """The reinjection: scan every line for a citation, as read_existing used
+        to, and the pasted prose wedges the pack at exit 2."""
+        with tempfile.TemporaryDirectory() as d:
+            cid = self._project(d)
+            self._generate(d, cid)
+            path, _text = self._pack_text(d)
+            self._plant_human_text(
+                path, "%s\n%s" % (self.CITE_IN_PROSE, self.HUMAN))
+            spec = importlib.util.spec_from_file_location(
+                "bm_packs_whole_file_cite_scan", self.PACKS)
+            bp = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(bp)
+            original = bp.read_existing
+
+            def _whole_file_scan(p):
+                out = original(p)
+                with io.open(p, encoding="utf-8") as fh:
+                    for line in fh.read().split("\n"):
+                        m = bp._CITE_RE.match(line.strip())
+                        if m:
+                            out["cites"].append({
+                                "path": m.group("path"),
+                                "start": int(m.group("start")),
+                                "end": int(m.group("end")),
+                                "sha": m.group("sha"),
+                                "anchor": bp._unquote_anchor(m.group("anchor"))})
+                return out
+
+            bp.read_existing = _whole_file_scan
+            cwd = os.getcwd()
+            os.chdir(d)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    with contextlib.redirect_stderr(io.StringIO()) as err:
+                        code = bp.main(["pack", cid])
+            finally:
+                os.chdir(cwd)
+                bp.read_existing = original
+            self.assertEqual(code, 2,
+                             "the reinjected whole-file scan did NOT adopt the "
+                             "pasted citation, so the test above proves nothing")
+            self.assertIn("refused (citation-", err.getvalue())
+
+    def test_a_stray_begin_marker_inside_a_block_keeps_the_paragraph(self):
+        """The old marker scan reset its buffer on a second begin marker, so
+        everything written before it was dropped: a human block eaten by a line
+        the human typed."""
+        with tempfile.TemporaryDirectory() as d:
+            cid = self._project(d)
+            self._generate(d, cid)
+            path, _text = self._pack_text(d)
+            self._plant_human_text(
+                path, "%s\n<!-- bm-human:begin -->\nDana, still here." % self.HUMAN)
+            r = self._run(d, "pack", cid)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            _p, text = self._pack_text(d)
+            self.assertIn(self.HUMAN, text,
+                          "a stray begin marker ate the paragraph above it")
+            self.assertIn("Dana, still here.", text)
+
+    def test_the_recite_remedy_the_refusal_prints_actually_works(self):
+        """I11 promises a loud refusal with a stated remedy. The remedy has to
+        work: merge_citations indexed recorded rows by key but appended every
+        one, and the recite loop replaced the first row matching the PATH and
+        stopped, so a pack citing two ranges of one file could not be recited at
+        all."""
+        with tempfile.TemporaryDirectory() as d:
+            cid = self._project(d)
+            self._generate(d, cid)
+            r = self._run(d, "pack", cid, "--cite", "%s:9-10" % self.CITED)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            source = os.path.join(d, *self.CITED.split("/"))
+            with io.open(source, encoding="utf-8") as fh:
+                moved = fh.read().replace("    return -amount",
+                                          "    return 0 - amount")
+            with io.open(source, "w", encoding="utf-8") as fh:
+                fh.write(moved)
+            r = self._run(d, "pack", cid)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("--recite", r.stderr)
+            remedy = r.stderr.split("--recite ", 1)[1].split(" to record")[0]
+            r = self._run(d, "pack", cid, "--recite", remedy)
+            self.assertEqual(r.returncode, 0,
+                             "the printed remedy did not work: %s"
+                             % (r.stdout + r.stderr))
+            _p, text = self._pack_text(d)
+            self.assertIn("lines 4 to 6", text,
+                          "reciting one range dropped the other citation")
+            self.assertIn("lines 9 to 10", text)
+
+    def test_two_recorded_rows_for_one_range_collapse_to_one(self):
+        """The unit-level statement of the same defect, on the function itself."""
+        spec = importlib.util.spec_from_file_location(
+            "bm_packs_merge", self.PACKS)
+        bp = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bp)
+        twin = {"path": "a.py", "start": 1, "end": 1, "sha": "0" * 64,
+                "anchor": "x"}
+        merged = bp.merge_citations([dict(twin), dict(twin)], [], [])
+        self.assertEqual(len(merged), 1)
+        recited = bp.merge_citations(
+            [dict(twin), dict(twin)], [],
+            [{"path": "a.py", "start": 1, "end": 1, "sha": "", "anchor": "x"}])
+        self.assertEqual([c["sha"] for c in recited], [""],
+                         "a recite left a stale twin behind, which is what "
+                         "wedged the pack forever")
+
     def test_the_generated_pack_carries_no_em_or_en_dash(self):
         with tempfile.TemporaryDirectory() as d:
             cid = self._project(d, with_alert=True)
