@@ -277,8 +277,19 @@ file permission semantics, and the worktree layout are unverified there.
 - The `deliveries` table and the full-length handover fingerprint shipped with no
   writer. RESOLVED 2026-07-29 (Loop P12): `deliveries` was deleted earlier as
   decoration, and the fingerprint now has a real writer. It is the dedupe behind
-  UNIQUE(lifecycle_uuid, payload_fingerprint) on the `handovers` table, which is
-  what stops a retried handover being stored or rendered twice.
+  the unique index on the `handovers` table, which is what stops a retried
+  handover being stored or rendered twice. CORRECTED the same day (P12 fix
+  round): that index was UNIQUE(lifecycle_uuid, payload_fingerprint) over every
+  row for all time, and a key that wide does not deduplicate handovers, it
+  deletes them. The fingerprint covers the objective, files, owner, tier, check,
+  evidence, latest digest and decisions, and NOT the state, version, transition,
+  heading or sessions, so a second park after an acknowledged one wrote nothing
+  at all. Schema 6 makes it UNIQUE(lifecycle_uuid, payload_fingerprint, heading)
+  WHERE delivered_at IS NULL. What that still means, stated rather than hidden:
+  two parks with the SAME heading while the first is unacknowledged remain one
+  row, so the second transition has no handover row of its own. The founder sees
+  the same text either way; the one-transition-one-handover link is exact only
+  up to identical text.
 - `send()` takes no expected version, making directives the one mutation without
   optimistic concurrency. Phase 3 owns the directive experience.
 

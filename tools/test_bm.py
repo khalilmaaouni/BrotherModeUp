@@ -2617,6 +2617,148 @@ class TestPostAuditLoopP12TransactionalHandovers(unittest.TestCase):
             bs.write_state_view(d)
             self.assertEqual(_read(os.path.join(d, "STATE.md")).count("Drained: alpha"), 1,
                              "the retried handover was rendered twice")
+            self.assertIsNone(rows[0]["delivered_at"],
+                              "the one surviving row must be the UNDELIVERED one: the "
+                              "dedupe is only honest while the founder can still see it")
+
+    # -- fix round, 2026-07-29: the dedupe that deleted handovers -----------
+    #
+    # The three tests below are the fix for the P12 fix-round findings. The
+    # dedupe index was UNIQUE(lifecycle_uuid, payload_fingerprint) over ALL
+    # rows for ALL time, and _insert_handover swallowed its IntegrityError
+    # unconditionally while transition() discarded the result. handover_payload
+    # fingerprints objective, files, owner, tier, check, evidence, latest digest
+    # and decisions, and NOT state, version, transition_id or heading, so a
+    # second park or an adopt with an unchanged payload wrote nothing at all.
+
+    def _park_ack_resume(self, d, heading="Drained: alpha"):
+        """Park with a handover, acknowledge it, resume. Leaves the record
+        ACTIVE with one DELIVERED handover behind it, which is the state that
+        used to make the next park's handover vanish."""
+        rec = _identity_rows(d, "alpha")[0]
+        store = bs.Store(d, create=False)
+        try:
+            store.transition(rec["lifecycle_uuid"], rec["version"], "parked",
+                              session_id="s1", handover_heading=heading)
+            store.acknowledge_handover(self._handover_rows(d)[0]["handover_uuid"])
+            back = _identity_rows(d, "alpha")[0]
+            store.transition(back["lifecycle_uuid"], back["version"], "active",
+                              session_id="s1")
+        finally:
+            store.close()
+        return _identity_rows(d, "alpha")[0]
+
+    def test_a_park_after_an_acknowledged_handover_still_writes_one(self):
+        # THE FINDING: park, acknowledge, resume, park again with the payload
+        # unchanged. The second park committed with NO handover row anywhere:
+        # `handovers` said none, STATE.md had no section, `verify` said healthy.
+        with tempfile.TemporaryDirectory() as d:
+            self._thread(d)
+            again = self._park_ack_resume(d)
+            store = bs.Store(d, create=False)
+            try:
+                store.transition(again["lifecycle_uuid"], again["version"], "parked",
+                                  session_id="s1", handover_heading="Drained: alpha")
+            finally:
+                store.close()
+            rows = self._handover_rows(d)
+            self.assertEqual(len(rows), 2,
+                             "the second park lost its handover to the first one's "
+                             "fingerprint: %s" % [r["heading"] for r in rows])
+            undelivered = self._handover_rows(d, undelivered_only=True)
+            self.assertEqual(len(undelivered), 1, undelivered)
+            self.assertEqual([r["state"] for r in _identity_rows(d, "alpha")], ["parked"])
+            bs.write_state_view(d)
+            self.assertIn("Drained: alpha", _read(os.path.join(d, "STATE.md")),
+                          "a parked record's handover must render again")
+
+    def test_calibrated_the_all_time_fingerprint_index_loses_that_handover(self):
+        # REINJECTION: put the schema-5 index back, exactly as it shipped, and
+        # run the same sequence. The record parks and no undelivered handover
+        # exists. If this stops reproducing, the test above proves nothing.
+        with tempfile.TemporaryDirectory() as d:
+            self._thread(d)
+            again = self._park_ack_resume(d)
+            store = bs.Store(d, create=False)
+            try:
+                store.conn.execute("DROP INDEX handovers_undelivered_text_idx")
+                store.conn.execute(
+                    "CREATE UNIQUE INDEX handovers_lifecycle_fingerprint_idx "
+                    "ON handovers(lifecycle_uuid, payload_fingerprint)")
+                # The old swallow, restored for the length of this call: any
+                # IntegrityError becomes "already" and the caller never hears.
+                real = bs.Store._insert_handover
+
+                def old_swallow(self, lifecycle_uuid, transition_id, heading,
+                                from_session_id="", to_session_id="", at=None):
+                    try:
+                        return real(self, lifecycle_uuid, transition_id, heading,
+                                    from_session_id=from_session_id,
+                                    to_session_id=to_session_id, at=at)
+                    except bs.HandoverLost:
+                        return "already"
+
+                bs.Store._insert_handover = old_swallow
+                try:
+                    store.transition(again["lifecycle_uuid"], again["version"], "parked",
+                                      session_id="s1", handover_heading="Drained: alpha")
+                finally:
+                    bs.Store._insert_handover = real
+            finally:
+                store.close()
+            self.assertEqual([r["state"] for r in _identity_rows(d, "alpha")], ["parked"],
+                             "REINJECTION CHECK: the old shape must still park the record")
+            self.assertEqual(
+                self._handover_rows(d, undelivered_only=True), [],
+                "REINJECTION CHECK: with the schema-5 index and the old swallow, a "
+                "parked record with no visible handover must still be reachable; if "
+                "this fails, the test above is not calibrated to the defect it claims")
+
+    def test_a_swallow_with_nothing_left_to_render_rolls_the_transition_back(self):
+        # The guard behind the index: even with the schema-5 index put back,
+        # _insert_handover now refuses to swallow when no UNDELIVERED twin
+        # exists, and the transition rolls back with it. The record does not
+        # move, so "parked with no handover" is unreachable twice over.
+        with tempfile.TemporaryDirectory() as d:
+            self._thread(d)
+            again = self._park_ack_resume(d)
+            store = bs.Store(d, create=False)
+            try:
+                store.conn.execute("DROP INDEX handovers_undelivered_text_idx")
+                store.conn.execute(
+                    "CREATE UNIQUE INDEX handovers_lifecycle_fingerprint_idx "
+                    "ON handovers(lifecycle_uuid, payload_fingerprint)")
+                with self.assertRaises(bs.HandoverLost) as caught:
+                    store.transition(again["lifecycle_uuid"], again["version"], "parked",
+                                      session_id="s1", handover_heading="Drained: alpha")
+                self.assertEqual(caught.exception.reason, "handover-lost")
+            finally:
+                store.close()
+            self.assertEqual([r["state"] for r in _identity_rows(d, "alpha")], ["active"],
+                             "the transition committed without its handover")
+            self.assertEqual(self._handover_rows(d, undelivered_only=True), [])
+
+    def test_an_adoption_after_a_park_renders_its_own_heading(self):
+        # THE SECOND FINDING: adopt right after `threads off`. The payload has
+        # not changed since the park (adopt writes no digest of its own), so
+        # the adoption's handover lost on the fingerprint and STATE.md kept
+        # rendering the park's heading, and a body reading 'parked', for a
+        # record the store had already moved to 'adopted'.
+        with tempfile.TemporaryDirectory() as d:
+            self._thread(d, name="gamma", session="s9")
+            _run_threads(["off"], d)
+            r = _run_threads(["adopt", "gamma", "--session", "chief"], d)
+            self.assertEqual(r.returncode, 0, r.stdout)
+            headings = [row["heading"] for row in self._handover_rows(d)]
+            self.assertEqual(len(headings), 2, headings)
+            self.assertTrue(any(h.startswith("Adopted from") for h in headings),
+                            "the adoption has no handover of its own: %s" % headings)
+            state = _read(os.path.join(d, "STATE.md"))
+            self.assertIn("Adopted from dead/stalled thread: gamma", state,
+                          "the CLI told the founder the adoption handover renders, and "
+                          "it does not")
+            self.assertEqual([row["state"] for row in _identity_rows(d, "gamma")],
+                             ["adopted"])
 
     def test_a_refused_adoption_writes_nothing_at_all(self):
         # "Refused adoption changes no state and writes no handover."
