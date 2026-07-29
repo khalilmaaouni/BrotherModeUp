@@ -2898,6 +2898,65 @@ class TestLoop6ConflictSemantics(unittest.TestCase):
             bl.action_relation(self.ALWAYS, "write the summary in French"),
             "not_comparable")
 
+    PADDED_NEVER = ("never push through the GitHub Desktop app, use the plain "
+                    "command line instead every single time without exception")
+
+    def test_a_padded_reversal_is_still_a_reversal(self):
+        """The defect this closes: symmetric overlap punished length. Padding
+        the reversal with an ordinary founder clause dropped the score under
+        INCOMPATIBLE_FLOOR, the pair came back 'not_comparable', and two
+        opposite instructions were free to sit side by side in the injectable
+        set with nothing anywhere saying they disagreed."""
+        self.assertLess(bl._jaccard(bl._content_tokens(self.ALWAYS),
+                                    bl._content_tokens(self.PADDED_NEVER)),
+                        bl.INCOMPATIBLE_FLOOR,
+                        "symmetric overlap alone still cannot see this one")
+        self.assertTrue(bl.direct_reversal(self.ALWAYS, self.PADDED_NEVER))
+        self.assertEqual(bl.action_relation(self.ALWAYS, self.PADDED_NEVER),
+                         "incompatible")
+
+    def test_a_reversal_counts_however_the_triggers_were_phrased(self):
+        """Triggers are free text and the founder says the same situation two
+        ways. The trigger floor is a tie breaker, not a veto: it may not turn a
+        reversal into 'unrelated'."""
+        a = {"scope_type": "global", "scope_key": "",
+             "trigger_text": "pushing to github", "action_text": self.ALWAYS}
+        b = {"scope_type": "global", "scope_key": "",
+             "trigger_text": "publishing commits upstream to the remote host",
+             "action_text": self.NEVER}
+        v = bl.conflict_verdict(a, b)
+        self.assertLess(v["trigger_overlap"], bl.TRIGGER_OVERLAP_FLOOR)
+        self.assertEqual(v["verdict"], "contradiction")
+        self.assertTrue(v["direct_reversal"])
+        self.assertIn("direct reversal", " ".join(v["reasons"]),
+                      "a bypassed floor has to say it was bypassed")
+
+    def test_an_intensifier_is_not_a_negation(self):
+        """"no exceptions" makes a rule stronger, not opposite. Reading the
+        "no" flipped an ordinary REQUIRE to FORBID and manufactured a
+        contradiction against a rule that plainly agreed with it, which the
+        founder could then only get past by overriding a conflict that did not
+        exist."""
+        self.assertEqual(bl.polarity("always run the tests, no exceptions"),
+                         "require")
+        self.assertEqual(bl.polarity("run the migration without fail"), "require")
+        self.assertEqual(bl.polarity("livre le rapport sans faute"), "require")
+        self.assertEqual(
+            bl.action_relation("always run the tests, no exceptions",
+                               "always run the tests"),
+            "near_duplicate")
+        self.assertEqual(bl.polarity("never run the tests"), "forbid",
+                         "a real negation still reads as one")
+
+    def test_one_shared_word_does_not_manufacture_a_reversal(self):
+        """The containment measure divides by the SHORTER action, so without a
+        floor on subject size a single shared token would flag a narrowing as a
+        reversal and block an approval that deserves to pass."""
+        self.assertFalse(bl.direct_reversal(
+            "never commit", "always commit the lock file after every build"))
+        self.assertFalse(bl.direct_reversal(
+            "always run the tests", "never delete the tests"))
+
     def test_the_detector_states_what_it_cannot_see(self):
         """"Use tabs" against "use spaces" is a real contradiction and lexical
         comparison cannot find it. Asserted rather than left as a hope: this is
