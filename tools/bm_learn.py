@@ -389,6 +389,12 @@ def cmd_relevant(argv):
         _out("recorded %d application(s), %d already recorded for this task "
              "(task %s)" % (res["recorded"], res["already_recorded"],
                             res["task_fingerprint"]))
+        if res.get("linked"):
+            # Said out loud because the whole point of re-running with --record
+            # is that the link lands, and a silent "already recorded" once left
+            # the caller believing it had.
+            _out("  linked %d already recorded application(s) to work record %s"
+                 % (res["linked"], L.safe_display(kv.get("record", ""), 40)))
         if res["record_error"]:
             _out("  the rules above are correct; the bookkeeping did NOT land: %s"
                  % L.safe_display(res["record_error"], 200))

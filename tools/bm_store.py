@@ -3671,6 +3671,17 @@ class Store(object):
         present, because a model that re-reads its rules mid-task has not
         applied them twice.
 
+        Idempotent does NOT mean the second call is discarded. The natural
+        order of work is retrieve first, claim the work record second, then
+        re-run with --record once there is something to link to. A row whose
+        record_uuid is still missing therefore has it ATTACHED here and comes
+        back counted as `linked`. Nothing else in this codebase can set that
+        column afterwards, so dropping the flag would strand the row for good
+        and permanently unlink the application from the work it belongs to.
+        An application already pointing at a DIFFERENT record is refused
+        rather than moved: completing a missing link is repair, changing an
+        existing one is rewriting history.
+
         The retrieval result is returned whatever happens to the write. If the
         insert fails, `record_error` carries the reason and no partial rows
         survive, and the caller still gets the rules it asked for."""
@@ -3684,16 +3695,18 @@ class Store(object):
         out["session_id"] = session_id or ""
         out["recorded"] = 0
         out["already_recorded"] = 0
+        out["linked"] = 0
         out["applications"] = []
         out["record_error"] = ""
         ts = now_iso()
         try:
-            recorded, already, uuids = 0, 0, []
+            recorded, already, linked, uuids = 0, 0, 0, []
             with self._transaction():
                 for r in res["results"]:
                     version = int(r["current_version"])
                     prior = _exec(self,
-                        "SELECT application_uuid AS u FROM learning_applications "
+                        "SELECT application_uuid AS u, record_uuid AS rec "
+                        "FROM learning_applications "
                         "WHERE task_fingerprint=? AND rule_uuid=? AND rule_version=? "
                         "AND session_id=?",
                         (fingerprint, r["rule_uuid"], version,
@@ -3701,6 +3714,21 @@ class Store(object):
                     if prior is not None:
                         already += 1
                         uuids.append(prior["u"])
+                        if record_uuid is not None and prior["rec"] != record_uuid:
+                            if prior["rec"]:
+                                raise OwnershipRefused(
+                                    "record-already-linked",
+                                    "application %s already belongs to work "
+                                    "record %s; a link is completed here, never "
+                                    "moved, so close that application instead of "
+                                    "re-pointing it at %s"
+                                    % (prior["u"][:8], prior["rec"][:8],
+                                       record_uuid[:8]))
+                            _exec(self,
+                                  "UPDATE learning_applications SET record_uuid=? "
+                                  "WHERE application_uuid=?",
+                                  (record_uuid, prior["u"]))
+                            linked += 1
                         continue
                     au = uuid.uuid4().hex
                     scope_match = r["scope_type"] if r["scope_type"] == "global" \
@@ -3723,6 +3751,7 @@ class Store(object):
                     uuids.append(au)
             out["recorded"] = recorded
             out["already_recorded"] = already
+            out["linked"] = linked
             out["applications"] = uuids
         except (OwnershipRefused, sqlite3.IntegrityError) as e:
             # PROPERTY 2 above, enforced here and nowhere else. The transaction
@@ -3792,8 +3821,18 @@ class Store(object):
         The disposition also lands as evidence on the rule, so a rule that
         keeps being followed earns its way towards 'confirmed' and a rule that
         keeps being ignored carries the contradicting evidence to show for it.
-        Evidence is written only when the disposition CHANGES, so correcting a
-        typo does not inflate a rule's support."""
+
+        ONE evidence row per application, replaced in place, never
+        accumulated. Evidence counts APPLICATIONS, not keystrokes. The earlier
+        shape wrote a row whenever the disposition CHANGED, which stopped
+        verbatim repeats and nothing else: alternating followed and ignored on
+        a single application (the realistic "I closed that one wrong, fix it")
+        manufactured unbounded support and contradict rows for a rule with
+        exactly one application. That ledger is what the founder reads in
+        `why` and what admits a rule to 'confirmed', so it may not be forgeable
+        from one row. Moving to a disposition that asserts nothing (unknown or
+        not_relevant) REMOVES the row rather than leaving behind a claim the
+        application no longer makes."""
         L = _learning()
         if disposition not in L.DISPOSITIONS:
             raise OwnershipRefused(
@@ -3815,8 +3854,13 @@ class Store(object):
                 % (rule["rule_uuid"][:8],
                    "a GATE rule" if rule["severity"] == "gate"
                    else "a substantial rule (%s)" % rule["rule_type"]))
-        changed = app["disposition"] != disposition
         ts = now_iso()
+        source_ref = "application %s" % app["application_uuid"][:8]
+        # Derived from the application uuid rather than random, so the row this
+        # application owns is addressable and there can only ever be one of it.
+        evidence_uuid = uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            "brothermode:application-evidence:%s" % app["application_uuid"]).hex
         with self._transaction():
             _exec(self,
                   "UPDATE learning_applications SET disposition=?, "
@@ -3832,7 +3876,18 @@ class Store(object):
                       "WHERE application_uuid=?",
                       (outcome, L.normalize_text(outcome_ref or "")[:500],
                        app["application_uuid"]))
-            if changed and disposition in ("followed", "ignored"):
+            # Clear this application's claim before restating it. The second
+            # match is by source_ref so rows written by the earlier
+            # accumulating shape are cleaned up as each application is closed
+            # again, without a migration. Two applications of the SAME rule
+            # sharing an eight-hex prefix would over-delete by one row, which
+            # deflates rather than inflates support: the safe direction, and
+            # the only direction a stale ledger may err in.
+            _exec(self,
+                  "DELETE FROM learning_evidence WHERE evidence_uuid=? "
+                  "OR (rule_uuid=? AND source_ref=?)",
+                  (evidence_uuid, rule["rule_uuid"], source_ref))
+            if disposition in ("followed", "ignored"):
                 # Inlined rather than routed through add_learning_evidence
                 # because _transaction is not reentrant and this must land in
                 # the SAME transaction as the disposition it describes.
@@ -3841,12 +3896,11 @@ class Store(object):
                       "polarity, evidence_type, source_session_id, "
                       "source_record_uuid, source_ref, excerpt, created_at) "
                       "VALUES (?,?,?,?,?,?,?,?,?)",
-                      (uuid.uuid4().hex, rule["rule_uuid"],
+                      (evidence_uuid, rule["rule_uuid"],
                        "support" if disposition == "followed" else "contradict",
                        "verified_application" if disposition == "followed"
                        else "ignored_application",
-                       app["session_id"], app["record_uuid"],
-                       "application %s" % app["application_uuid"][:8],
+                       app["session_id"], app["record_uuid"], source_ref,
                        redact_text(reason_text[:300]), ts))
         return self.get_learning_application(app["application_uuid"])
 
