@@ -163,7 +163,14 @@ def main():
     sys.exit(0)
 
 
-if __name__ == "__main__":
+def cli():
+    """Console-script entry point for a packaged install (pipx, uv, pip).
+
+    The never-block guarantee lived only in the __main__ block, so a
+    packaged `bm-score` pointed straight at main() would have lost it and
+    the --strict honesty rule with it. The guard now lives here and the
+    __main__ block calls this function, so the installed command and
+    `python3 tools/bm_score.py` behave identically."""
     try:
         main()
     except Exception as e:
@@ -177,3 +184,7 @@ if __name__ == "__main__":
                   "Exiting nonzero rather than reporting a pass it did not earn.")
             sys.exit(1)
         sys.exit(0)
+
+
+if __name__ == "__main__":
+    cli()
