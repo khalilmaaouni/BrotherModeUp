@@ -68,6 +68,7 @@ import re
 import shutil
 import sqlite3
 import sys
+import unicodedata
 import uuid
 
 SCHEMA_VERSION = 2
@@ -345,9 +346,21 @@ def _normcase(p):
     conflicting (GATE 2, fix-round 2026-07-26, reproduced by substituting
     ntpath.normcase for os.path.normcase). Gated on platform case
     insensitivity: win32 and darwin fold, every other POSIX platform (Linux
-    and friends, case-sensitive default filesystems) does not."""
+    and friends, case-sensitive default filesystems) does not.
+
+    GATE 3 (fix-round 2026-07-29): the same platforms are also UNICODE
+    NORMALIZATION insensitive. On APFS and HFS+, 'src/café.py' (NFD) and
+    'src/café.py' (NFC) are ONE inode and TWO different Python strings, so a
+    claim stored in one spelling did not overlap a write in the other and the
+    fence hook allowed a foreign session straight through its default
+    (non-strict) path: covering=[], foreign=[], no decision, allow. Folding
+    to NFC AFTER casefold (casefold can itself denormalize) makes both
+    spellings one comparison key, which closes that bypass for
+    paths_overlap and for the claim-time overlap check that shares it.
+    Linux is normalization PRESERVING and sensitive, where the two really
+    are different files, so it is deliberately left alone."""
     if sys.platform in _CASE_INSENSITIVE_PLATFORMS:
-        return p.casefold()
+        return unicodedata.normalize("NFC", p.casefold())
     return p
 
 
