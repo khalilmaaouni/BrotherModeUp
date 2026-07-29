@@ -3618,6 +3618,316 @@ class Store(object):
                 "eligible": len(eligible),
                 "conflicts": conflicts}
 
+    # -----------------------------------------------------------------
+    # Loop 7: the application lifecycle.
+    #
+    # learning_applications existed from Loop 1 and nothing wrote to it, which
+    # is the same standing invitation to build half a feature that the edges
+    # table was before Loop 6. From here it is the record of what was surfaced
+    # for a task, whether the acting model saw it, and what happened next.
+    #
+    # THREE PROPERTIES THIS CODE OWES, and each has a test:
+    #
+    # 1. Asking stays free. retrieve_learning_rules above is read only and
+    #    stays that way. Recording is a SEPARATE call the caller opts into, so
+    #    curiosity can never pollute the outcome data (invariant L10).
+    # 2. Recording never breaks a retrieval. record_learning_applications
+    #    returns the rules whatever happens to the write, and reports the write
+    #    failure in a field rather than raising over the top of the answer the
+    #    caller actually needed. A learning system that can make retrieval fail
+    #    is worse than one that forgets.
+    # 3. History is immutable. An application points at a rule VERSION, and
+    #    every read joins that version's text, so editing a rule tomorrow can
+    #    never rewrite what a model was shown yesterday (invariant L8).
+    # -----------------------------------------------------------------
+
+    # A result limit that means "every eligible rule". Named rather than a bare
+    # number at the call site so nobody reads it as a tuning knob: the miss
+    # check has to see the WHOLE eligible set, or the rules it fails to notice
+    # are exactly the ones a small limit already hid.
+    _ALL_ELIGIBLE = 100000
+
+    def _resolve_record_uuid(self, prefix):
+        """A work record prefix to its full uuid, or a named refusal.
+
+        Deliberately loud rather than degraded: an application that silently
+        loses its link to the work it belongs to is exactly the row that cannot
+        be graded later, and a mistyped id is the caller's error, not a
+        database failure to absorb."""
+        if not prefix:
+            return None
+        rows = _exec(self, "SELECT lifecycle_uuid FROM records "
+                           "WHERE lifecycle_uuid LIKE ?", (prefix + "%",)).fetchall()
+        return _one_or_refuse(rows, "record", prefix)["lifecycle_uuid"]
+
+    def record_learning_applications(self, query, context=None, limit=5,
+                                      session_id="", record_prefix=None,
+                                      shown_to_model=True, task_excerpt=None):
+        """Retrieve rules for a task AND record that they were surfaced.
+
+        One application row per returned rule VERSION. Idempotent per
+        (task fingerprint, rule, version, session): running the same retrieval
+        twice in one session records once and reports the rest as already
+        present, because a model that re-reads its rules mid-task has not
+        applied them twice.
+
+        The retrieval result is returned whatever happens to the write. If the
+        insert fails, `record_error` carries the reason and no partial rows
+        survive, and the caller still gets the rules it asked for."""
+        L = _learning()
+        record_uuid = self._resolve_record_uuid(record_prefix)
+        res = self.retrieve_learning_rules(query, context=context, limit=limit)
+        out = dict(res)
+        fingerprint = L.task_fingerprint(query)
+        excerpt = query if task_excerpt is None else task_excerpt
+        out["task_fingerprint"] = fingerprint
+        out["session_id"] = session_id or ""
+        out["recorded"] = 0
+        out["already_recorded"] = 0
+        out["applications"] = []
+        out["record_error"] = ""
+        ts = now_iso()
+        try:
+            recorded, already, uuids = 0, 0, []
+            with self._transaction():
+                for r in res["results"]:
+                    version = int(r["current_version"])
+                    prior = _exec(self,
+                        "SELECT application_uuid AS u FROM learning_applications "
+                        "WHERE task_fingerprint=? AND rule_uuid=? AND rule_version=? "
+                        "AND session_id=?",
+                        (fingerprint, r["rule_uuid"], version,
+                         session_id or "")).fetchone()
+                    if prior is not None:
+                        already += 1
+                        uuids.append(prior["u"])
+                        continue
+                    au = uuid.uuid4().hex
+                    scope_match = r["scope_type"] if r["scope_type"] == "global" \
+                        else "%s:%s" % (r["scope_type"], r["scope_key"])
+                    score = None
+                    if isinstance(r.get("why"), dict):
+                        score = r["why"].get("relevance")
+                    _exec(self,
+                          "INSERT INTO learning_applications (application_uuid, "
+                          "rule_uuid, rule_version, session_id, record_uuid, "
+                          "task_fingerprint, task_excerpt, retrieved_at, "
+                          "retrieval_rank, retrieval_score, scope_match, "
+                          "shown_to_model) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                          (au, r["rule_uuid"], version, session_id or "",
+                           record_uuid, fingerprint,
+                           redact_text(L.safe_display(excerpt, 500)), ts,
+                           int(r["rank"]), score, scope_match,
+                           1 if shown_to_model else 0))
+                    recorded += 1
+                    uuids.append(au)
+            out["recorded"] = recorded
+            out["already_recorded"] = already
+            out["applications"] = uuids
+        except (OwnershipRefused, sqlite3.IntegrityError) as e:
+            # PROPERTY 2 above, enforced here and nowhere else. The transaction
+            # has already rolled back, so nothing partial survives; the caller
+            # keeps the rules and is told plainly that the bookkeeping did not
+            # land, instead of losing the answer to a bookkeeping problem.
+            #
+            # DELIBERATELY NARROW. A busy store and a constraint violation are
+            # bookkeeping problems and are absorbed. StoreCorrupt is NOT caught
+            # here and never will be: a damaged database is not a degraded
+            # write to shrug off, and hiding it behind a successful-looking
+            # retrieval is how a corrupt store keeps being used.
+            out["record_error"] = "%s" % (e,)
+        return out
+
+    def get_learning_application(self, prefix):
+        rows = _exec(self, "SELECT * FROM learning_applications "
+                           "WHERE application_uuid LIKE ?", (prefix + "%",)).fetchall()
+        return _one_or_refuse(rows, "application", prefix)
+
+    def list_learning_applications(self, session_id=None, rule_prefix=None,
+                                    record_prefix=None, task_fingerprint=None,
+                                    disposition=None):
+        """Applications, each carrying the rule text AS IT WAS APPLIED.
+
+        The join is on (rule_uuid, rule_version), never on the rule's CURRENT
+        version. That is invariant L8 made structural rather than promised: a
+        rule edited after the fact cannot rewrite the history of what a model
+        was actually shown."""
+        sql = ("SELECT a.*, v.trigger_text, v.action_text, v.because_text, "
+               "r.severity, r.rule_type, r.state AS rule_state "
+               "FROM learning_applications a "
+               "JOIN learning_rule_versions v "
+               "  ON v.rule_uuid = a.rule_uuid AND v.version = a.rule_version "
+               "JOIN learning_rules r ON r.rule_uuid = a.rule_uuid")
+        clauses, params = [], []
+        if session_id is not None:
+            clauses.append("a.session_id = ?")
+            params.append(session_id)
+        if rule_prefix:
+            clauses.append("a.rule_uuid = ?")
+            params.append(self.get_learning_rule(rule_prefix)["rule_uuid"])
+        if record_prefix:
+            clauses.append("a.record_uuid = ?")
+            params.append(self._resolve_record_uuid(record_prefix))
+        if task_fingerprint:
+            clauses.append("a.task_fingerprint = ?")
+            params.append(task_fingerprint)
+        if disposition:
+            clauses.append("a.disposition = ?")
+            params.append(disposition)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY a.retrieved_at, a.retrieval_rank"
+        return [dict(r) for r in _exec(self, sql, tuple(params)).fetchall()]
+
+    def set_application_disposition(self, prefix, disposition, reason="",
+                                     verification_ref="", outcome=None,
+                                     outcome_ref=""):
+        """Close the loop on one application: was this rule followed, and why.
+
+        Ignoring a gate or a substantial rule REQUIRES a reason. That refusal
+        is the whole point of the field: a gate quietly skipped and never
+        explained is the failure this mechanism exists to make visible, and a
+        blank reason would let it pass as bookkeeping.
+
+        The disposition also lands as evidence on the rule, so a rule that
+        keeps being followed earns its way towards 'confirmed' and a rule that
+        keeps being ignored carries the contradicting evidence to show for it.
+        Evidence is written only when the disposition CHANGES, so correcting a
+        typo does not inflate a rule's support."""
+        L = _learning()
+        if disposition not in L.DISPOSITIONS:
+            raise OwnershipRefused(
+                "bad-disposition", "unknown disposition %r (known: %s)"
+                % (disposition, ", ".join(L.DISPOSITIONS)))
+        if outcome is not None and outcome not in L.APPLICATION_OUTCOMES:
+            raise OwnershipRefused(
+                "bad-outcome", "unknown outcome %r (known: %s)"
+                % (outcome, ", ".join(L.APPLICATION_OUTCOMES)))
+        app = self.get_learning_application(prefix)
+        rule = self.get_learning_rule(app["rule_uuid"])
+        reason_text = L.normalize_text(reason or "")
+        if L.disposition_needs_reason(disposition, rule["severity"],
+                                      rule["rule_type"]) and not reason_text:
+            raise OwnershipRefused(
+                "no-ignore-reason",
+                "rule %s is %s, so ignoring it needs a stated reason; say why "
+                "and it is recorded rather than argued about later"
+                % (rule["rule_uuid"][:8],
+                   "a GATE rule" if rule["severity"] == "gate"
+                   else "a substantial rule (%s)" % rule["rule_type"]))
+        changed = app["disposition"] != disposition
+        ts = now_iso()
+        with self._transaction():
+            _exec(self,
+                  "UPDATE learning_applications SET disposition=?, "
+                  "disposition_reason=?, verification_ref=?, closed_at=? "
+                  "WHERE application_uuid=?",
+                  (disposition, reason_text[:500],
+                   L.normalize_text(verification_ref or "")[:500],
+                   None if disposition == "unknown" else ts,
+                   app["application_uuid"]))
+            if outcome is not None:
+                _exec(self,
+                      "UPDATE learning_applications SET outcome=?, outcome_ref=? "
+                      "WHERE application_uuid=?",
+                      (outcome, L.normalize_text(outcome_ref or "")[:500],
+                       app["application_uuid"]))
+            if changed and disposition in ("followed", "ignored"):
+                # Inlined rather than routed through add_learning_evidence
+                # because _transaction is not reentrant and this must land in
+                # the SAME transaction as the disposition it describes.
+                _exec(self,
+                      "INSERT INTO learning_evidence (evidence_uuid, rule_uuid, "
+                      "polarity, evidence_type, source_session_id, "
+                      "source_record_uuid, source_ref, excerpt, created_at) "
+                      "VALUES (?,?,?,?,?,?,?,?,?)",
+                      (uuid.uuid4().hex, rule["rule_uuid"],
+                       "support" if disposition == "followed" else "contradict",
+                       "verified_application" if disposition == "followed"
+                       else "ignored_application",
+                       app["session_id"], app["record_uuid"],
+                       "application %s" % app["application_uuid"][:8],
+                       redact_text(reason_text[:300]), ts))
+        return self.get_learning_application(app["application_uuid"])
+
+    def classify_learning_applications(self, session_id=None):
+        """Grade what happened, refusing to grade what has no evidence.
+
+        Two kinds of finding come out of here. Per application, the pure
+        classifier in bm_learning decides from the row alone. Per TASK, this
+        method can see something no single row can: a rule that was
+        retrievable for that task, already approved when the task ran, and has
+        no application row at all. That is a retrieval miss.
+
+        Two honest limits, stated rather than discovered later:
+          - The retrieval context is not stored, so it is reconstructed from
+            the scope_match values that WERE recorded. A project rule missed by
+            a task where no project-scoped rule was recorded stays invisible.
+            That undercounts misses, which is the safe direction.
+          - A rule that was eligible but fell below the caller's result limit
+            counts as a miss too, and the finding says at what rank. It did not
+            reach the acting model, which is what the class means, and calling
+            it something softer would hide a limit that is set too low.
+        A task whose excerpt was not kept returns not_decidable rather than a
+        guess."""
+        L = _learning()
+        apps = self.list_learning_applications(session_id=session_id)
+        graded, counts = [], {}
+        for a in apps:
+            cls, why = L.classify_application(a["disposition"],
+                                              a["shown_to_model"], a["outcome"])
+            row = dict(a)
+            row["classification"] = cls
+            row["classification_reason"] = why
+            graded.append(row)
+            counts[cls or "no_finding"] = counts.get(cls or "no_finding", 0) + 1
+        tasks = {}
+        for a in apps:
+            tasks.setdefault((a["session_id"], a["task_fingerprint"]), []).append(a)
+        misses, undecidable = [], []
+        for (sid, fingerprint), group in sorted(tasks.items()):
+            excerpt = ""
+            for a in group:
+                if a["task_excerpt"]:
+                    excerpt = a["task_excerpt"]
+                    break
+            if not excerpt:
+                undecidable.append({
+                    "session_id": sid, "task_fingerprint": fingerprint,
+                    "reason": "no task text was kept for this task, so what else "
+                              "was retrievable cannot be reconstructed"})
+                continue
+            context = {}
+            for a in group:
+                if a["scope_match"] and ":" in a["scope_match"]:
+                    kind, key = a["scope_match"].split(":", 1)
+                    context[kind] = key
+            when = min(a["retrieved_at"] for a in group)
+            seen = set(a["rule_uuid"] for a in group)
+            res = self.retrieve_learning_rules(excerpt, context=context,
+                                                limit=self._ALL_ELIGIBLE)
+            for r in res["results"]:
+                if r["rule_uuid"] in seen:
+                    continue
+                if r["founder_approved_at"] > when:
+                    # A rule the founder approved AFTER the task ran cannot
+                    # have been missed by it. Without this the classifier would
+                    # blame every past task for not knowing today's rules.
+                    continue
+                misses.append({
+                    "session_id": sid, "task_fingerprint": fingerprint,
+                    "rule_uuid": r["rule_uuid"], "rank": r["rank"],
+                    "classification": "retrieval_miss",
+                    "classification_reason":
+                        "rule %s was approved before this task ran and ranks %d "
+                        "of %d for it, but no application row exists, so it "
+                        "never reached the acting model"
+                        % (r["rule_uuid"][:8], r["rank"], res["eligible"])})
+        counts["retrieval_miss"] = len(misses)
+        return {"applications": graded, "retrieval_misses": misses,
+                "not_decidable_tasks": undecidable, "counts": counts,
+                "classes": list(L.FAILURE_CLASSES)}
+
     def _record_by_uuid(self, lifecycle_uuid):
         row = _exec(self,
             "SELECT * FROM records WHERE lifecycle_uuid=?", (lifecycle_uuid,)).fetchone()
