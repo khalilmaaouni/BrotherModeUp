@@ -16,3 +16,9 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+# Generated per-project documentation. Same reason as STATE.md and
+# threads/ above: the pages render live store rows, real claimed paths,
+# owner names and note authors, which are one machine's working state and
+# not shared repository content. Regenerate it with
+# `python3 tools/bm_docs.py generate` in any project, including this one.
+Documentation/
