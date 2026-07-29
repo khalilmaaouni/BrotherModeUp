@@ -98,8 +98,10 @@ page. The full, current list is
   shows the old "not wired in" wording or still has `bm_registry.py`, you
   have an older clone.
 - **The rewiring surfaced five real defects on 2026-07-26. All five are now
-  closed.** They are written up in
-  `docs/superpowers/specs/2026-07-26-release-blockers.md`, and their current
+  closed.** They are written up in the dated, historical spec
+  `docs/superpowers/specs/2026-07-26-release-blockers.md`, which opens with a
+  DO NOT PUBLISH verdict that was true the day it was written and is not true
+  now; it carries a HISTORICAL banner saying so. Their current
   status lives in `docs/NOT-FINALIZED.md`, which is the register to believe
   over this paragraph. Four were fixed on 2026-07-26 and re-verified by direct
   execution the same day: a recovered autosave snapshot comes back owner-only

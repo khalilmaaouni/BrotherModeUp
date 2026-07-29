@@ -1,5 +1,7 @@
 # The self-learning mechanism: what the evidence says, and the redesign
 
+**HISTORICAL DOCUMENT, dated 2026-07-26. Do not read it as current state.** It is a dated working record: the plan, the verdicts, the blockers and the numbers in it belong to that day and were not updated afterwards. Items it calls open may since have been closed. Superseded by `README.md` and `docs/KNOWN-LIMITS.md` for status, `docs/NOT-FINALIZED.md` for the defect register, `CHANGELOG.md` for what changed since, and `python3 tools/bm_project_facts.py` for version, release tag, hook events and suites.
+
 Status: DESIGN, awaiting founder approval. Nothing here is implemented.
 Date: 2026-07-26. Method: four parallel lenses (two reading published research and
 opening the actual papers, two auditing our own code and real telemetry data).

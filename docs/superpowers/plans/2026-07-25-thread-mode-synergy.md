@@ -1,5 +1,7 @@
 # Thread Mode and Core Unification Implementation Plan
 
+**HISTORICAL DOCUMENT, dated 2026-07-25. Do not read it as current state.** It is a dated working record: the plan, the verdicts, the blockers and the numbers in it belong to that day and were not updated afterwards. Items it calls open may since have been closed. Superseded by `README.md` and `docs/KNOWN-LIMITS.md` for status, `docs/NOT-FINALIZED.md` for the defect register, `CHANGELOG.md` for what changed since, and `python3 tools/bm_project_facts.py` for version, release tag, hook events and suites.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace BrotherMode's two half-registries (prose fences in `STATE.md`, JSON threads in `thread-mode.json`) with one structured work record, so overlap detection, decision clashes, and per-record spend become mechanical instead of remembered.

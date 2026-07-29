@@ -1,5 +1,7 @@
 # Release blockers, from the final adversarial check
 
+**HISTORICAL DOCUMENT, dated 2026-07-26. Do not read it as current state.** It is a dated working record: the plan, the verdicts, the blockers and the numbers in it belong to that day and were not updated afterwards. Items it calls open may since have been closed. Superseded by `README.md` and `docs/KNOWN-LIMITS.md` for status, `docs/NOT-FINALIZED.md` for the defect register, `CHANGELOG.md` for what changed since, and `python3 tools/bm_project_facts.py` for version, release tag, hook events and suites.
+
 Verdict: DO NOT PUBLISH until items 1 and 2 are closed. Both were reproduced by the
 orchestrator by hand, and both are in code shipped and scored earlier today.
 
