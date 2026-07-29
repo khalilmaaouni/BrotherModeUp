@@ -931,14 +931,27 @@ def retrieval_advised(signals=None, gate_rules_exist=False):
 # ---------------------------------------------------------------------------
 
 # What each miss class says about the RULE itself, and therefore which way the
-# evidence points. A rule that was never retrieved, or was retrieved and
-# skipped, is not a bad rule: the founder saying it again is evidence he still
-# wants it, so that is SUPPORT. A rule that was followed and the correction
-# came back anyway is the opposite, and so is one retrieved into work it was
-# then judged irrelevant to.
+# evidence points.
+#
+# NOTHING here is 'support', and that is a correction of an earlier reading of
+# this table. A rule that was followed and the correction came back anyway is
+# evidence AGAINST the rule, and so is one retrieved into work it was then
+# judged irrelevant to. Every other class (never retrieved, retrieved and
+# skipped, nothing decidable) says something about the machinery around the
+# rule and NOTHING about whether the rule works, so it is neutral.
+#
+# Why this matters far beyond a label: the promotion gate in
+# bm_store.change_learning_rule_state lets a rule reach 'confirmed' on one
+# supporting evidence row that is not the founder's own approval, and its
+# stated meaning is "an independent event showing the rule worked". Calling a
+# compliance failure 'support' handed that gate a row saying the rule was
+# shown and skipped, so a rule could be promoted on proof it was never once
+# followed. The founder re-stating a preference IS support for the rule, and
+# that row is written where it belongs, by merge_learning_candidate, off his
+# own words rather than off a loop failure.
 REPEATED_CORRECTION_POLARITY = {
-    "retrieval_miss": "support",
-    "compliance_failure": "support",
+    "retrieval_miss": "neutral",
+    "compliance_failure": "neutral",
     "bad_rule": "contradict",
     "scope_error": "contradict",
     "not_decidable": "neutral",

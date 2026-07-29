@@ -935,9 +935,13 @@ def _outcome_event(kind, argv):
     _out("  %s" % L.safe_display(res["artifact_ref"], 160))
     if res["defect_class"]:
         _out("  defect class: %s" % L.safe_display(res["defect_class"], 80))
+    # Notes print whether or not anything was graded. The one saying this
+    # event was already recorded is the founder's only signal that his second
+    # run changed nothing, and hiding it behind an empty link list is how a
+    # re-run looked like a second event.
+    for note in res["notes"]:
+        _out("  %s" % note)
     if not res["linked_applications"]:
-        for note in res["notes"]:
-            _out("  %s" % note)
         return 0
     _out("  %d rule application(s) graded by this outcome:"
          % len(res["linked_applications"]))
@@ -1073,6 +1077,13 @@ def cmd_loop_failures(argv):
          % len(res["rules_always_not_relevant"]))
     _out("  rework and escaped defects linked to a rule: %d"
          % len(res["outcomes_linked_to_rules"]))
+    # Printed here and NOT under repeated corrections. An escaped defect is
+    # not an instruction the founder gave twice, and reading it as one told
+    # him he was repeating himself when he was not.
+    for r in res["outcome_gradings"]:
+        _out("    %s (%s) grades %s: %s"
+             % (r["candidate_uuid"][:8], r["source_type"],
+                r["rule_uuid"][:8], r["classification"]))
     _out("  unattributed outcomes (listed separately, never averaged in): %d"
          % len(res["unattributed_outcomes"]))
     for u in res["unattributed_outcomes"]:
@@ -1105,8 +1116,11 @@ def cmd_rule_outcomes(argv):
     _out("  by rule version: %s" % (res["by_rule_version"] or "none recorded"))
     _out("  evidence by polarity: %s" % (res["evidence_by_polarity"] or "none"))
     for r in res["repeated_corrections"]:
-        _out("  repeated by %s (%s): %s"
-             % (r["candidate_uuid"][:8], r["source_type"], r["classification"]))
+        # "repeated by" only where something really was said again. A rework
+        # or an escaped defect graded this rule, it did not repeat it.
+        _out("  %s by %s (%s): %s"
+             % ("repeated" if r["is_correction"] else "graded",
+                r["candidate_uuid"][:8], r["source_type"], r["classification"]))
     for g in res["graded_applications"]:
         if g["classification"]:
             _out("  %s v%d: %s" % (g["application_uuid"][:8], g["rule_version"],
