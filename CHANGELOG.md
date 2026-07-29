@@ -1,5 +1,44 @@
 # Changelog
 
+## 2026-07-29 (no version bump): the search index can no longer destroy the store, nor answer from deleted text
+
+Fix round on Loop P7. Three findings, each one reproduced on a real store
+before a line was changed, and each one a case of the previous entry's promises
+being true about the code and false about the behaviour.
+
+- AN OPTIONAL ACCELERATOR TOOK THE WHOLE DATABASE. Index statements ran through
+  the same routing point as every other query, and that point treats "no such
+  table" as structural damage: it MOVES store.sqlite3 and its sidecars into a
+  quarantine directory and raises. So an index table dropped mid-session did not
+  cost you speed, it cost you the store, the approval in flight and every rule
+  in it. The `except sqlite3.Error` guards written to keep the failure direction
+  lexical could never fire, because the quarantine exception is not a sqlite
+  error. Reproduced: drop the table, approve a candidate, database gone. Index
+  statements now have their own routing point with no quarantine in it, and the
+  test asserts the exception classes directly so the guard cannot go decorative
+  again. Statements against the real tables are unchanged: damage there is still
+  damage.
+- THE STATUS COMMAND DID THE SAME THING. `index-status` describes itself as read
+  only and safe on a store with no index, and on a dropped index it quarantined
+  the store; the drift check then failed on the connection it had just had
+  closed underneath it. Both now report the condition and leave the file alone.
+- A STALE INDEX WAS ANSWERING QUERIES. The fast path is a per-process switch, so
+  one ordinary shell that approves or edits a rule without it leaves the index
+  behind silently, and the index was only ever populated when it was first
+  created. The next run with the fast path on trusted it: a rule was returned
+  for a task its current text shares no word with, on the strength of a version
+  the founder had deleted, and the explanation line called it a stem match. In
+  the milder shape, an indexed rule sharing one common word outranked an
+  unindexed rule with three times its exact overlap, and `--limit` then dropped
+  the right rule entirely. The index is now reconciled against the rules at the
+  point it is CONSUMED: it is rewritten if it disagrees, and if it cannot be
+  rewritten the fast path switches off and the run says `mode=lexical`.
+  `verify` and `index-status` still show drift rather than repairing it.
+- WHAT DID NOT CHANGE. No schema change, no new dependency, no new environment
+  variable, and the lexical path is byte for byte what it was. `rebuild-index`
+  remains the explicit repair, and it now reports a failure instead of raising
+  through the CLI.
+
 ## 2026-07-29 (no version bump): an optional FTS5 fast path, with the lexical path untouched behind it
 
 Loop P7. The headline is not the index, it is what happens without it: retrieval

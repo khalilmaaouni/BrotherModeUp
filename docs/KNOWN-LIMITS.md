@@ -17,15 +17,35 @@ person was not sure about.
   embeddings, and a task that shares no words with a rule still finds nothing
   unless the rule is a gate. That is a deliberate limit of this loop.
 - DRIFT IS ONLY CHECKED WHEN THE INDEX IS ON. With `BROTHERMODE_FTS5` unset,
-  `verify` says so in its note and compares nothing. A stale index left behind
-  by a previous session cannot reach retrieval while it is off (retrieval is
-  lexical), so this is a reporting limit rather than a correctness one, and the
-  first run with the index back on reports the drift.
-- THE INDEX IS NOT REBUILT AUTOMATICALLY ON OPEN. It is built and filled the
-  first time a store is opened with the fast path on, and maintained inside the
-  same transaction as every approval and edit after that. Anything that damages
-  it from outside is reported by `verify` and repaired by `rebuild-index`, not
-  silently healed.
+  `verify` says so in its note and compares nothing.
+  CORRECTED 2026-07-29: this entry used to add that a stale index left by a
+  previous session is "a reporting limit rather than a correctness one". That
+  was wrong, and the fix round proved it on the real CLI. The switch is a
+  per-process variable, so one ordinary shell that approved or edited a rule
+  left the index behind with no error anywhere, and the next run with the fast
+  path on consumed the stale index: a rule came back for a task its current text
+  shares no word with, matched on text the founder had deleted, and the CLI
+  explained the hit as a stem match no live word could produce. The index is now
+  reconciled against the rules at the moment it is CONSUMED, so it cannot answer
+  a query while it disagrees with them.
+- THE INDEX IS RECONCILED BEFORE IT IS READ, NOT ON OPEN. It is built and filled
+  the first time a store is opened with the fast path on, and maintained inside
+  the same transaction as every approval and edit made by a connection that has
+  the fast path on. Because another process can write between your open and your
+  query, the check that matters runs at retrieval: an index that disagrees with
+  the rules is rewritten from them first, and if it cannot be rewritten (another
+  writer holds the lock, or the caller has no write authority) the fast path
+  switches off and the run reports `mode=lexical`. `verify` and `index-status`
+  still SHOW drift rather than repairing it, which is what keeps them worth
+  running, and `rebuild-index` is still the explicit repair.
+- THE INDEX CANNOT TAKE THE STORE WITH IT. Until 2026-07-29 it could: index SQL
+  ran through the same routing point as everything else, and that point reads
+  "no such table" as structural damage and quarantines the database file. An
+  index table dropped mid-session therefore cost the whole store, the approval
+  in flight, and every rule in it, and the status command did the same thing
+  while claiming to be read only. Index statements now have their own routing
+  point with no quarantine in it, so the worst an unreadable index can do is
+  turn the fast path off.
 - FORGOTTEN RULES STAY INDEXED. The index mirrors the current version of every
   rule row, including forgotten ones, exactly as `learning_rule_versions` does.
   They can never be retrieved (the state filter runs before ranking), so this
