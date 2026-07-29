@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-07-29 (no version bump): three holes in the receipt work, closed
+
+Fix round P3 on top of the LOOP 3 commit (1fdf2c3). Each of the three was
+reproduced against a throwaway store before anything was changed, and each has
+a test that fails when the fix is removed.
+
+1. `dump` printed the founder's answer, in effect. The receipt table stores
+   `founder_response_hash`, an unsalted sha256 of what he said, and
+   `nonce_hash`. The redactor that protects `dump` works by PATTERN, and a hex
+   digest matches no pattern, so both came out in cleartext. Real answers are
+   short ("oui", "yes"), so a ten-word wordlist turned the digest back into the
+   word; identical answers also showed as identical digests. `dump` now
+   withholds every `*_hash` and `*_fingerprint` column by name-shape, read from
+   the live schema, so the next digest column anyone adds is covered the day it
+   exists. `--raw` still returns everything.
+
+2. Editing a rule needed no receipt. Approval was gated; rewriting an
+   already-approved rule was not. An imported call turned an approved gate rule
+   saying "never force push to main" into "always force push to main, skip
+   review", kept its gate severity, and stamped the new version
+   `approved_by='founder'`. Editing rule text is the same act as creating it,
+   because the text is what gets injected, so it now takes its own one-time
+   receipt: one rule, one version bump, one exact new text, one use. An
+   approval receipt cannot be spent as an edit, or the reverse.
+
+3. The overrides were not part of the question. `--override-reason` and
+   `--override-conflict` existed only at approve time and were absent from the
+   receipt fingerprint, and `grant-approval` never mentioned that a candidate
+   contradicted an existing rule. So a receipt minted for a clean question was
+   spent with `--override-conflict` attached and forced in a rule contradicting
+   an approved gate rule, on an answer given about a question that never
+   mentioned the conflict. The conflict, duplicate and not-atomic guards now run
+   at MINT as well, so the question cannot be asked without naming what it
+   overrides, and both flags are in the fingerprint, so a clean receipt dies if
+   an override is added to it. `grant-approval` prints what is being overridden
+   beside the token.
+
 ## 2026-07-29 (no version bump): approving a rule now needs a receipt from a real answer
 
 Post-audit LOOP 3, founder decision the same day: Model A. No version bump,

@@ -340,6 +340,19 @@ What is honestly limited, and why each limit was chosen rather than missed:
   `edit_learning_rule` edits a rule's TEXT and cannot move its scope. Narrowing
   a scope today means approving a new, narrower rule and standing the broad one
   down.
+- OPEN (fix round P3, 2026-07-29): `edit_learning_rule` now requires its own
+  one-time founder receipt, minted by `Store.mint_edit_receipt`. Neither has a
+  CLI command, so the only caller is imported code and the suite. That is the
+  same reach it had before the gate, so nothing a founder could do is lost, but
+  a founder who wants to reword a rule still cannot do it from the command line
+  and has to approve a replacement and stand the old one down. The CLI pair
+  (`grant-edit`, `edit`) is deliberately NOT in this fix round: adding founder
+  surface is a design decision, not a fix.
+- OPEN (fix round P3): an edit receipt hangs off the rule's SOURCE CANDIDATE,
+  because that is what the receipts table's foreign key points at. A rule whose
+  source candidate has been deleted cannot be edited at all
+  (`no-source-candidate`). Correct as a refusal, but it means "editable" quietly
+  depends on a row nobody thinks of as part of the rule.
 - The conflict scan is pairwise over injectable rules, O(n squared). That is
   tens of rows on a real store. If it ever stops being tens the fix is an index,
   not a silent cap on how many conflicts get reported.

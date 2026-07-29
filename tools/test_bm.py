@@ -3049,8 +3049,18 @@ class TestLoop6LearningVerifyCli(unittest.TestCase):
                                      "--action", action, "--source", "manual"])
                 self.assertEqual(r.returncode, 0, r.stderr)
                 cid = r.stdout.split()[1]
+                # FIX ROUND P3: the conflict guard runs at MINT as well as at
+                # approve, and the override flags are in the receipt
+                # fingerprint, so both commands are asked the same question. An
+                # unresolved contradiction is now refused before the founder is
+                # asked at all, which is where that refusal belongs.
+                g = self._run(root, ["grant-approval", cid, "--answer",
+                                     "the founder answered yes, in a test",
+                                     "--json"] + list(extra))
+                if g.returncode != 0:
+                    return g
                 return self._run(root, ["approve", cid, "--ref", "test", "--receipt",
-                                        _cli_receipt(self._run, root, cid)]
+                                        json.loads(g.stdout)["token"]]
                                  + list(extra))
 
             first = capture_and_approve("always push through the GitHub Desktop app")

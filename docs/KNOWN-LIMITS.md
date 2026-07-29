@@ -199,6 +199,24 @@ What has NOT changed, and matters more than what has:
   The guarantee is "an answer was given about this exact thing, once, recently",
   not "the founder gave it". Read any wording that suggests otherwise as a
   defect and report it.
+- **The receipt gate covers creating AND rewriting a rule, since fix round P3
+  on 2026-07-29, and it did not on the day LOOP 3 landed.** For that one day,
+  `Store.edit_learning_rule` appended a new current version of an approved rule
+  with no receipt, no fingerprint check, and a hardcoded
+  `approved_by='founder'`. Reproduced: an approved gate rule saying "never force
+  push to main" was rewritten to "always force push to main, skip review",
+  keeping its gate severity. Editing now takes its own one-time receipt. Two
+  things are still true and worth stating: the receipt proves an answer, not an
+  identity, exactly as above; and neither minting nor spending an edit receipt
+  has a CLI command, so this door is reachable only from imported code, which
+  is also the only vector it ever had.
+- **A digest in the database is not a promise, it is a delay.**
+  `founder_response_hash` is an unsalted sha256 of a short answer. Until fix
+  round P3 it was printed verbatim by `dump`, and a ten-word wordlist recovered
+  the answer. `dump` now withholds digests, but the column is still an unsalted
+  hash of a low-entropy string, and `--raw` and the database file itself expose
+  it. `SECURITY.md` already treats the file as sensitive; treat that column as
+  the answer itself, not as protection.
 - **Rules approved before 2026-07-29 carry the old, weaker provenance.** The
   schema 2 to 3 migration deliberately does not annotate or invalidate them.
   If a store predates receipts, its existing rules were approved under the
