@@ -11,18 +11,29 @@ Status words mean exactly one thing each:
 
 ---
 
-## P6: the run stores a bounded excerpt BY DEFAULT, not only when justified. PARTIAL.
+## P6: the run stored the founder's prompt by default. CLOSED by fix round P6.
 
-The loop plan asked for a bounded scrubbed excerpt "only when explicitly
-justified". What ships keeps the same default the application row has kept since
-Loop 7: up to 500 characters, whitespace-collapsed, control characters stripped,
-run through the secret scrubber, withheld from `dump` behind a length marker,
-and omitted entirely when the caller passes an empty `task_excerpt`. It is
-stored by default because the miss check re-ranks the task text and has nothing
-to re-rank without it, so changing the default would have silently turned every
-future task into `not_decidable`. The raw query is genuinely never stored; a
-non-reversible hash of it is. OPEN as a policy question for the founder, not as
-a defect.
+The first version defaulted the run's excerpt to the query itself, so an
+ordinary `apply` wrote up to 500 characters of verbatim task text into
+`learning_retrieval_runs`. It now stores the task's TERMS instead: sorted,
+deduplicated, stopword-free, order destroyed, secret-scrubbed, and capped at
+`bm_learning.MAX_QUERY_TERMS` (a task above the cap stores none and is refused
+as `no_task_text`). The set is what the ranker reads, so measurement is
+unchanged, and the sentence cannot be read back off the row.
+
+Still open on the same subject: `learning_applications.task_excerpt` has kept
+the query by default since Loop 7 and was NOT changed here, because that column
+predates this loop and other paths read it. The prompt therefore still lives in
+the store, in that table, on the default `apply` path. OPEN.
+
+## P6: a task's vocabulary is still stored, even though its prose is not. OPEN.
+
+The term set is not the prompt, and it is not nothing either: it names the words
+the founder used. It is enough to tell that a task mentioned a customer, a
+codename or a person. Anyone with read access to the sqlite file sees that list.
+Refusing to store terms at all would make every retrieval that returned nothing
+permanently `not_decidable`, which is the measurement this loop exists to
+provide, so the trade was taken deliberately rather than by default.
 
 ## P6: `retrieval_uuid` is nullable forever, so "legacy" is a permanent state. DEFERRED.
 
