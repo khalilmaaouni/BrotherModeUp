@@ -234,9 +234,11 @@ def cmd_show_candidate(argv):
 
 def cmd_approve(argv):
     pos, kv = _parse(argv, {"trigger", "action", "because", "domain", "scope",
-                            "scope-key", "type", "gate", "override-reason", "ref", "json"},
+                            "scope-key", "type", "gate", "override-reason",
+                            "override-conflict", "ref", "json"},
                      wants_value=("trigger", "action", "because", "domain", "scope",
-                                  "scope-key", "type", "override-reason", "ref"))
+                                  "scope-key", "type", "override-reason",
+                                  "override-conflict", "ref"))
     if not pos:
         _err("usage: approve <candidate-id> [--trigger ...] [--action ...] "
              "[--because ...] [--scope global|project|domain|artifact|relationship|tool] "
@@ -254,7 +256,8 @@ def cmd_approve(argv):
             scope_key=kv.get("scope-key"),
             rule_type=kv.get("type", "preference"),
             severity="gate" if kv.get("gate") else "soft",
-            atomicity_override=kv.get("override-reason", ""))
+            atomicity_override=kv.get("override-reason", ""),
+            conflict_override=kv.get("override-conflict", ""))
     finally:
         store.close()
     if kv.get("json"):
@@ -346,6 +349,22 @@ def cmd_relevant(argv):
         _out("  Match: terms %s, relevance %s"
              % (why["matched_terms"] or "(none, shown because it is a gate)",
                 why["relevance"]))
+        if r.get("conflicts_with"):
+            _out("  CONFLICT: contradicts %s. Both are live; see below."
+                 % ", ".join(u[:8] for u in r["conflicts_with"]))
+    if res.get("conflicts"):
+        # Surfaced, not resolved. Silently dropping one side would be this tool
+        # deciding which of your instructions is the real one, and it does not
+        # get to make that call.
+        _out("")
+        _out("UNRESOLVED CONFLICT (%d). Two of your rules disagree, so neither is "
+             "authoritative until you say which stands." % len(res["conflicts"]))
+        for p in res["conflicts"]:
+            _out("")
+            _pair_block(p)
+        _out("")
+        _out("Decide with: bm_learn.py resolve-conflict <rule> --with <other> "
+             "--how superseded|contradicted|deprecated --because \"...\"")
     _out("")
     _out("Constitution overrides learned rules. %d omitted." % res["omitted"])
     return 0
@@ -550,6 +569,180 @@ def cmd_metrics(argv):
     return 0
 
 
+def _pair_block(p):
+    """One conflicting pair, printed the same way everywhere it appears.
+
+    Only the two rules' own trigger and action text reaches this function; the
+    store's _conflict_side already dropped every capture excerpt and source
+    reference, so a conflict report can be read out or pasted somewhere without
+    carrying the founder's verbatim words with it."""
+    _out("  %s  vs  %s      (%s)" % (
+        p["a"]["rule_uuid"][:8], p["b"]["rule_uuid"][:8],
+        "you declared this" if p["declared"] else "detected: " + ", ".join(p["reasons"])))
+    for side in ("a", "b"):
+        s = p[side]
+        _out("    %s  [%s, %s]" % (s["rule_uuid"][:8], s["scope"], s["state"]))
+        _out("       When: %s" % L.safe_display(s["trigger"], 140))
+        _out("       Do  : %s" % L.safe_display(s["action"], 140))
+
+
+def cmd_conflicts(argv):
+    """What currently disagrees with what. Reports, never resolves."""
+    pos, kv = _parse(argv, {"json"})
+    store = _store()
+    try:
+        res = store.learning_conflicts()
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(res, indent=2, sort_keys=True))
+        return 0
+    if not res["contradictions"] and not res["duplicates"]:
+        _out("no conflicts between the rules that can currently speak")
+        return 0
+    if res["contradictions"]:
+        _out("CONTRADICTIONS (%d). Both rules are live, so both would be injected."
+             % len(res["contradictions"]))
+        for p in res["contradictions"]:
+            _out("")
+            _pair_block(p)
+        _out("")
+        _out("Resolve one with: bm_learn.py resolve-conflict <rule> --with <other> "
+             "--how superseded|contradicted|deprecated --because \"...\"")
+    if res["duplicates"]:
+        _out("")
+        _out("POSSIBLE DUPLICATES (%d)" % len(res["duplicates"]))
+        for p in res["duplicates"]:
+            _out("")
+            _pair_block(p)
+    return 0
+
+
+def cmd_link(argv):
+    """Record a relationship the detector cannot see.
+
+    The lexical detector finds a reversal ("always X" against "never X"). It
+    cannot find that "use tabs" and "use spaces" fight. You can, so you can say
+    so, and a declared conflict counts exactly as much as a detected one."""
+    pos, kv = _parse(argv, {"because", "json"}, wants_value=("because",))
+    if len(pos) != 3:
+        _err("usage: link <rule-a> <relation> <rule-b> --because \"...\"")
+        _err("relations: %s" % ", ".join(r for r in L.RELATIONS if r != "supersedes"))
+        _err("supersession is its own command, because it changes state: supersede")
+        return 2
+    store = _store()
+    try:
+        edge = store.link_learning_rules(pos[0], pos[2], pos[1],
+                                          note=kv.get("because", ""))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(edge, indent=2, sort_keys=True))
+        return 0
+    _out("recorded: %s %s %s" % (edge["from_rule_uuid"][:8], edge["relation"],
+                                  edge["to_rule_uuid"][:8]))
+    if edge["relation"] == "contradicts":
+        _out("Both rules are still live. Run conflicts to see it, and "
+             "resolve-conflict when you decide which one stands.")
+    return 0
+
+
+def cmd_merge(argv):
+    """Fold a duplicate candidate into the rule it repeats."""
+    pos, kv = _parse(argv, {"into", "because", "json"},
+                     wants_value=("into", "because"))
+    if not pos or not kv.get("into"):
+        _err("usage: merge <candidate-id> --into <rule-id> --because \"...\"")
+        return 2
+    store = _store()
+    try:
+        rule = store.merge_learning_candidate(pos[0], kv["into"],
+                                               reason=kv.get("because", ""))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(rule, indent=2, sort_keys=True))
+        return 0
+    _out("merged into rule %s. No second rule was created, and the candidate is "
+         "kept as supporting evidence on that rule." % rule["rule_uuid"][:8])
+    return 0
+
+
+def cmd_supersede(argv):
+    """Replace an old rule with a newer one, in one step."""
+    pos, kv = _parse(argv, {"with", "because", "json"},
+                     wants_value=("with", "because"))
+    if not pos or not kv.get("with"):
+        _err("usage: supersede <old-rule> --with <new-rule> --because \"...\"")
+        return 2
+    store = _store()
+    try:
+        old = store.change_learning_rule_state(
+            pos[0], "superseded", reason=kv.get("because", ""),
+            successor_prefix=kv["with"])
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(old, indent=2, sort_keys=True))
+        return 0
+    _out("%s is superseded. It is no longer retrieved; the successor is returned "
+         "in its place from now on." % old["rule_uuid"][:8])
+    return 0
+
+
+def cmd_resolve_conflict(argv):
+    """Stand one rule down so a conflict stops being live.
+
+    You choose which one. This command records the choice and the reason; it
+    has no opinion about which rule was right."""
+    pos, kv = _parse(argv, {"with", "how", "because", "json"},
+                     wants_value=("with", "how", "because"))
+    if not pos or not kv.get("with") or not kv.get("how"):
+        _err("usage: resolve-conflict <rule> --with <other-rule> "
+             "--how superseded|contradicted|deprecated --because \"...\"")
+        _err("the rule you name is the one that stands down")
+        return 2
+    store = _store()
+    try:
+        r = store.resolve_learning_conflict(pos[0], kv["with"], kv["how"],
+                                             reason=kv.get("because", ""))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(r, indent=2, sort_keys=True))
+        return 0
+    _out("%s is now %s. It stops being injected; the record of why stays."
+         % (r["rule_uuid"][:8], r["state"]))
+    return 0
+
+
+def cmd_verify(argv):
+    """Integrity of the learning tables, with an exit code a script can read.
+
+    0 clean, 1 findings, 2 the command itself could not run. That is the whole
+    contract, and it is why this prints a count even when it is zero."""
+    pos, kv = _parse(argv, {"json"})
+    store = _store()
+    try:
+        res = store.learning_verify()
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(res, indent=2, sort_keys=True))
+        return 0 if res["ok"] else 1
+    _out("learning-verify: %d rule(s), %d edge(s), %d check(s) run"
+         % (res["rules"], res["edges"], len(res["checks"])))
+    for note in res["notes"]:
+        _out("  note: %s" % note)
+    if res["ok"]:
+        _out("  no findings")
+        return 0
+    _out("  %d finding(s):" % len(res["findings"]))
+    for f in res["findings"]:
+        _out("    %-28s %s" % (f["code"], L.safe_display(f["detail"], 160)))
+    return 1
+
+
 COMMANDS = {
     "capture": cmd_capture,
     "outcome": cmd_outcome,
@@ -564,6 +757,12 @@ COMMANDS = {
     "why": cmd_why,
     "deprecate": cmd_deprecate,
     "forget": cmd_forget,
+    "conflicts": cmd_conflicts,
+    "link": cmd_link,
+    "merge": cmd_merge,
+    "supersede": cmd_supersede,
+    "resolve-conflict": cmd_resolve_conflict,
+    "verify": cmd_verify,
 }
 
 
