@@ -96,7 +96,8 @@ page. The full, current list is
 
   `bm_registry.py` no longer exists in this repository. If your copy still
   shows the old "not wired in" wording or still has `bm_registry.py`, you
-  have an older clone.
+  have an older clone; re-run the command above rather than trust either
+  version of this paragraph.
 - **The rewiring surfaced five real defects on 2026-07-26. All five are now
   closed.** They are written up in the dated, historical spec
   `docs/superpowers/specs/2026-07-26-release-blockers.md`, which opens with a
@@ -105,16 +106,18 @@ page. The full, current list is
   status lives in `docs/NOT-FINALIZED.md`, which is the register to believe
   over this paragraph. Four were fixed on 2026-07-26 and re-verified by direct
   execution the same day: a recovered autosave snapshot comes back owner-only
-  (`drwx------`), turning thread mode off and resuming a thread later from a
-  different session succeeds instead of being wrongly refused, `verify` no
-  longer reports a false problem after a thread command, and both CLIs reject
-  an unrecognized flag instead of silently ignoring it. The fifth, the adopt
-  defect (a refused adoption still writing an "Adopted from dead/stalled
-  thread" handover into `STATE.md`), was closed on 2026-07-28: the refusal now
-  happens before anything is written, and two tests hold that ordering in
-  place. See `docs/NOT-FINALIZED.md` item 5 for the reproduction and the test
-  names. Code changes on this project's own timeline, sometimes within the same
-  hour; re-run the reproduction rather than trust a date.
+  (`drwx------`) on POSIX (on Windows the mode call is best-effort and the
+  guarantee is your user profile's access control, not ours), turning thread
+  mode off and resuming a thread later from a different session succeeds
+  instead of being wrongly refused, `verify` no longer reports a false problem
+  after a thread command, and both CLIs reject an unrecognized flag instead of
+  silently ignoring it. The fifth, the adopt defect (a refused adoption still
+  writing an "Adopted from dead/stalled thread" handover into `STATE.md`), was
+  closed on 2026-07-28: the refusal now happens before anything is written, and
+  two tests hold that ordering in place. See `docs/NOT-FINALIZED.md` item 5 for
+  the reproduction and the test names. Code changes on this project's own
+  timeline, sometimes within the same hour; re-run the reproduction rather than
+  trust a date.
 - **This has not been used on a real project yet.** Everything behind the
   claims in this repository rests on its own test suites and adversarial
   review, not on a week of someone's actual work going through it.
@@ -173,8 +176,8 @@ calls local `git`, never a network command; `grep -rn subprocess tools/*.py
 tools/*.sh | grep -v test_` shows exactly where.
 
 To check the tools do what they claim mechanically (secret redaction,
-owner-only file permissions, no silent overwrite between two writers), run the
-gate yourself rather than trusting this page:
+owner-only file permissions on POSIX, no silent overwrite between two writers),
+run the gate yourself rather than trusting this page:
 
 ```bash
 python3 tools/test_all.py
