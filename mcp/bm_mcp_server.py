@@ -445,8 +445,17 @@ def _protect(text):
     next file" happens. Applied per LINE, before it joins a multi-line
     `lines` list, never to an already-assembled multi-line document (which
     would escape the document's OWN newlines as if they were injected
-    control characters, a regression tools/bm_store.py already hit once)."""
-    return bm_store._protect_text(text)
+    control characters, a regression tools/bm_store.py already hit once).
+
+    LOOP 11 adds the second half of the central export policy,
+    `bm_store.mask_absolute_paths`. Rows already arrive withheld or scrubbed
+    from `dump()`, but `bm_store.verify()` problem lines are invariant-checker
+    strings that name real files, and an MCP response leaves this machine.
+    The caller's own project root, which the caller itself supplied, is
+    assembled into the header OUTSIDE this function and is deliberately not
+    masked: telling a caller which project it just asked about is not a
+    disclosure."""
+    return bm_store.mask_absolute_paths(bm_store._protect_text(text))
 
 
 def _safe_protect(text):

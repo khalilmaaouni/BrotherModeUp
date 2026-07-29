@@ -580,7 +580,12 @@ class TestFixRoundGates(unittest.TestCase):
                           "--objective", "second", "process"], d)
             self.assertEqual(r2.returncode, 2, r2.stdout + r2.stderr)
             self.assertIn("name-active", r2.stdout)
-            r3 = _run_cli(["dump"], d)
+            # --raw, not the default dump: LOOP 11 made ordinary dump
+            # WITHHOLD founder prose (objectives included), so the assertion
+            # about WHICH objective survived the collision has to read the
+            # store authoritatively. The default view is asserted separately
+            # in TestExportWithholdingPolicy.
+            r3 = _run_cli(["dump", "--raw"], d)
             self.assertEqual(r3.returncode, 0, r3.stdout + r3.stderr)
             dumped = json.loads(r3.stdout)
             objectives = [r["objective"] for r in dumped["records"]]
@@ -1546,7 +1551,10 @@ class TestFixRound5(unittest.TestCase):
             _run_cli(["init"], d)
             _run_cli(["claim", "alpha", "--lifetime", "ephemeral", "--objective", "obj",
                       "--session", "s1", "--files", "api/pay.py"], d)
-            r_dump1 = _run_cli(["dump"], d)
+            # --raw: claims.path is founder-supplied and is withheld by the
+            # LOOP 11 export policy, so the fence content is read
+            # authoritatively here. The count assertion below works either way.
+            r_dump1 = _run_cli(["dump", "--raw"], d)
             self.assertIn("api/pay.py", json.dumps(json.loads(r_dump1.stdout)["claims"]))
             r2 = _run_cli(["claim", "alpha", "--lifetime", "ephemeral",
                           "--objective", "revised", "--session", "s1"], d)
@@ -7275,6 +7283,183 @@ class TestLoop8ExternalGrading(unittest.TestCase):
         self.assertIsNone(L.parse_window_days("last month")[0])
         self.assertIsNone(L.parse_window_days("-3d")[0])
         self.assertIsNone(L.parse_window_days("")[0])
+
+
+class TestLoop11ExportWithholdingPolicy(unittest.TestCase):
+    """LOOP 11 workstream A. dump() redacted by default, but redact_text is a
+    secret SCRUBBER: founder PROSE has no secret shape, so an ordinary dump
+    reproduced objectives, evidence, digest bodies, transition notes,
+    decisions, directives and claimed paths verbatim. There is now ONE
+    withholding policy (bm_store.export_column) that every export shares:
+    structural columns pass, records.name and records.tier are scrubbed, and
+    everything else founder-typed is withheld entirely."""
+
+    PROSE = {
+        "objective": "ACME turnaround, Q3 revenue miss, do not mention",
+        "evidence": "call with Dana at ACME went badly on Tuesday",
+        "note": "parked because ACME pushed the deadline again",
+        "decision": "we will not tell ACME about the Q3 miss",
+        "directive": "draft the ACME apology, keep the number out",
+        "next_intent": "rewrite the ACME summary",
+        "body": "the ACME account is the whole quarter",
+    }
+    ABS_PATH = "/Users/janedoe/Documents/clients/acme/plan.md"
+
+    def _seed(self, d):
+        store = bs.Store(d)
+        try:
+            rec = store.claim("payments", "persistent", self.PROSE["objective"],
+                              ["api/pay.py"], session_id="s1")
+            store.checkpoint(rec.lifecycle_uuid, rec.version,
+                             self.PROSE["next_intent"], body=self.PROSE["body"])
+            rec2 = store.get(rec.lifecycle_uuid)
+            store.decide(rec2.lifecycle_uuid, rec2.version, "disclosure",
+                         self.PROSE["decision"])
+            rec3 = store.get(rec.lifecycle_uuid)
+            store.send(rec3.lifecycle_uuid, self.PROSE["directive"])
+            rec4 = store.get(rec.lifecycle_uuid)
+            # complete, not parked: records.evidence is only written on the
+            # active -> complete edge (it is the proof the work is done).
+            store.transition(rec4.lifecycle_uuid, rec4.version, "complete",
+                             session_id="s1", note=self.PROSE["note"],
+                             evidence=self.PROSE["evidence"])
+        finally:
+            store.close()
+
+    def test_default_dump_reproduces_no_founder_prose_and_no_absolute_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d)
+            store = bs.ReadOnlyStore(d)
+            try:
+                default = json.dumps(store.dump())
+                raw = json.dumps(store.dump(raw=True))
+            finally:
+                store.close()
+            for label, text in sorted(self.PROSE.items()):
+                self.assertNotIn(text, default,
+                                 "%s survived an ordinary dump" % label)
+                self.assertIn(text, raw,
+                              "--raw must still return %s verbatim" % label)
+            # The claimed path is founder-supplied structure, withheld too.
+            self.assertNotIn("api/pay.py", default)
+            self.assertIn("api/pay.py", raw)
+            # Structural identity survives, or the export is useless.
+            self.assertIn("payments", default)
+            self.assertIn("complete", default)
+            self.assertIn("WITHHELD", default)
+
+    def test_default_dump_masks_an_absolute_path_in_a_scrub_only_column(self):
+        # records.tier is a scrub-only column, so it is the one an ordinary
+        # dump still renders and therefore the one that has to prove path
+        # masking. (records.name cannot hold a path at all: valid_name
+        # rejects "/", which is its own, older guard.)
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("plan", "ephemeral", "obj", [], session_id="s1",
+                            tier=self.ABS_PATH)
+            finally:
+                store.close()
+            store = bs.ReadOnlyStore(d)
+            try:
+                default = json.dumps(store.dump())
+                raw = json.dumps(store.dump(raw=True))
+            finally:
+                store.close()
+            self.assertNotIn("janedoe", default)
+            self.assertNotIn("acme", default)
+            self.assertIn("PATH WITHHELD", default)
+            self.assertIn("janedoe", raw)
+
+    def test_calibrated_reinjecting_the_scrub_only_policy_leaks_prose(self):
+        """CALIBRATION. Put the prose columns back under the pre-LOOP-11
+        policy (scrub, do not withhold) and the exact reported leak returns;
+        restore the shipped policy and it is gone again."""
+        old_policy = frozenset(set(bs._DUMP_SCRUB_ONLY_COLUMNS) | {
+            ("records", "objective"), ("records", "evidence"),
+            ("digests", "body"), ("transitions", "note"),
+            ("decisions", "text"), ("decisions", "topic"),
+            ("digests", "next_intent"), ("directives", "text")})
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d)
+            store = bs.ReadOnlyStore(d)
+            try:
+                shipped_before = json.dumps(store.dump())
+                with mock.patch.object(bs, "_DUMP_SCRUB_ONLY_COLUMNS", old_policy):
+                    reinjected = json.dumps(store.dump())
+                shipped_after = json.dumps(store.dump())
+            finally:
+                store.close()
+            for label, text in sorted(self.PROSE.items()):
+                self.assertNotIn(text, shipped_before, label)
+                self.assertIn(text, reinjected,
+                              "REINJECTION CHECK: %s must leak under the old "
+                              "scrub-only policy" % label)
+                self.assertNotIn(text, shipped_after, label)
+
+    def test_export_policy_scrub_only_set_stays_closed(self):
+        """Growing the scrub-only set is a privacy decision, so it fails here
+        rather than passing quietly. Update this list deliberately."""
+        self.assertEqual(sorted(bs._DUMP_SCRUB_ONLY_COLUMNS),
+                          [("records", "name"), ("records", "tier")])
+
+    def test_export_column_is_the_one_policy_and_covers_unknown_columns(self):
+        self.assertEqual(bs.export_column("records", "state", "active"), "active")
+        self.assertIn("WITHHELD",
+                      bs.export_column("records", "objective", "ordinary prose"))
+        self.assertIn("WITHHELD",
+                      bs.export_column("a_table_that_does_not_exist", "notes", "x"))
+        # Empty and non-string values pass through untouched: nothing to hide.
+        self.assertEqual(bs.export_column("records", "objective", ""), "")
+        self.assertEqual(bs.export_column("records", "objective", 7), 7)
+
+    def test_mask_absolute_paths_covers_posix_windows_and_unc(self):
+        self.assertEqual(bs.mask_absolute_paths("/Users/jane/clients/acme"),
+                          bs.PATH_WITHHELD_MARKER)
+        self.assertEqual(bs.mask_absolute_paths(r"C:\Users\jane\acme.txt"),
+                          bs.PATH_WITHHELD_MARKER)
+        self.assertEqual(bs.mask_absolute_paths(r"\\fileserver\clients\acme"),
+                          bs.PATH_WITHHELD_MARKER)
+        # Relative, project-internal structure is deliberately kept.
+        self.assertEqual(bs.mask_absolute_paths("api/pay.py"), "api/pay.py")
+        self.assertEqual(bs.mask_absolute_paths("and/or"), "and/or")
+        self.assertEqual(bs.mask_absolute_paths(""), "")
+        self.assertIsNone(bs.mask_absolute_paths(None))
+
+    def test_cli_dump_default_is_valid_json_and_raw_warns_about_prose(self):
+        with tempfile.TemporaryDirectory() as d:
+            _run_cli(["init"], d)
+            self._seed(d)
+            plain = _run_cli(["dump"], d)
+            self.assertEqual(plain.returncode, 0, plain.stdout + plain.stderr)
+            json.loads(plain.stdout)
+            self.assertNotIn(self.PROSE["objective"], plain.stdout + plain.stderr)
+            raw = _run_cli(["dump", "--raw"], d)
+            self.assertEqual(raw.returncode, 0, raw.stdout + raw.stderr)
+            json.loads(raw.stdout)  # the warning must not corrupt the JSON
+            self.assertIn(self.PROSE["objective"], raw.stdout)
+            self.assertIn("UNREDACTED", raw.stderr)
+            self.assertIn("WITHHOLDS", raw.stderr)
+
+
+class TestLoop11NoFtsTableCanHoldFounderText(unittest.TestCase):
+    """LOOP 11 workstream D, last bullet. bm_learning.py documents an FTS5
+    index as a FUTURE fast path. An FTS table is a second, unredacted COPY of
+    whatever text is indexed, so if one ever lands it must be a deliberate
+    decision with its own privacy review, not a quiet schema addition."""
+
+    def test_the_schema_contains_no_fts_table_today(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rows = store.conn.execute(
+                    "SELECT name, sql FROM sqlite_master WHERE type='table'").fetchall()
+            offenders = [r["name"] for r in rows
+                         if "fts" in (r["name"] or "").lower()
+                         or "USING fts" in (r["sql"] or "")]
+            self.assertEqual(offenders, [],
+                              "an FTS table appeared: it is an unredacted second "
+                              "copy of the text it indexes, so it needs its own "
+                              "export-policy decision before it ships: %s" % offenders)
 
 
 if __name__ == "__main__":

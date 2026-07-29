@@ -80,7 +80,9 @@ page. The full, current list is
   of this page's last check, one is not.** All five are written up in
   `docs/superpowers/specs/2026-07-26-release-blockers.md`. Re-verified by
   direct execution, same day, after the fixes landed: a recovered autosave
-  snapshot now comes back owner-only (`drwx------`), turning thread mode off
+  snapshot now comes back owner-only (`drwx------`) on POSIX (on Windows the
+  mode call is best-effort and the guarantee is your user profile's access
+  control, not ours), turning thread mode off
   and resuming a thread later from a different session now succeeds instead
   of being wrongly refused, `verify` no longer reports a false problem after
   a thread command, and both CLIs now reject an unrecognized flag instead of
@@ -138,7 +140,8 @@ network command; `grep -rn subprocess tools/*.py tools/*.sh | grep -v test_`
 shows exactly where.)
 
 To check the tools do what they claim mechanically (secret redaction,
-owner-only file permissions, no silent overwrite between two writers), run
+owner-only file permissions on POSIX, no silent overwrite between two
+writers), run
 the test suites yourself rather than trusting this page:
 
 ```bash
