@@ -26,6 +26,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import unittest
 import uuid
 from unittest import mock
@@ -594,6 +595,28 @@ class TestFixRoundGates(unittest.TestCase):
                 self.assertTrue(bs.paths_overlap("API/Pay.PY", "api/pay.py"))
             with mock.patch.object(bs.sys, "platform", "linux"):
                 self.assertFalse(bs.paths_overlap("API/Pay.PY", "api/pay.py"))
+
+    def test_calibrated_unicode_normalization_folds_where_the_fs_folds(self):
+        """Regression, fix-round 2026-07-29. macOS APFS and HFS+ are
+        normalization INSENSITIVE: 'src/café.py' (NFD) and
+        'src/café.py' (NFC) are one inode and two different Python
+        strings, so a claim stored in one spelling did not overlap a write in
+        the other and the fence hook allowed a foreign session through its
+        default path. Linux is normalization sensitive, where the two really
+        are different files, so it is deliberately left alone."""
+        nfd = unicodedata.normalize("NFD", "src/café_日本.py")
+        nfc = unicodedata.normalize("NFC", "src/café_日本.py")
+        self.assertNotEqual(nfd, nfc, "the two spellings must differ as text")
+        for platform_name in ("darwin", "win32"):
+            with mock.patch.object(bs.sys, "platform", platform_name):
+                self.assertTrue(bs.paths_overlap(nfd, nfc), platform_name)
+                self.assertTrue(bs.paths_overlap(nfc, nfd), platform_name)
+        with mock.patch.object(bs.sys, "platform", "linux"):
+            self.assertFalse(bs.paths_overlap(nfd, nfc))
+        # Restore half: folding normalization must not make unrelated paths
+        # overlap.
+        with mock.patch.object(bs.sys, "platform", "darwin"):
+            self.assertFalse(bs.paths_overlap(nfc, "src/other.py"))
 
     # -- GATE 3: empty session must never match empty session -------------
 

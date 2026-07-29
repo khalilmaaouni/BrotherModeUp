@@ -26,6 +26,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import unittest
 from unittest import mock
 
@@ -450,6 +451,42 @@ class Canonicalization(FenceHookBase):
             store.claim("api", "ephemeral", files=["src/*.py"],
                         session_id=self.mine)
         self._denied("src/other.py")
+
+    @unittest.skipIf(sys.platform not in ("darwin", "win32"),
+                     "only normalization-insensitive filesystems fold NFC "
+                     "and NFD onto one inode")
+    def test_calibrated_unicode_normalization_is_not_a_bypass(self):
+        """Regression, fix-round 2026-07-29, reproduced end to end before the
+        fix: 'src/cafe.py' with an accented e claimed in NFC was ONE inode
+        with the same name in NFD and TWO different strings, so a foreign
+        session Editing the NFD spelling found covering=[], foreign=[], and
+        the hook returned no decision, which is ALLOW. Appending through the
+        NFD path really did add a line to the NFC-claimed file. That is a
+        supported-tool bypass, not an arbitrary-shell limit."""
+        nfc = unicodedata.normalize("NFC", "src/café_日本.py")
+        nfd = unicodedata.normalize("NFD", "src/café_日本.py")
+        self.assertNotEqual(nfc, nfd)
+        with io.open(os.path.join(self.root, nfc), "w",
+                     encoding="utf-8") as f:
+            f.write("ORIG\n")
+        with bs.Store(self.root, create=False) as store:
+            store.claim("uni", "ephemeral", files=[nfc],
+                        session_id=self.mine)
+        for spelling in (nfc, nfd):
+            decision, notes = self.decide(
+                payload(self.OTHER, self.root,
+                        tool_input={"file_path": spelling}))
+            self.assertIsNotNone(
+                decision,
+                "%r was ALLOWED across the fence (notes: %r)"
+                % (spelling, notes))
+        # Restore half: the OWNER is still allowed either spelling, so the
+        # fix denies the intruder without bricking the writer.
+        for spelling in (nfc, nfd):
+            decision, notes = self.decide(
+                payload(self.VICTIM, self.root,
+                        tool_input={"file_path": spelling}))
+            self.assertIsNone(decision, notes)
 
     def test_a_file_that_does_not_exist_yet_is_still_fenced(self):
         """Write creates files. A fence that only worked on existing paths

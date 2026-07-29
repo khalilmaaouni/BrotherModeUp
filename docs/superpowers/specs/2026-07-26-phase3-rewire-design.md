@@ -1,5 +1,7 @@
 # Phase 3: rewire the running tools onto the store
 
+**HISTORICAL DOCUMENT, dated 2026-07-26. Do not read it as current state.** It is a dated working record: the plan, the verdicts, the blockers and the numbers in it belong to that day and were not updated afterwards. Items it calls open may since have been closed. Superseded by `README.md` and `docs/KNOWN-LIMITS.md` for status, `docs/NOT-FINALIZED.md` for the defect register, `CHANGELOG.md` for what changed since, and `python3 tools/bm_project_facts.py` for version, release tag, hook events and suites.
+
 Status: RATIFIED by founder directive 2026-07-26 ("fully rewire the skill"). This is
 the riskiest change in the project, and the spec says why in advance rather than
 discovering it in the middle.

@@ -1,5 +1,7 @@
 # Pre-release fix round: close the loops that already have both ends
 
+**HISTORICAL DOCUMENT, dated 2026-07-26. Do not read it as current state.** It is a dated working record: the plan, the verdicts, the blockers and the numbers in it belong to that day and were not updated afterwards. Items it calls open may since have been closed. Superseded by `README.md` and `docs/KNOWN-LIMITS.md` for status, `docs/NOT-FINALIZED.md` for the defect register, `CHANGELOG.md` for what changed since, and `python3 tools/bm_project_facts.py` for version, release tag, hook events and suites.
+
 From the optimization, computer-science, and synergy review of 2026-07-26, plus one
 defect the orchestrator reproduced and fixed immediately. Founder directive: full
 review, then a rigorous adversarial check, then release.

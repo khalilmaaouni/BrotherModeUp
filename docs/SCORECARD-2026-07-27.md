@@ -1,5 +1,8 @@
 # Where the dimensions actually stand, 2026-07-27
 
+**HISTORICAL DOCUMENT, dated 2026-07-27. Do not read it as current state.** It is dated evidence: every number in it belongs to the day and the commit it was measured on. Superseded by `README.md` and `docs/KNOWN-LIMITS.md` for status, `docs/NOT-FINALIZED.md` for the defect register, `CHANGELOG.md` for what changed since, and `python3 tools/bm_project_facts.py` for version, release tag, hook events and suites.
+
+
 An external comparison scored BrotherMode V2 against native Claude Code and
 returned an overall of 7.6 "until blockers are fixed", with security and product
 maturity at 5.5 and recovery at 6.8.
