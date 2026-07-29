@@ -1343,6 +1343,100 @@ _APPLICATION_RUN_COLUMN_DDL = (
     "REFERENCES learning_retrieval_runs(retrieval_uuid)")
 
 
+# ----------------------------------------------------------------------
+# OPTIONAL FTS5 FAST PATH (post-audit LOOP P7).
+#
+# WHAT IS AND IS NOT PART OF THE STORE'S CONTRACT.
+#   The index below is NOT part of the schema. It carries no schema_version, it
+#   is absent from every _TABLES_* tuple, and _verify_schema_or_raise never
+#   looks for it. That is deliberate and it is the whole invariant: a store
+#   opens, reads, writes, verifies and passes its suite on a SQLite build with
+#   no FTS5 module at all. Deleting the table by hand costs a founder nothing
+#   but speed. Everything the index holds is DERIVED from learning_rule_versions
+#   and can be rebuilt from it at any time.
+#
+# WHY IT IS OFF UNTIL ASKED FOR.
+#   Project rule: an optional capability ships DISABLED and falls back to the
+#   stdlib path. FTS5 is compiled into most SQLite builds but not all, its
+#   tokenizer decides what counts as a word, and its ranking is a number the
+#   founder cannot re-derive by hand. None of that should arrive by surprise in
+#   a tool whose selling point is that its retrieval is explainable. So the
+#   default mode stays lexical and the founder turns the fast path on with
+#   BROTHERMODE_FTS5=1.
+#
+# WHAT IS INDEXED, AND WHAT MUST NEVER BE.
+#   Only the fields of the CURRENT version of a rule: trigger, action, because,
+#   domain and scope key. Those are exactly the fields that are already injected
+#   into a model's context, so indexing them exposes nothing that retrieval did
+#   not already show. Raw founder corrections (learning_candidates.raw_text),
+#   evidence excerpts, and rejected candidate text are NEVER indexed. Those are
+#   the columns the store treats as the sensitive ones, and an FTS index is a
+#   second, unredacted copy of whatever goes into it. There is a test that reads
+#   the index back and fails if founder source text is found in it.
+_FTS_TABLE = "learning_rule_fts"
+_FTS_REBUILD_TABLE = "learning_rule_fts_rebuild"
+
+# The founder's opt in. Any of 1/true/yes/on enables the fast path; anything
+# else, including the variable being unset, leaves retrieval lexical.
+FTS5_ENV = "BROTHERMODE_FTS5"
+
+# The force-unavailable switch, and it is not only a test hook: a founder whose
+# SQLite has a broken FTS5 needs a way to turn the fast path off without
+# editing code. It WINS over FTS5_ENV, because the safe direction is off.
+FTS5_DISABLE_ENV = "BROTHERMODE_NO_FTS5"
+
+_TRUE_VALUES = ("1", "true", "yes", "on")
+
+# The indexed columns, in the order they are written. Named once so the
+# creation DDL, the row writer and the drift check cannot disagree about which
+# fields are in the index, which is the classic way a drift check starts
+# passing while the index is wrong.
+_FTS_TEXT_COLUMNS = ("trigger_text", "action_text", "because_text",
+                     "domain", "scope_key")
+
+# porter unicode61: unicode61 folds accents and case, so a French rule matches
+# the same task text a bare ASCII tokenizer would miss, and Japanese text is at
+# least stored and retrievable as whole runs rather than mangled. porter is
+# English stemming, which is what buys "pushing" matching a rule written about
+# "push"; it does nothing for French or Japanese, and this file does not
+# pretend otherwise. rule_uuid and rule_version are UNINDEXED: they are
+# identifiers to join on, not text to search.
+_FTS_CREATE_SQL = (
+    "CREATE VIRTUAL TABLE IF NOT EXISTS %%s USING fts5("
+    "rule_uuid UNINDEXED, rule_version UNINDEXED, %s, "
+    "tokenize=\"porter unicode61\")" % ", ".join(_FTS_TEXT_COLUMNS))
+
+
+def fts5_requested(env=None):
+    """Has the founder asked for the fast path? Pure, reads a mapping."""
+    env = os.environ if env is None else env
+    if (env.get(FTS5_DISABLE_ENV, "") or "").strip().lower() in _TRUE_VALUES:
+        return False
+    return (env.get(FTS5_ENV, "") or "").strip().lower() in _TRUE_VALUES
+
+
+def _fts5_probe(conn):
+    """Does THIS sqlite build actually have FTS5? Answered by asking it to
+    build one, in temp, and throwing it away.
+
+    Not answered from sqlite_version, and not from a compile-option list: both
+    have been wrong on real builds, and the only question that matters is
+    whether CREATE VIRTUAL TABLE ... USING fts5 succeeds on this connection.
+
+    Raw execute rather than _exec on purpose (and listed as exempt in the
+    suite's routing test with this reason): a missing fts5 module raises
+    OperationalError, and _exec would read that as structural damage and
+    QUARANTINE a perfectly healthy store. A probe that can destroy the thing it
+    probes is worse than no probe."""
+    try:
+        conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS "
+                     "temp.brothermode_fts5_probe USING fts5(x)")
+        conn.execute("DROP TABLE IF EXISTS temp.brothermode_fts5_probe")
+        return True
+    except sqlite3.Error:
+        return False
+
+
 def _migrate_3_to_4(conn):
     """Schema 3 to 4: add the retrieval run. ADDITIVE ONLY.
 
@@ -2561,6 +2655,10 @@ class Store(object):
             else:
                 self._ensure_schema()
             self._ensure_indexes()
+            # LOOP P7: the optional fast path, after the schema is known good
+            # and inside the same protected block. It cannot raise past its own
+            # body; the worst case is that the store opens lexical.
+            self._ensure_fts()
             # A read, not just a connect: a corrupt file can open fine and
             # only fail the instant something touches its b-tree pages. Fail
             # here, at construction, rather than on the caller's first real
@@ -2654,6 +2752,276 @@ class Store(object):
             self.conn.executescript(_RECEIPT_INDEX_DDL)
         if SCHEMA_VERSION >= 4:
             self.conn.executescript(_RETRIEVAL_RUN_INDEX_DDL)
+
+    # ------------------------------------------------------------------
+    # The optional FTS5 fast path (LOOP P7). Read the block above
+    # _FTS_TABLE first: nothing here is allowed to make the store depend
+    # on FTS5, and every method in this section is written so that the
+    # failure direction is "mode falls back to lexical", never "the store
+    # refuses" and never "an index quietly disagrees with the rules".
+    # ------------------------------------------------------------------
+
+    def fts_available(self):
+        """Is the fast path in force RIGHT NOW for this open store?
+
+        Three conditions, all required: the founder asked for it, this SQLite
+        can build one, and the index table exists. Anything else is False and
+        retrieval stays lexical."""
+        return bool(getattr(self, "_fts_ready", False))
+
+    def _fts_table_exists(self):
+        row = _exec(self, "SELECT name FROM sqlite_master WHERE type='table' "
+                          "AND name=?", (_FTS_TABLE,)).fetchone()
+        return row is not None
+
+    def _ensure_fts(self):
+        """Bring the index into existence if it is wanted and possible.
+
+        Called from the same protected open-time path as _ensure_indexes, and
+        it can fail in any way it likes: every failure leaves _fts_ready False,
+        which means lexical retrieval, which is the mode that always works.
+
+        A brand new index is POPULATED here rather than left empty, because an
+        empty index is not the same as a missing one: it would answer every
+        query with nothing, and the relevance floor would then hide rules that
+        the lexical path would have found. Populating an already-populated
+        index is skipped, so this costs one COUNT(*) per open."""
+        self._fts_ready = False
+        if not fts5_requested():
+            return
+        if not _fts5_probe(self.conn):
+            return
+        try:
+            existed = self._fts_table_exists()
+            _exec(self, _FTS_CREATE_SQL % _FTS_TABLE)
+            if not existed:
+                self._fts_reindex_all()
+            self._fts_ready = True
+        except (sqlite3.Error, OwnershipRefused):
+            # Includes the store having been quarantined by _exec underneath
+            # us. Nothing to repair here and nothing to report: the caller's
+            # next statement will hit the same condition on the real tables.
+            self._fts_ready = False
+
+    def _fts_rows_for_rule(self, rule_uuid):
+        """The index row(s) this rule SHOULD have: exactly one, built from its
+        current version. Returns [] when the rule or its version is gone, which
+        is how a forgotten or half-written rule ends up correctly absent."""
+        row = _exec(self,
+              "SELECT r.rule_uuid, r.current_version, r.scope_key, "
+              "  v.trigger_text, v.action_text, v.because_text, v.domain "
+              "FROM learning_rules r JOIN learning_rule_versions v "
+              "  ON v.rule_uuid = r.rule_uuid AND v.version = r.current_version "
+              "WHERE r.rule_uuid = ?", (rule_uuid,)).fetchone()
+        if row is None:
+            return []
+        return [(row["rule_uuid"], row["current_version"], row["trigger_text"],
+                 row["action_text"], row["because_text"], row["domain"],
+                 row["scope_key"])]
+
+    def _fts_write_rule(self, rule_uuid):
+        """Replace this rule's index row. CALLER HOLDS THE TRANSACTION.
+
+        That is the transactional maintenance the plan asks for: the index row
+        lands in the same BEGIN IMMEDIATE as the rule version it describes, so
+        a crash between the two is not a state this store can reach.
+
+        If the index write itself fails, the index is DROPPED inside that same
+        transaction and the fast path is switched off for this connection. That
+        is the deliberate choice: an optional accelerator must never turn a
+        founder's rule approval into a refusal, and a half-written index is
+        worse than none, so it does not survive either."""
+        if not self.fts_available():
+            return
+        try:
+            _exec(self, "DELETE FROM %s WHERE rule_uuid = ?" % _FTS_TABLE,
+                  (rule_uuid,))
+            for row in self._fts_rows_for_rule(rule_uuid):
+                _exec(self, "INSERT INTO %s (rule_uuid, rule_version, %s) "
+                            "VALUES (?,?,?,?,?,?,?)"
+                      % (_FTS_TABLE, ", ".join(_FTS_TEXT_COLUMNS)), row)
+        except sqlite3.Error:
+            self._fts_ready = False
+            try:
+                _exec(self, "DROP TABLE IF EXISTS %s" % _FTS_TABLE)
+            except sqlite3.Error:
+                # The drop failed too, so the transaction cannot be left to
+                # commit: a stale index would survive with no way to know it.
+                raise
+
+    def _fts_reindex_all(self):
+        """Fill the CURRENT index table from the rules. Caller supplies the
+        transaction (or accepts autocommit at open time)."""
+        _exec(self, "DELETE FROM %s" % _FTS_TABLE)
+        for row in _exec(self,
+                "SELECT r.rule_uuid, r.current_version, r.scope_key, "
+                "  v.trigger_text, v.action_text, v.because_text, v.domain "
+                "FROM learning_rules r JOIN learning_rule_versions v "
+                "  ON v.rule_uuid = r.rule_uuid "
+                "  AND v.version = r.current_version").fetchall():
+            _exec(self, "INSERT INTO %s (rule_uuid, rule_version, %s) "
+                        "VALUES (?,?,?,?,?,?,?)"
+                  % (_FTS_TABLE, ", ".join(_FTS_TEXT_COLUMNS)),
+                  (row["rule_uuid"], row["current_version"], row["trigger_text"],
+                   row["action_text"], row["because_text"], row["domain"],
+                   row["scope_key"]))
+
+    def _fts_scores(self, query):
+        """BM25 scores by rule_uuid for this task text, or None when the fast
+        path did not answer.
+
+        None and {} mean different things and both are load bearing: None means
+        NO index query happened, so the run must report mode lexical; {} means
+        the index was asked and matched nothing, which is a real fts5 answer.
+
+        Raw execute rather than _exec (exempt in the suite's routing test, with
+        this reason): a malformed MATCH expression raises OperationalError, and
+        _exec would treat that as structural damage and quarantine a healthy
+        store over a founder's punctuation. fts_match_query quotes every token
+        precisely so this cannot happen, and this except is the second belt:
+        the fast path switches itself off and the caller gets lexical."""
+        if not self.fts_available():
+            return None
+        L = _learning()
+        match = L.fts_match_query(query)
+        if not match:
+            # Nothing searchable in the task text. The index was never asked,
+            # so claiming mode fts5 would be a lie about where the ranking
+            # came from.
+            return None
+        try:
+            rows = self.conn.execute(
+                "SELECT rule_uuid, bm25(%s) AS score FROM %s WHERE %s MATCH ?"
+                % (_FTS_TABLE, _FTS_TABLE, _FTS_TABLE), (match,)).fetchall()
+        except sqlite3.Error:
+            self._fts_ready = False
+            return None
+        return dict((r["rule_uuid"], r["score"]) for r in rows)
+
+    def learning_index_status(self):
+        """What the fast path is doing right now, in numbers a founder can
+        check. Read only, and safe on a store with no index at all."""
+        L = _learning()
+        requested = fts5_requested()
+        available = self.fts_available()
+        indexed = None
+        if available:
+            row = _exec(self, "SELECT COUNT(*) AS n FROM %s" % _FTS_TABLE).fetchone()
+            indexed = int(row["n"]) if row else 0
+        return {
+            "requested": requested,
+            "available": available,
+            "mode": L.FTS5_MODE if available else L.RETRIEVAL_MODE,
+            "indexed_rows": indexed,
+            "rules": len(self.list_learning_rules(include_forgotten=True)),
+            "enable_with": "%s=1" % FTS5_ENV,
+            "disable_with": "%s=1" % FTS5_DISABLE_ENV,
+        }
+
+    def learning_fts_drift(self):
+        """Every way the index can disagree with the rules, as a list of
+        (code, detail, refs) tuples. Empty when there is nothing to compare.
+
+        This is the check that makes the fast path trustworthy: an index is a
+        SECOND copy of the truth, and a second copy nobody compares is just a
+        way to be confidently wrong. Four disagreements are detected, and each
+        one is a real failure mode rather than a symmetry for its own sake:
+        a rule with no row (retrieval silently loses it), a row with no rule
+        (a deleted or forgotten rule still matching), a row pinned to an old
+        version (the founder's edit did not reach the index), and a row whose
+        text differs from the version it names (the worst one, because both
+        sides look internally consistent)."""
+        out = []
+        if not self.fts_available():
+            return out
+        want = {}
+        for row in _exec(self,
+                "SELECT r.rule_uuid, r.current_version, r.scope_key, "
+                "  v.trigger_text, v.action_text, v.because_text, v.domain "
+                "FROM learning_rules r JOIN learning_rule_versions v "
+                "  ON v.rule_uuid = r.rule_uuid "
+                "  AND v.version = r.current_version").fetchall():
+            want[row["rule_uuid"]] = (
+                int(row["current_version"]),
+                tuple((row[c] or "") for c in _FTS_TEXT_COLUMNS))
+        have = {}
+        for row in _exec(self, "SELECT rule_uuid, rule_version, %s FROM %s"
+                               % (", ".join(_FTS_TEXT_COLUMNS), _FTS_TABLE)).fetchall():
+            have.setdefault(row["rule_uuid"], []).append(
+                (int(row["rule_version"] or 0),
+                 tuple((row[c] or "") for c in _FTS_TEXT_COLUMNS)))
+        for ruuid in sorted(want):
+            rows = have.get(ruuid, [])
+            if not rows:
+                out.append(("fts-drift", "rule %s has no row in the search "
+                            "index, so the fast path cannot return it"
+                            % ruuid[:8], (ruuid,)))
+                continue
+            if len(rows) > 1:
+                out.append(("fts-drift", "rule %s has %d rows in the search "
+                            "index and must have exactly one"
+                            % (ruuid[:8], len(rows)), (ruuid,)))
+            version, text = want[ruuid]
+            for have_version, have_text in rows:
+                if have_version != version:
+                    out.append(("fts-drift", "the search index holds version %d "
+                                "of rule %s but its current version is %d"
+                                % (have_version, ruuid[:8], version), (ruuid,)))
+                elif have_text != text:
+                    # Deliberately does NOT print either text. A drift report
+                    # is a diagnostic, not a second place founder rule text
+                    # gets copied to.
+                    out.append(("fts-drift", "the search index text for rule %s "
+                                "does not match version %d of that rule"
+                                % (ruuid[:8], version), (ruuid,)))
+        for ruuid in sorted(have):
+            if ruuid not in want:
+                out.append(("fts-drift", "the search index holds rule %s, which "
+                            "has no current rule version behind it"
+                            % (ruuid or "")[:8], (ruuid,)))
+        return out
+
+    def rebuild_learning_index(self):
+        """Rebuild the search index from the rules, atomically.
+
+        Built into a SEPARATE table and swapped in, all inside one BEGIN
+        IMMEDIATE: a reader either sees the whole old index or the whole new
+        one, and a crash halfway leaves the old index untouched rather than a
+        half-filled one that verify would then have to explain. Rebuilding in
+        place would be atomic too by virtue of the transaction, but it would
+        also be a window in which the index is empty for anything sharing this
+        connection, and this way there is no such window at all."""
+        L = _learning()
+        if not fts5_requested():
+            return {"ok": False, "mode": L.RETRIEVAL_MODE, "indexed": 0,
+                    "reason": "the search index is off; enable it with %s=1"
+                              % FTS5_ENV}
+        if not _fts5_probe(self.conn):
+            return {"ok": False, "mode": L.RETRIEVAL_MODE, "indexed": 0,
+                    "reason": "this SQLite build has no FTS5 module, so the "
+                              "lexical path is the only one available"}
+        with self._transaction():
+            _exec(self, "DROP TABLE IF EXISTS %s" % _FTS_REBUILD_TABLE)
+            _exec(self, _FTS_CREATE_SQL % _FTS_REBUILD_TABLE)
+            for row in _exec(self,
+                    "SELECT r.rule_uuid, r.current_version, r.scope_key, "
+                    "  v.trigger_text, v.action_text, v.because_text, v.domain "
+                    "FROM learning_rules r JOIN learning_rule_versions v "
+                    "  ON v.rule_uuid = r.rule_uuid "
+                    "  AND v.version = r.current_version").fetchall():
+                _exec(self, "INSERT INTO %s (rule_uuid, rule_version, %s) "
+                            "VALUES (?,?,?,?,?,?,?)"
+                      % (_FTS_REBUILD_TABLE, ", ".join(_FTS_TEXT_COLUMNS)),
+                      (row["rule_uuid"], row["current_version"],
+                       row["trigger_text"], row["action_text"],
+                       row["because_text"], row["domain"], row["scope_key"]))
+            _exec(self, "DROP TABLE IF EXISTS %s" % _FTS_TABLE)
+            _exec(self, "ALTER TABLE %s RENAME TO %s"
+                  % (_FTS_REBUILD_TABLE, _FTS_TABLE))
+        self._fts_ready = True
+        row = _exec(self, "SELECT COUNT(*) AS n FROM %s" % _FTS_TABLE).fetchone()
+        return {"ok": True, "mode": L.FTS5_MODE,
+                "indexed": int(row["n"]) if row else 0, "reason": ""}
 
     def _verify_schema_or_raise(self, migrate=False):
         """CRITICAL A (fix-round 8, reproduced independently: claim alpha on
@@ -3652,6 +4020,9 @@ class Store(object):
                   "UPDATE learning_candidates SET status='approved', reviewed_at=?, "
                   "resulting_rule_uuid=? WHERE candidate_uuid=?",
                   (ts, ruuid, cand["candidate_uuid"]))
+            # LOOP P7: the search index row lands in THIS transaction, beside
+            # the version it describes. No-op when the fast path is off.
+            self._fts_write_rule(ruuid)
         return self.get_learning_rule(ruuid)
 
     def reject_learning_candidate(self, prefix, reason):
@@ -3873,6 +4244,10 @@ class Store(object):
                                        % (rec["receipt_uuid"][:8], change_reason)))[:500], ts))
             _exec(self, "UPDATE learning_rules SET current_version=?, updated_at=? "
                         "WHERE rule_uuid=?", (nv, ts, rule["rule_uuid"]))
+            # LOOP P7: an edit that did not reach the index is the drift the
+            # verify check hunts for, so it is written here, in the same
+            # transaction, rather than left to a later sweep.
+            self._fts_write_rule(rule["rule_uuid"])
         return self.get_learning_rule(rule["rule_uuid"])
 
     def change_learning_rule_state(self, prefix, target, reason="",
@@ -4282,20 +4657,35 @@ class Store(object):
             add("application-without-version",
                 "application %s points at a rule version that does not exist"
                 % row["u"][:8], (row["u"],))
+        # LOOP P7. Real findings now, not a placeholder: every disagreement
+        # between the optional search index and the rules is reported with the
+        # same code the checks tuple has always named, so a store that never
+        # turns the index on keeps exactly the output it had.
+        for code, detail, refs in self.learning_fts_drift():
+            add(code, detail, refs)
+        status = self.learning_index_status()
+        if status["available"]:
+            note = ("fts-drift: the search index is on (mode %s), %s row(s) "
+                    "indexed for %s rule(s)"
+                    % (status["mode"], status["indexed_rows"], status["rules"]))
+        elif status["requested"]:
+            note = ("fts-drift: the search index was requested but is not "
+                    "available on this SQLite build, so retrieval mode is %s "
+                    "and there is nothing to drift from" % L.RETRIEVAL_MODE)
+        else:
+            note = ("fts-drift: no search index is enabled (%s=1 turns it on), "
+                    "retrieval mode is %s, so there is nothing to drift from"
+                    % (FTS5_ENV, L.RETRIEVAL_MODE))
         return {
             "ok": not findings,
             "findings": findings,
             "checks": list(self.LEARNING_CHECKS),
             "rules": len(self.list_learning_rules(include_forgotten=True)),
             "edges": len(self.list_learning_edges()),
-            # Stated rather than silently skipped: the fts-drift check runs and
-            # finds nothing because there is no FTS index in this schema to
-            # drift from. Retrieval is lexical (see bm_learning's docstring).
-            # When an index lands, this note becomes a real comparison and the
-            # check name does not have to change.
-            "notes": ["fts-drift: no FTS index exists in this schema, retrieval "
-                      "mode is %s, so there is nothing to drift from"
-                      % L.RETRIEVAL_MODE],
+            # Stated rather than silently skipped: the check always runs and
+            # always says which of its three situations it was in, so "no
+            # findings" can never be read as "the index was not looked at".
+            "notes": [note],
         }
 
     def retrieve_learning_rules(self, query, context=None, limit=5,
@@ -4318,6 +4708,17 @@ class Store(object):
         context = context or {}
         in_scope = [r for r in self.list_learning_rules(states=L.INJECTABLE_STATES)
                     if L.scope_matches(r["scope_type"], r["scope_key"], context)]
+        # THE FAST PATH, AND WHY IT ONLY EVER ADDS (LOOP P7).
+        #
+        # fts_scores is None when the index is off, absent, unavailable, broken
+        # or simply not consulted, and every one of those cases takes the
+        # lexical path below unchanged. When it is a map, it does two things
+        # and no more: it becomes a ranking component (rank_key), and it widens
+        # the relevance floor. It never removes a rule the lexical path would
+        # have returned, which is what makes "fall back to lexical" a true
+        # statement about behaviour rather than about code paths.
+        fts_scores = self._fts_scores(query)
+        mode = L.FTS5_MODE if fts_scores is not None else L.RETRIEVAL_MODE
         # RELEVANCE FLOOR, added after a dogfood run on the founder's real
         # corrections surfaced a rule about pushing to GitHub in response to a
         # question about the colour of a breathing orb. Scope said eligible,
@@ -4329,13 +4730,20 @@ class Store(object):
         # exception is severity 'gate': a safety rule is exactly the thing that
         # must appear even when the person did not use its vocabulary, and
         # that asymmetry is the whole reason severity exists as a field.
+        #
+        # An FTS hit clears the floor too. That is the retrieval GAIN of this
+        # loop and not a loosening of the rule: the stemmer matching "pushing"
+        # against a rule written about "push" is a real term match that the
+        # exact-token floor was throwing away.
         eligible = [r for r in in_scope
                     if L.is_gate(r)
+                    or (fts_scores is not None
+                        and r["rule_uuid"] in fts_scores)
                     or L.lexical_overlap(query, r.get("trigger_text", ""),
                                          r.get("action_text", ""),
                                          r.get("because_text", ""),
                                          r.get("domain", "")) > 0]
-        eligible.sort(key=lambda r: L.rank_key(r, query, context))
+        eligible.sort(key=lambda r: L.rank_key(r, query, context, fts_scores))
         # THE LIMIT APPLIES TO SOFT RULES ONLY (Loop P4).
         #
         # Reproduced on the real CLI before this was written, and recorded as
@@ -4368,7 +4776,7 @@ class Store(object):
             row = dict(r)
             row["rank"] = i
             if include_reasons:
-                row["why"] = L.explain_rank(r, query, context)
+                row["why"] = L.explain_rank(r, query, context, fts_scores, mode)
             out.append(row)
         # CONFLICTS ARE SURFACED, NEVER SILENTLY RESOLVED (Loop 6).
         #
@@ -4408,7 +4816,7 @@ class Store(object):
         # split and the return, this number moves away from gates_total and
         # the invariant test fails, which is the whole point of reporting both.
         gates_returned = sum(1 for r in out if L.is_gate(r))
-        return {"mode": L.RETRIEVAL_MODE, "results": out,
+        return {"mode": mode, "results": out,
                 "omitted": soft_omitted,
                 "eligible": len(eligible),
                 "gates_returned": gates_returned,

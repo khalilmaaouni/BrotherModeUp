@@ -14,12 +14,14 @@ WHY THIS FILE IS SEPARATE FROM bm_learn.py
   ends up with its rules only reachable by spawning a process.
 
 RETRIEVAL MODE, STATED PLAINLY: this module implements DETERMINISTIC LEXICAL
-matching only. The source plan also asks for an optional FTS5 index probed at
-runtime; that is NOT built yet. Retrieval therefore reports its mode as
-"lexical" always, and no code anywhere claims BM25 or full-text ranking. The
-plan's requirement that diagnostics name the mode is met by naming the only mode
-that exists. When FTS5 lands, it becomes the fast path and this stays the
-degraded one, tested against the same fixtures.
+matching, and that path is complete on its own. Since post-audit LOOP P7 there
+is a SECOND, OPTIONAL mode: when the store carries a healthy SQLite FTS5 index
+and the founder has opted in, bm_store.py hands this module a map of BM25
+scores and ranking gains one extra named component. Everything here stays pure:
+this file never opens a database, never probes for FTS5, and never decides
+which mode is in force. It only knows how to rank with a BM25 map and how to
+rank without one, which is why the fallback is the same code path rather than a
+second implementation that drifts.
 
 Python 3.9, standard library only. No network. No subprocess. Writes no files.
 
@@ -46,7 +48,12 @@ INJECTABLE_STATES = ("settled", "confirmed", "approved")
 CANDIDATE_STATUSES = ("pending", "under_review", "approved", "merged", "split",
                       "rejected", "expired")
 
+# The mode name every honest result carries. RETRIEVAL_MODE is the one that
+# always works and is therefore the default and the fallback; FTS5_MODE is only
+# ever reported when a real index answered the query.
 RETRIEVAL_MODE = "lexical"
+FTS5_MODE = "fts5"
+RETRIEVAL_MODES = (RETRIEVAL_MODE, FTS5_MODE)
 
 _LEGAL_STATE_MOVES = {
     "approved": ("confirmed", "contradicted", "deprecated", "superseded", "forgotten"),
@@ -203,41 +210,107 @@ def scope_matches(rule_scope_type, rule_scope_key, context):
     return normalize_text(supplied).lower() == normalize_text(rule_scope_key).lower()
 
 
-def rank_key(rule, query, context=None):
+def fts_match_query(text):
+    """A SAFE FTS5 MATCH expression for this task text, or "" when there is
+    nothing to search for.
+
+    Every token is emitted as a QUOTED STRING, joined with OR. That is the
+    whole defence against query-syntax attacks and against accidents: FTS5
+    treats `NEAR/2`, `*`, `-`, `^`, `AND`, and `column :` as operators in a
+    bare query, and a founder task that happens to contain one of them would
+    either change the search or raise a syntax error deep inside the store.
+    Inside double quotes FTS5 reads a phrase, not an operator, so the worst a
+    hostile query can do is fail to match anything.
+
+    Tokens come from tokenize(), the SAME tokenizer the lexical path uses, so
+    the two modes are asking about the same words and a comparison between them
+    means something. Embedded double quotes are doubled, which is FTS5's own
+    escape, so no token can close its quote early."""
+    tokens = tokenize(text)
+    if not tokens:
+        return ""
+    return " OR ".join('"%s"' % t.replace('"', '""') for t in tokens)
+
+
+def bm25_component(raw):
+    """Turn SQLite's bm25() output into a component where HIGHER IS BETTER.
+
+    bm25() returns a value that is zero or negative, and MORE negative means a
+    better match, which is the opposite of every other number in this ranking
+    and exactly the kind of inversion that produces a silently reversed sort.
+    Flipping the sign once, here, in a named function with a test on it, is the
+    only place that convention has to be remembered. A missing or unusable
+    score is 0.0, which is what a rule with no FTS hit scores, so an absent
+    score and a worthless score sort identically instead of raising."""
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+    if val != val:  # NaN, which would make the sort order undefined
+        return 0.0
+    return -val if val < 0 else 0.0
+
+
+def rank_key(rule, query, context=None, fts_scores=None):
     """Sort key for retrieval. Lower sorts FIRST.
 
     Lexicographic over NAMED components rather than one blended score, so every
     result can explain its own position (invariant L9). Order:
       1. scope specificity, most specific first;
       2. rule state, settled before confirmed before approved;
-      3. lexical relevance, higher first;
-      4. rule_uuid, purely so the order is stable and reproducible."""
+      3. FTS5 BM25 score, higher first (always 0.0 in lexical mode);
+      4. exact lexical overlap, higher first;
+      5. rule_uuid, purely so the order is stable and reproducible.
+
+    Gate delivery is not a component here on purpose: it is structural, applied
+    by split_gates() after ranking, so a gate never has to out-rank anything to
+    be delivered. See retrieve_learning_rules in bm_store.py.
+
+    `fts_scores` maps rule_uuid to a raw bm25() value. None means lexical mode,
+    and then component 3 is 0.0 for every rule, so the key degenerates to
+    EXACTLY the order this function produced before FTS5 existed. That is the
+    fallback guarantee in one line of code rather than in a second function."""
     spec = SCOPE_SPECIFICITY.index(rule["scope_type"]) \
         if rule["scope_type"] in SCOPE_SPECIFICITY else len(SCOPE_SPECIFICITY)
     state = INJECTABLE_STATES.index(rule["state"]) \
         if rule["state"] in INJECTABLE_STATES else len(INJECTABLE_STATES)
+    bm25 = bm25_component((fts_scores or {}).get(rule.get("rule_uuid", "")))
     relevance = lexical_overlap(query, rule.get("trigger_text", ""),
                                 rule.get("action_text", ""),
                                 rule.get("because_text", ""),
                                 rule.get("domain", ""),
                                 rule.get("scope_key", ""))
-    return (spec, state, -relevance, rule.get("rule_uuid", ""))
+    return (spec, state, -bm25, -relevance, rule.get("rule_uuid", ""))
 
 
-def explain_rank(rule, query, context=None):
+def explain_rank(rule, query, context=None, fts_scores=None, mode=None):
     """The human-readable reason a rule was selected, built from the SAME
     values rank_key sorts on. Derived from one source so the explanation cannot
-    drift from the ordering it claims to describe."""
+    drift from the ordering it claims to describe.
+
+    `mode` is passed in by the store, which is the only layer that knows which
+    mode actually answered. It is not guessed from fts_scores being non-empty,
+    because a rule with no FTS hit still has to report the mode the run used."""
     matched = sorted(set(tokenize(query)) &
                      set(tokenize("%s %s" % (rule.get("trigger_text", ""),
                                              rule.get("action_text", "")))))
     return {
         "scope": safe_scope(rule["scope_type"], rule.get("scope_key", "")),
         "state": rule["state"],
-        "mode": RETRIEVAL_MODE,
+        "mode": mode or RETRIEVAL_MODE,
         "matched_terms": matched,
+        # Kept under its original name and with its original meaning (trigger
+        # plus action overlap), because it is written into stored diagnostics
+        # and read back by older rows. The FTS component is reported ALONGSIDE
+        # it rather than replacing it.
         "relevance": round(lexical_overlap(query, rule.get("trigger_text", ""),
                                            rule.get("action_text", "")), 3),
+        "bm25": round(bm25_component((fts_scores or {}).get(
+            rule.get("rule_uuid", ""))), 6),
+        "lexical_bonus": round(lexical_overlap(
+            query, rule.get("trigger_text", ""), rule.get("action_text", ""),
+            rule.get("because_text", ""), rule.get("domain", ""),
+            rule.get("scope_key", "")), 3),
     }
 
 
