@@ -38,6 +38,30 @@ bs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(bs)
 sys.modules["bm_store"] = bs
 
+# Two tests below rename tools/bm_telemetry.py aside to prove the fail-closed
+# path with the module GENUINELY absent. That window is repo-wide: any other
+# test process importing bm_store at that moment sees a checkout with a missing
+# module and fails for a reason that has nothing to do with the code under test
+# (reproduced 2026-07-27). tools/test_all.py owns the interprocess lock that
+# closes the window; it is imported here rather than reimplemented so there is
+# exactly one lock, and it is a no-op when test_all is already holding it as our
+# parent. This GUARDS the hazard. The fix is removing the rename technique, which
+# stays open in docs/NOT-FINALIZED.md item 10.
+_gate_spec = importlib.util.spec_from_file_location(
+    "bm_test_all", os.path.join(HERE, "test_all.py"))
+_gate = importlib.util.module_from_spec(_gate_spec)
+_gate_spec.loader.exec_module(_gate)
+
+
+def _hold_rename_window(case):
+    """Hold the checkout-wide test lock for as long as a module is moved aside.
+    Released through addCleanup so a failure inside the window cannot leave the
+    lock held and block the next run."""
+    handle = _gate.acquire_gate_lock(
+        owner="test_bm_store rename window pid %d" % os.getpid())
+    case.addCleanup(_gate.release_gate_lock, handle)
+
+
 def _run_cli(args, cwd, env=None):
     """Invoke the CLI as a subprocess, always with BROTHERMODE_ROOT scrubbed
     from the child's environment so ambient developer state (this repo's own
@@ -2270,6 +2294,7 @@ class TestFixRound7(unittest.TestCase):
         telemetry_path = os.path.join(HERE, "bm_telemetry.py")
         moved_path = telemetry_path + ".moved-for-test"
         self.assertTrue(os.path.exists(telemetry_path), "sanity: the real file must exist")
+        _hold_rename_window(self)
         os.rename(telemetry_path, moved_path)
         try:
             spec = importlib.util.spec_from_file_location(
@@ -3379,6 +3404,7 @@ class TestRedactionUnavailable(unittest.TestCase):
         telemetry_path = os.path.join(HERE, "bm_telemetry.py")
         moved_path = telemetry_path + ".moved-for-gateC-prerelease-test"
         self.assertTrue(os.path.exists(telemetry_path), "sanity: the real file must exist")
+        _hold_rename_window(self)
         with tempfile.TemporaryDirectory() as d:
             os.rename(telemetry_path, moved_path)
             try:
