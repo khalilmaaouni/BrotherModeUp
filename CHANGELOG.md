@@ -1,5 +1,49 @@
 # Changelog
 
+## 2026-07-29 (no version bump): the handover dedupe was deleting handovers
+
+Fix round on Loop P12. The entry below promised that a park and its handover
+both land or neither does, and closed the audit item that asked for it. That
+promise was false in one specific, reachable case, and this round found it by
+attacking the boundary the loop's own Fable prompt named. Reproduced on a real
+store before a line was changed.
+
+- THE DEDUPE WAS SCOPED TO THE LIFECYCLE FOR ALL TIME, NOT TO A RETRY. The
+  uniqueness key was the lifecycle plus the handover's content fingerprint,
+  across every row that lifecycle had ever produced, delivered or not. The
+  fingerprint covers the objective, the files, the owner, the tier, the check,
+  the evidence, the latest digest and the decisions. It does not cover the
+  state, the version, the transition, the heading or the sessions. So a record
+  parked, acknowledged, resumed and parked again with nothing new checkpointed
+  produced the identical fingerprint, the second insert lost, and the loss was
+  swallowed. Result: `threads off` printed success, `handovers` said none,
+  STATE.md had no handover section, and `verify` called the store healthy. The
+  handover did not exist and nothing could recover it.
+- ADOPTION HAD IT WORSE. `threads adopt` writes no digest of its own before it
+  transitions, so its payload is almost always unchanged since the park that
+  preceded it. Its handover lost the same way, and STATE.md kept rendering the
+  park's heading, with a body reading "parked", for a record the store had
+  already moved to "adopted". The CLI said the adoption's handover was in the
+  store in the same breath.
+- THE KEY IS NOW THE TEXT A FOUNDER CAN STILL SEE. Schema 6 replaces that index
+  with the lifecycle, the fingerprint and the heading, restricted to
+  UNDELIVERED rows. An acknowledged handover has been read and dismissed and no
+  longer renders, so it can no longer suppress anything. A park heading you
+  typed and the adoption heading that follows it are two different handovers,
+  because they are two different things to tell the next session. A genuine
+  retry, same text while the first copy is still on your screen, still stores
+  and renders exactly once.
+- AND THE SWALLOW NOW HAS TO PROVE ITSELF. When an insert loses on that index,
+  the store re-reads for the undelivered copy that justifies staying quiet. If
+  it is not there, the transition is refused and rolled back rather than moving
+  the record: "parked with no handover" is now unreachable twice over, once by
+  the key and once by the check.
+- The migration drops an index and creates another. No row is read or rewritten,
+  and the new key is strictly weaker than the old one, so nothing that was legal
+  a moment ago can fail it. An existing store upgrades on the first command that
+  writes; a read-only command refuses with the same clear message it has always
+  used, and touches nothing.
+
 ## 2026-07-29 (no version bump): a parked thread could lose its handover, and now cannot
 
 Loop P12. Until this change, a handover was TEXT APPENDED to the project's

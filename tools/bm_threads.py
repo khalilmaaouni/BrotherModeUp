@@ -481,8 +481,14 @@ def _create_if_absent(path, text):
 #     because there is no separate delivery step to get ahead of it.
 #   - A crash after the commit but before the render costs nothing: the next
 #     regeneration renders the row again, because rendering is not delivering.
-#   - Retry cannot duplicate: UNIQUE(lifecycle_uuid, payload_fingerprint) is
-#     the dedupe that the old comment-marker scan only simulated.
+#   - Retry cannot duplicate: UNIQUE(lifecycle_uuid, payload_fingerprint,
+#     heading) WHERE delivered_at IS NULL is the dedupe that the old
+#     comment-marker scan only simulated. Fix round 2026-07-29: that key was
+#     (lifecycle_uuid, payload_fingerprint) across every row for all time,
+#     which suppressed an adoption's handover whenever the payload had not
+#     changed since the park before it, and dropped a second park's handover
+#     entirely once the first had been acknowledged. See the _HANDOVER_DDL
+#     comment in bm_store.py.
 # Handovers that older versions already appended into a STATE.md stay exactly
 # where they are, as human prose. Nothing parses them back in; there is no
 # marker in those files reliable enough to round-trip (see _migrate_4_to_5).
@@ -923,6 +929,17 @@ def _adopt_core(store, root, rec, session_id, adopt_live, name):
     handover row part of the transition's own transaction, so there is no
     second step to fail, to race, or to get ahead of the refusal. A refusal
     writes nothing at all; a success writes both or neither.
+
+    Fix round 2026-07-29: the suppression named in the GATE 3 paragraph above
+    was NOT gone with the ordering, and this docstring said it was. The dedupe
+    index ignored the heading and covered acknowledged rows, and an adoption's
+    payload is almost always identical to the park that preceded it, because
+    adopt writes no digest of its own before it transitions. So the adoption's
+    handover lost the index race and STATE.md kept rendering the park's
+    heading, for a record the store had already moved to 'adopted'. The heading
+    is part of the dedupe key now and acknowledged rows are out of it, so this
+    adoption's header is its own row. See the _HANDOVER_DDL comment in
+    bm_store.py.
 
     Still its own named function, and still for the reinjection reason: a
     calibration test monkeypatches exactly this symbol back to the old

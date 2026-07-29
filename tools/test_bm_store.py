@@ -729,6 +729,13 @@ class TestFixRoundGates(unittest.TestCase):
                                "move the founder's store aside. Same "
                                "exemption and same reason as every other "
                                "_migrate_*_to_* above",
+            "_migrate_5_to_6": "a schema migration step, run INSIDE the "
+                               "caller's BEGIN EXCLUSIVE. Same exemption and "
+                               "same reason as every other _migrate_*_to_* "
+                               "above: a DROP INDEX or CREATE INDEX failing "
+                               "mid-migration must roll the caller's "
+                               "transaction back, not move the founder's "
+                               "store aside",
             "_undelivered_handover_rows": "one sqlite_master probe asking "
                                           "whether the handovers table exists "
                                           "at all (LOOP P12). Routing it "
