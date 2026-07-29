@@ -50,8 +50,17 @@ python3 tools/bm_learn.py apply --query "<what you are about to do>" --session <
 with no flag in between. That is the point: a flag is what gets forgotten, and a
 forgotten flag leaves no trace that retrieval ever happened. It exits 3 with a
 PARTIAL status when the rules came back but the recording did not land, so never
-read a nonzero exit as "no rules". Re-running it is idempotent, and re-running it
-once you have a work record links the rows you already wrote.
+read a nonzero exit as "no rules": the rules are printed above that status on
+every failing path, including a `--record` that does not resolve. Re-running it
+is idempotent, and re-running it once you have a work record links the rows you
+already wrote.
+
+PASS `--record` ONCE YOU HAVE A WORK RECORD. It is what tells two pieces of work
+apart. Recording is idempotent per (task, rule, version, session, work record),
+and the task part is derived from your query alone, so two different units of
+work in one session phrased the same way are separated by nothing else. With
+`--record` each gets its own row. Without it, `apply` says which work record the
+row it found already belongs to, and you have to decide.
 
 Substantial means: a written artifact the founder will read or reuse, an
 architecture or design decision, a multi-file change, a risky or irreversible

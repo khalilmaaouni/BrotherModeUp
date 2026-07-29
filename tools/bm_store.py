@@ -4338,16 +4338,65 @@ class Store(object):
                            "WHERE lifecycle_uuid LIKE ?", (prefix + "%",)).fetchall()
         return _one_or_refuse(rows, "record", prefix)["lifecycle_uuid"]
 
+    def _prior_application(self, fingerprint, rule_uuid, version, session_id,
+                           record_uuid):
+        """The existing row THIS retrieval is a repeat of, or None.
+
+        THE IDEMPOTENCE KEY INCLUDES THE WORK RECORD, and it has to.
+        It used to be (task fingerprint, rule, version, session) alone, so two
+        DIFFERENT pieces of substantial work in one session that happened to
+        share task wording collapsed onto one row: the second one recorded
+        nothing, and "was this rule followed for that work" became permanently
+        unanswerable while the run still read as a clean success. Two units of
+        work are two applications of the rule, whatever they were called.
+
+        The lookup is therefore ordered, not a single match:
+          1. a row already pointing at THIS record: the same work, seen again.
+          2. otherwise an UNCLAIMED row (record_uuid still null): the normal
+             order of work, where retrieval happens before the work record
+             exists, so the caller re-runs with --record and the link lands.
+          3. otherwise nothing: a row belonging to some OTHER work record is
+             not this work's row, so this work gets its own.
+
+        Rule 3 is why no link is ever moved: a foreign row is never selected
+        here, so it can never be updated, and the "never rewrite an existing
+        link" invariant is now a consequence of the lookup rather than a
+        refusal bolted on after it.
+
+        With no record supplied there is nothing to key on beyond the old
+        four, so the first row wins and the caller is TOLD which work record it
+        already belongs to. That ambiguity is real and is disclosed, never
+        resolved by guessing."""
+        base = ("SELECT application_uuid AS u, record_uuid AS rec "
+                "FROM learning_applications "
+                "WHERE task_fingerprint=? AND rule_uuid=? AND rule_version=? "
+                "AND session_id=?")
+        key = (fingerprint, rule_uuid, version, session_id)
+        tail = " ORDER BY retrieved_at, application_uuid LIMIT 1"
+        if record_uuid is None:
+            return _exec(self, base + tail, key).fetchone()
+        same = _exec(self, base + " AND record_uuid=?" + tail,
+                     key + (record_uuid,)).fetchone()
+        if same is not None:
+            return same
+        return _exec(self, base + " AND (record_uuid IS NULL OR record_uuid='')"
+                     + tail, key).fetchone()
+
     def record_learning_applications(self, query, context=None, limit=5,
                                       session_id="", record_prefix=None,
                                       shown_to_model=True, task_excerpt=None):
         """Retrieve rules for a task AND record that they were surfaced.
 
-        One application row per returned rule VERSION. Idempotent per
-        (task fingerprint, rule, version, session): running the same retrieval
-        twice in one session records once and reports the rest as already
-        present, because a model that re-reads its rules mid-task has not
-        applied them twice.
+        One application row per returned rule VERSION per unit of work.
+        Idempotent per (task fingerprint, rule, version, session, work record):
+        running the same retrieval twice for the same work records once and
+        reports the rest as already present, because a model that re-reads its
+        rules mid-task has not applied them twice.
+
+        THE WORK RECORD IS PART OF THAT KEY, and see _prior_application for
+        why: without it, two different pieces of substantial work in one
+        session that shared task wording collapsed onto a single row, and the
+        second one recorded nothing while still reporting success.
 
         Idempotent does NOT mean the second call is discarded. The natural
         order of work is retrieve first, claim the work record second, then
@@ -4356,15 +4405,17 @@ class Store(object):
         back counted as `linked`. Nothing else in this codebase can set that
         column afterwards, so dropping the flag would strand the row for good
         and permanently unlink the application from the work it belongs to.
-        An application already pointing at a DIFFERENT record is refused
-        rather than moved: completing a missing link is repair, changing an
-        existing one is rewriting history.
+        An application already pointing at a DIFFERENT record is never touched
+        and never moved: that work keeps its row, and this work gets its own.
 
-        The retrieval result is returned whatever happens to the write. If the
-        insert fails, `record_error` carries the reason and no partial rows
-        survive, and the caller still gets the rules it asked for."""
+        The retrieval result is returned whatever happens to the write, and
+        that now includes a bad --record. Resolving the work record prefix is
+        part of the WRITE, not a precondition of the read, so a mistyped id
+        comes back as `record_error` with the rules intact instead of aborting
+        the whole run and leaving the caller with no founder rules at all.
+        `record_error_kind` says which sort of failure it was, because a bad
+        argument will fail identically forever and a busy database will not."""
         L = _learning()
-        record_uuid = self._resolve_record_uuid(record_prefix)
         res = self.retrieve_learning_rules(query, context=context, limit=limit)
         out = dict(res)
         fingerprint = L.task_fingerprint(query)
@@ -4375,38 +4426,33 @@ class Store(object):
         out["already_recorded"] = 0
         out["linked"] = 0
         out["applications"] = []
+        out["already_linked_records"] = []
         out["record_error"] = ""
+        out["record_error_kind"] = ""
         ts = now_iso()
+        recorded, already, linked, uuids, elsewhere = 0, 0, 0, [], set()
         try:
-            recorded, already, linked, uuids = 0, 0, 0, []
+            record_uuid = self._resolve_record_uuid(record_prefix)
             with self._transaction():
                 for r in res["results"]:
                     version = int(r["current_version"])
-                    prior = _exec(self,
-                        "SELECT application_uuid AS u, record_uuid AS rec "
-                        "FROM learning_applications "
-                        "WHERE task_fingerprint=? AND rule_uuid=? AND rule_version=? "
-                        "AND session_id=?",
-                        (fingerprint, r["rule_uuid"], version,
-                         session_id or "")).fetchone()
+                    prior = self._prior_application(
+                        fingerprint, r["rule_uuid"], version,
+                        session_id or "", record_uuid)
                     if prior is not None:
                         already += 1
                         uuids.append(prior["u"])
-                        if record_uuid is not None and prior["rec"] != record_uuid:
-                            if prior["rec"]:
-                                raise OwnershipRefused(
-                                    "record-already-linked",
-                                    "application %s already belongs to work "
-                                    "record %s; a link is completed here, never "
-                                    "moved, so close that application instead of "
-                                    "re-pointing it at %s"
-                                    % (prior["u"][:8], prior["rec"][:8],
-                                       record_uuid[:8]))
+                        if record_uuid is not None and not prior["rec"]:
                             _exec(self,
                                   "UPDATE learning_applications SET record_uuid=? "
                                   "WHERE application_uuid=?",
                                   (record_uuid, prior["u"]))
                             linked += 1
+                        elif record_uuid is None and prior["rec"]:
+                            # Disclosed, never resolved by guessing. Without a
+                            # --record this call cannot tell a re-read of that
+                            # work from DIFFERENT work worded the same way.
+                            elsewhere.add(prior["rec"])
                         continue
                     au = uuid.uuid4().hex
                     scope_match = r["scope_type"] if r["scope_type"] == "global" \
@@ -4431,6 +4477,7 @@ class Store(object):
             out["already_recorded"] = already
             out["linked"] = linked
             out["applications"] = uuids
+            out["already_linked_records"] = sorted(elsewhere)
         except (OwnershipRefused, sqlite3.IntegrityError) as e:
             # PROPERTY 2 above, enforced here and nowhere else. The transaction
             # has already rolled back, so nothing partial survives; the caller
@@ -4443,6 +4490,20 @@ class Store(object):
             # write to shrug off, and hiding it behind a successful-looking
             # retrieval is how a corrupt store keeps being used.
             out["record_error"] = "%s" % (e,)
+            # WHICH SORT OF FAILURE, because the honest next step differs and
+            # the caller cannot tell them apart from the message. An
+            # OwnershipRefused here is the caller's argument being wrong, so
+            # re-running the identical command fails identically forever; a
+            # database error is transient and re-running is exactly right.
+            out["record_error_kind"] = (e.reason
+                                        if isinstance(e, OwnershipRefused)
+                                        else "write-failed")
+            # Rows counted as ALREADY PRESENT were there before this call and
+            # survive the rollback, so reporting 0 of them would understate
+            # what the database actually holds. Rows this call wrote or linked
+            # are gone with the transaction and stay at 0.
+            out["already_recorded"] = already
+            out["already_linked_records"] = sorted(elsewhere)
         return out
 
     def get_learning_application(self, prefix):
