@@ -285,6 +285,43 @@ here so nobody reads "Loop 4 closed" as "Loop 4 complete":
 
 ---
 
+## 18. What Loop 6 built, and what its conflict detector cannot see. Added 2026-07-29.
+
+`learning_edges` went from an existing but unwritten table to the record of how
+rules relate. Approval now REFUSES to create a second injectable rule that
+contradicts a live one, retrieval SURFACES a conflict instead of quietly
+choosing a side, and `bm_learn.py verify` reports integrity findings with an
+exit code a script can gate on (0 clean, 1 findings, 2 could not run).
+
+What is honestly limited, and why each limit was chosen rather than missed:
+
+- OPEN, by design: detection is LEXICAL. It finds a reversal of the same
+  instruction ("always push through the desktop app" against "never push
+  through the desktop app"), which is the shape a founder's own change of mind
+  takes. It does NOT find "indent with tabs" against "indent with four spaces".
+  There is a test asserting that blind spot rather than hoping about it, and
+  `bm_learn.py link a contradicts b` exists so the founder can declare any
+  conflict the detector cannot see. A declared conflict counts exactly as much
+  as a detected one everywhere downstream.
+- OPEN: containment between two non-global scopes is not inferred. Nothing in
+  the store says artifact `executive-update` lives inside project `Tonari`, so
+  two different non-global scopes report as disjoint and coexist. Guessing here
+  would decide whether an approval is blocked, on no evidence.
+- OPEN: of the plan's four founder resolutions, three are commands (supersede,
+  mark contradicted, deprecate). "Narrow one scope" is not, because
+  `edit_learning_rule` edits a rule's TEXT and cannot move its scope. Narrowing
+  a scope today means approving a new, narrower rule and standing the broad one
+  down.
+- The conflict scan is pairwise over injectable rules, O(n squared). That is
+  tens of rows on a real store. If it ever stops being tens the fix is an index,
+  not a silent cap on how many conflicts get reported.
+- The override is not a loophole and is not silent: forcing an approval past a
+  contradiction writes both an evidence row and a `contradicts` edge, so the
+  pair keeps showing up in `conflicts`, in `relevant`, and as a `verify`
+  finding until the founder resolves it.
+
+---
+
 ## What is genuinely finished
 
 All 17 findings of the second audit are closed in code, with CI green on Linux,
