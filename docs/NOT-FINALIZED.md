@@ -152,16 +152,32 @@ Still: any process running as your user can read the token file and impersonate
 fully. Perfect unforgeability is not reachable on one machine, one user, no
 network. Documented in docs/HOOKS.md rather than overclaimed.
 
-## 4. Handovers are lock-serialized, not transactional. PARTIAL.
+## 4. Handovers are lock-serialized, not transactional. CLOSED, 2026-07-29 (Loop P12).
 
-The audit asked for handovers stored in the database and rendered into the view,
-so nothing appends to a generated file. What landed is a lock plus a read-back
-that verifies the write survived, with two honest new outcomes (busy, lost).
+Was: the audit asked for handovers stored in the database and rendered into the
+view, so nothing appends to a generated file. What had landed was a lock plus a
+read-back, with two honest new outcomes (busy, lost), and the follow-up shape
+written down in the code so it could not be lost.
 
-The follow-up shape is recorded in the code: a handovers table with a uniqueness
-constraint, a store API inserting inside the same transaction as the park or
-adopt, and rendering inside the generated markers. After that lands, the lock and
-the append path delete entirely.
+Now: that follow-up landed in full. Schema 5 adds a `handovers` table; the row
+is inserted inside the same transaction as the park or adopt; `render_state_md`
+renders the undelivered ones inside the generated markers; and the lock, the
+append, `_deliver_handover_once`, `_handover_tag` and `_handover_landed` are
+deleted rather than shimmed. Closed only after the crash-injection tests the
+plan asked for: transition-commit failure leaves no handover, handover-insert
+failure leaves no transition, render failure preserves database truth, retry
+after a render failure does not duplicate, refused adoption writes nothing, and
+a concurrent pair serializes through the store.
+
+The defect was reproduced first, against a real store: parked record, handover
+text gone, nothing to recover it from. Two calibration tests reinject the old
+shape (delivery as a separate step) and confirm both split states come back.
+
+Still open, and named rather than buried: acknowledging a handover is a manual
+command (`handover-ack`), so an unacknowledged one renders into STATE.md on
+every regeneration until a human clears it. That is deliberate for now, because
+the alternative is a render that mutates the database, but it means a founder
+who ignores the section accumulates it.
 
 ## 5. The adopt defect. REFUTED and CLOSED, 2026-07-28. This entry was stale.
 

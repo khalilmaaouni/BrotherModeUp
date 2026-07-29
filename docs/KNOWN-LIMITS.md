@@ -103,13 +103,14 @@ A caller can pass a real but wrong work-record id and the row will link to it.
 
 ## P5-fix: one pre-existing unrelated test is flaky on this machine
 
-`test_bm.py` `TestFinding12HandoverDeliveryIsSerializedAndVerified.
-test_calibrated_without_the_lock_the_same_pair_duplicates_the_handover` fails
-roughly 4 runs in 5, with "the reproduction did not reproduce". It is a timing
-race in a CALIBRATION test for the handover lock (`bm_threads.py`), not in the
-guard it calibrates, and it is unrelated to anything P5 touches. Confirmed
-pre-existing: stashed the P5-fix diff and reproduced the same 4-in-5 failure at
-fe0497b. Not fixed here, because this loop does not own `bm_threads.py`.
+RESOLVED 2026-07-29 by Loop P12, which deleted the test rather than stabilised
+it. `test_bm.py`
+`TestFinding12HandoverDeliveryIsSerializedAndVerified.test_calibrated_without_the_lock_the_same_pair_duplicates_the_handover`
+failed roughly 4 runs in 5 with "the reproduction did not reproduce": a timing
+race in a CALIBRATION test for the handover lock, not in the guard it
+calibrated. The lock and the append it guarded no longer exist, so neither does
+the test. What replaced it is a concurrency test that races two parks through
+the store's own transaction, which has no barrier to time out.
 
 ## Loop P5 left the older documentation naming the deprecated verb
 
@@ -273,10 +274,11 @@ file permission semantics, and the worktree layout are unverified there.
 - The backup that should be written before a status file is rewritten has not been
   exercised, because in every test the tool correctly refused before reaching it.
   Refusing is the safer behavior, but the backup code path is unproven.
-- The `deliveries` table and the full-length handover fingerprint ship with no
-  writer. The deduplication they exist for does not exist yet. Phase 3 owns it, and
-  if Phase 3 does not write it, the table should be deleted rather than kept as
-  decoration.
+- The `deliveries` table and the full-length handover fingerprint shipped with no
+  writer. RESOLVED 2026-07-29 (Loop P12): `deliveries` was deleted earlier as
+  decoration, and the fingerprint now has a real writer. It is the dedupe behind
+  UNIQUE(lifecycle_uuid, payload_fingerprint) on the `handovers` table, which is
+  what stops a retried handover being stored or rendered twice.
 - `send()` takes no expected version, making directives the one mutation without
   optimistic concurrency. Phase 3 owns the directive experience.
 

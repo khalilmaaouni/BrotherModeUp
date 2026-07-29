@@ -1,5 +1,49 @@
 # Changelog
 
+## 2026-07-29 (no version bump): a parked thread could lose its handover, and now cannot
+
+Loop P12. Until this change, a handover was TEXT APPENDED to the project's
+STATE.md, while the same file was independently read, rebuilt and replaced by
+the code that generates it. Those two writers were never atomic with respect to
+each other, and the file said so in a comment. Reproduced on a real store
+before anything was changed: park a thread, deliver its handover, let the
+generated view land on the snapshot it had already taken, and the record reads
+"parked" while the handover text is gone from disk, with no second copy
+anywhere. That is a whole session's context lost at exit 0.
+
+- A HANDOVER IS NOW A ROW, NOT AN APPEND. The store has a `handovers` table
+  (schema 5), and the row is written inside the SAME sqlite transaction as the
+  lifecycle transition that produced it. Park-with-handover and
+  adopt-with-handover are one atomic act: both land or neither does. A refused
+  adoption writes nothing at all, and a handover that cannot be built (the
+  redactor is unavailable) rolls the park back rather than parking a thread
+  whose context is gone.
+- STATE.md IS NOW ONLY A VIEW. Undelivered handovers are rendered inside the
+  generated markers, so nothing appends to that file anywhere in the project
+  any more. Delete STATE.md after a park and the next command puts the handover
+  back: a crash between the commit and the render costs nothing, because
+  rendering is not delivering. The architectural guard that used to require
+  exactly one appender now requires zero.
+- RETRY CANNOT DUPLICATE. A uniqueness constraint on the lifecycle plus the
+  handover's own content fingerprint is the dedupe. The old version simulated
+  that by scanning a text file for an HTML comment marker, which is also why a
+  concurrent rewrite could make the same handover land twice.
+- THE LOCK IS DELETED. The directory lock that serialized the append, and the
+  four functions around it, are gone rather than shimmed. A lock protecting a
+  writer that no longer exists is one more thing to keep correct.
+- Handovers that older versions already appended into a STATE.md stay exactly
+  where they are, as human prose. Nothing parses them back in: those blocks
+  have no end marker reliable enough to round-trip, and a parser guessing would
+  either truncate a founder's handover or swallow the prose around it. Only new
+  handovers use the database.
+- Acknowledge a handover with `bm_store.py handover-ack --handover <uuid>`, and
+  list what is outstanding with `bm_store.py handovers`. Acknowledging is
+  idempotent and never deletes the row.
+- One thing found while writing this: the new fingerprint column was originally
+  named so that the dump redactor's digest rule did not cover it, and it dumped
+  in cleartext. Caught by this loop's own dump test and renamed to match the
+  convention that rule reads.
+
 ## 2026-07-29 (no version bump): the search index can no longer destroy the store, nor answer from deleted text
 
 Fix round on Loop P7. Three findings, each one reproduced on a real store

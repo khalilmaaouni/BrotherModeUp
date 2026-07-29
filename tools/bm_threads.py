@@ -37,10 +37,13 @@ THE CONTRACT (three files per thread, so coordination needs no new infrastructur
 
 REVERSIBILITY IS THE POINT (founder requirement, 2026-07-24)
   Thread mode must be switchable OFF mid-project with no chaos and no lost context.
-  `off` drains every ACTIVE, PERSISTENT record's handover into the project's root
-  STATE.md (tagged by lifecycle and content fingerprint, so a retry can never
-  duplicate it) and PARKS it: nothing is deleted, every thread stays resumable via
-  `resume`, and the chief continues solo with zero re-exploration.
+  `off` PARKS every ACTIVE, PERSISTENT record and writes its handover in the SAME
+  store transaction (LOOP P12), so the two can never come apart. The project's
+  root STATE.md renders the undelivered handovers as generated text; it is a
+  view, not the place they live. Nothing is deleted, every thread stays resumable
+  via `resume`, and the chief continues solo with zero re-exploration. A retry
+  cannot duplicate a handover (UNIQUE on the lifecycle plus the content
+  fingerprint), and a refused park writes nothing at all.
 
 FAILURE POLICY (matches bm_store.py's two explicit policies)
   Ownership and lifecycle commands (on/off/start/checkpoint/decide/send/park/
@@ -100,21 +103,16 @@ def _refresh_root_view(root):
     view refresh in this project: the mutation this follows has already
     committed, so a view-refresh failure here is warned, never raised.
 
-    FINDING 12 (external audit 2026-07-27): the refresh runs under the same
-    STATE.md lock the handover append takes, so this module can never
-    rebuild-and-replace that file while one of its own appends is in flight.
-    Losing the lock is warned and skipped, never raised: this is advisory,
-    and the next command regenerates the view anyway."""
+    LOOP P12 deleted the STATE.md lock this used to take. FINDING 12's lock
+    existed to keep THIS module's handover APPEND from interleaving with its
+    own view refreshes. There is no append any more: handovers are rows in
+    the store, written inside the lifecycle transition, and rendered into
+    STATE.md by bm_store.write_state_view, which is now the only writer of
+    that file in the whole project. A lock protecting a writer that no longer
+    exists is not caution, it is a second thing to keep correct."""
     bs = _store()
     try:
-        with _state_lock(root) as got:
-            if not got:
-                _warn("bm_threads: another process is holding the STATE.md lock, "
-                      "so the generated view was not refreshed after this "
-                      "command; the command's own result is still accurate, and "
-                      "the next command regenerates the view.")
-                return
-            bs._refresh_state_view(root)
+        bs._refresh_state_view(root)
     except Exception as e:
         _warn("bm_threads: could not refresh the generated STATE.md view "
               "after this command (%r); the command's own result is still "
@@ -453,237 +451,42 @@ def _create_if_absent(path, text):
 
 
 # ---------------------------------------------------------------------------
-# THE STATE.md LOCK (FINDING 12, external audit 2026-07-27). A PARTIAL FIX,
-# NAMED AS PARTIAL, because the whole fix does not live in this file.
+# WHERE THE HANDOVER APPEND AND ITS LOCK WENT (LOOP P12, 2026-07-29)
 #
-# THE DEFECT: _deliver_handover_once does an UNLOCKED check-then-append on
-# the project root STATE.md (read the file, look for the tag, append if it
-# is absent), while bm_store.write_state_view independently reads the WHOLE
-# file, rebuilds it, and atomically REPLACES it. Interleave read-append with
-# read-rebuild-replace and either a handover is ERASED (the replace lands on
-# a snapshot taken before the append) or DUPLICATED (two deliveries both
-# read a file that has no tag yet, then both append).
+# THE DEFECT THIS FILE USED TO CARRY: _deliver_handover_once did a
+# check-then-append on the project root STATE.md (read the file, look for an
+# HTML comment tag, append if it was absent) under this module's own directory
+# lock, while bm_store.write_state_view independently read the WHOLE file,
+# rebuilt it and atomically REPLACED it, taking no lock at all. Interleave the
+# two and either a handover was ERASED (the replace landed on a snapshot taken
+# before the append) or DUPLICATED. FINDING 12's lock closed
+# bm_threads-against-bm_threads only, and said so; it could not make two
+# different modules atomic with respect to each other.
 #
-# THE REAL FIX IS TRANSACTIONAL AND IS NOT IN THIS FILE: handovers belong in
-# sqlite and should be GENERATED into the view, so that nothing ever appends
-# to a generated file. That needs a handovers table in bm_store.py, which is
-# outside this change's fence; the exact follow-up shape is written down in
-# _FOLLOWUP_TRANSACTIONAL_HANDOVERS below so it cannot be lost.
+# Reproduced against a real store on 2026-07-29, before this change: park the
+# record, deliver the handover, let bm_store rewrite STATE.md from a snapshot
+# it had already taken, and the record reads 'parked' while the handover text
+# is gone from disk with nothing anywhere holding a second copy.
 #
-# WHAT THIS DELIVERS, EXACTLY: every STATE.md mutation THIS MODULE makes
-# (the handover append, and the generated-view refreshes this module
-# triggers) is serialized behind one lock, and every append is VERIFIED to
-# still be on disk before it is reported as delivered. That closes
-# bm_threads-against-bm_threads races completely, and turns a
-# bm_threads-against-bm_store race from a silent loss into an honest
-# failure the caller reports, which leaves the record exactly where it was
-# rather than parking a thread whose handover just vanished. It does NOT
-# make the two writers atomic with respect to each other: bm_store.py takes
-# no lock, and teaching it to would be a change to a file outside the fence.
-#
-# os.mkdir, not a lock FILE: mkdir is atomic and exclusive on POSIX and on
-# Windows (ratified scope, the reason bm_autosave._WorktreeLock uses
-# O_CREAT|O_EXCL instead of fcntl.flock), and a directory holds no bytes at
-# all, so this lock can never become a place founder text leaks into and
-# never adds a write site to this file's reviewed inventory. A lock whose
-# holder died is bounded by an age check, the same shape _WorktreeLock uses,
-# so a crashed process cannot wedge the CLI forever.
+# THE FIX IS TRANSACTIONAL AND IT IS NOT IN THIS FILE ANY MORE. A handover is a
+# row in bm_store.py's handovers table, INSERTed inside the same sqlite
+# transaction as the lifecycle transition that produced it
+# (Store.transition(..., handover_heading=...)), and STATE.md renders the
+# undelivered ones as generated text. So:
+#   - _deliver_handover_once, _handover_tag, _handover_landed,
+#     _HANDOVER_FAILURE_REASONS, _handover_failure_reason, _StateFileLock,
+#     _state_lock and the three STATE_LOCK_* constants are DELETED, not
+#     shimmed. Nothing in this module writes STATE.md at all.
+#   - A refused transition can no longer leave a delivered handover behind,
+#     because there is no separate delivery step to get ahead of it.
+#   - A crash after the commit but before the render costs nothing: the next
+#     regeneration renders the row again, because rendering is not delivering.
+#   - Retry cannot duplicate: UNIQUE(lifecycle_uuid, payload_fingerprint) is
+#     the dedupe that the old comment-marker scan only simulated.
+# Handovers that older versions already appended into a STATE.md stay exactly
+# where they are, as human prose. Nothing parses them back in; there is no
+# marker in those files reliable enough to round-trip (see _migrate_4_to_5).
 # ---------------------------------------------------------------------------
-
-STATE_LOCK_DIRNAME = "state-md.lock"
-STATE_LOCK_WAIT_SECONDS = 10
-STATE_LOCK_STALE_SECONDS = 120
-
-#: The follow-up that makes FINDING 12 whole, kept next to the mitigation so
-#: the next change to bm_store.py has the shape in front of it:
-#:   1. A `handovers` table: (lifecycle_uuid TEXT NOT NULL, fingerprint TEXT
-#:      NOT NULL, heading TEXT NOT NULL, body TEXT NOT NULL, delivered_at
-#:      TEXT NOT NULL, reason TEXT NOT NULL) with UNIQUE(lifecycle_uuid,
-#:      fingerprint). The UNIQUE index IS the dedupe that _handover_tag
-#:      currently simulates by scanning a text file for a comment marker.
-#:   2. An API `Store.deliver_handover(lifecycle_uuid, version, heading,
-#:      reason)` that computes the payload and INSERTs inside the same
-#:      transaction as the state change it accompanies (park for `off`,
-#:      adopt for `adopt`), so a refused transition can never leave a
-#:      delivered handover behind and a crash can never split the two. It
-#:      returns "delivered" or "already" from the INSERT result, never from
-#:      reading a file, and both columns are stored raw exactly like every
-#:      other records/digests column (SECURITY.md already documents the
-#:      sqlite file itself as sensitive).
-#:   3. render_state_md() grows a "## Handovers" section, rendering every
-#:      handovers row through _redacted_view_text() like every other
-#:      founder-typed field, INSIDE the BEGIN/END generated markers.
-#:      write_state_view then remains the only writer of STATE.md in the
-#:      whole project, and this module stops appending entirely:
-#:      _deliver_handover_once, _handover_tag, _handover_landed and the lock
-#:      below all delete, and the architectural guard test that counts
-#:      appenders becomes a guard that there are ZERO.
-_FOLLOWUP_TRANSACTIONAL_HANDOVERS = (
-    "bm_store.py: handovers table + Store.deliver_handover() inside the "
-    "state-change transaction + a rendered section in render_state_md; "
-    "then this module's append path and its lock delete entirely.")
-
-
-class _StateFileLock(object):
-    """Serializes this module's writes to the project root STATE.md.
-    acquire() returns False rather than raising when the lock cannot be
-    taken, so each caller decides its own policy: the handover delivery
-    fails CLOSED (the record stays where it is), the advisory view refresh
-    fails OPEN (it warns and skips, and the next command regenerates it)."""
-
-    def __init__(self, root, wait=None):
-        self.dir = _store().store_dir(root)
-        self.path = os.path.join(self.dir, STATE_LOCK_DIRNAME)
-        self.wait = STATE_LOCK_WAIT_SECONDS if wait is None else wait
-        self.held = False
-
-    def _try_once(self):
-        try:
-            os.makedirs(self.dir, exist_ok=True)
-            os.mkdir(self.path)
-        except OSError:
-            return False
-        return True
-
-    def _clear_if_stale(self):
-        try:
-            age = time.time() - os.stat(self.path).st_mtime
-        except OSError:
-            return
-        if age > STATE_LOCK_STALE_SECONDS:
-            _warn("bm_threads: removing a stale STATE.md lock (%s, %d seconds "
-                  "old); the process holding it is gone." % (self.path, int(age)))
-            try:
-                os.rmdir(self.path)
-            except OSError:
-                pass
-
-    def acquire(self):
-        deadline = time.time() + max(self.wait, 0)
-        while True:
-            if self._try_once():
-                self.held = True
-                return True
-            self._clear_if_stale()
-            if time.time() >= deadline:
-                return False
-            time.sleep(0.02)
-
-    def release(self):
-        if not self.held:
-            return
-        self.held = False
-        try:
-            os.rmdir(self.path)
-        except OSError:
-            pass
-
-
-@contextlib.contextmanager
-def _state_lock(root, wait=None):
-    """Yields True when the STATE.md lock is held, False when it could not
-    be taken in time, and always releases what it took. NOT reentrant: no
-    caller here nests it (the delivery and the view refresh are sequential
-    inside every command that does both), and a reentrancy counter would
-    hide exactly the kind of nesting that should be noticed."""
-    lock = _StateFileLock(root, wait=wait)
-    got = lock.acquire()
-    try:
-        yield got
-    finally:
-        lock.release()
-
-
-# ---------------------------------------------------------------------------
-# Handover delivery: THE one place text is appended into the project's root
-# STATE.md (`off` and `adopt` both call this; nothing else may). Tagged by
-# lifecycle_uuid and the store's own 64-hex fingerprint (bm_store fixed F13,
-# a 12-char truncated fingerprint colliding two different handovers), so a
-# retry after a failure recognises its own earlier delivery instead of
-# writing the same handover twice, and a name that is reused across
-# lifecycles can never inherit a delivery tag it did not earn.
-# ---------------------------------------------------------------------------
-
-def _handover_tag(lifecycle_uuid, fingerprint):
-    return "<!-- brothermode-handover:%s:%s -->" % (lifecycle_uuid, fingerprint)
-
-
-def _handover_landed(state_path, tag):
-    """True when `tag` is in STATE.md ON DISK at this moment. Read twice per
-    delivery under the lock: once as the idempotence check, and once AFTER
-    the append as verification that what was written survived (FINDING 12).
-    Its own named function, not an inline `tag in text`, so a reinjection
-    test can monkeypatch exactly this symbol back to the old unverified
-    shape and prove the calibration."""
-    if not os.path.exists(state_path):
-        return False
-    return tag in _read(state_path)
-
-
-def _deliver_handover_once(root, store, lifecycle_uuid, heading):
-    """Returns "delivered", "already" (idempotent retry, nothing written
-    twice), "unavailable" (redaction could not be loaded: refuses, writes
-    nothing), "busy" (the STATE.md lock could not be taken: nothing was
-    written), "lost" (the append was made but no longer on disk when it was
-    checked, so a concurrent writer replaced the file), or False (the file
-    write itself failed). Every caller must treat only "delivered"/"already"
-    as license to change the record's state; anything else means the record
-    must stay exactly where it was, or the handover is lost the moment the
-    state moves on.
-
-    The read-check-append-verify sequence runs entirely under the STATE.md
-    lock, so two of these can never interleave with each other or with the
-    view refreshes this module triggers (see THE STATE.md LOCK above for
-    what that does and does not cover)."""
-    bs = _store()
-    try:
-        payload = store.handover_payload(lifecycle_uuid)
-        digest_text = store.render_digest(lifecycle_uuid)
-    except bs.RedactionUnavailable:
-        return "unavailable"
-    tag = _handover_tag(lifecycle_uuid, payload["fingerprint"])
-    state_path = os.path.join(root, STATE_FILENAME)
-    block = "\n%s\n## %s\n%s\n" % (tag, heading, digest_text.strip())
-    with _state_lock(root) as got:
-        if not got:
-            _warn("bm_threads: another process is holding the STATE.md lock "
-                  "(%s); no handover was written and nothing was changed. "
-                  "Retry when it releases."
-                  % os.path.join(_store().store_dir(root), STATE_LOCK_DIRNAME))
-            return "busy"
-        if _handover_landed(state_path, tag):
-            return "already"
-        try:
-            with io.open(state_path, "a", encoding="utf-8") as f:
-                f.write(block)
-                f.flush()
-                os.fsync(f.fileno())
-        except OSError:
-            return False
-        if not _handover_landed(state_path, tag):
-            _warn("bm_threads: the handover for lifecycle %s was appended to %s "
-                  "but is no longer there; another writer replaced the file "
-                  "underneath this command. Nothing about the record was "
-                  "changed, so the handover is still recoverable from the "
-                  "store (`dashboard`, or `dump`)." % (lifecycle_uuid, STATE_FILENAME))
-            return "lost"
-    return "delivered"
-
-
-#: Why a delivery that was not "delivered"/"already" failed, in the founder's
-#: words. One table, so `off` and `adopt` report the same outcome the same
-#: way instead of each inventing its own phrasing for the same value.
-_HANDOVER_FAILURE_REASONS = {
-    False: "the handover write itself failed (permissions or disk)",
-    "unavailable": "redaction unavailable",
-    "busy": "another process holds the STATE.md lock",
-    "lost": "the handover was written but a concurrent writer replaced STATE.md",
-}
-
-
-def _handover_failure_reason(outcome):
-    return _HANDOVER_FAILURE_REASONS.get(outcome, "unknown failure (%r)" % (outcome,))
-
 
 # --------------------------------------------------------------------------
 # Commands
@@ -790,31 +593,29 @@ def cmd_off(argv):
             # on the way in; reading the real row means this module does it
             # itself, at the boundary where it belongs.
             safe_name = _protect(rec.name)
-            outcome = _deliver_handover_once(
-                root, store, luid, "Drained from thread mode: %s" % safe_name)
-            if outcome not in ("delivered", "already"):
-                failed.append((safe_name, luid, _handover_failure_reason(outcome)))
-                continue
+            # LOOP P12: ONE call. The park and its handover are one sqlite
+            # transaction, so this loop can no longer produce the two states
+            # that used to be reachable here: a record parked with its handover
+            # missing (the append lost to a concurrent rewrite), or a handover
+            # delivered for a park the store then refused. Whatever this raises,
+            # the record is exactly where it was and no handover exists for it.
             try:
-                store.transition(luid, ver, "parked", session_id=sid,
-                                  note="drained by thread-mode off")
+                store.transition(
+                    luid, ver, "parked", session_id=sid,
+                    note="drained by thread-mode off",
+                    handover_heading="Drained from thread mode: %s" % safe_name)
                 drained.append(safe_name)
             except (bs.StaleIdentity, bs.OwnershipRefused) as e:
                 failed.append((safe_name, luid, str(e)))
-        # FINDING 12: under the same lock as the appends above, so this
-        # rebuild-and-replace cannot land on a snapshot taken before one of
-        # them.
-        with _state_lock(root) as got:
-            if not got:
-                _warn("bm_threads: another process is holding the STATE.md lock, "
-                      "so its generated view was not refreshed; every drained "
-                      "handover is safely on disk regardless.")
-            else:
-                try:
-                    bs.write_state_view(root)
-                except Exception as e:
-                    _warn("bm_threads: could not refresh STATE.md's generated view (%r); "
-                          "every drained handover is safely on disk regardless." % (e,))
+        # The view is a pure render of what just committed, so a failure here
+        # loses nothing: every drained handover is a row in the store, and the
+        # next command regenerates the file.
+        try:
+            bs.write_state_view(root)
+        except Exception as e:
+            _warn("bm_threads: could not refresh STATE.md's generated view (%r); "
+                  "every drained handover is in the store regardless (see "
+                  "`python3 tools/bm_store.py handovers`)." % (e,))
         if failed:
             _out("HANDOVER INCOMPLETE: %d of %d active thread(s) could not be drained:"
                  % (len(failed), len(candidates)))
@@ -1107,42 +908,39 @@ def cmd_complete(argv):
 
 
 def _adopt_core(store, root, rec, session_id, adopt_live, name):
-    """The transition-then-deliver core of `adopt` (GATE 3 fix,
-    release-blockers spec, 2026-07-26). Extracted as its own named
-    function so a reinjection test can monkeypatch this exact symbol back
-    to the OLD, broken order (deliver the handover, THEN attempt the
-    transition) and prove that a refused adopt used to permanently corrupt
-    STATE.md: the OLD code's own docstring claimed "the order IS the
-    atomicity: a failure here changes nothing", which was only true for a
-    delivery failure, never for a REFUSED transition (e.g.
-    live-session-adopt-blocked) -- by then delivery had already landed,
-    permanently recording a LIVE thread as "Adopted from dead/stalled
-    thread" in STATE.md, and the fingerprint dedupe then suppressed the
-    TRUE header when `off` drained the still-active record later
-    (reproduced by the orchestrator).
+    """The whole of `adopt`'s state change, in ONE store transaction.
 
-    With the transition first, a refusal changes nothing at all: nothing
-    is written into STATE.md until the store has actually recorded the
-    adoption. May raise bs.OwnershipRefused('live-session-adopt-blocked')
-    from the transition call; the caller (cmd_adopt) turns that into a
-    clean CLI refusal. If the transition succeeds but the handover write
-    itself then fails, the adoption is real (never rolled back for a
-    secondary view write) -- returns the outcome so the caller can report
-    that honestly, never as a silent success or a false failure."""
+    GATE 3 (release-blockers spec, 2026-07-26) fixed the ORDER: deliver the
+    handover first and a REFUSED transition (live-session-adopt-blocked) had
+    already permanently recorded a LIVE thread as "Adopted from dead/stalled
+    thread" in STATE.md, and the fingerprint dedupe then suppressed the TRUE
+    header when `off` drained the still-active record later. Ordering made that
+    much rarer without making it impossible: with the transition first, a crash
+    or a failed write between the two still left an adopted record whose
+    handover never landed anywhere.
+
+    LOOP P12 removes the "between the two" entirely. handover_heading makes the
+    handover row part of the transition's own transaction, so there is no
+    second step to fail, to race, or to get ahead of the refusal. A refusal
+    writes nothing at all; a success writes both or neither.
+
+    Still its own named function, and still for the reinjection reason: a
+    calibration test monkeypatches exactly this symbol back to the old
+    two-step shape and proves the defect returns.
+
+    May raise bs.OwnershipRefused('live-session-adopt-blocked'); cmd_adopt
+    turns that into a clean CLI refusal."""
     luid = rec["lifecycle_uuid"]
-    result = store.transition(luid, rec["version"], "adopted",
-                               session_id=session_id, note="adopted by the chief",
-                               adopt_from_live_session=adopt_live)
-    # The transition has committed: STATE.md may now be written for it.
-    outcome = _deliver_handover_once(root, store, luid,
-                                      "Adopted from dead/stalled thread: %s" % _protect(name))
-    return outcome, result
+    return store.transition(
+        luid, rec["version"], "adopted", session_id=session_id,
+        note="adopted by the chief", adopt_from_live_session=adopt_live,
+        handover_heading="Adopted from dead/stalled thread: %s" % _protect(name))
 
 
 def cmd_adopt(argv):
     """A thread died or stalled: the chief ABSORBS its fence and reports,
-    rather than silently respawning. See _adopt_core for the GATE 3
-    ordering fix this command relies on."""
+    rather than silently respawning. See _adopt_core for the transaction that
+    makes the adoption and its handover one atomic act."""
     bs = _store()
     root = _require_root()
     if not argv:
@@ -1155,13 +953,13 @@ def cmd_adopt(argv):
     session_id = " ".join(kv.get("session", [])) or _default_session_id()
     adopt_live = "adopt-from-live-session" in kv
     lifecycle_prefix = " ".join(kv.get("lifecycle", [])) or None
-    outcome = result = None
+    result = None
     store = bs.Store(root, create=False)
     try:
         rec = _find_record(store, name, states=_LEGAL_SOURCE_STATES["adopted"],
                             lifecycle_prefix=lifecycle_prefix)
         try:
-            outcome, result = _adopt_core(store, root, rec, session_id, adopt_live, name)
+            result = _adopt_core(store, root, rec, session_id, adopt_live, name)
         except bs.OwnershipRefused as e:
             if e.reason == "live-session-adopt-blocked":
                 _out("ADOPT REFUSED (%s): %s" % (e.reason, e))
@@ -1169,31 +967,16 @@ def cmd_adopt(argv):
                      "displace that session.")
                 sys.exit(2)
             raise
-        luid = rec["lifecycle_uuid"]
-        if outcome not in ("delivered", "already"):
-            # One branch, one reason table (_handover_failure_reason), so a
-            # NEW outcome value cannot fall through to the "see the warning
-            # above" line below with no warning ever printed. FINDING 12
-            # added two such values ("busy", "lost").
-            _warn("bm_threads: adopted '%s' (lifecycle %s, version %s) in the "
-                  "store, but the handover was NOT written into %s: %s. The "
-                  "adoption itself is real; the store's digest is intact "
-                  "regardless (see `dashboard` or `dump`)."
-                  % (name, luid, result.version, STATE_FILENAME,
-                     _handover_failure_reason(outcome)))
     finally:
         store.close()
+    # A pure render of what already committed. There is no outcome to branch on
+    # any more: if the line above returned, the handover is in the store, and
+    # this file's only remaining job is to ask for the view to be redrawn.
     _refresh_root_view(root)
-    if outcome == "already":
-        _out("adopted '%s' (resumed): the handover was already in %s from an "
-             "earlier attempt, so it was NOT written again." % (name, STATE_FILENAME))
-    elif outcome == "delivered":
-        _out("adopted '%s': its digest and fence are now in %s (lifecycle %s, "
-             "version %s)." % (name, STATE_FILENAME, result.lifecycle_uuid, result.version))
-    else:
-        _out("adopted '%s' (lifecycle %s, version %s): recorded in the store; "
-             "see the warning above about %s." % (name, result.lifecycle_uuid,
-                                                   result.version, STATE_FILENAME))
+    _out("adopted '%s': its digest and fence are recorded, and its handover is "
+         "in the store (lifecycle %s, version %s). %s renders it until it is "
+         "acknowledged (`python3 tools/bm_store.py handovers`)."
+         % (name, result.lifecycle_uuid, result.version, STATE_FILENAME))
     _out("  DECIDE: respawn the thread, or continue this work solo. Nothing is orphaned.")
 
 
