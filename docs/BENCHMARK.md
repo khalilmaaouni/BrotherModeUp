@@ -69,6 +69,14 @@ The numbering is the ratified list in
   is in `bm_store.py retrieve_learning_rules`: gates survive truncation.
   Calibrated by reinjecting the old truncation, which turns both this scenario
   and `test_calibrated_gate_survives_a_limit_that_truncates_everything` red.
+- That first fix carried EVERY gate past the limit, which is the opposite
+  failure, and this scenario could not see it because it only ever has one gate
+  in the store. Reproduced on commit 68eb4d8 with twelve gates: `--limit 1`
+  returned twelve rules, every one at relevance 0.0. The limit now binds
+  ordinary rules, at most three gates are carried past it, and any gate the cap
+  cuts is reported as a count instead of dropped in silence. This scenario does
+  not prove that bound. `test_calibrated_gates_do_not_make_the_limit_unbounded`
+  in `tools/test_bm_store.py` does.
 
 ### 4. Conflicting rules surfaced
 

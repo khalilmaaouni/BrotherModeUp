@@ -3655,6 +3655,13 @@ class Store(object):
                       % L.RETRIEVAL_MODE],
         }
 
+    # How many gates may be carried PAST the caller's limit. Not a tuning
+    # knob and deliberately small: a gate is carried because a safety rule
+    # must not vanish behind a limit, and a list long enough to skim past
+    # protects nobody. Gates beyond this are reported as a count, so the
+    # founder is told they exist and can re-run with a larger limit.
+    _GATE_CARRY_CAP = 3
+
     def retrieve_learning_rules(self, query, context=None, limit=5,
                                  include_reasons=True):
         """Rules relevant to a task, most relevant first, each able to say why.
@@ -3688,15 +3695,31 @@ class Store(object):
                                          r.get("because_text", ""),
                                          r.get("domain", "")) > 0]
         eligible.sort(key=lambda r: L.rank_key(r, query, context))
-        # A LIMIT MAY NOT SILENCE A GATE. The relevance floor above already
-        # says a gate appears even when the founder never used its vocabulary.
-        # Truncating the ranked list took that straight back: enough chatty
-        # soft rules ahead of a gate at the default limit, or limit=0 from any
-        # caller, and the safety rule vanished with no line saying it had been
-        # dropped. Gates survive truncation; everything else obeys the limit.
+        # A LIMIT MAY NOT SILENCE A GATE, AND A GATE MAY NOT UNBOUND THE LIMIT.
+        #
+        # The relevance floor above already says a gate appears even when the
+        # founder never used its vocabulary. Truncating the ranked list took
+        # that straight back: enough chatty soft rules ahead of a gate at the
+        # default limit, or limit=0 from any caller, and the safety rule
+        # vanished with no line saying it had been dropped.
+        #
+        # The first attempt at that carried EVERY gate past the limit, which
+        # removed the only bound injection had. A store with twelve gates then
+        # returned twelve rules for every query at every limit, most of them at
+        # relevance 0.0. That is the "unbounded returns, polluted context"
+        # failure this tool claims to prevent, and it is how a founder learns
+        # to stop reading the list.
+        #
+        # So: the limit binds ordinary rules, gates are carried past it, and
+        # the carry itself is capped. Carried gates are the highest ranked
+        # ones, and any gate the cap cuts is COUNTED AND REPORTED rather than
+        # silently dropped. The disclosure is what makes the bound honest.
         n = max(0, int(limit))
-        chosen = [r for i, r in enumerate(eligible)
-                  if i < n or r.get("severity") == "gate"]
+        chosen = list(eligible[:n])
+        carried = [r for r in eligible[n:] if r.get("severity") == "gate"]
+        gates_omitted = max(0, len(carried) - self._GATE_CARRY_CAP)
+        carried = carried[:self._GATE_CARRY_CAP]
+        chosen.extend(carried)
         out = []
         for i, r in enumerate(chosen, 1):
             row = dict(r)
@@ -3730,6 +3753,9 @@ class Store(object):
         return {"mode": L.RETRIEVAL_MODE, "results": out,
                 "omitted": max(0, len(eligible) - len(chosen)),
                 "eligible": len(eligible),
+                "gates_carried": len(carried),
+                "gates_omitted": gates_omitted,
+                "gate_carry_cap": self._GATE_CARRY_CAP,
                 "conflicts": conflicts}
 
     # -----------------------------------------------------------------
