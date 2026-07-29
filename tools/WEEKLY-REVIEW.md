@@ -21,6 +21,30 @@
    a because: clause (founder's underlying reason); false positives get deleted.
    Confirm or retire provisional laws against execution evidence (Voyager gating:
    a law unconfirmed by a later run stays provisional; 60d unconfirmed demotes).
+   Before approving a candidate, run `python3 tools/bm_learn.py repeat-check <id>`:
+   if it repeats a rule you already settled, the answer is not a second copy of
+   the rule, it is the repair the class names.
+5b. GROUNDED CORRECTION REVIEW (Loop 8). Run
+   `python3 tools/bm_learn.py loop-failures --since 30d`. Read it instead of any
+   sentence about corrections trending up or down. Every line is a count of rows
+   that exist, so the honest reading is line by line:
+   - repeated settled corrections: the same instruction given twice.
+   - retrieval misses: the rule existed and never reached the acting model. Fix
+     retrieval, not the rule text.
+   - compliance failures: the rule was shown and skipped. Fix the behaviour or
+     raise the severity to gate.
+   - bad-rule candidates: the rule was followed and the work still went wrong.
+     This is the only class where editing the rule is the right repair.
+   - scope errors: retrieved into work it did not fit. Narrow the scope.
+   - unresolved contradictions, rules never retrieved, and rules retrieved but
+     always marked not relevant: dead or fighting rules, deprecate or narrow.
+   - rework and escaped defects linked to rules, with unattributed outcomes
+     listed SEPARATELY and never folded into a rule's record.
+   - NOT MEASURED lines: sample size or attribution is insufficient. Write "not
+     measured" in the review. Never estimate a number the rows cannot support.
+   For any rule you are about to edit, first run
+   `python3 tools/bm_learn.py rule-outcomes <rule-id>`; those are counts, not a
+   success rate, and no denominator here is large enough to be one.
 6. Read <vault>/50-Reference/pending-amendments.md; land EXACTLY ONE
    consolidation commit to SKILL.md (delta edits only, never a rewrite: ACE context
    collapse, arxiv.org/abs/2510.04618) or record an explicit no-change with reason.
