@@ -5,6 +5,27 @@ file exists because an unstated gap is a failure even when it is small, and beca
 the single most useful thing a handover can contain is the list of things the last
 person was not sure about.
 
+## P6: what the retrieval run still cannot tell you
+
+The run row makes the denominator a stored fact, and four things are still out
+of its reach. Stated here rather than discovered later.
+
+- ONE RUN IS THE AUTHORITY PER TASK. When the same task text is retrieved more
+  than once in one session with DIFFERENT limits or contexts, the earliest run
+  is used and `retrieval_runs` reports how many there were. The later ones are
+  not merged and not compared. A reader can see the ambiguity; nothing resolves
+  it.
+- THE CORPUS CHECK IS PER RULE, NOT A FULL RECONSTRUCTION. A rule whose current
+  version was written after the retrieval is refused as not decidable. A rule
+  that was FORGOTTEN or superseded since then is simply not eligible today, so
+  it can never be reported as missed, and that undercounts rather than
+  overcounts. Rebuilding the whole corpus as it stood is not attempted.
+- TIMESTAMPS ARE WHOLE SECONDS. A rule rewritten inside the same second as the
+  retrieval reads as unchanged. Nothing in this design can separate them.
+- LEGACY ROWS STAY LEGACY. An application recorded before schema 4 has no run,
+  is reported as incomplete evidence, and is never backfilled. The misses those
+  tasks had are not zero; they are unknown, and the reports say so.
+
 ## P5-fix: without `--record`, two units of work still cannot be told apart
 
 The idempotence key now includes the work record, so naming one with `--record`

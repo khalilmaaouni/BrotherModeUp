@@ -111,6 +111,7 @@ was exercised by hand for this document.
   loop failures since 2026-06-29T06:04:33Z
     applications in window: 0
     retrieval_miss       0
+    retrieval_limit_miss 0
     compliance_failure   0
     bad_rule             0
     scope_error          0
