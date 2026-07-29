@@ -303,20 +303,28 @@ def cmd_grant_approval(argv):
     paste it into a transcript, a commit message, a log or an issue: anyone
     holding it can spend that one answer."""
     pos, kv = _parse(argv, {"trigger", "action", "because", "domain", "scope",
-                            "scope-key", "type", "gate", "answer", "json"},
+                            "scope-key", "type", "gate", "answer", "json",
+                            "override-reason", "override-conflict"},
                      wants_value=("trigger", "action", "because", "domain", "scope",
-                                  "scope-key", "type", "answer"))
+                                  "scope-key", "type", "answer",
+                                  "override-reason", "override-conflict"))
     if not pos or not (kv.get("answer") or "").strip():
         _err("usage: grant-approval <candidate-id> --answer \"<what the founder "
              "actually said>\" [--trigger ...] [--action ...] [--because ...] "
-             "[--scope ...] [--scope-key ...] [--gate]")
+             "[--scope ...] [--scope-key ...] [--gate] [--override-reason ...] "
+             "[--override-conflict ...]")
         _err("the shaping flags must match what he was SHOWN: the receipt is "
-             "bound to that exact rule text and dies if it changes.")
+             "bound to that exact rule text and dies if it changes. So do the "
+             "override flags: a receipt minted for a clean question cannot be "
+             "spent with an override attached.")
         return 2
     store = _store()
     try:
-        rec = store.mint_approval_receipt(pos[0], founder_response=kv["answer"],
-                                          **_shape_kwargs(kv))
+        rec = store.mint_approval_receipt(
+            pos[0], founder_response=kv["answer"],
+            atomicity_override=kv.get("override-reason", ""),
+            conflict_override=kv.get("override-conflict", ""),
+            **_shape_kwargs(kv))
     finally:
         store.close()
     if kv.get("json"):
@@ -327,6 +335,19 @@ def cmd_grant_approval(argv):
     _out("  expires %s (%d seconds), one candidate, one use"
          % (rec["expires_at"], rec["ttl_seconds"]))
     _out("  it dies if the candidate or the rule text changes before you approve")
+    # Whatever a guard flagged is printed BESIDE the token, because a receipt
+    # minted with an override is consent to the override and the founder should
+    # be able to see, in writing, what he just waved through (FIX ROUND P3).
+    if rec["atomicity_problems"]:
+        _out("  OVERRIDDEN, not atomic: %s" % "; ".join(rec["atomicity_problems"]))
+    if rec["contradicts"]:
+        _out("  OVERRIDDEN, contradicts existing rule(s): %s"
+             % ", ".join(rec["contradicts"]))
+    if rec["duplicates"]:
+        _out("  OVERRIDDEN, duplicates existing rule(s): %s"
+             % ", ".join(rec["duplicates"]))
+    if rec["override_atomicity"] or rec["override_conflict"]:
+        _out("  approve must repeat the SAME override flags or the receipt dies")
     _out("")
     _out("  RECEIPT TOKEN, shown once and stored nowhere:")
     _out("  %s" % rec["token"])
