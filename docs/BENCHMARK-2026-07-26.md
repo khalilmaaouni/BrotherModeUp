@@ -1,5 +1,8 @@
 # Benchmark: today against yesterday's model
 
+**HISTORICAL DOCUMENT, dated 2026-07-26. Do not read it as current state.** It is dated evidence: every number in it belongs to the day and the commit it was measured on. Superseded by `README.md` and `docs/KNOWN-LIMITS.md` for status, `docs/NOT-FINALIZED.md` for the defect register, `CHANGELOG.md` for what changed since, and `python3 tools/bm_project_facts.py` for version, release tag, hook events and suites.
+
+
 The benchmark set is the external audit of version 1 at commit 60a6d0d, which scored
 eight dimensions and an overall. Using its dimensions rather than inventing friendlier
 ones is deliberate: a benchmark you choose after the work is not a benchmark.
