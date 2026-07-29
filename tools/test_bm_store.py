@@ -810,6 +810,12 @@ class TestFixRoundGates(unittest.TestCase):
                                "mid-migration must roll the caller's "
                                "transaction back, not move the founder's "
                                "store aside",
+            "_migrate_6_to_7": "a schema migration step, run INSIDE the "
+                               "caller's BEGIN EXCLUSIVE. Same exemption and "
+                               "same reason as every other _migrate_*_to_* "
+                               "above: a CREATE TABLE failing mid-migration "
+                               "must roll the caller's transaction back, not "
+                               "move the founder's store aside",
             "_undelivered_handover_rows": "one sqlite_master probe asking "
                                           "whether the handovers table exists "
                                           "at all (LOOP P12). Routing it "
@@ -10155,6 +10161,459 @@ class TestP17InstructionTextMatchesTheInstalledLayout(unittest.TestCase):
             "these runtime strings tell the reader to run a repo-relative "
             "path that does not exist in a packaged install; resolve the "
             "command instead (bm_store.invocation): %s" % offenders)
+
+
+class TestSchema7Migration(unittest.TestCase):
+    """Schema 6 to 7 adds the notes table. Same shape as the schema 4 and 5
+    migration suites above, and for the same reason: a healthy older store must
+    MIGRATE, every existing row must survive, and an interrupted migration must
+    leave the version where it was."""
+
+    def _schema6_store(self, d):
+        """A real schema-6 store, built by the real code and then stripped back:
+        the fixture cannot drift from a real store, and only the newest layer is
+        removed."""
+        with bs.Store(d) as store:
+            rec = store.claim("payments", "persistent", objective="build payments",
+                              files=["api/pay.py"], session_id="sessA")
+            store.checkpoint(rec.lifecycle_uuid, rec.version, "wire the webhook")
+        path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            for t in bs._TABLES_NOTES:
+                conn.execute("DROP TABLE IF EXISTS %s" % t)
+            conn.execute("UPDATE meta SET value='6' WHERE key='schema_version'")
+            conn.execute("COMMIT")
+        finally:
+            conn.close()
+        return path
+
+    def _snapshot(self, path):
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        try:
+            out = {}
+            for t in bs._TABLES_V6:
+                rows = [dict(r) for r in conn.execute("SELECT * FROM %s" % t)]
+                if t == "meta":
+                    rows = [r for r in rows if r.get("key") != "schema_version"]
+                out[t] = json.dumps(rows, sort_keys=True, default=str)
+            return out
+        finally:
+            conn.close()
+
+    def _tables(self, path):
+        conn = sqlite3.connect(path)
+        try:
+            return {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            conn.close()
+
+    def test_a_schema6_store_migrates_instead_of_being_quarantined(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema6_store(d)
+            with bs.Store(d) as store:
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT value FROM meta WHERE key='schema_version'"
+                    ).fetchone()["value"], str(bs.SCHEMA_VERSION))
+            self.assertTrue(set(bs._TABLES_NOTES) <= self._tables(path))
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")), [],
+                "a healthy schema-6 store must MIGRATE, never be quarantined")
+
+    def test_migration_preserves_every_schema6_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema6_store(d)
+            before = self._snapshot(path)
+            with bs.Store(d):
+                pass
+            self.assertEqual(before, self._snapshot(path))
+
+    def test_migration_invents_no_note_out_of_existing_rows(self):
+        """A transition note, a checkpoint blocker and a rejected candidate all
+        look a little like an alert. Importing one would put words in an
+        author's mouth and could manufacture a CRITICAL alert that refuses an
+        approval nobody was warned about."""
+        with tempfile.TemporaryDirectory() as d:
+            self._schema6_store(d)
+            with bs.Store(d) as store:
+                self.assertEqual(store.list_notes(), [])
+
+    def test_migration_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema6_store(d)
+            with bs.Store(d):
+                pass
+            first = self._snapshot(path)
+            with bs.Store(d):
+                pass
+            self.assertEqual(first, self._snapshot(path))
+
+    def test_calibrated_interrupted_migration_rolls_back_completely(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema6_store(d)
+            original = bs._MIGRATIONS[6]
+
+            def _fail_half_way(conn):
+                conn.execute(bs._NOTES_DDL_STATEMENTS[0])
+                raise RuntimeError("simulated interruption mid-migration")
+
+            bs._MIGRATIONS[6] = _fail_half_way
+            try:
+                with self.assertRaises(RuntimeError):
+                    bs.Store(d)
+            finally:
+                bs._MIGRATIONS[6] = original
+            conn = sqlite3.connect(path)
+            try:
+                v = conn.execute(
+                    "SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(v, "6",
+                             "an interrupted migration must not move the version")
+            for t in bs._TABLES_NOTES:
+                self.assertNotIn(t, self._tables(path))
+            with bs.Store(d):
+                pass
+            self.assertTrue(set(bs._TABLES_NOTES) <= self._tables(path))
+
+    def test_notes_ddl_split_matches_the_table_and_index_lists(self):
+        self.assertEqual(len(bs._NOTES_DDL_STATEMENTS), len(bs._TABLES_NOTES))
+        self.assertEqual(len(bs._NOTES_INDEX_STATEMENTS), 2)
+
+    def test_a_note_body_is_withheld_in_dump_but_its_shape_is_not(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.add_note(kind="alert", severity="critical",
+                               body="the key AKIAIOSFODNN7EXAMPLE is in here",
+                               author="Dana", author_kind="human",
+                               anchor_type="file", anchor_key="api/pay.py")
+                data = store.dump()
+            rows = data["notes"]
+            self.assertEqual(len(rows), 1)
+            self.assertNotIn("AKIAIOSFODNN7EXAMPLE", json.dumps(rows),
+                             "dump leaked a secret out of a note body")
+            self.assertNotIn("Dana", json.dumps(rows),
+                             "dump leaked an author name, which is a person")
+            self.assertEqual(rows[0]["kind"], "alert")
+            self.assertEqual(rows[0]["severity"], "critical",
+                             "the shape of a note must stay readable in a dump, "
+                             "or a dump cannot show that an alert exists")
+
+
+class TestAnchoredNotes(unittest.TestCase):
+    """The note itself: what it refuses at the door, and what it never does."""
+
+    def test_an_alert_needs_a_severity(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.add_note(kind="alert", body="something is wrong",
+                                   author="Dana", author_kind="human",
+                                   anchor_type="file", anchor_key="api/pay.py")
+                self.assertEqual(ctx.exception.reason, "alert-needs-severity")
+
+    def test_a_note_needs_an_author_and_a_body(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.add_note(kind="insight", body="x", author="  ",
+                                   author_kind="human", anchor_type="file",
+                                   anchor_key="api/pay.py")
+                self.assertEqual(ctx.exception.reason, "no-note-author")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.add_note(kind="insight", body="   ", author="Dana",
+                                   author_kind="human", anchor_type="file",
+                                   anchor_key="api/pay.py")
+                self.assertEqual(ctx.exception.reason, "empty-note")
+
+    def test_a_file_anchor_is_canonical_from_any_spelling(self):
+        """The anchor and a work record's claimed path must be the same string,
+        or blocking_alerts compares two spellings of one file and finds
+        nothing."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "api"))
+            with bs.Store(d) as store:
+                n = store.add_note(kind="risk", body="watch this",
+                                   author="Dana", author_kind="human",
+                                   anchor_type="file",
+                                   anchor_key="api/../api/pay.py")
+                self.assertEqual(n["anchor_key"], "api/pay.py")
+
+    def test_an_anchor_outside_the_project_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.add_note(kind="risk", body="watch this",
+                                   author="Dana", author_kind="human",
+                                   anchor_type="file",
+                                   anchor_key="../../etc/passwd")
+                self.assertEqual(ctx.exception.reason, "path-escape")
+
+    def test_resolving_keeps_the_row_and_records_what_resolved_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                n = store.add_note(kind="alert", severity="critical",
+                                   body="the retry path double charges",
+                                   author="Dana", author_kind="human",
+                                   anchor_type="file", anchor_key="api/pay.py")
+                done = store.resolve_note(n["note_uuid"][:8],
+                                          "fixed in the idempotency key change")
+                self.assertIsNotNone(done["resolved_at"])
+                self.assertIn("idempotency", done["resolution"])
+                self.assertEqual(len(store.list_notes()), 1,
+                                 "resolving must not delete the row")
+
+    def test_there_is_no_way_to_delete_a_note_and_no_standalone_override(self):
+        """Both absences are load bearing. A delete would destroy human text; a
+        standalone override would be a second door into the same room with no
+        receipt on it, and any importer could walk through it and then approve
+        cleanly."""
+        self.assertFalse(hasattr(bs.Store, "delete_note"))
+        self.assertFalse(hasattr(bs.Store, "override_note"))
+        with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertNotIn("DELETE FROM notes", src)
+
+
+class TestCriticalAlertsRefuseAnApproval(unittest.TestCase):
+    """Founder decision 7 of the 2026-07-30 spec: an unresolved critical alert
+    anchored to the gate, or to any file the gate would change, REFUSES the
+    approval, and the founder may override with a recorded reason.
+
+    Every test is written so that removing the guard makes it fail. The
+    calibration was run by hand as well: deleting the alerts clause from
+    _approval_guards turns the first two tests red with 'OwnershipRefused not
+    raised' and leaves the rest green, which is the intended failure."""
+
+    def _seed(self, store):
+        rec = store.claim("payments", "persistent", objective="build payments",
+                          files=["api/pay.py"], session_id="sessA")
+        cand = store.capture_learning_candidate(
+            "manual", trigger="when touching payments",
+            action="always run the payment tests",
+            because="we shipped a refund bug", scope_type="project",
+            scope_key="demo", record_uuid=rec.lifecycle_uuid)
+        return rec, cand
+
+    def _alert(self, store, **kw):
+        kw.setdefault("kind", "alert")
+        kw.setdefault("severity", "critical")
+        kw.setdefault("body", "the retry path double charges")
+        kw.setdefault("author", "Dana, backend")
+        kw.setdefault("author_kind", "human")
+        kw.setdefault("anchor_type", "file")
+        kw.setdefault("anchor_key", "api/pay.py")
+        return store.add_note(**kw)
+
+    def _mint(self, store, cand, **kw):
+        return store.mint_approval_receipt(
+            cand["candidate_uuid"], founder_response="yes, do that",
+            trigger="when touching payments",
+            action="always run the payment tests", scope_type="project",
+            scope_key="demo", **kw)
+
+    def test_an_alert_on_a_changed_file_refuses_the_mint_and_the_approval(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "api"))
+            with bs.Store(d) as store:
+                _rec, cand = self._seed(store)
+                note = self._alert(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    self._mint(store, cand)
+                self._assert_named(ctx.exception, note)
+                self.assertEqual(store.list_learning_rules(), [],
+                                 "a refused mint must create no rule")
+
+    def test_an_alert_raised_after_the_question_refuses_the_approval_itself(self):
+        """The case a mint-only guard would miss, and the realistic one: the
+        founder answers, THEN a reviewer writes a critical alert, THEN somebody
+        spends the receipt. The receipt is still valid and still fingerprints
+        clean, so only a guard on the approval path itself stops this."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "api"))
+            with bs.Store(d) as store:
+                _rec, cand = self._seed(store)
+                rec = self._mint(store, cand)
+                note = self._alert(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.approve_learning_candidate(
+                        cand["candidate_uuid"], founder_ref="he said yes",
+                        receipt=rec["token"], trigger="when touching payments",
+                        action="always run the payment tests",
+                        scope_type="project", scope_key="demo")
+                self._assert_named(ctx.exception, note)
+                self.assertEqual(store.list_learning_rules(), [],
+                                 "a refused approval must create no rule")
+                self.assertIsNone(
+                    store.get_approval_receipt(rec["receipt_uuid"])["consumed_at"],
+                    "a refused approval must not spend the receipt")
+
+    def _assert_named(self, exc, note):
+        self.assertEqual(exc.reason, "unresolved-critical-alert")
+        self.assertIn("Dana, backend", str(exc),
+                      "the refusal must name the author")
+        self.assertIn("api/pay.py", str(exc),
+                      "the refusal must name the anchor")
+        self.assertIn(note["note_uuid"][:8], str(exc),
+                      "the refusal must name the alert")
+
+    def test_an_alert_anchored_to_the_candidate_itself_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _rec, cand = self._seed(store)
+                self._alert(store, anchor_type="candidate",
+                            anchor_key=cand["candidate_uuid"][:8],
+                            body="the scope is not settled")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    self._mint(store, cand)
+                self.assertEqual(ctx.exception.reason, "unresolved-critical-alert")
+
+    def test_a_resolved_alert_does_not_refuse(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "api"))
+            with bs.Store(d) as store:
+                _rec, cand = self._seed(store)
+                note = self._alert(store)
+                store.resolve_note(note["note_uuid"], "fixed by the retry rework")
+                rec = self._mint(store, cand)
+                rule = store.approve_learning_candidate(
+                    cand["candidate_uuid"], founder_ref="he said yes",
+                    receipt=rec["token"], trigger="when touching payments",
+                    action="always run the payment tests", scope_type="project",
+                    scope_key="demo")
+                self.assertEqual(rule["state"], "approved")
+
+    def test_a_non_critical_alert_and_a_critical_other_kind_do_not_refuse(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "api"))
+            with bs.Store(d) as store:
+                _rec, cand = self._seed(store)
+                self._alert(store, severity="warning")
+                self._alert(store, kind="risk", severity="critical")
+                rec = self._mint(store, cand)
+                self.assertTrue(rec["token"],
+                                "only an unresolved CRITICAL ALERT has teeth")
+                self.assertEqual(rec["blocking_alerts"], [])
+
+    def test_an_alert_on_an_unrelated_file_does_not_refuse(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "web"))
+            with bs.Store(d) as store:
+                _rec, cand = self._seed(store)
+                self._alert(store, anchor_key="web/checkout.js")
+                self.assertTrue(self._mint(store, cand)["token"])
+
+    def test_the_override_records_a_reason_and_the_alert_stays_visible(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "api"))
+            with bs.Store(d) as store:
+                _rec, cand = self._seed(store)
+                note = self._alert(store)
+                rec = self._mint(
+                    store, cand,
+                    alerts_override="Dana's concern is the retry path, this "
+                                    "rule is about tests")
+                self.assertTrue(rec["override_alerts"])
+                self.assertEqual(len(rec["blocking_alerts"]), 1)
+                rule = store.approve_learning_candidate(
+                    cand["candidate_uuid"], founder_ref="he said ship it",
+                    receipt=rec["token"], trigger="when touching payments",
+                    action="always run the payment tests", scope_type="project",
+                    scope_key="demo",
+                    alerts_override="Dana's concern is the retry path, this "
+                                    "rule is about tests")
+                self.assertEqual(rule["state"], "approved")
+                after = store.get_note(note["note_uuid"])
+                self.assertIsNotNone(after["overridden_at"])
+                self.assertIn("retry path", after["override_reason"])
+                self.assertIn("ship it", after["override_by"])
+                self.assertIsNone(
+                    after["resolved_at"],
+                    "an override is not an answer: the alert stays unresolved")
+                self.assertEqual(
+                    len(store.list_notes()), 1,
+                    "an overridden alert stays in the store, never deleted")
+                excerpts = [e["excerpt"] for e
+                            in store.list_learning_evidence(rule["rule_uuid"])]
+                self.assertTrue(
+                    any("critical alert override" in e for e in excerpts),
+                    "the override must also be evidence against the rule: %s"
+                    % excerpts)
+
+    def test_a_receipt_minted_clean_cannot_be_spent_with_an_override(self):
+        """The override is in the approval fingerprint for the same reason the
+        atomicity and conflict overrides are: the founder's answer has to have
+        been given about the override too."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "api"))
+            with bs.Store(d) as store:
+                _rec, cand = self._seed(store)
+                rec = self._mint(store, cand)
+                self._alert(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.approve_learning_candidate(
+                        cand["candidate_uuid"], founder_ref="he said yes",
+                        receipt=rec["token"], trigger="when touching payments",
+                        action="always run the payment tests",
+                        scope_type="project", scope_key="demo",
+                        alerts_override="I decided to proceed")
+                self.assertEqual(ctx.exception.reason, "receipt-stale-candidate")
+                self.assertEqual(store.list_learning_rules(), [])
+
+    def test_the_change_set_is_the_record_claims_plus_the_artifact_scope(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "api"))
+            with bs.Store(d) as store:
+                rec = store.claim("payments", "persistent", objective="pay",
+                                  files=["api/pay.py", "api/refund.py"],
+                                  session_id="sessA")
+                cand = store.capture_learning_candidate(
+                    "manual", trigger="t", action="a", scope_type="artifact",
+                    scope_key="api/webhook.py", record_uuid=rec.lifecycle_uuid)
+                self.assertEqual(
+                    sorted(store.gate_change_set(cand)),
+                    ["api/pay.py", "api/refund.py", "api/webhook.py"])
+
+    def test_a_glob_claim_still_catches_an_alert_on_a_file_inside_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "api"))
+            with bs.Store(d) as store:
+                rec = store.claim("payments", "persistent", objective="pay",
+                                  files=["api/*.py"], session_id="sessA")
+                cand = store.capture_learning_candidate(
+                    "manual", trigger="when touching payments",
+                    action="always run the payment tests", scope_type="project",
+                    scope_key="demo", record_uuid=rec.lifecycle_uuid)
+                self._alert(store, anchor_key="api/pay.py")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    self._mint(store, cand)
+                self.assertEqual(ctx.exception.reason, "unresolved-critical-alert")
+
+    def test_capture_accepts_a_record_prefix_rather_than_dropping_the_link(self):
+        """The link is load bearing: gate_change_set reads the record's claims,
+        so a silently broken link would mean an alert on a changed file quietly
+        failing to refuse."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "api"))
+            with bs.Store(d) as store:
+                rec = store.claim("payments", "persistent", objective="pay",
+                                  files=["api/pay.py"], session_id="sessA")
+                cand = store.capture_learning_candidate(
+                    "manual", trigger="t", action="a",
+                    record_uuid=rec.lifecycle_uuid[:8], scope_type="project",
+                    scope_key="demo")
+                self.assertEqual(cand["source_record_uuid"], rec.lifecycle_uuid)
+                self.assertEqual(store.gate_change_set(cand), ["api/pay.py"])
+                with self.assertRaises(bs.OwnershipRefused):
+                    store.capture_learning_candidate(
+                        "manual", trigger="t", action="a",
+                        record_uuid="deadbeef", scope_type="project",
+                        scope_key="demo")
 
 
 if __name__ == "__main__":
