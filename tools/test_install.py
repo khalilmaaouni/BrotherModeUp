@@ -292,6 +292,120 @@ class TestUserHooksSurvive(InstallerCase):
         self.assertIn(other, cmds[0])
 
 
+class TestOwnershipBoundaries(InstallerCase):
+    """Ownership was a substring test, and every one of these got past it.
+
+    All four were reproduced against the previous commit before this class
+    existed: two installations whose paths share a prefix, an install path
+    containing an apostrophe, a user hook that chains their script after ours,
+    and a user script whose name contains one of our tool names."""
+
+    def all_hook_commands(self, settings):
+        out = []
+        for event in settings.get("hooks", {}):
+            out.extend(self.all_commands(settings, event))
+        return out
+
+    def test_an_install_sharing_a_path_prefix_is_not_claimed_as_ours(self):
+        long_target = self.target + "-work"
+        r = self.run_install(target=long_target)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        before = [c for c in self.all_hook_commands(self.read_settings())
+                  if long_target in c]
+        self.assertEqual(len(before), 5)
+
+        r = self.run_install("--upgrade")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        after = [c for c in self.all_hook_commands(self.read_settings())
+                 if long_target in c]
+        self.assertEqual(len(after), 5,
+                         "installing at a prefix path deleted the other "
+                         "installation's hooks")
+
+    def test_uninstall_at_a_prefix_path_removes_nothing_and_says_so(self):
+        self.assertEqual(self.run_install().returncode, 0)
+        raw_before = self.raw_settings()
+        record = os.path.join(self.claude, "brothermode-install.json")
+        self.assertTrue(os.path.exists(record))
+
+        prefix_target = os.path.join(self.claude, "skills", "brother")
+        r = self.run_uninstall(target=prefix_target)
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        self.assertEqual(self.raw_settings(), raw_before,
+                         "a uninstall aimed at a prefix path edited settings")
+        self.assertTrue(os.path.exists(record),
+                        "the install record was deleted by a run that removed "
+                        "no hooks")
+        self.assertIn("refusing to finish", r.stderr)
+
+    def test_an_apostrophe_in_the_install_path_survives_the_round_trip(self):
+        target = os.path.join(self.tmp, "Repertoire d'installation", "brothermode")
+        r = self.run_install(target=target)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(len(self.all_hook_commands(self.read_settings())), 5)
+
+        r = self.run_uninstall(target=target)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.all_hook_commands(self.read_settings()), [],
+                         "uninstall could not recognise the hooks the "
+                         "installer had just written")
+
+    def test_a_user_hook_that_chains_their_script_after_ours_is_kept(self):
+        ours = "python3 " + os.path.join(self.target, "tools", "bm_fence_hook.py")
+        wrapped = ours + " && python3 /home/me/my_audit.py"
+        self.write_settings({"hooks": {"PreToolUse": [
+            {"matcher": "Write", "hooks": [
+                {"type": "command", "command": wrapped}]}]}})
+        r = self.run_install("--upgrade")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("my_audit.py", " ".join(
+            self.all_hook_commands(self.read_settings())),
+            "the user's own auditor was deleted with the hook that wrapped ours")
+
+    def test_a_user_script_named_like_one_of_ours_next_door_is_kept(self):
+        theirs = os.path.join(self.claude, "skills", "brothermode-mine")
+        os.makedirs(theirs)
+        cmd = "python3 " + os.path.join(theirs, "my_bm_fence_hook.py")
+        self.write_settings({"hooks": {"PreToolUse": [
+            {"matcher": "Write", "hooks": [{"type": "command", "command": cmd}]}]}})
+        r = self.run_install("--upgrade")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("my_bm_fence_hook.py", " ".join(
+            self.all_hook_commands(self.read_settings())))
+
+
+class TestSymlinkedSettings(InstallerCase):
+    """A dotfile-managed settings.json is a symlink into a tracked repo."""
+
+    def link_settings(self):
+        real = os.path.join(self.tmp, "dotfiles", "claude-settings.json")
+        os.makedirs(os.path.dirname(real))
+        with io.open(real, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"model": "opus"}, indent=2))
+        try:
+            os.symlink(real, self.settings)
+        except (OSError, NotImplementedError, AttributeError):
+            self.skipTest("this filesystem does not support symlinks")
+        return real
+
+    def test_the_link_survives_and_the_real_file_is_what_changes(self):
+        real = self.link_settings()
+        r = self.run_install()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(os.path.islink(self.settings),
+                        "settings.json was replaced by a regular file, "
+                        "detaching it from the dotfiles repository")
+        written = json.loads(self.read_text(real))
+        self.assertEqual(written["model"], "opus")
+        self.assertEqual(len(written.get("hooks", {})), 5)
+        self.assertIn("is a symlink", r.stdout)
+
+        r = self.run_uninstall()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(os.path.islink(self.settings))
+        self.assertNotIn("hooks", json.loads(self.read_text(real)))
+
+
 class TestDryRun(InstallerCase):
 
     def test_dry_run_writes_absolutely_nothing(self):
