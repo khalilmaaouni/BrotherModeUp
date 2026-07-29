@@ -65,6 +65,43 @@ failed", and a failure in this hook must never block a write (see Fail open, bel
 
 ## Installation
 
+The supported way is `python3 scripts/install.py`, which writes this entry along with
+the other four hooks and does not report success until the fence has executed once. See
+docs/QUICKSTART.md step 3.
+
+However you install it, check it with:
+
+```
+python3 scripts/doctor.py            # add --settings PATH for a non-default file
+```
+
+Doctor answers a narrower question than the installer's smoke test, and the narrow
+question is the one that matters. The smoke test runs the hook from an empty directory,
+where it takes its fail-open path, so it proves the hook executes. Doctor runs a
+**blocked-write simulation**: a throwaway project under a temporary directory, its own
+store, one file claimed under one session's label, then a write to that file requested
+by a different session, judged by the exact command string in your settings file. A
+healthy fence denies that, and then allows the same write when the owner asks, because a
+hook that denies everything passes half the check and is a brick rather than a fence.
+Each of `Edit`, `Write`, `MultiEdit` and `NotebookEdit` is simulated in its own real
+input shape (the path key differs per tool), so a fence that gates one of them and not
+the other three cannot report itself healthy. The owner half checks the hook's EXIT CODE
+as well as its output, because a `PreToolUse` hook blocks a call by exiting non-zero,
+not only by printing a deny. The temporary directory is deleted at the end; your
+project, your store and your STATE.md are never touched.
+
+Exit 1 names the specific defect: no `PreToolUse` entry naming `bm_fence_hook.py`, an
+entry whose command points at a file that is not there, a matcher that leaves some write
+tools ungated or is not a valid regular expression, a hook that refuses nothing, or a
+hook that refuses everything (by deny JSON or by exit code). The matcher check treats
+the matcher as a REGEX tested against each tool name, the way Claude Code does, and not
+as a substring search: `Edit` is a substring of both `MultiEdit` and `NotebookEdit`, so
+a substring test silently passed a matcher that left `Edit` ungated. Doctor still
+cannot tell you whether Claude Code has LOADED that settings file: hooks are read at
+session start, so a file corrected mid-session is live at the next one, not this one.
+
+### By hand
+
 Add this to `.claude/settings.json` (project scope) or `~/.claude/settings.json` (user
 scope). Use the absolute path to your checkout.
 
@@ -184,7 +221,12 @@ Two smaller notes in the same spirit:
    claiming from a different directory.
 5. Compare with `bm_store.paths_overlap`, the same function the store uses to admit a
    claim, so a directory claim covers its children and a glob claim covers the files it
-   spans.
+   spans. On macOS and Windows that comparison folds CASE and UNICODE NORMALIZATION,
+   because those filesystems do: `src/café.py` written NFC and the same name written NFD
+   are one inode and two different strings, and before 2026-07-29 a claim in one spelling
+   did not cover a write in the other, so a foreign session went straight through the
+   default (non-strict) path. Linux is normalization sensitive, where the two really are
+   different files, so nothing is folded there.
 6. Covered by an active record owned by someone else: **deny**, naming the record, its
    lifecycle uuid, the owning label, and the exact takeover command.
 7. Covered by an active record this session owns: allow.
@@ -237,7 +279,8 @@ These are real, and listing them is better than implying coverage that does not 
 - **Bash is not gated.** `rm`, `sed -i`, `>`, `tee`, `git checkout` and a hundred other
   shell forms write files, and no reliable parse of arbitrary shell exists. Gating
   `Edit|Write|MultiEdit|NotebookEdit` and pretending Bash was covered would be a
-  guarantee this file cannot keep.
+  guarantee this file cannot keep. The policy that goes with that limit is in the next
+  section.
 - **Unclaimed paths are allowed by default.** The hook enforces "not across someone
   else's fence", not "everything must be claimed", unless strict mode is on.
 - **The hook cannot verify the store side.** An agent can still write any label into the
@@ -249,6 +292,69 @@ These are real, and listing them is better than implying coverage that does not 
 - **Per-process cost is roughly 45 ms**, almost entirely Python interpreter startup plus
   importing `bm_store.py`. The decision itself is about 0.5 ms. If that ever matters, the
   fix is a resident helper, not a thinner check.
+
+## The Bash boundary, and the policy that replaces a guarantee
+
+Three strategies were on the table for shell writes. Only one of them is a mechanism,
+and none of them is a guarantee, so all three are stated rather than the strongest one
+being implied.
+
+**1. Use Edit or Write for ordinary file changes.** These pass through the hook above.
+This is a rule in the constitution (SKILL.md), not a mechanism: nothing stops a session
+from reaching for Bash instead. It is first because it is the only one of the three that
+makes the fence cover the common case.
+
+**2. Use `scripts/bm_shell.py` for an unavoidable generated write.**
+
+```
+python3 scripts/bm_shell.py --record my-work --path src/generated.py \
+  --session-id "$CLAUDE_SESSION_ID" -- 'python3 codegen.py > src/generated.py'
+```
+
+The wrapper makes the caller name the paths before the command runs, and hands each one
+to `bm_fence_hook.decide()`, the imported function, so the wrapper and the hook cannot
+drift. It refuses when a declared path is inside another session's fence, and, because a
+deliberate shell write is a stronger act than an ordinary edit, it also refuses when the
+path is inside nobody's fence (it checks in strict mode) and when the fence FAILS OPEN
+at all. That last one is the deliberate inversion: the hook fails open because failing
+closed would brick editing, and the wrapper fails closed because "could not be checked"
+and "was approved" must not produce the same outcome for a command you invoked on
+purpose.
+
+A declared path that resolves OUTSIDE the project root is a third answer, not a pass.
+The fence declines to judge anything outside the root on purpose (BrotherMode fences a
+project, not the machine), so `decide()` returns nothing for it, which is the same value
+as approval. The wrapper therefore refuses such a path by default and names it. Add
+`--allow-outside-root` when the write really does belong outside the project: the command
+runs and the summary reports those paths as NOT CHECKED rather than as claimed. Until
+2026-07-29 the wrapper printed "N declared path(s) are inside this session's own claim"
+for a path that was in no claim and not even in the project.
+
+`--declare-none` runs a command that writes nothing. It is checked against a short,
+explicit list of obvious write forms (`>`, `>>`, file-descriptor redirection such as `1>`
+and `2>>`, `tee`, `sed -i`, `rm`, `mv`, `cp`, `patch`, a rewriting `git` subcommand, an
+inline interpreter script, and a few more), and refuses if one matches. That list is not
+a shell parser and the refusal says so. Passing it is not evidence that a command writes
+nothing.
+
+What the wrapper does NOT do: confine the command. It is a declaration channel, not a
+sandbox. A command that writes a path the caller did not declare writes it, and nothing
+here stops that.
+
+**3. Everything else is outside mechanical protection, and the next best evidence is the
+ledger.** A bare `Bash` write, a write from a subprocess the wrapper launched, a write by
+any other program on the machine: none of these reach a PreToolUse hook, because Claude
+Code only offers the hook the tool call it is about to make, and `Bash` carries a command
+string rather than a path set. What remains in that case is not nothing: the store still
+records who claimed what, `bm_store.py verify` still reports the state, and git still
+shows the diff. It is a ledger and an audit trail, not a refusal. That is the exact
+limit of the one-writer promise, and it is stated here, in SKILL.md, and in the doctor's
+own output rather than left for someone to discover.
+
+Closing that last gap would need a capability this project does not have: a PreToolUse
+payload for `Bash` that names the files a command will touch (the harness does not
+provide one), or an OS-level write mediator such as a sandbox profile or a FUSE layer,
+both of which are far outside "Python 3.9, standard library only".
 
 ## What a follow-up change to bm_store.py would need to add
 

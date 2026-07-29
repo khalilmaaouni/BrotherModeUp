@@ -1,5 +1,8 @@
 # Accounting against the original brief
 
+**HISTORICAL DOCUMENT, dated 2026-07-26. Do not read it as current state.** It is dated evidence: every number in it belongs to the day and the commit it was measured on. Superseded by `README.md` and `docs/KNOWN-LIMITS.md` for status, `docs/NOT-FINALIZED.md` for the defect register, `CHANGELOG.md` for what changed since, and `python3 tools/bm_project_facts.py` for version, release tag, hook events and suites.
+
+
 Answering four questions directly: what was achieved, at what rate, at what quality, and
 what is missing. Every number here came from a command run on 2026-07-26, not from
 recollection. Two writers were still running when this was written and their items are
