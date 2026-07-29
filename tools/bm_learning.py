@@ -780,3 +780,135 @@ def supersession_cycles(edges):
             seen.add(node)
             stack.extend(adj.get(node, ()))
     return sorted(on_cycle)
+
+
+# ---------------------------------------------------------------------------
+# Loop 7: the application lifecycle, in pure form.
+#
+# Storing rules answers "what did the founder say". It does not answer "was the
+# right rule surfaced, and was it followed". Those are the questions an
+# application row exists for, and the three functions below are the only places
+# that DECIDE anything about them. They take facts and return a judgement, with
+# no clock, no database and no file, so the judgement can be tested directly
+# and cannot quietly depend on when it ran.
+#
+# The rule that governs all of it: a classification is refused when the
+# evidence is missing. "not_decidable" is a first-class answer here, not a
+# failure of the classifier, because a confident wrong label is worse than an
+# honest gap on data the founder will act on.
+# ---------------------------------------------------------------------------
+
+DISPOSITIONS = ("followed", "ignored", "not_relevant", "unknown")
+
+APPLICATION_OUTCOMES = ("pending", "accepted", "rework", "escaped_defect",
+                        "corrected_again", "not_decidable")
+
+# Outcomes that mean the work had to be done again or reached the founder
+# broken. Following a rule into one of these is what makes a rule suspect.
+NEGATIVE_OUTCOMES = ("rework", "escaped_defect", "corrected_again")
+
+FAILURE_CLASSES = ("retrieval_miss", "compliance_failure", "bad_rule",
+                   "scope_error", "not_decidable")
+
+# Rule types where ignoring the rule is a decision the founder is entitled to
+# see a reason for. A skipped communication PREFERENCE is a small thing; a
+# skipped safety procedure or a skipped decision right is not, and neither is
+# anything the founder marked severity 'gate'.
+SUBSTANTIAL_RULE_TYPES = ("safety", "procedure", "decision_right")
+
+
+def disposition_needs_reason(disposition, severity, rule_type):
+    """True when recording this disposition requires a stated reason.
+
+    Only 'ignored' can require one. Following a rule needs no defence, and
+    'not_relevant' is itself the reason (it says the retrieval was wrong, which
+    is graded as a scope error rather than as a compliance failure)."""
+    if disposition != "ignored":
+        return False
+    return severity == "gate" or rule_type in SUBSTANTIAL_RULE_TYPES
+
+
+def classify_application(disposition, shown_to_model, outcome):
+    """Grade ONE recorded application. Returns (class_or_None, reason).
+
+    None means nothing failed, which is a different statement from
+    'not_decidable' and is kept separate on purpose: a rule that was followed
+    into an accepted outcome is a success, while a rule that was followed with
+    no outcome recorded yet is simply not gradeable.
+
+    retrieval_miss is not decidable from a single row (a row that exists is by
+    definition not a miss), so it is produced by the store, which can compare
+    what was recorded against what was retrievable at the time."""
+    shown = bool(shown_to_model)
+    if disposition not in DISPOSITIONS:
+        return ("not_decidable", "disposition %r is not one this build knows"
+                % (disposition,))
+    if outcome not in APPLICATION_OUTCOMES:
+        return ("not_decidable", "outcome %r is not one this build knows"
+                % (outcome,))
+    if disposition == "unknown":
+        return ("not_decidable",
+                "no disposition was recorded at task close, so whether the rule "
+                "was followed is unknown rather than negative")
+    if disposition == "ignored":
+        if not shown:
+            return ("not_decidable",
+                    "recorded as ignored but never shown to the acting model, so "
+                    "there was nothing to comply with")
+        return ("compliance_failure",
+                "the rule was retrieved, shown and ignored")
+    if disposition == "not_relevant":
+        return ("scope_error",
+                "the rule was retrieved for a task it did not apply to, so its "
+                "scope is wider than the situation it belongs to")
+    if outcome in NEGATIVE_OUTCOMES:
+        return ("bad_rule",
+                "the rule was followed and the work still ended in %s" % outcome)
+    if outcome == "accepted":
+        return (None, "followed, and the outcome was accepted")
+    return ("not_decidable",
+            "followed, but no outcome has been recorded against it yet")
+
+
+# The task signals that make retrieval proportionate. Named rather than
+# free-form so a caller cannot invent a signal that nothing grades.
+RETRIEVAL_SIGNALS = ("communication_artifact", "architecture_decision",
+                     "multi_file_change", "risky_operation", "prior_correction")
+
+_SIGNAL_REASONS = {
+    "communication_artifact": "the founder will read or reuse the artifact",
+    "architecture_decision": "it is an architecture or design decision",
+    "multi_file_change": "it changes more than one file",
+    "risky_operation": "it is a risky or irreversible operation",
+    "prior_correction": "a correction has landed in this area before",
+}
+
+
+def retrieval_advised(signals=None, gate_rules_exist=False):
+    """Should this task retrieve founder rules before it starts?
+
+    The proportionality rule, made mechanical: retrieval on a one-line obvious
+    edit is ceremony, and ceremony is what makes a founder stop reading. So the
+    default is NO, and a named signal turns it on. The single exception is a
+    live gate rule, because a safety gate is exactly the thing that must appear
+    when the person did not think to ask for it.
+
+    Returns a decision the caller can print. It records NOTHING: deciding not
+    to retrieve must never manufacture an application row, or the outcome data
+    fills up with tasks that never happened."""
+    signals = signals or {}
+    unknown = sorted(k for k in signals if k not in RETRIEVAL_SIGNALS)
+    fired = [s for s in RETRIEVAL_SIGNALS if signals.get(s)]
+    reasons = [_SIGNAL_REASONS[s] for s in fired]
+    if fired:
+        return {"advised": True, "signals": fired, "reasons": reasons,
+                "unknown_signals": unknown}
+    if gate_rules_exist:
+        return {"advised": True, "signals": [],
+                "reasons": ["a founder gate rule is live, and a gate applies "
+                            "even to a small task"],
+                "unknown_signals": unknown}
+    return {"advised": False, "signals": [],
+            "reasons": ["no substantial signal fired, so retrieval here would "
+                        "be ceremony rather than care"],
+            "unknown_signals": unknown}

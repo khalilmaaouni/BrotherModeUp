@@ -363,6 +363,52 @@ recorded as an edge. It does mean the refusal fires more often than it did.
 
 ---
 
+## 19. What Loop 7 built, and what it still cannot see. Added 2026-07-29.
+
+`learning_applications` stopped being an empty table. Retrieval can now record
+one row per rule version surfaced for a task, the founder closes each row with
+followed, ignored, not relevant or unknown, and `bm_learn.py classify` grades
+what happened into the plan's five classes. The done gate holds: for a given
+task the store can say which rules were retrieved, shown, followed, ignored,
+and why.
+
+What is NOT closed, stated here rather than discovered later:
+
+- OPEN: the retrieval CONTEXT is not stored, only the scope each rule matched
+  on. So the miss check reconstructs the context from the scopes that WERE
+  recorded, and a project rule missed by a task where no project-scoped rule
+  was recorded stays invisible. That undercounts misses, which is the safe
+  direction, but it is an undercount and not a clean number.
+- A rule that was eligible and fell below the caller's result limit counts as a
+  retrieval miss, with the rank named in the finding. That is deliberate (it
+  did not reach the acting model, which is what the class means) and it does
+  mean the miss count also measures a limit set too low. Read the rank before
+  reading the count.
+- OPEN, found by probing the real CLI while the suite was green: a GATE rule
+  can be cut off by the result limit. The relevance floor exempts gates, so a
+  gate is always ELIGIBLE, but ranking still orders by scope, state and
+  relevance, so a more wordy match can outrank it. Reproduced with two global
+  rules and `--limit 1`: the gate ranked second and never reached the model,
+  and `classify` reported it as a retrieval miss. Not fixed here because
+  promoting gates to the top of the ranking changes Loop 5 retrieval order and
+  is the founder's call, not this loop's. Until it is decided, do not run
+  retrieval with a limit of 1 in a store that has gate rules.
+- OPEN: `SKILL.md` and `DIGEST.md` were not updated by this loop, because the
+  session that built it was not authorised to edit either file. SKILL.md
+  already requires retrieval before substantial work and already requires
+  naming applied rule IDs (Loop 11A), so the law is not wrong, but it does not
+  yet mention `--record-applications`, `disposition` or `should-retrieve`.
+  Until it does, recording depends on somebody remembering the flag.
+- UNPROVEN: nothing here has graded a real day of work. Every application row
+  that exists was created by a test or by a probe against a throwaway store,
+  so the same caveat as item 1 applies to every count this loop can produce.
+- The proportionality classifier takes NAMED signals from its caller and does
+  not infer them. It cannot look at a task and decide the task is trivial; it
+  can only report what it was told, plus the one thing it checks itself, which
+  is whether a live gate rule exists.
+
+---
+
 ## What is genuinely finished
 
 All 17 findings of the second audit are closed in code, with CI green on Linux,

@@ -308,15 +308,25 @@ def cmd_rules(argv):
 
 
 def cmd_relevant(argv):
-    """Loop 5's founder-facing surface. READ ONLY: asking what applies records
-    nothing, so the outcome data can never be polluted by mere curiosity."""
+    """Loop 5's founder-facing surface. READ ONLY BY DEFAULT: asking what
+    applies records nothing, so the outcome data can never be polluted by mere
+    curiosity.
+
+    --record-applications opts IN to writing one row per rule returned, which
+    is what makes "was this rule followed" answerable at task close. It is a
+    flag and not the default for exactly that reason, and when the write fails
+    the rules are still printed."""
     pos, kv = _parse(argv, {"query", "project", "domain", "artifact",
-                            "relationship", "tool", "limit", "json"},
+                            "relationship", "tool", "limit", "json",
+                            "record-applications", "session", "record",
+                            "not-shown"},
                      wants_value=("query", "project", "domain", "artifact",
-                                  "relationship", "tool", "limit"))
+                                  "relationship", "tool", "limit", "session",
+                                  "record"))
     query = kv.get("query") or " ".join(pos)
     if not query.strip():
-        _err("usage: relevant --query \"what you are about to do\" [--artifact ...] [--limit N]")
+        _err("usage: relevant --query \"what you are about to do\" [--artifact ...] "
+             "[--limit N] [--record-applications --session ID [--record UUID]]")
         return 2
     try:
         limit = int(kv.get("limit", 5))
@@ -325,7 +335,14 @@ def cmd_relevant(argv):
         return 2
     store = _store()
     try:
-        res = store.retrieve_learning_rules(query, context=_ctx(kv), limit=limit)
+        if kv.get("record-applications"):
+            res = store.record_learning_applications(
+                query, context=_ctx(kv), limit=limit,
+                session_id=kv.get("session", ""),
+                record_prefix=kv.get("record"),
+                shown_to_model=not kv.get("not-shown"))
+        else:
+            res = store.retrieve_learning_rules(query, context=_ctx(kv), limit=limit)
     finally:
         store.close()
     if kv.get("json"):
@@ -367,6 +384,162 @@ def cmd_relevant(argv):
              "--how superseded|contradicted|deprecated --because \"...\"")
     _out("")
     _out("Constitution overrides learned rules. %d omitted." % res["omitted"])
+    if "recorded" in res:
+        _out("")
+        _out("recorded %d application(s), %d already recorded for this task "
+             "(task %s)" % (res["recorded"], res["already_recorded"],
+                            res["task_fingerprint"]))
+        if res["record_error"]:
+            _out("  the rules above are correct; the bookkeeping did NOT land: %s"
+                 % L.safe_display(res["record_error"], 200))
+        else:
+            _out("  close them with: bm_learn.py disposition <application-id> "
+                 "followed|ignored|not_relevant")
+    return 0
+
+
+def cmd_applications(argv):
+    """What was surfaced for a task, and what happened to it.
+
+    This is the answer to "was the rule followed". Each row shows the rule text
+    AS IT WAS APPLIED, not as it reads today, so an edit made afterwards cannot
+    quietly rewrite the history."""
+    pos, kv = _parse(argv, {"session", "record", "rule", "task", "disposition",
+                            "json"},
+                     wants_value=("session", "record", "rule", "task",
+                                  "disposition"))
+    store = _store()
+    try:
+        rows = store.list_learning_applications(
+            session_id=kv.get("session"), rule_prefix=kv.get("rule"),
+            record_prefix=kv.get("record"), task_fingerprint=kv.get("task"),
+            disposition=kv.get("disposition"))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+    if not rows:
+        _out("no applications recorded for that filter")
+        return 0
+    for a in rows:
+        _out("  %s  rule %s v%d  rank=%s  %s" % (
+            a["application_uuid"][:8], a["rule_uuid"][:8], a["rule_version"],
+            a["retrieval_rank"], a["scope_match"]))
+        _out("     Do   : %s" % L.safe_display(a["action_text"], 120))
+        _out("     shown: %s   disposition: %s   outcome: %s" % (
+            "yes" if a["shown_to_model"] else "no", a["disposition"],
+            a["outcome"]))
+        if a["disposition_reason"]:
+            _out("     why  : %s" % L.safe_display(a["disposition_reason"], 120))
+        if a["verification_ref"]:
+            _out("     check: %s" % L.safe_display(a["verification_ref"], 120))
+    _out("")
+    _out("%d application(s). Grade them with: bm_learn.py classify" % len(rows))
+    return 0
+
+
+def cmd_disposition(argv):
+    """Record whether a retrieved rule was followed, and why not when it was not.
+
+    usage: disposition <application-id> followed|ignored|not_relevant|unknown
+                       [--because "..."] [--verification-ref "test:..."]
+                       [--outcome accepted|rework|escaped_defect|corrected_again]
+                       [--outcome-ref "..."]"""
+    pos, kv = _parse(argv, {"because", "verification-ref", "outcome",
+                            "outcome-ref", "json"},
+                     wants_value=("because", "verification-ref", "outcome",
+                                  "outcome-ref"))
+    if len(pos) != 2:
+        _err("usage: disposition <application-id> "
+             "followed|ignored|not_relevant|unknown [--because \"...\"] "
+             "[--verification-ref \"test:...\"] [--outcome ...]")
+        return 2
+    store = _store()
+    try:
+        app = store.set_application_disposition(
+            pos[0], pos[1], reason=kv.get("because", ""),
+            verification_ref=kv.get("verification-ref", ""),
+            outcome=kv.get("outcome"), outcome_ref=kv.get("outcome-ref", ""))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(app, indent=2, sort_keys=True))
+        return 0
+    _out("application %s: %s (outcome %s)" % (
+        app["application_uuid"][:8], app["disposition"], app["outcome"]))
+    cls, why = L.classify_application(app["disposition"], app["shown_to_model"],
+                                       app["outcome"])
+    _out("  %s: %s" % (cls or "no finding", why))
+    return 0
+
+
+def cmd_classify(argv):
+    """Grade the recorded applications, and refuse to grade what has no evidence.
+
+    Five classes, and none of them is forced: retrieval miss, compliance
+    failure, bad rule, scope error, not decidable."""
+    pos, kv = _parse(argv, {"session", "json"}, wants_value=("session",))
+    store = _store()
+    try:
+        res = store.classify_learning_applications(session_id=kv.get("session"))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(res, indent=2, sort_keys=True))
+        return 0
+    if not res["applications"] and not res["retrieval_misses"]:
+        _out("nothing to classify yet: no applications have been recorded")
+        return 0
+    _out("APPLICATION CLASSIFICATION (%d application(s))" % len(res["applications"]))
+    for a in res["applications"]:
+        _out("  %s  rule %s v%d  %-18s %s" % (
+            a["application_uuid"][:8], a["rule_uuid"][:8], a["rule_version"],
+            a["classification"] or "no_finding",
+            L.safe_display(a["classification_reason"], 110)))
+    for m in res["retrieval_misses"]:
+        _out("  task %s  rule %s  retrieval_miss     %s" % (
+            m["task_fingerprint"][:8], m["rule_uuid"][:8],
+            L.safe_display(m["classification_reason"], 110)))
+    for u in res["not_decidable_tasks"]:
+        _out("  task %s  not_decidable      %s" % (
+            u["task_fingerprint"][:8], L.safe_display(u["reason"], 110)))
+    _out("")
+    _out("counts: %s" % res["counts"])
+    return 0
+
+
+def cmd_should_retrieve(argv):
+    """Is retrieval proportionate for this task? Records NOTHING either way.
+
+    The trivial-task bypass has to be explicit and it has to be free of side
+    effects: deciding not to retrieve must never manufacture an application
+    row, or the outcome data fills up with tasks that never happened."""
+    pos, kv = _parse(argv, {"communication", "architecture", "multi-file",
+                            "risky", "prior-correction", "json"})
+    signals = {
+        "communication_artifact": bool(kv.get("communication")),
+        "architecture_decision": bool(kv.get("architecture")),
+        "multi_file_change": bool(kv.get("multi-file")),
+        "risky_operation": bool(kv.get("risky")),
+        "prior_correction": bool(kv.get("prior-correction")),
+    }
+    store = _store()
+    try:
+        gates = [r for r in store.list_learning_rules(states=L.INJECTABLE_STATES)
+                 if r.get("severity") == "gate"]
+    finally:
+        store.close()
+    res = L.retrieval_advised(signals, gate_rules_exist=bool(gates))
+    if kv.get("json"):
+        _out(json.dumps(res, indent=2, sort_keys=True))
+        return 0
+    _out("retrieval advised: %s" % ("yes" if res["advised"] else "no"))
+    for r in res["reasons"]:
+        _out("  %s" % r)
+    if not res["advised"]:
+        _out("  nothing was recorded, because a task that did not happen must "
+             "not appear in the outcome data")
     return 0
 
 
@@ -754,6 +927,10 @@ COMMANDS = {
     "reject": cmd_reject,
     "rules": cmd_rules,
     "relevant": cmd_relevant,
+    "applications": cmd_applications,
+    "disposition": cmd_disposition,
+    "classify": cmd_classify,
+    "should-retrieve": cmd_should_retrieve,
     "why": cmd_why,
     "deprecate": cmd_deprecate,
     "forget": cmd_forget,
