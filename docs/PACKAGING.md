@@ -148,7 +148,14 @@ rather than a typo.
   rather than exiting 0 on work it did not do.
 - **A package install wires no hooks.** It cannot: hooks live in the user's
   `settings.json` and point at file paths. `pipx install brothermode` gives
-  you commands, not a configured session.
+  you commands, not a configured session. Concretely, only `*.py` modules
+  ship: `tools/bm_sessionstart.sh`, the SessionStart command `docs/SETUP.md`
+  publishes, is not in the wheel or the sdist, and it would not work from
+  `site-packages` anyway because it resolves its siblings from its own
+  location. Wire SessionStart from a skill checkout, not from a package.
+  `tools/test_bm.py` now forces a ship-or-not decision, in writing, on every
+  non-`.py` file in `tools/`, so the next runtime asset cannot be dropped
+  without someone saying so.
 - **No CI builds this.** The build was run by hand on one machine, macOS on
   Apple silicon with Python 3.9.6. The wheel is pure Python and marked
   `py3-none-any`, so it should install anywhere, but "should" is the correct

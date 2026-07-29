@@ -7277,6 +7277,113 @@ class TestLoop8ExternalGrading(unittest.TestCase):
         self.assertIsNone(L.parse_window_days("")[0])
 
 
+class TestP17InstructionTextMatchesTheInstalledLayout(unittest.TestCase):
+    """P17-fix. P17 put six commands on PATH, and every refusal in this file
+    still told the reader to run `python3 tools/bm_store.py ...`. There is no
+    tools/ directory in a pipx, uv, or pip install, so the FIRST refusal a
+    package-only user ever saw named a file that does not exist. These tests
+    pin the resolution rule in both layouts, because nothing else does: no
+    test covered instruction text at all before this."""
+
+    def _fake_env(self, d, packaged):
+        """A minimal venv shape: <prefix>/bin/{python3,bm-store} and a module
+        either inside that prefix (packaged) or outside it (a checkout)."""
+        binf = os.path.join(d, "prefix", "bin")
+        os.makedirs(binf)
+        py = os.path.join(binf, "python3")
+        script = os.path.join(binf, "bm-store")
+        for p in (py, script):
+            with io.open(p, "w") as f:
+                f.write("#!/bin/sh\n")
+            os.chmod(p, 0o755)
+        if packaged:
+            site = os.path.join(d, "prefix", "lib", "python3.9", "site-packages")
+        else:
+            site = os.path.join(d, "checkout", "tools")
+        os.makedirs(site)
+        mod = os.path.join(site, "bm_store.py")
+        with io.open(mod, "w") as f:
+            f.write("# placeholder\n")
+        return os.path.join(d, "prefix"), py, mod
+
+    def test_a_packaged_install_is_told_the_command_that_exists(self):
+        with tempfile.TemporaryDirectory() as d:
+            prefix, py, mod = self._fake_env(d, packaged=True)
+            with mock.patch.object(sys, "prefix", prefix), \
+                    mock.patch.object(sys, "executable", py):
+                self.assertEqual("bm-store", bs.invocation("bm-store", mod))
+
+    def test_a_checkout_is_told_its_own_absolute_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            prefix, py, mod = self._fake_env(d, packaged=False)
+            with mock.patch.object(sys, "prefix", prefix), \
+                    mock.patch.object(sys, "executable", py):
+                # The console script exists on this machine, but it belongs to
+                # a DIFFERENT environment than the file being run. Naming it
+                # would point the founder at some other install's store code.
+                self.assertEqual("python3 %s" % mod,
+                                 bs.invocation("bm-store", mod))
+
+    def test_a_path_with_spaces_is_quoted_so_it_can_be_pasted(self):
+        with tempfile.TemporaryDirectory() as d:
+            target = os.path.join(d, "my project", "bm_store.py")
+            os.makedirs(os.path.dirname(target))
+            out = bs.invocation("bm-store", target)
+            self.assertIn("'%s'" % target, out)
+
+    def test_the_no_root_refusal_names_a_command_that_resolves(self):
+        with tempfile.TemporaryDirectory() as d:
+            start = os.path.join(d, "nowhere")
+            os.makedirs(start)
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("BROTHERMODE_ROOT", None)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    bs.require_root(start)
+            msg = str(ctx.exception)
+            self.assertNotIn("python3 tools/bm_store.py", msg)
+            self.assertIn(bs.invocation("bm-store", bs.__file__), msg)
+
+    #: bm_fence_hook.py carries the same three hardcoded instructions
+    #: (its no-store _FailOpen, its adopt line, and its claim nudge). It is
+    #: a hook internal this fix round does not own, so the defect is
+    #: recorded in docs/KNOWN-LIMITS.md rather than patched here by a loop
+    #: with no mandate to touch it. Removing the name from this set is the
+    #: whole fix once a loop owns that file.
+    NOT_OWNED_BY_THIS_LOOP = frozenset(["bm_fence_hook.py"])
+
+    def test_no_shipping_message_hardcodes_the_repo_relative_path(self):
+        """The sweep, not one site. Every user-facing string in the shipping
+        tools is checked, so a tenth site cannot be added the old way."""
+        offenders = []
+        for fn in sorted(os.listdir(HERE)):
+            if not fn.endswith(".py") or fn.startswith("test_"):
+                continue
+            if fn in self.NOT_OWNED_BY_THIS_LOOP:
+                continue
+            with io.open(os.path.join(HERE, fn), encoding="utf-8") as f:
+                tree = ast.parse(f.read())
+            docstrings = set()
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.Module, ast.FunctionDef,
+                                     ast.AsyncFunctionDef, ast.ClassDef)):
+                    body = node.body
+                    if (body and isinstance(body[0], ast.Expr)
+                            and isinstance(body[0].value, ast.Constant)
+                            and isinstance(body[0].value.value, str)):
+                        docstrings.add(id(body[0].value))
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Constant)
+                        and isinstance(node.value, str)
+                        and id(node) not in docstrings
+                        and "python3 tools/bm_" in node.value):
+                    offenders.append("%s:%s" % (fn, node.lineno))
+        self.assertEqual(
+            [], offenders,
+            "these runtime strings tell the reader to run a repo-relative "
+            "path that does not exist in a packaged install; resolve the "
+            "command instead (bm_store.invocation): %s" % offenders)
+
+
 if __name__ == "__main__":
     # The leak check lives in the runner, so it applies to every test without
     # each of the ~40 TestCase classes having to opt in. Running this file
