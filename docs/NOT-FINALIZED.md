@@ -231,14 +231,31 @@ Reproduced: `python3 tools/bm_store.py claim --help` prints
 as a record name instead of exiting non-zero. Small, cosmetic in isolation, and
 recorded because the new learning CLI must NOT copy the pattern from its sibling.
 
-## 17. The English-only, 400-character correction filter. OPEN. Found 2026-07-28.
+## 17. The English-only, 400-character correction filter. CLOSED 2026-07-29 (Loop 4).
 
 Measured, not estimated: of five founder-shaped messages, two were captured. A
 4,000-character correction was dropped by the length cap, and a FRENCH correction
 was dropped by the English-only regex, both silently. The founder works in French.
 
-This is the gap the correction-learning program's Loop 4 exists to close, and it
-is stated here so the gap is on the record even if that loop slips.
+Closed by Loop 4. Detection moved into `bm_learning.detect_correction`, which
+runs English, French and Japanese phrase packs (the old English regex survives
+inside the English pack, so nothing that used to be captured stopped being
+captured), and length now EXCERPTS with the omitted character count recorded
+instead of dropping. Proved through the real SessionEnd CLI, not only in tests: a
+French, a Japanese and a 6,000-character correction were all captured in one run,
+while a question ("why didn't you use the desktop app?") was not.
+
+Still true, and stated rather than implied:
+
+- The packs are starter phrase lists, not language understanding. A correction
+  phrased in a way no pack knows is still missed, and the honest name for that
+  is a recall gap. `bm_learn.py capture` covers any language by hand.
+- The negative filters (question, brainstorming, changed business decision) are
+  four named fixtures, not a measured false-positive rate. There is no labelled
+  review set, so `bm_learn.py metrics` reports counts and refuses to call them
+  accuracy.
+- Nothing measures recall on a real day of the founder's work yet. That is item
+  1, and it stays open.
 
 ---
 
@@ -249,5 +266,8 @@ macOS and Windows across both supported Python versions, and the recovery suite
 running on all three for the first time. `v2.0.0-rc.2` is tagged from a green
 commit, `rc.1` withdrawn. The telemetry split is merged and its cause fixed.
 
-That is a real amount of ground. It is also, by the count above, fourteen open
-items away from being a finished product.
+That is a real amount of ground. It is also, by the count above, fifteen open
+items away from being a finished product: seventeen numbered items, of which
+only 5 (refuted) and 17 (closed by Loop 4) are done. The word "fourteen" stood
+here until 2026-07-29 and was already stale when items 15 to 17 were added,
+which is its own small lesson about counts written by hand.
