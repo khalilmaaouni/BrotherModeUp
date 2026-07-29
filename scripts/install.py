@@ -12,10 +12,13 @@ WHY THIS EXISTS
   one-writer-per-file promise unenforced while looking installed.
 
 WHAT IT GUARANTEES
-  1. It never deletes a hook entry it did not write. Ownership is decided by the
-     command string naming this installation's own tools/bm_* files, so an
-     unrelated SessionStart hook of yours survives install, upgrade and
-     uninstall untouched.
+  1. It never deletes a hook entry it did not write. A hook entry is ours only
+     if EVERY filesystem path in its command, read the way a shell reads it and
+     not by substring, is one of this installation's own tools/bm_* files. An
+     unrelated SessionStart hook of yours therefore survives install, upgrade
+     and uninstall untouched; so does a hook of yours that chains your script
+     after ours, and so does a second BrotherMode installation whose path
+     merely begins with the same characters as this one's.
   2. It refuses rather than overwrites. An existing BrotherMode install, or
      BrotherMode hook entries already in settings, stops the run unless
      --upgrade is passed explicitly.
@@ -146,21 +149,94 @@ def hook_groups(target):
     return groups
 
 
+def command_path_tokens(command):
+    """Every path-like argument in a hook command, with shell quoting undone.
+
+    Ownership used to be decided by asking whether the target path appeared as a
+    SUBSTRING of the command text. Four separate ways that deleted other
+    people's hooks, all reproduced:
+
+      1. Prefix collision. Target /x/brothermode "matched" a second
+         installation at /x/brothermode2, so upgrading or uninstalling the
+         short one silently unwired the long one. Two checkouts side by side is
+         this project's own working layout, not an exotic case.
+      2. Its own quoting defeated it. hook_commands() shell-quotes the path, so
+         an install under "Repertoire d'installation" produced a command in
+         which the raw target is NOT a substring. The installer then failed to
+         recognise hooks it had written itself one command earlier, and
+         uninstall reported "nothing to unwire" while leaving all five wired.
+      3. A user hook that WRAPS ours (ours && their own script, one command)
+         contained our path, so the whole entry, their script included, was
+         deleted as ours.
+      4. A user script named my_bm_fence_hook.py in a sibling directory matched
+         both halves of the old test by substring and was deleted.
+
+    So read the command the way a shell reads it instead of the way grep does:
+    split it into arguments, step one level into `sh -c <script>` (our
+    PreCompact command is exactly that shape), and return the arguments that
+    look like filesystem paths. Returns None when the command cannot be parsed
+    (unbalanced quotes), which callers treat as "not ours": an entry we cannot
+    read is an entry we must not delete."""
+    if not isinstance(command, str):
+        return None
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return None
+    out = []
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "-c" and i + 1 < len(tokens):
+            # The next argument is a shell script, not a path. Split it once
+            # more so the paths inside it are seen; do not recurse further,
+            # because a nested -c inside a script is not a shape we write and
+            # guessing at it would widen ownership rather than narrow it.
+            try:
+                inner = shlex.split(tokens[i + 1])
+            except ValueError:
+                return None
+            out.extend(t for t in inner if os.sep in t)
+            i += 2
+            continue
+        if os.sep in tok:
+            out.append(tok)
+        i += 1
+    return out
+
+
 def command_is_ours(command, target):
     """Does this hook command belong to a BrotherMode installation at target?
 
-    Deliberately narrow. It must name the install directory AND one of the tool
-    files this installer writes commands for. A hook of the user's own that runs
-    some other script inside the same checkout is NOT ours and is never removed;
-    that asymmetry is on purpose, because the cost of leaving one of our entries
-    behind is a duplicate hook, and the cost of removing one of theirs is data
-    they cannot get back."""
-    if not isinstance(command, str):
+    Deliberately narrow, and now narrow in the way it always claimed to be.
+    Every path the command names must be one of this installation's own
+    tools/bm_* files: same directory (exact, not prefix) and a basename in
+    OWNED_TOOLS. One foreign path anywhere in the command, such as a user's own
+    script chained after ours, and the entry is not ours and is never removed.
+    That asymmetry is on purpose: the cost of leaving one of our entries behind
+    is a duplicate hook, and the cost of removing one of theirs is work they
+    cannot get back."""
+    paths = command_path_tokens(command)
+    if not paths:
         return False
-    candidates = {target, os.path.realpath(target)}
-    if not any(c in command for c in candidates if c):
+    if not target:
         return False
-    return any(name in command for name in OWNED_TOOLS)
+    owned_dirs = set()
+    for root in (os.path.abspath(target), os.path.realpath(target)):
+        if root:
+            owned_dirs.add(os.path.join(os.path.normpath(root), "tools"))
+    for p in paths:
+        norm = os.path.normpath(p)
+        if not os.path.isabs(norm):
+            # A relative path in a hook command is resolved against whatever
+            # directory Claude Code happens to run it from, so it cannot be
+            # proven to be ours. Leave it alone.
+            return False
+        if os.path.dirname(norm) not in owned_dirs:
+            return False
+        if os.path.basename(norm) not in OWNED_TOOLS:
+            return False
+    return True
 
 
 def group_is_ours(group, target):
@@ -267,10 +343,30 @@ def read_settings(path):
     return data, raw
 
 
+def resolve_settings_link(path):
+    """The real file behind settings.json, or path itself when it is not a link.
+
+    Dotfile managers (stow, chezmoi, a hand-made ln -s) leave
+    ~/.claude/settings.json as a symlink into a tracked repository. The atomic
+    write below is os.replace onto the path, which REPLACES the link with a
+    regular file: the tracked file kept the pre-install content, the hooks
+    landed in a new untracked file, and the backup was written next to the link
+    rather than next to the real file. Nothing said so, and uninstall could not
+    put the link back. Resolve first, and the link survives while the file it
+    points at is the one that changes."""
+    try:
+        if os.path.islink(path):
+            return os.path.realpath(path)
+    except OSError:
+        pass
+    return path
+
+
 def write_settings(path, settings, raw_before, dry_run):
     """Back up, write atomically, then re-read and re-parse. Returns backup path."""
     if dry_run:
         return None
+    path = resolve_settings_link(path)
     parent = os.path.dirname(os.path.abspath(path)) or "."
     try:
         os.makedirs(parent)
@@ -572,6 +668,12 @@ def main(argv):
         except (ValueError, IOError, OSError) as exc:
             _err("install.py: writing %s failed: %s" % (settings_path, exc))
             return EXIT_FAILED
+        real_settings = resolve_settings_link(settings_path)
+        if real_settings != settings_path:
+            _out("%shooks: %s is a symlink; the file it points at (%s) is what "
+                 "%s edited, and the link is left as it was."
+                 % (prefix, settings_path, real_settings,
+                    "would be" if dry else "was"))
         _out("%shooks: %d BrotherMode entry(ies) replaced, %d installed: %s"
              % (prefix, removed, added, ", ".join(HOOK_EVENTS)))
         if backup:
