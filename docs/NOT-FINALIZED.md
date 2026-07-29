@@ -55,7 +55,11 @@ deprecate) does not touch the index because it does not touch the text, and
 state is filtered before ranking. That reasoning is correct today and is not
 enforced by anything mechanical: a future write site that inserts a rule version
 without calling `_fts_write_rule` would drift, and only `verify` would catch it.
-UNPROVEN.
+UNPROVEN, and now less costly: since the fix round of 2026-07-29 the index is
+reconciled against the rules at the point retrieval consumes it, so a write site
+that forgets `_fts_write_rule` costs one rewrite of the index rather than wrong
+answers. Naming the omission is still `verify`'s job, and the mechanical
+enforcement is still missing.
 
 ## P6: the run stored the founder's prompt by default. CLOSED by fix round P6.
 

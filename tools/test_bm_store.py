@@ -710,11 +710,17 @@ class TestFixRoundGates(unittest.TestCase):
                             "_exec would read that as structural damage and "
                             "quarantine a HEALTHY store over an optional "
                             "capability being absent",
-            "Store._fts_scores": "post-audit LOOP P7. A malformed MATCH "
-                                  "expression raises OperationalError, which "
-                                  "_exec would quarantine the store for. The "
-                                  "fast path must degrade to lexical instead, "
-                                  "so this one query owns its own except",
+            "Store._fts_exec": "post-audit LOOP P7 fix round. The ONE routing "
+                                "point for statements against the INDEX table, "
+                                "and not being _exec is the entire point: _exec "
+                                "reads 'no such table: learning_rule_fts' as "
+                                "structural damage and quarantines the store, "
+                                "which destroyed a healthy database, the "
+                                "approval in flight and every rule in it over an "
+                                "OPTIONAL accelerator. Errors come back as "
+                                "sqlite3.Error and every caller here switches "
+                                "the fast path to lexical. Statements against "
+                                "the REAL tables still go through _exec",
         }
         with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
             source = f.read()
@@ -9083,6 +9089,149 @@ class TestPostAuditLoopP7Fts5(unittest.TestCase):
                     self.assertEqual(res["results"][0]["rule_uuid"],
                                       gate["rule_uuid"])
                     self.assertFalse(store.fts_available())
+
+    def _quarantines(self, store):
+        d = os.path.dirname(store.path)
+        return sorted(n for n in os.listdir(d) if ".quarantine-" in n)
+
+    def test_a_dropped_index_never_costs_the_founder_the_store(self):
+        """P7 fix round, CRITICAL, reproduced on a real store before the fix:
+        the index table was dropped mid-session, the next approval routed its
+        index write through _exec, _exec read "no such table:
+        learning_rule_fts" as structural damage, and _quarantine_and_raise
+        MOVED store.sqlite3 aside. The approval in flight, every rule, every
+        claim: gone, because an OPTIONAL accelerator lost a table.
+
+        The `except sqlite3.Error` written around that write to keep the
+        failure direction lexical could not fire, because StoreCorrupt is not
+        a sqlite3.Error, which this asserts directly so the guard cannot go
+        back to being decorative."""
+        self.assertFalse(issubclass(bs.StoreCorrupt, sqlite3.Error))
+        with tempfile.TemporaryDirectory() as d:
+            with _fts_env():
+                with bs.Store(d) as store:
+                    if not store.fts_available():
+                        self.skipTest("this SQLite build has no FTS5 module")
+                    self._rule(store)
+                    store.conn.execute("DROP TABLE %s" % bs._FTS_TABLE)
+                    rule = self._rule(store, trigger="when the founder asks "
+                                                     "for a summary",
+                                      action="keep it under ten lines")
+                    # The approval LANDED, the file is where it was, and the
+                    # fast path took itself off instead of taking the store.
+                    self.assertEqual(rule["state"], "approved")
+                    self.assertFalse(store.fts_available())
+                    self.assertTrue(os.path.exists(store.path))
+                    self.assertEqual(self._quarantines(store), [])
+                    self.assertEqual(
+                        store.retrieve_learning_rules("summary")["mode"],
+                        "lexical")
+                    self.assertEqual(
+                        len(store.list_learning_rules()), 2)
+
+    def test_diagnostics_on_a_dropped_index_report_rather_than_quarantine(self):
+        """Same fix round. learning_index_status calls itself "read only, and
+        safe on a store with no index at all" and learning_fts_drift is the
+        check that makes the fast path trustworthy. Both counted through
+        _exec, so on a dropped index the STATUS COMMAND quarantined the store
+        and the drift check then raised AttributeError on the connection it
+        had just had closed underneath it. A diagnostic that destroys what it
+        inspects is worse than no diagnostic."""
+        with tempfile.TemporaryDirectory() as d:
+            with _fts_env():
+                with bs.Store(d) as store:
+                    if not store.fts_available():
+                        self.skipTest("this SQLite build has no FTS5 module")
+                    self._rule(store)
+                    store.conn.execute("DROP TABLE %s" % bs._FTS_TABLE)
+                    drift = store.learning_fts_drift()
+                    self.assertTrue(drift)
+                    self.assertEqual(drift[0][0], "fts-drift")
+                    self.assertIn("could not be read", drift[0][1])
+                    status = store.learning_index_status()
+                    self.assertFalse(status["available"])
+                    self.assertEqual(status["mode"], "lexical")
+                    self.assertIsNone(status["indexed_rows"])
+                    self.assertTrue(os.path.exists(store.path))
+                    self.assertEqual(self._quarantines(store), [])
+                    # And the repair command still repairs, at exit 0.
+                    self.assertTrue(store.rebuild_learning_index()["ok"])
+                    self.assertEqual(store.learning_fts_drift(), [])
+
+    def test_rules_written_with_the_index_off_are_reconciled_before_it_answers(self):
+        """P7 fix round, MAJOR, reproduced on the real CLI. The switch is a
+        per-PROCESS environment variable and _ensure_fts repopulated only when
+        it had just CREATED the table, so ONE ordinary shell that approves a
+        rule without the variable left the index short a row FOREVER: the next
+        FTS5 run found a table, trusted it, and ranked an indexed rule sharing
+        one common word above an unindexed rule with three times its exact
+        overlap. With --limit the correct rule vanished entirely.
+
+        The index is now reconciled at the point it is CONSUMED, so it cannot
+        answer a query while it disagrees with the rules."""
+        with tempfile.TemporaryDirectory() as d:
+            with _fts_env():
+                with bs.Store(d) as store:
+                    if not store.fts_available():
+                        self.skipTest("this SQLite build has no FTS5 module")
+                    indexed = self._rule(
+                        store, trigger="before pushing code to github",
+                        action="always run the test suite first", because="")
+            with mock.patch.dict(os.environ, {bs.FTS5_ENV: "",
+                                              bs.FTS5_DISABLE_ENV: ""}):
+                with bs.Store(d) as store:
+                    self.assertFalse(store.fts_available())
+                    unindexed = self._rule(
+                        store, trigger="when writing release notes",
+                        action="list every breaking change", because="")
+            query = "run through the release notes and list every breaking change"
+            with _fts_env():
+                with bs.Store(d) as store:
+                    self.assertEqual(len(self._fts_rows(store)), 1)
+                    res = store.retrieve_learning_rules(query, limit=1)
+                    self.assertEqual(res["mode"], "fts5")
+                    self.assertEqual([r["rule_uuid"] for r in res["results"]],
+                                      [unindexed["rule_uuid"]])
+                    self.assertNotEqual(unindexed["rule_uuid"],
+                                        indexed["rule_uuid"])
+                    self.assertEqual(len(self._fts_rows(store)), 2)
+                    self.assertEqual(self._drifted(store), [])
+
+    def test_an_edit_made_with_the_index_off_cannot_answer_from_deleted_text(self):
+        """The same root cause in its worst shape: the founder REPOINTS a rule
+        at a different situation in a shell without the variable, and the
+        stale index then injects that rule into the model's context for the
+        task it no longer covers, matching on text the founder deleted, while
+        the CLI explains the hit as a stem match no live word can produce.
+        Reproduced on the real CLI before the fix (rule at version 2, query
+        'I already pushed everything upstream', rank=1)."""
+        with tempfile.TemporaryDirectory() as d:
+            with _fts_env():
+                with bs.Store(d) as store:
+                    if not store.fts_available():
+                        self.skipTest("this SQLite build has no FTS5 module")
+                    rule = self._rule(store, because="")
+                    stale = store.retrieve_learning_rules(
+                        "already pushed everything upstream")
+                    self.assertEqual([r["rule_uuid"] for r in stale["results"]],
+                                      [rule["rule_uuid"]])
+            with mock.patch.dict(os.environ, {bs.FTS5_ENV: "",
+                                              bs.FTS5_DISABLE_ENV: ""}):
+                with bs.Store(d) as store:
+                    _edited(store, rule["rule_uuid"], 1,
+                            trigger="reviewing a pull request",
+                            action="read every hunk", because="typos hide",
+                            change_type="edited",
+                            change_reason="the founder repointed it")
+            with _fts_env():
+                with bs.Store(d) as store:
+                    res = store.retrieve_learning_rules(
+                        "already pushed everything upstream")
+                    self.assertEqual(res["results"], [])
+                    hit = store.retrieve_learning_rules("reviewing a pull request")
+                    self.assertEqual([r["rule_uuid"] for r in hit["results"]],
+                                      [rule["rule_uuid"]])
+                    self.assertEqual(self._drifted(store), [])
 
     def test_a_hostile_query_cannot_raise_or_quarantine(self):
         """FTS5 reads NEAR, *, ^, - and column filters as operators. A founder

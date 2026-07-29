@@ -2769,6 +2769,29 @@ class Store(object):
         retrieval stays lexical."""
         return bool(getattr(self, "_fts_ready", False))
 
+    def _fts_exec(self, sql, params=()):
+        """The ONE routing point for statements against the INDEX table.
+
+        Deliberately not _exec, and this is the whole point (P7 fix round).
+        _exec sends any non-transient OperationalError to
+        _quarantine_and_raise, which MOVES store.sqlite3 and its sidecars into
+        a quarantine directory and raises StoreCorrupt. "no such table:
+        learning_rule_fts" is exactly that shape, so an OPTIONAL accelerator
+        losing its table mid-session took the founder's whole database with
+        it, along with the approval in flight. Worse, the `except
+        sqlite3.Error` guards written around those calls to keep the failure
+        direction lexical could never fire: StoreCorrupt is not a subclass of
+        sqlite3.Error, so they were dead code. Reproduced before this fix on a
+        real store: drop the index table, approve a candidate, and the result
+        was StoreCorrupt with the database gone.
+
+        So the index gets its own routing point with no quarantine in it. A
+        sqlite error here comes back to the caller AS a sqlite3.Error, the
+        caller switches the fast path off, and retrieval is lexical, which is
+        the mode that always works. Statements against the REAL tables stay on
+        _exec, where damage still means damage and quarantine is correct."""
+        return self.conn.execute(sql, params)
+
     def _fts_table_exists(self):
         row = _exec(self, "SELECT name FROM sqlite_master WHERE type='table' "
                           "AND name=?", (_FTS_TABLE,)).fetchone()
@@ -2793,7 +2816,7 @@ class Store(object):
             return
         try:
             existed = self._fts_table_exists()
-            _exec(self, _FTS_CREATE_SQL % _FTS_TABLE)
+            self._fts_exec(_FTS_CREATE_SQL % _FTS_TABLE)
             if not existed:
                 self._fts_reindex_all()
             self._fts_ready = True
@@ -2834,16 +2857,16 @@ class Store(object):
         if not self.fts_available():
             return
         try:
-            _exec(self, "DELETE FROM %s WHERE rule_uuid = ?" % _FTS_TABLE,
-                  (rule_uuid,))
+            self._fts_exec("DELETE FROM %s WHERE rule_uuid = ?" % _FTS_TABLE,
+                           (rule_uuid,))
             for row in self._fts_rows_for_rule(rule_uuid):
-                _exec(self, "INSERT INTO %s (rule_uuid, rule_version, %s) "
-                            "VALUES (?,?,?,?,?,?,?)"
-                      % (_FTS_TABLE, ", ".join(_FTS_TEXT_COLUMNS)), row)
+                self._fts_exec("INSERT INTO %s (rule_uuid, rule_version, %s) "
+                               "VALUES (?,?,?,?,?,?,?)"
+                               % (_FTS_TABLE, ", ".join(_FTS_TEXT_COLUMNS)), row)
         except sqlite3.Error:
             self._fts_ready = False
             try:
-                _exec(self, "DROP TABLE IF EXISTS %s" % _FTS_TABLE)
+                self._fts_exec("DROP TABLE IF EXISTS %s" % _FTS_TABLE)
             except sqlite3.Error:
                 # The drop failed too, so the transaction cannot be left to
                 # commit: a stale index would survive with no way to know it.
@@ -2852,19 +2875,61 @@ class Store(object):
     def _fts_reindex_all(self):
         """Fill the CURRENT index table from the rules. Caller supplies the
         transaction (or accepts autocommit at open time)."""
-        _exec(self, "DELETE FROM %s" % _FTS_TABLE)
+        self._fts_exec("DELETE FROM %s" % _FTS_TABLE)
         for row in _exec(self,
                 "SELECT r.rule_uuid, r.current_version, r.scope_key, "
                 "  v.trigger_text, v.action_text, v.because_text, v.domain "
                 "FROM learning_rules r JOIN learning_rule_versions v "
                 "  ON v.rule_uuid = r.rule_uuid "
                 "  AND v.version = r.current_version").fetchall():
-            _exec(self, "INSERT INTO %s (rule_uuid, rule_version, %s) "
-                        "VALUES (?,?,?,?,?,?,?)"
-                  % (_FTS_TABLE, ", ".join(_FTS_TEXT_COLUMNS)),
-                  (row["rule_uuid"], row["current_version"], row["trigger_text"],
-                   row["action_text"], row["because_text"], row["domain"],
-                   row["scope_key"]))
+            self._fts_exec("INSERT INTO %s (rule_uuid, rule_version, %s) "
+                           "VALUES (?,?,?,?,?,?,?)"
+                           % (_FTS_TABLE, ", ".join(_FTS_TEXT_COLUMNS)),
+                           (row["rule_uuid"], row["current_version"],
+                            row["trigger_text"], row["action_text"],
+                            row["because_text"], row["domain"],
+                            row["scope_key"]))
+
+    def _fts_reconcile(self):
+        """Make the index agree with the rules BEFORE anything reads it, or
+        switch the fast path off. True when the index may be trusted.
+
+        THE BUG THIS EXISTS FOR (P7 fix round, reproduced on the real CLI).
+        The index is maintained only by connections that have the fast path
+        on, and the switch is a per-PROCESS environment variable. One ordinary
+        shell that approves or edits a rule without it leaves the index behind
+        with no error anywhere, and _ensure_fts repopulated only when it had
+        just CREATED the table, so that gap was permanent: the next FTS5 run
+        found a table, trusted it, and answered from text the founder had
+        already deleted, while the CLI explained the hit as a stem match that
+        no live word could produce. That is a correctness failure, not a
+        reporting one: bm25 dominates the ranking, so a stale row outranked a
+        rule with three times its exact overlap, and --limit then dropped the
+        right rule entirely.
+
+        The fix is placed at the point of CONSUMPTION rather than at open,
+        because open time cannot see a write another process makes a second
+        later, and because verify and index-status keep their value only if
+        they can still SEE drift and say so. Cost is two small queries per
+        retrieval against a table holding one row per founder rule.
+
+        Repair needs write authority. A store that cannot repair (locked by
+        another writer, read-only) turns the fast path off and takes the
+        lexical path, which is the mode that always works and is reported
+        honestly as mode=lexical."""
+        if not self.learning_fts_drift():
+            return True
+        try:
+            self._fts_reindex_all()
+        except (sqlite3.Error, OwnershipRefused):
+            self._fts_ready = False
+            return False
+        if self.learning_fts_drift():
+            # Repaired and still disagreeing: something about this index is
+            # beyond a rewrite, so it does not get to answer queries.
+            self._fts_ready = False
+            return False
+        return True
 
     def _fts_scores(self, query):
         """BM25 scores by rule_uuid for this task text, or None when the fast
@@ -2874,12 +2939,19 @@ class Store(object):
         NO index query happened, so the run must report mode lexical; {} means
         the index was asked and matched nothing, which is a real fts5 answer.
 
-        Raw execute rather than _exec (exempt in the suite's routing test, with
-        this reason): a malformed MATCH expression raises OperationalError, and
-        _exec would treat that as structural damage and quarantine a healthy
-        store over a founder's punctuation. fts_match_query quotes every token
-        precisely so this cannot happen, and this except is the second belt:
-        the fast path switches itself off and the caller gets lexical."""
+        _fts_exec rather than _exec: a malformed MATCH expression raises
+        OperationalError, and _exec would treat that as structural damage and
+        quarantine a healthy store over a founder's punctuation.
+        fts_match_query quotes every token precisely so this cannot happen,
+        and the except below is the second belt: the fast path switches itself
+        off and the caller gets lexical.
+
+        The index is RECONCILED before it answers, every time, because this is
+        the one place it is consumed and a stale index here is wrong answers
+        rather than slow ones (see _fts_reconcile). That check sits AFTER the
+        match expression is built, so a task with nothing searchable in it
+        costs nothing: the index is not being asked, so it does not need to be
+        right yet."""
         if not self.fts_available():
             return None
         L = _learning()
@@ -2889,8 +2961,10 @@ class Store(object):
             # so claiming mode fts5 would be a lie about where the ranking
             # came from.
             return None
+        if not self._fts_reconcile():
+            return None
         try:
-            rows = self.conn.execute(
+            rows = self._fts_exec(
                 "SELECT rule_uuid, bm25(%s) AS score FROM %s WHERE %s MATCH ?"
                 % (_FTS_TABLE, _FTS_TABLE, _FTS_TABLE), (match,)).fetchall()
         except sqlite3.Error:
@@ -2900,14 +2974,26 @@ class Store(object):
 
     def learning_index_status(self):
         """What the fast path is doing right now, in numbers a founder can
-        check. Read only, and safe on a store with no index at all."""
+        check. Read only, and safe on a store with no index at all.
+
+        "Safe" now means it: this counted through _exec, so a missing index
+        table made a DIAGNOSTIC quarantine the store (P7 fix round). A
+        diagnostic that can destroy what it inspects is worse than no
+        diagnostic. An unreadable index now reads as the fast path being off,
+        which is what it is."""
         L = _learning()
         requested = fts5_requested()
         available = self.fts_available()
         indexed = None
         if available:
-            row = _exec(self, "SELECT COUNT(*) AS n FROM %s" % _FTS_TABLE).fetchone()
-            indexed = int(row["n"]) if row else 0
+            try:
+                row = self._fts_exec(
+                    "SELECT COUNT(*) AS n FROM %s" % _FTS_TABLE).fetchone()
+                indexed = int(row["n"]) if row else 0
+            except sqlite3.Error:
+                self._fts_ready = False
+                available = False
+                indexed = None
         return {
             "requested": requested,
             "available": available,
@@ -2945,8 +3031,20 @@ class Store(object):
                 int(row["current_version"]),
                 tuple((row[c] or "") for c in _FTS_TEXT_COLUMNS))
         have = {}
-        for row in _exec(self, "SELECT rule_uuid, rule_version, %s FROM %s"
-                               % (", ".join(_FTS_TEXT_COLUMNS), _FTS_TABLE)).fetchall():
+        try:
+            index_rows = self._fts_exec(
+                "SELECT rule_uuid, rule_version, %s FROM %s"
+                % (", ".join(_FTS_TEXT_COLUMNS), _FTS_TABLE)).fetchall()
+        except sqlite3.Error as e:
+            # The index cannot be read at all (dropped underneath us, most
+            # likely). That is drift of the loudest kind, and it is reported
+            # as drift; through _exec it used to QUARANTINE THE STORE from
+            # inside a read-only check (P7 fix round).
+            self._fts_ready = False
+            return [("fts-drift", "the search index could not be read (%s), so "
+                     "the fast path is off and retrieval is lexical; rebuild "
+                     "it with bm_learn.py rebuild-index" % e, ())]
+        for row in index_rows:
             have.setdefault(row["rule_uuid"], []).append(
                 (int(row["rule_version"] or 0),
                  tuple((row[c] or "") for c in _FTS_TEXT_COLUMNS)))
@@ -3000,26 +3098,43 @@ class Store(object):
             return {"ok": False, "mode": L.RETRIEVAL_MODE, "indexed": 0,
                     "reason": "this SQLite build has no FTS5 module, so the "
                               "lexical path is the only one available"}
+        try:
+            return self._rebuild_learning_index_inner(L)
+        except sqlite3.Error as e:
+            # The rebuild is the REPAIR command, so it is the last place that
+            # may take the store down with it: through _exec these statements
+            # quarantined the file (P7 fix round). A rebuild that cannot
+            # finish leaves the fast path off and says why, through the same
+            # ok/reason shape the CLI already turns into exit 2.
+            self._fts_ready = False
+            return {"ok": False, "mode": L.RETRIEVAL_MODE, "indexed": 0,
+                    "reason": "the search index could not be rebuilt (%s); "
+                              "retrieval stays lexical" % e}
+
+    def _rebuild_learning_index_inner(self, L):
+        """The rebuild itself, split out so rebuild_learning_index owns one
+        try/except around the whole transaction rather than one per statement."""
         with self._transaction():
-            _exec(self, "DROP TABLE IF EXISTS %s" % _FTS_REBUILD_TABLE)
-            _exec(self, _FTS_CREATE_SQL % _FTS_REBUILD_TABLE)
+            self._fts_exec("DROP TABLE IF EXISTS %s" % _FTS_REBUILD_TABLE)
+            self._fts_exec(_FTS_CREATE_SQL % _FTS_REBUILD_TABLE)
             for row in _exec(self,
                     "SELECT r.rule_uuid, r.current_version, r.scope_key, "
                     "  v.trigger_text, v.action_text, v.because_text, v.domain "
                     "FROM learning_rules r JOIN learning_rule_versions v "
                     "  ON v.rule_uuid = r.rule_uuid "
                     "  AND v.version = r.current_version").fetchall():
-                _exec(self, "INSERT INTO %s (rule_uuid, rule_version, %s) "
-                            "VALUES (?,?,?,?,?,?,?)"
-                      % (_FTS_REBUILD_TABLE, ", ".join(_FTS_TEXT_COLUMNS)),
-                      (row["rule_uuid"], row["current_version"],
-                       row["trigger_text"], row["action_text"],
-                       row["because_text"], row["domain"], row["scope_key"]))
-            _exec(self, "DROP TABLE IF EXISTS %s" % _FTS_TABLE)
-            _exec(self, "ALTER TABLE %s RENAME TO %s"
-                  % (_FTS_REBUILD_TABLE, _FTS_TABLE))
+                self._fts_exec("INSERT INTO %s (rule_uuid, rule_version, %s) "
+                               "VALUES (?,?,?,?,?,?,?)"
+                               % (_FTS_REBUILD_TABLE, ", ".join(_FTS_TEXT_COLUMNS)),
+                               (row["rule_uuid"], row["current_version"],
+                                row["trigger_text"], row["action_text"],
+                                row["because_text"], row["domain"],
+                                row["scope_key"]))
+            self._fts_exec("DROP TABLE IF EXISTS %s" % _FTS_TABLE)
+            self._fts_exec("ALTER TABLE %s RENAME TO %s"
+                           % (_FTS_REBUILD_TABLE, _FTS_TABLE))
         self._fts_ready = True
-        row = _exec(self, "SELECT COUNT(*) AS n FROM %s" % _FTS_TABLE).fetchone()
+        row = self._fts_exec("SELECT COUNT(*) AS n FROM %s" % _FTS_TABLE).fetchone()
         return {"ok": True, "mode": L.FTS5_MODE,
                 "indexed": int(row["n"]) if row else 0, "reason": ""}
 
