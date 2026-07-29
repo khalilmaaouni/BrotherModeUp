@@ -284,6 +284,50 @@ def safe_scope(scope_type, scope_key, limit=80):
     return "%s:%s" % (safe_display(scope_type, 40), safe_display(scope_key, limit))
 
 
+def storage_key(text):
+    """A scope key as it must be STORED: control characters removed, whitespace
+    collapsed, and NOT length capped. Pure.
+
+    safe_display exists for screens and caps at 200 characters, which is right
+    for a line a human reads and wrong for a value something later looks a rule
+    up by. validate_scope imposes no length limit on a scope key, so a legal
+    250-character project key ran through safe_display came back with an
+    ellipsis on the end, no longer matched the rule it named, and the retrieval
+    miss it should have exposed disappeared without a word (FIX ROUND P6,
+    reproduced on the real CLI). A stored lookup key is either the key or it is
+    a different key; there is no shortened version of it that still works."""
+    return _WS.sub(" ", _CONTROL.sub("", text or "")).strip()
+
+
+# The most task terms a retrieval run will store. Generous for real prompts
+# (this is post-stopword, deduplicated), and a task that exceeds it stores no
+# terms at all rather than a truncated set, because a truncated set re-ranks
+# differently from the task that actually ran and would produce confident
+# misattribution instead of a refusal.
+MAX_QUERY_TERMS = 200
+
+
+def query_terms(text, max_terms=MAX_QUERY_TERMS):
+    """The task's SEARCH TERMS, sorted, deduplicated, order destroyed. Pure.
+
+    What this is for: re-ranking a past retrieval needs whatever the ranker
+    read, and the ranker reads exactly `set(tokenize(query))` (lexical_overlap
+    is the only query-derived signal in rank_key). So the set is sufficient,
+    and the prompt itself is not needed. Word order, punctuation, repetition,
+    stopwords and every non-token character are dropped here and never reach
+    the store, which is how a retrieval stays measurable without the ledger
+    accumulating a verbatim copy of what the founder typed (LOOP P6 acceptance
+    criterion: no raw task prompt is stored by default).
+
+    Returns "" when the task has more than `max_terms` distinct terms. Empty
+    means the classifier reports `no_task_text` and refuses to decide, which is
+    the honest answer for a task whose terms were not kept in full."""
+    terms = sorted(set(tokenize(text)))
+    if len(terms) > max_terms:
+        return ""
+    return " ".join(terms)
+
+
 def task_fingerprint(text):
     """A short, stable, NON-REVERSIBLE handle for a task.
 

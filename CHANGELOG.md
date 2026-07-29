@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026-07-29 (no version bump): a retrieval miss is now graded against the run that ran
+
+Fix round P6, on top of Loop P6 (d3c24a3). The run row landed and the miss
+count still moved for reasons that had nothing to do with the retrieval. Seven
+findings, every one reproduced on a throwaway store through the real CLI before
+anything was changed.
+
+- THE GRADED RUN IS NOW JUDGED BY ITS OWN ROWS. `seen` was built from every
+  application row in the session, while the run being graded was the earliest
+  one. So the ordinary founder workflow erased the loop's flagship finding:
+  `apply --limit 0` recorded a genuine limit miss, the founder raised the limit
+  and re-ran, and the first run's miss disappeared. Rows now count only for the
+  run that wrote them.
+- A CHANGED CORPUS IS REFUSED, NOT RE-RANKED. The miss split was decided by
+  re-ranking TODAY's rules while citing the stored run as its authority.
+  Deprecating one unrelated rule flipped a stored `retrieval_limit_miss` into a
+  `retrieval_miss`, which is the difference between "your page size was too
+  small" and "your ranking is wrong": opposite fixes, on facts that did not
+  change. The reconstructed corpus is now counted against the eligible count
+  the run recorded, rules approved after the retrieval are dropped from the
+  ranking instead of inflating positions, and a mismatch is reported as
+  `corpus_changed_since_retrieval` and graded no further.
+- THE PRINTED DENOMINATOR IS THE STORED ONE. A reason line saying "ranks 1 of 1"
+  beside a run row recording 2 eligible rules cannot both be true.
+- THE PROMPT IS NO LONGER STORED. `apply` defaulted the run's excerpt to the
+  query itself, so up to 500 characters of verbatim task text went into the new
+  table on the default path with nothing justified and no way out. The run now
+  keeps the task's TERMS: sorted, deduplicated, stopword-free, order destroyed,
+  secret-scrubbed. That set is exactly what the ranker reads, so past
+  retrievals still re-rank faithfully, and the sentence the founder typed is
+  not recoverable from the row. A task with more than 200 distinct terms keeps
+  none and is reported as `no_task_text` rather than re-ranked from a truncated
+  set.
+- SCOPE KEYS ARE STORED WHOLE. They were written through the 200-character
+  display cap, so a longer legal project key came back with an ellipsis,
+  stopped matching its own rule, and the miss vanished with no refusal either.
+- WHICH RUN IS THE AUTHORITY IS NO LONGER A COIN FLIP. `created_at` has
+  one-second resolution and the tie was broken by the random retrieval uuid, so
+  identical command sequences graded different runs. Insertion order decides.
+
 ## 2026-07-29 (no version bump, schema 3 to 4): a retrieval miss now has a recorded denominator
 
 Loop P6. A miss is a statement about what was NOT returned, and the rules that
