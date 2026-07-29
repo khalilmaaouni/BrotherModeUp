@@ -2910,7 +2910,7 @@ class Store(object):
                                     action=None, because=None, scope_type=None,
                                     scope_key=None, rule_type="preference",
                                     severity="soft", domain=None,
-                                    atomicity_override=""):
+                                    atomicity_override="", conflict_override=""):
         """Promote a candidate into an approved rule. ATOMIC and FOUNDER-GATED.
 
         founder_ref is mandatory and free-form (a command invocation, a message
@@ -2951,6 +2951,36 @@ class Store(object):
                 "re-run with an explicit override reason. A compound rule cannot "
                 "be graded: when the outcome is bad you cannot tell which half "
                 "was wrong." % "; ".join(problems))
+        # THE DONE GATE OF LOOP 6: there is no path to silently accumulate
+        # contradictory active rules. Approval is the only door into the
+        # injectable set, so the check belongs here rather than in a report the
+        # founder has to remember to run. The refusal names the other rule and
+        # the ways out; the founder may override, and the override is written
+        # down as evidence AND as an edge, so the conflict stays visible in
+        # `conflicts`, in retrieval and in verify rather than being settled by
+        # having been forced through once.
+        prospective = {"scope_type": stype, "scope_key": skey,
+                       "trigger_text": trig, "action_text": act}
+        found = self.conflicts_against(prospective)
+        if not conflict_override.strip():
+            if found["contradictions"]:
+                other, v = found["contradictions"][0]
+                raise OwnershipRefused(
+                    "unresolved-contradiction",
+                    "this would create a second injectable rule contradicting %s "
+                    "(%s). Resolve it first: narrow one scope, supersede one, mark "
+                    "one contradicted, or re-run with an explicit override reason. "
+                    "Existing rule says: %s"
+                    % (other["rule_uuid"][:8], "; ".join(v["reasons"]),
+                       _learning().safe_display(other["action_text"], 120)))
+            if found["duplicates"]:
+                other, v = found["duplicates"][0]
+                raise OwnershipRefused(
+                    "duplicate-rule",
+                    "rule %s already says this in the same scope (%s). A repeat is "
+                    "evidence, not a second rule: merge the candidate into it, or "
+                    "re-run with an explicit override reason if they really differ."
+                    % (other["rule_uuid"][:8], "; ".join(v["reasons"])))
         ruuid = uuid.uuid4().hex
         ts = now_iso()
         with self._transaction():
@@ -2984,6 +3014,29 @@ class Store(object):
                       (uuid.uuid4().hex, ruuid, founder_ref[:500],
                        ("atomicity override: %s (flags: %s)"
                         % (atomicity_override, "; ".join(problems)))[:500], ts))
+            if conflict_override.strip() and (found["contradictions"] or found["duplicates"]):
+                _exec(self,
+                      "INSERT INTO learning_evidence (evidence_uuid, rule_uuid, "
+                      "polarity, evidence_type, source_ref, excerpt, created_at) "
+                      "VALUES (?,?,'neutral','manual_review',?,?,?)",
+                      (uuid.uuid4().hex, ruuid, founder_ref[:500],
+                       ("conflict override: %s (against: %s)"
+                        % (conflict_override,
+                           ", ".join(o["rule_uuid"][:8] for o, _v
+                                     in found["contradictions"] + found["duplicates"])))[:500],
+                       ts))
+                for other, _v in found["contradictions"]:
+                    _exec(self, "INSERT OR IGNORE INTO learning_edges (from_rule_uuid, "
+                                "to_rule_uuid, relation, note, created_at) "
+                                "VALUES (?,?,'contradicts',?,?)",
+                          (ruuid, other["rule_uuid"],
+                           L.normalize_text(conflict_override)[:500], ts))
+                for other, _v in found["duplicates"]:
+                    _exec(self, "INSERT OR IGNORE INTO learning_edges (from_rule_uuid, "
+                                "to_rule_uuid, relation, note, created_at) "
+                                "VALUES (?,?,'duplicate_of',?,?)",
+                          (ruuid, other["rule_uuid"],
+                           L.normalize_text(conflict_override)[:500], ts))
             _exec(self,
                   "UPDATE learning_candidates SET status='approved', reviewed_at=?, "
                   "resulting_rule_uuid=? WHERE candidate_uuid=?",
@@ -3101,6 +3154,20 @@ class Store(object):
             successor = self.get_learning_rule(successor_prefix)
             if successor["rule_uuid"] == rule["rule_uuid"]:
                 raise OwnershipRefused("self-supersession", "a rule cannot supersede itself")
+            # A cycle means no member of the loop is the current instruction,
+            # because each one claims to have been replaced. The state machine
+            # does not catch this on its own: a rule that is already superseded
+            # may still be named as the SUCCESSOR of a third rule, which is how
+            # a three-rule loop forms without any single step looking wrong.
+            existing = [(e["from_rule_uuid"], e["to_rule_uuid"])
+                        for e in self.list_learning_edges()
+                        if e["relation"] == "supersedes"]
+            if L.supersession_cycle(existing, successor["rule_uuid"], rule["rule_uuid"]):
+                raise OwnershipRefused(
+                    "supersession-cycle",
+                    "rule %s already supersedes %s through other rules; adding this "
+                    "would close a loop in which no rule is the current one"
+                    % (rule["rule_uuid"][:8], successor["rule_uuid"][:8]))
         ts = now_iso()
         with self._transaction():
             if successor is not None:
@@ -3138,6 +3205,313 @@ class Store(object):
         return [dict(r) for r in _exec(
             self, "SELECT * FROM learning_evidence WHERE rule_uuid=? "
                   "ORDER BY created_at", (rule["rule_uuid"],)).fetchall()]
+
+    # -----------------------------------------------------------------
+    # Loop 6: the conflict graph.
+    #
+    # learning_edges existed from Loop 1 and nothing wrote to it, which is a
+    # standing invitation to build half a feature against an empty table. From
+    # here it is the record of how rules relate: what duplicates what, what
+    # contradicts what, and what replaced what.
+    #
+    # THE RULE THAT GOVERNS ALL OF IT: this code DESCRIBES conflicts and
+    # REFUSES to let one accumulate silently. It never decides which rule
+    # wins. Every resolution below is executed on the founder's instruction and
+    # recorded with a reason.
+    # -----------------------------------------------------------------
+
+    def list_learning_edges(self, rule_prefix=None):
+        """Edges, optionally only the ones touching one rule (either end)."""
+        if rule_prefix:
+            rule = self.get_learning_rule(rule_prefix)
+            return [dict(r) for r in _exec(
+                self, "SELECT * FROM learning_edges WHERE from_rule_uuid=? "
+                      "OR to_rule_uuid=? ORDER BY created_at",
+                (rule["rule_uuid"], rule["rule_uuid"])).fetchall()]
+        return [dict(r) for r in _exec(
+            self, "SELECT * FROM learning_edges ORDER BY created_at").fetchall()]
+
+    def link_learning_rules(self, from_prefix, to_prefix, relation, note=""):
+        """Record how two rules relate.
+
+        'supersedes' is deliberately NOT accepted here. Supersession is not a
+        note about two rules, it is a state change on one of them, and letting
+        a plain link write half of it would leave a rule claiming to be
+        replaced while it is still being injected. Use
+        change_learning_rule_state, which does both in one transaction."""
+        L = _learning()
+        if relation not in L.RELATIONS:
+            raise OwnershipRefused(
+                "bad-relation", "unknown relation %r (known: %s)"
+                % (relation, ", ".join(L.RELATIONS)))
+        if relation == "supersedes":
+            raise OwnershipRefused(
+                "use-supersede",
+                "a supersedes edge is written by supersession itself, so the edge "
+                "and the state change can never disagree; supersede the rule "
+                "instead of linking it")
+        a = self.get_learning_rule(from_prefix)
+        b = self.get_learning_rule(to_prefix)
+        if a["rule_uuid"] == b["rule_uuid"]:
+            raise OwnershipRefused(
+                "self-edge", "a rule cannot be linked to itself (%s)"
+                % a["rule_uuid"][:8])
+        ts = now_iso()
+        with self._transaction():
+            _exec(self, "INSERT OR IGNORE INTO learning_edges (from_rule_uuid, "
+                        "to_rule_uuid, relation, note, created_at) VALUES (?,?,?,?,?)",
+                  (a["rule_uuid"], b["rule_uuid"], relation,
+                   L.normalize_text(note)[:500], ts))
+        return [e for e in self.list_learning_edges(a["rule_uuid"])
+                if e["to_rule_uuid"] == b["rule_uuid"] and e["relation"] == relation][0]
+
+    def merge_learning_candidate(self, candidate_prefix, rule_prefix, reason=""):
+        """Fold a DUPLICATE candidate into the rule it repeats, as evidence.
+
+        The plan's duplicate behaviour, implemented literally: a repeat of an
+        existing rule should strengthen that rule, not create a second copy of
+        it, and the new source event must survive. So the candidate's own text
+        becomes a founder_quote evidence row on the existing rule, and the
+        candidate is marked 'merged' pointing at the rule it went into. Nothing
+        is deleted and the provenance chain still ends at a source event.
+
+        Worth stating: that evidence row is a SUPPORT row that is not a
+        founder_approval, so a founder repeating himself is exactly the
+        independent evidence a rule needs to reach 'confirmed'. That is the
+        intended meaning, not a side effect."""
+        cand = self.get_learning_candidate(candidate_prefix)
+        if cand["status"] != "pending":
+            raise OwnershipRefused(
+                "not-pending", "candidate %s is %r, only a pending candidate can be merged"
+                % (cand["candidate_uuid"][:8], cand["status"]))
+        rule = self.get_learning_rule(rule_prefix)
+        L = _learning()
+        ts = now_iso()
+        excerpt = cand["raw_text"] or cand["proposed_action"] or ""
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO learning_evidence (evidence_uuid, rule_uuid, "
+                  "candidate_uuid, polarity, evidence_type, source_session_id, "
+                  "source_record_uuid, source_ref, excerpt, created_at) "
+                  "VALUES (?,?,?,'support','founder_quote',?,?,?,?,?)",
+                  (uuid.uuid4().hex, rule["rule_uuid"], cand["candidate_uuid"],
+                   cand["source_session_id"], cand["source_record_uuid"],
+                   ("merged into %s: %s" % (rule["rule_uuid"][:8], reason))[:500],
+                   redact_text(excerpt), ts))
+            _exec(self, "UPDATE learning_candidates SET status='merged', reviewed_at=?, "
+                        "review_note=?, resulting_rule_uuid=? WHERE candidate_uuid=?",
+                  (ts, L.normalize_text(reason)[:500], rule["rule_uuid"],
+                   cand["candidate_uuid"]))
+        return self.get_learning_rule(rule["rule_uuid"])
+
+    def _conflict_side(self, rule):
+        """One side of a reported conflict, in DISPLAY form.
+
+        This is the redaction boundary for conflict output. It carries the
+        rule's own trigger and action, which the founder wrote and approved,
+        and nothing else: no candidate raw_text, no evidence excerpt, no
+        source reference. Conflict reports get read out loud and pasted into
+        notes, and the verbatim capture text is the most sensitive column in
+        the store."""
+        L = _learning()
+        scope = rule["scope_type"]
+        if scope != "global":
+            scope = "%s:%s" % (scope, rule["scope_key"])
+        return {"rule_uuid": rule["rule_uuid"], "state": rule["state"],
+                "scope": scope, "severity": rule["severity"],
+                "trigger": L.safe_display(rule["trigger_text"], 160),
+                "action": L.safe_display(rule["action_text"], 160)}
+
+    def learning_conflicts(self):
+        """Conflicts between rules that CAN currently speak.
+
+        Only injectable states are compared. A deprecated, superseded,
+        contradicted or forgotten rule cannot reach a session, so it is history
+        rather than a live conflict, and reporting it as one would train the
+        founder to ignore this output.
+
+        A conflict counts if it was DETECTED lexically or DECLARED by the
+        founder with `link a contradicts b`. Declared always wins: the detector
+        cannot see "use tabs" against "use spaces", and the founder can.
+
+        Pairwise, O(n squared) over injectable rules. That is tens of rows on a
+        real store; if it ever stops being tens, the fix is an index, not a
+        silent cap on how many conflicts get reported."""
+        L = _learning()
+        rules = self.list_learning_rules(states=L.INJECTABLE_STATES)
+        declared = {}
+        for e in self.list_learning_edges():
+            if e["relation"] in ("contradicts", "duplicate_of"):
+                declared[(e["from_rule_uuid"], e["to_rule_uuid"])] = e["relation"]
+        out = {"contradictions": [], "duplicates": []}
+        for i in range(len(rules)):
+            for j in range(i + 1, len(rules)):
+                a, b = rules[i], rules[j]
+                v = L.conflict_verdict(a, b)
+                rel = (declared.get((a["rule_uuid"], b["rule_uuid"]))
+                       or declared.get((b["rule_uuid"], a["rule_uuid"])) or "")
+                verdict = v["verdict"]
+                if rel == "contradicts":
+                    verdict = "contradiction"
+                elif rel == "duplicate_of" and verdict != "contradiction":
+                    verdict = "duplicate"
+                if verdict not in ("contradiction", "duplicate"):
+                    continue
+                pair = {"a": self._conflict_side(a), "b": self._conflict_side(b),
+                        "declared": rel, "detected": v["verdict"],
+                        "scope_relation": v["scope_relation"],
+                        "trigger_overlap": v["trigger_overlap"],
+                        "action_relation": v["action_relation"],
+                        "reasons": v["reasons"]}
+                if verdict == "contradiction":
+                    out["contradictions"].append(pair)
+                else:
+                    out["duplicates"].append(pair)
+        return out
+
+    def conflicts_against(self, proposed):
+        """Conflicts a PROSPECTIVE rule would have with the injectable ones.
+
+        Used by approval before anything is written, so a contradiction is
+        refused at the door rather than discovered later by a founder reading a
+        report. `proposed` is a plain dict with scope_type, scope_key,
+        trigger_text and action_text."""
+        L = _learning()
+        found = {"contradictions": [], "duplicates": []}
+        for other in self.list_learning_rules(states=L.INJECTABLE_STATES):
+            v = L.conflict_verdict(proposed, other)
+            if v["verdict"] == "contradiction":
+                found["contradictions"].append((other, v))
+            elif v["verdict"] == "duplicate":
+                found["duplicates"].append((other, v))
+        return found
+
+    def resolve_learning_conflict(self, loser_prefix, other_prefix, how, reason=""):
+        """Execute a founder's decision about ONE conflict, atomically.
+
+        `how` names what happens to the rule the founder chose to stand down:
+        superseded by the other one, marked contradicted, or deprecated. This
+        method does not choose, rank, or suggest which rule that is. It exists
+        so the state change and the edge that explains it land together, rather
+        than leaving a rule silenced with no record of why."""
+        if how == "superseded":
+            return self.change_learning_rule_state(
+                loser_prefix, "superseded", reason=reason,
+                successor_prefix=other_prefix)
+        if how not in ("contradicted", "deprecated"):
+            raise OwnershipRefused(
+                "bad-resolution",
+                "unknown resolution %r (known: superseded, contradicted, deprecated)"
+                % (how,))
+        if not (reason or "").strip():
+            raise OwnershipRefused(
+                "no-reason", "resolving a conflict requires a reason; the next reader "
+                "of this store has to be able to see why one rule stopped speaking")
+        L = _learning()
+        loser = self.get_learning_rule(loser_prefix)
+        other = self.get_learning_rule(other_prefix)
+        if loser["rule_uuid"] == other["rule_uuid"]:
+            raise OwnershipRefused("self-edge", "a rule cannot resolve a conflict with itself")
+        err = L.state_transition_error(loser["state"], how)
+        if err:
+            raise OwnershipRefused("illegal-state-move", err)
+        ts = now_iso()
+        with self._transaction():
+            _exec(self, "INSERT OR IGNORE INTO learning_edges (from_rule_uuid, "
+                        "to_rule_uuid, relation, note, created_at) "
+                        "VALUES (?,?,'contradicts',?,?)",
+                  (loser["rule_uuid"], other["rule_uuid"],
+                   L.normalize_text(reason)[:500], ts))
+            _exec(self, "UPDATE learning_rules SET state=?, updated_at=? WHERE rule_uuid=?",
+                  (how, ts, loser["rule_uuid"]))
+        return self.get_learning_rule(loser["rule_uuid"])
+
+    # The checks learning_verify runs, named here so the CLI can print the list
+    # it actually ran rather than a hand-written one that drifts from it.
+    LEARNING_CHECKS = (
+        "unresolved-contradiction", "broken-edge", "supersession-cycle",
+        "missing-current-version", "no-approval-evidence", "invalid-scope",
+        "fts-drift", "application-without-version",
+    )
+
+    def learning_verify(self):
+        """Deterministic integrity findings for the learning tables. READ ONLY.
+
+        Same job `verify` does for the work records: state plainly whether the
+        store is in a condition its own rules allow. Every finding names the
+        rows involved. An empty finding list is the only thing that means clean,
+        and the caller gets `ok` rather than having to interpret a count."""
+        L = _learning()
+        findings = []
+
+        def add(code, detail, refs=()):
+            findings.append({"code": code, "detail": detail, "refs": list(refs)})
+
+        for pair in self.learning_conflicts()["contradictions"]:
+            add("unresolved-contradiction",
+                "rules %s and %s are both injectable and contradict (%s)"
+                % (pair["a"]["rule_uuid"][:8], pair["b"]["rule_uuid"][:8],
+                   "declared by the founder" if pair["declared"] else "detected"),
+                (pair["a"]["rule_uuid"], pair["b"]["rule_uuid"]))
+        for row in _exec(self,
+                "SELECT e.from_rule_uuid AS f, e.to_rule_uuid AS t, e.relation AS rel "
+                "FROM learning_edges e "
+                "LEFT JOIN learning_rules a ON a.rule_uuid = e.from_rule_uuid "
+                "LEFT JOIN learning_rules b ON b.rule_uuid = e.to_rule_uuid "
+                "WHERE a.rule_uuid IS NULL OR b.rule_uuid IS NULL").fetchall():
+            add("broken-edge",
+                "edge %s %s %s points at a rule that no longer exists"
+                % (row["f"][:8], row["rel"], row["t"][:8]), (row["f"], row["t"]))
+        cyc = L.supersession_cycles(
+            [(e["from_rule_uuid"], e["to_rule_uuid"])
+             for e in self.list_learning_edges() if e["relation"] == "supersedes"])
+        for ruuid in cyc:
+            add("supersession-cycle",
+                "rule %s sits on a supersession loop, so no rule in that loop is "
+                "the current one" % ruuid[:8], (ruuid,))
+        for row in _exec(self,
+                "SELECT r.rule_uuid AS u FROM learning_rules r "
+                "LEFT JOIN learning_rule_versions v "
+                "  ON v.rule_uuid = r.rule_uuid AND v.version = r.current_version "
+                "WHERE v.rule_uuid IS NULL").fetchall():
+            add("missing-current-version",
+                "rule %s names a current version that has no row" % row["u"][:8],
+                (row["u"],))
+        for row in _exec(self,
+                "SELECT r.rule_uuid AS u FROM learning_rules r WHERE NOT EXISTS ("
+                "  SELECT 1 FROM learning_evidence e WHERE e.rule_uuid = r.rule_uuid "
+                "  AND e.evidence_type = 'founder_approval')").fetchall():
+            add("no-approval-evidence",
+                "rule %s has no founder_approval evidence, which invariant L1 requires "
+                "of every rule" % row["u"][:8], (row["u"],))
+        for r in self.list_learning_rules(include_forgotten=True):
+            err = L.validate_scope(r["scope_type"], r["scope_key"])
+            if err:
+                add("invalid-scope", "rule %s: %s" % (r["rule_uuid"][:8], err),
+                    (r["rule_uuid"],))
+        for row in _exec(self,
+                "SELECT a.application_uuid AS u FROM learning_applications a "
+                "LEFT JOIN learning_rule_versions v "
+                "  ON v.rule_uuid = a.rule_uuid AND v.version = a.rule_version "
+                "WHERE v.rule_uuid IS NULL").fetchall():
+            add("application-without-version",
+                "application %s points at a rule version that does not exist"
+                % row["u"][:8], (row["u"],))
+        return {
+            "ok": not findings,
+            "findings": findings,
+            "checks": list(self.LEARNING_CHECKS),
+            "rules": len(self.list_learning_rules(include_forgotten=True)),
+            "edges": len(self.list_learning_edges()),
+            # Stated rather than silently skipped: the fts-drift check runs and
+            # finds nothing because there is no FTS index in this schema to
+            # drift from. Retrieval is lexical (see bm_learning's docstring).
+            # When an index lands, this note becomes a real comparison and the
+            # check name does not have to change.
+            "notes": ["fts-drift: no FTS index exists in this schema, retrieval "
+                      "mode is %s, so there is nothing to drift from"
+                      % L.RETRIEVAL_MODE],
+        }
 
     def retrieve_learning_rules(self, query, context=None, limit=5,
                                  include_reasons=True):
@@ -3180,9 +3554,33 @@ class Store(object):
             if include_reasons:
                 row["why"] = L.explain_rank(r, query, context)
             out.append(row)
+        # CONFLICTS ARE SURFACED, NEVER SILENTLY RESOLVED (Loop 6).
+        #
+        # If two injectable rules contradict each other and one of them is about
+        # to be shown, dropping the other or ranking it lower would be this tool
+        # deciding which of the founder's instructions is the real one. It does
+        # not get to do that. Both stay in the result, the pair is reported, and
+        # the founder resolves it. The counterpart is included in full even when
+        # it did not itself pass the relevance floor, because showing one side of
+        # a contradiction is worse than showing neither.
+        shown = set(r["rule_uuid"] for r in out)
+        conflicts = []
+        if shown:
+            for pair in self.learning_conflicts()["contradictions"]:
+                if (pair["a"]["rule_uuid"] in shown
+                        or pair["b"]["rule_uuid"] in shown):
+                    conflicts.append(pair)
+        against = {}
+        for pair in conflicts:
+            au, bu = pair["a"]["rule_uuid"], pair["b"]["rule_uuid"]
+            against.setdefault(au, set()).add(bu)
+            against.setdefault(bu, set()).add(au)
+        for row in out:
+            row["conflicts_with"] = sorted(against.get(row["rule_uuid"], ()))
         return {"mode": L.RETRIEVAL_MODE, "results": out,
                 "omitted": max(0, len(eligible) - len(chosen)),
-                "eligible": len(eligible)}
+                "eligible": len(eligible),
+                "conflicts": conflicts}
 
     def _record_by_uuid(self, lifecycle_uuid):
         row = _exec(self,

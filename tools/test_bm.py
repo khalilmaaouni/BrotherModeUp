@@ -2875,5 +2875,126 @@ class TestLoop4FalsePositiveCategories(unittest.TestCase):
                             bl.text_echo_key("no, that is fine"))
 
 
+class TestLoop6ConflictSemantics(unittest.TestCase):
+    """The pure half of Loop 6. These functions decide whether an approval is
+    blocked, so what they can and cannot see is a stated property, not a
+    hopeful one."""
+
+    ALWAYS = "always push through the GitHub Desktop app"
+    NEVER = "never push through the GitHub Desktop app"
+
+    def test_polarity_reads_english_and_french_negation(self):
+        self.assertEqual(bl.polarity(self.ALWAYS), "require")
+        self.assertEqual(bl.polarity(self.NEVER), "forbid")
+        self.assertEqual(bl.polarity("ne pousse jamais sans l'application"), "forbid")
+        self.assertEqual(bl.polarity("utilise toujours l'application"), "require")
+
+    def test_a_reversal_of_the_same_instruction_is_incompatible(self):
+        self.assertEqual(bl.action_relation(self.ALWAYS, self.NEVER), "incompatible")
+        self.assertEqual(bl.action_relation(self.ALWAYS, self.ALWAYS), "identical")
+
+    def test_two_unrelated_actions_are_not_forced_into_a_verdict(self):
+        self.assertEqual(
+            bl.action_relation(self.ALWAYS, "write the summary in French"),
+            "not_comparable")
+
+    def test_the_detector_states_what_it_cannot_see(self):
+        """"Use tabs" against "use spaces" is a real contradiction and lexical
+        comparison cannot find it. Asserted rather than left as a hope: this is
+        exactly why `link a contradicts b` exists as a founder command."""
+        self.assertEqual(bl.action_relation("indent with tabs",
+                                            "indent with four spaces"),
+                         "not_comparable")
+
+    def test_scope_relation_never_guesses_containment(self):
+        self.assertEqual(bl.scope_relation("global", "", "global", ""), "same")
+        self.assertEqual(bl.scope_relation("project", "A", "project", "a"), "same")
+        self.assertEqual(bl.scope_relation("project", "A", "project", "B"), "disjoint")
+        self.assertEqual(bl.scope_relation("global", "", "project", "A"), "broader")
+        self.assertEqual(bl.scope_relation("project", "A", "global", ""), "narrower")
+        self.assertEqual(bl.scope_relation("project", "A", "artifact", "x"),
+                         "disjoint",
+                         "nothing in the store says that artifact lives in that "
+                         "project, so claiming containment would be a guess")
+
+    def test_only_the_same_scope_can_reach_a_contradiction(self):
+        same = {"scope_type": "global", "scope_key": "",
+                "trigger_text": "pushing to GitHub", "action_text": self.ALWAYS}
+        other = dict(same, action_text=self.NEVER)
+        self.assertEqual(bl.conflict_verdict(same, other)["verdict"], "contradiction")
+        narrow = dict(other, scope_type="project", scope_key="Tonari")
+        self.assertEqual(bl.conflict_verdict(same, narrow)["verdict"], "narrowing")
+        elsewhere = dict(other, scope_type="project", scope_key="Other")
+        far = dict(same, scope_type="project", scope_key="Tonari")
+        self.assertEqual(bl.conflict_verdict(far, elsewhere)["verdict"], "unrelated")
+
+    def test_a_verdict_shows_its_working(self):
+        a = {"scope_type": "global", "scope_key": "", "trigger_text": "pushing",
+             "action_text": self.ALWAYS}
+        v = bl.conflict_verdict(a, dict(a, action_text=self.NEVER))
+        self.assertEqual(v["scope_relation"], "same")
+        self.assertEqual(v["action_relation"], "incompatible")
+        self.assertEqual(len(v["reasons"]), 3)
+
+    def test_supersession_cycles_are_detected_before_and_after_the_fact(self):
+        edges = [("a", "b"), ("b", "c")]
+        self.assertTrue(bl.supersession_cycle(edges, "c", "a"))
+        self.assertFalse(bl.supersession_cycle(edges, "c", "d"))
+        self.assertTrue(bl.supersession_cycle([], "a", "a"))
+        self.assertEqual(bl.supersession_cycles(edges + [("c", "a")]),
+                         ["a", "b", "c"])
+        self.assertEqual(bl.supersession_cycles(edges), [])
+
+
+class TestLoop6LearningVerifyCli(unittest.TestCase):
+    """Driven through the real binary, because the exit code IS the deliverable:
+    a script has to be able to gate on it."""
+
+    def _run(self, root, args):
+        env = dict(os.environ, BROTHERMODE_ROOT=root)
+        return subprocess.run([sys.executable, os.path.join(HERE, "bm_learn.py")]
+                              + args, cwd=root, env=env, capture_output=True,
+                              text=True)
+
+    def test_verify_exits_zero_when_clean_and_one_when_it_finds_something(self):
+        with tempfile.TemporaryDirectory() as root:
+            env = dict(os.environ, BROTHERMODE_ROOT=root)
+            init = subprocess.run([sys.executable, os.path.join(HERE, "bm_store.py"),
+                                   "init"], cwd=root, env=env,
+                                  capture_output=True, text=True)
+            self.assertEqual(init.returncode, 0, init.stderr)
+            clean = self._run(root, ["verify"])
+            self.assertEqual(clean.returncode, 0, clean.stderr)
+            self.assertIn("no findings", clean.stdout)
+
+            def capture_and_approve(action, extra=()):
+                r = self._run(root, ["capture", "--scope", "global",
+                                     "--trigger", "pushing to GitHub",
+                                     "--action", action, "--source", "manual"])
+                self.assertEqual(r.returncode, 0, r.stderr)
+                cid = r.stdout.split()[1]
+                return self._run(root, ["approve", cid, "--ref", "test"] + list(extra))
+
+            first = capture_and_approve("always push through the GitHub Desktop app")
+            self.assertEqual(first.returncode, 0, first.stderr)
+            blocked = capture_and_approve("never push through the GitHub Desktop app")
+            self.assertEqual(blocked.returncode, 2,
+                             "an unresolved contradiction must not approve")
+            self.assertIn("unresolved-contradiction", blocked.stderr)
+            forced = capture_and_approve("never push through the GitHub Desktop app",
+                                         ["--override-conflict", "both for now"])
+            self.assertEqual(forced.returncode, 0, forced.stderr)
+
+            found = self._run(root, ["verify"])
+            self.assertEqual(found.returncode, 1, found.stdout)
+            self.assertIn("unresolved-contradiction", found.stdout)
+            rel = self._run(root, ["relevant", "--query", "pushing to GitHub"])
+            self.assertEqual(rel.returncode, 0, rel.stderr)
+            self.assertIn("UNRESOLVED CONFLICT", rel.stdout)
+            self.assertEqual(rel.stdout.count("rank="), 2,
+                             "both sides of a conflict are shown; the tool does not "
+                             "pick one")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
