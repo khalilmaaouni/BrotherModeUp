@@ -3546,6 +3546,82 @@ class TestP17PackagingManifestMatchesTheRepository(unittest.TestCase):
             "tools/ (a deleted or renamed file, or a test swept in): %s"
             % sorted(extra))
 
+    #: P17-fix. The py-modules contract above can only ever see *.py, because
+    #: py-modules can only name modules. Anything else in tools/ is therefore
+    #: invisible to it, and `include-package-data = false` drops it from both
+    #: artifacts without a word. That is fine for a repo-only file and a
+    #: silent hole for a runtime asset (a future registry .json, a data table,
+    #: a template), which would install missing and fail on a stranger's
+    #: machine exactly the way a missing module would.
+    #:
+    #: So every non-.py file in tools/ carries a decision here, with the
+    #: reason. Repo-only files are listed below; files that must reach an
+    #: installed user go in SHIPPING_ASSETS and must then actually be carried
+    #: by the packaging. A new unclassified file fails this suite, which is
+    #: the whole point: the decision gets made by a person, once, on purpose.
+    REPO_ONLY_ASSETS = {
+        "bm_sessionstart.sh": (
+            "the SessionStart hook script. Documented in docs/SETUP.md as a "
+            "path inside a skill checkout, and it resolves its siblings by "
+            "its own location, so it is meaningless in site-packages. A "
+            "package install wires no hooks by design (docs/PACKAGING.md)."),
+        "write_sites.json": (
+            "the reviewed inventory of write sites. A review artifact for "
+            "this suite (test_no_unreviewed_write_sites), read by no "
+            "shipping tool at runtime."),
+        "WEEKLY-REVIEW.md": (
+            "a human checklist. Documentation, not runtime input."),
+    }
+
+    #: name -> why it must reach an installed user. Empty today, on purpose:
+    #: no shipping tool reads a non-.py file at runtime. The test below is
+    #: what makes adding an entry here mean something.
+    SHIPPING_ASSETS = {}
+
+    def _non_module_assets(self):
+        return set(f for f in os.listdir(HERE)
+                   if os.path.isfile(os.path.join(HERE, f))
+                   and not f.endswith(".py") and not f.startswith("."))
+
+    def test_every_non_module_asset_in_tools_carries_a_shipping_decision(self):
+        classified = set(self.REPO_ONLY_ASSETS) | set(self.SHIPPING_ASSETS)
+        found = self._non_module_assets()
+        self.assertEqual(
+            set(), found - classified,
+            "these non-.py files live in tools/ and nothing decides whether "
+            "an installed user gets them; py-modules cannot see them and "
+            "include-package-data = false drops them silently. Add each to "
+            "REPO_ONLY_ASSETS (with the reason it stays behind) or to "
+            "SHIPPING_ASSETS (and carry it in the packaging): %s"
+            % sorted(found - classified))
+        self.assertEqual(
+            set(), classified - found,
+            "these files are classified here but no longer exist in tools/, "
+            "so the classification is stale: %s" % sorted(classified - found))
+
+    def test_no_asset_is_classified_both_ways(self):
+        both = set(self.REPO_ONLY_ASSETS) & set(self.SHIPPING_ASSETS)
+        self.assertEqual(set(), both,
+                         "classified as both repo-only and shipping: %s"
+                         % sorted(both))
+
+    def test_assets_declared_shipping_are_actually_carried_by_the_packaging(self):
+        """Declaring an asset shipping is not the same as shipping it. With
+        flat py-modules there is no package directory to attach data to, so
+        carrying one takes an explicit construct (a data-files or
+        package-data table, or a MANIFEST.in). This test refuses the state
+        where the table says an asset ships and the build drops it."""
+        manifest_in = os.path.join(self.ROOT, "MANIFEST.in")
+        carried = self._text()
+        if os.path.isfile(manifest_in):
+            carried += _read(manifest_in)
+        for name in sorted(self.SHIPPING_ASSETS):
+            self.assertIn(
+                name, carried,
+                "%s is declared shipping but neither pyproject.toml nor "
+                "MANIFEST.in mentions it, so the wheel and sdist will not "
+                "contain it" % name)
+
     def test_every_console_script_target_is_callable_with_no_arguments(self):
         """A packaging entry point is invoked as target(), with no argv.
         bm_learn.main and bm_runtimes.main take a required argv, so pointing
