@@ -5481,6 +5481,42 @@ class TestLearningApi(unittest.TestCase):
                                  [r["rule_uuid"] for r in zero["results"]])
                 self.assertEqual([r["rank"] for r in zero["results"]], [1])
 
+    def test_calibrated_gates_do_not_make_the_limit_unbounded(self):
+        """LOOP P18-fix. The gate carve-out above was written with a single
+        gate in the store, so nothing saw what it did with many. Reproduced by
+        hand on 68eb4d8: twelve approved gates, then `bm_learn.py relevant
+        --query "what colour is the breathing orb" --limit 1 --json` returned
+        TWELVE results, ranks 1 to 12, every one at relevance 0.0, and
+        --record-applications wrote twelve application rows marked shown. The
+        limit had no upper bound at all once gates existed, which is the
+        unbounded injection this tool claims to prevent.
+
+        Gates are still carried past the limit. The carry is capped, and any
+        gate the cap cuts is counted in gates_omitted so it is never silent."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                for i in range(12):
+                    store.approve_learning_candidate(
+                        self._cap(store, trigger="topic%d alpha" % i,
+                                  action="do thing %d" % i,
+                                  because="reason %d" % i)["candidate_uuid"],
+                        founder_ref="yes", severity="gate")
+                res = store.retrieve_learning_rules(
+                    "what colour is the breathing orb", limit=1)
+                cap = bs.Store._GATE_CARRY_CAP
+                self.assertEqual(len(res["results"]), 1 + cap,
+                                 "a limit of 1 with 12 gates returned %d rules"
+                                 % len(res["results"]))
+                self.assertEqual(res["gates_carried"], cap)
+                self.assertEqual(res["gates_omitted"], 12 - 1 - cap)
+                self.assertEqual(res["omitted"], 12 - 1 - cap)
+                # At a generous limit nothing is hidden and nothing claims to
+                # have been: the cap only ever binds the CARRY.
+                whole = store.retrieve_learning_rules(
+                    "what colour is the breathing orb", limit=50)
+                self.assertEqual(len(whole["results"]), 12)
+                self.assertEqual(whole["gates_omitted"], 0)
+
     def test_uuid_prefix_ambiguity_is_refused_not_guessed(self):
         with tempfile.TemporaryDirectory() as d:
             with bs.Store(d) as store:

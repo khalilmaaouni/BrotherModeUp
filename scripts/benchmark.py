@@ -26,11 +26,15 @@ HONESTY RULES THIS FILE FOLLOWS
     SKIP is never counted as a PASS, and any SKIP makes the summary say so.
   - Observed output is quoted from the command, never paraphrased.
   - The exit code is 0 only when every scenario passed.
+  - Zero scenarios run is never an exit 0. An unknown option or a scenario
+    number outside 1 to 13 is refused with exit 2 rather than quietly running
+    nothing and reporting a green.
 
 USAGE
   python3 scripts/benchmark.py            run all thirteen
   python3 scripts/benchmark.py 3 7        run only scenarios 3 and 7
   python3 scripts/benchmark.py --quiet    verdict lines only
+  exit codes: 0 all passed, 1 a failure or a skip, 2 bad arguments
 
 Python 3.9, standard library only. It is under scripts/ and not under tools/
 precisely because it uses subprocess: the shipping tools may not, and this
@@ -534,8 +538,28 @@ SCENARIOS = [
 
 
 def main(argv):
+    # EVERY ARGUMENT IS VALIDATED, BECAUSE THE ALTERNATIVE IS AN UNEARNED
+    # GREEN. A selector was previously read as `int(a) for a in argv if
+    # a.isdigit()` with no check against the scenario count, and anything
+    # non-numeric was silently discarded. `benchmark.py 99` then ran nothing,
+    # printed "0 passed, 0 failed, 0 skipped, of 0 run" and exited 0, so a CI
+    # step or a reviewer wiring `benchmark.py $N` got a passing exit code as
+    # proof that scenario N passed. A mistyped flag such as `--quite` was
+    # dropped just as quietly. Both now refuse with exit 2.
     quiet = "--quiet" in argv
-    wanted = [int(a) for a in argv if a.isdigit()]
+    bad_flags = [a for a in argv if a.startswith("-") and a != "--quiet"]
+    selectors = [a for a in argv if not a.startswith("-")]
+    bad_selectors = [a for a in selectors
+                     if not a.isdigit() or not 1 <= int(a) <= len(SCENARIOS)]
+    if bad_flags or bad_selectors:
+        for a in bad_flags:
+            print("benchmark: unknown option %r. The only option is --quiet." % a)
+        for a in bad_selectors:
+            print("benchmark: %r is not a scenario number. Scenarios are 1 to %d."
+                  % (a, len(SCENARIOS)))
+        print("usage: benchmark.py [--quiet] [scenario-number ...]")
+        return 2
+    wanted = [int(a) for a in selectors]
     results = []
     print("BrotherMode public benchmark, %d scenarios" % len(SCENARIOS))
     print("repository: %s" % ROOT)
@@ -589,6 +613,12 @@ def main(argv):
           % (len(passed), len(failed), len(skipped), len(results)))
     if skipped:
         print("A skipped scenario is NOT a pass. Reasons are printed above it.")
+    if not results:
+        # Belt and braces behind the argument check above. Zero scenarios run
+        # is zero evidence, and evidence is the only thing an exit 0 here is
+        # allowed to mean.
+        print("NOTHING RAN. Zero scenarios is not a pass.")
+        return 2
     return 1 if failed or skipped else 0
 
 

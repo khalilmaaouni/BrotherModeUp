@@ -225,7 +225,8 @@ def cmd_candidates(argv):
             _out("     source: %d chars captured, %d redactions (--show-source to read)"
                  % (len(c["raw_text"]), c["redaction_count"]))
     _out("")
-    _out("%d candidate(s). Approve with: bm_learn.py approve <id> --because \"...\"" % len(rows))
+    _out("%d candidate(s). Approve with: bm_learn.py approve <id> "
+         "--ref \"why you approved\"" % len(rows))
     return 0
 
 
@@ -267,11 +268,21 @@ def cmd_approve(argv):
     if not pos:
         _err("usage: approve <candidate-id> [--trigger ...] [--action ...] "
              "[--because ...] [--scope global|project|domain|artifact|relationship|tool] "
-             "[--scope-key ...] [--gate] [--ref \"why you approved\"]")
+             "[--scope-key ...] [--gate] --ref \"why you approved\" (required)")
         return 2
-    # The invocation itself IS the founder act. Recording it as the default
-    # reference keeps approval attributable without inventing an identity.
-    ref = kv.get("ref") or ("bm_learn.py approve, run by the founder at %s" % bs.now_iso())
+    # THE REFERENCE IS THE FOUNDER'S, NOT THE TOOL'S. This once defaulted to
+    # "bm_learn.py approve, run by the founder at <timestamp>", which satisfied
+    # the store's "refuses without a founder reference" guard with a string the
+    # machine wrote about itself. The public claim is that a rule exists only
+    # once you approved it with a reason recorded; a generated timestamp is not
+    # a reason, and a guard a tool can satisfy on its own behalf is not a
+    # guard. Approval now refuses without --ref rather than inventing one.
+    ref = (kv.get("ref") or "").strip()
+    if not ref:
+        _err("bm_learn: approve needs --ref \"why you approved this\". The "
+             "reference is your evidence, in your words, and this tool will "
+             "not write one for you.")
+        return 2
     store = _store()
     try:
         rule = store.approve_learning_candidate(
@@ -409,6 +420,17 @@ def cmd_relevant(argv):
              "--how superseded|contradicted|deprecated --because \"...\"")
     _out("")
     _out("Constitution overrides learned rules. %d omitted." % res["omitted"])
+    if res.get("gates_carried"):
+        # Said out loud because a result that is longer than the limit asked
+        # for looks like a bug until you know why it happened.
+        _out("%d gate(s) shown past your limit of %d, because a limit may not "
+             "silence a safety rule." % (res["gates_carried"], limit))
+    if res.get("gates_omitted"):
+        # The cap is a bound on injection, not a licence to hide gates. If it
+        # cut any, the founder is told, with the command that shows them.
+        _out("WARNING: %d further gate(s) were NOT shown. At most %d gates are "
+             "carried past a limit. Re-run with --limit %d to see them all."
+             % (res["gates_omitted"], res["gate_carry_cap"], res["eligible"]))
     if "recorded" in res:
         _out("")
         _out("recorded %d application(s), %d already recorded for this task "
