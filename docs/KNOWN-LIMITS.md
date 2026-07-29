@@ -5,6 +5,33 @@ file exists because an unstated gap is a failure even when it is small, and beca
 the single most useful thing a handover can contain is the list of things the last
 person was not sure about.
 
+## P7: what the optional search index does NOT do
+
+- IT IS ENGLISH STEMMING. The tokenizer is `porter unicode61`. unicode61 folds
+  case and accents, so French and Japanese text is stored and searchable, but
+  porter stems ENGLISH only: "pousser" and "poussé" do not stem together, and
+  Japanese has no word boundaries for it to find, so a Japanese query matches on
+  whole runs of text or not at all. The fast path is therefore a real gain in
+  English and roughly neutral elsewhere. Nothing in the output claims otherwise.
+- IT IS NOT SEMANTIC. BM25 is term frequency arithmetic. There are no
+  embeddings, and a task that shares no words with a rule still finds nothing
+  unless the rule is a gate. That is a deliberate limit of this loop.
+- DRIFT IS ONLY CHECKED WHEN THE INDEX IS ON. With `BROTHERMODE_FTS5` unset,
+  `verify` says so in its note and compares nothing. A stale index left behind
+  by a previous session cannot reach retrieval while it is off (retrieval is
+  lexical), so this is a reporting limit rather than a correctness one, and the
+  first run with the index back on reports the drift.
+- THE INDEX IS NOT REBUILT AUTOMATICALLY ON OPEN. It is built and filled the
+  first time a store is opened with the fast path on, and maintained inside the
+  same transaction as every approval and edit after that. Anything that damages
+  it from outside is reported by `verify` and repaired by `rebuild-index`, not
+  silently healed.
+- FORGOTTEN RULES STAY INDEXED. The index mirrors the current version of every
+  rule row, including forgotten ones, exactly as `learning_rule_versions` does.
+  They can never be retrieved (the state filter runs before ranking), so this
+  costs index size, not privacy: the same text is in the versions table either
+  way. Un-indexing them is not done.
+
 ## P6: what the retrieval run still cannot tell you
 
 The run row makes the denominator a stored fact, and these things are still out

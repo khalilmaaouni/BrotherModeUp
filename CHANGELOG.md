@@ -1,5 +1,51 @@
 # Changelog
 
+## 2026-07-29 (no version bump): an optional FTS5 fast path, with the lexical path untouched behind it
+
+Loop P7. The headline is not the index, it is what happens without it: retrieval
+stays lexical by default, and every claim the tool makes about how it ranked is
+now checkable against the mode it actually used.
+
+- THE INDEX IS OFF UNTIL YOU ASK. `BROTHERMODE_FTS5=1` turns the fast path on,
+  `BROTHERMODE_NO_FTS5=1` forces it back off and wins over the first. Nothing
+  else changes: with no environment set, a store has no index table, retrieval
+  reports `mode=lexical`, and the ranking is byte for byte the order it produced
+  before this loop (there is a test that rebuilds the old sort key by hand and
+  compares).
+- IT IS NOT PART OF THE SCHEMA. No schema version bump, no new required table,
+  no migration. A SQLite build with no FTS5 module opens, writes, verifies and
+  retrieves exactly as before. Deleting the index by hand costs you speed and
+  nothing else.
+- WHAT IT BUYS. English stemming: a rule written about "pushing" is now found by
+  a task that says "pushed", which the exact-token floor was throwing away.
+  Measured on the real CLI against a throwaway store, both ways round: lexical
+  returns nothing for that query, fts5 returns the rule.
+- RANKING NAMES ITS PARTS. Gates first (structural, unchanged), then scope
+  specificity, then rule state, then BM25, then exact lexical overlap, then a
+  stable uuid tie break. Every result carries `mode`, `bm25` and
+  `lexical_bonus` beside the terms it matched, and the screen prints bm25 ONLY
+  when a real index answered.
+- THE INDEX HOLDS ONLY WHAT WAS ALREADY BEING SHOWN. Trigger, action, because,
+  domain and scope key of the CURRENT rule version. Raw founder corrections,
+  evidence excerpts and rejected candidate text are never indexed, and a test
+  reads the index back and fails if a marker from the founder's own words
+  appears in it.
+- DRIFT IS CHECKED FOR REAL. `bm_learn.py verify` used to print a note saying
+  there was no index to drift from. It now compares the index against the rules
+  and reports four disagreements: a rule with no row, a row with no rule, a row
+  pinned to an old version, and text that does not match the version it names.
+  Each shape is fed back in as a deliberate corruption in the suite and must be
+  caught, then repaired.
+- `bm_learn.py rebuild-index` rebuilds into a separate table and swaps it in
+  inside one transaction, so a reader sees the whole old index or the whole new
+  one. `bm_learn.py index-status` says what mode you are in and why.
+- FAILURE DIRECTION IS ALWAYS LEXICAL. A broken or missing index switches the
+  fast path off mid-session and the run reports `mode=lexical` from that moment;
+  it never refuses a retrieval and it never costs you a gate. A hostile query
+  (`NEAR/2`, `*`, `^`, column filters) is quoted token by token before it
+  reaches FTS5, and the one query that could still raise owns its own except so
+  a founder's punctuation can never quarantine a healthy store.
+
 ## 2026-07-29 (no version bump): a retrieval miss is now graded against the run that ran
 
 Fix round P6, on top of Loop P6 (d3c24a3). The run row landed and the miss
