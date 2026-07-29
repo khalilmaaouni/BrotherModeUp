@@ -716,6 +716,76 @@ class DoctorCase(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("UNGATED", r.stdout)
 
+    def test_a_matcher_that_omits_only_edit_is_detected(self):
+        """Regression, fix-round 2026-07-29. The coverage test used to be
+        `tool not in matcher`, a SUBSTRING check, and 'Edit' is a substring of
+        both 'MultiEdit' and 'NotebookEdit'. So this exact matcher, which
+        leaves the primary write tool ungated, printed OK and exited 0. The
+        older ungated test above passes either way, which is why it did not
+        catch this: it drops names that are not substrings of the others."""
+        self.write_settings(self.wired(matcher="Write|MultiEdit|NotebookEdit"))
+        r = self.run_doctor()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("does not cover Edit", r.stdout)
+
+    def test_a_matcher_that_is_not_a_valid_regex_is_detected(self):
+        self.write_settings(self.wired(matcher="Edit|Write|(("))
+        r = self.run_doctor()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("not a valid regular expression", r.stdout)
+
+    def test_calibrated_4_a_hook_that_gates_only_edit_is_detected(self):
+        """Regression, fix-round 2026-07-29. The simulation only ever sent
+        tool_name 'Edit', so a hook whose WRITE_TOOLS set had lost Write,
+        MultiEdit and NotebookEdit passed and reported the fence healthy while
+        three of the four supported write tools went straight through."""
+        with io.open(self.fence, encoding="utf-8") as fh:
+            src = fh.read()
+        cut = src.index("WRITE_TOOLS = frozenset((")
+        end = src.index("))", cut) + 2
+        with io.open(self.fence, "w", encoding="utf-8") as fh:
+            fh.write(src[:cut] + 'WRITE_TOOLS = frozenset(("Edit",))'
+                     + src[end:])
+        self.write_settings(self.wired())
+        r = self.run_doctor()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        for tool in ("Write", "MultiEdit", "NotebookEdit"):
+            self.assertIn("SIMULATION FAILED for %s" % tool, r.stdout)
+
+        # Restore: the same install passes again, so the failure above was the
+        # injected defect and not the harness.
+        with io.open(self.fence, "w", encoding="utf-8") as fh:
+            fh.write(src)
+        self.assertEqual(self.run_doctor().returncode, 0)
+
+    def test_calibrated_5_a_hook_that_bricks_by_exit_code_is_detected(self):
+        """Regression, fix-round 2026-07-29. The owner half read stdout only.
+        Claude Code's PreToolUse contract BLOCKS a call on exit code 2 with
+        stderr, not only on deny JSON, so a hook that denied a foreign write
+        correctly and exited 2 on every allowed write blocked the owner from
+        their own claimed file while doctor printed OK and exited 0."""
+        with io.open(self.fence, encoding="utf-8") as fh:
+            src = fh.read()
+        marker = ("    if decision is not None:\n"
+                  "        _out(json.dumps(decision))\n"
+                  "    return 0")
+        self.assertIn(marker, src)
+        with io.open(self.fence, "w", encoding="utf-8") as fh:
+            fh.write(src.replace(marker,
+                                 "    if decision is not None:\n"
+                                 "        _out(json.dumps(decision))\n"
+                                 "        return 0\n"
+                                 "    return 2"))
+        self.write_settings(self.wired())
+        r = self.run_doctor()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("the hook exited 2", r.stdout)
+
+        # Restore.
+        with io.open(self.fence, "w", encoding="utf-8") as fh:
+            fh.write(src)
+        self.assertEqual(self.run_doctor().returncode, 0)
+
     def test_calibrated_3_a_hook_that_never_denies_is_detected(self):
         """The failure this whole command exists for: the fence is present,
         executable, exits 0 on every payload, and refuses nothing. The
@@ -899,6 +969,76 @@ class ShellWrapperCase(unittest.TestCase):
         r = self.shell("--path", "src/mine.txt", "echo x > src/mine.txt")
         self.assertEqual(r.returncode, 2)
         self.assertEqual(self.content("mine.txt"), "original\n")
+
+    def test_a_declared_path_outside_the_project_root_is_refused(self):
+        """Regression, fix-round 2026-07-29. canonical_target returns None for
+        anything outside the root, decide() skips it with no decision and no
+        note, and the wrapper read that silence as approval: it printed '1
+        declared path(s) are inside this session's own claim. Running.' for a
+        path that was in no claim and not even in the project."""
+        self.claim("mine", "src/mine.txt", self.OWNER)
+        elsewhere = os.path.realpath(tempfile.mkdtemp(prefix="bm-outside-"))
+        try:
+            outside = os.path.join(elsewhere, "outside-the-root.txt")
+            r = self.shell("--session-id", self.OWNER, "--path", outside,
+                           "--", "echo pwned > %s" % outside)
+            self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+            self.assertIn("OUTSIDE this project root", r.stderr)
+            self.assertNotIn("inside this session's own claim", r.stderr)
+            self.assertFalse(os.path.exists(outside))
+        finally:
+            shutil.rmtree(elsewhere, ignore_errors=True)
+
+    def test_a_relative_escape_above_the_root_is_refused_too(self):
+        self.claim("mine", "src/mine.txt", self.OWNER)
+        # The escape target is named after THIS root, because the directory
+        # above a mkdtemp root is the shared system temp directory: a fixed
+        # name there is asserted against whatever any other run left behind.
+        rel = "../escape-%s.txt" % os.path.basename(self.root)
+        landed = os.path.join(os.path.dirname(self.root),
+                              os.path.basename(rel))
+        self.addCleanup(lambda: os.path.exists(landed) and os.remove(landed))
+        r = self.shell("--session-id", self.OWNER, "--path", rel,
+                       "--", "echo esc > %s" % rel)
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        self.assertIn("OUTSIDE this project root", r.stderr)
+        self.assertFalse(os.path.exists(landed))
+
+    def test_allow_outside_root_runs_but_calls_those_paths_not_checked(self):
+        """The escape hatch has to stay honest: it runs, and it says the fence
+        judged nothing, rather than reporting an unchecked path as claimed."""
+        self.claim("mine", "src/mine.txt", self.OWNER)
+        elsewhere = os.path.realpath(tempfile.mkdtemp(prefix="bm-outside-"))
+        try:
+            outside = os.path.join(elsewhere, "outside-allowed.txt")
+            r = self.shell("--session-id", self.OWNER, "--allow-outside-root",
+                           "--path", outside, "--", "echo ok > %s" % outside)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("NOT CHECKED", r.stderr)
+            self.assertTrue(os.path.exists(outside))
+        finally:
+            shutil.rmtree(elsewhere, ignore_errors=True)
+
+    def test_declare_none_on_a_descriptor_qualified_redirect_is_refused(self):
+        """Regression, fix-round 2026-07-29. The redirection pattern excluded
+        a preceding DIGIT, which is exactly the '1>' and '2>>' forms, so this
+        command ran under --declare-none while the same command with a bare
+        '>' was refused. That is a miss inside the coverage the signal list
+        claims, not one of the accepted misses outside it."""
+        for command in ("echo bypassed 1> src/mine.txt",
+                        "echo bypassed 2>> src/mine.txt"):
+            r = self.shell("--declare-none", "--", command)
+            self.assertEqual(r.returncode, 4, command + r.stderr)
+            self.assertIn("output redirection", r.stderr)
+            self.assertEqual(self.content("mine.txt"), "original\n")
+
+    def test_descriptor_duplication_alone_is_not_called_a_write(self):
+        """Restore half of the pair above: '2>&1' redirects one descriptor
+        onto another and writes no file, so widening the pattern must not
+        start refusing it."""
+        r = self.shell("--declare-none", "--", "echo hello 2>&1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("hello", r.stdout)
 
     def test_the_wrapper_does_not_claim_to_understand_shell(self):
         """Honesty check on the copy itself. The signal list is short and the
