@@ -2808,7 +2808,7 @@ class Store(object):
 
     def capture_outcome_candidate(self, source_type, record_prefix, artifact_ref="",
                                   summary="", session_id="", scope_key=None,
-                                  detail=""):
+                                  detail="", reuse_duplicate=False):
         """Capture channel 3: a candidate derived from an OUTCOME rather than
         from something the founder typed.
 
@@ -2851,15 +2851,6 @@ class Store(object):
         clean_raw = redact_text(summary or "")
         cuuid = uuid.uuid4().hex
         chash = L.content_hash(source_type, rec["lifecycle_uuid"], artifact, clean_raw)
-        prior = _exec(self, "SELECT candidate_uuid FROM learning_candidates "
-                            "WHERE content_hash=? AND source_type=? ORDER BY created_at "
-                            "LIMIT 1", (chash, source_type)).fetchall()
-        note = ""
-        if prior:
-            # Repeated rework on the same artifact is MORE evidence, not less,
-            # so it is recorded and linked rather than dropped.
-            note = ("possible duplicate of candidate %s, same outcome on the same "
-                    "artifact" % prior[0]["candidate_uuid"][:8])
         ref = "%s record=%s artifact=%s" % (source_type, rec["lifecycle_uuid"][:8], artifact)
         # `detail` carries a caller-supplied classifier (Loop 8 passes the
         # escaped defect's class). It joins the reference rather than the raw
@@ -2869,6 +2860,38 @@ class Store(object):
         detail = L.normalize_text(detail or "")
         if detail:
             ref = "%s %s" % (ref, detail)
+        prior = _exec(self, "SELECT candidate_uuid FROM learning_candidates "
+                            "WHERE content_hash=? AND source_type=? ORDER BY created_at "
+                            "LIMIT 1", (chash, source_type)).fetchall()
+        note = ""
+        if prior:
+            # Repeated rework on the same artifact is MORE evidence, not less,
+            # so it is recorded and linked rather than dropped.
+            note = ("possible duplicate of candidate %s, same outcome on the same "
+                    "artifact" % prior[0]["candidate_uuid"][:8])
+        if reuse_duplicate:
+            # The grading caller (record_outcome_event) asks for this, and only
+            # it does. A graded outcome event reported twice is ONE event: the
+            # command re-run by hand, the hook that fired twice. Minting a
+            # second candidate there made the weekly review's counts grow with
+            # keystrokes, which is precisely the storage-growth-mistaken-for-
+            # learning failure this loop exists to detect.
+            #
+            # Identity is the content hash (source type, record, artifact and
+            # the founder's own summary) plus the full reference, so a defect
+            # class that differs is a different event. A genuinely second
+            # rework says so in its own words and gets its own candidate. Only
+            # a PENDING candidate is reused: one already reviewed is a closed
+            # decision, and a new event after it deserves its own review.
+            same = _exec(self,
+                "SELECT candidate_uuid FROM learning_candidates "
+                "WHERE content_hash=? AND source_type=? AND source_ref=? "
+                "AND status='pending' ORDER BY created_at LIMIT 1",
+                (chash, source_type, ref[:500])).fetchall()
+            if same:
+                out = self.get_learning_candidate(same[0]["candidate_uuid"])
+                out["reused_existing"] = True
+                return out
         with self._transaction():
             _exec(self,
                   "INSERT INTO learning_candidates (candidate_uuid, source_type, "
@@ -2880,7 +2903,9 @@ class Store(object):
                    rec["lifecycle_uuid"], ref[:500], clean_raw,
                    L.normalize_text(scope_key or os.path.basename(self.root)),
                    chash, clean_raw.count("[REDACTED]"), now_iso(), note[:500]))
-        return self.get_learning_candidate(cuuid)
+        out = self.get_learning_candidate(cuuid)
+        out["reused_existing"] = False
+        return out
 
     def learning_capture_metrics(self):
         """DESCRIPTIVE counts only, and named that way on purpose.
@@ -4040,15 +4065,30 @@ class Store(object):
     def _applications_for_work(self, rule_uuid, record_uuid, session_id):
         """The applications of one rule inside one piece of work.
 
-        Matched by work record OR by session, not by both, because the two
-        links arrive at different times: an application recorded before the
-        record was claimed carries only the session. Requiring both would
-        report a retrieval miss for work that demonstrably did retrieve the
-        rule, which is the one error this whole loop must not make."""
+        The record link WINS whenever the outcome names a record. Session is a
+        backstop and only a backstop, for the one case that produced it: an
+        application recorded before the record was claimed carries a session
+        and no record. Requiring both links would report a retrieval miss for
+        work that demonstrably did retrieve the rule.
+
+        Unioning the two, which is what this did until an adversarial pass
+        drove two records through one session, is the opposite error and the
+        worse one. A session holds many pieces of work. An outcome on record A
+        would then grade every rule applied to record B as well, and a rule
+        obeyed correctly in unrelated work came back as a bad_rule the founder
+        was told to go and edit. An application that names a DIFFERENT record
+        is not in this work, whatever session it shares.
+
+        With no record on the outcome, session is all there is and the match
+        degrades to it: that is honest, because nothing narrower exists."""
         out = []
         for a in self.list_learning_applications(rule_prefix=rule_uuid):
-            if record_uuid and a["record_uuid"] == record_uuid:
-                out.append(a)
+            if record_uuid:
+                if a["record_uuid"] == record_uuid:
+                    out.append(a)
+                elif (session_id and not a["record_uuid"]
+                      and a["session_id"] == session_id):
+                    out.append(a)
             elif session_id and a["session_id"] == session_id:
                 out.append(a)
         return out
@@ -4112,7 +4152,14 @@ class Store(object):
 
         When nothing is linked, the result says so in `notes` and the counts
         stay at zero. It does not estimate, and it does not quietly imply the
-        rules were fine."""
+        rules were fine.
+
+        IDEMPOTENT for an identical event. Running the same command twice
+        reuses the pending candidate the first run created and re-states the
+        same evidence rows rather than adding more, so the weekly review
+        counts events and not keystrokes. A second, genuinely different rework
+        on the same artifact is described in different words and gets its own
+        candidate."""
         L = _learning()
         if kind not in self.OUTCOME_SOURCE_TYPES:
             raise OwnershipRefused(
@@ -4124,24 +4171,36 @@ class Store(object):
             detail = "defect_class=%s" % L.normalize_text(defect_class)
         cand = self.capture_outcome_candidate(
             kind, record_prefix, artifact_ref=artifact_ref, summary=summary,
-            session_id=session_id, detail=detail)
+            session_id=session_id, detail=detail, reuse_duplicate=True)
         apps = []
         for a in self.list_learning_applications(
                 record_prefix=cand["source_record_uuid"]):
             apps.append(a)
         seen = set(a["application_uuid"] for a in apps)
+        # Session is the backstop for applications that have no record link
+        # yet, and ONLY for those. An application naming a different record
+        # belongs to different work, and grading it here would blame a rule
+        # for an outcome it was never in. Same rule as _applications_for_work,
+        # deliberately: the two must not be able to disagree about what "this
+        # work" means.
         if cand["source_session_id"]:
             for a in self.list_learning_applications(
                     session_id=cand["source_session_id"]):
-                if a["application_uuid"] not in seen:
-                    apps.append(a)
-                    seen.add(a["application_uuid"])
+                if a["application_uuid"] in seen or a["record_uuid"]:
+                    continue
+                apps.append(a)
+                seen.add(a["application_uuid"])
         ts = now_iso()
         graded = []
         with self._transaction():
             for a in sorted(apps, key=lambda x: x["application_uuid"]):
                 graded.append(self._grade_outcome_link(cand, a, kind, ts, kind))
         notes = []
+        if cand.get("reused_existing"):
+            notes.append(
+                "this is the same outcome already recorded as candidate %s, so "
+                "it stays one event and no second candidate was written"
+                % cand["candidate_uuid"][:8])
         if not graded:
             notes.append(
                 "no rule application was recorded for that work, so no rule can "
@@ -4348,6 +4407,8 @@ class Store(object):
                 "source_type": cand["source_type"],
                 "rule_uuid": rule["rule_uuid"], "rule_state": rule["state"],
                 "settled": rule["state"] in self.REPEAT_GRADED_STATES,
+                "is_correction":
+                    cand["source_type"] not in self.OUTCOME_SOURCE_TYPES,
                 "classification": cls, "classification_reason": why,
                 "polarity": polarity, "at": p["at"]})
         never, always_irrelevant = [], []
@@ -4395,7 +4456,16 @@ class Store(object):
             "applications_in_window": len(apps),
             "counts": counts,
             "repeated_corrections": repeats,
-            "repeated_settled_corrections": [r for r in repeats if r["settled"]],
+            # A CORRECTION repeated is the founder giving the same instruction
+            # twice, and that is what the weekly review's line by that name
+            # promises him. Rework and escaped defects are outcomes, not
+            # instructions: nobody restated anything, so they are graded under
+            # their own line below and never counted as the founder repeating
+            # himself. Folding them in told him he had said a thing N times
+            # when he had said it once.
+            "repeated_settled_corrections": [r for r in repeats
+                                             if r["settled"] and r["is_correction"]],
+            "outcome_gradings": [r for r in repeats if not r["is_correction"]],
             "retrieval_misses": misses,
             "compliance_failures": by_class.get("compliance_failure", []),
             "bad_rule_candidates": by_class.get("bad_rule", []),
@@ -4440,6 +4510,8 @@ class Store(object):
                 work, bool(cand["source_record_uuid"] or cand["source_session_id"]))
             repeats.append({"candidate_uuid": cand["candidate_uuid"],
                             "source_type": cand["source_type"],
+                            "is_correction":
+                                cand["source_type"] not in self.OUTCOME_SOURCE_TYPES,
                             "classification": cls, "classification_reason": why,
                             "polarity": pol})
         graded = []

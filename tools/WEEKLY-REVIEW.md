@@ -39,7 +39,10 @@
    - unresolved contradictions, rules never retrieved, and rules retrieved but
      always marked not relevant: dead or fighting rules, deprecate or narrow.
    - rework and escaped defects linked to rules, with unattributed outcomes
-     listed SEPARATELY and never folded into a rule's record.
+     listed SEPARATELY and never folded into a rule's record. These are
+     outcomes, not instructions: they grade a rule and they never count under
+     repeated settled corrections, because you did not say anything twice.
+     Running the same rework command twice is one event, not two.
    - NOT MEASURED lines: sample size or attribution is insufficient. Write "not
      measured" in the review. Never estimate a number the rows cannot support.
    For any rule you are about to edit, first run
