@@ -117,6 +117,17 @@ def validate_scope(scope_type, scope_key):
         return "unknown scope type %r (known: %s)" % (scope_type, ", ".join(SCOPE_TYPES))
     if scope_type != "global" and not normalize_text(scope_key):
         return "scope type %r requires a scope key; only 'global' may omit one" % scope_type
+    # LOOP 12. scope_key was the one displayed field that never met
+    # safe_display: it was concatenated raw into the rule line, into the why
+    # block of the injected RELEVANT FOUNDER RULES section, and into conflict
+    # output. An ESC sequence in a scope key cleared the founder's screen and
+    # repainted the neighbouring rule lines in the exact block a session is fed.
+    # Refused at the door, because a scope key names a project, a tool or a
+    # person and has no business carrying control codes.
+    if _CONTROL.search(scope_key or ""):
+        return ("scope key contains a control character; a scope key names a "
+                "project, domain, artifact, relationship or tool and must be "
+                "plain text")
     return None
 
 
@@ -195,11 +206,8 @@ def explain_rank(rule, query, context=None):
     matched = sorted(set(tokenize(query)) &
                      set(tokenize("%s %s" % (rule.get("trigger_text", ""),
                                              rule.get("action_text", "")))))
-    scope = rule["scope_type"]
-    if scope != "global":
-        scope = "%s:%s" % (scope, rule.get("scope_key", ""))
     return {
-        "scope": scope,
+        "scope": safe_scope(rule["scope_type"], rule.get("scope_key", "")),
         "state": rule["state"],
         "mode": RETRIEVAL_MODE,
         "matched_terms": matched,
@@ -237,6 +245,18 @@ def safe_display(text, limit=200):
     if len(flat) <= limit:
         return flat
     return flat[:limit - 3].rstrip() + "..."
+
+
+def safe_scope(scope_type, scope_key, limit=80):
+    """The displayable "type:key" scope string, control characters removed.
+
+    validate_scope now refuses a control character in a scope key, so nothing
+    new can carry one. This is the containment for rows ALREADY in a store,
+    which is the half a validation-only fix would have missed: the escape was
+    live on the model-facing retrieval surface, and old rows keep printing."""
+    if scope_type == "global":
+        return "global"
+    return "%s:%s" % (safe_display(scope_type, 40), safe_display(scope_key, limit))
 
 
 def task_fingerprint(text):

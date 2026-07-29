@@ -224,6 +224,31 @@ founder's sentence into the store today. Withholding raw_text and evidence
 excerpts from dump entirely lands with the writer in Loop 2, which is the first
 moment the gap becomes real.
 
+Status after Loop 12 (2026-07-29): the scrubber itself was broken in the way
+this entry did not suspect, and it is now fixed. Every vendor pattern was
+anchored with `\b`, and Python counts `_` as a word character, so any secret
+with a word character in front of it never matched: `OPENAI_KEY_sk-live_...`,
+`AWSKEY_AKIA...`, `GITHUB_ghp_...`, `nid_123-45-6789`. Those went to sqlite and
+to `corrections.jsonl` in cleartext while `redaction_count` recorded 0. The
+boundary is now "letters and digits bind, separators do not". Separately, the
+same pattern list was quadratic on long input and a 20 KB inbox row cost 75
+seconds of CPU; the key=value prefix is now bounded and 32 KB redacts in
+milliseconds.
+
+Also closed by Loop 12: the withholding claim in the entry above was true of
+`dump` and `show-candidate --json` but NOT of `candidates --json` or
+`why --json`, which printed `raw_text` and `learning_evidence.excerpt` in full
+with no flag. There is now ONE definition of the rule (`_withhold_source` in
+bm_learn.py) used by every JSON command. And the fields BESIDE `raw_text`
+(trigger, action, reason, domain, scope key, approval reference, override
+reason) are now scrubbed on the way in, at capture, at approval and at edit;
+previously only `raw_text` was.
+
+The PROSE gap this entry opened with is UNCHANGED and still OPEN for
+`records.evidence`, `records.objective`, `digests.body` and `transitions.note`.
+A scrubber that now matches its own documented token shapes is still not a
+redactor of ordinary sentences.
+
 ## 16. `bm_store.py claim --help` claims a record named `--help`. OPEN. Found 2026-07-28.
 
 Reproduced: `python3 tools/bm_store.py claim --help` prints
