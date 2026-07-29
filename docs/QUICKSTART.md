@@ -52,9 +52,59 @@ understood.
 
 This step makes the parts that must never be forgotten (telemetry, the
 pre-compaction safety snapshot) run automatically instead of depending on the
-model remembering to run them. Open `~/.claude/settings.json` (create it if it
-does not exist) and add this `hooks` block, merging it into any hooks you
-already have:
+model remembering to run them. One command does it:
+
+```bash
+python3 ~/.claude/skills/brothermode/scripts/install.py --dry-run
+python3 ~/.claude/skills/brothermode/scripts/install.py
+```
+
+Run the `--dry-run` first. It prints every change and writes nothing, so you
+see what is about to happen to your `settings.json` before it happens.
+
+Expected from the real run: a list of five hooks (`SessionStart`, `SessionEnd`,
+`Stop`, `PreCompact`, `PreToolUse`), a line naming the backup of your previous
+settings, and a closing line reading `smoke: the fence hook ran end to end and
+exited 0`. That last line is the point. The installer re-reads what it wrote
+and actually executes the one hook that can refuse a write, so "installed"
+means checked rather than attempted.
+
+Five, not the four an earlier version of this page listed: `PreToolUse` is the
+fence hook (`docs/HOOKS.md`), which was documented but was in no install
+instruction, so the fence shipped off unless you wired it yourself.
+
+What the installer will NOT do: overwrite an existing BrotherMode installation
+(it refuses and tells you to pass `--upgrade`), rewrite a `settings.json` that
+is not valid JSON (it refuses and points at the parse error rather than
+throwing away what you were editing), or remove a hook of your own. An entry
+counts as BrotherMode's only when every command in it names this
+installation's own `tools/bm_*` files.
+
+Check the result is valid JSON. The installer already did this and refuses to
+report success otherwise, but run it once yourself so you know the command:
+
+```bash
+python3 -m json.tool ~/.claude/settings.json
+```
+
+Expected: the file prints back, reformatted, with no error.
+
+To remove the wiring later:
+
+```bash
+python3 ~/.claude/skills/brothermode/scripts/uninstall.py
+```
+
+It removes only the entries it installed, leaves the files in place unless you
+pass `--remove-files`, and never touches your vault.
+
+### If you would rather wire it by hand
+
+The installer writes the equivalent of the block below, plus the `PreToolUse`
+fence entry from `docs/HOOKS.md`. Merge it into any hooks you already have. Use
+the absolute path to your checkout rather than `~`: the installer writes
+absolute, shell-quoted paths precisely because a home directory containing a
+space breaks the unquoted form.
 
 ```json
 {
@@ -75,17 +125,11 @@ already have:
 }
 ```
 
-That is four hooks, not three (an earlier version of this project's docs said
-three; see `docs/SETUP.md` for what each one actually costs you if it fails).
-Check the file is valid JSON before you trust it:
-
-```bash
-python3 -m json.tool ~/.claude/settings.json
-```
-
-Expected: the file prints back, reformatted, with no error. A `json.decoder.
-JSONDecodeError` means a comma or brace is wrong; fix it before starting
-Claude Code, or Claude Code will simply ignore the broken hooks block.
+A `json.decoder.JSONDecodeError` from the check above means a comma or brace is
+wrong; fix it before starting Claude Code, or Claude Code will simply ignore
+the broken hooks block and every hook is off with nothing saying so. That
+silent failure is the whole reason the installer exists. See `docs/SETUP.md`
+for what each hook actually costs you when it fails.
 
 ## 4. Point the vault somewhere
 
@@ -164,7 +208,7 @@ already running when you edited `settings.json` will not have it).
 
 ## What you have now
 
-The four hooks running automatically, a vault of your own, and one proof that
+The five hooks running automatically, a vault of your own, and one proof that
 the telemetry mechanism works end to end. What you do NOT yet have from this
 alone: a history (that takes real weeks of use), a felt-outcome rating trend,
 or a weekly review (`tools/WEEKLY-REVIEW.md`, run it once your first week of
