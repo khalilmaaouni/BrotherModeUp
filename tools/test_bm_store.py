@@ -10615,6 +10615,174 @@ class TestCriticalAlertsRefuseAnApproval(unittest.TestCase):
                         record_uuid="deadbeef", scope_type="project",
                         scope_key="demo")
 
+    # -- FIX ROUND, phase A. Three ways the teeth came out ----------------
+
+    def _second_gate(self, store, rec):
+        """A SECOND candidate on the same work record, so both gates would change
+        the file the alert is anchored to. Different rule text, or the duplicate
+        guard refuses before the alert guard is ever consulted."""
+        return store.capture_learning_candidate(
+            "manual", trigger="when editing the refund path",
+            action="ask for a second review first",
+            because="the last refund change was reverted", scope_type="project",
+            scope_key="demo", record_uuid=rec.lifecycle_uuid)
+
+    def test_an_override_at_one_gate_does_not_clear_the_alert_at_the_next(self):
+        """THE DEFECT THIS FIXES. The override is written on the NOTE ROW, and
+        blocking_alerts used to skip any overridden row, so one recorded founder
+        override at one gate permanently disarmed a still-unresolved critical
+        alert for every other gate in the project: the next approval saw no
+        alert, printed no stakes line about it, asked nobody, and closed clean
+        while `notes --open --severity critical` still listed it unanswered."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "api"))
+            with bs.Store(d) as store:
+                rec, cand = self._seed(store)
+                other = self._second_gate(store, rec)
+                note = self._alert(store)
+                reason = "Dana's concern is the retry path, this rule is tests"
+                token = self._mint(store, cand, alerts_override=reason)["token"]
+                store.approve_learning_candidate(
+                    cand["candidate_uuid"], founder_ref="he said ship it",
+                    receipt=token, trigger="when touching payments",
+                    action="always run the payment tests", scope_type="project",
+                    scope_key="demo", alerts_override=reason)
+                self.assertIsNotNone(
+                    store.get_note(note["note_uuid"])["overridden_at"],
+                    "the first override must still be recorded on the row")
+                still = store.blocking_alerts(other)
+                self.assertEqual(
+                    [a["note_uuid"] for a in still], [note["note_uuid"]],
+                    "an alert overridden at another gate is still unresolved, so "
+                    "it must still stand in front of this one")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.mint_approval_receipt(
+                        other["candidate_uuid"], founder_response="yes",
+                        trigger="when editing the refund path",
+                        action="ask for a second review first",
+                        scope_type="project", scope_key="demo")
+                self.assertEqual(ctx.exception.reason, "unresolved-critical-alert")
+                self.assertIn("overridden at an earlier gate", str(ctx.exception),
+                              "the refusal must explain why an alert the founder "
+                              "already overrode is back")
+
+    def test_calibrated_the_old_row_level_skip_disarms_the_second_gate(self):
+        """The reinjection that proves the test above is load bearing: put the
+        overridden_at skip back and the second gate mints clean."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "api"))
+            with bs.Store(d) as store:
+                rec, cand = self._seed(store)
+                other = self._second_gate(store, rec)
+                note = self._alert(store)
+                reason = "the retry path is not what this rule is about"
+                token = self._mint(store, cand, alerts_override=reason)["token"]
+                store.approve_learning_candidate(
+                    cand["candidate_uuid"], founder_ref="he said ship it",
+                    receipt=token, trigger="when touching payments",
+                    action="always run the payment tests", scope_type="project",
+                    scope_key="demo", alerts_override=reason)
+                original = bs.Store.blocking_alerts
+
+                def _row_level_skip(self, candidate):
+                    return [a for a in original(self, candidate)
+                            if a["overridden_at"] is None]
+
+                bs.Store.blocking_alerts = _row_level_skip
+                try:
+                    self.assertEqual(
+                        store.blocking_alerts(other), [],
+                        "the reinjected defect did NOT disarm the alert, so the "
+                        "test above proves nothing")
+                    minted = store.mint_approval_receipt(
+                        other["candidate_uuid"], founder_response="yes",
+                        trigger="when editing the refund path",
+                        action="ask for a second review first",
+                        scope_type="project", scope_key="demo")
+                    self.assertTrue(minted["token"])
+                finally:
+                    bs.Store.blocking_alerts = original
+                self.assertEqual(
+                    [a["note_uuid"] for a in store.blocking_alerts(other)],
+                    [note["note_uuid"]], "restored, the alert blocks again")
+
+    def test_an_anchor_that_names_nothing_is_refused_at_the_door(self):
+        """An alert anchored to a candidate id that names no candidate used to be
+        stored open, reported as 'this REFUSES an approval anchored here', and
+        refuse nothing forever: the author believed a gate was held and nothing
+        was held."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "api"))
+            with bs.Store(d) as store:
+                self._seed(store)
+                for atype, key in (("candidate", "deadbeefdeadbeef"),
+                                   ("rule", "deadbeefdeadbeef"),
+                                   ("record", "deadbeefdeadbeef")):
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        self._alert(store, anchor_type=atype, anchor_key=key)
+                    self.assertEqual(ctx.exception.reason, "anchor-not-found",
+                                     "%s anchor was accepted" % atype)
+                    self.assertIn("could never refuse anything", str(ctx.exception))
+                self.assertEqual(store.list_notes(), [],
+                                 "nothing may be written for a refused anchor")
+
+    def test_a_typed_prefix_is_resolved_and_blankets_nobody(self):
+        """The other half of the same defect: blocking_alerts matched with
+        cuuid.startswith(anchor_key), so a one-character anchor refused every
+        gate in the project. The prefix is now resolved at the door, exactly as
+        every other uuid prefix in this project is resolved: one match, or a
+        named refusal that says how many it matched."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "api"))
+            with bs.Store(d) as store:
+                rec, cand = self._seed(store)
+                other = self._second_gate(store, rec)
+                note = self._alert(store, anchor_type="candidate",
+                                   anchor_key=cand["candidate_uuid"][:8],
+                                   body="the scope is not settled")
+                self.assertEqual(note["anchor_key"], cand["candidate_uuid"],
+                                 "the anchor must be stored resolved, not as typed")
+                self.assertEqual([a["note_uuid"] for a in store.blocking_alerts(cand)],
+                                 [note["note_uuid"]])
+                self.assertEqual(
+                    store.blocking_alerts(other), [],
+                    "one candidate's alert must not blanket another gate")
+                # The blanket attempt itself: one character. Whichever way it
+                # lands, it may never end up standing in front of a gate nobody
+                # wrote about. Both branches are asserted because the uuids are
+                # random, so which one happens is not this test's business.
+                one_char = cand["candidate_uuid"][:1]
+                try:
+                    wide = self._alert(store, anchor_type="candidate",
+                                       anchor_key=one_char, body="blanket")
+                except bs.OwnershipRefused as e:
+                    self.assertEqual(e.reason, "ambiguous-anchor",
+                                     "a prefix naming several candidates must be "
+                                     "refused, not spread across them")
+                else:
+                    self.assertEqual(wide["anchor_key"], cand["candidate_uuid"])
+                    self.assertEqual(
+                        store.blocking_alerts(other), [],
+                        "a one-character anchor blanketed an unrelated gate")
+
+    def test_an_alert_on_the_work_record_refuses_that_records_gate(self):
+        """Spec 4.3 says an alert anchored to THE GATE refuses it. The gate's
+        identity in the store is the work record the candidate came from, so a
+        record anchor has teeth too; before this it silently had none."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "api"))
+            with bs.Store(d) as store:
+                rec, cand = self._seed(store)
+                note = self._alert(store, anchor_type="record",
+                                   anchor_key=rec.lifecycle_uuid[:8],
+                                   body="this whole record is on hold")
+                self.assertEqual(note["anchor_key"], rec.lifecycle_uuid)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    self._mint(store, cand)
+                self.assertEqual(ctx.exception.reason, "unresolved-critical-alert")
+                self.assertIn("work record %s" % rec.lifecycle_uuid[:8],
+                              str(ctx.exception))
+
 
 if __name__ == "__main__":
     # The leak check lives in the runner, so it applies to every test without
