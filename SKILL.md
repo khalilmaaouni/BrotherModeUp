@@ -57,12 +57,29 @@ retrieved GATE rule was not followed and why. A gate rule silently ignored is a
 compliance failure, and it is the failure this whole mechanism exists to make
 visible.
 
+Retrieval is also RECORDED when you pass `--record-applications` to `relevant`;
+close each recorded application with `disposition` and its outcome, so that "was
+the rule followed" stays answerable from rows rather than from memory. `classify`
+names a miss as a retrieval miss, a compliance failure, or a bad rule, and
+`should-retrieve` answers whether a task shape warranted retrieval at all.
+
 The constitution outranks every learned rule. A learned rule may narrow how you
 work; it may never weaken a gate in this file. Conflicts are surfaced to the
 founder, never resolved by preferring the newer rule.
 
 Nothing here approves anything. Only the founder promotes a candidate into a
-rule, by running `bm_learn.py approve` themselves.
+rule: by running `bm_learn.py approve` themselves, or by answering an approval
+question window, in which case the orchestrator runs the command and records the
+founder's exact answer as the approval reference. The decision is never the
+orchestrator's; a window the founder did not answer approves nothing.
+
+Founder decisions travel through the client's native question UI, never through
+walls of chat text: one window per decision, 2 to 4 options each with the
+recommended choice first and marked, batched up to four per round, ordered by
+importance so the highest-stakes call comes first. In Claude Code that UI is the
+AskUserQuestion windows. Chat text carries what the windows cannot: evidence,
+context, bad news. A long text list of questions to the founder is a
+correction-class failure.
 
 ## The safety floor, unconditional whenever any write will occur
 
