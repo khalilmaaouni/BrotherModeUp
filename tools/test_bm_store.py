@@ -6569,15 +6569,26 @@ class TestLoop7ApplicationLifecycle(unittest.TestCase):
                         store.record_learning_applications(
                             "writing an executive update", session_id="S1")
 
-    def test_an_unknown_work_record_is_refused_not_silently_dropped(self):
+    def test_an_unknown_work_record_is_refused_without_losing_the_rules(self):
+        """Refused loudly, and NOT over the top of the answer.
+
+        Resolving the prefix used to run before retrieval and outside the block
+        that absorbs write failures, so a mistyped id raised past the whole
+        call and the caller got no founder rules at all. Resolving --record is
+        part of the WRITE: it fails like one, in record_error, with the rules
+        intact and nothing written."""
         with tempfile.TemporaryDirectory() as d:
             with bs.Store(d) as store:
                 self._rule(store)
-                with self.assertRaises(bs.OwnershipRefused) as ctx:
-                    store.record_learning_applications(
-                        "writing an executive update", session_id="S1",
-                        record_prefix="deadbeef")
-                self.assertEqual(ctx.exception.reason, "not-found")
+                res = store.record_learning_applications(
+                    "writing an executive update", session_id="S1",
+                    record_prefix="deadbeef")
+                self.assertTrue(res["results"],
+                                "a bad --record swallowed the founder rules")
+                self.assertIn("no record matches 'deadbeef'",
+                              res["record_error"])
+                self.assertEqual(res["record_error_kind"], "not-found")
+                self.assertEqual((res["recorded"], res["linked"]), (0, 0))
                 self.assertEqual(self._count(store), 0)
 
     def test_a_late_work_record_is_attached_to_the_application_that_exists(self):
@@ -6617,9 +6628,16 @@ class TestLoop7ApplicationLifecycle(unittest.TestCase):
                 self.assertEqual(third["linked"], 0,
                                  "attaching the same link twice links nothing")
 
-    def test_an_application_is_never_moved_to_a_different_work_record(self):
-        """Completing a missing link is repair. Changing one is rewriting
-        history, so it is refused and the row is left exactly as it was."""
+    def test_a_second_work_record_gets_its_own_row_and_moves_nothing(self):
+        """TWO UNITS OF WORK, TWO ROWS. And the first link is never touched.
+
+        Completing a missing link is repair; changing one is rewriting history.
+        The old code enforced that half by REFUSING the second work record
+        outright, which protected row one and left the second unit of work with
+        no row at all: exit 3 forever, and nothing that could ever answer
+        "was this rule followed" for it. The key now includes the work record,
+        so the second unit gets a row of its own and the first row is not a
+        candidate for the update in the first place."""
         with tempfile.TemporaryDirectory() as d:
             with bs.Store(d) as store:
                 self._rule(store)
@@ -6634,13 +6652,46 @@ class TestLoop7ApplicationLifecycle(unittest.TestCase):
                 again = store.record_learning_applications(
                     "writing an executive update", session_id="S1",
                     record_prefix=other.lifecycle_uuid[:8])
-                self.assertIn("already belongs to work record",
-                              again["record_error"])
-                self.assertEqual(again["linked"], 0)
+                self.assertEqual(again["record_error"], "")
+                self.assertEqual((again["recorded"], again["linked"]), (1, 0))
+                self.assertEqual(self._count(store), 2)
                 self.assertEqual(
                     store.get_learning_application(app_id)["record_uuid"],
                     first.lifecycle_uuid,
-                    "a refused re-point must leave the original link intact")
+                    "the first work record's row must be left exactly as it was")
+                self.assertEqual(
+                    store.get_learning_application(
+                        again["applications"][0])["record_uuid"],
+                    other.lifecycle_uuid)
+                # And re-running for the second unit stays idempotent.
+                third = store.record_learning_applications(
+                    "writing an executive update", session_id="S1",
+                    record_prefix=other.lifecycle_uuid[:8])
+                self.assertEqual((third["recorded"], third["already_recorded"]),
+                                 (0, 1))
+                self.assertEqual(self._count(store), 2)
+
+    def test_apply_with_no_record_reports_the_work_record_it_matched(self):
+        """The ambiguity the fingerprint cannot resolve is DISCLOSED.
+
+        With no record supplied the key is the old four, so an existing row may
+        belong to a different unit of work worded the same way. The caller is
+        told which work record that row belongs to rather than handed a bare
+        already-recorded count that reads as success for the work in hand."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                rec = store.claim("report", "ephemeral", "write the report",
+                                  ["docs/report.md"])
+                store.record_learning_applications(
+                    "writing an executive update", session_id="S1",
+                    record_prefix=rec.lifecycle_uuid[:8])
+                bare = store.record_learning_applications(
+                    "writing an executive update", session_id="S1")
+                self.assertEqual(bare["already_recorded"], 1)
+                self.assertEqual(bare["already_linked_records"],
+                                 [rec.lifecycle_uuid])
+                self.assertEqual(self._count(store), 1)
 
     # -- immutability -------------------------------------------------
 

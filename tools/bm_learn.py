@@ -512,11 +512,37 @@ def _recording_footer(res, record_arg):
         _out("  the rules above are correct and can be acted on.")
         _out("  \"was this rule followed\" is UNANSWERABLE for this task until "
              "the row lands.")
-        _out("  fix the reason, then re-run the identical apply; it is "
-             "idempotent and will not double count.")
+        # TWO REMEDIES, BECAUSE THERE ARE TWO FAILURES. The single old line
+        # told every caller to re-run the identical command, which is right for
+        # a busy database and provably never converges for a --record that does
+        # not resolve: that one fails the same way forever, and the founder is
+        # left re-running a command that cannot succeed.
+        if res.get("record_error_kind") in ("not-found", "ambiguous"):
+            _out("  this is the --record ARGUMENT, not a database failure. "
+                 "Re-running the identical command will fail identically.")
+            _out("  pass a --record that resolves, or drop --record entirely "
+                 "and re-run; recording is idempotent, and a later run with "
+                 "the right id links the row it wrote.")
+        else:
+            _out("  fix the reason, then re-run the identical apply; it is "
+                 "idempotent and will not double count.")
         _out("  exit status 3.")
     else:
         _out("  status: recorded.")
+        if res.get("already_linked_records"):
+            # THE ONE CASE "already recorded" MUST NOT BE READ AS SUCCESS FOR
+            # THIS WORK. No --record was passed, so the row that already exists
+            # may belong to a DIFFERENT unit of work worded the same way. Said
+            # out loud rather than guessed at: the silent version reported a
+            # clean recorded run while the work in hand had no row of its own
+            # and could never be graded.
+            _out("  NOTE: an already recorded row for this task belongs to "
+                 "work record %s."
+                 % ", ".join(u[:8] for u in res["already_linked_records"]))
+            _out("  this run passed no --record, so it cannot tell a re-read "
+                 "of that work from DIFFERENT work worded the same way. If "
+                 "this is different work, re-run with --record <its id> and it "
+                 "gets a row of its own.")
         _out("  close them with: bm_learn.py disposition <application-id> "
              "followed|ignored|not_relevant")
 

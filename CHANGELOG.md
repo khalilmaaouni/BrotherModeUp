@@ -1,5 +1,54 @@
 # Changelog
 
+## 2026-07-29 (no version bump): a second unit of work now gets its own application row
+
+Fix round P5-fix, on top of Loop P5 (fe0497b). P5 moved recording out of a
+forgettable flag and into the `apply` verb. Three ways a run could still end
+with substantial work and no row that could grade it survived that change, all
+reproduced first on a throwaway store at fe0497b.
+
+- THE IDEMPOTENCE KEY WAS BLIND TO THE WORK. It was (task fingerprint, rule,
+  version, session), and the fingerprint comes from the query alone. Two
+  different pieces of substantial work in one session worded the same way
+  collapsed onto ONE row: the second printed `status: recorded.`, exited 0, and
+  wrote nothing, so "was this rule followed" was unanswerable for it while the
+  run read as a clean success. Naming the second unit's work record with
+  `--record` did not help either: that path exited 3 with
+  `already belongs to work record`, and still wrote nothing. The key now
+  includes the work record. Each unit of work gets its own row, an unclaimed row
+  is still adopted by the first `--record` that arrives, and a row belonging to
+  another work record is never selected for update, so a link is still never
+  moved. That last property is now a consequence of the lookup rather than a
+  refusal bolted on after it.
+- A BAD `--record` SWALLOWED THE FOUNDER RULES. Resolving the prefix ran before
+  retrieval and outside the block that turns write failures into a partial
+  status, so a stale or mistyped work id exited 2 with EMPTY stdout. SKILL.md
+  ships the sentence "never read a nonzero exit as 'no rules'", so an agent
+  following the law it was given would read that as partial success and do the
+  work with zero founder rules surfaced. Resolving `--record` is part of the
+  WRITE now: the rules print, `record_error` carries the reason, and the exit is
+  3 like every other bookkeeping failure.
+- THE PARTIAL STATUS PRESCRIBED A REMEDY THAT NEVER CONVERGED. It told every
+  caller to "re-run the identical apply", which is right for a busy database and
+  provably wrong for an argument that does not resolve: that fails the same way
+  forever. `record_error_kind` now separates the two, and a bad `--record` is
+  told to fix or drop the flag instead.
+- `already recorded` no longer reads as `recorded for this work`. With no
+  `--record` there is nothing to key on beyond shared task wording, so `apply`
+  names the work record the row it found belongs to and leaves the decision with
+  the caller rather than guessing in the direction that looks like success.
+- On a failed write, the already-recorded count is no longer reset to 0. Those
+  rows pre-date the call and survive the rollback; reporting 0 understated what
+  the database holds.
+
+Calibrated by reinjection, each restored after: making `_prior_application`
+record-blind again fails the second-unit-of-work test with "the second unit of
+work recorded nothing"; resolving `--record` before retrieval again turns exit 3
+into exit 2 with no rules; collapsing the two remedies back into one fails the
+converging-remedy assertion; dropping the disclosure fails the ambiguity test.
+Suite after the last edit: 656 tests across 4 suites, 2 skipped, with one
+pre-existing unrelated flake recorded in `docs/KNOWN-LIMITS.md`.
+
 ## 2026-07-29 (no version bump): substantial work no longer depends on remembering a flag
 
 Loop P5. `relevant` did both jobs: it retrieved founder rules, and it recorded

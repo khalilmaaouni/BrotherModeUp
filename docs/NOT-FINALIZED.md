@@ -11,6 +11,25 @@ Status words mean exactly one thing each:
 
 ---
 
+## P5-fix: `apply` discloses the two-units-of-work ambiguity, it does not resolve it. PARTIAL.
+
+With `--record`, each unit of work gets its own application row and the earlier
+collapse is closed. WITHOUT `--record`, two pieces of work in one session that
+share task wording still share a row; `apply` now names the work record that row
+belongs to and says it cannot tell them apart, and still exits 0. Making
+`--record` mandatory for `apply` was considered and NOT done in this round: it
+would break the documented retrieve-then-claim order that P5's own linking
+behaviour depends on. OPEN for the next round on this path.
+
+## P5-fix: the fixes were verified through `apply`, not through the alias. UNPROVEN.
+
+`relevant --record-applications` calls the same
+`Store.record_learning_applications`, so it inherits every store-side fix in
+this round, and `relevant` WITHOUT the flag still records nothing at all, which
+is the deprecated behaviour it is kept for. Neither statement was re-tested
+against the alias in this round beyond the existing deprecation test. Believed
+correct, not demonstrated.
+
 ## Loop P5: `relevant` is deprecated but not removed. DEFERRED, by design.
 
 The alias is kept so existing scripts and docs do not break silently, and it
