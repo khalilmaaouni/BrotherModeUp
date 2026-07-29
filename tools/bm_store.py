@@ -4187,7 +4187,12 @@ class Store(object):
         outcome data (invariant L10 depends on that separation).
 
         Eligibility is a hard filter before ranking: only injectable states,
-        and only rules whose scope the supplied context actually matches."""
+        and only rules whose scope the supplied context actually matches.
+
+        `limit` caps SOFT rules only. Every applicable live gate rule is
+        returned no matter what the caller passed, including limit 0 and
+        negative limits, and the result reports gates_returned, gates_total,
+        soft_returned and soft_omitted so the two can be told apart."""
         L = _learning()
         context = context or {}
         in_scope = [r for r in self.list_learning_rules(states=L.INJECTABLE_STATES)
@@ -4204,13 +4209,39 @@ class Store(object):
         # must appear even when the person did not use its vocabulary, and
         # that asymmetry is the whole reason severity exists as a field.
         eligible = [r for r in in_scope
-                    if r.get("severity") == "gate"
+                    if L.is_gate(r)
                     or L.lexical_overlap(query, r.get("trigger_text", ""),
                                          r.get("action_text", ""),
                                          r.get("because_text", ""),
                                          r.get("domain", "")) > 0]
         eligible.sort(key=lambda r: L.rank_key(r, query, context))
-        chosen = eligible[:max(0, int(limit))]
+        # THE LIMIT APPLIES TO SOFT RULES ONLY (Loop P4).
+        #
+        # Reproduced on the real CLI before this was written, and recorded as
+        # the open half of NOT-FINALIZED item 19: two live global rules, the
+        # gate ranked second on lexical relevance, `--limit 1`, and the gate
+        # never reached the model. The relevance floor above already says a
+        # gate must appear even when the founder did not use its vocabulary.
+        # A caller's page size then quietly undid that, which made the
+        # exemption decorative.
+        #
+        # So the split is structural rather than a nudge to the ranking:
+        # every applicable gate is returned, ALWAYS, and `limit` decides how
+        # many soft rules ride along. Ranking is untouched, which is what
+        # keeps Loop 5's retrieval order the founder's call and not this
+        # loop's: the gate does not jump the queue, it simply cannot be cut
+        # from it. limit=0 therefore means "gates only", and a negative limit
+        # clamps to zero and means the same, rather than slicing from the end
+        # of the list the way a bare Python slice would.
+        gates, soft = L.split_gates(eligible)
+        soft_kept = soft[:max(0, int(limit))]
+        keep = set(r["rule_uuid"] for r in soft_kept)
+        # Re-walked in ranked order rather than concatenated gates-first, so a
+        # gate does not appear to have outranked a soft rule that actually
+        # ranked above it. `rank` keeps its existing meaning, position in this
+        # result, which is why a gate shown alone under limit 0 reads rank 1.
+        chosen = [r for r in eligible
+                  if L.is_gate(r) or r["rule_uuid"] in keep]
         out = []
         for i, r in enumerate(chosen, 1):
             row = dict(r)
@@ -4241,9 +4272,28 @@ class Store(object):
             against.setdefault(bu, set()).add(au)
         for row in out:
             row["conflicts_with"] = sorted(against.get(row["rule_uuid"], ()))
+        # DIAGNOSTICS THAT SEPARATE THE TWO STATEMENTS.
+        #
+        # `omitted` used to be one number covering both, so a caller could not
+        # tell "your limit hid some preferences" from "your limit hid a safety
+        # gate". It is kept, and it now counts soft rules only, because after
+        # the split it can never mean anything else: gates_omitted is zero by
+        # construction and there is a test that says so. gates_total is
+        # reported next to gates_returned so the equality is checkable from
+        # the outside rather than taken on trust.
+        soft_omitted = max(0, len(soft) - len(soft_kept))
+        # Counted off the rows actually being handed back, not off the
+        # intention above it. If a later edit ever drops a gate between the
+        # split and the return, this number moves away from gates_total and
+        # the invariant test fails, which is the whole point of reporting both.
+        gates_returned = sum(1 for r in out if L.is_gate(r))
         return {"mode": L.RETRIEVAL_MODE, "results": out,
-                "omitted": max(0, len(eligible) - len(chosen)),
+                "omitted": soft_omitted,
                 "eligible": len(eligible),
+                "gates_returned": gates_returned,
+                "gates_total": len(gates),
+                "soft_returned": len(soft_kept),
+                "soft_omitted": soft_omitted,
                 "conflicts": conflicts}
 
     # -----------------------------------------------------------------

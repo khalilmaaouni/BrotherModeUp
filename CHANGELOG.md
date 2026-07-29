@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026-07-29 (no version bump): a result limit can no longer hide a gate rule
+
+Loop P4, on top of fix round P3 (05441e7). The defect was already written down
+as the open bullet of `docs/NOT-FINALIZED.md` item 19, and it was reproduced
+again on the real CLI before anything changed: two live global rules, one of
+them a gate whose trigger shared no vocabulary with the task, `--limit 1`, and
+the gate never reached the model.
+
+The relevance floor already said a gate must appear even when the founder did
+not use its words. The result slice then cut it anyway, which made that
+exemption decorative. The fix is structural rather than a nudge to the ranking,
+because promoting gates in the ranking would change Loop 5 retrieval order and
+that is the founder's decision, not this loop's:
+
+- `limit` now caps SOFT rules only. Every applicable live gate rule is returned
+  whatever the caller passed. Ranking is untouched, so a gate does not jump the
+  queue, it simply cannot be cut from it.
+- `--limit 0` means gates only. A negative limit clamps to zero and means the
+  same, instead of slicing from the end of the list the way a bare Python slice
+  would.
+- New diagnostics `gates_returned`, `gates_total`, `soft_returned` and
+  `soft_omitted`. The old single `omitted` count is kept and now covers soft
+  rules only, because after the split it can never mean anything else.
+  `gates_returned` is counted off the rows actually returned, not off the
+  intention above it, so a later edit that drops a gate makes the two disagree
+  and fails a test.
+- `bm_learn.py relevant` prints the two as two sentences: gate delivery as the
+  guarantee it is, soft omission as the tuning knob it is. An empty result also
+  says how many applicable gates were held back, which is always zero.
+- `bm_learning.py` gained `GATE_SEVERITY`, `is_gate` and `split_gates`, so the
+  three places that must agree on what a gate is read one definition. It stays
+  pure.
+
+Retiring a gate still works: a deprecated or forgotten gate is not live, so it
+is not delivered, and there is a test for exactly that. Seven tests cover the
+reproduction, limit zero, negative limits, many gates against a small limit,
+dead gates, a conflicting gate counterpart, and a calibration test that
+reinstates the old slice. Six of the seven fail with the old behaviour
+reinjected. Suite: 641 tests, ALL GREEN.
+
 ## 2026-07-29 (no version bump): three holes in the receipt work, closed
 
 Fix round P3 on top of the LOOP 3 commit (1fdf2c3). Each of the three was

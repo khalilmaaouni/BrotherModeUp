@@ -861,6 +861,36 @@ FAILURE_CLASSES = ("retrieval_miss", "compliance_failure", "bad_rule",
 # anything the founder marked severity 'gate'.
 SUBSTANTIAL_RULE_TYPES = ("safety", "procedure", "decision_right")
 
+# The one severity that outranks the caller's result limit. Named here, in the
+# pure module, because three separate places have to agree on what a gate is:
+# the relevance floor that exempts it, the retrieval split that refuses to let
+# a limit cut it, and the CLI that has to say so out loud.
+GATE_SEVERITY = "gate"
+
+
+def is_gate(rule):
+    """True when this rule row is a founder gate.
+
+    A mapping, not an object: rows arrive as sqlite3.Row and as plain dicts
+    depending on the caller, and both must answer the same way. A row with no
+    severity at all is NOT a gate, because inventing one out of missing data
+    would be this tool escalating a rule the founder never escalated."""
+    try:
+        return rule["severity"] == GATE_SEVERITY
+    except (KeyError, IndexError, TypeError):
+        return False
+
+
+def split_gates(rules):
+    """Partition rules into (gates, soft), preserving the incoming order.
+
+    The order matters: the caller has already ranked, and this must not
+    re-rank. It only decides which side of the limit each rule falls on."""
+    gates, soft = [], []
+    for r in rules:
+        (gates if is_gate(r) else soft).append(r)
+    return gates, soft
+
 
 def disposition_needs_reason(disposition, severity, rule_type):
     """True when recording this disposition requires a stated reason.
