@@ -7,7 +7,7 @@ brief that a test would have caught. Each test here guards a claim the project
 makes about itself: secrets are redacted, sensitive files are owner-only, project
 identity does not collide, and the autosave captures untracked work non-invasively.
 """
-import contextlib, glob, io, os, json, re, shutil, stat, sys, tempfile, subprocess, importlib.util
+import contextlib, glob, io, os, json, re, shutil, sqlite3, stat, sys, tempfile, subprocess, importlib.util
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -3778,6 +3778,203 @@ class TestLoopP4bZeroResultDisclosure(unittest.TestCase):
                 "body, --limit 0 must go back to hiding the omission; if this "
                 "fails, the tests above are not calibrated to the defect they "
                 "claim to catch: %r" % buf.getvalue())
+
+
+class LookupApplySplitTest(unittest.TestCase):
+    """LOOP P5. Substantial work used to depend on the model remembering
+    --record-applications on `relevant`. Forgetting it produced a run that
+    looked identical and left no application row at all, so "was the rule
+    followed" was unanswerable and nothing anywhere said so. Reproduced at
+    bc25e06: `relevant --query ...` returned 0, printed the rules, and
+    learning_applications stayed empty.
+
+    The fix is a verb split, not a better default: `lookup` never writes,
+    `apply` always records and refuses without --session."""
+
+    QUERY = "pushing this branch to github"
+
+    def _learn(self, root, args):
+        env = dict(os.environ, BROTHERMODE_ROOT=root)
+        return subprocess.run([sys.executable, os.path.join(HERE, "bm_learn.py")]
+                              + args, cwd=root, env=env, capture_output=True,
+                              text=True)
+
+    def _rule(self, root):
+        env = dict(os.environ, BROTHERMODE_ROOT=root)
+        r = subprocess.run([sys.executable, os.path.join(HERE, "bm_store.py"),
+                            "init"], cwd=root, env=env, capture_output=True,
+                           text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        c = self._learn(root, ["capture", "--scope", "global", "--scope-key", "",
+                               "--trigger", self.QUERY,
+                               "--action", "use the GitHub Desktop app"])
+        self.assertEqual(c.returncode, 0, c.stderr)
+        cid = c.stdout.split()[1]
+        a = self._learn(root, ["approve", cid, "--ref", "test", "--receipt",
+                               _cli_receipt(self._learn, root, cid)])
+        self.assertEqual(a.returncode, 0, a.stderr)
+
+    def _rows(self, root):
+        db = os.path.join(root, ".brothermode", "store.sqlite3")
+        con = sqlite3.connect(db)
+        try:
+            return con.execute(
+                "SELECT COUNT(*) FROM learning_applications").fetchone()[0]
+        finally:
+            con.close()
+
+    def test_lookup_changes_no_rows_and_refuses_the_writing_flags(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._rule(root)
+            before = self._rows(root)
+            r = self._learn(root, ["lookup", "--query", self.QUERY])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("use the GitHub Desktop app", r.stdout)
+            self.assertEqual(self._rows(root), before,
+                             "lookup wrote an application row")
+            for flag in ("--session", "--record"):
+                b = self._learn(root, ["lookup", "--query", self.QUERY, flag,
+                                       "x"])
+                self.assertEqual(b.returncode, 2, b.stdout)
+                self.assertIn("lookup never writes", b.stderr)
+                self.assertIn("apply", b.stderr)
+
+    def test_apply_requires_a_session_and_records_every_returned_rule(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._rule(root)
+            n = self._learn(root, ["apply", "--query", self.QUERY])
+            self.assertEqual(n.returncode, 2, n.stdout)
+            self.assertIn("requires --session", n.stderr)
+            self.assertEqual(self._rows(root), 0)
+            r = self._learn(root, ["apply", "--query", self.QUERY, "--session",
+                                   "s1"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("use the GitHub Desktop app", r.stdout)
+            self.assertIn("recorded 1 application(s)", r.stdout)
+            self.assertIn("status: recorded.", r.stdout)
+            self.assertEqual(self._rows(root), 1)
+
+    def test_re_running_apply_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._rule(root)
+            for _ in range(3):
+                r = self._learn(root, ["apply", "--query", self.QUERY,
+                                       "--session", "s1"])
+                self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(self._rows(root), 1,
+                             "apply duplicated rows on re-run")
+            self.assertIn("1 already recorded", r.stdout)
+
+    def test_apply_after_a_work_record_exists_links_the_earlier_rows(self):
+        """The natural order of work: retrieve, THEN claim the record. The
+        already-recorded row has to gain the link, because nothing else in this
+        codebase can set that column afterwards."""
+        with tempfile.TemporaryDirectory() as root:
+            self._rule(root)
+            env = dict(os.environ, BROTHERMODE_ROOT=root)
+            first = self._learn(root, ["apply", "--query", self.QUERY,
+                                       "--session", "s1"])
+            self.assertEqual(first.returncode, 0, first.stderr)
+            c = subprocess.run([sys.executable, os.path.join(HERE, "bm_store.py"),
+                                "claim", "p5-late-record"], cwd=root, env=env,
+                               capture_output=True, text=True)
+            self.assertEqual(c.returncode, 0, c.stderr)
+            uuid_m = re.search(r"lifecycle ([0-9a-f]{32})", c.stdout)
+            self.assertIsNotNone(uuid_m, c.stdout)
+            second = self._learn(root, ["apply", "--query", self.QUERY,
+                                        "--session", "s1", "--record",
+                                        uuid_m.group(1)])
+            self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertIn("linked 1 already recorded application(s)",
+                          second.stdout)
+            self.assertEqual(self._rows(root), 1)
+            db = os.path.join(root, ".brothermode", "store.sqlite3")
+            con = sqlite3.connect(db)
+            try:
+                rec = con.execute("SELECT record_uuid FROM "
+                                  "learning_applications").fetchone()[0]
+            finally:
+                con.close()
+            self.assertTrue(rec, "the late work record never landed on the row")
+
+    def test_a_failed_recording_returns_the_rules_and_a_loud_partial_status(self):
+        """The rules must survive a bookkeeping failure, and the failure must
+        be impossible to read as success: status line, and exit 3."""
+        with tempfile.TemporaryDirectory() as root:
+            self._rule(root)
+            store_mod = learn_mod.bs
+            original = store_mod.Store.record_learning_applications
+
+            def broken(self, query, **kw):
+                res = self.retrieve_learning_rules(
+                    query, context=kw.get("context"), limit=kw.get("limit", 5))
+                out = dict(res)
+                out.update({"task_fingerprint": "deadbeef", "recorded": 0,
+                            "already_recorded": 0, "linked": 0,
+                            "applications": [],
+                            "record_error": "disk is on fire"})
+                return out
+
+            store_mod.Store.record_learning_applications = broken
+            buf = io.StringIO()
+            old_root = os.environ.get("BROTHERMODE_ROOT")
+            os.environ["BROTHERMODE_ROOT"] = root
+            try:
+                with contextlib.redirect_stdout(buf):
+                    code = learn_mod.cmd_apply(["--query", self.QUERY,
+                                                "--session", "s1"])
+            finally:
+                store_mod.Store.record_learning_applications = original
+                if old_root is None:
+                    del os.environ["BROTHERMODE_ROOT"]
+                else:
+                    os.environ["BROTHERMODE_ROOT"] = old_root
+            out = buf.getvalue()
+            self.assertEqual(code, 3, "a failed recording exited %d" % code)
+            self.assertIn("use the GitHub Desktop app", out,
+                          "the rules were lost to a bookkeeping failure")
+            self.assertIn("STATUS: PARTIAL. RULES RETRIEVED, APPLICATION NOT "
+                          "RECORDED.", out)
+            self.assertIn("disk is on fire", out)
+            self.assertNotIn("status: recorded.", out)
+
+    def test_calibrated_the_old_optional_flag_reproduces_the_unrecorded_run(self):
+        """CALIBRATION. Put the pre-fix contract back (recording opt-in, no
+        session requirement) by driving the deprecated alias WITHOUT the flag,
+        which is exactly the command SKILL.md used to name. It must still exit
+        0 and still leave the table empty. If that stopped being true, the
+        tests above would be passing for some other reason."""
+        with tempfile.TemporaryDirectory() as root:
+            self._rule(root)
+            r = self._learn(root, ["relevant", "--query", self.QUERY])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("use the GitHub Desktop app", r.stdout)
+            self.assertEqual(self._rows(root), 0,
+                             "REINJECTION CHECK: the old flag-optional path no "
+                             "longer reproduces the unrecorded run, so the "
+                             "tests above are not calibrated to the defect")
+            self.assertIn("DEPRECATED", r.stderr,
+                          "the alias kept the old behaviour without saying so")
+
+    def test_skill_md_names_apply_and_no_unrecorded_substantial_path(self):
+        """The law is the thing an agent actually follows. If SKILL.md still
+        told it to run a read-only command before substantial work, every fix
+        above would be decoration."""
+        with io.open(os.path.join(os.path.dirname(HERE), "SKILL.md"),
+                     encoding="utf-8") as f:
+            src = f.read()
+        head = src.split("## Founder rules, before a SUBSTANTIAL task", 1)
+        self.assertEqual(len(head), 2, "the founder-rules law moved or is gone")
+        law = head[1].split("\n## ", 1)[0]
+        self.assertIn("bm_learn.py apply --query", law)
+        self.assertIn("--session", law)
+        for dead in ("bm_learn.py relevant --query",
+                     "--record-applications"):
+            self.assertNotIn(dead, law,
+                             "the law still names %r, which records nothing "
+                             "unless a flag is remembered" % dead)
+        # lookup may be mentioned, but never as the substantial-work command.
+        self.assertIn("NOT a substantial-work path", law)
 
 
 if __name__ == "__main__":

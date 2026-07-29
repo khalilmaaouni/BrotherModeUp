@@ -5,6 +5,22 @@ file exists because an unstated gap is a failure even when it is small, and beca
 the single most useful thing a handover can contain is the list of things the last
 person was not sure about.
 
+## Loop P5 left the older documentation naming the deprecated verb
+
+`SKILL.md` now names `bm_learn.py apply --session` as the substantial-work path,
+and a test enforces that. The narrative docs were NOT swept in the same change:
+`docs/CORRECTION-LEARNING.md`, `docs/HANDOVER-2026-07-29.md` and the plan under
+`docs/superpowers/plans/` still show `relevant`. Those examples still WORK, since
+`relevant` is a live alias, but they teach the deprecated verb and a reader
+following them would take the read-only path for work that should be recorded.
+The law file is the one an agent follows, so this is a documentation debt rather
+than a live hole, and it is scheduled for the Documentation Agent's pass.
+
+Also unproven at P5: nothing forces an agent to run `apply` at all. The command
+contract makes the recorded path the obvious one and removes the forgettable
+flag; it does not detect a substantial task that skipped retrieval entirely.
+`should-retrieve` answers that question only when someone asks it.
+
 ## The biggest one, updated: the engine IS connected now, and that surfaced new defects
 
 Phase 3 landed 2026-07-26: `tools/bm_store.py` is now imported by
