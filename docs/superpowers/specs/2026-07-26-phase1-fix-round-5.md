@@ -1,5 +1,7 @@
 # Phase 1 fix round 5 (2026-07-26)
 
+**HISTORICAL DOCUMENT, dated 2026-07-26. Do not read it as current state.** It is a dated working record: the plan, the verdicts, the blockers and the numbers in it belong to that day and were not updated afterwards. Items it calls open may since have been closed. Superseded by `README.md` and `docs/KNOWN-LIMITS.md` for status, `docs/NOT-FINALIZED.md` for the defect register, `CHANGELOG.md` for what changed since, and `python3 tools/bm_project_facts.py` for version, release tag, hook events and suites.
+
 From refute round 4 (fresh code confirmed: all four lenses quoted "Ran 139 tests, OK"
 before testing). The calibration lens returned CLEAN: every calibrated test failed
 correctly under its reinjected defect. Two gates and five soft items remain.
