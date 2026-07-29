@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-07-29 (no version bump, schema 3 to 4): a retrieval miss now has a recorded denominator
+
+Loop P6. A miss is a statement about what was NOT returned, and the rules that
+were not returned have no row to hang context on. The classifier used to rebuild
+the retrieval context from the scope_match of the rows that DID land, which is
+circular. Reproduced on a throwaway store at 03c0dab: one global gate and one
+project-scoped rule in scope, `apply --project Acme --limit 0`, and `classify`
+reported no misses at all, because nothing project-scoped came back so the
+rebuilt context had no project key and the cut rule could not even be found to
+be missing.
+
+- NEW TABLE `learning_retrieval_runs`, and `learning_applications` gains
+  `retrieval_uuid`. One row per recorded retrieval, written in the same
+  transaction as the application rows, holding the scope context, the requested
+  limit, the retrieval mode, the eligible and returned counts, a bounded
+  scrubbed task excerpt and a NON-REVERSIBLE query hash. The raw query is never
+  stored. Schema 4; the migration is additive, atomic, backed up first, and a
+  failure leaves the previous store untouched.
+- MISSES ARE SPLIT BY CAUSE. `retrieval_miss` now means the rule ranked inside
+  the limit the caller asked for and still never reached the model;
+  `retrieval_limit_miss` means the limit cut it. Different fixes, and one number
+  covering both is how a limit set to 1 stays invisible while retrieval quality
+  looks bad. A gate is never a limit miss: gates are exempt from the limit by
+  construction, so a missing gate is always the harder finding.
+- THE MISS PASS WALKS RUNS, NOT ROWS. A retrieval that returned nothing has no
+  application row, and it is the retrieval most worth grading. It is now graded.
+- FOUR REFUSALS, each reported rather than guessed: an application row that
+  predates this table is `legacy` (incomplete evidence, never backfilled with an
+  invented run), a task with no kept text is `no_task_text`, a rule whose current
+  wording was written after the retrieval is `rule_changed_since_retrieval`, and
+  a rule approved after the task ran is not a miss at all.
+
 ## 2026-07-29 (no version bump): a second unit of work now gets its own application row
 
 Fix round P5-fix, on top of Loop P5 (fe0497b). P5 moved recording out of a
