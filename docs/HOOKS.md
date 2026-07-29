@@ -79,16 +79,24 @@ Doctor answers a narrower question than the installer's smoke test, and the narr
 question is the one that matters. The smoke test runs the hook from an empty directory,
 where it takes its fail-open path, so it proves the hook executes. Doctor runs a
 **blocked-write simulation**: a throwaway project under a temporary directory, its own
-store, one file claimed under one session's label, then an Edit of that file requested
+store, one file claimed under one session's label, then a write to that file requested
 by a different session, judged by the exact command string in your settings file. A
-healthy fence denies that, and then allows the same edit when the owner asks, because a
+healthy fence denies that, and then allows the same write when the owner asks, because a
 hook that denies everything passes half the check and is a brick rather than a fence.
-The temporary directory is deleted at the end; your project, your store and your
-STATE.md are never touched.
+Each of `Edit`, `Write`, `MultiEdit` and `NotebookEdit` is simulated in its own real
+input shape (the path key differs per tool), so a fence that gates one of them and not
+the other three cannot report itself healthy. The owner half checks the hook's EXIT CODE
+as well as its output, because a `PreToolUse` hook blocks a call by exiting non-zero,
+not only by printing a deny. The temporary directory is deleted at the end; your
+project, your store and your STATE.md are never touched.
 
 Exit 1 names the specific defect: no `PreToolUse` entry naming `bm_fence_hook.py`, an
 entry whose command points at a file that is not there, a matcher that leaves some write
-tools ungated, a hook that refuses nothing, or a hook that refuses everything. Doctor
+tools ungated or is not a valid regular expression, a hook that refuses nothing, or a
+hook that refuses everything (by deny JSON or by exit code). The matcher check treats
+the matcher as a REGEX tested against each tool name, the way Claude Code does, and not
+as a substring search: `Edit` is a substring of both `MultiEdit` and `NotebookEdit`, so
+a substring test silently passed a matcher that left `Edit` ungated. Doctor still
 cannot tell you whether Claude Code has LOADED that settings file: hooks are read at
 session start, so a file corrected mid-session is live at the next one, not this one.
 
@@ -213,7 +221,12 @@ Two smaller notes in the same spirit:
    claiming from a different directory.
 5. Compare with `bm_store.paths_overlap`, the same function the store uses to admit a
    claim, so a directory claim covers its children and a glob claim covers the files it
-   spans.
+   spans. On macOS and Windows that comparison folds CASE and UNICODE NORMALIZATION,
+   because those filesystems do: `src/café.py` written NFC and the same name written NFD
+   are one inode and two different strings, and before 2026-07-29 a claim in one spelling
+   did not cover a write in the other, so a foreign session went straight through the
+   default (non-strict) path. Linux is normalization sensitive, where the two really are
+   different files, so nothing is folded there.
 6. Covered by an active record owned by someone else: **deny**, naming the record, its
    lifecycle uuid, the owning label, and the exact takeover command.
 7. Covered by an active record this session owns: allow.
@@ -308,11 +321,21 @@ closed would brick editing, and the wrapper fails closed because "could not be c
 and "was approved" must not produce the same outcome for a command you invoked on
 purpose.
 
+A declared path that resolves OUTSIDE the project root is a third answer, not a pass.
+The fence declines to judge anything outside the root on purpose (BrotherMode fences a
+project, not the machine), so `decide()` returns nothing for it, which is the same value
+as approval. The wrapper therefore refuses such a path by default and names it. Add
+`--allow-outside-root` when the write really does belong outside the project: the command
+runs and the summary reports those paths as NOT CHECKED rather than as claimed. Until
+2026-07-29 the wrapper printed "N declared path(s) are inside this session's own claim"
+for a path that was in no claim and not even in the project.
+
 `--declare-none` runs a command that writes nothing. It is checked against a short,
-explicit list of obvious write forms (`>`, `>>`, `tee`, `sed -i`, `rm`, `mv`, `cp`,
-`patch`, a rewriting `git` subcommand, an inline interpreter script, and a few more), and
-refuses if one matches. That list is not a shell parser and the refusal says so. Passing
-it is not evidence that a command writes nothing.
+explicit list of obvious write forms (`>`, `>>`, file-descriptor redirection such as `1>`
+and `2>>`, `tee`, `sed -i`, `rm`, `mv`, `cp`, `patch`, a rewriting `git` subcommand, an
+inline interpreter script, and a few more), and refuses if one matches. That list is not
+a shell parser and the refusal says so. Passing it is not evidence that a command writes
+nothing.
 
 What the wrapper does NOT do: confine the command. It is a declaration channel, not a
 sandbox. A command that writes a path the caller did not declare writes it, and nothing
