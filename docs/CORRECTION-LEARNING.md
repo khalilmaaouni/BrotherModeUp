@@ -224,6 +224,72 @@ was exercised by hand for this document.
   Soft rules: 0 shown, none omitted.
   ```
 
+## Anchored notes, and the alert that can refuse an approval
+
+Storage schema 7 adds one table, `notes`: an anchored row carrying a kind
+(`insight`, `alert`, `question`, `review`, `todo`, `risk`), a severity where one
+applies, its author, the file, candidate, rule, record or decision it is
+anchored to, and its body. Notes are written by people, never generated.
+
+One kind has teeth. An UNRESOLVED `alert` at severity `critical`, anchored to a
+candidate or to any file that candidate's approval would change, REFUSES the
+approval. The refusal names the alert, its author and its anchor, and it fires
+both when the approval receipt is minted and when it is spent, so an alert
+raised after the founder answered still stops the rule being created.
+
+```
+$ python3 tools/bm_learn.py note --kind alert --severity critical \
+    --author "Dana, backend" --anchor file:api/pay.py --line 42 \
+    --body "the retry path double charges; do not lock this in yet"
+$ python3 tools/bm_learn.py grant-approval a8815578 --answer "yes do it" ...
+refused (unresolved-critical-alert): a critical alert is unresolved and stands
+in front of this approval: Dana, backend wrote 'the retry path double charges;
+do not lock this in yet' about file api/pay.py (note 25eb0c4f). Resolve it, or
+re-run with an explicit override reason. 1 unresolved critical alert(s) match
+this approval.
+```
+
+Two ways past it, and neither of them is a delete. `resolve-note` records what
+answered the alert. `--override-alerts "<reason>"` on grant-approval and approve
+proceeds anyway: the reason is recorded on the alert row with the founder's own
+reference, the alert stays visible as overridden and stays unresolved, and the
+override is part of the approval fingerprint, so a receipt minted for a clean
+question cannot be spent with an override attached. There is no delete for a
+note anywhere in the code.
+
+The change set the refusal uses is what the store recorded: the claimed paths of
+the work record the candidate came from, plus the scope key when the scope is an
+artifact. A file nothing claimed is a file no alert can guard, and a generated
+gate pack says so beside the excerpt rather than leaving it implied.
+
+## Gate deep-dive packs
+
+`tools/bm_packs.py` writes one document per decision, on demand, for a human who
+has to approve it and has not read the transcript. Nothing is generated until
+asked: `stakes` prints the single line a question window carries plus the path
+the pack would occupy, and `pack` writes it.
+
+```
+$ python3 tools/bm_packs.py stakes a8815578
+$ python3 tools/bm_packs.py pack a8815578 --cite api/pay.py:40-58
+$ python3 tools/bm_packs.py review a8815578 --by "Dana, backend" \
+    --verdict concerns --notes "read the retry path" --residual "no test yet"
+```
+
+Eight sections: the decision in plain language and what happens if it is wrong,
+the options with their trade-offs and the recommendation, the code as excerpts
+quoted live from disk, the dependency map, the risks with the rollback commands,
+what the store already knows, a mermaid diagram, and the review slots. A recorded
+review is a row in the store, not only a line in a file.
+
+Two properties are worth stating because they are what make the document
+trustworthy rather than decorative. Every excerpt is re-read at generation time
+and checked against the anchor and content hash recorded the last time the pack
+was written, so a citation whose lines moved, or whose body changed underneath a
+stable anchor, FAILS generation and names the remedy; a pack never quietly quotes
+code that is no longer there. And anything written between the human markers in
+the document survives regeneration byte for byte.
+
 ## What this does not claim, and why
 
 - **Not autonomous self-improvement.** Every rule that changes anything went

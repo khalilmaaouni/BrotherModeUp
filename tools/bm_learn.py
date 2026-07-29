@@ -169,9 +169,10 @@ def _rule_line(r):
 def cmd_capture(argv):
     pos, kv = _parse(argv, {"trigger", "action", "because", "domain", "scope",
                             "scope-key", "source", "session", "raw", "json",
-                            "show-source"},
+                            "show-source", "record"},
                      wants_value=("trigger", "action", "because", "domain",
-                                  "scope", "scope-key", "source", "session", "raw"))
+                                  "scope", "scope-key", "source", "session",
+                                  "raw", "record"))
     scope = kv.get("scope", "project")
     scope_key = kv.get("scope-key")
     if scope_key is None and scope == "project":
@@ -183,7 +184,11 @@ def cmd_capture(argv):
             raw_text=kv.get("raw", ""), trigger=kv.get("trigger", ""),
             action=kv.get("action", ""), because=kv.get("because", ""),
             domain=kv.get("domain", ""), scope_type=scope,
-            scope_key=scope_key or "", session_id=kv.get("session", ""))
+            scope_key=scope_key or "", session_id=kv.get("session", ""),
+            # The link to the work this came out of. It is what lets a gate pack
+            # and the alert guard see which files the approval would change, so
+            # it is worth passing whenever the work record exists.
+            record_uuid=kv.get("record"))
     finally:
         store.close()
     if kv.get("json"):
@@ -323,15 +328,17 @@ def cmd_grant_approval(argv):
     holding it can spend that one answer."""
     pos, kv = _parse(argv, {"trigger", "action", "because", "domain", "scope",
                             "scope-key", "type", "gate", "answer", "json",
-                            "override-reason", "override-conflict"},
+                            "override-reason", "override-conflict",
+                            "override-alerts"},
                      wants_value=("trigger", "action", "because", "domain", "scope",
                                   "scope-key", "type", "answer",
-                                  "override-reason", "override-conflict"))
+                                  "override-reason", "override-conflict",
+                                  "override-alerts"))
     if not pos or not (kv.get("answer") or "").strip():
         _err("usage: grant-approval <candidate-id> --answer \"<what the founder "
              "actually said>\" [--trigger ...] [--action ...] [--because ...] "
              "[--scope ...] [--scope-key ...] [--gate] [--override-reason ...] "
-             "[--override-conflict ...]")
+             "[--override-conflict ...] [--override-alerts ...]")
         _err("the shaping flags must match what he was SHOWN: the receipt is "
              "bound to that exact rule text and dies if it changes. So do the "
              "override flags: a receipt minted for a clean question cannot be "
@@ -343,6 +350,7 @@ def cmd_grant_approval(argv):
             pos[0], founder_response=kv["answer"],
             atomicity_override=kv.get("override-reason", ""),
             conflict_override=kv.get("override-conflict", ""),
+            alerts_override=kv.get("override-alerts", ""),
             **_shape_kwargs(kv))
     finally:
         store.close()
@@ -365,7 +373,12 @@ def cmd_grant_approval(argv):
     if rec["duplicates"]:
         _out("  OVERRIDDEN, duplicates existing rule(s): %s"
              % ", ".join(rec["duplicates"]))
-    if rec["override_atomicity"] or rec["override_conflict"]:
+    for a in rec["blocking_alerts"]:
+        _out("  OVERRIDDEN, critical alert %s by %s about %s: %s"
+             % (a["note_uuid"][:8], L.safe_display(a["author"], 60),
+                a["matched"], L.safe_display(a["body"], 120)))
+    if (rec["override_atomicity"] or rec["override_conflict"]
+            or rec["override_alerts"]):
         _out("  approve must repeat the SAME override flags or the receipt dies")
     _out("")
     _out("  RECEIPT TOKEN, shown once and stored nowhere:")
@@ -381,10 +394,12 @@ def cmd_grant_approval(argv):
 def cmd_approve(argv):
     pos, kv = _parse(argv, {"trigger", "action", "because", "domain", "scope",
                             "scope-key", "type", "gate", "override-reason",
-                            "override-conflict", "ref", "receipt", "json"},
+                            "override-conflict", "override-alerts", "ref",
+                            "receipt", "json"},
                      wants_value=("trigger", "action", "because", "domain", "scope",
                                   "scope-key", "type", "override-reason",
-                                  "override-conflict", "ref", "receipt"))
+                                  "override-conflict", "override-alerts", "ref",
+                                  "receipt"))
     if not pos:
         _err("usage: approve <candidate-id> --receipt <token> [--trigger ...] "
              "[--action ...] "
@@ -433,7 +448,8 @@ def cmd_approve(argv):
             rule_type=kv.get("type", "preference"),
             severity="gate" if kv.get("gate") else "soft",
             atomicity_override=kv.get("override-reason", ""),
-            conflict_override=kv.get("override-conflict", ""))
+            conflict_override=kv.get("override-conflict", ""),
+            alerts_override=kv.get("override-alerts", ""))
     finally:
         store.close()
     if kv.get("json"):
@@ -1607,8 +1623,127 @@ def cmd_rebuild_index(argv):
     return 0
 
 
+def _anchor(spec):
+    """"<type>:<key>" into (type, key). Split once, so a Windows-style key or a
+    path with a colon in it keeps its colon."""
+    atype, sep, key = (spec or "").partition(":")
+    if not sep or not atype.strip() or not key.strip():
+        _err("bm_learn: --anchor takes <type>:<key>, for example "
+             "file:tools/bm_store.py or candidate:1a2b3c4d (types: %s)"
+             % ", ".join(bs.NOTE_ANCHOR_TYPES))
+        sys.exit(2)
+    return atype.strip(), key.strip()
+
+
+def _note_line(n):
+    state = "open"
+    if n["resolved_at"]:
+        state = "resolved"
+    if n["overridden_at"]:
+        state = "overridden" if not n["resolved_at"] else "resolved, overridden"
+    where = "%s:%s" % (n["anchor_type"], L.safe_display(n["anchor_key"], 80))
+    if n["anchor_line"]:
+        where += ":%d" % n["anchor_line"]
+    return "%s  %-8s %-9s %-8s %s  by %s" % (
+        n["note_uuid"][:8], n["kind"], n["severity"] or "-", state, where,
+        L.safe_display(n["author"], 40))
+
+
+def cmd_note(argv):
+    """Write one anchored note. A critical alert written here REFUSES an
+    approval whose change set touches its anchor, so the body is what the
+    founder will read at the refusal."""
+    pos, kv = _parse(argv, {"kind", "severity", "author", "author-kind",
+                            "anchor", "line", "body", "session", "json"},
+                     wants_value=("kind", "severity", "author", "author-kind",
+                                  "anchor", "line", "body", "session"))
+    if not kv.get("anchor") or not (kv.get("body") or "").strip():
+        _err("usage: note --kind %s --anchor <type>:<key> --body \"...\" "
+             "--author \"name\" [--author-kind founder|assistant|human] "
+             "[--severity info|warning|critical] [--line N]"
+             % "|".join(bs.NOTE_KINDS))
+        _err("only an unresolved alert at severity critical refuses an approval.")
+        return 2
+    atype, akey = _anchor(kv["anchor"])
+    store = _store()
+    try:
+        n = store.add_note(
+            kind=kv.get("kind", "insight"), body=kv["body"],
+            author=kv.get("author", ""),
+            author_kind=kv.get("author-kind", "human"),
+            anchor_type=atype, anchor_key=akey,
+            severity=kv.get("severity", ""), anchor_line=kv.get("line"),
+            session_id=kv.get("session", ""))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(n, indent=2, sort_keys=True))
+        return 0
+    _out("note %s recorded" % n["note_uuid"][:8])
+    _out("  " + _note_line(n))
+    if n["kind"] == bs.BLOCKING_NOTE_KIND and n["severity"] == bs.BLOCKING_NOTE_SEVERITY:
+        _out("  this REFUSES an approval anchored here until it is resolved, or "
+             "until the founder overrides it with a recorded reason")
+    return 0
+
+
+def cmd_notes(argv):
+    pos, kv = _parse(argv, {"kind", "anchor", "severity", "open", "json"},
+                     wants_value=("kind", "anchor", "severity"))
+    anchors = [_anchor(kv["anchor"])] if kv.get("anchor") else None
+    store = _store()
+    try:
+        rows = store.list_notes(
+            kinds=(kv["kind"],) if kv.get("kind") else None,
+            severities=(kv["severity"],) if kv.get("severity") else None,
+            anchors=anchors, include_resolved=not kv.get("open"))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+    if not rows:
+        _out("no notes match")
+        return 0
+    for n in rows:
+        _out(_note_line(n))
+        _out("     %s" % L.safe_display(n["body"], 200))
+        if n["resolved_at"]:
+            _out("     resolved %s: %s"
+                 % (n["resolved_at"], L.safe_display(n["resolution"], 160)))
+        if n["overridden_at"]:
+            _out("     OVERRIDDEN %s by %s: %s"
+                 % (n["overridden_at"], L.safe_display(n["override_by"], 60),
+                    L.safe_display(n["override_reason"], 160)))
+    _out("%d note(s)" % len(rows))
+    return 0
+
+
+def cmd_resolve_note(argv):
+    """Record that a note was answered. NOT an override: see the docstring on
+    bm_store.resolve_note for what this does and does not prove."""
+    pos, kv = _parse(argv, {"because", "json"}, wants_value=("because",))
+    if not pos or not (kv.get("because") or "").strip():
+        _err("usage: resolve-note <note-id> --because \"what resolved it\"")
+        return 2
+    store = _store()
+    try:
+        n = store.resolve_note(pos[0], kv["because"])
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(n, indent=2, sort_keys=True))
+        return 0
+    _out("note %s resolved" % n["note_uuid"][:8])
+    _out("  " + _note_line(n))
+    return 0
+
+
 COMMANDS = {
     "capture": cmd_capture,
+    "note": cmd_note,
+    "notes": cmd_notes,
+    "resolve-note": cmd_resolve_note,
     "index-status": cmd_index_status,
     "rebuild-index": cmd_rebuild_index,
     "outcome": cmd_outcome,
