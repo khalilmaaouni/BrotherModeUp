@@ -30,6 +30,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 INSTALL = os.path.join(ROOT, "scripts", "install.py")
 UNINSTALL = os.path.join(ROOT, "scripts", "uninstall.py")
+DOCTOR = os.path.join(ROOT, "scripts", "doctor.py")
+SHELL = os.path.join(ROOT, "scripts", "bm_shell.py")
 
 EXIT_REFUSED = 4
 
@@ -134,6 +136,27 @@ class TestCleanInstall(InstallerCase):
         version = self.read_text(os.path.join(ROOT, "VERSION")).strip()
         self.assertEqual(rec["version"], version)
         self.assertEqual(rec["target"], self.target)
+
+    def test_the_installed_copy_can_check_its_own_fence(self):
+        """An install that ships no doctor leaves the founder with no way to
+        tell a live fence from a wired-but-dead one, which is the failure the
+        installer's own smoke test cannot see."""
+        r = self.run_install()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        doctor = os.path.join(self.target, "scripts", "doctor.py")
+        self.assertTrue(os.path.isfile(doctor), "doctor.py was not installed")
+        self.assertIn("doctor.py", r.stdout,
+                      "the installer never told the founder to run it")
+        env = dict(os.environ)
+        env["HOME"] = self.home
+        env.pop("BROTHERMODE_ROOT", None)
+        env.pop("BM_FENCE_STRICT", None)
+        d = subprocess.run(
+            [sys.executable, doctor, "--settings", self.settings],
+            env=env, cwd=self.tmp, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, universal_newlines=True, timeout=300)
+        self.assertEqual(d.returncode, 0, d.stdout + d.stderr)
+        self.assertIn("denied a foreign write", d.stdout)
 
     def test_machine_state_is_not_copied(self):
         for name in (".git", "__pycache__", "threads"):
@@ -617,6 +640,273 @@ class TestSmokeTestItself(unittest.TestCase):
     def test_passes_again_once_the_real_hook_is_restored(self):
         self._copy_real_tools()
         self.assertEqual(self.mod.smoke_test(self.tmp), [])
+
+
+# ---------------------------------------------------------------------------
+# scripts/doctor.py: is the fence WIRED, and is it LIVE?
+#
+# The installer's own smoke test runs the hook from an empty directory, where
+# it fails open, so it proves the hook executes and nothing more. These tests
+# are the calibration for the check that proves it REFUSES: pass on a healthy
+# install, fail on each way the fence can be dead, pass again once restored.
+# ---------------------------------------------------------------------------
+
+class DoctorCase(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="bm-doctor-test-")
+        self.settings = os.path.join(self.tmp, "settings.json")
+        self.tools = os.path.join(self.tmp, "install", "tools")
+        os.makedirs(self.tools)
+        for name in sorted(os.listdir(HERE)):
+            if name.endswith(".py") and not name.startswith("test_"):
+                shutil.copy2(os.path.join(HERE, name),
+                             os.path.join(self.tools, name))
+        self.fence = os.path.join(self.tools, "bm_fence_hook.py")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def write_settings(self, obj):
+        with io.open(self.settings, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(obj, indent=2))
+
+    def wired(self, command=None, matcher="Edit|Write|MultiEdit|NotebookEdit"):
+        return {"hooks": {"PreToolUse": [{
+            "matcher": matcher,
+            "hooks": [{"type": "command",
+                       "command": command or ("python3 " + self.fence),
+                       "timeout": 10}]}]}}
+
+    def run_doctor(self):
+        env = dict(os.environ)
+        env.pop("BROTHERMODE_ROOT", None)
+        env.pop("BM_FENCE_STRICT", None)
+        return subprocess.run(
+            [sys.executable, DOCTOR, "--settings", self.settings],
+            env=env, cwd=self.tmp, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, universal_newlines=True, timeout=300)
+
+    def test_calibrated_1_healthy_install_passes(self):
+        self.write_settings(self.wired())
+        r = self.run_doctor()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("denied a foreign write", r.stdout)
+
+    def test_calibrated_2_missing_fence_hook_is_detected(self):
+        """The required case from the loop spec: doctor notices that no fence
+        is wired at all, which is exactly what every install before this one
+        shipped."""
+        self.write_settings({"hooks": {"SessionStart": []}})
+        r = self.run_doctor()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("NO FENCE HOOK IS WIRED", r.stdout)
+
+    def test_wired_at_a_path_that_does_not_exist_is_detected(self):
+        self.write_settings(self.wired(
+            command="python3 " + os.path.join(self.tmp, "gone",
+                                              "bm_fence_hook.py")))
+        r = self.run_doctor()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not a file", r.stdout)
+
+    def test_a_matcher_that_leaves_write_tools_ungated_is_detected(self):
+        self.write_settings(self.wired(matcher="Edit"))
+        r = self.run_doctor()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("UNGATED", r.stdout)
+
+    def test_calibrated_3_a_hook_that_never_denies_is_detected(self):
+        """The failure this whole command exists for: the fence is present,
+        executable, exits 0 on every payload, and refuses nothing. The
+        installer's smoke test passes on this. Doctor must not."""
+        with io.open(self.fence, encoding="utf-8") as fh:
+            src = fh.read()
+        neutered = src.replace("return deny_payload(reason), notes",
+                               "return None, notes")
+        self.assertNotEqual(src, neutered, "the deny path was not found")
+        with io.open(self.fence, "w", encoding="utf-8") as fh:
+            fh.write(neutered)
+        self.write_settings(self.wired())
+        r = self.run_doctor()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("BLOCKED-WRITE SIMULATION FAILED", r.stdout)
+
+        # Restore: the same install passes again, so the failure above was the
+        # injected defect and not the harness.
+        with io.open(self.fence, "w", encoding="utf-8") as fh:
+            fh.write(src)
+        self.assertEqual(self.run_doctor().returncode, 0)
+
+    def test_a_hook_that_denies_everything_is_detected(self):
+        """The opposite defect, and the reason doctor runs two halves: a hook
+        that answers deny to everything blocks a foreign write AND the owner's
+        own write. That is a brick, not a fence."""
+        with io.open(self.fence, encoding="utf-8") as fh:
+            src = fh.read()
+        marker = "        return None, notes\n    except _FailOpen as e:"
+        self.assertIn(marker, src)
+        with io.open(self.fence, "w", encoding="utf-8") as fh:
+            fh.write(src.replace(
+                marker,
+                "        return deny_payload('always deny'), notes\n"
+                "    except _FailOpen as e:"))
+        self.write_settings(self.wired())
+        r = self.run_doctor()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("CALIBRATION FAILED", r.stdout)
+
+    def test_the_simulation_leaves_nothing_behind(self):
+        self.write_settings(self.wired())
+        before = sorted(os.listdir(self.tmp))
+        self.assertEqual(self.run_doctor().returncode, 0)
+        self.assertEqual(sorted(os.listdir(self.tmp)), before,
+                         "the simulation wrote into the working directory")
+
+    def test_the_fail_open_limit_is_stated_in_the_output(self):
+        """Acceptance criterion: no unqualified guarantee. A green doctor must
+        say what it did not prove."""
+        self.write_settings(self.wired())
+        out = self.run_doctor().stdout
+        self.assertIn("FAILS OPEN", out)
+        self.assertIn("Bash is NOT gated", out)
+
+
+# ---------------------------------------------------------------------------
+# scripts/bm_shell.py: the declared-path wrapper for unavoidable shell writes.
+# ---------------------------------------------------------------------------
+
+class ShellWrapperCase(unittest.TestCase):
+
+    OWNER = "bm-shell-owner"
+    OTHER = "bm-shell-other"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="bm-shell-test-")
+        self.root = os.path.realpath(self.tmp)
+        os.makedirs(os.path.join(self.root, "src"))
+        for name in ("mine.txt", "theirs.txt"):
+            with io.open(os.path.join(self.root, "src", name), "w",
+                         encoding="utf-8") as fh:
+                fh.write("original\n")
+        self.env = dict(os.environ)
+        self.env["BROTHERMODE_ROOT"] = self.root
+        self.env.pop("BM_FENCE_STRICT", None)
+        self.env.pop("BM_FENCE_SESSION_ID", None)
+        self.env.pop("CLAUDE_SESSION_ID", None)
+        self._store("init")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _store(self, *args):
+        r = subprocess.run(
+            [sys.executable, os.path.join(HERE, "bm_store.py")] + list(args),
+            cwd=self.root, env=self.env, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, universal_newlines=True, timeout=120)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return r
+
+    def label(self, session_id):
+        r = subprocess.run(
+            [sys.executable, os.path.join(HERE, "bm_fence_hook.py"),
+             "session-label", "--session-id", session_id],
+            cwd=self.root, env=self.env, input="", stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, universal_newlines=True, timeout=120)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return r.stdout.strip().splitlines()[-1]
+
+    def claim(self, name, rel_path, session_id):
+        self._store("claim", name, "--lifetime", "ephemeral",
+                    "--objective", "shell wrapper test",
+                    "--files", rel_path, "--session", self.label(session_id))
+
+    def shell(self, *args):
+        return subprocess.run(
+            [sys.executable, SHELL] + list(args), cwd=self.root, env=self.env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=120)
+
+    def content(self, name):
+        with io.open(os.path.join(self.root, "src", name),
+                     encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_required_no_path_declaration_is_refused(self):
+        r = self.shell("--session-id", self.OWNER, "--",
+                       "echo appended >> src/mine.txt")
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        self.assertIn("No --path was declared", r.stderr)
+        self.assertEqual(self.content("mine.txt"), "original\n")
+
+    def test_required_declare_none_on_an_obvious_write_is_refused(self):
+        r = self.shell("--declare-none", "--", "echo x > src/mine.txt")
+        self.assertEqual(r.returncode, 4)
+        self.assertIn("REFUSED", r.stderr)
+        self.assertEqual(self.content("mine.txt"), "original\n")
+
+    def test_declare_none_on_a_read_only_command_runs(self):
+        r = self.shell("--declare-none", "--", "echo hello")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("hello", r.stdout)
+
+    def test_a_declared_path_this_session_owns_runs(self):
+        self.claim("mine", "src/mine.txt", self.OWNER)
+        r = self.shell("--session-id", self.OWNER, "--record", "mine",
+                       "--path", "src/mine.txt", "--",
+                       "echo appended >> src/mine.txt")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("appended", self.content("mine.txt"))
+
+    def test_another_sessions_claim_blocks_the_command(self):
+        self.claim("theirs", "src/theirs.txt", self.OTHER)
+        r = self.shell("--session-id", self.OWNER, "--path", "src/theirs.txt",
+                       "--", "echo appended >> src/theirs.txt")
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        self.assertIn("not the writer for that path", r.stderr)
+        self.assertEqual(self.content("theirs.txt"), "original\n")
+
+    def test_an_unclaimed_path_is_refused_because_the_wrapper_is_strict(self):
+        """Stricter than the hook's default on purpose: for a shell write,
+        'nobody claimed it' is not good enough. A second, unrelated claim
+        exists so the store has active records: with none at all the fence
+        fails open, which the next test covers separately."""
+        self.claim("elsewhere", "src/theirs.txt", self.OTHER)
+        r = self.shell("--session-id", self.OWNER, "--path", "src/mine.txt",
+                       "--", "echo appended >> src/mine.txt")
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        self.assertIn("strict mode", r.stderr)
+        self.assertEqual(self.content("mine.txt"), "original\n")
+
+    def test_a_fence_that_fails_open_refuses_here_instead_of_running(self):
+        """The hook fails open so a broken store cannot brick editing. This
+        wrapper is invoked deliberately for one command, so it does the
+        opposite: unchecked is not the same answer as approved."""
+        r = self.shell("--session-id", self.OWNER, "--path", "src/mine.txt",
+                       "--", "echo appended >> src/mine.txt")
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        self.assertIn("FAILING OPEN", r.stderr)
+        self.assertIn("not checked at all", r.stderr)
+        self.assertEqual(self.content("mine.txt"), "original\n")
+
+    def test_no_session_id_is_refused_rather_than_invented(self):
+        self.claim("mine", "src/mine.txt", self.OWNER)
+        r = self.shell("--path", "src/mine.txt", "--", "echo x")
+        self.assertEqual(r.returncode, 4)
+        self.assertIn("No session id", r.stderr)
+
+    def test_missing_separator_is_a_usage_error_not_a_run(self):
+        r = self.shell("--path", "src/mine.txt", "echo x > src/mine.txt")
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(self.content("mine.txt"), "original\n")
+
+    def test_the_wrapper_does_not_claim_to_understand_shell(self):
+        """Honesty check on the copy itself. The signal list is short and the
+        refusal has to say so, because a founder who reads 'checked' as
+        'parsed' will trust it further than it can carry."""
+        r = self.shell("--declare-none", "--", "tee src/mine.txt")
+        self.assertEqual(r.returncode, 4)
+        self.assertIn("not a shell parser", r.stderr)
 
 
 if __name__ == "__main__":
