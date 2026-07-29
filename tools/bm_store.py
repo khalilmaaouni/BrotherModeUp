@@ -73,7 +73,7 @@ import sys
 import unicodedata
 import uuid
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
@@ -839,7 +839,7 @@ def _scrubbed_field(L, t):
 
 def _resolve_proposal(L, cand, trigger, action, because, scope_type, scope_key,
                       domain, rule_type, severity, atomicity_override="",
-                      conflict_override=""):
+                      conflict_override="", alerts_override=""):
     """The exact rule a candidate plus a set of overrides would become.
 
     ONE function, called by the receipt minting path and by the approval path,
@@ -871,6 +871,12 @@ def _resolve_proposal(L, cand, trigger, action, because, scope_type, scope_key,
         # binding the excuse text would fail receipts over a retyped word.
         "override_atomicity": bool((atomicity_override or "").strip()),
         "override_conflict": bool((conflict_override or "").strip()),
+        # Schema 7, 2026-07-30. In the fingerprint for exactly the reason the
+        # two flags above are: proceeding past an unresolved critical alert
+        # changes what the approval DOES, so the founder's answer has to have
+        # been given about the override as well. A receipt minted for a clean
+        # question cannot be spent with --override-alerts attached.
+        "override_alerts": bool((alerts_override or "").strip()),
     }
 
 
@@ -889,7 +895,8 @@ def _proposal_fingerprint(L, cand, prop):
         prop["scope_type"], prop["scope_key"], prop["domain"],
         prop["rule_type"], prop["severity"],
         "override_atomicity=%d" % int(prop["override_atomicity"]),
-        "override_conflict=%d" % int(prop["override_conflict"])))
+        "override_conflict=%d" % int(prop["override_conflict"]),
+        "override_alerts=%d" % int(prop["override_alerts"])))
 
 
 def _resolve_edit(L, rule, trigger, action, because, domain):
@@ -918,7 +925,7 @@ def _edit_fingerprint(L, rule, next_version, prop):
         prop["trigger"], prop["action"], prop["because"], prop["domain"]))
 
 
-def _approval_guards(store, L, prop):
+def _approval_guards(store, L, prop, cand):
     """The refusals that stand between a proposal and the injectable set.
 
     ONE function, called by the receipt minting path AND by the approval path,
@@ -930,6 +937,16 @@ def _approval_guards(store, L, prop):
     them at mint means the question cannot be asked at all until the conflict is
     either resolved or explicitly being overridden, and an override is now part
     of the fingerprint, so the answer is given about the override too.
+
+    ALERTS WITH TEETH (schema 7, 2026-07-30, founder decision 7 of the
+    documentation and gate-pack spec). An unresolved critical alert anchored to
+    this candidate, or to any file this approval would change, REFUSES here. The
+    refusal names the alert, its author and its anchor, because an alert that
+    blocks and cannot be traced to a person is a wall with no door. The founder
+    may override, and the override is part of what he answered (it is in the
+    fingerprint) and is written onto the alert row itself by
+    approve_learning_candidate, so the alert stays visible as overridden rather
+    than being settled by having been forced through once.
 
     Raises OwnershipRefused, or returns quietly. Never writes."""
     if not prop["trigger"] or not prop["action"]:
@@ -970,7 +987,21 @@ def _approval_guards(store, L, prop):
                 "evidence, not a second rule: merge the candidate into it, or "
                 "re-run with an explicit override reason if they really differ."
                 % (other["rule_uuid"][:8], "; ".join(v["reasons"])))
-    return {"atomicity_problems": problems, "conflicts": found}
+    alerts = store.blocking_alerts(cand)
+    if alerts and not prop["override_alerts"]:
+        first = alerts[0]
+        raise OwnershipRefused(
+            "unresolved-critical-alert",
+            "a critical alert is unresolved and stands in front of this "
+            "approval: %s wrote %r about %s (note %s). Resolve it, or re-run "
+            "with an explicit override reason. %d unresolved critical alert(s) "
+            "match this approval."
+            % (L.safe_display(first["author"], 60),
+               L.safe_display(first["body"], 160), first["matched"],
+               first["note_uuid"][:8], len(alerts)),
+            details={"note_uuids": [a["note_uuid"] for a in alerts]})
+    return {"atomicity_problems": problems, "conflicts": found,
+            "blocking_alerts": alerts}
 
 
 def _receipt_token_hash(token):
@@ -1146,8 +1177,18 @@ _TABLES_V5 = _TABLES_V4 + _TABLES_HANDOVER
 # identical in what they require to be present.
 _TABLES_V6 = _TABLES_V5
 
+# Schema 7 adds the anchored note (phase A of the documentation and gate-pack
+# spec, 2026-07-30). Its own tuple for the fifth time and for the fifth
+# identical reason: a healthy schema-6 store must be checked against schema 6's
+# table list, or the version check never runs and a store whose only fault is
+# predating the upgrade gets quarantined.
+_TABLES_NOTES = ("notes",)
+
+_TABLES_V7 = _TABLES_V6 + _TABLES_NOTES
+
 _TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3,
-                      4: _TABLES_V4, 5: _TABLES_V5, 6: _TABLES_V6}
+                      4: _TABLES_V4, 5: _TABLES_V5, 6: _TABLES_V6,
+                      7: _TABLES_V7}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -1506,6 +1547,75 @@ CREATE INDEX IF NOT EXISTS handovers_undelivered_idx
 _HANDOVER_DDL_STATEMENTS = _split_ddl(_HANDOVER_DDL)
 _HANDOVER_INDEX_STATEMENTS = _split_ddl(_HANDOVER_INDEX_DDL)
 
+# The anchored note (schema 7). Phase A of
+# docs/superpowers/specs/2026-07-30-documentation-and-gate-packs-design.md needs
+# exactly one thing from the collaboration layer of section 6: an alert a human
+# wrote, anchored somewhere, that can REFUSE an approval. The table is built to
+# section 6's full column list rather than to phase A's needs, so phase C
+# extends it (more kinds in use, rendering, lineage queries) instead of
+# replacing it and migrating twice.
+#
+# WHY THE KIND VOCABULARY IS THE WHOLE OF SECTION 6 ALREADY. A CHECK constraint
+# is the one part of this that a later migration cannot widen cheaply in SQLite
+# (it takes a table rebuild), so the six kinds are here from the start even
+# though phase A only reads 'alert' and writes 'review'.
+#
+# severity is '' for the kinds that have none. Only 'critical' has teeth, and
+# only on kind 'alert' (see blocking_alerts): a critical 'todo' refuses nothing,
+# because a todo is not a warning and inventing a meaning for it would be a
+# refusal nobody asked for.
+#
+# resolved_at and overridden_at are SEPARATE and neither is a delete. A resolved
+# alert is answered; an overridden alert is unanswered and proceeded past
+# anyway, and it keeps showing up as overridden for exactly that reason.
+# override_reason is NOT NULL DEFAULT '' at the schema level and mandatory in
+# the API: the override is only worth having if it is written down.
+#
+# anchor_line is nullable INTEGER: an alert about a whole file has no line, and
+# a zero would be a line number that does not exist.
+_NOTES_DDL = """
+CREATE TABLE IF NOT EXISTS notes (
+  note_uuid TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK(kind IN (
+    'insight','alert','question','review','todo','risk')),
+  severity TEXT NOT NULL DEFAULT '' CHECK(severity IN (
+    '','info','warning','critical')),
+  author TEXT NOT NULL DEFAULT '',
+  author_kind TEXT NOT NULL CHECK(author_kind IN (
+    'founder','assistant','human')),
+  anchor_type TEXT NOT NULL CHECK(anchor_type IN (
+    'file','candidate','rule','record','decision')),
+  anchor_key TEXT NOT NULL,
+  anchor_line INTEGER,
+  body TEXT NOT NULL DEFAULT '',
+  session_id TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  resolved_at TEXT,
+  resolution TEXT NOT NULL DEFAULT '',
+  overridden_at TEXT,
+  override_by TEXT NOT NULL DEFAULT '',
+  override_reason TEXT NOT NULL DEFAULT ''
+);
+"""
+
+_NOTES_INDEX_DDL = """
+CREATE INDEX IF NOT EXISTS notes_anchor_idx
+  ON notes(anchor_type, anchor_key, kind);
+CREATE INDEX IF NOT EXISTS notes_open_alert_idx
+  ON notes(kind, severity, resolved_at);
+"""
+
+_NOTES_DDL_STATEMENTS = _split_ddl(_NOTES_DDL)
+_NOTES_INDEX_STATEMENTS = _split_ddl(_NOTES_INDEX_DDL)
+
+NOTE_KINDS = ("insight", "alert", "question", "review", "todo", "risk")
+NOTE_SEVERITIES = ("", "info", "warning", "critical")
+NOTE_AUTHOR_KINDS = ("founder", "assistant", "human")
+NOTE_ANCHOR_TYPES = ("file", "candidate", "rule", "record", "decision")
+# The one severity with teeth, on the one kind that has them.
+BLOCKING_NOTE_KIND = "alert"
+BLOCKING_NOTE_SEVERITY = "critical"
+
 # The one column added to an existing table by any migration in this project.
 # NULL for every row written before schema 4, and it STAYS null: a legacy
 # application is reported as legacy by classify_learning_applications, never
@@ -1739,12 +1849,35 @@ def _migrate_5_to_6(conn):
         conn.execute(statement)
 
 
+def _migrate_6_to_7(conn):
+    """Schema 6 to 7: add the notes table. ADDITIVE ONLY.
+
+    Same contract as every migration before it, and the same three
+    prohibitions: no existing row is read or rewritten, every statement is
+    CREATE ... IF NOT EXISTS, and it runs inside the caller's BEGIN EXCLUSIVE
+    so it must never commit, roll back, or open a transaction of its own (see
+    _split_ddl for the incident that proved executescript cannot be used here).
+
+    What this migration deliberately does NOT do: it does not invent notes out
+    of existing rows. A transition note, a checkpoint blocker and a rejected
+    candidate all look a little like an alert and none of them was written as
+    one, so importing them would put words in an author's mouth and, worse,
+    could manufacture a critical alert that refuses an approval nobody was
+    warned about. Old stores arrive at schema 7 with an empty notes table, which
+    is the honest state: nobody has written a note yet."""
+    for statement in _NOTES_DDL_STATEMENTS:
+        conn.execute(statement)
+    for statement in _NOTES_INDEX_STATEMENTS:
+        conn.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_1_to_2,
     2: _migrate_2_to_3,
     3: _migrate_3_to_4,
     4: _migrate_4_to_5,
     5: _migrate_5_to_6,
+    6: _migrate_6_to_7,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -2074,6 +2207,16 @@ _DUMP_SAFE_COLUMNS = frozenset((
     ("handovers", "handover_uuid"), ("handovers", "lifecycle_uuid"),
     ("handovers", "from_session_id"), ("handovers", "to_session_id"),
     ("handovers", "delivered_at"), ("handovers", "created_at"),
+    # Schema 7. Identifiers, schema enums and timestamps only. author,
+    # anchor_key, body, resolution and override_reason are DELIBERATELY absent:
+    # an author is a person's name, an anchor key is a path, and the other three
+    # are human prose. They go through the default-deny redaction like every
+    # other free-text column, so a dump shows that a critical alert exists and
+    # withholds what it says.
+    ("notes", "note_uuid"), ("notes", "kind"), ("notes", "severity"),
+    ("notes", "author_kind"), ("notes", "anchor_type"),
+    ("notes", "created_at"), ("notes", "resolved_at"),
+    ("notes", "overridden_at"),
     # LOOP 11: the schema-2 learning tables were never listed here, because
     # under the old policy an unlisted column was merely SCRUBBED and a uuid
     # survives scrubbing unchanged. Under withhold-by-default an unlisted
@@ -3203,6 +3346,10 @@ class Store(object):
             # anyway for the same reason as the two above: one text, one path,
             # no drift between a store born at 6 and one migrated to it.
             _migrate_5_to_6(self.conn)
+        if SCHEMA_VERSION >= 7:
+            # Same rule as every step above: the migration step is the ONE text,
+            # run here for a fresh store and by _migrate_from for an old one.
+            _migrate_6_to_7(self.conn)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -3239,6 +3386,8 @@ class Store(object):
             self.conn.executescript(_RETRIEVAL_RUN_INDEX_DDL)
         if SCHEMA_VERSION >= 5:
             self.conn.executescript(_HANDOVER_INDEX_DDL)
+        if SCHEMA_VERSION >= 7:
+            self.conn.executescript(_NOTES_INDEX_DDL)
 
     # ------------------------------------------------------------------
     # The optional FTS5 fast path (LOOP P7). Read the block above
@@ -4032,6 +4181,17 @@ class Store(object):
         scope_err = L.validate_scope(scope_type, scope_key)
         if scope_err:
             raise OwnershipRefused("bad-scope", scope_err)
+        # A PREFIX is accepted here, resolved to the one record it names or
+        # refused by name (schema 7, 2026-07-30). Before this, only a full
+        # lifecycle uuid worked and anything shorter was written straight into
+        # source_record_uuid, where it linked to no record at all. That link is
+        # now load bearing: gate_change_set reads the record's claimed paths to
+        # decide which files an approval would change, so a silently broken link
+        # would mean an alert anchored to a changed file quietly failing to
+        # refuse. Every other id-taking method in this file already resolves a
+        # prefix; this one was the exception.
+        if record_uuid:
+            record_uuid = self._resolve_record_uuid(record_uuid)
         clean_raw = redact_text(raw_text or "")
         # LOOP 12: only raw_text used to be scrubbed. proposed_trigger,
         # proposed_action, proposed_because, proposed_domain and
@@ -4316,6 +4476,7 @@ class Store(object):
                                scope_key=None, rule_type="preference",
                                severity="soft", domain=None,
                                atomicity_override="", conflict_override="",
+                               alerts_override="",
                                ttl_seconds=APPROVAL_RECEIPT_TTL_SECONDS):
         """Record that a human answered a question about ONE candidate, and
         return a one-time token that lets `approve` act on that answer.
@@ -4361,12 +4522,13 @@ class Store(object):
                 % (cand["candidate_uuid"][:8], cand["status"]))
         prop = _resolve_proposal(L, cand, trigger, action, because, scope_type,
                                  scope_key, domain, rule_type, severity,
-                                 atomicity_override, conflict_override)
+                                 atomicity_override, conflict_override,
+                                 alerts_override)
         # Every refusal approval would raise, raised HERE too, so no token is
         # ever printed for a rule the founder was not told the truth about
         # (FIX ROUND P3). The override flags are in the fingerprint above, so a
         # token minted for the clean question cannot be spent with an override.
-        guards = _approval_guards(self, L, prop)
+        guards = _approval_guards(self, L, prop, cand)
         try:
             ttl = int(ttl_seconds)
         except (TypeError, ValueError):
@@ -4410,6 +4572,13 @@ class Store(object):
                              for o, _v in guards["conflicts"]["duplicates"]]
         out["override_atomicity"] = prop["override_atomicity"]
         out["override_conflict"] = prop["override_conflict"]
+        out["override_alerts"] = prop["override_alerts"]
+        # Same reason as the three lines above: an alert being overridden is the
+        # part the founder most needs to see written down beside the token.
+        out["blocking_alerts"] = [
+            {"note_uuid": a["note_uuid"], "author": a["author"],
+             "matched": a["matched"], "body": a["body"]}
+            for a in guards["blocking_alerts"]]
         return out
 
     def get_approval_receipt(self, receipt_uuid):
@@ -4449,7 +4618,8 @@ class Store(object):
                                     action=None, because=None, scope_type=None,
                                     scope_key=None, rule_type="preference",
                                     severity="soft", domain=None,
-                                    atomicity_override="", conflict_override=""):
+                                    atomicity_override="", conflict_override="",
+                                    alerts_override=""):
         """Promote a candidate into an approved rule. ATOMIC and RECEIPT-GATED.
 
         `receipt` is a one-time token from mint_approval_receipt, and it is
@@ -4518,7 +4688,8 @@ class Store(object):
         # about what the founder just passed in (LOOP 12).
         prop = _resolve_proposal(L, cand, trigger, action, because, scope_type,
                                  scope_key, domain, rule_type, severity,
-                                 atomicity_override, conflict_override)
+                                 atomicity_override, conflict_override,
+                                 alerts_override)
         if _proposal_fingerprint(L, cand, prop) != rec["candidate_fingerprint"]:
             raise OwnershipRefused(
                 "receipt-stale-candidate",
@@ -4537,9 +4708,10 @@ class Store(object):
         # fingerprint) and is written down as evidence AND as an edge, so the
         # conflict stays visible in `conflicts`, in retrieval and in verify
         # rather than being settled by having been forced through once.
-        guards = _approval_guards(self, L, prop)
+        guards = _approval_guards(self, L, prop, cand)
         problems = guards["atomicity_problems"]
         found = guards["conflicts"]
+        overridden_alerts = guards["blocking_alerts"]
         ruuid = uuid.uuid4().hex
         ts = now_iso()
         with self._transaction():
@@ -4618,6 +4790,28 @@ class Store(object):
                                 "VALUES (?,?,'duplicate_of',?,?)",
                           (ruuid, other["rule_uuid"],
                            L.normalize_text(conflict_override)[:500], ts))
+            if overridden_alerts:
+                # Reaching here means the guard passed only because
+                # override_alerts was in the fingerprint the founder answered
+                # about. The override lands on the ALERT ROW, inside this
+                # transaction, so it cannot be true that a rule exists and the
+                # alert it was forced past still reads as clean. The alert stays
+                # UNRESOLVED (nobody answered it) and stays visible as
+                # overridden, which is the founder decision, not a delete.
+                for a in overridden_alerts:
+                    _exec(self, "UPDATE notes SET overridden_at=?, "
+                                "override_reason=?, override_by=? "
+                                "WHERE note_uuid=? AND overridden_at IS NULL",
+                          (ts, redact_text(alerts_override)[:500],
+                           redact_text(founder_ref)[:200], a["note_uuid"]))
+                    _exec(self,
+                          "INSERT INTO learning_evidence (evidence_uuid, rule_uuid, "
+                          "polarity, evidence_type, source_ref, excerpt, created_at) "
+                          "VALUES (?,?,'neutral','manual_review',?,?,?)",
+                          (uuid.uuid4().hex, ruuid, founder_ref[:500],
+                           ("critical alert override: %s (alert %s by %s about %s)"
+                            % (redact_text(alerts_override), a["note_uuid"][:8],
+                               a["author"], a["matched"]))[:500], ts))
             _exec(self,
                   "UPDATE learning_candidates SET status='approved', reviewed_at=?, "
                   "resulting_rule_uuid=? WHERE candidate_uuid=?",
@@ -4643,6 +4837,254 @@ class Store(object):
                   (now_iso(), _learning().normalize_text(reason)[:500],
                    cand["candidate_uuid"]))
         return self.get_learning_candidate(cand["candidate_uuid"])
+
+    # ------------------------------------------------------------------
+    # Anchored notes, and the alert that can refuse an approval (schema 7,
+    # phase A of the 2026-07-30 documentation and gate-pack spec).
+    #
+    # Nothing here interprets a note. add_note records what a human wrote,
+    # blocking_alerts answers one question ("is there an unresolved critical
+    # alert standing in front of THIS approval"), and _approval_guards turns
+    # that answer into a refusal. The decision to refuse lives in exactly one
+    # place, and it is the same place the atomicity and contradiction refusals
+    # already live, so a receipt cannot be minted for a question that hid an
+    # alert and an approval cannot spend one either.
+    # ------------------------------------------------------------------
+
+    def add_note(self, kind, body, author, author_kind, anchor_type, anchor_key,
+                 severity="", anchor_line=None, session_id=""):
+        """Record one anchored note. Never overwrites, never deletes.
+
+        Every field is validated at the door rather than by the CHECK
+        constraints alone, so a caller gets a named refusal instead of a
+        sqlite3.IntegrityError that _exec would read as structural damage.
+
+        A 'file' anchor goes through canonicalize_path, which is what makes an
+        alert anchored to api/pay.py from a subdirectory the same anchor as one
+        typed at the root, and what refuses an anchor outside the project. It is
+        also why blocking_alerts can compare an anchor against a work record's
+        claimed paths at all: both sides are the same canonical string.
+
+        body and author are secret-scrubbed on the way in, like every other
+        human-typed column."""
+        if kind not in NOTE_KINDS:
+            raise OwnershipRefused(
+                "unknown-note-kind",
+                "unknown note kind %r (known: %s)" % (kind, ", ".join(NOTE_KINDS)))
+        if author_kind not in NOTE_AUTHOR_KINDS:
+            raise OwnershipRefused(
+                "unknown-author-kind",
+                "unknown author kind %r (known: %s)"
+                % (author_kind, ", ".join(NOTE_AUTHOR_KINDS)))
+        if anchor_type not in NOTE_ANCHOR_TYPES:
+            raise OwnershipRefused(
+                "unknown-anchor-type",
+                "unknown anchor type %r (known: %s)"
+                % (anchor_type, ", ".join(NOTE_ANCHOR_TYPES)))
+        if severity not in NOTE_SEVERITIES:
+            raise OwnershipRefused(
+                "unknown-severity",
+                "unknown severity %r (known: %s)"
+                % (severity, ", ".join(s or "(none)" for s in NOTE_SEVERITIES)))
+        if kind == BLOCKING_NOTE_KIND and not severity:
+            raise OwnershipRefused(
+                "alert-needs-severity",
+                "an alert without a severity cannot be acted on: say info, "
+                "warning or critical. Only critical refuses an approval.")
+        if not (body or "").strip():
+            raise OwnershipRefused(
+                "empty-note", "a note with no body says nothing; write what you saw")
+        if not (author or "").strip():
+            raise OwnershipRefused(
+                "no-note-author",
+                "a note needs an author. An anonymous alert can refuse an "
+                "approval and name nobody to ask about it, which is the one "
+                "thing a refusal must never do.")
+        if not (anchor_key or "").strip():
+            raise OwnershipRefused(
+                "no-anchor",
+                "a note needs an anchor: the file, candidate, rule, record or "
+                "decision it is about")
+        key = anchor_key.strip()
+        if anchor_type == "file":
+            key = canonicalize_path(self.root, key)
+        if anchor_line is not None:
+            try:
+                anchor_line = int(anchor_line)
+            except (TypeError, ValueError):
+                raise OwnershipRefused(
+                    "bad-anchor-line",
+                    "anchor line must be an integer line number, got %r" % (anchor_line,))
+            if anchor_line < 1:
+                raise OwnershipRefused(
+                    "bad-anchor-line",
+                    "line numbers start at 1; got %d" % anchor_line)
+        nuuid = uuid.uuid4().hex
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO notes (note_uuid, kind, severity, author, "
+                  "author_kind, anchor_type, anchor_key, anchor_line, body, "
+                  "session_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                  (nuuid, kind, severity, redact_text(author.strip()),
+                   author_kind, anchor_type, key, anchor_line,
+                   redact_text(body), session_id or "", now_iso()))
+        return self.get_note(nuuid)
+
+    def get_note(self, prefix):
+        rows = _exec(self, "SELECT * FROM notes WHERE note_uuid LIKE ?",
+                     (prefix + "%",)).fetchall()
+        return _one_or_refuse(rows, "note", prefix)
+
+    def list_notes(self, kinds=None, anchors=None, include_resolved=True,
+                   severities=None):
+        """Notes, oldest first. `anchors` is an iterable of (type, key) pairs.
+
+        Oldest first because a note list is a history: the order the concerns
+        were raised in is the order a reviewer needs them in."""
+        sql = "SELECT * FROM notes"
+        where = []
+        params = []
+        if kinds:
+            kinds = tuple(kinds)
+            where.append("kind IN (%s)" % ",".join("?" * len(kinds)))
+            params.extend(kinds)
+        if severities:
+            severities = tuple(severities)
+            where.append("severity IN (%s)" % ",".join("?" * len(severities)))
+            params.extend(severities)
+        if anchors is not None:
+            pairs = [(t, k) for t, k in anchors]
+            if not pairs:
+                return []
+            where.append("(%s)" % " OR ".join(
+                ["(anchor_type=? AND anchor_key=?)"] * len(pairs)))
+            for t, k in pairs:
+                params.extend((t, k))
+        if not include_resolved:
+            where.append("resolved_at IS NULL")
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY created_at, note_uuid"
+        return [dict(r) for r in _exec(self, sql, tuple(params)).fetchall()]
+
+    def resolve_note(self, prefix, resolution):
+        """Mark a note answered. The row STAYS, marked resolved (spec section 6
+        retention: nothing is deleted by a generator, and nothing here deletes
+        either).
+
+        WHAT THIS DOES NOT PROVE, stated rather than implied: nothing here
+        authenticates who resolved the note, exactly as nothing authenticates a
+        founder_ref. A caller able to run this can resolve a critical alert and
+        the approval will then proceed without any refusal. What it cannot do is
+        do it quietly: the resolution text and its timestamp are on the row, and
+        a gate pack renders them beside the alert. The receipt-gated override is
+        the path with a human answer behind it; this one is a record, not a
+        gate."""
+        if not (resolution or "").strip():
+            raise OwnershipRefused(
+                "no-resolution",
+                "resolving a note requires saying what resolved it; a note that "
+                "went quiet is not a note that was answered")
+        note = self.get_note(prefix)
+        if note["resolved_at"] is not None:
+            raise OwnershipRefused(
+                "already-resolved",
+                "note %s was resolved at %s" % (note["note_uuid"][:8],
+                                                note["resolved_at"]))
+        with self._transaction():
+            _exec(self, "UPDATE notes SET resolved_at=?, resolution=? "
+                        "WHERE note_uuid=? AND resolved_at IS NULL",
+                  (now_iso(), redact_text(resolution), note["note_uuid"]))
+        return self.get_note(note["note_uuid"])
+
+    # THERE IS NO override_note() AND THERE IS NO delete_note(), on purpose.
+    #
+    # An override is only allowed to happen INSIDE approve_learning_candidate's
+    # transaction, where it is bound to a receipt the founder's own answer minted
+    # against a fingerprint that includes the override flag. A standalone
+    # override method would be a second door into the same room with no receipt
+    # on it, and any process able to import this module could walk through it and
+    # then approve cleanly. Overriding is therefore not a note operation at all;
+    # it is part of one approval, written in the same atomic act as the rule.
+    #
+    # A delete is never allowed. Spec section 6 retention, and I10 in spirit:
+    # generated output never destroys human text.
+
+    def gate_change_set(self, cand):
+        """The files an approval would change, discovered from the store.
+
+        Two sources, both recorded rather than guessed:
+          * the claimed paths of the work record the candidate came from, which
+            is the fence that record declared it would write inside;
+          * the proposed scope key when the scope is an artifact, which is a
+            path by definition.
+
+        Returns a list of canonical root-relative strings, possibly globs, which
+        is why the caller compares them with paths_overlap rather than equality."""
+        out = []
+        seen = set()
+
+        def _add(p):
+            try:
+                canon = canonicalize_path(self.root, p)
+            except (ValueError, OwnershipRefused):
+                # An unusable path is not a change set entry. It is also not a
+                # reason to refuse the approval: this method reports what it can
+                # prove, and a scope key that is not a path simply is not one.
+                return
+            key = _normcase(canon)
+            if key not in seen:
+                seen.add(key)
+                out.append(canon)
+
+        record_uuid = cand.get("source_record_uuid")
+        if record_uuid:
+            for row in _exec(self, "SELECT path FROM claims WHERE "
+                                   "lifecycle_uuid=? ORDER BY path",
+                             (record_uuid,)).fetchall():
+                _add(row["path"])
+        if cand.get("proposed_scope_type") == "artifact":
+            skey = (cand.get("proposed_scope_key") or "").strip()
+            if skey:
+                _add(skey)
+        return out
+
+    def blocking_alerts(self, cand):
+        """Unresolved critical alerts standing in front of THIS approval.
+
+        Anchored to the candidate itself, or to any file the approval would
+        change (gate_change_set). Overridden alerts are excluded here and
+        nowhere else: the override is what lets the approval proceed, and the
+        row keeps saying it was overridden.
+
+        Returns a list of note rows, oldest first, each carrying an extra
+        'matched' key naming WHY it blocks, because a refusal that cannot say
+        which anchor caught it is a refusal nobody can act on."""
+        alerts = self.list_notes(kinds=(BLOCKING_NOTE_KIND,),
+                                 severities=(BLOCKING_NOTE_SEVERITY,),
+                                 include_resolved=False)
+        if not alerts:
+            return []
+        changed = self.gate_change_set(cand)
+        cuuid = cand["candidate_uuid"]
+        out = []
+        for note in alerts:
+            if note["overridden_at"] is not None:
+                continue
+            matched = ""
+            if note["anchor_type"] == "candidate" and cuuid.startswith(
+                    note["anchor_key"]):
+                matched = "candidate %s" % cuuid[:8]
+            elif note["anchor_type"] == "file":
+                for claimed in changed:
+                    if paths_overlap(claimed, note["anchor_key"]):
+                        matched = "file %s" % claimed
+                        break
+            if matched:
+                row = dict(note)
+                row["matched"] = matched
+                out.append(row)
+        return out
 
     def get_learning_rule(self, prefix):
         rows = _exec(self, "SELECT r.*, v.trigger_text, v.action_text, "
@@ -8477,8 +8919,9 @@ def _warn(s, end="\n"):
 
 def _write_generated_file(path, text):
     """THE FILE FUNNEL (see THE OUTPUT FUNNEL note below): the only path
-    allowed to write a generated file (currently STATE.md, via
-    write_state_view). Runs redact_text() over the whole text unconditionally
+    allowed to write a generated file (STATE.md, via write_state_view, and any
+    generated document a sibling tool writes through
+    write_generated_document). Runs redact_text() over the whole text unconditionally
     before _atomic_write_text ever sees it; if the redactor is unavailable
     this raises RedactionUnavailable and nothing is written.
 
@@ -8497,6 +8940,24 @@ def _write_generated_file(path, text):
     protected = redact_text(text or "")
     _atomic_write_text(path, protected)
     return protected
+
+
+def write_generated_document(path, text):
+    """THE FILE FUNNEL, for a generated DOCUMENT written by a sibling tool.
+
+    Added for the gate deep-dive packs (2026-07-30). bm_packs.py renders a
+    markdown document out of store rows and repository text, and a second
+    private copy of "redact, then write atomically" in that file would be the
+    third time this project grew a weaker duplicate of this exact primitive.
+    So there is one funnel and this is its public door: same unconditional
+    redact_text, same crash-atomic replacement, same refusal to write anything
+    at all when the redactor is unavailable.
+
+    The caller owns the path, and is expected to have built it with
+    safe_project_path so it cannot land outside the project. The directory must
+    exist; this creates nothing, because a funnel that makes directories is a
+    funnel that can write somewhere nobody meant."""
+    return _write_generated_file(path, text)
 
 
 def _parse_kv(argv):

@@ -65,6 +65,7 @@ bm-store = "bm_store:main"
 bm-threads = "bm_threads:main"
 bm-telemetry = "bm_telemetry:main"
 bm-learn = "bm_learn:cli"
+bm-packs = "bm_packs:cli"
 bm-runtimes = "bm_runtimes:cli"
 bm-score = "bm_score:cli"
 
@@ -78,6 +79,7 @@ py-modules = [
     "bm_store",
     "bm_learning",
     "bm_learn",
+    "bm_packs",
     "bm_score",
     "bm_telemetry",
     "bm_threads",

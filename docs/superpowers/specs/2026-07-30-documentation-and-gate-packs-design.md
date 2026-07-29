@@ -4,8 +4,8 @@ Date: 2026-07-30
 Branch: main (v2 retired; main is the only branch)
 Baseline commit: 6cc94bc, tag v2.0.0-rc.4, gate "test_all: 911 tests across 7
 suites, 1 skipped. ALL GREEN", clean-clone from the tag verified.
-Status: founder-ratified 2026-07-30 through question windows. Every decision in
-section 2 carries the founder's recorded answer.
+Status: CURRENT, founder-ratified 2026-07-30 through question windows. Every
+decision in section 2 carries the founder's recorded answer.
 
 This spec is the single source of truth for the three builds. Implementers point
 at it by path and line range; they never restate it.

@@ -276,6 +276,7 @@ per project or entirely.
 | `tools/bm_fence_hook.py` | The PreToolUse fence: the one hook that can REFUSE a write to a file another live session owns. Explained in `docs/HOOKS.md` |
 | `tools/bm_store.py`, `tools/test_bm_store.py` | The V2 storage engine and its tests. Wired into the tools above since Phase 3 (2026-07-26); see Status for the defects that wiring surfaced |
 | `tools/bm_learn.py` | The founder-facing correction-learning CLI: capture, approve, retrieve, grade. No direct database access, no automatic approval |
+| `tools/bm_packs.py` | Gate deep-dive packs: on demand, writes one markdown document per decision under `Documentation/30-decisions/`, with the code quoted live from disk, the callers and tests found by search, the rollback, and the review slots. A citation that no longer resolves fails the build rather than quoting stale code |
 | `tools/bm_learning.py` | Pure helper functions the CLI and store share: normalization, hashing, ranking. No database, clock, or file access |
 | `tools/bm_project_facts.py` | Prints the facts documentation is allowed to state (version, release tag, schema version, hook events, suite list, Python floor), read out of the tree rather than typed into a page |
 | `tools/bm_runtimes.py` | Generates the instruction file that wires BrotherMode into another AI coding runtime (Codex CLI, GitHub Copilot, Google Antigravity, Qwen Code, iFlow CLI, or a generic AGENTS.md). Each generated file carries the vendor URL its convention was read from and the date it was read |
