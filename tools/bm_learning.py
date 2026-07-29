@@ -491,3 +491,202 @@ def false_positive_category(reason):
         if pat.search(norm):
             return name
     return "other"
+
+
+# ---------------------------------------------------------------------------
+# Loop 6: duplicates, contradictions and supersession.
+#
+# WHAT THESE FUNCTIONS MAY AND MAY NOT CLAIM
+#   Everything here is deterministic and lexical, the same honesty the retrieval
+#   ranker holds itself to. There is no embedding, no similarity model, and no
+#   attempt to understand what a rule means. So:
+#     * a DUPLICATE is detected when two rules say nearly the same words in the
+#       same scope, which is the case that actually floods a review queue;
+#     * a CONTRADICTION is detected only when two rules in the same scope say
+#       nearly the same words with OPPOSITE polarity ("always push through the
+#       desktop app" against "never push through the desktop app"). That is the
+#       shape a founder's own reversal takes, and it is the one shape a lexical
+#       comparison can be trusted on.
+#   "Use tabs" against "use spaces" is a real contradiction and this code will
+#   NOT find it. That gap is why `link a contradicts b` exists as a founder
+#   command: the founder can always declare a conflict the detector cannot see,
+#   and a declared conflict counts exactly as much as a detected one everywhere
+#   downstream. Nothing here ever RESOLVES a conflict; resolution is a founder
+#   act, and these functions only ever describe.
+# ---------------------------------------------------------------------------
+
+RELATIONS = ("duplicate_of", "contradicts", "supersedes",
+             "derived_from", "supports", "applies_to")
+
+# Polarity markers, English and French. A rule whose action carries one of these
+# forbids something; a rule with none of them requires something. Deliberately
+# small: a longer list starts flipping the polarity of ordinary prose, and a
+# wrongly flipped polarity manufactures a contradiction that blocks an approval.
+_NEGATORS = frozenset((
+    "never", "not", "no", "dont", "don", "avoid", "stop", "without", "refuse",
+    "jamais", "pas", "aucun", "sans", "arrete", "cesse",
+))
+
+ACTION_RELATIONS = ("identical", "near_duplicate", "incompatible",
+                    "narrowing", "not_comparable")
+
+# Named thresholds rather than numbers buried in a condition, because invariant
+# L9 says every decision has to be able to explain itself, and "0.85" inside an
+# if statement explains nothing.
+NEAR_DUPLICATE_FLOOR = 0.85
+INCOMPATIBLE_FLOOR = 0.5
+NARROWING_FLOOR = 0.5
+TRIGGER_OVERLAP_FLOOR = 0.3
+
+CONFLICT_VERDICTS = ("duplicate", "contradiction", "narrowing", "unrelated")
+
+
+def polarity(text):
+    """'forbid' or 'require'. See _NEGATORS on why the marker list is small."""
+    return "forbid" if set(tokenize(text)) & _NEGATORS else "require"
+
+
+def _content_tokens(text):
+    """Tokens with polarity markers removed, so "always use X" and "never use X"
+    compare as the SAME subject with opposite polarity rather than as two
+    different subjects."""
+    return set(tokenize(text)) - _NEGATORS
+
+
+def _jaccard(a, b):
+    if not a or not b:
+        return 0.0
+    return len(a & b) / float(len(a | b))
+
+
+def scope_relation(a_type, a_key, b_type, b_key):
+    """How A's scope relates to B's: same, broader, narrower or disjoint.
+
+    Containment between two NON-global scopes is not inferred. This store holds
+    no map saying artifact 'executive-update' lives inside project 'Tonari', so
+    claiming one narrows the other would be a guess, and a guess here decides
+    whether an approval is blocked. Unknown containment reports 'disjoint',
+    which coexists rather than blocks."""
+    ak = normalize_text(a_key).lower()
+    bk = normalize_text(b_key).lower()
+    if a_type == b_type:
+        if a_type == "global":
+            return "same"
+        return "same" if ak == bk else "disjoint"
+    if a_type == "global":
+        return "broader"
+    if b_type == "global":
+        return "narrower"
+    return "disjoint"
+
+
+def action_relation(a, b):
+    """One of ACTION_RELATIONS, describing two rule actions against each other."""
+    na = normalize_text(a).lower()
+    nb = normalize_text(b).lower()
+    if not na or not nb:
+        return "not_comparable"
+    if na == nb:
+        return "identical"
+    ta = _content_tokens(a)
+    tb = _content_tokens(b)
+    if not ta or not tb:
+        return "not_comparable"
+    overlap = _jaccard(ta, tb)
+    if polarity(a) != polarity(b):
+        return "incompatible" if overlap >= INCOMPATIBLE_FLOOR else "not_comparable"
+    if overlap >= NEAR_DUPLICATE_FLOOR:
+        return "near_duplicate"
+    if (ta < tb or tb < ta) and overlap >= NARROWING_FLOOR:
+        return "narrowing"
+    return "not_comparable"
+
+
+def conflict_verdict(a, b):
+    """Compare two rule dicts and say, with its working shown, what they are to
+    each other.
+
+    Only rules in the SAME scope can reach 'contradiction'. A narrower rule
+    beside a broader one is how a founder legitimately says "in general do X,
+    but here do Y", and blocking that would make the scope system useless. It
+    reports 'narrowing' instead, which is visible and never blocks."""
+    scope = scope_relation(a["scope_type"], a.get("scope_key", ""),
+                           b["scope_type"], b.get("scope_key", ""))
+    trig = _jaccard(set(tokenize(a.get("trigger_text", ""))),
+                    set(tokenize(b.get("trigger_text", ""))))
+    act = action_relation(a.get("action_text", ""), b.get("action_text", ""))
+    verdict = "unrelated"
+    if scope == "same":
+        if act in ("identical", "near_duplicate") and trig >= TRIGGER_OVERLAP_FLOOR:
+            verdict = "duplicate"
+        elif act == "incompatible" and trig >= TRIGGER_OVERLAP_FLOOR:
+            verdict = "contradiction"
+        elif act == "narrowing":
+            verdict = "narrowing"
+    elif scope in ("broader", "narrower"):
+        if act in ("identical", "near_duplicate", "incompatible", "narrowing"):
+            verdict = "narrowing"
+    return {
+        "verdict": verdict,
+        "scope_relation": scope,
+        "trigger_overlap": round(trig, 3),
+        "action_relation": act,
+        "reasons": ["scope %s" % scope,
+                    "trigger overlap %.2f" % trig,
+                    "actions %s" % act],
+    }
+
+
+def _supersedes_adjacency(edges):
+    adj = {}
+    for pair in edges:
+        adj.setdefault(pair[0], set()).add(pair[1])
+    return adj
+
+
+def supersession_cycle(edges, new_from, new_to):
+    """Would adding "new_from supersedes new_to" close a loop?
+
+    A supersession cycle means every rule in it claims to replace another one
+    that eventually replaces it, so no version of that instruction is current.
+    The state machine alone does not prevent this: an already superseded rule
+    can still be named as the SUCCESSOR of a third rule, which is exactly how a
+    three-rule loop forms."""
+    if new_from == new_to:
+        return True
+    adj = _supersedes_adjacency(edges)
+    adj.setdefault(new_from, set()).add(new_to)
+    seen = set()
+    stack = [new_to]
+    while stack:
+        node = stack.pop()
+        if node == new_from:
+            return True
+        if node in seen:
+            continue
+        seen.add(node)
+        stack.extend(adj.get(node, ()))
+    return False
+
+
+def supersession_cycles(edges):
+    """Every rule uuid that sits on a supersedes cycle, sorted.
+
+    The integrity checker needs to find loops that ALREADY exist, for instance
+    in a store written by an older build that had no cycle guard, which the
+    pre-insert check above cannot tell it."""
+    adj = _supersedes_adjacency(edges)
+    on_cycle = set()
+    for start in list(adj):
+        seen = set()
+        stack = list(adj.get(start, ()))
+        while stack:
+            node = stack.pop()
+            if node == start:
+                on_cycle.add(start)
+                break
+            if node in seen:
+                continue
+            seen.add(node)
+            stack.extend(adj.get(node, ()))
+    return sorted(on_cycle)

@@ -5699,6 +5699,303 @@ class TestLoop4OutcomeCandidates(unittest.TestCase):
                 self.assertEqual(m["candidates_by_source"], {"rework": 2})
 
 
+class TestLoop6ConflictGraph(unittest.TestCase):
+    """Loop 6. learning_edges stops being an empty table: duplicates,
+    contradictions and supersession become recorded edges, and the done gate is
+    that there is no path to silently accumulate contradictory active rules."""
+
+    ALWAYS = "always push through the GitHub Desktop app"
+    NEVER = "never push through the GitHub Desktop app"
+    TRIGGER = "pushing to GitHub"
+
+    def _rule(self, store, action, trigger=None, scope_type="global",
+              scope_key="", override=""):
+        c = store.capture_learning_candidate(
+            "manual", trigger=trigger or self.TRIGGER, action=action,
+            because="because the founder said so", scope_type=scope_type,
+            scope_key=scope_key)
+        return store.approve_learning_candidate(
+            c["candidate_uuid"], founder_ref="founder in chat",
+            conflict_override=override)
+
+    def test_overlapping_scope_plus_incompatible_action_blocks_approval(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                first = self._rule(store, self.ALWAYS)
+                c = store.capture_learning_candidate(
+                    "manual", trigger=self.TRIGGER, action=self.NEVER,
+                    scope_type="global")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.approve_learning_candidate(c["candidate_uuid"],
+                                                     founder_ref="founder")
+                self.assertEqual(ctx.exception.reason, "unresolved-contradiction")
+                self.assertIn(first["rule_uuid"][:8], str(ctx.exception),
+                              "the refusal has to name the rule it collided with")
+                self.assertEqual(len(store.list_learning_rules()), 1,
+                                 "a refused approval writes no rule")
+                self.assertEqual(
+                    store.get_learning_candidate(c["candidate_uuid"])["status"],
+                    "pending")
+
+    def test_an_overridden_contradiction_is_recorded_not_swallowed(self):
+        """The founder may force it through. What he may NOT do is make it
+        invisible: the override writes an edge and an evidence row, so the
+        conflict still shows up in conflicts, in retrieval and in verify."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = self._rule(store, self.ALWAYS)
+                b = self._rule(store, self.NEVER, override="I want both for now")
+                edges = store.list_learning_edges(b["rule_uuid"])
+                self.assertTrue(any(e["relation"] == "contradicts"
+                                    and e["to_rule_uuid"] == a["rule_uuid"]
+                                    for e in edges))
+                notes = [e["excerpt"] for e in
+                         store.list_learning_evidence(b["rule_uuid"])]
+                self.assertTrue(any("conflict override" in n for n in notes))
+                self.assertEqual(len(store.learning_conflicts()["contradictions"]), 1)
+                self.assertFalse(store.learning_verify()["ok"])
+
+    def test_same_action_under_distinct_scopes_stays_separate(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, self.ALWAYS, scope_type="project",
+                           scope_key="TonariSimple")
+                self._rule(store, self.NEVER, scope_type="project",
+                           scope_key="BrotherModeUp")
+                self.assertEqual(len(store.list_learning_rules()), 2,
+                                 "two projects are two worlds; neither blocks the other")
+                self.assertEqual(store.learning_conflicts()["contradictions"], [])
+
+    def test_a_narrower_scope_may_coexist_with_a_broader_rule(self):
+        """"In general do X, but on this project do Y" is a legitimate thing for
+        a founder to say. Blocking it would make the scope system pointless."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, self.ALWAYS, scope_type="global")
+                narrow = self._rule(store, self.NEVER, scope_type="project",
+                                    scope_key="TonariSimple")
+                self.assertEqual(narrow["state"], "approved")
+                self.assertEqual(store.learning_conflicts()["contradictions"], [])
+
+    def test_exact_duplicates_are_refused_and_merge_keeps_the_provenance(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store, self.ALWAYS)
+                c = store.capture_learning_candidate(
+                    "manual", trigger=self.TRIGGER, action=self.ALWAYS,
+                    raw_text="I have told you this before", scope_type="global",
+                    session_id="s-99")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.approve_learning_candidate(c["candidate_uuid"],
+                                                     founder_ref="founder")
+                self.assertEqual(ctx.exception.reason, "duplicate-rule")
+                store.merge_learning_candidate(c["candidate_uuid"],
+                                               rule["rule_uuid"],
+                                               reason="said twice")
+                self.assertEqual(len(store.list_learning_rules()), 1,
+                                 "a repeat is evidence, never a second rule")
+                cand = store.get_learning_candidate(c["candidate_uuid"])
+                self.assertEqual(cand["status"], "merged")
+                self.assertEqual(cand["resulting_rule_uuid"], rule["rule_uuid"])
+                ev = [e for e in store.list_learning_evidence(rule["rule_uuid"])
+                      if e["evidence_type"] == "founder_quote"]
+                self.assertEqual(len(ev), 1)
+                self.assertEqual(ev[0]["candidate_uuid"], c["candidate_uuid"],
+                                 "the new source event survives the merge")
+                self.assertIn("told you this before", ev[0]["excerpt"])
+
+    def test_supersession_is_atomic_and_retrieval_prefers_the_successor(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                old = self._rule(store, self.ALWAYS)
+                new = self._rule(store, self.NEVER, override="replacing the old one")
+                store.change_learning_rule_state(
+                    old["rule_uuid"], "superseded", reason="changed my mind",
+                    successor_prefix=new["rule_uuid"])
+                got = store.get_learning_rule(old["rule_uuid"])
+                self.assertEqual(got["state"], "superseded")
+                self.assertEqual(got["superseded_by"], new["rule_uuid"])
+                res = store.retrieve_learning_rules(self.TRIGGER, context={})
+                self.assertEqual([r["rule_uuid"] for r in res["results"]],
+                                 [new["rule_uuid"]])
+                self.assertEqual(res["conflicts"], [],
+                                 "a superseded rule cannot contradict anything")
+
+    def test_cyclic_supersession_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = self._rule(store, "prefer short commit messages",
+                               trigger="writing a commit message")
+                b = self._rule(store, "prefer imperative commit messages",
+                               trigger="writing a commit message")
+                store.change_learning_rule_state(a["rule_uuid"], "superseded",
+                                                 successor_prefix=b["rule_uuid"])
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(b["rule_uuid"], "superseded",
+                                                     successor_prefix=a["rule_uuid"])
+                self.assertEqual(ctx.exception.reason, "supersession-cycle")
+                self.assertEqual(store.get_learning_rule(b["rule_uuid"])["state"],
+                                 "approved")
+
+    def test_self_edges_are_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = self._rule(store, self.ALWAYS)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.link_learning_rules(a["rule_uuid"], a["rule_uuid"],
+                                              "contradicts")
+                self.assertEqual(ctx.exception.reason, "self-edge")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(
+                        a["rule_uuid"], "superseded",
+                        successor_prefix=a["rule_uuid"])
+                self.assertEqual(ctx.exception.reason, "self-supersession")
+                self.assertEqual(store.list_learning_edges(), [])
+
+    def test_a_supersedes_edge_cannot_be_written_as_a_plain_link(self):
+        """Otherwise a rule could claim to be replaced while still being
+        injected, which is a lie the store would then keep telling."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = self._rule(store, self.ALWAYS)
+                b = self._rule(store, "prefer short commit messages",
+                               trigger="writing a commit message")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.link_learning_rules(a["rule_uuid"], b["rule_uuid"],
+                                              "supersedes")
+                self.assertEqual(ctx.exception.reason, "use-supersede")
+
+    def test_a_declared_conflict_counts_even_when_words_do_not_collide(self):
+        """The detector cannot see that tabs and spaces fight. The founder can,
+        and what he declares is treated exactly like what was detected."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = self._rule(store, "indent with tabs", trigger="writing Python")
+                b = self._rule(store, "indent with four spaces",
+                               trigger="writing Python")
+                self.assertEqual(store.learning_conflicts()["contradictions"], [],
+                                 "lexical comparison honestly cannot see this one")
+                store.link_learning_rules(a["rule_uuid"], b["rule_uuid"],
+                                          "contradicts", note="pick one")
+                pairs = store.learning_conflicts()["contradictions"]
+                self.assertEqual(len(pairs), 1)
+                self.assertEqual(pairs[0]["declared"], "contradicts")
+                self.assertFalse(store.learning_verify()["ok"])
+
+    def test_forgotten_and_deprecated_rules_create_no_active_conflict(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = self._rule(store, self.ALWAYS)
+                b = self._rule(store, self.NEVER, override="both for now")
+                self.assertEqual(len(store.learning_conflicts()["contradictions"]), 1)
+                store.change_learning_rule_state(a["rule_uuid"], "deprecated",
+                                                 reason="old")
+                self.assertEqual(store.learning_conflicts()["contradictions"], [],
+                                 "a rule that cannot be injected cannot conflict")
+                store.change_learning_rule_state(a["rule_uuid"], "forgotten")
+                self.assertEqual(store.learning_conflicts()["contradictions"], [])
+                self.assertTrue(store.learning_verify()["ok"])
+
+    def test_retrieval_surfaces_a_conflict_and_returns_both_sides(self):
+        """The tool never picks a side. Dropping or demoting one of two
+        contradictory rules would be this code deciding which of the founder's
+        instructions is the real one."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = self._rule(store, self.ALWAYS)
+                b = self._rule(store, self.NEVER, override="both for now")
+                res = store.retrieve_learning_rules(self.TRIGGER, context={})
+                got = set(r["rule_uuid"] for r in res["results"])
+                self.assertEqual(got, {a["rule_uuid"], b["rule_uuid"]})
+                self.assertEqual(len(res["conflicts"]), 1)
+                for r in res["results"]:
+                    self.assertTrue(r["conflicts_with"],
+                                    "each side has to say it is contradicted")
+
+    def test_conflict_output_carries_no_capture_text(self):
+        """Conflict reports get read out and pasted into notes. Rule text is the
+        founder's approved words; raw_text and evidence excerpts are not."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, self.ALWAYS)
+                c = store.capture_learning_candidate(
+                    "manual", trigger=self.TRIGGER, action=self.NEVER,
+                    raw_text="SECRETPROSE about a named client",
+                    scope_type="global")
+                store.approve_learning_candidate(
+                    c["candidate_uuid"], founder_ref="founder",
+                    conflict_override="both for now")
+                blob = json.dumps(store.learning_conflicts())
+                self.assertNotIn("SECRETPROSE", blob)
+                side = store.learning_conflicts()["contradictions"][0]["a"]
+                self.assertEqual(sorted(side),
+                                 ["action", "rule_uuid", "scope", "severity",
+                                  "state", "trigger"],
+                                 "a conflict side is a closed set of display fields; "
+                                 "adding one is a redaction decision")
+
+    def test_verify_reports_a_broken_edge_and_a_missing_current_version(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = self._rule(store, self.ALWAYS)
+                b = self._rule(store, "prefer short commit messages",
+                               trigger="writing a commit message")
+                store.link_learning_rules(a["rule_uuid"], b["rule_uuid"],
+                                          "supports", note="related")
+                self.assertTrue(store.learning_verify()["ok"])
+                # Damage the store BEHIND the API, which is the only way these
+                # states arise: an older build, a partial restore, a hand edit.
+                store.conn.execute("PRAGMA foreign_keys=OFF")
+                store.conn.execute("UPDATE learning_edges SET to_rule_uuid='gone'")
+                store.conn.execute("UPDATE learning_rules SET current_version=7 "
+                                   "WHERE rule_uuid=?", (a["rule_uuid"],))
+                store.conn.commit()
+                codes = [f["code"] for f in store.learning_verify()["findings"]]
+                self.assertIn("broken-edge", codes)
+                self.assertIn("missing-current-version", codes)
+
+    def test_verify_reports_a_rule_with_no_approval_evidence(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = self._rule(store, self.ALWAYS)
+                store.conn.execute("DELETE FROM learning_evidence WHERE rule_uuid=? "
+                                   "AND evidence_type='founder_approval'",
+                                   (a["rule_uuid"],))
+                store.conn.commit()
+                res = store.learning_verify()
+                self.assertFalse(res["ok"])
+                self.assertIn("no-approval-evidence",
+                              [f["code"] for f in res["findings"]])
+
+    def test_verify_names_every_check_it_ran_including_fts(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                res = store.learning_verify()
+                self.assertTrue(res["ok"])
+                self.assertIn("fts-drift", res["checks"])
+                self.assertTrue(any("fts-drift" in n for n in res["notes"]),
+                                "a check that finds nothing because there is nothing "
+                                "to check has to say so, not stay silent")
+
+    def test_resolving_a_conflict_records_why_one_rule_stood_down(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = self._rule(store, self.ALWAYS)
+                b = self._rule(store, self.NEVER, override="both for now")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.resolve_learning_conflict(a["rule_uuid"], b["rule_uuid"],
+                                                    "contradicted", reason="  ")
+                self.assertEqual(ctx.exception.reason, "no-reason")
+                store.resolve_learning_conflict(a["rule_uuid"], b["rule_uuid"],
+                                                "contradicted",
+                                                reason="the newer one stands")
+                self.assertEqual(store.get_learning_rule(a["rule_uuid"])["state"],
+                                 "contradicted")
+                self.assertTrue(store.learning_verify()["ok"])
+                edges = store.list_learning_edges(a["rule_uuid"])
+                self.assertTrue(any("newer one stands" in e["note"] for e in edges))
+
+
 if __name__ == "__main__":
     # The leak check lives in the runner, so it applies to every test without
     # each of the ~40 TestCase classes having to opt in. Running this file
