@@ -152,7 +152,7 @@ Still: any process running as your user can read the token file and impersonate
 fully. Perfect unforgeability is not reachable on one machine, one user, no
 network. Documented in docs/HOOKS.md rather than overclaimed.
 
-## 4. Handovers are lock-serialized, not transactional. CLOSED, 2026-07-29 (Loop P12).
+## 4. Handovers are lock-serialized, not transactional. CLOSED, 2026-07-29 (Loop P12), REOPENED and CLOSED AGAIN the same day (P12 fix round).
 
 Was: the audit asked for handovers stored in the database and rendered into the
 view, so nothing appends to a generated file. What had landed was a lock plus a
@@ -173,11 +173,39 @@ The defect was reproduced first, against a real store: parked record, handover
 text gone, nothing to recover it from. Two calibration tests reinject the old
 shape (delivery as a separate step) and confirm both split states come back.
 
+The fix round, the same day: that CLOSED was premature and the paragraph above
+was wrong where it mattered most. The atomicity held, but the retry dedupe was
+keyed on the lifecycle plus the content fingerprint across every row for all
+time, and the swallow of its uniqueness error was unconditional. The
+fingerprint does not cover the state, the version, the transition, the heading
+or the sessions, so a record parked, acknowledged, resumed and parked again
+with nothing new checkpointed produced the identical key, and the second park
+committed with NO handover row at all. `handovers` reported none, STATE.md had
+no section, `verify` said healthy. Adoption was hit harder, because it writes
+no digest before it transitions: its handover lost the same way while STATE.md
+kept rendering the earlier park's heading for a record already adopted.
+
+Reproduced first, at the CLI, on a throwaway store, in both shapes. Schema 6
+now keys the dedupe on the lifecycle, the fingerprint AND the heading, over
+UNDELIVERED rows only, so an acknowledged handover cannot suppress a later one
+and two different headings are two different handovers. The swallow now re-reads
+for the undelivered copy that justifies it and raises rather than staying quiet
+when there is none, which rolls the transition back. Three new tests, one of
+which reinjects the schema-5 index and the old unconditional swallow and
+confirms the loss comes straight back.
+
 Still open, and named rather than buried: acknowledging a handover is a manual
 command (`handover-ack`), so an unacknowledged one renders into STATE.md on
 every regeneration until a human clears it. That is deliberate for now, because
 the alternative is a render that mutates the database, but it means a founder
 who ignores the section accumulates it.
+
+Also still true, and deliberate: a second park with the SAME heading while the
+first is still undelivered stores one row, not two. That is the retry dedupe
+doing its job, and the text a founder reads is identical either way, but it
+means that second transition has no handover row of its own and the row on
+screen names the earlier one. The record always has a visible handover; the
+transition-to-handover link is what is one-to-one only up to identical text.
 
 ## 5. The adopt defect. REFUTED and CLOSED, 2026-07-28. This entry was stale.
 
