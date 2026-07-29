@@ -5821,6 +5821,118 @@ class TestLoop6ConflictGraph(unittest.TestCase):
                 self.assertEqual(res["conflicts"], [],
                                  "a superseded rule cannot contradict anything")
 
+    PADDED_NEVER = ("never push through the GitHub Desktop app, use the plain "
+                    "command line instead every single time without exception")
+
+    def test_a_padded_reversal_is_refused_at_approval(self):
+        """Found by driving the real CLI: padding the reversal with an ordinary
+        founder sentence dropped it under the overlap floor, the approval gate
+        passed, conflicts and verify both reported clean, and retrieval injected
+        the two opposite instructions side by side with no conflict marker."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                first = self._rule(store, self.ALWAYS)
+                c = store.capture_learning_candidate(
+                    "manual", trigger=self.TRIGGER, action=self.PADDED_NEVER,
+                    scope_type="global")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.approve_learning_candidate(c["candidate_uuid"],
+                                                     founder_ref="founder")
+                self.assertEqual(ctx.exception.reason, "unresolved-contradiction")
+                self.assertIn(first["rule_uuid"][:8], str(ctx.exception))
+                self.assertEqual(len(store.list_learning_rules()), 1)
+
+    def test_a_reversal_is_refused_even_when_the_triggers_read_differently(self):
+        """Free-text triggers routinely differ for the same situation. When the
+        trigger wording was the only thing keeping a reversal from being seen,
+        the founder's documented escape hatch (link a contradicts b) required
+        him to already know about a conflict the system had just told him did
+        not exist."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, self.ALWAYS, trigger="pushing to github")
+                c = store.capture_learning_candidate(
+                    "manual", action=self.NEVER, scope_type="global",
+                    trigger="publishing commits upstream to the remote host")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.approve_learning_candidate(c["candidate_uuid"],
+                                                     founder_ref="founder")
+                self.assertEqual(ctx.exception.reason, "unresolved-contradiction")
+                forced = store.approve_learning_candidate(
+                    c["candidate_uuid"], founder_ref="founder",
+                    conflict_override="both for now")
+                self.assertEqual(len(store.learning_conflicts()["contradictions"]), 1,
+                                 "an overridden reversal stays visible")
+                res = store.retrieve_learning_rules("pushing to github", context={})
+                self.assertTrue(any(r["conflicts_with"] for r in res["results"]),
+                                "retrieval has to mark the side it shows")
+                self.assertTrue(res["conflicts"])
+                self.assertEqual(forced["state"], "approved")
+
+    def test_an_agreeing_rule_is_not_refused_as_a_contradiction(self):
+        """A refusal that fires on rules which plainly agree is worse than no
+        refusal: the founder can only get past it by overriding a conflict that
+        does not exist. "no exceptions" intensifies a rule, it does not reverse
+        one, so this pair is a duplicate and has to be named as one."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, "always run the tests, no exceptions",
+                           trigger="running tests")
+                c = store.capture_learning_candidate(
+                    "manual", trigger="running tests",
+                    action="always run the tests", scope_type="global")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.approve_learning_candidate(c["candidate_uuid"],
+                                                     founder_ref="founder")
+                self.assertEqual(ctx.exception.reason, "duplicate-rule")
+
+    def test_supersession_refuses_a_successor_that_cannot_speak(self):
+        """The CLI prints "the successor is returned in its place from now on".
+        Superseding with a rule that can never be retrieved makes that sentence
+        false and silences the live instruction with nothing standing in."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                live = self._rule(store, "check optionals first",
+                                  trigger="reviewing swift code")
+                dead = self._rule(store, "check nullability last",
+                                  trigger="reviewing kotlin code")
+                store.change_learning_rule_state(dead["rule_uuid"], "forgotten",
+                                                 reason="dropped kotlin")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(
+                        live["rule_uuid"], "superseded", reason="replaced",
+                        successor_prefix=dead["rule_uuid"])
+                self.assertEqual(ctx.exception.reason, "successor-cannot-speak")
+                self.assertEqual(
+                    store.get_learning_rule(live["rule_uuid"])["state"], "approved",
+                    "a refused supersession leaves the live rule speaking")
+                self.assertEqual(store.list_learning_edges(), [])
+                res = store.retrieve_learning_rules("reviewing swift code",
+                                                    context={})
+                self.assertEqual([r["rule_uuid"] for r in res["results"]],
+                                 [live["rule_uuid"]])
+
+    def test_verify_reports_a_successor_that_went_quiet_afterwards(self):
+        """Forgetting the successor is a legal move made later, so the up-front
+        refusal cannot catch it. Nothing else in the store would ever mention
+        that the replaced instruction now has nothing standing in for it."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                old = self._rule(store, "check optionals first",
+                                 trigger="reviewing swift code")
+                new = self._rule(store, "check optionals and force unwraps",
+                                 trigger="reviewing swift code",
+                                 override="replacing the old one")
+                store.change_learning_rule_state(
+                    old["rule_uuid"], "superseded", reason="sharper wording",
+                    successor_prefix=new["rule_uuid"])
+                store.change_learning_rule_state(new["rule_uuid"], "forgotten",
+                                                 reason="dropped swift")
+                codes = [f["code"] for f in store.learning_verify()["findings"]]
+                self.assertIn("dead-successor", codes)
+                self.assertFalse(store.learning_verify()["ok"])
+                self.assertIn("dead-successor", store.LEARNING_CHECKS)
+
     def test_cyclic_supersession_is_refused(self):
         with tempfile.TemporaryDirectory() as d:
             with bs.Store(d) as store:

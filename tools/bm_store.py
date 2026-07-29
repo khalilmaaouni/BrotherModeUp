@@ -3168,6 +3168,23 @@ class Store(object):
                     "rule %s already supersedes %s through other rules; adding this "
                     "would close a loop in which no rule is the current one"
                     % (rule["rule_uuid"][:8], successor["rule_uuid"][:8]))
+            # A successor that cannot be retrieved is not a replacement, it is a
+            # deletion wearing a replacement's words. Supersession means "this
+            # instruction lives on over there", and the CLI prints exactly that,
+            # so a forgotten, deprecated, contradicted or already superseded
+            # successor would make the store contradict its own output while the
+            # founder's live instruction went silent with nothing in its place.
+            # Checked AFTER the cycle test on purpose: a loop is the more
+            # structural fault and keeps its own named refusal.
+            if successor["state"] not in L.INJECTABLE_STATES:
+                raise OwnershipRefused(
+                    "successor-cannot-speak",
+                    "rule %s is %r, so it can never be retrieved, and superseding "
+                    "%s with it would silence that instruction and put nothing in "
+                    "its place. Supersede with a rule that can still speak (%s), "
+                    "or deprecate this one instead."
+                    % (successor["rule_uuid"][:8], successor["state"],
+                       rule["rule_uuid"][:8], ", ".join(L.INJECTABLE_STATES)))
         ts = now_iso()
         with self._transaction():
             if successor is not None:
@@ -3430,8 +3447,8 @@ class Store(object):
     # it actually ran rather than a hand-written one that drifts from it.
     LEARNING_CHECKS = (
         "unresolved-contradiction", "broken-edge", "supersession-cycle",
-        "missing-current-version", "no-approval-evidence", "invalid-scope",
-        "fts-drift", "application-without-version",
+        "dead-successor", "missing-current-version", "no-approval-evidence",
+        "invalid-scope", "fts-drift", "application-without-version",
     )
 
     def learning_verify(self):
@@ -3469,6 +3486,25 @@ class Store(object):
             add("supersession-cycle",
                 "rule %s sits on a supersession loop, so no rule in that loop is "
                 "the current one" % ruuid[:8], (ruuid,))
+        # Supersession is refused up front when the named successor cannot
+        # speak, but a successor can go quiet AFTERWARDS: forgetting or
+        # deprecating it is a legal move that leaves the rule it replaced
+        # silenced with nothing standing in for it. Nothing else in this store
+        # would ever mention that again, so the checker has to.
+        states = dict((r["rule_uuid"], r["state"])
+                      for r in self.list_learning_rules(include_forgotten=True))
+        for ruuid, succ in sorted(
+                (r["rule_uuid"], r["superseded_by"])
+                for r in self.list_learning_rules(include_forgotten=True)
+                if r["state"] == "superseded" and r["superseded_by"]):
+            succ_state = states.get(succ)
+            if succ_state is None or succ_state not in L.INJECTABLE_STATES:
+                add("dead-successor",
+                    "rule %s was superseded by %s, which is %s, so that "
+                    "instruction is silenced with nothing in its place"
+                    % (ruuid[:8], succ[:8],
+                       "gone" if succ_state is None else repr(succ_state)),
+                    (ruuid, succ))
         for row in _exec(self,
                 "SELECT r.rule_uuid AS u FROM learning_rules r "
                 "LEFT JOIN learning_rule_versions v "

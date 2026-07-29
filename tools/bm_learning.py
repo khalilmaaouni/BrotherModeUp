@@ -502,11 +502,14 @@ def false_positive_category(reason):
 #   attempt to understand what a rule means. So:
 #     * a DUPLICATE is detected when two rules say nearly the same words in the
 #       same scope, which is the case that actually floods a review queue;
-#     * a CONTRADICTION is detected only when two rules in the same scope say
-#       nearly the same words with OPPOSITE polarity ("always push through the
-#       desktop app" against "never push through the desktop app"). That is the
-#       shape a founder's own reversal takes, and it is the one shape a lexical
-#       comparison can be trusted on.
+#     * a CONTRADICTION is detected only when two rules in the same scope give
+#       OPPOSITE polarity instructions about the same subject ("always push
+#       through the desktop app" against "never push through the desktop app").
+#       That is the shape a founder's own reversal takes, and it is the one
+#       shape a lexical comparison can be trusted on. It is judged on how much
+#       of the SHORTER action the longer one also names, so padding one side
+#       with an ordinary founder clause does not hide the reversal, and the
+#       trigger wording does not have to match for it to count.
 #   "Use tabs" against "use spaces" is a real contradiction and this code will
 #   NOT find it. That gap is why `link a contradicts b` exists as a founder
 #   command: the founder can always declare a conflict the detector cannot see,
@@ -527,6 +530,28 @@ _NEGATORS = frozenset((
     "jamais", "pas", "aucun", "sans", "arrete", "cesse",
 ))
 
+# The mirror of _NEGATORS: words that assert an instruction rather than negate
+# it. They carry no subject of their own, so they are removed alongside the
+# negators when two actions are compared. Without this, "always push through the
+# desktop app" kept the token "always" while "never push through the desktop
+# app" lost "never", the two subjects came out different sizes, and the very
+# comparison _content_tokens exists to make was skewed by the polarity words it
+# was supposed to cancel out.
+_AFFIRMERS = frozenset(("always", "toujours"))
+
+_POLARITY_MARKERS = _NEGATORS | _AFFIRMERS
+
+# Phrases that INTENSIFY an instruction while containing a negation word.
+# "always run the tests, no exceptions" is the founder agreeing with himself
+# more loudly, not forbidding anything, and reading "no" there flipped the rule
+# to 'forbid' and manufactured a contradiction against a rule that plainly
+# agreed with it. Stripped before polarity is read, never after.
+_INTENSIFIERS = re.compile(
+    r"\b(?:no|without)\s+(?:exceptions?|fail)\b"
+    r"|\bno\s+matter\s+what\b"
+    r"|\bsans\s+(?:exceptions?|faute)\b"
+    r"|\baucune\s+exception\b", re.I)
+
 ACTION_RELATIONS = ("identical", "near_duplicate", "incompatible",
                     "narrowing", "not_comparable")
 
@@ -538,25 +563,73 @@ INCOMPATIBLE_FLOOR = 0.5
 NARROWING_FLOOR = 0.5
 TRIGGER_OVERLAP_FLOOR = 0.3
 
+# A reversal is judged by how much of the SHORTER action the longer one also
+# names, not by symmetric overlap. Symmetric overlap punishes length: padding
+# "never push through the desktop app" with an ordinary founder clause dropped
+# the score under INCOMPATIBLE_FLOOR and the reversal stopped being seen at all,
+# which is the silent accumulation the Loop 6 done gate forbids.
+SUBJECT_CONTAINMENT_FLOOR = 0.8
+
+# A one-word subject can be contained in anything, so a single shared token
+# would start flagging "never commit" against "always commit the lock file after
+# every build", which is a narrowing and not a reversal.
+MIN_SUBJECT_TOKENS = 2
+
 CONFLICT_VERDICTS = ("duplicate", "contradiction", "narrowing", "unrelated")
+
+
+def _without_intensifiers(text):
+    """Text with intensifier phrases removed. See _INTENSIFIERS."""
+    return _INTENSIFIERS.sub(" ", text or "")
 
 
 def polarity(text):
     """'forbid' or 'require'. See _NEGATORS on why the marker list is small."""
-    return "forbid" if set(tokenize(text)) & _NEGATORS else "require"
+    toks = set(tokenize(_without_intensifiers(text)))
+    return "forbid" if toks & _NEGATORS else "require"
 
 
 def _content_tokens(text):
     """Tokens with polarity markers removed, so "always use X" and "never use X"
     compare as the SAME subject with opposite polarity rather than as two
     different subjects."""
-    return set(tokenize(text)) - _NEGATORS
+    return set(tokenize(_without_intensifiers(text))) - _POLARITY_MARKERS
 
 
 def _jaccard(a, b):
     if not a or not b:
         return 0.0
     return len(a & b) / float(len(a | b))
+
+
+def subject_containment(a, b):
+    """How much of the SHORTER action's subject the longer one also names.
+
+    0.0 to 1.0, and deliberately asymmetric in what it divides by: a founder who
+    restates one side of a reversal at greater length is still talking about the
+    same thing, and a symmetric score reads that extra length as a different
+    subject."""
+    ta = _content_tokens(a)
+    tb = _content_tokens(b)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / float(min(len(ta), len(tb)))
+
+
+def direct_reversal(a, b):
+    """Are these two actions the SAME instruction with opposite polarity?
+
+    This is the one shape a lexical comparison can be trusted on, and it is the
+    shape the docs promise is caught: "always push through the desktop app"
+    against "never push through the desktop app", however either side is padded
+    and however differently the two triggers were phrased."""
+    if polarity(a) == polarity(b):
+        return False
+    ta = _content_tokens(a)
+    tb = _content_tokens(b)
+    if min(len(ta), len(tb)) < MIN_SUBJECT_TOKENS:
+        return False
+    return subject_containment(a, b) >= SUBJECT_CONTAINMENT_FLOOR
 
 
 def scope_relation(a_type, a_key, b_type, b_key):
@@ -594,7 +667,9 @@ def action_relation(a, b):
         return "not_comparable"
     overlap = _jaccard(ta, tb)
     if polarity(a) != polarity(b):
-        return "incompatible" if overlap >= INCOMPATIBLE_FLOOR else "not_comparable"
+        if overlap >= INCOMPATIBLE_FLOOR or direct_reversal(a, b):
+            return "incompatible"
+        return "not_comparable"
     if overlap >= NEAR_DUPLICATE_FLOOR:
         return "near_duplicate"
     if (ta < tb or tb < ta) and overlap >= NARROWING_FLOOR:
@@ -609,18 +684,30 @@ def conflict_verdict(a, b):
     Only rules in the SAME scope can reach 'contradiction'. A narrower rule
     beside a broader one is how a founder legitimately says "in general do X,
     but here do Y", and blocking that would make the scope system useless. It
-    reports 'narrowing' instead, which is visible and never blocks."""
+    reports 'narrowing' instead, which is visible and never blocks.
+
+    The trigger-overlap floor is a tie breaker, NOT a veto. Triggers are free
+    text and the founder routinely phrases the same situation two ways
+    ("pushing to github" and "publishing commits upstream"). When the two
+    actions are a direct reversal of each other, that disagreement is real
+    whatever words the triggers used, so the floor is bypassed and said to be
+    bypassed in the reasons."""
     scope = scope_relation(a["scope_type"], a.get("scope_key", ""),
                            b["scope_type"], b.get("scope_key", ""))
     trig = _jaccard(set(tokenize(a.get("trigger_text", ""))),
                     set(tokenize(b.get("trigger_text", ""))))
     act = action_relation(a.get("action_text", ""), b.get("action_text", ""))
+    reversal = direct_reversal(a.get("action_text", ""), b.get("action_text", ""))
+    trigger_note = ""
     verdict = "unrelated"
     if scope == "same":
         if act in ("identical", "near_duplicate") and trig >= TRIGGER_OVERLAP_FLOOR:
             verdict = "duplicate"
-        elif act == "incompatible" and trig >= TRIGGER_OVERLAP_FLOOR:
+        elif act == "incompatible" and (trig >= TRIGGER_OVERLAP_FLOOR or reversal):
             verdict = "contradiction"
+            if trig < TRIGGER_OVERLAP_FLOOR:
+                trigger_note = (" (below the floor and not required: the actions "
+                                "are a direct reversal)")
         elif act == "narrowing":
             verdict = "narrowing"
     elif scope in ("broader", "narrower"):
@@ -631,8 +718,11 @@ def conflict_verdict(a, b):
         "scope_relation": scope,
         "trigger_overlap": round(trig, 3),
         "action_relation": act,
+        "direct_reversal": reversal,
+        "subject_containment": round(subject_containment(
+            a.get("action_text", ""), b.get("action_text", "")), 3),
         "reasons": ["scope %s" % scope,
-                    "trigger overlap %.2f" % trig,
+                    "trigger overlap %.2f%s" % (trig, trigger_note),
                     "actions %s" % act],
     }
 
