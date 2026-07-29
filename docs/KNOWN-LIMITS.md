@@ -5,6 +5,90 @@ file exists because an unstated gap is a failure even when it is small, and beca
 the single most useful thing a handover can contain is the list of things the last
 person was not sure about.
 
+## rc.4 merge: what the merged tree does NOT prove
+
+- **A gate corpus is not bounded by your limit.** Every applicable gate is
+  returned at every limit, deliberately, so a limit can never hide a safety
+  rule. The cost is that a store with many gates returns all of them on every
+  query, most at relevance 0.0. Reproduced with twelve gates; recorded in
+  `docs/NOT-FINALIZED.md` under the rc.4 merge entry.
+- **The installer is verified on macOS only** (Python 3.9.6). It is
+  stdlib-only and POSIX-path-only and nothing in it is macOS-specific, but no
+  Linux run has happened, so Linux is expected-to-work rather than tested.
+  Windows is refused, not supported; WSL works.
+- **The installer adds and overwrites files; it never prunes.** A file deleted
+  upstream since your last install stays behind after `--upgrade`.
+  `scripts/verify-install.sh` reports exactly those as EXTRA. Deleting was
+  rejected on purpose: an installer that removes files it did not put there is
+  the failure mode that loop existed to prevent.
+- **Hook ownership is decided by the command string naming this installation's
+  path.** Move the install directory by hand without re-running the installer
+  and the old entries are no longer recognized as ours; pass `--target <old
+  path>` to remove them.
+- **`scripts/doctor.py` checks the settings FILE and the hook CODE.** It cannot
+  tell whether Claude Code has loaded that file: hooks are read at session
+  start, so a mid-session correction is live at the next session. The fence hook
+  still fails open by design (missing, empty, or corrupt store, or any internal
+  error), so a green doctor is a statement about a healthy store, not about
+  every future run.
+- **The fence covers Edit, Write, MultiEdit and NotebookEdit.** Bash writes
+  (redirection, `sed -i`, `tee`, `git checkout`, inline interpreter scripts, any
+  subprocess) reach the filesystem without passing a hook.
+  `scripts/bm_shell.py` mitigates only the writes a caller chooses to declare:
+  it is a declaration channel, not a sandbox, and its `--declare-none` screen is
+  a short list of obvious write forms, not a shell parser.
+- **CI equivalence is proven locally, not on GitHub.** Every refusal was proven
+  by running `tools/test_all.py` on one machine. No real GitHub Actions run of
+  the `gate` job, the fence-hook step, the two suites added to CI at this merge
+  (`test_bm_docs.py`, `test_install.py`, `test_bm_runtimes.py`) or the artifact
+  upload has been observed. The first push to a branch CI watches is what turns
+  that from designed to demonstrated.
+- **The fence hook suite runs in CI on Linux and macOS only.** It contains
+  deliberate win32 skips, so it is written to be Windows-aware, but it has never
+  been run on Windows. The store and recovery suites do cover Windows.
+- **The documentation consistency suite checks the pages listed in
+  `tools/test_bm_docs.py` ACTIVE_DOCS.** Everything else, including
+  `docs/DESIGN.md`, `docs/WHITEPAPER.md`, `docs/OBSIDIAN.md`, `docs/SUNSET.md`,
+  `docs/REMAINING.md`, the PDFs and the one-pager HTML source, is unchecked. The
+  suite catches stale FACTS it can generate, not a stale claim written in prose.
+- **Absolute paths containing a space are only partly masked.** Masking stops at
+  the first space, so `/Users/j/Dev Work/plan.md` leaves `Work/plan.md` visible
+  in an ordinary export. Withheld columns are unaffected: they reproduce nothing
+  at all. A secret glued directly to letters or digits is likewise not
+  redacted, and an absolute path immediately preceded by an alphanumeric or an
+  underscore is not masked at all.
+- **A session id is exported when it LOOKS like a generated identifier.**
+  `--session` is free text, so a hand-typed hyphenated codename with no
+  separators passes the shape gate. It is narrower than "prose, a path or a key
+  is withheld" and wider than "only generated ids appear".
+- **Windows owner-only file modes and ACLs.** Nothing in this project configures
+  a Windows ACL. Stdlib only, with no subprocess in the shipping tools, rules
+  out both `icacls` and `pywin32`, so `os.chmod` is best-effort there and the
+  real control is your user profile. No Windows behavior is proven by these
+  suites.
+- **BrotherMode's own hooks are verified in Claude Code only.**
+  `docs/RUNTIMES.md` reports whether each runtime has hook points at all; that
+  is not the same claim as "BrotherMode's hooks run there". No runtime was
+  driven end to end: the instruction-file conventions are documentation-verified,
+  not behavior-verified.
+- **The packaged modules install at the top level of site-packages**, and a
+  package install wires no hooks. Building with the macOS system pip (21.2.4)
+  silently produces an empty `UNKNOWN-0.0.0` wheel; build with `uv build` or a
+  pip new enough to read PEP 621 metadata.
+- **The public benchmark has been measured on ONE machine and ONE platform**
+  (macOS, Python 3.9.6, 2026-07-29) and is not in CI. Scenarios 1, 2, 3 and 6
+  exercise lexical word-overlap retrieval, which names itself `mode=lexical`; a
+  green benchmark is not evidence of semantic retrieval, which this project does
+  not have.
+- **README's "verify the safety claims yourself" grep is stale.** As published
+  it greps for the bare words http, socket, curl and wget across `tools/*.py`
+  and `tools/*.sh` and says "Expected: no output", but it returns hits on
+  documentation URLs inside comments. The underlying claim still holds, and an
+  import-scoped grep proves it:
+  `grep -rnE "import (urllib|socket|http|ftplib|smtplib|requests)" tools/*.py |
+  grep -v "^tools/test_"` returns nothing. `docs/beta/BETA-KIT.md` ships the
+  corrected grep.
+
 ## P7: what the optional search index does NOT do
 
 - IT IS ENGLISH STEMMING. The tokenizer is `porter unicode61`. unicode61 folds
