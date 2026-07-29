@@ -210,6 +210,24 @@ What has NOT changed, and matters more than what has:
   identity, exactly as above; and neither minting nor spending an edit receipt
   has a CLI command, so this door is reachable only from imported code, which
   is also the only vector it ever had.
+- **A result limit caps soft rules only, since loop P4 on 2026-07-29, and it
+  capped gates too before that.** Reproduced on the real CLI against 05441e7:
+  two live global rules, a gate whose trigger shared no vocabulary with the
+  task, `--limit 1`, and the gate never appeared. The relevance floor already
+  exempted gates from being filtered for irrelevance, and the slice then cut
+  them anyway, which made the exemption decorative. `retrieve_learning_rules`
+  now splits eligible rules into gates and soft, returns every applicable live
+  gate regardless of the limit, and applies the limit to soft rules only.
+  Ranking is unchanged, so a gate does not jump the queue, it simply cannot be
+  cut from it. `--limit 0` and negative limits both mean "gates only". What is
+  still NOT claimed: applicability is scope plus lifecycle state, so a gate
+  scoped to a project you are not in, or one you deprecated or forgot, is
+  correctly absent, and a gate you never approved was never a gate. Relevance
+  is still lexical word matching, so the ranking a gate sits at inside the
+  result can still be poor even though its presence is guaranteed. And the
+  numbers are checkable rather than trusted: `gates_returned` is counted off
+  the rows actually returned, `gates_total` off the applicable set, and a test
+  fails if they ever differ.
 - **A digest in the database is not a promise, it is a delay.**
   `founder_response_hash` is an unsalted sha256 of a short answer. Until fix
   round P3 it was printed verbatim by `dump`, and a ten-word wordlist recovered

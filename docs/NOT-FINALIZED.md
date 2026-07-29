@@ -422,15 +422,19 @@ What is NOT closed, stated here rather than discovered later:
   did not reach the acting model, which is what the class means) and it does
   mean the miss count also measures a limit set too low. Read the rank before
   reading the count.
-- OPEN, found by probing the real CLI while the suite was green: a GATE rule
-  can be cut off by the result limit. The relevance floor exempts gates, so a
-  gate is always ELIGIBLE, but ranking still orders by scope, state and
-  relevance, so a more wordy match can outrank it. Reproduced with two global
-  rules and `--limit 1`: the gate ranked second and never reached the model,
-  and `classify` reported it as a retrieval miss. Not fixed here because
-  promoting gates to the top of the ranking changes Loop 5 retrieval order and
-  is the founder's call, not this loop's. Until it is decided, do not run
-  retrieval with a limit of 1 in a store that has gate rules.
+- CLOSED 2026-07-29 by loop P4, after re-reproducing it on the real CLI. Was:
+  a GATE rule could be cut off by the result limit. The relevance floor
+  exempted gates, so a gate was always ELIGIBLE, but ranking still ordered by
+  scope, state and relevance, so a wordier match could outrank it. Reproduced
+  again with two global rules and `--limit 1`: the gate ranked second and
+  never reached the model. Fixed structurally rather than by promoting gates
+  in the ranking, which would have changed Loop 5's retrieval order and is the
+  founder's call: the limit now applies to soft rules only, so every
+  applicable live gate is returned and the ranking is untouched. Diagnostics
+  `gates_returned`, `gates_total`, `soft_returned` and `soft_omitted` make the
+  two statements separable, and the CLI prints them as two sentences. The
+  previous advice, do not retrieve with a limit of 1 when gate rules exist, is
+  withdrawn; `--limit 0` now means gates only rather than nothing.
 - OPEN: `SKILL.md` and `DIGEST.md` were not updated by this loop, because the
   session that built it was not authorised to edit either file. SKILL.md
   already requires retrieval before substantial work and already requires

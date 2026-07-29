@@ -151,6 +151,34 @@ was exercised by hand for this document.
   excerpts entirely, through one shared rule, rather than printing them
   because a particular command forgot to ask.
 
+- **A result limit can no longer hide a gate rule (Loop P4).** `--limit` now
+  caps SOFT rules only. Every applicable live gate rule is returned whatever
+  the limit says, including `--limit 0` and negative limits, which both mean
+  "gates only". Before this, a gate was exempt from the relevance floor but
+  still subject to the slice, so a wordier soft rule could outrank it and a
+  small limit cut it off entirely. The output now states the two facts
+  separately, because they are two different things: gate delivery is a
+  guarantee, soft omission is a tuning knob.
+
+  ```
+  $ python3 tools/bm_learn.py relevant --query "deploying the website to production" --limit 0
+  RELEVANT FOUNDER RULES (mode=lexical)
+
+    47ff18cb  rank=1
+    Scope: global     State: approved     GATE
+    When : when about to force push
+    Do   : never force push
+    Match: terms (none, shown because it is a gate), relevance 0.0
+
+  Constitution overrides learned rules.
+  Gates: 1 of 1 applicable returned. A result limit cannot hide one.
+  Soft rules: 0 shown, 1 omitted by --limit 0. Raise the limit to see them.
+  ```
+
+  The JSON form carries the same numbers as `gates_returned`, `gates_total`,
+  `soft_returned` and `soft_omitted`. Retiring a gate still works: a
+  deprecated or forgotten gate is not live, so it is not delivered.
+
 ## What this does not claim, and why
 
 - **Not autonomous self-improvement.** Every rule that changes anything went
