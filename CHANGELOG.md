@@ -1,5 +1,79 @@
 # Changelog
 
+## 2026-07-29 (still v2.0.0-rc.2, no version bump): a founder-approved correction memory, documented honestly
+
+No version bump: a release is founder-gated (`docs/RELEASE.md`), and this
+entry is documentation plus a working feature, not a release decision. Test
+count went from 419 (2 skipped) to 598 (2 skipped), all green, run with
+`python3 tools/test_all.py`.
+
+What actually changed for you:
+
+- You can now capture a correction, approve it into a rule yourself, and ask
+  what rules apply to a piece of work with the reason shown. Approval is
+  founder-only: nothing in this system, including the parts that watch for
+  corrections automatically, can approve its own candidate. Plain-language
+  walkthrough with real, hand-run command output: `docs/CORRECTION-LEARNING.md`.
+- Correction capture now understands English, French and Japanese phrasing,
+  and a long correction is excerpted with the omitted character count
+  recorded, instead of the old English-only, 400-character filter that
+  silently dropped a founder's French corrections and long ones alike.
+- Approving a rule that plainly reverses a live one is refused unless you
+  override it, and the override is recorded rather than silent. A conflict
+  the detector cannot see (a phrasing it does not recognise as a reversal)
+  can be declared by hand and counts exactly as much downstream.
+- The store can now say, for a given piece of work, which rules were
+  retrieved, shown, followed, ignored, and why, and can link a rule to a
+  piece of rework or an escaped defect it failed to prevent. A correction
+  round on that grading (found the same way every serious defect in this
+  project has been found: driving the real CLI against a throwaway store
+  while the suite stayed green) fixed the same outcome being counted twice,
+  a rule being blamed for work it was never part of, and rework being
+  miscounted as the founder repeating an instruction he only said once.
+  `docs/NOT-FINALIZED.md` item 20 has the detail.
+- The secret scrubber used to miss a secret glued to a word character on
+  either side (an API key immediately after an underscore, for example), and
+  every JSON-emitting learning command now withholds a founder's raw text and
+  evidence excerpts through one shared rule, rather than a rule a particular
+  command could forget to apply. `docs/NOT-FINALIZED.md` item 15 has the
+  detail.
+
+What is deliberately unbuilt, and stays that way until its stated reopening
+condition:
+
+- **Loops 9 and 10 were never built, by the founder's own ratified decision**
+  (`docs/superpowers/specs/2026-07-28-correction-learning-program.md`, section
+  3.1): evaluation partitions (Loop 9) and generated knowledge views (Loop 10)
+  would both be measuring or generating over a corpus of maybe twenty to forty
+  rules belonging to one person, too small for either to produce a number that
+  can support a decision. Building the machinery anyway would make an
+  unsupportable number look rigorous, which is exactly the failure this
+  program's own principle forbids. Loop 9 reopens when the rule corpus is
+  large enough for a partition to decide anything; Loop 10 reopens when
+  hand-curating `docs/knowledge/LESSONS.md` and `TOOLBOX.md` actually becomes
+  the bottleneck.
+- **Loop 11B, the optional automatic-retrieval hook, is gated on the real
+  dogfood window, not built.** The skill-driven retrieval that already ships
+  (Stage A, Loop 11A) has to prove itself in real use first; a hook that
+  pushes the wrong rule into every prompt is worse than the opt-in retrieval
+  shipping today.
+
+Still true and the single most important line in this entry: **this system has
+never run on a real day of the founder's actual work.** Every count above came
+from a test suite or a hand-driven probe against a throwaway store. That is
+`docs/NOT-FINALIZED.md` item 1, and it stays UNPROVEN, ranked the highest-harm
+open item in the whole project, until Loop 14a (a real dogfood window) closes
+it. No amount of further testing can close it.
+
+Also still true: Windows behaviour is asserted by continuous integration only;
+no Windows machine has ever run this code by hand. And `docs/NOT-FINALIZED.md`
+item 12, an independent second-model adversarial re-audit, remains open. The
+privacy and security fixes in this wave (the secret scrubber, withholding raw
+text) do NOT close item 12: they were written and verified by the same model
+family that built the feature they review, which is exactly the blind spot an
+independent re-audit exists to catch. A different model family has never
+looked at this code.
+
 ## 2026-07-27 (v2.0.0-rc.2): the external audit closed, and rc.1 withdrawn
 
 A second external adversarial audit returned NO-GO on rc.1: 8 release blockers

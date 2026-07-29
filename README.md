@@ -103,6 +103,17 @@ page. The full, current list is
   run 18 times, and the run against the first tagged release FAILED on Windows
   for a real handle leak. See `docs/KNOWN-LIMITS.md` for the arc and for what
   is now guarded mechanically.
+- **A founder-approved correction memory now exists (`tools/bm_learn.py`).**
+  You can capture a correction, approve it into a rule, retrieve which rules
+  apply to a piece of work with the reason shown, and grade whether a rule
+  actually prevented rework or a defect. Approval is founder-only, always: no
+  part of this system, automatic capture included, can approve its own
+  candidate. Plain-language walkthrough with real command output:
+  [`docs/CORRECTION-LEARNING.md`](docs/CORRECTION-LEARNING.md). The single
+  most important honest gap: **it has never run on a real day of your work
+  yet, only on tests and scripted probes.** That is the highest-harm open item
+  in `docs/NOT-FINALIZED.md` (item 1) and stays open until a real dogfood
+  window closes it.
 
 Do not read anything in this README as implying otherwise. If a claim below
 and a claim in `KNOWN-LIMITS.md` seem to disagree, the limits file is the one
@@ -135,13 +146,16 @@ python3 tools/test_bm.py         # the tools that actually run today
 python3 tools/test_bm_store.py   # the store engine underneath them (see Status)
 ```
 
-Measured 2026-07-27: the first prints `Ran 65 tests` and finishes in about
-nine seconds, ending `OK (skipped=2)` (one skip is a check for a shell-script
-autosave version this project no longer ships, the other is a file-permission
-test this sandbox does not support); the second prints `Ran 201 tests`,
-finishes in about six seconds, and ends `OK`. If your numbers differ, treat
-that as a real signal something changed, not a typo on this page; re-measure
-rather than assume the page is stale.
+Measured 2026-07-29, after the correction-learning loops landed: the first
+prints `Ran 144 tests` and ends `OK (skipped=2)` (one skip is a check for a
+shell-script autosave version this project no longer ships, the other is a
+file-permission test this sandbox does not support); the second prints
+`Ran 371 tests` and ends `OK`. If your numbers differ, treat that as a real
+signal something changed, not a typo on this page; re-measure rather than
+assume the page is stale. These two commands are a fraction of the full gate;
+`python3 tools/test_all.py` runs all four suites (`test_bm.py`,
+`test_bm_store.py`, `test_bm_autosave.py`, `test_bm_fence_hook.py`) serially
+with one exit code and is the command this project actually gates on.
 
 ## Uninstall
 
@@ -216,11 +230,16 @@ per project or entirely.
 | `tools/bm_threads.py` | Thread mode (opt-in): one persistent thread per key feature, plus a dashboard. Reversible mid-project |
 | `tools/test_bm.py` | Regression tests for the tools that run today. Standard library only. Run `python3 tools/test_bm.py` |
 | `tools/bm_store.py`, `tools/test_bm_store.py` | The V2 storage engine and its tests. Wired into the tools above since Phase 3 (2026-07-26); see Status for the defects that wiring surfaced |
+| `tools/bm_learn.py` | The founder-facing correction-learning CLI: capture, approve, retrieve, grade. No direct database access, no automatic approval |
+| `tools/bm_learning.py` | Pure helper functions the CLI and store share: normalization, hashing, ranking. No database, clock, or file access |
+| `tools/test_all.py` | Runs all four test suites serially with one exit code. The actual gate; read this before running any single suite by hand |
 | `tools/WEEKLY-REVIEW.md` | The weekly self-review procedure |
 | `docs/QUICKSTART.md` | The literal ten-minute path, with expected output at every step |
 | `docs/SETUP.md` | The fuller installation and hooks reference |
 | `docs/HOW-IT-WORKS.md` | The mechanics of the tools that run today, explained exactly |
+| `docs/CORRECTION-LEARNING.md` | The correction-learning system in plain language, with real command output and honest limits |
 | `docs/KNOWN-LIMITS.md` | What is not proven yet. Read this before the rest |
+| `docs/NOT-FINALIZED.md` | The numbered defect and limits register, status words defined at the top |
 | `docs/BrotherMode-Design-Document.pdf` | The whitepaper: philosophy, the code, data flow and cost |
 | `CHANGELOG.md` | What changed release to release, and the known limits of each addition |
 | `vault-template/` | A ready-made memory vault folder: copy it and start working |
