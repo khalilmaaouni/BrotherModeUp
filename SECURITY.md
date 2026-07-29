@@ -59,6 +59,21 @@ What the code actually writes inside your project today:
   Your verbatim capture text and the evidence excerpts taken from it are
   withheld from `dump` entirely and from every `--json` command unless you pass
   `--show-source`.
+  As of the 2026-07-29 privacy loop this is no longer special to the learning
+  tables. ONE withholding policy now governs every export (`dump`, its JSON
+  output, and the MCP server's responses): founder prose is WITHHELD, not
+  merely scrubbed, because the scrubber only removes secret SHAPES and
+  ordinary sentences carry none. That covers objectives, evidence, digest
+  bodies and next intents, transition notes, decision text, directive text,
+  claimed paths, and absolute filesystem paths. What an export still shows is
+  structural: identifiers, states, versions, hashes, counts, timestamps, plus
+  the record name and tier, which stay readable so a dump is still usable and
+  are scrubbed and path-masked on the way out. `dump --raw` returns
+  everything, prints a warning on standard error saying so, and is the only
+  way to get the founder text back out of an export.
+  The local views you read yourself (`STATE.md`, `digest.md`, `inbox.md`) are
+  NOT exports: they carry your real text, scrubbed at the display boundary,
+  because they are the product.
   Treat it like the corrections file below. If the database is ever corrupt it
   is renamed to `store.sqlite3.quarantine-<timestamp>` and never deleted, so a
   quarantine file is exactly as sensitive as the store. `bm_store.py init` adds
@@ -105,7 +120,9 @@ Two files inside the vault deserve attention:
   messages** that look like corrections, so the weekly review can turn them into
   rules. Secret-shaped substrings (API keys, tokens, `password=`, private keys,
   national-ID and card shapes) are redacted before anything is written, and the
-  file is created owner-only (0600). That includes the paired fields: the
+  file is created owner-only (0600) on POSIX; on Windows `os.chmod` is
+  best-effort and the real control is your user profile. That includes the
+  paired fields: the
   previous response excerpt AND the file paths of the tools that ran, because a
   path can carry a secret in a directory name. Redaction is best-effort pattern
   matching, not a guarantee. Treat the file as sensitive, keep it out of version control
