@@ -2,10 +2,13 @@
 """uninstall.py: remove BrotherMode's hook wiring, and nothing else.
 
 WHAT IT REMOVES
-  Only hook entries whose command names this installation's own tools/bm_*
-  files, plus the install record scripts/install.py wrote. Every other hook you
-  have, and every other key in settings.json, is left exactly where it was, in
-  order.
+  Only hook entries every one of whose command paths names this installation's
+  own tools/bm_* files (install.py decides that, and decides it by reading the
+  command the way a shell does), plus the install record scripts/install.py
+  wrote. Every other hook you have, and every other key in settings.json, is
+  left exactly where it was, in order. If it finds nothing of its own but does
+  find hooks pointing at BrotherMode tools somewhere else, it stops and prints
+  them rather than reporting a clean uninstall over hooks that still run.
 
 WHAT IT NEVER TOUCHES
   Your vault. Not by default, not with a flag, not with --purge. There is no
@@ -76,6 +79,41 @@ def strip_hooks(settings, target):
     return new, removed
 
 
+def find_brothermode_looking_hooks(settings, target):
+    """(event, index, command) for hooks naming BrotherMode tools elsewhere.
+
+    Deliberately loose where ownership is strict. Ownership decides what may be
+    DELETED, so it refuses anything it cannot prove. This decides what to WARN
+    about, so it takes any command that names one of our tool basenames and
+    does not belong to the target given. False positives here cost the user one
+    printed line; a miss costs them hooks that keep running after they were
+    told the uninstall was done."""
+    out = []
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        return out
+    for event, groups in hooks.items():
+        if not isinstance(groups, list):
+            continue
+        for i, group in enumerate(groups):
+            if not isinstance(group, dict):
+                continue
+            if _install.group_is_ours(group, target):
+                continue
+            entries = group.get("hooks")
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                command = entry.get("command")
+                if not isinstance(command, str):
+                    continue
+                if any(name in command for name in _install.OWNED_TOOLS):
+                    out.append((event, i, command))
+    return out
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="uninstall.py",
@@ -136,6 +174,24 @@ def main(argv):
     else:
         _out("%shooks: none found that belong to %s. Nothing to unwire."
              % (prefix, target))
+        strays = find_brothermode_looking_hooks(settings, target)
+        if strays:
+            # "Nothing to unwire" plus exit 0 plus deleting the install record
+            # is the ambiguous success this file exists to avoid: the user is
+            # told it is gone while hooks still run at every session, and the
+            # record that named the right target has been thrown away. Stop
+            # instead, and print the entries so the right --target is readable
+            # off them.
+            _err("uninstall.py: refusing to finish. Nothing here belongs to %s, "
+                 "but %d hook entry(ies) in %s do name BrotherMode tools:"
+                 % (target, len(strays), settings_path))
+            for event, i, command in strays:
+                _err("  - %s[%d]: %s" % (event, i, command))
+            _err("So the --target above is not the installation those hooks "
+                 "point at. Nothing has been changed and the install record "
+                 "was kept. Re-run with --target set to the directory named in "
+                 "the lines above.")
+            return EXIT_REFUSED
 
     new_settings, removed = strip_hooks(settings, target)
     if removed and not dry:
@@ -145,6 +201,11 @@ def main(argv):
         except (ValueError, IOError, OSError) as exc:
             _err("uninstall.py: writing %s failed: %s" % (settings_path, exc))
             return EXIT_FAILED
+        real_settings = _install.resolve_settings_link(settings_path)
+        if real_settings != settings_path:
+            _out("hooks: %s is a symlink; the file it points at (%s) is what "
+                 "was edited, and the link is left as it was."
+                 % (settings_path, real_settings))
         if backup:
             _out("hooks: previous settings backed up to %s" % backup)
         _out("hooks: %d entry(ies) removed; every other hook left in place, in "
