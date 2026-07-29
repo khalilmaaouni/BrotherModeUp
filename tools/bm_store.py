@@ -765,7 +765,8 @@ def _scrubbed_field(L, t):
 
 
 def _resolve_proposal(L, cand, trigger, action, because, scope_type, scope_key,
-                      domain, rule_type, severity):
+                      domain, rule_type, severity, atomicity_override="",
+                      conflict_override=""):
     """The exact rule a candidate plus a set of overrides would become.
 
     ONE function, called by the receipt minting path and by the approval path,
@@ -786,6 +787,17 @@ def _resolve_proposal(L, cand, trigger, action, because, scope_type, scope_key,
         "domain": _scrubbed_field(L, domain if domain is not None else cand["proposed_domain"]),
         "rule_type": rule_type,
         "severity": severity,
+        # FIX ROUND P3, 2026-07-29. These two were parameters of approval and of
+        # nothing else, so a receipt minted for a clean question could be spent
+        # with --override-conflict attached and force a second injectable rule
+        # contradicting an approved gate rule, on an answer given about a
+        # question that never mentioned the conflict. Bypassing a guard changes
+        # what the rule set DOES, so by the rule stated in approval_fingerprint
+        # it belongs in the fingerprint. The BOOLEAN goes in, not the wording:
+        # what the founder is consenting to is the bypass, not the excuse, and
+        # binding the excuse text would fail receipts over a retyped word.
+        "override_atomicity": bool((atomicity_override or "").strip()),
+        "override_conflict": bool((conflict_override or "").strip()),
     }
 
 
@@ -802,7 +814,90 @@ def _proposal_fingerprint(L, cand, prop):
         cand["candidate_uuid"], cand["content_hash"],
         prop["trigger"], prop["action"], prop["because"],
         prop["scope_type"], prop["scope_key"], prop["domain"],
-        prop["rule_type"], prop["severity"]))
+        prop["rule_type"], prop["severity"],
+        "override_atomicity=%d" % int(prop["override_atomicity"]),
+        "override_conflict=%d" % int(prop["override_conflict"])))
+
+
+def _resolve_edit(L, rule, trigger, action, because, domain):
+    """The exact text a rule edit would produce, scrubbed exactly as approval
+    scrubs it. Called by the edit-receipt minting path AND by the edit itself,
+    for the reason given on _resolve_proposal: two copies of this arithmetic
+    would drift, and the drift would be silent."""
+    return {
+        "trigger": _scrubbed_field(L, trigger if trigger is not None else rule["trigger_text"]),
+        "action": _scrubbed_field(L, action if action is not None else rule["action_text"]),
+        "because": _scrubbed_field(L, because if because is not None else rule["because_text"]),
+        "domain": _scrubbed_field(L, domain if domain is not None else rule["domain"]),
+    }
+
+
+def _edit_fingerprint(L, rule, next_version, prop):
+    """Bind an edit receipt to ONE rule, ONE version bump, and ONE new text.
+
+    The literal "edit" is domain separation, and it is load bearing: edit
+    receipts live in the same table as approval receipts, and this is what
+    stops one being spent as the other. rule_uuid stops the receipt moving to a
+    different rule; next_version stops it being replayed after some other edit
+    already bumped the version underneath it."""
+    return L.approval_fingerprint((
+        "edit", rule["rule_uuid"], str(next_version),
+        prop["trigger"], prop["action"], prop["because"], prop["domain"]))
+
+
+def _approval_guards(store, L, prop):
+    """The refusals that stand between a proposal and the injectable set.
+
+    ONE function, called by the receipt minting path AND by the approval path,
+    for the same reason _resolve_proposal is (FIX ROUND P3, 2026-07-29). Before
+    this, only approval ran them, so `grant-approval` happily printed a token
+    for a candidate that directly contradicted an approved gate rule and said
+    nothing about it: the founder answered a question that never mentioned the
+    contradiction, and the approver alone decided to force it through. Running
+    them at mint means the question cannot be asked at all until the conflict is
+    either resolved or explicitly being overridden, and an override is now part
+    of the fingerprint, so the answer is given about the override too.
+
+    Raises OwnershipRefused, or returns quietly. Never writes."""
+    if not prop["trigger"] or not prop["action"]:
+        raise OwnershipRefused(
+            "incomplete-rule",
+            "a rule needs both a trigger and an action; got trigger=%r "
+            "action=%r" % (prop["trigger"], prop["action"]))
+    scope_err = L.validate_scope(prop["scope_type"], prop["scope_key"])
+    if scope_err:
+        raise OwnershipRefused("bad-scope", scope_err)
+    problems = L.atomicity_problems(prop["action"])
+    if problems and not prop["override_atomicity"]:
+        raise OwnershipRefused(
+            "not-atomic",
+            "this action looks like more than one rule (%s). Split it, or "
+            "re-run with an explicit override reason. A compound rule cannot "
+            "be graded: when the outcome is bad you cannot tell which half "
+            "was wrong." % "; ".join(problems))
+    found = store.conflicts_against({
+        "scope_type": prop["scope_type"], "scope_key": prop["scope_key"],
+        "trigger_text": prop["trigger"], "action_text": prop["action"]})
+    if not prop["override_conflict"]:
+        if found["contradictions"]:
+            other, v = found["contradictions"][0]
+            raise OwnershipRefused(
+                "unresolved-contradiction",
+                "this would create a second injectable rule contradicting %s "
+                "(%s). Resolve it first: narrow one scope, supersede one, mark "
+                "one contradicted, or re-run with an explicit override reason. "
+                "Existing rule says: %s"
+                % (other["rule_uuid"][:8], "; ".join(v["reasons"]),
+                   L.safe_display(other["action_text"], 120)))
+        if found["duplicates"]:
+            other, v = found["duplicates"][0]
+            raise OwnershipRefused(
+                "duplicate-rule",
+                "rule %s already says this in the same scope (%s). A repeat is "
+                "evidence, not a second rule: merge the candidate into it, or "
+                "re-run with an explicit override reason if they really differ."
+                % (other["rule_uuid"][:8], "; ".join(v["reasons"])))
+    return {"atomicity_problems": problems, "conflicts": found}
 
 
 def _receipt_token_hash(token):
@@ -1307,6 +1402,22 @@ _DUMP_WITHHELD_COLUMNS = frozenset((
     ("learning_evidence", "excerpt"),
     ("learning_applications", "task_excerpt"),
 ))
+
+# FIX ROUND P3, 2026-07-29. redact_text is PATTERN based: it finds things that
+# LOOK like secrets (keys, tokens, paths, addresses). A hex digest looks like
+# nothing, so every *_hash and *_fingerprint column sailed through the
+# default-deny pass verbatim. Not cosmetic: founder_response_hash is an unsalted
+# sha256 of the founder's literal answer, and real answers are short ("oui",
+# "yes", "yes, always"), so a ten-word wordlist turns the digest back into the
+# words mint_approval_receipt promises the store never keeps. Identical answers
+# also show as identical digests, which is exactly the correlation the design
+# says it does not hold. Digests are therefore WITHHELD by name-shape, read from
+# the live schema like everything else here, so the next digest column anyone
+# adds is covered the day it exists rather than the day someone remembers to
+# list it. A digest carries no diagnostic value in a dump anyway: you cannot
+# read it, you can only compare it, and comparing is the leak. Columns already
+# in _DUMP_SAFE_COLUMNS (git shas) are allowlisted before this rule is reached.
+_DUMP_DIGEST_SUFFIXES = ("_hash", "_fingerprint")
 
 _DUMP_SAFE_COLUMNS = frozenset((
     ("meta", "key"), ("meta", "value"),
@@ -3113,6 +3224,7 @@ class Store(object):
                                action=None, because=None, scope_type=None,
                                scope_key=None, rule_type="preference",
                                severity="soft", domain=None,
+                               atomicity_override="", conflict_override="",
                                ttl_seconds=APPROVAL_RECEIPT_TTL_SECONDS):
         """Record that a human answered a question about ONE candidate, and
         return a one-time token that lets `approve` act on that answer.
@@ -3157,7 +3269,13 @@ class Store(object):
                 "candidate %s is %r, only a pending candidate can be approved"
                 % (cand["candidate_uuid"][:8], cand["status"]))
         prop = _resolve_proposal(L, cand, trigger, action, because, scope_type,
-                                 scope_key, domain, rule_type, severity)
+                                 scope_key, domain, rule_type, severity,
+                                 atomicity_override, conflict_override)
+        # Every refusal approval would raise, raised HERE too, so no token is
+        # ever printed for a rule the founder was not told the truth about
+        # (FIX ROUND P3). The override flags are in the fingerprint above, so a
+        # token minted for the clean question cannot be spent with an override.
+        guards = _approval_guards(self, L, prop)
         try:
             ttl = int(ttl_seconds)
         except (TypeError, ValueError):
@@ -3190,6 +3308,17 @@ class Store(object):
         out.pop("nonce_hash", None)
         out["token"] = token
         out["ttl_seconds"] = ttl
+        # What the founder should have been shown, carried back so the CLI can
+        # print it beside the token. Present even when an override made the
+        # guard pass, because "you are overriding this" is the part he most
+        # needs to see written down.
+        out["atomicity_problems"] = guards["atomicity_problems"]
+        out["contradicts"] = [o["rule_uuid"][:8]
+                              for o, _v in guards["conflicts"]["contradictions"]]
+        out["duplicates"] = [o["rule_uuid"][:8]
+                             for o, _v in guards["conflicts"]["duplicates"]]
+        out["override_atomicity"] = prop["override_atomicity"]
+        out["override_conflict"] = prop["override_conflict"]
         return out
 
     def get_approval_receipt(self, receipt_uuid):
@@ -3297,7 +3426,8 @@ class Store(object):
         # on the command line, so the candidate having been cleaned says nothing
         # about what the founder just passed in (LOOP 12).
         prop = _resolve_proposal(L, cand, trigger, action, because, scope_type,
-                                 scope_key, domain, rule_type, severity)
+                                 scope_key, domain, rule_type, severity,
+                                 atomicity_override, conflict_override)
         if _proposal_fingerprint(L, cand, prop) != rec["candidate_fingerprint"]:
             raise OwnershipRefused(
                 "receipt-stale-candidate",
@@ -3308,48 +3438,17 @@ class Store(object):
         trig, act, why = prop["trigger"], prop["action"], prop["because"]
         stype, skey, dom = prop["scope_type"], prop["scope_key"], prop["domain"]
         founder_ref = redact_text(founder_ref)
-        if not trig or not act:
-            raise OwnershipRefused("incomplete-rule", "a rule needs both a trigger and an action; got trigger=%r action=%r"
-                % (trig, act))
-        scope_err = L.validate_scope(stype, skey)
-        if scope_err:
-            raise OwnershipRefused("bad-scope", scope_err)
-        problems = L.atomicity_problems(act)
-        if problems and not atomicity_override.strip():
-            raise OwnershipRefused("not-atomic", "this action looks like more than one rule (%s). Split it, or "
-                "re-run with an explicit override reason. A compound rule cannot "
-                "be graded: when the outcome is bad you cannot tell which half "
-                "was wrong." % "; ".join(problems))
-        # THE DONE GATE OF LOOP 6: there is no path to silently accumulate
-        # contradictory active rules. Approval is the only door into the
-        # injectable set, so the check belongs here rather than in a report the
-        # founder has to remember to run. The refusal names the other rule and
-        # the ways out; the founder may override, and the override is written
-        # down as evidence AND as an edge, so the conflict stays visible in
-        # `conflicts`, in retrieval and in verify rather than being settled by
-        # having been forced through once.
-        prospective = {"scope_type": stype, "scope_key": skey,
-                       "trigger_text": trig, "action_text": act}
-        found = self.conflicts_against(prospective)
-        if not conflict_override.strip():
-            if found["contradictions"]:
-                other, v = found["contradictions"][0]
-                raise OwnershipRefused(
-                    "unresolved-contradiction",
-                    "this would create a second injectable rule contradicting %s "
-                    "(%s). Resolve it first: narrow one scope, supersede one, mark "
-                    "one contradicted, or re-run with an explicit override reason. "
-                    "Existing rule says: %s"
-                    % (other["rule_uuid"][:8], "; ".join(v["reasons"]),
-                       _learning().safe_display(other["action_text"], 120)))
-            if found["duplicates"]:
-                other, v = found["duplicates"][0]
-                raise OwnershipRefused(
-                    "duplicate-rule",
-                    "rule %s already says this in the same scope (%s). A repeat is "
-                    "evidence, not a second rule: merge the candidate into it, or "
-                    "re-run with an explicit override reason if they really differ."
-                    % (other["rule_uuid"][:8], "; ".join(v["reasons"])))
+        # THE DONE GATE OF LOOP 6, now shared with the minting path (FIX ROUND
+        # P3): there is no path to silently accumulate contradictory active
+        # rules, and no path to ask the founder a question that hides one. The
+        # refusal names the other rule and the ways out; the founder may
+        # override, but the override is part of what he answered (it is in the
+        # fingerprint) and is written down as evidence AND as an edge, so the
+        # conflict stays visible in `conflicts`, in retrieval and in verify
+        # rather than being settled by having been forced through once.
+        guards = _approval_guards(self, L, prop)
+        problems = guards["atomicity_problems"]
+        found = guards["conflicts"]
         ruuid = uuid.uuid4().hex
         ts = now_iso()
         with self._transaction():
@@ -3479,16 +3578,123 @@ class Store(object):
         sql += " ORDER BY r.created_at"
         return [dict(r) for r in _exec(self, sql, tuple(params)).fetchall()]
 
+    def _rule_source_candidate(self, rule_uuid):
+        """The candidate a rule was approved from, or a refusal.
+
+        An edit receipt has to hang off a real candidate row because that is
+        what the receipts table's foreign key points at, and version 1 of every
+        rule records the candidate it came from. A rule whose candidate has been
+        deleted cannot get an edit receipt: that is a refusal, not a bypass."""
+        row = _exec(self, "SELECT source_candidate_uuid FROM learning_rule_versions "
+                          "WHERE rule_uuid=? AND version=1", (rule_uuid,)).fetchone()
+        cuuid = row["source_candidate_uuid"] if row else None
+        if not cuuid:
+            raise OwnershipRefused(
+                "no-source-candidate",
+                "rule %s has no surviving source candidate, so no receipt can be "
+                "bound to it. Supersede it with a newly approved rule instead."
+                % rule_uuid[:8])
+        return cuuid
+
+    def mint_edit_receipt(self, prefix, expected_version, founder_response,
+                           trigger=None, action=None, because=None, domain=None,
+                           ttl_seconds=APPROVAL_RECEIPT_TTL_SECONDS):
+        """Record that a human answered a question about ONE edit to ONE rule,
+        and return a one-time token that lets `edit_learning_rule` apply it.
+
+        FIX ROUND P3, 2026-07-29. LOOP 3 receipt-gated the door that CREATES an
+        injectable rule and left wide open the door that REWRITES one. Reproduced
+        against a throwaway store: an imported call to edit_learning_rule turned
+        an approved gate rule saying "never force push to main" into "always
+        force push to main, skip review", kept its gate severity, kept the
+        receipt already consumed against it, and stamped the new version
+        approved_by='founder'. Nobody answered anything. Creation being gated
+        while rewriting is free is not a gate, it is a speed bump.
+
+        Same mechanism as mint_approval_receipt, same table, and deliberately
+        NOT interchangeable with it: the fingerprint is domain separated with
+        the literal "edit" and covers the rule uuid and the exact version bump,
+        so an approval receipt cannot be spent on an edit and an edit receipt
+        cannot be spent on an approval or replayed onto another rule or another
+        version. founder_response is hashed, never stored. The returned dict
+        carries the secret under "token"; print it once, log it never."""
+        L = _learning()
+        if not (founder_response or "").strip():
+            raise OwnershipRefused(
+                "no-founder-response",
+                "minting an edit receipt requires the founder's actual answer; "
+                "a receipt with nothing behind it is the forgery this whole "
+                "mechanism exists to stop")
+        rule = self.get_learning_rule(prefix)
+        if int(expected_version) != int(rule["current_version"]):
+            raise StaleIdentity(
+                "expected version %s; rule %s is at version %s"
+                % (expected_version, rule["rule_uuid"][:8], rule["current_version"]),
+                current_version=rule["current_version"])
+        prop = _resolve_edit(L, rule, trigger, action, because, domain)
+        if not prop["trigger"] or not prop["action"]:
+            raise OwnershipRefused("incomplete-rule",
+                                   "a rule needs both a trigger and an action")
+        cuuid = self._rule_source_candidate(rule["rule_uuid"])
+        try:
+            ttl = int(ttl_seconds)
+        except (TypeError, ValueError):
+            ttl = APPROVAL_RECEIPT_TTL_SECONDS
+        ttl = max(1, min(ttl, APPROVAL_RECEIPT_TTL_SECONDS))
+        token = secrets.token_hex(24)
+        ruuid = uuid.uuid4().hex
+        issued = datetime.datetime.now(datetime.timezone.utc)
+        expires = issued + datetime.timedelta(seconds=ttl)
+        nv = int(rule["current_version"]) + 1
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO learning_approval_receipts (receipt_uuid, "
+                  "candidate_uuid, approval_choice, nonce_hash, "
+                  "candidate_fingerprint, founder_response_hash, issued_at, "
+                  "expires_at) VALUES (?,?,'approve',?,?,?,?,?)",
+                  (ruuid, cuuid, _receipt_token_hash(token),
+                   _edit_fingerprint(L, rule, nv, prop),
+                   hashlib.sha256(
+                       L.normalize_text(founder_response).encode("utf-8")).hexdigest(),
+                   issued.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                   expires.strftime("%Y-%m-%dT%H:%M:%SZ")))
+        out = dict(_exec(self, "SELECT * FROM learning_approval_receipts "
+                               "WHERE receipt_uuid=?", (ruuid,)).fetchone())
+        out.pop("nonce_hash", None)
+        out["token"] = token
+        out["ttl_seconds"] = ttl
+        out["rule_uuid"] = rule["rule_uuid"]
+        out["next_version"] = nv
+        return out
+
     def edit_learning_rule(self, prefix, expected_version, trigger=None,
                             action=None, because=None, domain=None,
-                            change_type="edited", change_reason=""):
+                            change_type="edited", change_reason="", receipt=""):
         """Append a NEW version. Prior versions are never overwritten, so an
         application recorded against version 2 still says exactly what the model
         was shown (invariant L8).
 
+        RECEIPT-GATED since FIX ROUND P3, 2026-07-29, for the reason spelled out
+        on mint_edit_receipt: the text this writes is injected verbatim into
+        future sessions, so rewriting it is the same act as creating it and gets
+        the same door. `receipt` is a one-time token from mint_edit_receipt and
+        it is MANDATORY. Without it this refuses and writes nothing. The
+        version row still records approved_by='founder', and that sentence is
+        now true rather than assumed.
+
         expected_version is the same optimistic-concurrency guard the rest of
-        this store uses: a stale caller fails closed rather than clobbering."""
+        this store uses: a stale caller fails closed rather than clobbering. It
+        is also in the receipt fingerprint, so a receipt cannot survive somebody
+        else's edit landing first."""
         L = _learning()
+        if not (receipt or "").strip():
+            raise OwnershipRefused(
+                "no-edit-receipt",
+                "editing a rule requires a one-time receipt from a real founder "
+                "answer, exactly as approving one does. Ask the question, then "
+                "mint with mint_edit_receipt. There is no override and no "
+                "break-glass: rule text nobody answered for is the exact thing "
+                "this refuses to inject.")
         rule = self.get_learning_rule(prefix)
         if int(expected_version) != int(rule["current_version"]):
             raise StaleIdentity(
@@ -3496,22 +3702,54 @@ class Store(object):
                 % (expected_version, rule["rule_uuid"][:8], rule["current_version"]),
                 current_version=rule["current_version"])
         # Same scrub as capture and approval: an edit is new founder text.
-        trig = _scrubbed_field(L, trigger if trigger is not None else rule["trigger_text"])
-        act = _scrubbed_field(L, action if action is not None else rule["action_text"])
-        why = _scrubbed_field(L, because if because is not None else rule["because_text"])
-        dom = _scrubbed_field(L, domain if domain is not None else rule["domain"])
+        prop = _resolve_edit(L, rule, trigger, action, because, domain)
+        trig, act, why, dom = (prop["trigger"], prop["action"], prop["because"],
+                               prop["domain"])
         if not trig or not act:
             raise OwnershipRefused("incomplete-rule", "a rule needs both a trigger and an action")
         nv = int(rule["current_version"]) + 1
+        rec = self._receipt_for_token(receipt.strip())
+        if rec["consumed_at"] is not None:
+            raise OwnershipRefused(
+                "receipt-already-used",
+                "that receipt was already spent at %s. An answer edits once; "
+                "ask again for another change." % rec["consumed_at"])
+        if rec["expires_at"] < now_iso():
+            raise OwnershipRefused(
+                "receipt-expired",
+                "that receipt expired at %s. A stale answer is not consent to "
+                "whatever the rule says now: ask again." % rec["expires_at"])
+        if _edit_fingerprint(L, rule, nv, prop) != rec["candidate_fingerprint"]:
+            raise OwnershipRefused(
+                "receipt-stale-edit",
+                "receipt %s was not issued for this rule at this version with "
+                "this text, so that answer was given about something else. Show "
+                "the founder what it says now and ask again."
+                % rec["receipt_uuid"][:8])
         ts = now_iso()
         with self._transaction():
+            # FIRST statement, conditional on the receipt still being unspent
+            # and unexpired, for the same reason approval does it this way: two
+            # edits racing for one token produce one new version and one
+            # refusal, never two.
+            claimed = _exec(self,
+                  "UPDATE learning_approval_receipts SET consumed_at=?, "
+                  "consumed_rule_uuid=? WHERE receipt_uuid=? AND "
+                  "consumed_at IS NULL AND expires_at >= ?",
+                  (ts, rule["rule_uuid"], rec["receipt_uuid"], ts))
+            if claimed.rowcount != 1:
+                raise OwnershipRefused(
+                    "receipt-already-used",
+                    "receipt %s was spent or expired between the check and the "
+                    "write. Nothing was changed." % rec["receipt_uuid"][:8])
             _exec(self,
                   "INSERT INTO learning_rule_versions (rule_uuid, version, "
                   "trigger_text, action_text, because_text, domain, change_type, "
                   "change_reason, approved_by, created_at) "
                   "VALUES (?,?,?,?,?,?,?,?, 'founder', ?)",
                   (rule["rule_uuid"], nv, trig, act, why, dom, change_type,
-                   _scrubbed_field(L, change_reason)[:500], ts))
+                   _scrubbed_field(L, ("founder edit (receipt %s): %s"
+                                       % (rec["receipt_uuid"][:8], change_reason)))[:500], ts))
             _exec(self, "UPDATE learning_rules SET current_version=?, updated_at=? "
                         "WHERE rule_uuid=?", (nv, ts, rule["rule_uuid"]))
         return self.get_learning_rule(rule["rule_uuid"])
@@ -5689,6 +5927,12 @@ class Store(object):
                     if (t, col) in _DUMP_WITHHELD_COLUMNS:
                         # Withheld, not scrubbed: see _DUMP_WITHHELD_COLUMNS.
                         row_dict[col] = "[WITHHELD: %d chars of founder text]" % len(
+                            row_dict[col])
+                    elif col.endswith(_DUMP_DIGEST_SUFFIXES):
+                        # Withheld by name-shape: see _DUMP_DIGEST_SUFFIXES. A
+                        # short answer behind an unsalted digest is guessable,
+                        # and redact_text cannot see a digest at all.
+                        row_dict[col] = "[WITHHELD: %d-char digest]" % len(
                             row_dict[col])
                     else:
                         row_dict[col] = redact_text(row_dict[col])

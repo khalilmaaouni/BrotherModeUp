@@ -43,7 +43,24 @@ sys.modules["bm_store"] = bs
 # a receipt that never matches, loudly, rather than as a receipt that silently
 # covers less than the founder was shown.
 _RECEIPT_SHAPE = ("trigger", "action", "because", "domain", "scope_type",
-                  "scope_key", "rule_type", "severity")
+                  "scope_key", "rule_type", "severity",
+                  "atomicity_override", "conflict_override")
+
+# The fields an EDIT receipt is fingerprinted over, same discipline (FIX ROUND
+# P3): rewriting a rule's injectable text is the same act as creating it.
+_EDIT_SHAPE = ("trigger", "action", "because", "domain")
+
+
+def _edited(store, prefix, expected_version, **kw):
+    """Edit a rule the way the product now does: through a real, minted,
+    one-time EDIT receipt. Every edit in this suite goes through here for the
+    reason _approved exists."""
+    rec = store.mint_edit_receipt(
+        prefix, expected_version,
+        founder_response="the founder answered yes to this edit, in a test",
+        **{k: v for k, v in kw.items() if k in _EDIT_SHAPE})
+    return store.edit_learning_rule(prefix, expected_version,
+                                    receipt=rec["token"], **kw)
 
 
 def _approved(store, prefix, **kw):
@@ -3312,6 +3329,33 @@ class TestDump(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_dump_never_prints_a_digest(self):
+        """FIX ROUND P3. redact_text is pattern based and a hex digest matches
+        no pattern, so `bm_store.py dump` printed founder_response_hash and
+        nonce_hash verbatim. Reproduced 2026-07-29 against a throwaway store:
+        sha256(normalize_text("oui")) recovered the founder's literal answer
+        from the dumped digest with a ten-word wordlist. dump is the command
+        whose own docstring calls it what a founder pipes into a file or an
+        issue, so no digest may appear in it at all."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                c = store.capture_learning_candidate(
+                    "explicit_correction", "never force push to main",
+                    trigger="pushing to main", action="never force push to main",
+                    scope_type="global")
+                _approved(store, c["candidate_uuid"], founder_ref="he said oui",
+                          severity="gate")
+                text = json.dumps(store.dump())
+                self.assertNotIn(
+                    hashlib.sha256(b"oui").hexdigest(), text)
+                for hexish in re.findall(r"[0-9a-f]{64}", text):
+                    self.fail("dump printed a 64-hex digest: %s" % hexish)
+                self.assertIn("-char digest", text)
+                # --raw is the named escape hatch and still returns everything.
+                raw = json.dumps(store.dump(raw=True))
+                self.assertTrue(re.search(r"[0-9a-f]{64}", raw))
+
+
 class TestRedactionUnavailable(unittest.TestCase):
     """Simulates bm_telemetry.redact being unloadable: every generated view
     must refuse rather than emit raw text, and dump() must be unaffected."""
@@ -5367,8 +5411,9 @@ class TestLearningApi(unittest.TestCase):
                 c = self._cap(store)
                 rule = _approved(store, c["candidate_uuid"],
                                                         founder_ref="yes")
-                edited = store.edit_learning_rule(
-                    rule["rule_uuid"], 1, action="lead with revenue impact",
+                edited = _edited(
+                    store, rule["rule_uuid"], 1,
+                    action="lead with revenue impact",
                     change_reason="narrowed after a miss")
                 self.assertEqual(edited["current_version"], 2)
                 rows = store.conn.execute(
@@ -5384,10 +5429,80 @@ class TestLearningApi(unittest.TestCase):
                 c = self._cap(store)
                 rule = _approved(store, c["candidate_uuid"],
                                                         founder_ref="yes")
+                rec = store.mint_edit_receipt(rule["rule_uuid"], 1,
+                                              founder_response="yes", action="x")
                 with self.assertRaises(bs.StaleIdentity):
-                    store.edit_learning_rule(rule["rule_uuid"], 99, action="x")
+                    store.edit_learning_rule(rule["rule_uuid"], 99, action="x",
+                                             receipt=rec["token"])
                 self.assertEqual(store.get_learning_rule(rule["rule_uuid"])["action_text"],
                                  "state customer impact before technical detail")
+
+    def test_editing_a_rule_without_a_receipt_refuses(self):
+        """FIX ROUND P3. LOOP 3 gated the door that CREATES an injectable rule
+        and left open the door that REWRITES one. Reproduced 2026-07-29: an
+        imported call turned an approved gate rule saying "never force push to
+        main" into "always force push to main, skip review", kept its gate
+        severity, and stamped the new version approved_by='founder'."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                c = self._cap(store)
+                rule = _approved(store, c["candidate_uuid"], founder_ref="yes",
+                                 severity="gate")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.edit_learning_rule(
+                        rule["rule_uuid"], 1,
+                        action="always force push to main, skip review")
+                self.assertEqual(ctx.exception.reason, "no-edit-receipt")
+                after = store.get_learning_rule(rule["rule_uuid"])
+                self.assertEqual(after["current_version"], 1)
+                self.assertEqual(after["action_text"],
+                                 "state customer impact before technical detail")
+
+    def test_an_edit_receipt_is_one_rule_one_version_one_text_one_use(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                c = self._cap(store)
+                rule = _approved(store, c["candidate_uuid"], founder_ref="yes")
+                rec = store.mint_edit_receipt(rule["rule_uuid"], 1,
+                                              founder_response="yes",
+                                              action="lead with the number")
+                # Bound to THIS text: a different action is a different question.
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.edit_learning_rule(rule["rule_uuid"], 1,
+                                             action="do something else",
+                                             receipt=rec["token"])
+                self.assertEqual(ctx.exception.reason, "receipt-stale-edit")
+                store.edit_learning_rule(rule["rule_uuid"], 1,
+                                         action="lead with the number",
+                                         receipt=rec["token"])
+                # Spent once. The version bump also moved the fingerprint.
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.edit_learning_rule(rule["rule_uuid"], 2,
+                                             action="lead with the number",
+                                             receipt=rec["token"])
+                self.assertEqual(ctx.exception.reason, "receipt-already-used")
+
+    def test_an_approval_receipt_cannot_be_spent_as_an_edit(self):
+        """Both live in one table. The literal "edit" in the fingerprint is what
+        stops one door's key opening the other."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                c = self._cap(store)
+                rule = _approved(store, c["candidate_uuid"], founder_ref="yes")
+                c2 = store.capture_learning_candidate(
+                    "explicit_correction", "no, put the number first",
+                    trigger="writing an update", action="put the number first",
+                    scope_type="global")
+                rec = store.mint_approval_receipt(
+                    c2["candidate_uuid"], founder_response="yes",
+                    action="put the number first")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.edit_learning_rule(rule["rule_uuid"], 1,
+                                             action="put the number first",
+                                             receipt=rec["token"])
+                self.assertEqual(ctx.exception.reason, "receipt-stale-edit")
+                self.assertEqual(
+                    store.get_learning_rule(rule["rule_uuid"])["current_version"], 1)
 
     def test_confirmed_requires_evidence_beyond_the_approval(self):
         """Plan rule 6. Approval is the founder's INTENT; it is not evidence
@@ -6250,9 +6365,9 @@ class TestLoop7ApplicationLifecycle(unittest.TestCase):
                 rule = self._rule(store)
                 store.record_learning_applications(
                     "writing an executive update", session_id="S1")
-                store.edit_learning_rule(rule["rule_uuid"], 1,
-                                          action="lead with the customer number",
-                                          change_reason="sharper")
+                _edited(store, rule["rule_uuid"], 1,
+                        action="lead with the customer number",
+                        change_reason="sharper")
                 store.record_learning_applications(
                     "writing an executive update", session_id="S1")
                 versions = sorted(a["rule_version"]
@@ -6388,9 +6503,9 @@ class TestLoop7ApplicationLifecycle(unittest.TestCase):
                 rule = self._rule(store)
                 store.record_learning_applications(
                     "writing an executive update", session_id="S1")
-                store.edit_learning_rule(rule["rule_uuid"], 1,
-                                          action="do something else entirely",
-                                          change_reason="the founder changed his mind")
+                _edited(store, rule["rule_uuid"], 1,
+                        action="do something else entirely",
+                        change_reason="the founder changed his mind")
                 apps = store.list_learning_applications(session_id="S1")
                 self.assertEqual(len(apps), 1)
                 self.assertEqual(apps[0]["rule_version"], 1)
@@ -6784,9 +6899,9 @@ class TestLoop8ExternalGrading(unittest.TestCase):
                 store.record_learning_applications(
                     self.TRIGGER, session_id="S1",
                     record_prefix=rec.lifecycle_uuid)
-                store.edit_learning_rule(rule["rule_uuid"], 1,
-                                          action="lead with the number",
-                                          change_reason="tightened")
+                _edited(store, rule["rule_uuid"], 1,
+                        action="lead with the number",
+                        change_reason="tightened")
                 ev = store.record_outcome_event(
                     "escaped_defect", rec.lifecycle_uuid, session_id="S1",
                     defect_class="stale-doc", summary="found later")
@@ -7257,9 +7372,9 @@ class TestLoop8ExternalGrading(unittest.TestCase):
                 rule = self._rule(store)
                 store.record_learning_applications(self.TRIGGER,
                                                     session_id="S1")
-                store.edit_learning_rule(rule["rule_uuid"], 1,
-                                          action="lead with the number",
-                                          change_reason="tightened")
+                _edited(store, rule["rule_uuid"], 1,
+                        action="lead with the number",
+                        change_reason="tightened")
                 store.record_learning_applications("writing an executive update",
                                                     session_id="S2")
                 out = store.learning_rule_outcomes(rule["rule_uuid"])
@@ -7398,6 +7513,72 @@ class TestPostAuditLoop3ApprovalReceipts(unittest.TestCase):
                     store.mint_approval_receipt(c["candidate_uuid"],
                                                 founder_response="   ")
                 self.assertEqual(ctx.exception.reason, "no-founder-response")
+
+    # -- overrides are part of the question (FIX ROUND P3) ------------------
+
+    def test_a_clean_receipt_cannot_be_spent_with_a_conflict_override(self):
+        """Reproduced 2026-07-29: atomicity_override and conflict_override were
+        approval-only parameters, absent from the fingerprint, and minting never
+        mentioned a conflict. So a receipt minted for a question that said
+        nothing about contradicting an approved gate rule was spent with
+        --override-conflict and forced the contradicting rule in anyway."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = self._cap(store, trigger="pushing to main",
+                              action="never force push to main")
+                _approved(store, a["candidate_uuid"], founder_ref="yes",
+                          severity="gate", scope_type="project",
+                          scope_key="proj")
+                b = self._cap(store, trigger="pushing to main",
+                              action="always force push to main")
+                # The question cannot even be ASKED without naming the conflict.
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.mint_approval_receipt(
+                        b["candidate_uuid"], founder_response="yes",
+                        trigger="pushing to main",
+                        action="always force push to main",
+                        scope_type="project", scope_key="proj")
+                self.assertEqual(ctx.exception.reason, "unresolved-contradiction")
+                # And a receipt minted for a DIFFERENT (clean) question cannot
+                # be carried over to the override.
+                clean = self._cap(store, trigger="writing a summary",
+                                  action="lead with the number")
+                rec = store.mint_approval_receipt(
+                    clean["candidate_uuid"], founder_response="yes",
+                    trigger="writing a summary", action="lead with the number")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.approve_learning_candidate(
+                        clean["candidate_uuid"], founder_ref="f",
+                        receipt=rec["token"], trigger="writing a summary",
+                        action="lead with the number",
+                        conflict_override="I decided it is fine")
+                self.assertEqual(ctx.exception.reason, "receipt-stale-candidate")
+
+    def test_an_override_receipt_carries_the_warning_it_was_minted_over(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = self._cap(store, trigger="pushing to main",
+                              action="never force push to main")
+                _approved(store, a["candidate_uuid"], founder_ref="yes",
+                          severity="gate", scope_type="project",
+                          scope_key="proj")
+                b = self._cap(store, trigger="pushing to main",
+                              action="always force push to main")
+                rec = store.mint_approval_receipt(
+                    b["candidate_uuid"], founder_response="yes I mean it",
+                    trigger="pushing to main",
+                    action="always force push to main",
+                    scope_type="project", scope_key="proj",
+                    conflict_override="he decided it is fine")
+                self.assertTrue(rec["override_conflict"])
+                self.assertTrue(rec["contradicts"])
+                rule = store.approve_learning_candidate(
+                    b["candidate_uuid"], founder_ref="f", receipt=rec["token"],
+                    trigger="pushing to main",
+                    action="always force push to main",
+                    scope_type="project", scope_key="proj",
+                    conflict_override="he decided it is fine")
+                self.assertEqual(rule["action_text"], "always force push to main")
 
     # -- one candidate, one use, short lived --------------------------------
 
