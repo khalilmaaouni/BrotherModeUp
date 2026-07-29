@@ -43,8 +43,15 @@ Approved founder rules live in this project's store, not in your memory of the
 conversation. Before planning or delivering anything substantial, ask for them:
 
 ```
-python3 tools/bm_learn.py relevant --query "<what you are about to do>"
+python3 tools/bm_learn.py apply --query "<what you are about to do>" --session <session-id> [--record <work-uuid>]
 ```
+
+`apply` retrieves the rules AND records that they were surfaced, in one command
+with no flag in between. That is the point: a flag is what gets forgotten, and a
+forgotten flag leaves no trace that retrieval ever happened. It exits 3 with a
+PARTIAL status when the rules came back but the recording did not land, so never
+read a nonzero exit as "no rules". Re-running it is idempotent, and re-running it
+once you have a work record links the rows you already wrote.
 
 Substantial means: a written artifact the founder will read or reuse, an
 architecture or design decision, a multi-file change, a risky or irreversible
@@ -57,8 +64,12 @@ retrieved GATE rule was not followed and why. A gate rule silently ignored is a
 compliance failure, and it is the failure this whole mechanism exists to make
 visible.
 
-Retrieval is also RECORDED when you pass `--record-applications` to `relevant`;
-close each recorded application with `disposition` and its outcome, so that "was
+`python3 tools/bm_learn.py lookup --query "..."` is the read-only twin, for human
+exploration and for checking whether a task warrants the recorded path. It writes
+nothing, so it is NOT a substantial-work path. `relevant` is a deprecated alias
+of the old combined command and says so on every run.
+
+Close each recorded application with `disposition` and its outcome, so that "was
 the rule followed" stays answerable from rows rather than from memory. `classify`
 names a miss as a retrieval miss, a compliance failure, or a bad rule, and
 `should-retrieve` answers whether a task shape warranted retrieval at all.

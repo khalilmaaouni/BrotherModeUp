@@ -45,7 +45,14 @@ APPROVAL NEEDS A RECEIPT FROM A REAL ANSWER OF YOURS
   recorded said "run by the founder" whether or not anyone was there.
 
 RETRIEVAL MODE: lexical only today. No FTS5 index is built yet, and no output
-here claims full-text or BM25 ranking. `relevant` prints the mode it used.
+here claims full-text or BM25 ranking. Retrieval prints the mode it used.
+
+TWO RETRIEVAL VERBS, NOT ONE VERB AND A FLAG
+  `lookup` reads and writes nothing. `apply` retrieves AND records that the
+  rules were surfaced, requires --session, and exits 3 with a PARTIAL status
+  if the recording fails. Substantial work uses `apply`. The old `relevant`
+  survives as a deprecated alias that says so on every run, because recording
+  behind an opt-in flag meant one forgotten flag left no trace at all.
 
 Python 3.9, standard library only.
 
@@ -473,35 +480,121 @@ def _delivery_footer(res, limit):
         _out("Soft rules: %d shown, none omitted." % res.get("soft_returned", 0))
 
 
-def cmd_relevant(argv):
-    """Loop 5's founder-facing surface. READ ONLY BY DEFAULT: asking what
-    applies records nothing, so the outcome data can never be polluted by mere
-    curiosity.
+def _recording_footer(res, record_arg):
+    """What the bookkeeping did, on EVERY printing exit path.
 
-    --record-applications opts IN to writing one row per rule returned, which
-    is what makes "was this rule followed" answerable at task close. It is a
-    flag and not the default for exactly that reason, and when the write fails
-    the rules are still printed."""
-    pos, kv = _parse(argv, {"query", "project", "domain", "artifact",
-                            "relationship", "tool", "limit", "json",
-                            "record-applications", "session", "record",
-                            "not-shown"},
+    ONE DEFINITION, for the same reason _delivery_footer has one: Loop P4's
+    defect was a disclosure that lived on one exit path only, and the zero
+    result path returned before reaching it. This block is called from both.
+
+    A FAILED WRITE IS SHOUTED, NOT MENTIONED. The old text was an indented
+    line under a run that otherwise read as success, and the exit code was 0,
+    so a caller checking the status of `relevant --record-applications` could
+    not tell a recorded retrieval from an unrecorded one. The rules still
+    print, because the retrieval genuinely succeeded and withholding it helps
+    nobody; the status says partial and the process exits 3."""
+    if "recorded" not in res:
+        return
+    _out("")
+    _out("recorded %d application(s), %d already recorded for this task "
+         "(task %s)" % (res["recorded"], res["already_recorded"],
+                        res["task_fingerprint"]))
+    if res.get("linked"):
+        # Said out loud because the whole point of re-running with --record is
+        # that the link lands, and a silent "already recorded" once left the
+        # caller believing it had.
+        _out("  linked %d already recorded application(s) to work record %s"
+             % (res["linked"], L.safe_display(record_arg, 40)))
+    if res.get("record_error"):
+        _out("")
+        _out("STATUS: PARTIAL. RULES RETRIEVED, APPLICATION NOT RECORDED.")
+        _out("  reason: %s" % L.safe_display(res["record_error"], 200))
+        _out("  the rules above are correct and can be acted on.")
+        _out("  \"was this rule followed\" is UNANSWERABLE for this task until "
+             "the row lands.")
+        _out("  fix the reason, then re-run the identical apply; it is "
+             "idempotent and will not double count.")
+        _out("  exit status 3.")
+    else:
+        _out("  status: recorded.")
+        _out("  close them with: bm_learn.py disposition <application-id> "
+             "followed|ignored|not_relevant")
+
+
+_USAGE = {
+    "lookup": "usage: lookup --query \"what you want to read\" [--artifact ...] "
+              "[--limit N]   (READ ONLY; use `apply` before doing the work)",
+    "apply": "usage: apply --query \"what you are about to do\" --session ID "
+             "[--record UUID] [--artifact ...] [--limit N]",
+    "relevant": "usage: relevant --query \"...\"   (DEPRECATED alias; use "
+                "`lookup` to read or `apply` to do the work)",
+}
+
+
+def _retrieve_command(mode, argv):
+    """The one body behind `lookup`, `apply` and the deprecated `relevant`.
+
+    LOOP P5 SPLIT, AND WHY IT IS A SPLIT AND NOT A DEFAULT.
+      Before this, one command did both jobs and recording was an opt-in flag,
+      so the only thing standing between substantial work and an unrecorded
+      retrieval was the model remembering to type --record-applications. A
+      forgotten flag is not a failure anyone can see afterwards: the retrieval
+      looks identical and the application rows simply never exist. So the
+      choice moved out of a flag and into the verb.
+
+        lookup  never writes. Curiosity cannot pollute the outcome data.
+        apply   always attempts to record, and refuses without --session,
+                because an application row with no session identity cannot be
+                tied back to the work it belongs to.
+
+      RECORDING FAILURE IS NOT A RETRIEVAL FAILURE. The rules print either
+      way, because losing the answer to a bookkeeping problem is the worse
+      outcome. But the exit code is 3 and the status is loud, so a caller
+      cannot read a failed write as a clean run."""
+    recording_flag = mode != "lookup"
+    known = {"query", "project", "domain", "artifact", "relationship", "tool",
+             "limit", "json", "session", "record", "not-shown"}
+    if mode == "relevant":
+        known.add("record-applications")
+    pos, kv = _parse(argv, known,
                      wants_value=("query", "project", "domain", "artifact",
                                   "relationship", "tool", "limit", "session",
                                   "record"))
+    if mode == "relevant":
+        _err("bm_learn: `relevant` is DEPRECATED and will be removed in the "
+             "next major version. It is now an alias: use `lookup` to read "
+             "without recording, or `apply --session ID` to do substantial "
+             "work, which always records.")
     query = kv.get("query") or " ".join(pos)
     if not query.strip():
-        _err("usage: relevant --query \"what you are about to do\" [--artifact ...] "
-             "[--limit N] [--record-applications --session ID [--record UUID]]")
+        _err(_USAGE[mode])
+        return 2
+    if mode == "lookup":
+        # Named refusal rather than _parse's generic unknown-flag line, because
+        # someone reaching for these flags wants the recorded path and should
+        # be sent there, not told the flag does not exist.
+        for flag in ("session", "record", "not-shown"):
+            if kv.get(flag):
+                _err("bm_learn: lookup never writes, so --%s means nothing "
+                     "here. Use: apply --query \"...\" --session ID "
+                     "[--record UUID]" % flag)
+                return 2
+    if mode == "apply" and not (kv.get("session") or "").strip():
+        _err("bm_learn: apply requires --session ID. An application row with "
+             "no session identity cannot be tied back to the work it belongs "
+             "to, and an untied row is the bookkeeping this command exists to "
+             "prevent. For a read with no work attached, use `lookup`.")
         return 2
     try:
         limit = int(kv.get("limit", 5))
     except ValueError:
         _err("bm_learn: --limit needs a whole number")
         return 2
+    if mode == "relevant":
+        recording_flag = bool(kv.get("record-applications"))
     store = _store()
     try:
-        if kv.get("record-applications"):
+        if recording_flag:
             res = store.record_learning_applications(
                 query, context=_ctx(kv), limit=limit,
                 session_id=kv.get("session", ""),
@@ -511,9 +604,17 @@ def cmd_relevant(argv):
             res = store.retrieve_learning_rules(query, context=_ctx(kv), limit=limit)
     finally:
         store.close()
+    if recording_flag:
+        # Machine-readable twin of the loud block below. It is set here, on the
+        # one path both the JSON and the human output leave by, so the two can
+        # never disagree about whether the write landed.
+        res["recording_status"] = ("partial-recording-failed"
+                                   if res.get("record_error") else "recorded")
+    exit_code = 3 if res.get("recording_status") == \
+        "partial-recording-failed" else 0
     if kv.get("json"):
         _out(json.dumps(res, indent=2, sort_keys=True))
-        return 0
+        return exit_code
     if not res["results"]:
         # WHY THIS BRANCH IS NOT ALLOWED TO SAY "none matched" UNCONDITIONALLY.
         #
@@ -532,7 +633,8 @@ def cmd_relevant(argv):
             _out("no founder rules apply here (%d in scope, none matched; mode=%s)"
                  % (res["eligible"], res["mode"]))
         _delivery_footer(res, limit)
-        return 0
+        _recording_footer(res, kv.get("record", ""))
+        return exit_code
     _out("RELEVANT FOUNDER RULES (mode=%s)" % res["mode"])
     for r in res["results"]:
         why = r["why"]
@@ -566,24 +668,26 @@ def cmd_relevant(argv):
     _out("")
     _out("Constitution overrides learned rules.")
     _delivery_footer(res, limit)
-    if "recorded" in res:
-        _out("")
-        _out("recorded %d application(s), %d already recorded for this task "
-             "(task %s)" % (res["recorded"], res["already_recorded"],
-                            res["task_fingerprint"]))
-        if res.get("linked"):
-            # Said out loud because the whole point of re-running with --record
-            # is that the link lands, and a silent "already recorded" once left
-            # the caller believing it had.
-            _out("  linked %d already recorded application(s) to work record %s"
-                 % (res["linked"], L.safe_display(kv.get("record", ""), 40)))
-        if res["record_error"]:
-            _out("  the rules above are correct; the bookkeeping did NOT land: %s"
-                 % L.safe_display(res["record_error"], 200))
-        else:
-            _out("  close them with: bm_learn.py disposition <application-id> "
-                 "followed|ignored|not_relevant")
-    return 0
+    _recording_footer(res, kv.get("record", ""))
+    return exit_code
+
+
+def cmd_lookup(argv):
+    """Read the founder rules. Writes NOTHING, ever. For human exploration and
+    for deciding whether a task needs the recorded path at all."""
+    return _retrieve_command("lookup", argv)
+
+
+def cmd_apply(argv):
+    """The substantial-work path. Retrieves AND records, with no flag standing
+    between the two, because a flag is exactly what gets forgotten."""
+    return _retrieve_command("apply", argv)
+
+
+def cmd_relevant(argv):
+    """DEPRECATED alias kept so existing scripts do not break silently. It says
+    so on every run and will be removed in the next major version."""
+    return _retrieve_command("relevant", argv)
 
 
 def cmd_applications(argv):
@@ -1375,6 +1479,8 @@ COMMANDS = {
     "approve": cmd_approve,
     "reject": cmd_reject,
     "rules": cmd_rules,
+    "lookup": cmd_lookup,
+    "apply": cmd_apply,
     "relevant": cmd_relevant,
     "applications": cmd_applications,
     "disposition": cmd_disposition,
