@@ -46,10 +46,12 @@ cat VERSION
 python3 tools/bm_project_facts.py --field release_tag
 ```
 
-The current candidate is `2.0.0-rc.3`, cut 2026-07-29 when V2 became the
-product on the default branch (`CHANGELOG.md` has the entry). `v2.0.0-rc.2`
-before it is superseded, not withdrawn. `v2.0.0-rc.1` IS withdrawn; see the
-section below for why that distinction matters.
+The current candidate is `2.0.0-rc.4`, cut 2026-07-29 when the four parallel
+work lanes were merged back into `v2` (`CHANGELOG.md` has the entry). The TAG
+`v2.0.0-rc.4` does not exist yet: cutting it is a founder action, and the
+release-cut commit deliberately creates no tag and moves none. `2.0.0-rc.3`
+before it is superseded, not withdrawn, as is `v2.0.0-rc.2`. `v2.0.0-rc.1` IS
+withdrawn; see the section below for why that distinction matters.
 
 Reasoning, stated plainly because a version number is a claim and this one
 should be checked rather than trusted:
@@ -96,10 +98,10 @@ Until it closes, do not describe this project as `2.0.0` anywhere.
 Tags exist now, so this is the install instruction, not a future one:
 
 ```bash
-git clone --branch v2.0.0-rc.3 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.4 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
-`--branch v2.0.0-rc.3` checks out that exact tag, not a moving branch head. It
+`--branch v2.0.0-rc.4` checks out that exact tag, not a moving branch head. It
 is the current candidate; `python3 tools/bm_project_facts.py --field
 release_tag` prints the tag matching whatever tree you are reading.
 `--depth 1` is optional (a shallow clone of just that tag), included because
@@ -223,10 +225,13 @@ through preparing it.
 CURRENT STATE, 2026-07-29, first, because the dated entries under it are a LOG
 and several of them were true only on the day they were written. Three tags
 exist (`v2.0.0-rc.1` withdrawn, `v2.0.0-rc.2` superseded, `v2.0.0-rc.3`
-current). CI is green on three platforms as of 2026-07-27; the Windows handle
-leak that failed on `rc.1` is fixed. The checksum manifest has now been
-regenerated at a tagged commit (`rc.3`), so the "never against an actual tagged
-release" line below is history rather than a live limit. Read the entries below
+superseded). `VERSION` now reads `2.0.0-rc.4` and NO tag has been cut for it:
+the pinned clone command above will not resolve until the founder creates that
+tag. CI is green on three platforms as of 2026-07-27; the Windows handle leak
+that failed on `rc.1` is fixed. The checksum manifest was last regenerated at
+the rc.4 release-cut commit, on an untagged commit, so the "never against an
+actual tagged release" line below is history for `rc.3` and live again for
+`rc.4` until the tag exists. Read the entries below
 as the arc, not as today's status; `docs/KNOWN-LIMITS.md` is the live one.
 
 - **A release IS tagged now.** Corrected 2026-07-26: `v2.0.0-rc.1` exists on
