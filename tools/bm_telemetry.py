@@ -309,31 +309,97 @@ def redact(text):
     return text, n
 
 
+def _load_bm_learning():
+    """Load bm_learning.py by path, same shape as _load_bm_store above: works
+    from any cwd and never raises. bm_learning.py is pure (no database, no
+    clock, no filesystem, and it imports only hashlib, re and unicodedata), so
+    loading it keeps this module's no-subprocess and no-network properties."""
+    try:
+        import importlib.util
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location(
+            "bm_learning_for_telemetry", os.path.join(here, "bm_learning.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod, None
+    except Exception as e:
+        return None, repr(e)
+
+
+_bm_learning_cache = []
+
+
+def _get_bm_learning():
+    if not _bm_learning_cache:
+        _bm_learning_cache.extend(_load_bm_learning())
+    return _bm_learning_cache[0], _bm_learning_cache[1]
+
+
+CORRECTION_CAP_PER_SESSION = 8
+
+
 def scan_corrections(sid, project, user_texts):
-    """Correction CANDIDATES from short founder messages in the MAIN transcript
-    only (subagent transcripts quote law text and would flood this). Human filter
-    at the weekly review decides what becomes law; cap 5 per session.
+    """Correction CANDIDATES from founder messages in the MAIN transcript only
+    (subagent transcripts quote law text and would flood this). Nothing written
+    here is a rule: the founder's review through bm_learn.py decides that, and
+    no code path in this file can approve anything.
+
+    Loop 4 (2026-07-29) closed docs/NOT-FINALIZED.md item 17. What changed, and
+    why, because the old behaviour was MEASURED rather than guessed: the filter
+    was one English regex with a hard 400-character cap, and of five real
+    founder messages it captured two. A French correction and a 4,000-character
+    correction were both dropped, and dropped SILENTLY. The founder works in
+    French. So:
+      - detection now runs bm_learning's English, French and Japanese phrase
+        packs, and the old regex survives INSIDE the English pack rather than
+        being replaced, so nothing that used to be captured stops being
+        captured;
+      - length no longer drops anything. A long message is EXCERPTED and the
+        row records how many characters were omitted;
+      - the per-session cap rose from 5 to 8, and each row records the language
+        and the signals that matched, so a reviewer can see why it is there.
+
+    Degraded path: if bm_learning cannot be loaded, this uses the old English
+    regex and marks every row it writes `degraded: true` rather than pretending
+    the packs ran. This module's law is that telemetry never blocks work, and
+    the honest form of that is a labelled degradation, not a silent one.
+
     Dedup guard (interim-score fix 2026-07-23): the SessionEnd hook can fire more
     than once per session; a (session_id, text) already in the file is never
     re-appended."""
+    learning, load_err = _get_bm_learning()
     seen = {(c.get("session_id"), c.get("text")) for c in read_jsonl(CORRECTIONS)}
     found = 0
     for txt in user_texts:
-        if found >= 5:
+        if found >= CORRECTION_CAP_PER_SESSION:
             break
-        if len(txt) > 400:
-            continue
-        if CORRECTION_RE.search(txt):
-            clean, nred = redact(txt[:400])
-            if (sid, clean) in seen:
+        rec = {"ts": now_iso(), "session_id": sid, "project": project}
+        if learning is None:
+            if len(txt) > 400 or not CORRECTION_RE.search(txt):
                 continue
-            rec = {"ts": now_iso(), "session_id": sid,
-                   "project": project, "text": clean}
-            if nred:
-                rec["redactions"] = nred
-            atomic_append(CORRECTIONS, rec, mode=0o600)
-            seen.add((sid, clean))
-            found += 1
+            clean, nred = redact(txt[:400])
+            rec["degraded"] = True
+            rec["degraded_reason"] = "bm_learning unavailable (%s)" % (load_err,)
+        else:
+            hit = learning.detect_correction(txt)
+            if hit is None:
+                continue
+            clean, nred = redact(hit["excerpt"])
+            rec["lang"] = hit["lang"]
+            rec["signals"] = hit["signals"]
+            if hit["truncated"]:
+                # Stated, never silent: a reviewer has to be able to tell that
+                # what they are reading is shorter than what was sent.
+                rec["truncated"] = True
+                rec["original_length"] = hit["original_length"]
+        if (sid, clean) in seen:
+            continue
+        rec["text"] = clean
+        if nred:
+            rec["redactions"] = nred
+        atomic_append(CORRECTIONS, rec, mode=0o600)
+        seen.add((sid, clean))
+        found += 1
     return found
 
 

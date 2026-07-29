@@ -59,6 +59,14 @@ bs = _load("bm_store")
 L = _load("bm_learning")
 
 
+def _telemetry():
+    """bm_telemetry owns the vault's corrections.jsonl inbox: its path, its
+    permissions and its parser. Loaded lazily and by path so this file never
+    reimplements the vault layout and then drifts from it. READ ONLY from here:
+    no command in this CLI writes, moves or truncates that file."""
+    return _load("bm_telemetry")
+
+
 def _out(msg=""):
     sys.stdout.write("%s\n" % msg)
 
@@ -414,8 +422,89 @@ def cmd_why(argv):
     return 0
 
 
+def cmd_inbox(argv):
+    """Show, and on request import, the GLOBAL correction capture inbox.
+
+    The inbox is one file shared by every project on this machine. This store is
+    the system of record for THIS project. Importing is triage: an inbox row
+    becomes a pending candidate here, scoped to this project, and it stays
+    pending until you approve it. Nothing is approved, and the inbox file itself
+    is only ever read."""
+    pos, kv = _parse(argv, {"file", "backfill", "json"}, wants_value=("file",))
+    bt = _telemetry()
+    path = kv.get("file") or bt.CORRECTIONS
+    if not os.path.isfile(path):
+        _out("no correction inbox at %s (nothing captured yet)" % path)
+        return 0
+    rows, bad = bt.read_jsonl(path, report_bad=True)
+    if not kv.get("backfill"):
+        store = _store()
+        try:
+            known = {c["content_hash"] for c in store.list_learning_candidates(status=None)
+                     if c["source_type"] == "detected_correction"}
+        finally:
+            store.close()
+        new = [r for r in rows
+               if L.inbox_identity(r.get("session_id", ""), r.get("text", ""))
+               not in known]
+        if kv.get("json"):
+            _out(json.dumps({"path": path, "rows": len(rows), "not_yet_imported": len(new),
+                             "unparsable_lines": bad}, indent=2, sort_keys=True))
+            return 0
+        _out("inbox %s" % path)
+        _out("  %d row(s), %d not yet imported into this project" % (len(rows), len(new)))
+        if bad:
+            _out("  %d line(s) could not be parsed (line numbers %s); the text is not "
+                 "printed because it is yours" % (len(bad), bad))
+        for r in new:
+            _out("  %s  %s  %s" % (r.get("ts", "?")[:19], r.get("project", "?"),
+                                    L.safe_display(r.get("text", ""), 90)))
+        _out("")
+        _out("import them with: bm_learn.py inbox --backfill (nothing is approved)")
+        return 0
+    store = _store()
+    try:
+        res = store.import_correction_inbox(rows, source_label=os.path.basename(path))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(res, indent=2, sort_keys=True))
+        return 0
+    _out("imported %d candidate(s), skipped %d already present"
+         % (res["imported"], res["skipped"]))
+    if res["possible_duplicates"]:
+        _out("  %d flagged as a possible duplicate of an earlier candidate; the note "
+             "is on the candidate, nothing was discarded" % res["possible_duplicates"])
+    _out("All pending. Review with: bm_learn.py candidates")
+    return 0
+
+
+def cmd_metrics(argv):
+    """Descriptive capture volumes. Deliberately NOT called accuracy."""
+    pos, kv = _parse(argv, {"json"})
+    store = _store()
+    try:
+        m = store.learning_capture_metrics()
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(m, indent=2, sort_keys=True))
+        return 0
+    _out("capture metrics (descriptive counts, not accuracy)")
+    _out("  candidates by status: %s" % (m["candidates_by_status"] or "none"))
+    _out("  candidates by source: %s" % (m["candidates_by_source"] or "none"))
+    _out("  possible duplicates flagged: %d" % m["possible_duplicates"])
+    _out("  approved rules: %d" % m["rules_total"])
+    _out("")
+    _out("There is no labelled review set, so none of these is a precision or a")
+    _out("recall number, and none of them should be read as one.")
+    return 0
+
+
 COMMANDS = {
     "capture": cmd_capture,
+    "inbox": cmd_inbox,
+    "metrics": cmd_metrics,
     "candidates": cmd_candidates,
     "show-candidate": cmd_show_candidate,
     "approve": cmd_approve,
