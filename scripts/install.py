@@ -714,6 +714,9 @@ def main(argv):
             return EXIT_FAILED
         _out("smoke: the fence hook ran end to end and exited 0; every file a "
              "hook command names exists.")
+        _out("smoke: this proves the hook RUNS, not that it REFUSES. For that, "
+             "run: python3 %s --settings %s"
+             % (os.path.join(target, "scripts", "doctor.py"), settings_path))
 
     _out("")
     _out("%sInstalled:" % prefix)

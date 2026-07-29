@@ -89,6 +89,26 @@ python3 -m json.tool ~/.claude/settings.json
 
 Expected: the file prints back, reformatted, with no error.
 
+Then prove the fence is not just wired but LIVE:
+
+```bash
+python3 ~/.claude/skills/brothermode/scripts/doctor.py
+```
+
+Expected: `OK: the wired hook denied a foreign write and allowed the owner's
+own write`, followed by three lines saying what that did not prove. Doctor
+builds a throwaway project in a temporary directory, claims one file under one
+session, then asks the hook you actually wired to approve an edit of that file
+from a different session. A healthy fence refuses. It then asks again as the
+owner, because a hook that denies everything would pass the first half and
+would be a brick rather than a fence. Nothing outside the temporary directory
+is touched, and it is deleted when doctor exits.
+
+Exit code 1 means the fence is not enforcing, and the output names which way it
+is dead: no `PreToolUse` entry at all, an entry pointing at a file that is not
+there, a matcher that leaves some write tools ungated, or a hook that runs and
+refuses nothing.
+
 To remove the wiring later:
 
 ```bash
