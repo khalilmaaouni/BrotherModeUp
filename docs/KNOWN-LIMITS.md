@@ -228,6 +228,20 @@ What has NOT changed, and matters more than what has:
   numbers are checkable rather than trusted: `gates_returned` is counted off
   the rows actually returned, `gates_total` off the applicable set, and a test
   fails if they ever differ.
+
+  Amended the same day by fix round P4-fix, because the loop shipped the
+  guarantee and half the disclosure. The two sentences were printed at the
+  bottom of `relevant`, and the zero-result branch returns before reaching
+  them, so `--limit 0` and `--limit -1` in a store holding one matching soft
+  rule printed "none matched" and no omission count while the JSON from the
+  identical call reported `omitted: 1`. No gate was hidden by this, since an
+  empty result means `gates_total` was zero, but the founder was told all the
+  rules had been considered when one had been cut. The footer is now one
+  function called from every human-output path, and the zero-result line names
+  which of its two causes applied. What is still NOT claimed: the count of
+  rules "in scope" on that line is scope and lifecycle eligibility, not a
+  promise that each of them is a good match, and "none matched" remains a
+  statement about lexical overlap, which is the only relevance this tool has.
 - **A digest in the database is not a promise, it is a delay.**
   `founder_response_hash` is an unsalted sha256 of a short answer. Until fix
   round P3 it was printed verbatim by `dump`, and a ten-word wordlist recovered

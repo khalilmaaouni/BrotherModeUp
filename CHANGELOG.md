@@ -1,5 +1,48 @@
 # Changelog
 
+## 2026-07-29 (no version bump): the zero-result path told you nothing was omitted
+
+Fix round P4-fix, on top of Loop P4 (c78e5ea). Loop P4 promised that `relevant`
+"explains soft omissions separately from gate delivery". It put that two
+sentence footer at the BOTTOM of the command, and the zero-result branch
+returns before reaching it. So with one live soft rule that DID match the query
+and a limit that cut it, the founder read:
+
+```
+no founder rules apply here (1 in scope, none matched; mode=lexical)
+0 of your 0 applicable gate rules were held back; a result limit cannot hide one.
+```
+
+while `--json` on the identical call reported `eligible: 1, omitted: 1,
+soft_omitted: 1`. Two wrong things at once: a rule that matched was reported as
+not matching, and the omission was never mentioned. The new gate sentence made
+the screen read as a complete, clean answer. Reproduced on a throwaway store at
+c78e5ea with `--limit 0` and again with `--limit -1`, both named in the loop
+spec as required edge cases.
+
+The gate guarantee itself was never broken. `gates_total` is necessarily zero
+whenever the result is empty, because gates are no longer subject to the limit,
+so no gate was hidden. What was broken is the disclosure the loop exists to
+provide.
+
+- The footer moved into `_delivery_footer`, called by every path out of
+  `relevant` that prints for a human. It is a function precisely so a path
+  cannot go quiet again without deleting the call, and a test fails if either
+  sentence gets a second inline copy.
+- The zero-result line now distinguishes its two causes. Nothing matched still
+  reads "none matched". Rules matched and the limit cut all of them now reads
+  "no founder rules SHOWN here (N in scope). Rules matched. The result limit
+  cut every one of them."
+- `_soft_omitted` gives the one definition of that count, with the pre-P4
+  `omitted` key as the fallback.
+
+Four tests, driven through the real binary: the reproduction at `--limit 0` and
+`--limit -1` cross-checked against the JSON from the same call, a genuinely
+empty result still saying "none matched" so the fix cannot pass by shouting
+"omitted" at everything, the structural one-definition check, and a calibration
+test that reinjects the pre-fix footer onto the real product symbol in-process.
+Both behavioural tests fail against c78e5ea's `bm_learn.py`.
+
 ## 2026-07-29 (no version bump): a result limit can no longer hide a gate rule
 
 Loop P4, on top of fix round P3 (05441e7). The defect was already written down
