@@ -694,6 +694,11 @@ class TestFixRoundGates(unittest.TestCase):
                                 "additive DDL, identical category to "
                                 "_migrate_1_to_2, executed inside the caller's "
                                 "exclusive transaction",
+            "_migrate_3_to_4": "post-audit LOOP P6 (retrieval runs). Additive "
+                                "DDL plus ONE guarded ADD COLUMN, executed "
+                                "inside the caller's exclusive transaction; "
+                                "the PRAGMA it reads is schema introspection, "
+                                "the same category as _text_columns below",
             "Store._transaction": "ROLLBACK during cleanup must never mask "
                                    "the exception already being handled",
             "_quarantine_record_count": "reads an ALREADY quarantined file, "
@@ -8189,6 +8194,422 @@ class TestPostAuditLoop3Schema3Migration(unittest.TestCase):
     def test_receipt_ddl_split_matches_the_table_and_index_lists(self):
         self.assertEqual(len(bs._RECEIPT_DDL_STATEMENTS), len(bs._TABLES_RECEIPTS))
         self.assertEqual(len(bs._RECEIPT_INDEX_STATEMENTS), 1)
+
+
+_PAST = "2000-01-01T00:00:00Z"
+_FUTURE = "2099-01-01T00:00:00Z"
+
+
+class TestPostAuditLoopP6RetrievalRuns(unittest.TestCase):
+    """LOOP P6: a retrieval miss must have a denominator that was RECORDED.
+
+    The gap these tests close was reproduced on the real CLI first: one global
+    gate and one project-scoped rule in scope, a retrieval at limit 0, and
+    classify reported no misses at all, because the retrieval context was never
+    stored and was rebuilt from the scope_match of the rows that DID land."""
+
+    TASK = "writing an executive update"
+
+    def _rule(self, store, action, trigger=None, severity="soft",
+              scope_type="global", scope_key=""):
+        c = store.capture_learning_candidate(
+            "manual", trigger=trigger or self.TASK, action=action,
+            because="the founder said so", scope_type=scope_type,
+            scope_key=scope_key)
+        return _approved(store, c["candidate_uuid"], founder_ref="founder",
+                         severity=severity, scope_type=scope_type,
+                         scope_key=scope_key)
+
+    def _backdate(self, store, rule, when=_PAST):
+        """Make a rule unambiguously OLDER than the retrieval, in both places
+        that matter: when the founder approved it, and when its current text
+        was written. Backdating only the approval would leave today's wording
+        being ranked against a past retrieval, which this build refuses to
+        decide, so a fixture that means 'this rule existed, as written' has to
+        say both halves."""
+        store.conn.execute(
+            "UPDATE learning_rules SET founder_approved_at=? WHERE rule_uuid=?",
+            (when, rule["rule_uuid"]))
+        store.conn.execute(
+            "UPDATE learning_rule_versions SET created_at=? WHERE rule_uuid=?",
+            (when, rule["rule_uuid"]))
+        store.conn.commit()
+
+    def _cut_fixture(self, store):
+        """A gate that is always returned, and a project rule the limit cuts.
+
+        The project rule is the one that used to be invisible: nothing
+        project-scoped was returned, so the rebuilt context had no project key
+        and the rule could not even be found to be missing."""
+        gate = self._rule(store, "never send it on a friday", severity="gate")
+        proj = self._rule(store, "name the client early",
+                          scope_type="project", scope_key="Acme")
+        res = store.record_learning_applications(
+            self.TASK, context={"project": "Acme"}, limit=0, session_id="S1")
+        return gate, proj, res
+
+    # -- the run row itself ---------------------------------------------
+
+    def test_the_run_stores_the_context_and_parameters_the_retrieval_used(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, "lead with the outcome")
+                res = store.record_learning_applications(
+                    self.TASK, session_id="S1", limit=3,
+                    context={"project": "Acme", "artifact": "exec-update",
+                             "relationship": "board", "domain": "comms",
+                             "tool": "bm_learn"})
+                run = store.get_learning_retrieval_run(res["retrieval_uuid"])
+                self.assertEqual(run["project_key"], "Acme")
+                self.assertEqual(run["artifact_key"], "exec-update")
+                self.assertEqual(run["relationship_key"], "board")
+                self.assertEqual(run["domain_key"], "comms")
+                self.assertEqual(run["tool_key"], "bm_learn")
+                self.assertEqual(run["requested_limit"], 3)
+                self.assertEqual(run["retrieval_mode"], res["mode"])
+                self.assertEqual(run["eligible_count"], res["eligible"])
+                self.assertEqual(run["returned_count"], len(res["results"]))
+                self.assertEqual(run["session_id"], "S1")
+
+    def test_the_run_stores_a_query_hash_and_never_the_raw_query(self):
+        L = bs._learning()
+        secret = "writing an executive update about ACME-INTERNAL-CODENAME"
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, "lead with the outcome")
+                res = store.record_learning_applications(
+                    secret, session_id="S1", task_excerpt="")
+                run = store.get_learning_retrieval_run(res["retrieval_uuid"])
+                self.assertEqual(run["query_hash"], L.content_hash(secret))
+                self.assertEqual(run["task_excerpt"], "")
+                blob = json.dumps(store.dump(), sort_keys=True)
+                self.assertNotIn("ACME-INTERNAL-CODENAME", blob,
+                                 "no dump may reproduce the founder's task text")
+
+    def test_a_retrieval_that_records_nothing_new_still_records_the_run(self):
+        """A repeat IS a retrieval: it happened, it had a limit and a context.
+        Dropping it would leave the ledger unable to say the rules were asked
+        for a second time."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, "lead with the outcome")
+                first = store.record_learning_applications(self.TASK,
+                                                           session_id="S1")
+                second = store.record_learning_applications(self.TASK,
+                                                            session_id="S1")
+                self.assertEqual(second["recorded"], 0)
+                self.assertEqual(second["already_recorded"], 1)
+                self.assertNotEqual(first["retrieval_uuid"],
+                                    second["retrieval_uuid"])
+                self.assertEqual(
+                    len(store.list_learning_retrieval_runs(session_id="S1")), 2)
+
+    def test_a_failed_recording_leaves_no_orphan_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, "lead with the outcome")
+                res = store.record_learning_applications(
+                    self.TASK, session_id="S1", record_prefix="deadbeef")
+                self.assertEqual(res["record_error_kind"], "not-found")
+                self.assertEqual(res["retrieval_uuid"], "")
+                self.assertEqual(store.list_learning_retrieval_runs(), [])
+                self.assertTrue(res["results"],
+                                "the rules must survive a bookkeeping failure")
+
+    # -- what the stored context now makes visible -----------------------
+
+    def test_a_project_rule_no_project_rule_was_returned_for_is_now_found(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gate, proj, res = self._cut_fixture(store)
+                self.assertEqual(res["recorded"], 1, "only the gate is returned")
+                out = store.classify_learning_applications()
+                self.assertEqual([m["rule_uuid"] for m in out["retrieval_misses"]],
+                                 [proj["rule_uuid"]])
+                self.assertNotIn(gate["rule_uuid"],
+                                 [m["rule_uuid"] for m in out["retrieval_misses"]])
+
+    def test_calibration_the_old_no_context_design_cannot_see_that_miss(self):
+        """Reinjection: put the pre-P6 design back (the retrieval context is
+        not stored, so it is whatever the returned rows happened to imply) and
+        the test above stops detecting anything. That is the proof the guard
+        measures the fix rather than passing on its own."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gate, proj, res = self._cut_fixture(store)
+                with mock.patch.object(bs.Store, "_run_context",
+                                       lambda self, run: {}):
+                    blind = store.classify_learning_applications()
+                self.assertEqual(blind["retrieval_misses"], [],
+                                 "with the context thrown away the project rule "
+                                 "is not even eligible, so the miss is invisible")
+                self.assertEqual(
+                    [m["rule_uuid"]
+                     for m in store.classify_learning_applications()
+                     ["retrieval_misses"]],
+                    [proj["rule_uuid"]], "and it is visible again once restored")
+
+    def test_a_limit_caused_miss_is_labelled_separately(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gate, proj, res = self._cut_fixture(store)
+                out = store.classify_learning_applications()
+                miss = out["retrieval_misses"][0]
+                self.assertEqual(miss["miss_kind"], "limit")
+                self.assertEqual(miss["classification"], "retrieval_limit_miss")
+                self.assertEqual(miss["requested_limit"], 0)
+                self.assertEqual(miss["retrieval_uuid"], res["retrieval_uuid"])
+                self.assertEqual(out["counts"]["retrieval_limit_miss"], 1)
+                self.assertEqual(out["counts"]["retrieval_miss"], 0)
+                self.assertIn("result limit cut it",
+                              miss["classification_reason"])
+
+    def test_a_miss_inside_the_limit_stays_a_relevance_miss(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, "lead with the outcome")
+                store.record_learning_applications(self.TASK, session_id="S1",
+                                                   limit=5)
+                missed = self._rule(store, "attach the revenue number",
+                                    trigger=self.TASK + " revenue")
+                self._backdate(store, missed)
+                out = store.classify_learning_applications()
+                self.assertEqual([m["rule_uuid"] for m in out["retrieval_misses"]],
+                                 [missed["rule_uuid"]])
+                self.assertEqual(out["retrieval_misses"][0]["miss_kind"],
+                                 "relevance")
+                self.assertEqual(out["counts"]["retrieval_miss"], 1)
+                self.assertEqual(out["counts"]["retrieval_limit_miss"], 0)
+
+    def test_a_gate_is_never_written_off_as_a_limit_miss(self):
+        """A gate is exempt from the limit by construction, so a gate with no
+        application row is the harder finding, never the cheap one."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, "lead with the outcome")
+                store.record_learning_applications(self.TASK, session_id="S1",
+                                                   limit=1)
+                gate = self._rule(store, "never send it on a friday",
+                                  severity="gate")
+                self._backdate(store, gate)
+                out = store.classify_learning_applications()
+                kinds = dict((m["rule_uuid"], m["miss_kind"])
+                             for m in out["retrieval_misses"])
+                self.assertEqual(kinds.get(gate["rule_uuid"]), "relevance")
+
+    # -- what it refuses to decide ---------------------------------------
+
+    def test_a_legacy_application_row_is_reported_as_incomplete_evidence(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gate, proj, res = self._cut_fixture(store)
+                # Exactly what a store migrated from schema 3 looks like: the
+                # application row survived, the run behind it never existed.
+                store.conn.execute("UPDATE learning_applications "
+                                   "SET retrieval_uuid=NULL")
+                store.conn.execute("DELETE FROM learning_retrieval_runs")
+                store.conn.commit()
+                out = store.classify_learning_applications()
+                self.assertEqual(out["retrieval_misses"], [])
+                self.assertEqual(len(out["not_decidable_tasks"]), 1)
+                self.assertEqual(out["not_decidable_tasks"][0]["evidence"],
+                                 "legacy")
+                self.assertIn("incomplete evidence",
+                              out["not_decidable_tasks"][0]["reason"])
+
+    def test_a_rule_rewritten_since_the_retrieval_is_not_decidable(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                one = self._rule(store, "lead with the outcome")
+                two = self._rule(store, "attach the revenue number",
+                                 trigger=self.TASK + " revenue")
+                res = store.record_learning_applications(self.TASK,
+                                                         session_id="S1",
+                                                         limit=1)
+                shown = set(r["rule_uuid"] for r in res["results"])
+                # Whichever of the two the ranker did NOT return is the one
+                # this test rewrites, so the fixture cannot depend on a tie
+                # being broken one way.
+                rewritten = [r for r in (one, two)
+                             if r["rule_uuid"] not in shown][0]
+                # Approved long ago, but its CURRENT wording was written after
+                # the retrieval. Ranking today's text and calling the result a
+                # historical miss would blame a rule for words it did not have.
+                store.conn.execute(
+                    "UPDATE learning_rules SET founder_approved_at=? "
+                    "WHERE rule_uuid=?", (_PAST, rewritten["rule_uuid"]))
+                store.conn.execute(
+                    "UPDATE learning_rule_versions SET created_at=? "
+                    "WHERE rule_uuid=?", (_FUTURE, rewritten["rule_uuid"]))
+                store.conn.commit()
+                out = store.classify_learning_applications()
+                self.assertNotIn(rewritten["rule_uuid"],
+                                 [m["rule_uuid"] for m in out["retrieval_misses"]])
+                kinds = [u["evidence"] for u in out["not_decidable_tasks"]]
+                self.assertIn("rule_changed_since_retrieval", kinds)
+
+    def test_metrics_count_the_two_miss_kinds_under_their_own_names(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._cut_fixture(store)
+                m = store.learning_loop_failures(window_days=None)
+                self.assertEqual(m["counts"]["retrieval_limit_miss"], 1)
+                self.assertEqual(m["counts"]["retrieval_miss"], 0)
+
+
+class TestPostAuditLoopP6Schema4Migration(unittest.TestCase):
+    """Schema 3 to 4. Same discipline as the two migration suites above: the
+    fixture is a REAL store reverted to schema 3, never hand-written DDL."""
+
+    def _schema3_store(self, d):
+        with bs.Store(d) as store:
+            store.claim("alpha", "persistent", "keep me", ["src/a.py"])
+            c = store.capture_learning_candidate(
+                "manual", trigger="writing an executive update",
+                action="state customer impact first",
+                because="leaders need the business state first",
+                scope_type="global", scope_key="")
+            _approved(store, c["candidate_uuid"], founder_ref="founder")
+            store.record_learning_applications("writing an executive update",
+                                               session_id="S-OLD")
+        path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            for t in bs._TABLES_RETRIEVAL:
+                conn.execute("DROP TABLE IF EXISTS %s" % t)
+            # The column goes by table rebuild rather than DROP COLUMN, which
+            # needs SQLite 3.35. This project's floor is Python 3.9 and says
+            # nothing about the SQLite it was built against, so the fixture
+            # must not need a newer one than the product does.
+            create = [s for s in bs._LEARNING_DDL_STATEMENTS
+                      if "CREATE TABLE IF NOT EXISTS learning_applications" in s]
+            self.assertEqual(len(create), 1)
+            conn.execute("ALTER TABLE learning_applications RENAME TO la_pre_p6")
+            conn.execute(create[0])
+            cols = ", ".join(
+                r[1] for r in conn.execute(
+                    "PRAGMA table_info(learning_applications)").fetchall())
+            conn.execute("INSERT INTO learning_applications (%s) "
+                         "SELECT %s FROM la_pre_p6" % (cols, cols))
+            conn.execute("DROP TABLE la_pre_p6")
+            conn.execute("UPDATE meta SET value='3' WHERE key='schema_version'")
+            conn.execute("COMMIT")
+        finally:
+            conn.close()
+        return path
+
+    def _snapshot(self, path):
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        try:
+            out = {}
+            for t in bs._TABLES_V3:
+                rows = [dict(r) for r in conn.execute("SELECT * FROM %s" % t)]
+                if t == "meta":
+                    rows = [r for r in rows if r.get("key") != "schema_version"]
+                out[t] = json.dumps(rows, sort_keys=True, default=str)
+            return out
+        finally:
+            conn.close()
+
+    def _tables(self, path):
+        conn = sqlite3.connect(path)
+        try:
+            return {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            conn.close()
+
+    def test_a_schema3_store_migrates_instead_of_being_quarantined(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema3_store(d)
+            with bs.Store(d) as store:
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT value FROM meta WHERE key='schema_version'"
+                    ).fetchone()["value"], str(bs.SCHEMA_VERSION))
+            self.assertTrue(set(bs._TABLES_RETRIEVAL) <= self._tables(path))
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")), [],
+                "a healthy schema-3 store must MIGRATE, never be quarantined")
+
+    def test_migration_preserves_every_schema3_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema3_store(d)
+            before = self._snapshot(path)
+            with bs.Store(d):
+                pass
+            after = self._snapshot(path)
+            for table in before:
+                if table == "learning_applications":
+                    # The one table that gains a column, so its rows are
+                    # compared field by field below rather than as JSON.
+                    continue
+                self.assertEqual(before[table], after[table], table)
+            old = json.loads(before["learning_applications"])
+            new = json.loads(after["learning_applications"])
+            self.assertEqual(len(old), len(new))
+            self.assertTrue(old, "the fixture must carry a real application row")
+            for o, n in zip(old, new):
+                for k, v in o.items():
+                    self.assertEqual(n[k], v, k)
+
+    def test_migration_invents_no_retrieval_run_for_an_older_row(self):
+        """The dishonest half of this change would be manufacturing a run for
+        every legacy application so the reports look complete."""
+        with tempfile.TemporaryDirectory() as d:
+            self._schema3_store(d)
+            with bs.Store(d) as store:
+                self.assertEqual(store.list_learning_retrieval_runs(), [])
+                apps = store.list_learning_applications(session_id="S-OLD")
+                self.assertTrue(apps)
+                for a in apps:
+                    self.assertIsNone(a["retrieval_uuid"])
+
+    def test_migration_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema3_store(d)
+            with bs.Store(d):
+                pass
+            first = self._snapshot(path)
+            with bs.Store(d):
+                pass
+            self.assertEqual(first, self._snapshot(path))
+
+    def test_calibrated_interrupted_migration_rolls_back_completely(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema3_store(d)
+            original = bs._MIGRATIONS[3]
+
+            def _fail_half_way(conn):
+                conn.execute(bs._RETRIEVAL_RUN_DDL_STATEMENTS[0])
+                raise RuntimeError("simulated interruption mid-migration")
+
+            bs._MIGRATIONS[3] = _fail_half_way
+            try:
+                with self.assertRaises(RuntimeError):
+                    bs.Store(d)
+            finally:
+                bs._MIGRATIONS[3] = original
+            conn = sqlite3.connect(path)
+            try:
+                v = conn.execute(
+                    "SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(v, "3",
+                             "an interrupted migration must not move the version")
+            for t in bs._TABLES_RETRIEVAL:
+                self.assertNotIn(t, self._tables(path))
+            with bs.Store(d):
+                pass
+            self.assertTrue(set(bs._TABLES_RETRIEVAL) <= self._tables(path))
+
+    def test_retrieval_run_ddl_split_matches_the_table_and_index_lists(self):
+        self.assertEqual(len(bs._RETRIEVAL_RUN_DDL_STATEMENTS),
+                         len(bs._TABLES_RETRIEVAL))
+        self.assertEqual(len(bs._RETRIEVAL_RUN_INDEX_STATEMENTS), 1)
 
 
 if __name__ == "__main__":

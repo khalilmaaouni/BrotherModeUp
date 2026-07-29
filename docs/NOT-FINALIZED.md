@@ -11,6 +11,27 @@ Status words mean exactly one thing each:
 
 ---
 
+## P6: the run stores a bounded excerpt BY DEFAULT, not only when justified. PARTIAL.
+
+The loop plan asked for a bounded scrubbed excerpt "only when explicitly
+justified". What ships keeps the same default the application row has kept since
+Loop 7: up to 500 characters, whitespace-collapsed, control characters stripped,
+run through the secret scrubber, withheld from `dump` behind a length marker,
+and omitted entirely when the caller passes an empty `task_excerpt`. It is
+stored by default because the miss check re-ranks the task text and has nothing
+to re-rank without it, so changing the default would have silently turned every
+future task into `not_decidable`. The raw query is genuinely never stored; a
+non-reversible hash of it is. OPEN as a policy question for the founder, not as
+a defect.
+
+## P6: `retrieval_uuid` is nullable forever, so "legacy" is a permanent state. DEFERRED.
+
+Nothing forces an application row to carry a run, and nothing ever will for the
+rows that already exist. A later round could refuse to write an application
+without one, making the column effectively required for new rows while the old
+ones stay legacy. Not done here: that is a second migration and this loop
+already owns one.
+
 ## P5-fix: `apply` discloses the two-units-of-work ambiguity, it does not resolve it. PARTIAL.
 
 With `--record`, each unit of work gets its own application row and the earlier

@@ -529,6 +529,15 @@ def _recording_footer(res, record_arg):
         _out("  exit status 3.")
     else:
         _out("  status: recorded.")
+        if res.get("retrieval_uuid"):
+            # Named so the founder can point at the run behind a miss finding.
+            # The run is what makes a miss count defensible: it holds the scope
+            # context, the limit and the eligible count as they were, none of
+            # which can be recomputed once the corpus moves.
+            _out("  retrieval run %s recorded (%d eligible, %d returned, "
+                 "limit %d)" % (res["retrieval_uuid"][:8], res["eligible"],
+                                len(res["results"]),
+                                res.get("requested_limit", len(res["results"]))))
         if res.get("already_linked_records"):
             # THE ONE CASE "already recorded" MUST NOT BE READ AS SUCCESS FOR
             # THIS WORK. No --record was passed, so the row that already exists
@@ -816,12 +825,17 @@ def cmd_classify(argv):
             a["classification"] or "no_finding",
             L.safe_display(a["classification_reason"], 110)))
     for m in res["retrieval_misses"]:
-        _out("  task %s  rule %s  retrieval_miss     %s" % (
+        # The class, not a fixed word: a limit miss and a relevance miss have
+        # different fixes, and printing both as "retrieval_miss" is how a limit
+        # set to 1 stays invisible while retrieval quality looks bad.
+        _out("  task %s  rule %s  %-20s %s" % (
             m["task_fingerprint"][:8], m["rule_uuid"][:8],
+            m.get("classification", "retrieval_miss"),
             L.safe_display(m["classification_reason"], 110)))
     for u in res["not_decidable_tasks"]:
-        _out("  task %s  not_decidable      %s" % (
-            u["task_fingerprint"][:8], L.safe_display(u["reason"], 110)))
+        _out("  task %s  not_decidable (%s)  %s" % (
+            u["task_fingerprint"][:8], u.get("evidence", "unknown"),
+            L.safe_display(u["reason"], 110)))
     _out("")
     _out("counts: %s" % res["counts"])
     return 0
