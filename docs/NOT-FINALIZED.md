@@ -434,6 +434,66 @@ What is NOT closed, stated here rather than discovered later:
 
 ---
 
+## 20. What Loop 8 built, and what its correction round fixed. Added 2026-07-29.
+
+Before this loop, `learning_applications` could record that a rule was shown and
+followed or ignored, but nothing connected that to whether the work actually
+went well. Loop 8 adds the other half: `bm_learn.py outcome` lets you say "this
+record had to be redone" (rework) or "a defect escaped a record you already
+called done" (escaped defect), `bm_learn.py loop-failures` reports counted
+classes over a time window, and `bm_learn.py rule-outcomes` / `repeat-check`
+answer "what happened after this rule was shown" and "did I already tell you
+this" for one rule or one candidate.
+
+Commit `3e3a60f` built the grading. Commit `9cff643`, a correction round found
+by driving the real CLI against a throwaway store while the suite stayed green
+(the same method that found every other serious defect in this project), fixed
+three ways the first pass would have misled the founder:
+
+1. **The same outcome, reported twice, minted two candidates.** Running
+   `bm_learn.py outcome` again for the same rework, or a hook firing twice,
+   grew the weekly review's counts with keystrokes rather than with new events.
+   Fixed: a pending candidate with the same content hash, source and reference
+   is now reused instead of duplicated, and the CLI says so
+   (`reused_existing`). A genuinely different rework, described in different
+   words, still gets its own candidate.
+2. **An outcome could blame a rule for work it was never part of.** Matching an
+   application to a piece of work used to accept either "same work record" OR
+   "same session", combined with OR. A session can hold more than one piece of
+   work, so an outcome on record A could grade every rule applied to record B
+   in the same session as well. Fixed: when the outcome names a record, only
+   applications naming that same record count (or, for an application recorded
+   before it had a record link yet, the session as a backstop). An application
+   naming a different record is not in this work, whatever session it shares.
+3. **Rework and escaped defects were counted as the founder repeating himself.**
+   The "repeated settled corrections" line is supposed to answer "did I have to
+   say this twice", and outcome-derived candidates were folding into that count,
+   which told the founder he had restated an instruction when nobody had said
+   anything twice. Fixed: outcome gradings are now reported on their own line
+   (`outcome_gradings`) and never counted as a repeated correction.
+
+What is still honestly open, stated rather than discovered later:
+
+- OPEN: channel 3 (rework, escaped defect) still has no automatic detector.
+  Somebody has to notice and run `bm_learn.py outcome` by hand. This was
+  already open after Loop 4 (item 17b) and Loop 8 does not close it, on the
+  same reasoning: a wrong automatic verdict about "this was rework" is review
+  cost the founder did not ask for.
+- OPEN: grading degrades to the session-only match whenever an application has
+  no work record yet (recorded before the record was claimed). That match is
+  honestly weaker than a record match, and the loop-failures output does not
+  currently flag which of its counts came from the weaker path.
+- UNPROVEN: every grading in this loop was created by a test or by the probe
+  above, against a throwaway store. Nothing here has graded a real day of the
+  founder's work. The same caveat as item 1 applies to every count Loop 8 can
+  produce.
+- `SECURITY.md`'s line-count claim was re-measured after this loop (about
+  27,130 lines of standard-library Python and shell, most of the growth being
+  test code) but that is a size claim, not a security review; Loop 12, not
+  Loop 8, is the security pass, and item 12 below still applies to it.
+
+---
+
 ## What is genuinely finished
 
 All 17 findings of the second audit are closed in code, with CI green on Linux,
