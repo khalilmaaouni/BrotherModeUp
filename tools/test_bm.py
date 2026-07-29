@@ -99,10 +99,15 @@ def _run_threads(args, cwd, env=None):
         cwd=cwd, capture_output=True, text=True, env=e)
 
 
-def _dump(root):
+def _dump(root, raw=False):
+    """Read the store through dump(). raw=True is what a TEST asserting what
+    actually landed IN the store wants: LOOP 11's export policy withholds
+    founder prose from the ordinary view, which is the right behavior for an
+    export and the wrong read for a test that is checking storage. Tests that
+    assert the POLICY itself call this with raw=False (the default)."""
     store = bs.Store(root, create=False)
     try:
-        return store.dump()
+        return store.dump(raw=raw)
     finally:
         store.close()
 
@@ -112,7 +117,7 @@ def _record(root, name, states=None):
     states), most-recently-updated first, or None. A thin test helper
     mirroring bm_threads._find_record, written independently so a bug in
     that function cannot also hide from the test meant to catch it."""
-    data = _dump(root)
+    data = _dump(root, raw=True)
     matches = [r for r in data["records"] if r["name"] == name]
     if states:
         matches = [r for r in matches if r["state"] in states]
@@ -123,7 +128,7 @@ def _record(root, name, states=None):
 
 
 def _claims(root, lifecycle_uuid):
-    data = _dump(root)
+    data = _dump(root, raw=True)
     return sorted(c["path"] for c in data["claims"] if c["lifecycle_uuid"] == lifecycle_uuid)
 
 
@@ -1289,7 +1294,7 @@ class TestHonestReportingUnderFailure(unittest.TestCase):
             self.assertIn("recorded", out)
             # ...but the view that failed to refresh must be named, not silent.
             self.assertIn("digest.md", err)
-            digests = json.dumps(_dump(d)["digests"])
+            digests = json.dumps(_dump(d, raw=True)["digests"])
             self.assertIn("LIETOKEN", digests,
                           "the checkpoint really must be in the store even though the "
                           "local digest.md view failed to refresh")
@@ -1944,7 +1949,12 @@ class TestFinding3McpServerRefusesSourcesOutsideTheRequestedRoot(unittest.TestCa
             is_error, text, _everything = self._drive_server(root, "bm_active_work")
             self.assertFalse(is_error, "an ordinary project was refused: %s" % text)
             self.assertIn("ordinary", text)
-            self.assertIn("an ordinary objective", text)
+            # LOOP 11: the objective is founder prose, so the MCP response
+            # carries the withholding marker instead of the text. The record
+            # is still identifiable (name and uuid prefix), which is what
+            # "answers normally" has to mean once the export policy applies.
+            self.assertNotIn("an ordinary objective", text)
+            self.assertIn("objective=[WITHHELD:", text)
 
 
 class TestFinding3bInternalErrorsGoThroughTheOutputFunnel(unittest.TestCase):
@@ -4641,6 +4651,303 @@ class TestLoopP9NoSuiteMutatesThisCheckout(unittest.TestCase):
         self.assertEqual(offenders, [],
                          "these lines move a file aside inside the checkout: %s"
                          % offenders)
+class TestLoop11McpCopyFirstIsAutomated(unittest.TestCase):
+    """LOOP 11 workstream C. The MCP server's copy-first design (snapshot the
+    project, read the COPY, delete the copy) was argued in a long docstring
+    and checked by hand. These are the committed tests: real store bytes and
+    sidecars unchanged, no snapshot left behind, and a removal that fails is
+    REPORTED rather than swallowed."""
+
+    MCP_SERVER_PATH = os.path.join(HERE, "..", "mcp", "bm_mcp_server.py")
+    SNAPSHOT_PREFIX = "bm_mcp_readonly_snapshot_"
+
+    def _seed(self, root):
+        store = bs.Store(root)
+        try:
+            rec = store.claim("payments", "persistent", "an objective",
+                              ["api/pay.py"], session_id="s1")
+            store.decide(rec.lifecycle_uuid, rec.version, "topic", "a decision")
+        finally:
+            store.close()
+
+    def _fingerprint(self, root):
+        """Every file under `root`: relative path -> (size, sha256, mtime_ns).
+        Content AND metadata, because a read that rewrote a file with
+        identical bytes would still be a write."""
+        import hashlib
+        out = {}
+        for dirpath, _dirnames, filenames in os.walk(root):
+            for fn in filenames:
+                full = os.path.join(dirpath, fn)
+                rel = os.path.relpath(full, root)
+                st = os.lstat(full)
+                with io.open(full, "rb") as f:
+                    digest = hashlib.sha256(f.read()).hexdigest()
+                out[rel] = (st.st_size, digest, st.st_mtime_ns)
+        return out
+
+    def _drive(self, root, tool):
+        msgs = [
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+             "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                        "clientInfo": {"name": "test_bm", "version": "1"}}},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+             "params": {"name": tool, "arguments": {"project_root": root}}},
+        ]
+        env = dict(os.environ)
+        env.pop("BROTHERMODE_ROOT", None)
+        p = subprocess.run(
+            [sys.executable, self.MCP_SERVER_PATH],
+            input="".join(json.dumps(m) + "\n" for m in msgs),
+            capture_output=True, text=True, env=env)
+        for line in p.stdout.splitlines():
+            obj = json.loads(line)
+            if obj.get("id") == 3:
+                result = obj.get("result") or {}
+                return result.get("isError"), "".join(
+                    c.get("text", "") for c in result.get("content", []))
+        self.fail("server sent no tools/call result; stderr: %s" % p.stderr)
+
+    def test_every_read_only_tool_leaves_the_real_store_byte_identical(self):
+        with tempfile.TemporaryDirectory() as base:
+            root = os.path.realpath(os.path.join(base, "proj"))
+            os.makedirs(root)
+            self._seed(root)
+            before = self._fingerprint(root)
+            self.assertTrue(before, "sanity: the project must have files to compare")
+            for tool in ("bm_status", "bm_active_work", "bm_fences", "bm_decisions"):
+                is_error, text = self._drive(root, tool)
+                self.assertFalse(is_error, "%s was refused: %s" % (tool, text))
+            after = self._fingerprint(root)
+            self.assertEqual(before, after,
+                              "an MCP read changed the real project on disk")
+            # Sidecars: the set next to the REAL store must be exactly what
+            # it was before the reads. (The seeding writer may legitimately
+            # leave a -wal behind; what must never happen is an MCP read
+            # ADDING or touching one, which the fingerprint above also
+            # covers by content and mtime.)
+            for sidecar in ("-wal", "-shm"):
+                self.assertEqual(
+                    os.path.exists(bs.store_path(root) + sidecar),
+                    sidecar in "".join(before),
+                    "an MCP read changed the %s sidecar next to the REAL "
+                    "store; copy-first exists precisely so sqlite only ever "
+                    "touches the throwaway copy" % sidecar)
+
+    def test_no_snapshot_directory_survives_a_tool_call(self):
+        with tempfile.TemporaryDirectory() as base:
+            root = os.path.realpath(os.path.join(base, "proj"))
+            os.makedirs(root)
+            self._seed(root)
+            tmp = tempfile.gettempdir()
+            before = set(glob.glob(os.path.join(tmp, self.SNAPSHOT_PREFIX + "*")))
+            self._drive(root, "bm_active_work")
+            after = set(glob.glob(os.path.join(tmp, self.SNAPSHOT_PREFIX + "*")))
+            self.assertEqual(sorted(after - before), [],
+                              "a snapshot (a COMPLETE COPY of a project's store) "
+                              "was left on disk after the tool call returned")
+
+    def test_a_snapshot_that_cannot_be_removed_is_reported_not_swallowed(self):
+        """The cleanup-FAILURE path, which no hand test ever exercises: the
+        removal is forced to fail and the operator must be told, by name, that
+        a copy of a store is still on disk."""
+        mcp_mod = TestGate3OutputFunnelCoversTheMcpServerToo._load_mcp_server()
+        leftover = []
+        real_rmtree = shutil.rmtree
+
+        def exploding_rmtree(path, *a, **kw):
+            leftover.append(path)
+            raise OSError(13, "simulated permission denied")
+
+        with tempfile.TemporaryDirectory() as base:
+            root = os.path.realpath(os.path.join(base, "proj"))
+            os.makedirs(root)
+            self._seed(root)
+            err = io.StringIO()
+            mcp_mod.shutil.rmtree = exploding_rmtree
+            try:
+                with contextlib.redirect_stderr(err):
+                    with mcp_mod._snapshot_for_reading(root) as snap:
+                        self.assertTrue(os.path.isdir(snap))
+            finally:
+                mcp_mod.shutil.rmtree = real_rmtree
+                for path in leftover:
+                    real_rmtree(path, ignore_errors=True)
+            message = err.getvalue()
+            self.assertIn("FAILED to remove", message)
+            self.assertIn("still on disk", message)
+            self.assertTrue(leftover, "sanity: a snapshot must have been created")
+            self.assertIn(leftover[0], message,
+                          "the report must NAME the directory an operator has to "
+                          "delete, or it is not actionable")
+
+    def test_calibrated_reinjecting_ignore_errors_hides_the_failed_cleanup(self):
+        """CALIBRATION for the test above: with the pre-FINDING-3c behavior
+        (rmtree(..., ignore_errors=True)) the same forced failure produces no
+        report at all, which is the defect."""
+        with tempfile.TemporaryDirectory() as base:
+            snapshot_root = os.path.join(base, "snap")
+            os.makedirs(snapshot_root)
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                shutil.rmtree(snapshot_root + "-does-not-exist", ignore_errors=True)
+            self.assertEqual(err.getvalue(), "",
+                              "REINJECTION CHECK: ignore_errors=True really is "
+                              "silent, which is why the shipped code cannot use it")
+
+    def test_the_snapshot_copy_never_dereferences_a_link_on_any_platform(self):
+        """Structural, so it holds on the platforms this suite cannot run on.
+        copytree's DEFAULT (symlinks=False) is what let another project's
+        store be dereferenced into a snapshot (FINDING 3); symlinks=True is
+        the second of the two guards and must stay explicit in the source.
+        HONEST SCOPE: this asserts the call shape, not Windows behavior. On
+        Windows, junctions and reparse points are NOT proven by this suite or
+        by CI, and nothing in this project claims they are."""
+        with io.open(self.MCP_SERVER_PATH, encoding="utf-8") as f:
+            src = f.read()
+        self.assertIn("symlinks=True", src)
+        self.assertIn("shutil.rmtree(snapshot_root)\n", src,
+                      "the snapshot removal must stay a PLAIN rmtree; adding "
+                      "ignore_errors=True would reopen FINDING 3c (a failed "
+                      "cleanup leaving a copy of a store on disk, silently)")
+
+
+class TestLoop11WindowsClaimsMatchEvidence(unittest.TestCase):
+    """LOOP 11 workstream B. Owner-only file modes are a POSIX guarantee. On
+    Windows, `os.chmod` cannot express an ACL, and this project ships stdlib
+    only, with no subprocess in the shipping tools, so it CANNOT configure one
+    (icacls would be a subprocess; pywin32 would be a dependency). The honest
+    move is therefore to claim nothing there and to keep every published
+    owner-only sentence qualified. That is what this test enforces, since
+    documentation is where over-claiming actually reaches a reader.
+
+    NOT PROVEN HERE, and not proven anywhere in this project: any behavior on
+    a real Windows host. This suite runs on macOS and Linux."""
+
+    QUALIFIERS = ("posix", "windows", "best-effort", "best effort")
+
+    def _docs(self):
+        root = os.path.join(HERE, "..")
+        return [os.path.join(root, "README.md"), os.path.join(root, "SECURITY.md")]
+
+    def test_every_published_owner_only_claim_names_its_platform_scope(self):
+        offenders = []
+        for path in self._docs():
+            if not os.path.isfile(path):
+                continue
+            with io.open(path, encoding="utf-8") as f:
+                lines = f.readlines()
+            for i, line in enumerate(lines):
+                if "owner-only" not in line.lower():
+                    continue
+                window = " ".join(lines[max(0, i - 2):i + 3]).lower()
+                if not any(q in window for q in self.QUALIFIERS):
+                    offenders.append("%s:%d" % (os.path.basename(path), i + 1))
+        self.assertEqual(offenders, [],
+                          "unqualified owner-only claim(s): on Windows this "
+                          "project cannot configure an ACL with the standard "
+                          "library and no subprocess, so every such claim must "
+                          "name POSIX or say best-effort: %s" % offenders)
+
+    def test_the_chmod_helper_promises_nothing_the_platform_may_not_keep(self):
+        # Behavioral, not a doc scan: a chmod that the platform ignores must
+        # never raise or be escalated, on any platform this runs on.
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "f")
+            with io.open(path, "w") as f:
+                f.write("x")
+            bs._chmod_best_effort(path, 0o600)
+            bs._chmod_best_effort(os.path.join(d, "does-not-exist"), 0o600)
+            if sys.platform != "win32":
+                self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
+            else:  # pragma: no cover - not exercised by this suite
+                self.skipTest("owner-only modes are a POSIX claim only")
+
+    def test_no_shipping_tool_shells_out_to_configure_an_acl(self):
+        """The reason the Windows claim stays narrow, asserted structurally:
+        an ACL adapter would need icacls (a subprocess) or pywin32 (a
+        dependency), and both are outside this project's constraints. If one
+        ever lands, this test fails and the claim gets revisited deliberately."""
+        for name in ("bm_store.py", "bm_threads.py", "bm_telemetry.py",
+                     "bm_learn.py", "bm_learning.py", "bm_score.py"):
+            with io.open(os.path.join(HERE, name), encoding="utf-8") as f:
+                src = f.read()
+            for banned in ("icacls", "win32security", "pywin32"):
+                self.assertNotIn(banned, src,
+                                  "%s reaches for %s: a Windows ACL adapter is a "
+                                  "deliberate decision with its own review, not a "
+                                  "quiet import" % (name, banned))
+
+
+class TestLoop11SecretScanHardening(unittest.TestCase):
+    """LOOP 11 workstream D. The word-boundary class was fixed once already
+    (LOOP 12 in bm_telemetry.py: Python counts '_' as a word character, so
+    every \\b-anchored vendor pattern missed OPENAI_KEY_sk-live_...). These
+    are the committed cases for prefixes, suffixes, underscores, punctuation
+    and long input, so the next edit to SECRET_PATTERNS cannot quietly undo
+    it, plus a ceiling on redaction time."""
+
+    def _redact(self, text):
+        return bm.redact(text)[0]
+
+    def test_vendor_keys_are_caught_behind_any_separator_or_prefix(self):
+        secrets = [
+            "sk-live_abcdefghijklmnopqrstuvwx",
+            "ghp_abcdefghijklmnopqrstuvwxyz012345",
+            "AKIAIOSFODNN7EXAMPLE",
+            "xoxb-1234567890-abcdefghijkl",
+        ]
+        # DOCUMENTED BOUNDARY: letters and digits BIND a token, separators do
+        # not (bm_telemetry._BEFORE/_AFTER). So every separator-ish prefix
+        # below must be caught, and "123sk-live_..." deliberately is NOT: see
+        # test_the_alphanumeric_boundary_is_deliberate_and_is_a_known_limit.
+        prefixes = ["", "OPENAI_KEY_", "MY-KEY=", "key:", "(", "[", "'", "\"",
+                    "token is ", "prefix_", "-", "/", "\n"]
+        suffixes = ["", ")", "]", ".", ",", "'", "\"", ";", "\n"]
+        for secret in secrets:
+            for pre in prefixes:
+                for suf in suffixes:
+                    line = "%s%s%s" % (pre, secret, suf)
+                    self.assertNotIn(secret, self._redact(line),
+                                     "unredacted in %r" % line)
+
+    def test_the_alphanumeric_boundary_is_deliberate_and_is_a_known_limit(self):
+        """A secret glued directly to LETTERS OR DIGITS with no separator
+        ("123sk-live_...") is not matched, by design: the alternative is a
+        pattern that fires inside hashes and identifiers. Asserted so the
+        limit is a decision on record rather than a surprise, and written up
+        in docs/KNOWN-LIMITS.md."""
+        glued = "123sk-live_abcdefghijklmnopqrstuvwx"
+        self.assertEqual(self._redact(glued), glued)
+        self.assertNotIn("sk-live_abcdefghijklmnopqrstuvwx",
+                          self._redact("_" + glued[3:]))
+
+    def test_a_secret_at_the_end_of_a_long_line_is_still_caught(self):
+        line = ("ordinary prose about the project. " * 2000) + \
+               " AKIAIOSFODNN7EXAMPLE"
+        self.assertNotIn("AKIAIOSFODNN7EXAMPLE", self._redact(line))
+
+    def test_ordinary_words_are_not_mistaken_for_keys(self):
+        for benign in ("task-oriented", "risk-free", "whisk-y", "and/or"):
+            self.assertEqual(self._redact(benign), benign)
+
+    def test_redaction_of_a_large_input_stays_under_the_ceiling(self):
+        """PERFORMANCE CEILING. The key=value pattern was quadratic once (an
+        unbounded prefix retried at every offset of a long alphanumeric run):
+        one 20 KB correction stalled an import for 75 seconds. Generous
+        enough not to flake on a loaded CI box, tight enough that a
+        reintroduced quadratic pattern cannot pass."""
+        import time
+        blob = ("A1b2C3d4E5f6G7h8" * 4096) + " password=hunter2 "  # 64 KB
+        blob = blob + ("some ordinary sentence about the work. " * 2000)
+        start = time.time()
+        cleaned = self._redact(blob)
+        elapsed = time.time() - start
+        self.assertNotIn("hunter2", cleaned)
+        self.assertLess(elapsed, 10.0,
+                        "redacting %d KB took %.1fs: suspect a quadratic pattern"
+                        % (len(blob) // 1024, elapsed))
 
 
 if __name__ == "__main__":
