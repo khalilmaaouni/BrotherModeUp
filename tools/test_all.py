@@ -8,19 +8,19 @@ WHY THIS EXISTS
   anything. This file is the gate: one command, one exit code, every suite.
 
 WHY SERIALLY, AND WHY THAT IS NOT A STYLE CHOICE
-  docs/NOT-FINALIZED.md item 10: the suites rename a module aside mid-run, so two
-  running at once corrupt each other. It was reproduced on 2026-07-27 (the fence
-  hook suite failed once under contention and passed on re-run). A parallel runner
-  here would manufacture exactly that flake and then blame it on whatever code was
-  being tested. So this runs them one at a time, on purpose, and the underlying
-  design defect stays OPEN and stated rather than being papered over by a runner
-  that looks fast.
+  The suites used to rename a module aside mid-run, so two running at once
+  corrupted each other (reproduced 2026-07-27: the fence hook suite failed once
+  under contention and passed on re-run). The P9 fix round removed the rename
+  technique itself, so that particular hazard is gone rather than guarded. This
+  still runs serially: the suites share one checkout, spawn subprocesses, and
+  compete for the same temp and git state, so a parallel runner here would buy
+  wall time at the cost of flakes nobody can reproduce.
 
 WHY EACH SUITE GETS ITS OWN PROCESS
-  The same module-renaming behaviour means importing two suites into one Python
-  process is not isolation either. A subprocess per suite is the isolation, and it
-  is also what makes a crashed or hung suite reportable instead of fatal to the
-  run.
+  Importing two suites into one Python process is not isolation: they patch
+  module globals, install fakes, and load the same modules under different
+  names. A subprocess per suite is the isolation, and it is also what makes a
+  crashed or hung suite reportable instead of fatal to the run.
 
 WHY THIS FILE IS NAMED test_all.py
   tools/test_bm.py's no-network/no-subprocess check bans `import subprocess` in
@@ -34,21 +34,21 @@ WHY THIS FILE IS NAMED test_all.py
   founder actually runs.
 
 WHAT LOOP 9 ADDED
-  1. An INTERPROCESS LOCK. The module-rename hazard above is a real corruption
-     risk, not a theoretical one, and running serially inside ONE runner does
-     nothing about a second runner started in another terminal. The lock is
-     taken by this runner and by the rename windows inside test_bm_store.py, so
-     the two cannot overlap even across processes. It is a GUARD, not a fix: the
-     suites still rename a module aside. See docs/NOT-FINALIZED.md item 10.
+  1. An INTERPROCESS LOCK, so two gate runs started in two terminals against
+     the same checkout do not interleave. The rename hazard it was originally
+     written for is gone (the P9 fix round removed the technique), but two
+     concurrent runs still share one working tree, so the lock stays.
   2. PER SUITE TIMEOUTS with hung-suite diagnostics, so a wedged suite is
      reported as a timeout with its partial output instead of hanging the gate
-     until somebody notices and kills it.
+     until somebody notices and kills it. The timeout kills the suite with
+     SIGKILL, which runs no cleanup in the child: that is safe only because no
+     suite mutates this checkout any more, and it must stay that way.
   3. --artifacts DIR, which writes the FULL output of every suite to disk so CI
      can upload it on failure. Without that flag this file still writes no files.
-  4. A CI INVENTORY CHECK: every suite in SUITES must be named in
+  4. A CI INVENTORY CHECK: every suite in SUITES must be EXECUTED by a step in
      .github/workflows/tests.yml, so a suite cannot be in the local gate and
      absent from CI, or the reverse. Local and CI run the SAME check, because CI
-     runs this file.
+     runs this file. "Executed", not "mentioned": see the CI inventory section.
 
 Python 3.9, standard library only. No network. Writes no files except the lock
 described above, and the suite logs when --artifacts is passed.
@@ -95,16 +95,28 @@ _SKIP_RE = re.compile(r"skipped=(\d+)")
 
 # -- interprocess gate lock -------------------------------------------------
 #
-# The lock is keyed to THIS checkout, not to the machine: two worktrees rename
-# their OWN copy of bm_telemetry.py, so they cannot corrupt each other and must
-# not block each other either. It lives in the system temp directory rather than
-# in the repo so it never shows up in git status.
+# The lock is keyed to THIS checkout, not to the machine: two worktrees exercise
+# their OWN copy of the tools, so they cannot corrupt each other and must not
+# block each other either. It lives in the system temp directory rather than in
+# the repo so it never shows up in git status.
 
 LOCK_ENV = "BROTHERMODE_TEST_GATE_LOCK"
 LOCK_TIMEOUT = float(os.environ.get("BROTHERMODE_TEST_LOCK_TIMEOUT", "900"))
-# A lock older than this is a crashed run, not a live one. Deliberately longer
-# than any plausible full gate run.
-LOCK_STALE_SECONDS = 3600.0
+# AGE IS THE FALLBACK, NOT THE TEST (fix round, 2026-07-29). This used to be
+# 3600s and was consulted BEFORE the holder's liveness, so a run that had been
+# going for an hour and one second was declared dead and had its lock taken
+# from underneath it. 3600s was not even longer than a legitimate run: the
+# default 900s timeout times four suites is exactly 3600s, and the CI gate job
+# passes --timeout 1200, so up to 4800s. Now liveness decides wherever a pid
+# can be probed, and this threshold only applies where it cannot (Windows, or
+# an unparseable holder record). 24 hours is longer than any run that is not
+# already abandoned.
+LOCK_STALE_SECONDS = 86400.0
+
+# Paths this process actually holds, mapped to the exact bytes it wrote. A
+# release must never remove a lock file this process did not take: if its own
+# lock was stolen while it ran, deleting the thief's file lets a THIRD run in.
+_HELD = {}
 
 
 class GateLockBusy(Exception):
@@ -127,7 +139,11 @@ def _lock_holder(path):
 
 def _lock_is_stale(path):
     """True only when the holder is provably gone. An unparseable or empty file
-    is a lock being taken RIGHT NOW, not a dead one, so it falls back to age."""
+    is a lock being taken RIGHT NOW, not a dead one, so it falls back to age.
+
+    LIVENESS IS CHECKED FIRST, AND IT WINS. A process that answers os.kill(pid,
+    0) is running, and a running gate is not stale no matter how long it has
+    been running. Age is only consulted where the pid cannot be probed."""
     try:
         with io.open(path, encoding="utf-8", errors="replace") as fh:
             fields = fh.read().split()
@@ -141,25 +157,36 @@ def _lock_is_stale(path):
             return (time.time() - os.path.getmtime(path)) > LOCK_STALE_SECONDS
         except OSError:
             return False
-    if (time.time() - stamp) > LOCK_STALE_SECONDS:
-        return True
     if os.name == "posix" and pid > 0:
         try:
             os.kill(pid, 0)
         except OSError as exc:
-            # ESRCH means no such process. EPERM means it exists and is not
-            # ours, which is alive, not stale.
+            # ESRCH means no such process, which is the ONLY provably gone
+            # case. EPERM means it exists and is not ours, which is alive.
             return exc.errno == errno.ESRCH
-    return False
+        # Alive. Not stale, however old. A slow gate is not a dead one.
+        return False
+    return (time.time() - stamp) > LOCK_STALE_SECONDS
 
 
 def acquire_gate_lock(timeout=None, owner="test_all", quiet=False):
     """Take the checkout-wide test lock. Returns a handle, or None when an
     ancestor process already holds it (test_all running a suite as a child), in
     which case there is nothing to take and nothing to release."""
-    if os.environ.get(LOCK_ENV):
-        return None
     path = lock_path()
+    inherited = os.environ.get(LOCK_ENV)
+    if inherited:
+        if inherited == path and os.path.exists(path):
+            return None
+        # Any other value cannot mean "an ancestor holds this checkout's
+        # lock". Treating it as if it did turned one exported environment
+        # variable into a silent, unannounced disabling of the only mutual
+        # exclusion the suites have. Say so, then take the lock properly.
+        if not quiet:
+            sys.stderr.write(
+                "test_all: ignoring %s=%r: it does not name this checkout's "
+                "live gate lock (%s), so it cannot mean an ancestor holds it. "
+                "Taking the lock normally.\n" % (LOCK_ENV, inherited, path))
     deadline = time.time() + (LOCK_TIMEOUT if timeout is None else timeout)
     announced = False
     while True:
@@ -180,10 +207,10 @@ def acquire_gate_lock(timeout=None, owner="test_all", quiet=False):
                 continue
             if time.time() >= deadline:
                 raise GateLockBusy(
-                    "another test run holds %s (%s). The suites rename a module "
-                    "aside mid-run, so two at once corrupt each other "
-                    "(docs/NOT-FINALIZED.md item 10). Wait for it, or delete "
-                    "that file if you are sure the holder is dead."
+                    "another test run holds %s (%s). The suites share this one "
+                    "checkout and its temp and git state, so two at once "
+                    "produce flakes nobody can reproduce. Wait for it, or "
+                    "delete that file if you are sure the holder is dead."
                     % (path, _lock_holder(path)))
             if not announced and not quiet:
                 sys.stderr.write(
@@ -192,18 +219,45 @@ def acquire_gate_lock(timeout=None, owner="test_all", quiet=False):
                 announced = True
             time.sleep(0.25)
             continue
+        token = "%d %.3f %s\n" % (os.getpid(), time.time(), owner)
         with os.fdopen(fd, "w") as fh:
-            fh.write("%d %.3f %s\n" % (os.getpid(), time.time(), owner))
+            fh.write(token)
+        _HELD[path] = token
         # Children inherit this, which is how a suite launched BY this runner
         # knows the lock is already held rather than deadlocking against it.
         os.environ[LOCK_ENV] = path
         return path
 
 
-def release_gate_lock(handle):
+def release_gate_lock(handle, quiet=False):
+    """Give up a lock THIS process took. Never removes a lock file whose
+    contents are not the ones this process wrote: if the lock was stolen (a
+    stale-detection mistake, or somebody deleting the file by hand), the file
+    now on disk belongs to another run, and removing it would admit a third."""
     if not handle:
         return
-    os.environ.pop(LOCK_ENV, None)
+    token = _HELD.pop(handle, None)
+    if os.environ.get(LOCK_ENV) == handle:
+        os.environ.pop(LOCK_ENV, None)
+    if token is None:
+        if not quiet:
+            sys.stderr.write(
+                "test_all: NOT removing %s: this process never took it.\n"
+                % handle)
+        return
+    try:
+        with io.open(handle, encoding="utf-8", errors="replace") as fh:
+            current = fh.read()
+    except (IOError, OSError):
+        return
+    if current != token:
+        if not quiet:
+            sys.stderr.write(
+                "test_all: NOT removing %s: it is held by another run now "
+                "(%s), so this run's lock was taken from it while it ran. "
+                "Report this: it means two gates may have overlapped.\n"
+                % (handle, current.strip()))
+        return
     try:
         os.remove(handle)
     except OSError:
@@ -211,12 +265,137 @@ def release_gate_lock(handle):
 
 
 # -- CI inventory ------------------------------------------------------------
+#
+# WHY THIS IS NOT A regex OVER THE WHOLE FILE (fix round, 2026-07-29)
+#   It used to be. re.findall over the raw workflow text answers "is this
+#   filename MENTIONED", and the check needs "is this suite RUN". Four
+#   mutations were reproduced against the old version and all four were
+#   reported as agreement: commenting the step out, adding `if: false` to it,
+#   replacing its command with `echo TODO <path>`, and (the reverse direction)
+#   a prose comment naming a deleted suite, which hard blocked the whole gate
+#   at exit 2 with zero tests run. The workflow already leaned on the
+#   looseness: tools/test_all.py was matched from a comment.
+#
+#   So this reads the workflow as the small, specific structure GitHub Actions
+#   actually uses (steps, each a mapping with `run:` and maybe `if:`) and
+#   counts a suite only when a real shell command executes it through a Python
+#   interpreter. It is deliberately NOT a general YAML parser: stdlib only, no
+#   PyYAML, and a parser this file cannot fully implement is a parser nobody
+#   should trust. Every place it gives up, it gives up by NOT counting the
+#   suite as covered, which fails closed (the gate refuses) rather than open
+#   (a suite silently untested).
 
 _CI_SUITE_RE = re.compile(r"tools/(test_[A-Za-z0-9_]+\.py)")
+# A python interpreter as the command word: python, python3, py, or a path
+# ending in one of those.
+_PYTHON_RE = re.compile(r"(?:^|[\s;&|(=])(?:[\w./\\:-]*[/\\])?py(?:thon3?)?"
+                        r"(?:\.exe)?(?:\s|$)")
+# Command separators inside one `run:` body. Each segment is judged on its own,
+# so a suite named in a different command than the interpreter does not count.
+_SEGMENT_RE = re.compile(r"[\n;]|&&|\|\||\|")
+_FALSE_IF_RE = re.compile(
+    r"^(?:false|'false'|\"false\"|\$\{\{\s*false\s*\}\})$", re.I)
+# YAML block scalar headers: |, >, |-, >+, |2 and so on.
+_BLOCK_RE = re.compile(r"^[|>][+-]?\d*$")
+
+
+def _strip_comment(line):
+    """Drop a trailing comment, respecting quotes. Serves double duty: a YAML
+    comment outside a block scalar and a shell comment inside one both start at
+    a '#' that begins the line or follows whitespace. Dropping either can only
+    REMOVE a mention, never invent one, so the worst case is a refusal."""
+    quote = None
+    for i, ch in enumerate(line):
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "#" and (i == 0 or line[i - 1] in " \t"):
+            return line[:i].rstrip()
+    return line
+
+
+def _ci_steps(text):
+    """Every step block under a `steps:` key, as raw text. Comment-only lines
+    are already gone, which is the point: a commented-out step is not a step."""
+    blocks = []
+    cur = None
+    steps_indent = None
+    for raw in text.splitlines():
+        line = _strip_comment(raw.rstrip())
+        if not line.strip():
+            if cur is not None:
+                cur.append(line)
+            continue
+        indent = len(line) - len(line.lstrip())
+        stripped = line.strip()
+        if steps_indent is not None:
+            closed = indent < steps_indent or (
+                indent == steps_indent and not stripped.startswith("-"))
+            if closed:
+                if cur is not None:
+                    blocks.append("\n".join(cur))
+                    cur = None
+                steps_indent = None
+        if stripped == "steps:":
+            steps_indent = indent
+            continue
+        if steps_indent is None:
+            continue
+        if stripped == "-" or stripped.startswith("- "):
+            if cur is not None:
+                blocks.append("\n".join(cur))
+            cur = [line]
+        elif cur is not None:
+            cur.append(line)
+    if cur is not None:
+        blocks.append("\n".join(cur))
+    return blocks
+
+
+def _step_field(block, key):
+    """One top-level field of a step mapping, or None. Handles both an inline
+    scalar (run: python3 x.py) and a block scalar (run: | plus indented lines).
+    A nested mapping (a `with:` body) sits below the key indent and is
+    therefore never mistaken for a sibling field."""
+    lines = block.split("\n")
+    first = lines[0]
+    lead = len(first) - len(first.lstrip())
+    key_indent = lead + 2
+    head = first.strip()
+    if head.startswith("- "):
+        norm = [" " * key_indent + head[2:]]
+    elif head == "-":
+        norm = [""]
+    else:
+        norm = [first]
+    norm.extend(lines[1:])
+    for idx, line in enumerate(norm):
+        if not line.strip():
+            continue
+        if (len(line) - len(line.lstrip())) != key_indent:
+            continue
+        stripped = line.strip()
+        if not stripped.startswith(key + ":"):
+            continue
+        value = stripped[len(key) + 1:].strip()
+        if value and not _BLOCK_RE.match(value):
+            return value
+        body = []
+        for nxt in norm[idx + 1:]:
+            if not nxt.strip():
+                body.append("")
+                continue
+            if (len(nxt) - len(nxt.lstrip())) <= key_indent:
+                break
+            body.append(nxt.strip())
+        return "\n".join(body)
+    return None
 
 
 def _ci_inventory():
-    """Suites named in the CI workflow. None when there is no workflow file,
+    """Suites a CI step actually EXECUTES. None when there is no workflow file,
     which is the normal case for an extracted copy of the skill: an end user's
     checkout has no .github, and that must not be reported as a CI gap."""
     try:
@@ -224,7 +403,24 @@ def _ci_inventory():
             text = fh.read()
     except (IOError, OSError):
         return None
-    return set(_CI_SUITE_RE.findall(text))
+    executed = set()
+    for block in _ci_steps(text):
+        condition = _step_field(block, "if")
+        if condition is not None and _FALSE_IF_RE.match(condition.strip()):
+            # A step that can never run is not coverage. Any OTHER condition
+            # (a platform guard, for instance) still counts: it runs on at
+            # least one leg, which is more than zero.
+            continue
+        command = _step_field(block, "run")
+        if not command:
+            continue
+        for segment in _SEGMENT_RE.split(command):
+            if not _PYTHON_RE.search(segment):
+                # `echo TODO tools/test_x.py` mentions a suite and runs
+                # nothing. Only an interpreter invocation counts.
+                continue
+            executed.update(_CI_SUITE_RE.findall(segment))
+    return executed
 
 
 def _discover():

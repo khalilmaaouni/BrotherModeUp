@@ -7,7 +7,7 @@ brief that a test would have caught. Each test here guards a claim the project
 makes about itself: secrets are redacted, sensitive files are owner-only, project
 identity does not collide, and the autosave captures untracked work non-invasively.
 """
-import contextlib, glob, io, os, json, re, shutil, stat, sys, tempfile, subprocess, importlib.util
+import contextlib, glob, io, os, json, re, shutil, stat, sys, tempfile, time, subprocess, importlib.util
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -3472,6 +3472,186 @@ class TestLoop12LearningCliPrivacy(unittest.TestCase):
                               "a later correction was suppressed by an earlier "
                               "malformed row")
             self.assertIn("2026-07-29T00:00:00", out.stdout)
+
+
+# ---------------------------------------------------------------------------
+# Loop P9 fix round: the release gate's OWN code was never under test. Three
+# reproduced defects are pinned here, each with the mutation that used to slip
+# through.
+# ---------------------------------------------------------------------------
+
+_ta_spec = importlib.util.spec_from_file_location(
+    "bm_test_all_under_test", os.path.join(HERE, "test_all.py"))
+ta = importlib.util.module_from_spec(_ta_spec)
+_ta_spec.loader.exec_module(ta)
+
+
+def _inventory_of(case, text):
+    """Run the CI inventory check against a workflow body of our own, by
+    pointing the module at a temp file. Restored on cleanup."""
+    d = tempfile.mkdtemp(prefix="bm-workflow-")
+    case.addCleanup(shutil.rmtree, d, True)
+    path = os.path.join(d, "tests.yml")
+    with io.open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    old = ta.WORKFLOW
+    ta.WORKFLOW = path
+    case.addCleanup(setattr, ta, "WORKFLOW", old)
+    return ta._ci_inventory()
+
+
+_WF = """name: tests
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure git
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name ci
+      - name: Run the fence hook suite
+        run: python3 tools/test_bm_fence_hook.py
+"""
+
+
+class TestLoopP9GateCiInventoryCountsExecutionNotMentions(unittest.TestCase):
+    def test_a_real_step_counts(self):
+        self.assertEqual(_inventory_of(self, _WF), {"test_bm_fence_hook.py"})
+
+    def test_a_commented_out_step_does_not_count(self):
+        text = _WF.replace(
+            "      - name: Run the fence hook suite\n"
+            "        run: python3 tools/test_bm_fence_hook.py\n",
+            "      # - name: Run the fence hook suite\n"
+            "      #   run: python3 tools/test_bm_fence_hook.py\n")
+        self.assertEqual(_inventory_of(self, text), set())
+
+    def test_a_step_gated_if_false_does_not_count(self):
+        text = _WF.replace("      - name: Run the fence hook suite\n",
+                           "      - name: Run the fence hook suite\n"
+                           "        if: false\n")
+        self.assertEqual(_inventory_of(self, text), set())
+
+    def test_a_step_that_only_echoes_the_path_does_not_count(self):
+        text = _WF.replace("run: python3 tools/test_bm_fence_hook.py",
+                           "run: echo TODO tools/test_bm_fence_hook.py")
+        self.assertEqual(_inventory_of(self, text), set())
+
+    def test_a_comment_naming_a_deleted_suite_is_not_a_phantom(self):
+        # The reverse direction: a historical note used to hard block the gate
+        # at exit 2 with zero tests run.
+        text = _WF.replace(
+            "jobs:\n",
+            "jobs:\n  # History: tools/test_legacy_v1.py was deleted in 1.9.0.\n")
+        self.assertEqual(_inventory_of(self, text), {"test_bm_fence_hook.py"})
+
+    def test_a_platform_conditional_step_still_counts(self):
+        # Only `if: false` disqualifies a step. A step that runs on one leg
+        # runs in CI.
+        text = _WF.replace("      - name: Run the fence hook suite\n",
+                           "      - name: Run the fence hook suite\n"
+                           "        if: matrix.os == 'ubuntu-latest'\n")
+        self.assertEqual(_inventory_of(self, text), {"test_bm_fence_hook.py"})
+
+    def test_this_repository_agrees_with_its_own_workflow(self):
+        ci = ta._ci_inventory()
+        if ci is None:
+            self.skipTest("no workflow in this checkout")
+        for name in ta.SUITES:
+            self.assertIn(name, ci,
+                          "%s is in the local gate but no CI step runs it" % name)
+
+
+class TestLoopP9GateLockDoesNotStealFromLiveRuns(unittest.TestCase):
+    def setUp(self):
+        # Every test here works on a PRIVATE lock path. The real one may be
+        # held right now by the test_all run that launched this suite, and a
+        # test that fights the live gate lock is a test that reports the gate
+        # as broken whenever the gate is working.
+        self._dir = tempfile.mkdtemp(prefix="bm-lock-")
+        self.addCleanup(shutil.rmtree, self._dir, True)
+        private = os.path.join(self._dir, "private-gate.lock")
+        old = ta.lock_path
+        ta.lock_path = lambda: private
+        self.addCleanup(setattr, ta, "lock_path", old)
+        self.private = private
+
+    def _lock(self, body):
+        path = os.path.join(self._dir, "gate.lock")
+        with io.open(path, "w", encoding="utf-8") as f:
+            f.write(body)
+        return path
+
+    def test_a_live_holder_is_never_stale_however_old(self):
+        # 3600s used to mean "dead". A full local gate is exactly 900s x 4
+        # suites, and the CI gate job allows 1200s x 4.
+        path = self._lock("%d %.3f slow but alive\n"
+                          % (os.getpid(), time.time() - 100000.0))
+        self.assertFalse(ta._lock_is_stale(path),
+                         "a running process must never be declared stale")
+
+    def test_a_dead_holder_is_stale(self):
+        if os.name != "posix":
+            self.skipTest("pid liveness probing is posix only here")
+        dead = subprocess.Popen([sys.executable, "-c", "pass"])
+        dead.wait()
+        path = self._lock("%d %.3f dead\n" % (dead.pid, time.time()))
+        self.assertTrue(ta._lock_is_stale(path))
+
+    def test_release_never_removes_a_lock_this_process_did_not_take(self):
+        path = self._lock("999999 0 somebody else\n")
+        ta.release_gate_lock(path, quiet=True)
+        self.assertTrue(os.path.exists(path),
+                        "releasing a lock we never took would let a third run in")
+
+    def test_release_never_removes_a_lock_that_was_stolen_mid_run(self):
+        old_env = os.environ.pop(ta.LOCK_ENV, None)
+        if old_env is not None:
+            self.addCleanup(os.environ.__setitem__, ta.LOCK_ENV, old_env)
+        handle = ta.acquire_gate_lock(timeout=5, owner="p9 test", quiet=True)
+        self.assertIsNotNone(handle)
+        self.addCleanup(lambda: os.path.exists(handle) and os.remove(handle))
+        with io.open(handle, "w", encoding="utf-8") as f:
+            f.write("424242 1.0 a thief\n")
+        ta.release_gate_lock(handle, quiet=True)
+        self.assertTrue(os.path.exists(handle),
+                        "the thief's lock must survive our release")
+
+    def test_a_bogus_lock_env_value_does_not_silently_disable_the_lock(self):
+        old_env = os.environ.get(ta.LOCK_ENV)
+        os.environ[ta.LOCK_ENV] = "1"
+        if old_env is None:
+            self.addCleanup(os.environ.pop, ta.LOCK_ENV, None)
+        else:
+            self.addCleanup(os.environ.__setitem__, ta.LOCK_ENV, old_env)
+        handle = ta.acquire_gate_lock(timeout=5, owner="p9 test", quiet=True)
+        self.addCleanup(ta.release_gate_lock, handle, True)
+        self.assertIsNotNone(
+            handle,
+            "exporting the variable used to turn mutual exclusion off silently")
+
+
+class TestLoopP9NoSuiteMutatesThisCheckout(unittest.TestCase):
+    def test_no_suite_renames_a_module_aside(self):
+        # A per-suite timeout kills the child with SIGKILL, which runs no
+        # finally clause. Any test that moves a file in this checkout and puts
+        # it back in a finally can therefore delete a production module.
+        # The needle is assembled at runtime so this scan cannot report its own
+        # source line, which is the only false positive it can have.
+        needle = ".moved" + "-for"
+        offenders = []
+        for name in sorted(os.listdir(HERE)):
+            if not (name.startswith("test_") and name.endswith(".py")):
+                continue
+            for i, line in enumerate(_read(os.path.join(HERE, name)).splitlines(), 1):
+                if line.lstrip().startswith("#"):
+                    continue
+                if needle in line:
+                    offenders.append("%s:%d" % (name, i))
+        self.assertEqual(offenders, [],
+                         "these lines move a file aside inside the checkout: %s"
+                         % offenders)
 
 
 if __name__ == "__main__":
