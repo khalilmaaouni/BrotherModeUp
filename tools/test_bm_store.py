@@ -5599,6 +5599,156 @@ class TestLearningApi(unittest.TestCase):
                 self.assertNotIn(soft["rule_uuid"],
                                  [r["rule_uuid"] for r in res["results"]])
 
+    # -----------------------------------------------------------------
+    # Loop P4: a result limit may never hide an applicable gate rule.
+    #
+    # Reproduced on the real CLI first (NOT-FINALIZED item 19, the open
+    # bullet): two live global rules, the gate ranked second on relevance,
+    # --limit 1, and the gate never reached the model. These tests pin the
+    # guarantee so nobody restores the old slice by accident.
+    # -----------------------------------------------------------------
+
+    def _gate_and_soft(self, store):
+        """One soft rule matching the query strongly, one gate not matching it
+        at all, so the gate ALWAYS ranks below the soft rule. That ordering is
+        the point: it is exactly what the old slice cut."""
+        soft = _approved(store, self._cap(
+            store, trigger="deploying the website to production",
+            action="run the website deploy checklist for production",
+            because="")["candidate_uuid"], founder_ref="yes")
+        gate = _approved(store, self._cap(
+            store, trigger="about to force push",
+            action="never force push", because="")["candidate_uuid"],
+            founder_ref="yes", severity="gate")
+        return soft, gate
+
+    def test_limit_one_cannot_cut_a_gate_that_ranks_second(self):
+        """The exact CLI reproduction from NOT-FINALIZED item 19."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                soft, gate = self._gate_and_soft(store)
+                res = store.retrieve_learning_rules(
+                    "deploying the website to production", limit=1)
+                uuids = [r["rule_uuid"] for r in res["results"]]
+                self.assertIn(gate["rule_uuid"], uuids,
+                              "limit=1 hid an applicable gate rule")
+                self.assertIn(soft["rule_uuid"], uuids)
+                self.assertEqual(res["gates_returned"], res["gates_total"])
+                self.assertEqual(res["soft_omitted"], 0)
+                # And the gate did not jump the ranking to survive: it is still
+                # reported below the soft rule it genuinely ranks below.
+                self.assertGreater(
+                    uuids.index(gate["rule_uuid"]), uuids.index(soft["rule_uuid"]),
+                    "surviving the limit must not reorder the ranking")
+
+    def test_limit_zero_returns_every_gate_and_no_soft_rule(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                soft, gate = self._gate_and_soft(store)
+                res = store.retrieve_learning_rules(
+                    "deploying the website to production", limit=0)
+                self.assertEqual([r["rule_uuid"] for r in res["results"]],
+                                 [gate["rule_uuid"]])
+                self.assertEqual(res["gates_returned"], 1)
+                self.assertEqual(res["soft_returned"], 0)
+                self.assertEqual(res["soft_omitted"], 1)
+
+    def test_negative_limit_clamps_to_gates_only(self):
+        """A bare slice with a negative stop would silently drop the LAST rules
+        rather than the lowest ranked ones. Clamping is the honest reading of a
+        limit below zero, and it must still deliver every gate."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                soft, gate = self._gate_and_soft(store)
+                for bad in (-1, -3, -100):
+                    res = store.retrieve_learning_rules(
+                        "deploying the website to production", limit=bad)
+                    self.assertEqual([r["rule_uuid"] for r in res["results"]],
+                                     [gate["rule_uuid"]],
+                                     "limit=%d must mean gates only" % bad)
+                    self.assertEqual(res["soft_omitted"], 1)
+
+    def test_many_gates_all_survive_a_small_limit(self):
+        """Multiple applicable global gates, none lexically relevant, against a
+        limit far smaller than their count."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gates = [_approved(store, self._cap(
+                    store, trigger="about to do dangerous thing %d" % i,
+                    action="refuse dangerous thing %d" % i,
+                    because="")["candidate_uuid"],
+                    founder_ref="yes", severity="gate") for i in range(5)]
+                res = store.retrieve_learning_rules("colour of the orb", limit=1)
+                self.assertEqual(set(r["rule_uuid"] for r in res["results"]),
+                                 set(g["rule_uuid"] for g in gates))
+                self.assertEqual(res["gates_returned"], 5)
+                self.assertEqual(res["gates_total"], 5)
+
+    def test_dead_gates_are_not_resurrected_by_the_guarantee(self):
+        """Gate delivery is a promise about LIVE rules only. A deprecated or
+        forgotten gate stays gone, or this loop would have turned an
+        always-return rule into an un-retirable one."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                dep = _approved(store, self._cap(
+                    store, trigger="about to force push",
+                    action="never force push", because="")["candidate_uuid"],
+                    founder_ref="yes", severity="gate")
+                gone = _approved(store, self._cap(
+                    store, trigger="about to delete files",
+                    action="never delete files", because="")["candidate_uuid"],
+                    founder_ref="yes", severity="gate")
+                store.change_learning_rule_state(dep["rule_uuid"], "deprecated",
+                                                 reason="no longer needed")
+                store.change_learning_rule_state(gone["rule_uuid"], "forgotten",
+                                                 reason="obsolete")
+                res = store.retrieve_learning_rules("colour of the orb", limit=0)
+                self.assertEqual(res["results"], [])
+                self.assertEqual(res["gates_total"], 0)
+
+    def test_a_conflicting_gate_counterpart_survives_the_limit(self):
+        """Two gates that contradict each other, limit=1. Showing one side of a
+        contradiction is worse than showing neither, so both must appear."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = _approved(store, self._cap(
+                    store, trigger="about to force push",
+                    action="always force push", because="")["candidate_uuid"],
+                    founder_ref="yes", severity="gate")
+                b = _approved(store, self._cap(
+                    store, trigger="about to force push",
+                    action="never force push", because="")["candidate_uuid"],
+                    founder_ref="yes", severity="gate",
+                    conflict_override="both kept on purpose for this test")
+                res = store.retrieve_learning_rules("about to force push", limit=1)
+                self.assertEqual(set(r["rule_uuid"] for r in res["results"]),
+                                 set([a["rule_uuid"], b["rule_uuid"]]),
+                                 "a limit cut one side of a gate contradiction")
+
+    def test_old_slicing_behaviour_would_fail_this_suite(self):
+        """CALIBRATION. Reinstate the pre-P4 slice over the same eligible set
+        and prove the gate disappears, so a green suite means the split is
+        doing the work rather than the fixture being too kind."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                soft, gate = self._gate_and_soft(store)
+                L = bs._learning()
+                context, query = {}, "deploying the website to production"
+                eligible = [r for r in store.list_learning_rules(
+                    states=L.INJECTABLE_STATES)
+                    if L.scope_matches(r["scope_type"], r["scope_key"], context)
+                    and (L.is_gate(r) or L.lexical_overlap(
+                        query, r.get("trigger_text", ""), r.get("action_text", ""),
+                        r.get("because_text", ""), r.get("domain", "")) > 0)]
+                eligible.sort(key=lambda r: L.rank_key(r, query, context))
+                self.assertNotIn(
+                    gate["rule_uuid"], [r["rule_uuid"] for r in eligible[:1]],
+                    "the fixture no longer reproduces the defect, so the "
+                    "passing tests above prove nothing")
+                self.assertIn(gate["rule_uuid"],
+                              [r["rule_uuid"] for r in store.retrieve_learning_rules(
+                                  query, limit=1)["results"]])
+
     def test_uuid_prefix_ambiguity_is_refused_not_guessed(self):
         with tempfile.TemporaryDirectory() as d:
             with bs.Store(d) as store:

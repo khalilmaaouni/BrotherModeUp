@@ -485,6 +485,12 @@ def cmd_relevant(argv):
     if not res["results"]:
         _out("no founder rules apply here (%d in scope, none matched; mode=%s)"
              % (res["eligible"], res["mode"]))
+        # Said out loud rather than left to inference: an empty result here
+        # means there was no applicable gate either, not that a gate was
+        # filtered out. Loop P4 made that a guarantee, so it is reported even
+        # when the answer is zero.
+        _out("0 of your %d applicable gate rules were held back; a result "
+             "limit cannot hide one." % res.get("gates_total", 0))
         return 0
     _out("RELEVANT FOUNDER RULES (mode=%s)" % res["mode"])
     for r in res["results"]:
@@ -492,7 +498,7 @@ def cmd_relevant(argv):
         _out("")
         _out("  %s  rank=%d" % (r["rule_uuid"][:8], r["rank"]))
         _out("  Scope: %s     State: %s%s" % (
-            why["scope"], why["state"], "     GATE" if r.get("severity") == "gate" else ""))
+            why["scope"], why["state"], "     GATE" if L.is_gate(r) else ""))
         _out("  When : %s" % L.safe_display(r["trigger_text"], 160))
         _out("  Do   : %s" % L.safe_display(r["action_text"], 160))
         if r.get("because_text"):
@@ -517,7 +523,21 @@ def cmd_relevant(argv):
         _out("Decide with: bm_learn.py resolve-conflict <rule> --with <other> "
              "--how superseded|contradicted|deprecated --because \"...\"")
     _out("")
-    _out("Constitution overrides learned rules. %d omitted." % res["omitted"])
+    # TWO SENTENCES, BECAUSE THEY ARE TWO DIFFERENT FACTS (Loop P4).
+    #
+    # The old single "%d omitted" covered gates and preferences alike, so a
+    # founder reading it could not tell a hidden preference from a hidden
+    # safety gate. Gate delivery is now stated as the guarantee it is, and the
+    # soft omission count is stated separately as the tuning knob it is.
+    _out("Constitution overrides learned rules.")
+    _out("Gates: %d of %d applicable returned. A result limit cannot hide one."
+         % (res.get("gates_returned", 0), res.get("gates_total", 0)))
+    if res.get("soft_omitted", res["omitted"]):
+        _out("Soft rules: %d shown, %d omitted by --limit %d. Raise the limit "
+             "to see them." % (res.get("soft_returned", 0),
+                               res.get("soft_omitted", res["omitted"]), limit))
+    else:
+        _out("Soft rules: %d shown, none omitted." % res.get("soft_returned", 0))
     if "recorded" in res:
         _out("")
         _out("recorded %d application(s), %d already recorded for this task "
