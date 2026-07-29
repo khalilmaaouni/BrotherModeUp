@@ -6799,6 +6799,96 @@ class TestLoop8ExternalGrading(unittest.TestCase):
                 self.assertEqual(
                     len(store.list_learning_evidence(rule["rule_uuid"])), before)
 
+    def test_the_same_outcome_command_run_twice_stays_one_event(self):
+        """The test above proved the private link writer was idempotent. It
+        was, and the public path went around it: record_outcome_event minted a
+        FRESH candidate every run, so the dedup key (candidate, application)
+        never matched and the weekly review's counts grew with keystrokes.
+        Found by typing the same command twice against a real store."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                rec = self._record(store)
+                res = store.record_learning_applications(
+                    self.TRIGGER, session_id="S1",
+                    record_prefix=rec.lifecycle_uuid)
+                store.set_application_disposition(
+                    res["applications"][0], "ignored", reason="in a hurry")
+                first = store.record_outcome_event(
+                    "rework", rec.lifecycle_uuid, session_id="S1",
+                    summary="the board sent it back")
+                again = store.record_outcome_event(
+                    "rework", rec.lifecycle_uuid, session_id="S1",
+                    summary="the board sent it back")
+                self.assertEqual(again["candidate_uuid"],
+                                 first["candidate_uuid"])
+                self.assertTrue(any("same outcome already recorded" in n
+                                    for n in again["notes"]),
+                                "the founder must be told his second run "
+                                "wrote nothing new")
+                self.assertEqual(len(store.list_learning_candidates("pending")), 1)
+                out = store.learning_loop_failures()
+                self.assertEqual(len(out["outcomes_linked_to_rules"]), 1)
+                self.assertEqual(len(out["repeated_corrections"]), 1)
+                # A genuinely different second rework says so in its own
+                # words, and that one is a second event.
+                third = store.record_outcome_event(
+                    "rework", rec.lifecycle_uuid, session_id="S1",
+                    summary="sent back a second time, for a different reason")
+                self.assertNotEqual(third["candidate_uuid"],
+                                    first["candidate_uuid"])
+
+    def test_an_outcome_never_grades_a_rule_from_different_work(self):
+        """Two work records in one session. An outcome on the first must not
+        touch a rule that was only ever applied to the second: the report told
+        the founder to edit a rule that had been obeyed correctly somewhere
+        else entirely."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store, state="confirmed")
+                mine = self._record(store)
+                other = store.claim("illustrations", lifetime="ephemeral",
+                                    objective="draw the onboarding art",
+                                    files=[os.path.join(store.root, "b.svg")],
+                                    session_id="S1")
+                res = store.record_learning_applications(
+                    self.TRIGGER, session_id="S1",
+                    record_prefix=mine.lifecycle_uuid)
+                store.set_application_disposition(
+                    res["applications"][0], "followed",
+                    verification_ref="test:exec_update_shape")
+                ev = store.record_outcome_event(
+                    "escaped_defect", other.lifecycle_uuid, session_id="S1",
+                    defect_class="lint", summary="a lint error shipped")
+                self.assertEqual(ev["linked_applications"], [],
+                                 "the rule was never applied to that record")
+                self.assertTrue(any("not measured" in n for n in ev["notes"]))
+                out = store.learning_rule_outcomes(rule["rule_uuid"])
+                self.assertEqual(out["repeated_corrections"], [])
+                self.assertEqual(out["evidence_by_polarity"].get("contradict", 0),
+                                 0)
+
+    def test_an_application_with_no_record_yet_is_still_graded_by_session(self):
+        """The backstop the record-first match must not break: an application
+        recorded before the work record was claimed carries only a session,
+        and refusing to grade it would report a retrieval miss for work that
+        demonstrably did retrieve the rule."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                rec = self._record(store)
+                res = store.record_learning_applications(self.TRIGGER,
+                                                          session_id="S1")
+                store.set_application_disposition(
+                    res["applications"][0], "followed",
+                    verification_ref="test:exec_update_shape")
+                ev = store.record_outcome_event(
+                    "rework", rec.lifecycle_uuid, session_id="S1",
+                    summary="the board sent it back")
+                self.assertEqual(len(ev["linked_applications"]), 1)
+                self.assertEqual(ev["linked_applications"][0]["classification"],
+                                 "bad_rule")
+
     # -- repeated corrections ---------------------------------------------
 
     def test_a_repeat_against_a_settled_rule_that_was_followed_is_a_bad_rule(self):
@@ -6827,9 +6917,15 @@ class TestLoop8ExternalGrading(unittest.TestCase):
                 out = store.detect_repeated_correction(cand["candidate_uuid"])
                 self.assertEqual(out["repeats"][0]["classification"],
                                  "retrieval_miss")
-                self.assertEqual(out["repeats"][0]["polarity"], "support",
-                                 "the founder repeating a rule is evidence he "
-                                 "still wants it, not evidence it is wrong")
+                self.assertEqual(
+                    out["repeats"][0]["polarity"], "neutral",
+                    "a rule nobody retrieved is not shown to be wrong, and it "
+                    "is not shown to work either. It was written 'support', "
+                    "and the promotion gate reads support as 'an independent "
+                    "event showing the rule worked', so a rule could reach "
+                    "confirmed on proof it was never retrieved. The founder "
+                    "restating a preference IS support, and merge_learning_"
+                    "candidate writes that row off his own words.")
 
     def test_a_repeat_after_the_rule_was_shown_and_skipped_is_a_compliance_failure(self):
         with tempfile.TemporaryDirectory() as d:
@@ -7007,6 +7103,89 @@ class TestLoop8ExternalGrading(unittest.TestCase):
                 out = store.learning_loop_failures()
                 self.assertEqual(len(out["unattributed_outcomes"]), 1)
                 self.assertEqual(out["outcomes_linked_to_rules"], [])
+
+    def test_an_escaped_defect_is_not_the_founder_repeating_himself(self):
+        """The weekly review's line reads 'repeated settled corrections: the
+        same instruction given twice'. An escaped defect is an outcome nobody
+        restated, so counting it there told the founder he had said a thing
+        three times when he had said it once."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store, state="settled")
+                rec = self._record(store)
+                res = store.record_learning_applications(
+                    self.TRIGGER, session_id="S1",
+                    record_prefix=rec.lifecycle_uuid)
+                store.set_application_disposition(
+                    res["applications"][0], "ignored", reason="in a hurry")
+                store.record_outcome_event(
+                    "escaped_defect", rec.lifecycle_uuid, session_id="S1",
+                    defect_class="regression", summary="found after sign-off")
+                out = store.learning_loop_failures()
+                self.assertEqual(out["repeated_settled_corrections"], [])
+                self.assertEqual(len(out["outcome_gradings"]), 1)
+                self.assertEqual(out["outcome_gradings"][0]["source_type"],
+                                 "escaped_defect")
+                self.assertEqual(len(out["outcomes_linked_to_rules"]), 1)
+
+    def test_a_real_repeated_correction_still_counts(self):
+        """The guard above must not silence the line it is protecting."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store, state="settled")
+                cand = self._repeat(store)
+                store.detect_repeated_correction(cand["candidate_uuid"],
+                                                  record=True)
+                out = store.learning_loop_failures()
+                self.assertEqual(
+                    [r["rule_uuid"] for r in out["repeated_settled_corrections"]],
+                    [rule["rule_uuid"]])
+                self.assertEqual(out["outcome_gradings"], [])
+
+    def test_a_rule_is_never_promoted_on_evidence_it_was_never_followed(self):
+        """The promotion gate's own words: 'it needs at least one independent
+        supporting event. Approval is the founder's intent, not evidence the
+        rule worked.' A compliance failure used to be written as SUPPORT, so
+        the chain retrieve, skip, rework promoted a rule to confirmed and then
+        settled on proof it had never once been obeyed."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                rec = self._record(store)
+                res = store.record_learning_applications(
+                    self.TRIGGER, session_id="S1",
+                    record_prefix=rec.lifecycle_uuid)
+                store.set_application_disposition(
+                    res["applications"][0], "ignored", reason="in a hurry")
+                ev = store.record_outcome_event(
+                    "rework", rec.lifecycle_uuid, session_id="S1",
+                    summary="the update had to be rewritten")
+                # The refusal is asserted FIRST on purpose. Assert the polarity
+                # first and reinjecting the defect fails here instead of on
+                # the promotion, which would leave the guard that actually
+                # matters unproven.
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(rule["rule_uuid"],
+                                                     "confirmed")
+                self.assertEqual(ctx.exception.reason, "no-supporting-evidence")
+                link = ev["linked_applications"][0]
+                self.assertEqual(link["classification"], "compliance_failure")
+                self.assertEqual(link["polarity"], "neutral")
+
+    def test_a_rule_that_was_followed_can_still_be_promoted(self):
+        """The other direction of the same guard: the honest path to
+        'confirmed' must stay open, or the gate would just be a wall."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                res = store.record_learning_applications(self.TRIGGER,
+                                                          session_id="S1")
+                store.set_application_disposition(
+                    res["applications"][0], "followed",
+                    verification_ref="test:exec_update_shape")
+                moved = store.change_learning_rule_state(rule["rule_uuid"],
+                                                          "confirmed")
+                self.assertEqual(moved["state"], "confirmed")
 
     def test_a_rule_nothing_ever_retrieved_is_named(self):
         with tempfile.TemporaryDirectory() as d:
