@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-07-29 (no version bump): substantial work no longer depends on remembering a flag
+
+Loop P5. `relevant` did both jobs: it retrieved founder rules, and it recorded
+that they had been surfaced only if the caller passed `--record-applications`.
+SKILL.md, the law an agent actually follows, named the command WITHOUT the flag.
+So the documented substantial-work path wrote nothing, "was this rule followed"
+was unanswerable for every task that took it, and no output anywhere said so.
+Reproduced at bc25e06 on a throwaway store: `relevant --query "..."` exited 0,
+printed the rules, and `learning_applications` stayed empty.
+
+A better default would not have fixed it, because the ambiguity was the point of
+failure. The choice moved out of a flag and into the verb.
+
+- `lookup` retrieves and writes NOTHING, ever. `--session`, `--record` and
+  `--not-shown` are refused by name with a pointer to `apply`, rather than by
+  the generic unknown-flag line.
+- `apply` retrieves AND records, with no flag in between, and REFUSES without
+  `--session`: an application row with no session identity cannot be tied back
+  to the work it belongs to. It stays idempotent per (task, rule, version,
+  session), and re-running it once a work record exists links the rows already
+  written.
+- A failed recording is no longer a line buried under a run that exits 0. The
+  rules still print, because the retrieval genuinely succeeded, but the output
+  carries `STATUS: PARTIAL. RULES RETRIEVED, APPLICATION NOT RECORDED.`, the
+  JSON carries `recording_status`, and the process exits 3.
+- `relevant` survives as a deprecated alias with its old behaviour intact, and
+  says on every run that it is deprecated and which verb to use instead. It goes
+  away in the next major version.
+- SKILL.md's founder-rules law now names `apply --session`, and a test parses
+  that section and fails if it ever again names a command that records nothing.
+
+Calibrated by reinjection: forcing `recording_flag` back to opt-in fails 4 of
+the 7 new tests; removing the `--session` requirement fails 1; restoring the old
+SKILL.md line fails the law test. Suite after the last edit: 652 tests across 4
+suites, 2 skipped, ALL GREEN.
+
 ## 2026-07-29 (no version bump): the zero-result path told you nothing was omitted
 
 Fix round P4-fix, on top of Loop P4 (c78e5ea). Loop P4 promised that `relevant`

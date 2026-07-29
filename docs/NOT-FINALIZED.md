@@ -11,6 +11,16 @@ Status words mean exactly one thing each:
 
 ---
 
+## Loop P5: `relevant` is deprecated but not removed. DEFERRED, by design.
+
+The alias is kept so existing scripts and docs do not break silently, and it
+prints a deprecation line to stderr on every run. It still honours the old
+opt-in `--record-applications` contract, so a caller who keeps using it keeps
+the old hole. Removal is scheduled for the next major version and is NOT done.
+
+The narrative docs still show `relevant` in their examples; see
+`docs/KNOWN-LIMITS.md`. PARTIAL.
+
 ## 1. Never run on a real day of your work. UNPROVEN. Highest harm.
 
 Everything in this repository rests on test suites, adversarial review and
