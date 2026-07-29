@@ -298,7 +298,10 @@ What is honestly limited, and why each limit was chosen rather than missed:
 - OPEN, by design: detection is LEXICAL. It finds a reversal of the same
   instruction ("always push through the desktop app" against "never push
   through the desktop app"), which is the shape a founder's own change of mind
-  takes. It does NOT find "indent with tabs" against "indent with four spaces".
+  takes, whichever side is padded with ordinary extra words and however
+  differently the two triggers are phrased. Both of those hid a live reversal
+  until the correction round below. It does NOT find "indent with tabs" against
+  "indent with four spaces".
   There is a test asserting that blind spot rather than hoping about it, and
   `bm_learn.py link a contradicts b` exists so the founder can declare any
   conflict the detector cannot see. A declared conflict counts exactly as much
@@ -319,6 +322,44 @@ What is honestly limited, and why each limit was chosen rather than missed:
   contradiction writes both an evidence row and a `contradicts` edge, so the
   pair keeps showing up in `conflicts`, in `relevant`, and as a `verify`
   finding until the founder resolves it.
+
+### Correction round, 2026-07-29: four ways the done gate leaked
+
+Found by driving the real CLI against a throwaway store while all four suites
+were green, which is the same way every serious defect in this project has been
+found. All four are fixed and each carries a calibrated regression test.
+
+1. **A padded reversal was invisible.** The reversal was scored on symmetric
+   token overlap, which punishes length: adding one ordinary founder clause to
+   "never push through the desktop app" dropped the score under the floor, the
+   pair came back `not_comparable`, and approval, `conflicts`, `verify` and
+   `relevant` all reported clean while two opposite instructions sat in the
+   injectable set. Now judged on how much of the SHORTER action the longer one
+   also names (`SUBJECT_CONTAINMENT_FLOOR`).
+2. **A differently phrased trigger was a veto.** `TRIGGER_OVERLAP_FLOOR` could
+   downgrade an exact reversal to `unrelated` whenever the founder phrased the
+   two triggers differently, which free text routinely is. The floor is now a
+   tie breaker, bypassed for a direct reversal, and the verdict says in its
+   reasons that it was bypassed.
+3. **"no exceptions" flipped a rule's polarity.** The bare word "no" made
+   "always run the tests, no exceptions" read as FORBID, so a rule that plainly
+   agreed with an existing one was refused as a contradiction the founder could
+   only pass by overriding a conflict that did not exist. Intensifier phrases
+   ("no exceptions", "without fail", "sans faute") are now stripped before
+   polarity is read. That pair is now correctly reported as a duplicate.
+4. **Supersession accepted a successor that could not speak.** Any existing rule
+   was accepted, including a forgotten or deprecated one, so the live
+   instruction went silent while the CLI printed "the successor is returned in
+   its place from now on". Refused now (`successor-cannot-speak`), and because a
+   successor can also go quiet afterwards, `verify` gained a `dead-successor`
+   check for stores where that already happened.
+
+NEW and open, stated rather than discovered later: fix 2 makes the detector
+stricter, so two GLOBAL rules that reverse each other while genuinely addressing
+different situations ("when writing Python never use tabs" against "when writing
+Makefiles always use tabs") are now refused at approval. That is the intended
+trade: the founder narrows one scope, or overrides with a stated reason that is
+recorded as an edge. It does mean the refusal fires more often than it did.
 
 ---
 
