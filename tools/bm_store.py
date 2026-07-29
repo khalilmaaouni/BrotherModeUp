@@ -1789,6 +1789,17 @@ def _one_or_refuse(rows, kind, prefix):
 # keeps a dump structurally honest (you can see evidence exists and how much of
 # it) without reproducing any of it. --raw still returns everything, and
 # SECURITY.md already documents the database file itself as sensitive.
+# LOOP 11 GENERALISED THIS. Those three columns were withheld because they
+# hold verbatim founder words; the reasoning above is not special to them.
+# records.objective, records.evidence, digests.body, transitions.note,
+# decisions.text and directives.text are founder prose too, and the scrubber
+# was never able to catch prose: "never mention the Q3 miss to Acme" carries
+# no secret SHAPE at all, so an ordinary dump reproduced it verbatim.
+# _DUMP_WITHHELD_COLUMNS is therefore no longer a list to maintain: WITHHELD
+# IS NOW THE DEFAULT for every text column that is not structurally safe
+# (_DUMP_SAFE_COLUMNS) and not explicitly scrub-only
+# (_DUMP_SCRUB_ONLY_COLUMNS). The name is kept because tests and comments
+# refer to it, and it still documents the three original findings.
 _DUMP_WITHHELD_COLUMNS = frozenset((
     ("learning_candidates", "raw_text"),
     ("learning_evidence", "excerpt"),
@@ -1816,10 +1827,194 @@ _DUMP_WITHHELD_COLUMNS = frozenset((
 # in _DUMP_SAFE_COLUMNS (git shas) are allowlisted before this rule is reached.
 _DUMP_DIGEST_SUFFIXES = ("_hash", "_fingerprint")
 
+# The ONLY founder-typed columns an ordinary export still renders, scrubbed
+# rather than withheld. Both are short IDENTIFIERS in practice, not prose: a
+# record's name is how a founder asks for that record by hand, and tier is a
+# T1/T2/T3 enum in every non-adversarial store. Withholding the name would
+# leave a dump with no human-readable handle at all (only the uuid), which is
+# the point at which people reach for --raw and lose the whole policy. Both
+# still pass through the secret scrubber AND absolute-path masking below, so
+# a name of "AKIAIOSFODNN7EXAMPLE" or "/Users/someone/clients/acme" does not
+# survive. Adding a column here is a deliberate privacy decision, and the
+# structural test test_export_policy_scrub_only_set_stays_closed makes
+# growing this set fail loudly rather than quietly.
+_DUMP_SCRUB_ONLY_COLUMNS = frozenset((
+    ("records", "name"),
+    ("records", "tier"),
+    # FIX-ROUND 11: claims.path was WITHHELD, which broke the thing the
+    # fence primitive exists for. A second agent asking bm_fences which file
+    # is fenced got "[WITHHELD: 5 chars of founder text]" and could not
+    # avoid the collision. A claimed path is RELATIVE, project-internal
+    # structure, which the path-masking comment below itself calls "exactly
+    # what the policy says stays"; withholding it was a collision-safety
+    # regression bought for no privacy. It is scrub-only, not safe, so a
+    # caller who claims an ABSOLUTE path still gets it masked and a
+    # secret-shaped one still gets it redacted.
+    ("claims", "path"),
+))
+
+# FIX-ROUND 11 (reported and reproduced): session ids were listed as
+# structurally SAFE, i.e. returned unchanged, on the theory that they are
+# machine identifiers. They are not: --session is caller-supplied free text
+# (a uuid is only the fallback when the flag is absent), so
+# `claim --session "/Users/jane.doe/Clients/Acme"` put an absolute path, and
+# `--session sk-live_...` put a live vendor key, into an ordinary dump
+# VERBATIM, twice (records.session_id and transitions.session_id). Rather
+# than withhold them outright, which would break every join a dump is read
+# for, these columns are SHAPE-GATED: a value that looks like a generated
+# session identifier passes unchanged, and anything else is withheld like
+# any other founder text.
+_DUMP_ID_SHAPED_COLUMNS = frozenset((
+    ("records", "session_id"),
+    ("transitions", "session_id"),
+    ("autosave_receipts", "session_id"),
+    ("autosave_receipts", "worktree_id"),
+    ("learning_candidates", "source_session_id"),
+    ("learning_evidence", "source_session_id"),
+    ("learning_applications", "session_id"),
+))
+
+# "cli-<32 hex>" (_default_cli_session_id), a bare or dashed uuid, a worktree
+# label, a short hand-typed tag. No separator, no space, no punctuation
+# beyond . _ - and no room for a sentence.
+_ID_SHAPED_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
+
+
+def is_id_shaped(value):
+    """True when `value` is safe to export as an identifier: it has the shape
+    of a generated id AND survives the secret scrubber unchanged, so a
+    vendor key such as sk-live_abcdefghijklmnopqrstuvwx (which matches the
+    shape) is still caught."""
+    if not isinstance(value, str) or not _ID_SHAPED_RE.match(value):
+        return False
+    return redact_text(value) == value
+
+# ABSOLUTE PATHS (LOOP 11 workstream A). A path is not secret-shaped, so the
+# scrubber never touched it, yet "/Users/jane.doe/clients/acme-turnaround"
+# names a person, an employer and a client in one string. Ordinary exports
+# mask absolute POSIX paths, Windows drive paths (C:\...) and UNC paths
+# (\\server\share). Relative paths are left alone: they are project-internal
+# structure, which is exactly what the policy says stays.
+#
+# FIX-ROUND 11 (reported, reproduced, fixed here): the body class used to be
+# the ASCII allowlist [A-Za-z0-9_.~\-/\\]. A match STOPS at the first
+# character outside the class, and the (?<![A-Za-z0-9_]) lookbehind then
+# blocks re-matching at the next separator, so the mask removed the
+# WORTHLESS PREFIX and left the SENSITIVE TAIL standing:
+#   /Users/mueller/Kunden/Siemens (real u-umlaut) -> "[PATH WITHHELD]ller/..."
+#   /Users/<CJK name>/<CJK client>/ACME           -> both names visible
+#   /Users/j/C++Projects/acme-secret  -> "[PATH WITHHELD]++Projects/acme-secret"
+#   also @ % # & = and every other punctuation mark outside the allowlist.
+# Every non-ASCII path component (CJK, Cyrillic, Greek, accented Latin, which
+# is most of the world's home directories) leaked in full, and the stated
+# LIMIT below claimed the only gap was a SPACE. The class is therefore now a
+# DENYLIST: a path component is anything that is not whitespace, not a
+# control character, and not one of the few characters that really do end a
+# path in prose. Two flat classes in sequence, no alternation, no nesting, so
+# matching stays linear (400k characters still mask in single-digit ms).
+#
+# LIMITS, stated rather than hidden, and this is now the WHOLE list:
+#  - a path containing a SPACE is masked only up to that space
+#    ("/Users/j/Dev Work/x" leaves "Work/x" visible). Deliberate: swallowing
+#    spaces would eat the rest of any sentence that merely mentions a path,
+#    which is worse in the text exports this also runs in.
+#  - masking stops at " ' ` < > | , ; : ( ) [ ] { } for that same prose
+#    reason. Some of those (" < > | :) are illegal in a Windows path
+#    outright, the rest are legal but rare in a real one, and all of them
+#    are common sentence punctuation; a path that does contain one is masked
+#    only up to it.
+#  - a trailing . ! or ? stays outside the marker, so "see /Users/j/x." keeps
+#    its full stop.
+_ABS_PATH_BODY = r"[^\s\x00-\x1f\x7f\"'`<>|,;:()\[\]{}]"
+_ABS_PATH_RE = re.compile(
+    r"(?<![A-Za-z0-9_])"
+    r"(?:[A-Za-z]:[\\/]|\\\\|/)"
+    # First component character: the body class minus the separators, so a
+    # bare "/" or "//" in prose is not itself treated as a path.
+    + r"[^\s\x00-\x1f\x7f\"'`<>|,;:()\[\]{}/\\]"
+    + _ABS_PATH_BODY + r"*")
+
+PATH_WITHHELD_MARKER = "[PATH WITHHELD]"
+
+# Sentence punctuation that is legal in a POSIX filename but almost never
+# used in one, and very often ends the sentence a path sits in.
+_ABS_PATH_TRAILING = ".!?"
+
+
+def _mask_one_path(match):
+    """Replace one matched path, leaving trailing sentence punctuation."""
+    matched = match.group(0)
+    kept = matched.rstrip(_ABS_PATH_TRAILING)
+    if len(kept) < 2:
+        # Only a separator survived ("/." in prose): not a path, leave it.
+        return matched
+    return PATH_WITHHELD_MARKER + matched[len(kept):]
+
+
+def mask_absolute_paths(text):
+    """Replace absolute filesystem paths with PATH_WITHHELD_MARKER.
+
+    Pure, no I/O, safe on any string. Returns the input unchanged when it is
+    not a string, so a caller iterating sqlite rows never has to type-check."""
+    if not isinstance(text, str) or not text:
+        return text
+    return _ABS_PATH_RE.sub(_mask_one_path, text)
+
+
+def withheld_marker(value):
+    """The one marker every withheld field uses. Structurally honest (you can
+    see the field is populated and how much of it there is) without
+    reproducing a character of it."""
+    return "[WITHHELD: %d chars of founder text]" % len(value)
+
+
+def export_column(table, column, value):
+    """THE CENTRAL WITHHOLDING POLICY. Given one (table, column, value) from
+    the store, return what an ordinary, non-raw export may show for it.
+
+    Every JSON and text export that renders whole store rows goes through
+    here, so the policy lives in exactly one place and a new column joins it
+    by default rather than by remembering to add it. Order matters:
+
+      1. digest-shaped column      -> WITHHELD, whatever else it is listed as
+      2. structurally safe column  -> value, unchanged
+      3. id-shaped column          -> value if it really is id-shaped,
+                                      WITHHELD if the caller put prose,
+                                      a path or a key in it
+      4. scrub-only column         -> secret-scrubbed, paths masked
+      5. anything else that is text-> WITHHELD entirely
+
+    RELEASE CUT, 2026-07-29: the digest rule is FIRST, not last. FIX ROUND P3
+    withheld digests inside dump() alone and reached them before the safe list;
+    LOOP 11 moved the safe list in front of everything and listed two
+    digest-shaped columns (learning_candidates.content_hash,
+    learning_applications.task_fingerprint) as structural. Merging the two lanes
+    with the safe check first would have re-exported those digests, which is the
+    exact leak P3 closed, so the shape rule runs before the allowlist and covers
+    every export rather than only dump. Git shas stay visible: they are named
+    *_sha and *_head, not *_hash or *_fingerprint.
+
+    Raises RedactionUnavailable through redact_text rather than falling back
+    to cleartext, exactly like every other exit in this file."""
+    if isinstance(value, str) and value and column.endswith(_DUMP_DIGEST_SUFFIXES):
+        # Withheld by name-shape: see _DUMP_DIGEST_SUFFIXES. A short answer
+        # behind an unsalted digest is guessable, and redact_text cannot see a
+        # digest at all.
+        return "[WITHHELD: %d-char digest]" % len(value)
+    if (table, column) in _DUMP_SAFE_COLUMNS:
+        return value
+    if not isinstance(value, str) or not value:
+        return value
+    if (table, column) in _DUMP_ID_SHAPED_COLUMNS:
+        return value if is_id_shaped(value) else withheld_marker(value)
+    if (table, column) in _DUMP_SCRUB_ONLY_COLUMNS:
+        return mask_absolute_paths(redact_text(value))
+    return withheld_marker(value)
+
 _DUMP_SAFE_COLUMNS = frozenset((
     ("meta", "key"), ("meta", "value"),
     ("records", "lifecycle_uuid"), ("records", "lifetime"),
-    ("records", "state"), ("records", "session_id"),
+    ("records", "state"),
     ("records", "created_at"), ("records", "updated_at"),
     ("claims", "lifecycle_uuid"),
     ("decisions", "lifecycle_uuid"), ("decisions", "created_at"),
@@ -1827,8 +2022,7 @@ _DUMP_SAFE_COLUMNS = frozenset((
     ("directives", "lifecycle_uuid"), ("directives", "created_at"),
     ("directives", "delivered_at"),
     ("transitions", "lifecycle_uuid"), ("transitions", "from_state"),
-    ("transitions", "to_state"), ("transitions", "session_id"), ("transitions", "at"),
-    ("autosave_receipts", "worktree_id"), ("autosave_receipts", "session_id"),
+    ("transitions", "to_state"), ("transitions", "at"),
     ("autosave_receipts", "snapshot_sha"), ("autosave_receipts", "tree_sha"),
     ("autosave_receipts", "source_head"), ("autosave_receipts", "created_at"),
     # LOOP P12. Identifiers, two session ids and two timestamps only. heading
@@ -1843,6 +2037,49 @@ _DUMP_SAFE_COLUMNS = frozenset((
     ("handovers", "handover_uuid"), ("handovers", "lifecycle_uuid"),
     ("handovers", "from_session_id"), ("handovers", "to_session_id"),
     ("handovers", "delivered_at"), ("handovers", "created_at"),
+    # LOOP 11: the schema-2 learning tables were never listed here, because
+    # under the old policy an unlisted column was merely SCRUBBED and a uuid
+    # survives scrubbing unchanged. Under withhold-by-default an unlisted
+    # uuid comes back as a length marker, which would make a dump unusable
+    # (rows no longer join) without protecting anything: these are machine
+    # identifiers, schema enums, content hashes and timestamps. Free-text
+    # columns of the same tables (raw_text, proposed_*, review_note,
+    # trigger/action/because, tags_json, scope_key, source_ref, excerpt,
+    # note, task_excerpt, disposition_reason, *_ref) are deliberately absent
+    # and are therefore withheld.
+    ("learning_rules", "rule_uuid"), ("learning_rules", "state"),
+    ("learning_rules", "rule_type"), ("learning_rules", "severity"),
+    ("learning_rules", "scope_type"),
+    ("learning_rules", "founder_approved_at"), ("learning_rules", "created_at"),
+    ("learning_rules", "updated_at"), ("learning_rules", "superseded_by"),
+    ("learning_rules", "forgotten_at"),
+    ("learning_candidates", "candidate_uuid"),
+    ("learning_candidates", "source_type"),
+    ("learning_candidates", "source_record_uuid"),
+    ("learning_candidates", "proposed_scope_type"),
+    ("learning_candidates", "status"), ("learning_candidates", "content_hash"),
+    ("learning_candidates", "created_at"), ("learning_candidates", "reviewed_at"),
+    ("learning_candidates", "resulting_rule_uuid"),
+    ("learning_rule_versions", "rule_uuid"),
+    ("learning_rule_versions", "change_type"),
+    ("learning_rule_versions", "source_candidate_uuid"),
+    ("learning_rule_versions", "created_at"),
+    ("learning_evidence", "evidence_uuid"), ("learning_evidence", "rule_uuid"),
+    ("learning_evidence", "candidate_uuid"), ("learning_evidence", "polarity"),
+    ("learning_evidence", "evidence_type"),
+    ("learning_evidence", "source_record_uuid"),
+    ("learning_evidence", "created_at"),
+    ("learning_edges", "from_rule_uuid"), ("learning_edges", "to_rule_uuid"),
+    ("learning_edges", "relation"), ("learning_edges", "created_at"),
+    ("learning_applications", "application_uuid"),
+    ("learning_applications", "rule_uuid"),
+    ("learning_applications", "record_uuid"),
+    ("learning_applications", "task_fingerprint"),
+    ("learning_applications", "retrieved_at"),
+    ("learning_applications", "scope_match"),
+    ("learning_applications", "disposition"),
+    ("learning_applications", "outcome"),
+    ("learning_applications", "closed_at"),
 ))
 
 
@@ -7073,6 +7310,24 @@ class Store(object):
                 (lifecycle_uuid, seq, text or "", ts))
             return seq
 
+    def directives_for(self, lifecycle_uuid):
+        """Every directive for one record, oldest first, AUTHORITATIVE (the
+        rows as stored, not a presentation view).
+
+        LOOP 11, the FINDING 9 shape one more time: bm_threads.cmd_send
+        regenerated inbox.md from store.dump()["directives"], so the file a
+        founder actually reads was a copy of an EXPORT policy's output. The
+        moment directives.text became withheld-by-default (which is right
+        for an export that gets pasted into an issue), the founder's own
+        inbox would have filled with "[WITHHELD: 42 chars]". A local view
+        the founder writes and reads is not an export: it gets the same
+        treatment STATE.md gets, authoritative rows scrubbed at the display
+        boundary by the caller."""
+        rows = _exec(self,
+            "SELECT seq, text, created_at, delivered_at FROM directives "
+            "WHERE lifecycle_uuid=? ORDER BY seq", (lifecycle_uuid,)).fetchall()
+        return [dict(r) for r in rows]
+
     # -- autosave receipts --------------------------------------------------
 
     def write_autosave_receipt(self, worktree_id, session_id, snapshot_sha, tree_sha,
@@ -7293,7 +7548,15 @@ class Store(object):
         records.evidence/check_cmd/owner precisely because nobody had
         listed them. dump is exactly what a founder pipes into a file, a
         paste, or an issue, so silent cleartext by default is the wrong
-        direction. raw=True (CLI: --raw) is the explicit, named escape
+        direction.
+
+        LOOP 11: redaction was never enough on its own. redact_text is a
+        secret SCRUBBER, and founder prose has no secret shape, so an
+        ordinary dump still reproduced objectives, evidence, digest bodies,
+        transition notes, decisions and directives verbatim. Every text
+        column now goes through export_column, which WITHHOLDS by default
+        and scrubs only records.name and records.tier. raw=True (CLI: --raw)
+        is the explicit, named escape
         hatch for a human who really needs the unredacted sqlite contents
         (SECURITY.md documents the file itself as sensitive); never the
         default."""
@@ -7305,25 +7568,24 @@ class Store(object):
             return out
         for t in _TABLES:
             text_cols = _text_columns(self.conn, t)
-            redact_cols = [c for c in text_cols if (t, c) not in _DUMP_SAFE_COLUMNS]
-            if not redact_cols:
+            # A digest-shaped column is routed through the policy even when the
+            # structural allowlist names it, because the shape rule outranks the
+            # allowlist inside export_column and skipping it here would put that
+            # decision back in two places.
+            policy_cols = [c for c in text_cols
+                           if (t, c) not in _DUMP_SAFE_COLUMNS
+                           or c.endswith(_DUMP_DIGEST_SUFFIXES)]
+            if not policy_cols:
                 continue
             for row_dict in out[t]:
-                for col in redact_cols:
+                for col in policy_cols:
                     if not row_dict.get(col):
                         continue
-                    if (t, col) in _DUMP_WITHHELD_COLUMNS:
-                        # Withheld, not scrubbed: see _DUMP_WITHHELD_COLUMNS.
-                        row_dict[col] = "[WITHHELD: %d chars of founder text]" % len(
-                            row_dict[col])
-                    elif col.endswith(_DUMP_DIGEST_SUFFIXES):
-                        # Withheld by name-shape: see _DUMP_DIGEST_SUFFIXES. A
-                        # short answer behind an unsalted digest is guessable,
-                        # and redact_text cannot see a digest at all.
-                        row_dict[col] = "[WITHHELD: %d-char digest]" % len(
-                            row_dict[col])
-                    else:
-                        row_dict[col] = redact_text(row_dict[col])
+                    # ONE policy, shared with every other export: see
+                    # export_column. Withheld by default, scrubbed only for
+                    # the two identifier-shaped columns, and digests withheld
+                    # by name-shape whatever list they appear on.
+                    row_dict[col] = export_column(t, col, row_dict[col])
         return out
 
 
@@ -8494,7 +8756,11 @@ def cmd_dump(argv):
             # (fix-round 6): to stderr, so `dump --raw > file.json` is still
             # valid JSON.
             _warn("bm_store: --raw: printing every non-structural text "
-                  "field UNREDACTED (cleartext).")
+                  "field UNREDACTED (cleartext). That includes founder "
+                  "prose an ordinary dump WITHHOLDS entirely (objectives, "
+                  "evidence, digest bodies, transition notes, decisions, "
+                  "directives, captured corrections) and absolute paths. "
+                  "Treat this output like the database file itself.")
         data = store.dump(raw=raw)
     finally:
         store.close()
