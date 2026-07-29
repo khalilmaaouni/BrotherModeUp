@@ -3688,7 +3688,15 @@ class Store(object):
                                          r.get("because_text", ""),
                                          r.get("domain", "")) > 0]
         eligible.sort(key=lambda r: L.rank_key(r, query, context))
-        chosen = eligible[:max(0, int(limit))]
+        # A LIMIT MAY NOT SILENCE A GATE. The relevance floor above already
+        # says a gate appears even when the founder never used its vocabulary.
+        # Truncating the ranked list took that straight back: enough chatty
+        # soft rules ahead of a gate at the default limit, or limit=0 from any
+        # caller, and the safety rule vanished with no line saying it had been
+        # dropped. Gates survive truncation; everything else obeys the limit.
+        n = max(0, int(limit))
+        chosen = [r for i, r in enumerate(eligible)
+                  if i < n or r.get("severity") == "gate"]
         out = []
         for i, r in enumerate(chosen, 1):
             row = dict(r)

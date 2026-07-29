@@ -5451,6 +5451,36 @@ class TestLearningApi(unittest.TestCase):
                 self.assertNotIn(soft["rule_uuid"],
                                  [r["rule_uuid"] for r in res["results"]])
 
+    def test_calibrated_gate_survives_a_limit_that_truncates_everything(self):
+        """Public benchmark scenario 3: an applicable gate is returned even at
+        limit zero. Reproduced by hand before the fix: `bm_learn.py relevant
+        --query "push this branch to github" --limit 0` printed "no founder
+        rules apply here" while a gate rule about pushing was live."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gate = store.approve_learning_candidate(
+                    self._cap(store, trigger="pushing to github",
+                              action="use the desktop app")["candidate_uuid"],
+                    founder_ref="yes", severity="gate")
+                soft = store.approve_learning_candidate(
+                    self._cap(store, trigger="pushing to github",
+                              action="write the branch name in the note",
+                              because="the founder wants the branch named")["candidate_uuid"],
+                    founder_ref="yes")
+                for limit in (0, 1):
+                    res = store.retrieve_learning_rules("pushing to github",
+                                                        limit=limit)
+                    ids = [r["rule_uuid"] for r in res["results"]]
+                    self.assertIn(gate["rule_uuid"], ids,
+                                  "a gate must survive limit=%d" % limit)
+                # The limit still binds on everything that is not a gate: at
+                # limit 0 the soft rule is gone, so this is not "limit is
+                # ignored" wearing a safety hat.
+                zero = store.retrieve_learning_rules("pushing to github", limit=0)
+                self.assertNotIn(soft["rule_uuid"],
+                                 [r["rule_uuid"] for r in zero["results"]])
+                self.assertEqual([r["rank"] for r in zero["results"]], [1])
+
     def test_uuid_prefix_ambiguity_is_refused_not_guessed(self):
         with tempfile.TemporaryDirectory() as d:
             with bs.Store(d) as store:
