@@ -2,6 +2,49 @@
 
 Unreleased, 2026-07-30: the adoption book, twelve chapters with every command executed against a throwaway project, at `docs/book/brothermode-for-dummies.html` plus a 56 page PDF export (phase D of the documentation and gate-packs spec).
 
+Unreleased, 2026-07-30: first-rank execution plan, Loop 4. Gate: `test_all: 1181 tests across 7 suites, 1 skipped, 112.2s wall. ALL GREEN`, up from 1149. Store schema 10 to 11.
+
+- Session plus query text cannot tell two tasks apart, so `apply` no longer accepts
+  session identity alone. It requires exactly one of `--record <existing-uuid>`,
+  `--new-record <name>` (creates a provisional work record atomically with the
+  application), or the active record already in the environment, and the refusal
+  names all three ways forward. `lookup` is unchanged: it writes nothing and needs
+  no identity. Proved on the real CLI: two applies with IDENTICAL wording in ONE
+  session produced two distinct work records and two distinct retrieval runs.
+
+- Provisional records: durable UUID, visible in project status, promotable,
+  cancellable, linked applications preserved either way, and two identically named
+  provisionals are distinct records by construction, so tasks can never silently
+  merge. The new `promote` and `cancel` commands were classified by Loop 2's
+  enumeration test the day they were born: both are allowlisted with stated reasons
+  (they move a work record's lifecycle and touch no learning_rules row), and the
+  reasons were verified against the code, not assumed.
+
+- Retrieval runs now store complete membership, not just a count.
+  `learning_retrieval_membership` records the identity AND version of every eligible
+  rule per run, closing the case where one eligible rule vanishes and another appears
+  while the total stays identical. The swap case is a permanent test, and
+  `eligible_count` keeps its old meaning beside the new table.
+
+- Link protection: relinking an application to a different record, applying against
+  a nonexistent record, applying against a closed record, and cross-session reuse of
+  an unpromoted provisional all refuse, each with its own reason.
+
+- One constitutional collision surfaced by the full gate and settled by the founder,
+  not by an agent: SKILL.md promised "the rules are printed on every failing path",
+  and the new identity refusal prints none. Founder ruling: identity wins. The
+  SKILL.md promise is now scoped to paths that REACHED retrieval, and exit 2 is
+  documented as a usage refusal that happens before retrieval and says nothing about
+  whether rules matched. Five tests encoding the old contract were rewritten to the
+  new one, each keeping its old premise in its docstring, and the disclosure branch
+  for ambiguous bare applies is left in place but believed unreachable from `apply`,
+  unconfirmed for the deprecated `relevant` alias.
+
+- `record_uuid` stays NULLABLE in the DDL, deliberately: the founder's live store
+  holds historical rows with NULL there, and a test now asserts the column never
+  becomes NOT NULL, so no future migration can rewrite his history to satisfy a
+  constraint. Enforcement lives at the command layer where new work arrives.
+
 Unreleased, 2026-07-30: first-rank execution plan, Loop 3. Gate: `test_all: 1149 tests across 7 suites, 1 skipped, 110.8s wall. ALL GREEN`, up from 1132. Store schema 9 to 10.
 
 - Mandatory gates were safe in one direction and unsafe in the other. A limit could
