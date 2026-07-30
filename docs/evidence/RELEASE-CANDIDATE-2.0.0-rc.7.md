@@ -10,8 +10,8 @@ executed, it says so instead of leaving the gap for a reader to discover.
 | Fact | Value |
 |---|---|
 | Tag | `v2.0.0-rc.7`, annotated |
-| Tag object | created at cut time through GitHub Desktop; see the tag itself |
-| Commit | the release-cut commit recorded in CHANGELOG for rc.7 |
+| Tag object | `48168e31f193` (annotated) |
+| Commit | `d6c70b3e9e5040255512606e7d948e97d6358816` |
 | Branch | `main`, remote equals local at cut time (`0 0` ahead/behind) |
 | `VERSION` | `2.0.0-rc.7` |
 | `pyproject.toml` | `2.0.0rc7` (PEP 440 spelling of the same release) |
@@ -30,16 +30,13 @@ Run with the tag already published, so the release-truth tests that SKIP while n
 tag exists were ACTIVE for this run. That is why the skip count is 1 rather than the
 4 seen on the release-cut commit itself.
 
-## Clean install from the published tag
-
-Re-run against the rc.7 tag after it is cut; the rc.6 result below is kept as the
-procedure that was actually executed, and rc.7 differs from it by the Windows
-quoting fix and these documents.
+## Clean install from the published tag, executed against rc.7
 
 ```
 git clone --branch v2.0.0-rc.7 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git
 cat VERSION                  -> 2.0.0-rc.7
-sh scripts/verify-install.sh -> PASSED
+sh scripts/verify-install.sh -> 158 file(s) match, 0 mismatched, 0 missing,
+                                0 wrong type, 0 extra
 ```
 
 `verify-install` reports every manifest entry matching on disk in content and type,
@@ -48,7 +45,10 @@ of the public tag, not against the working tree.
 
 ## GitHub Actions: GREEN on all nine jobs, after a real defect was found and fixed
 
-Run `30564943060`, commit `f751f9f`, conclusion **success**. Every job:
+Run `30566158154` for commit `d6c70b3`, the EXACT commit `v2.0.0-rc.7` points at,
+conclusion **success**. The tagged bytes and the green run are the same bytes, which
+is the whole reason this cut exists. Run `30564943060` on `f751f9f` was the first
+green run and carried the same nine jobs.
 
 | Job | Result |
 |---|---|
