@@ -55,7 +55,7 @@ future Claude Code session through five hooks, and a moving branch feeding
 auto-run code was the weakest link the original external audit named.
 
 ```bash
-git clone --branch v2.0.0-rc.6 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.7 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 That tag is not typed by hand: it is generated from the same release fact

@@ -1,6 +1,36 @@
 # Changelog
 
-## 2.0.0-rc.6, 2026-07-31: the first-rank loops, re-cut after rc.5 was withdrawn
+## 2.0.0-rc.7, 2026-07-31: the first fully green CI, and the defect it took to get there
+
+Cut so that the tagged bytes and the green continuous-integration run are the same
+bytes. Run `30564943060` for commit `f751f9f` concluded SUCCESS across all nine jobs:
+the serial gate, both suite legs, and all six store legs (three platforms, both
+supported Python versions). This project had never before observed a fully green run.
+
+Getting there needed a real defect fixed, and finding it needed a tool built for the
+purpose. The Windows store legs had been failing in every run checked, and the reason
+was unreadable: public annotations carried only "exit code 1", and the run log that
+names the failing test needs an authenticated gh, which is founder-only here. So
+.github/run_with_annotations.py now re-emits unittest FAIL and ERROR headers as
+GitHub annotations, which a public repository serves to anyone with no login at all.
+On its first live run it named both failures.
+
+They were pointing at shipped instruction text, not at themselves. invocation()
+quoted every user-facing command with shlex.quote, which is POSIX-only, so a Windows
+path came back wrapped in single quotes and the remedy read
+
+    python3 'C:\Users\...\bm_store.py'
+
+which neither cmd.exe nor PowerShell will run. Every instruction in bm_docs,
+bm_packs and bm_learn flows through that function. Fixed by quoting for the shell the
+reader actually holds, with the property asserted on every platform rather than only
+where it bites.
+
+rc.6 is SUPERSEDED, not withdrawn: it is sound, its manifest describes its tree, and
+a clean install verifies. It was simply tagged two commits before the Windows fix, so
+its tagged tree still has red CI and it cannot honestly point at the green run.
+
+## 2.0.0-rc.6, 2026-07-31 (SUPERSEDED): the first-rank loops, re-cut after rc.5 was withdrawn
 
 Identical work to `rc.5` plus one corrected file. `v2.0.0-rc.5` is WITHDRAWN: its
 `CHECKSUMS.sha256` omitted eight shipped files, including `tools/bm_docs.py`,
