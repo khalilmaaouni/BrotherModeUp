@@ -236,7 +236,15 @@ def _withhold_source(row, show):
     if show:
         return dict(row)
     out = dict(row)
-    for col in ("raw_text", "excerpt", "task_excerpt"):
+    # LOOP 5: disposition_reason, verification_ref and outcome_ref are
+    # founder-typed prose on learning_applications rows, exactly like
+    # task_excerpt beside them, and cmd_applications --json used to print
+    # all three straight from the row with no withholding at all (this
+    # function was never called for that command). Same rule, same columns
+    # list, so a column added to one prose-carrying table is not forgotten
+    # on this one.
+    for col in ("raw_text", "excerpt", "task_excerpt", "disposition_reason",
+                "verification_ref", "outcome_ref"):
         if col in out and out[col]:
             out[col] = WITHHELD
     return out
@@ -682,7 +690,7 @@ def _retrieve_command(mode, argv):
     recording_flag = mode != "lookup"
     known = {"query", "project", "domain", "artifact", "relationship", "tool",
              "limit", "json", "session", "record", "new-record", "not-shown",
-             "expand"}
+             "expand", "store-excerpt"}
     if mode == "relevant":
         known.add("record-applications")
     pos, kv = _parse(argv, known,
@@ -771,6 +779,11 @@ def _retrieve_command(mode, argv):
                 # retroactively tightening the alias it survives as.
                 require_record_identity=(mode == "apply"),
                 shown_to_model=not kv.get("not-shown"),
+                # LOOP 5: readable task_excerpt is opt-in, never the default.
+                # Omitting --store-excerpt (the ordinary path) leaves
+                # task_excerpt=None, which record_learning_applications now
+                # stores as a bounded term set, not the verbatim query.
+                task_excerpt=(query if kv.get("store-excerpt") else None),
                 expand_ids=expand_ids)
         else:
             res = store.retrieve_learning_rules(query, context=_ctx(kv), limit=limit,
@@ -909,7 +922,7 @@ def cmd_applications(argv):
     AS IT WAS APPLIED, not as it reads today, so an edit made afterwards cannot
     quietly rewrite the history."""
     pos, kv = _parse(argv, {"session", "record", "rule", "task", "disposition",
-                            "json"},
+                            "json", "show-source"},
                      wants_value=("session", "record", "rule", "task",
                                   "disposition"))
     store = _store()
@@ -920,6 +933,18 @@ def cmd_applications(argv):
             disposition=kv.get("disposition"))
     finally:
         store.close()
+    # LOOP 5: this used to print `rows` straight from the store, so
+    # task_excerpt, disposition_reason, verification_ref and outcome_ref (all
+    # founder-typed prose) and session_id (founder free text, not always a
+    # generated id, see is_id_shaped) left the machine verbatim on both the
+    # --json and the plain-text path. Same policy as every candidate/evidence
+    # command in this file: withheld by default, --show-source opts in.
+    show_source = bool(kv.get("show-source"))
+    rows = [_withhold_source(r, show_source) for r in rows]
+    for r in rows:
+        if not show_source:
+            r["session_id"] = bs.export_column(
+                "learning_applications", "session_id", r.get("session_id"))
     if kv.get("json"):
         _out(json.dumps(rows, indent=2, sort_keys=True))
         return 0
@@ -951,7 +976,7 @@ def cmd_disposition(argv):
                        [--outcome accepted|rework|escaped_defect|corrected_again]
                        [--outcome-ref "..."]"""
     pos, kv = _parse(argv, {"because", "verification-ref", "outcome",
-                            "outcome-ref", "json"},
+                            "outcome-ref", "json", "show-source"},
                      wants_value=("because", "verification-ref", "outcome",
                                   "outcome-ref"))
     if len(pos) != 2:
@@ -967,6 +992,16 @@ def cmd_disposition(argv):
             outcome=kv.get("outcome"), outcome_ref=kv.get("outcome-ref", ""))
     finally:
         store.close()
+    # LOOP 5: this printed `app` straight from the store, so the --because,
+    # --verification-ref and --outcome-ref text just typed on THIS command
+    # line echoed back in full, and so did task_excerpt and session_id --
+    # same gap as cmd_applications, same fix: cmd_capture's own
+    # _withhold_source-by-default, --show-source-to-see-it convention.
+    show_source = bool(kv.get("show-source"))
+    app = _withhold_source(app, show_source)
+    if not show_source:
+        app["session_id"] = bs.export_column(
+            "learning_applications", "session_id", app.get("session_id"))
     if kv.get("json"):
         _out(json.dumps(app, indent=2, sort_keys=True))
         return 0

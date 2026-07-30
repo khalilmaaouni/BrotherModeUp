@@ -2427,17 +2427,35 @@ _DUMP_ID_SHAPED_COLUMNS = frozenset((
     ("learning_applications", "session_id"),
 ))
 
-# "cli-<32 hex>" (_default_cli_session_id), a bare or dashed uuid, a worktree
-# label, a short hand-typed tag. No separator, no space, no punctuation
-# beyond . _ - and no room for a sentence.
-_ID_SHAPED_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
+# LOOP 5 (KNOWN-LIMITS, reproduced live before this fix): the shape rule used
+# to be "looks like a hand-typed short tag" -- [A-Za-z0-9._-]{1,64} -- and a
+# founder-typed codename such as "acme-turnaround-q3" or
+# "canary-session-label-9f3a" matches that just as well as a generated id
+# does, so it passed shape-gating and exported verbatim next to every real
+# generated session id, three times per row (records + two transitions).
+# --session is free text; the codebase's OWN generators never produce
+# anything but the four shapes below, so the gate now requires ONE of them
+# instead of the loose character class, and a hand-typed label -- any label,
+# hyphenated or not -- fails every one of them and is withheld like any
+# other founder text.
+_ID_SHAPED_RE = re.compile(
+    r"\A(?:"
+    r"cli-[0-9a-fA-F]{32}"              # _default_cli_session_id()
+    r"|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"   # dashed uuid
+    r"|[0-9a-fA-F]{32}"                 # bare uuid (also covers a 32-hex hash)
+    r"|[0-9a-fA-F]{12}"                 # worktree_id_for() (autosave_receipts)
+    r")\Z")
 
 
 def is_id_shaped(value):
-    """True when `value` is safe to export as an identifier: it has the shape
-    of a generated id AND survives the secret scrubber unchanged, so a
-    vendor key such as sk-live_abcdefghijklmnopqrstuvwx (which matches the
-    shape) is still caught."""
+    """True when `value` is safe to export as an identifier: it matches one of
+    the exact shapes this codebase's own id generators produce (not merely a
+    generic short-tag character class) AND survives the secret scrubber
+    unchanged, so a vendor key that happened to be hex-shaped is still
+    caught. A founder-typed session label -- a real word, a sentence
+    fragment, a hyphenated codename -- is not any of these four shapes and is
+    withheld, per the export policy above."""
     if not isinstance(value, str) or not _ID_SHAPED_RE.match(value):
         return False
     return redact_text(value) == value
@@ -2478,14 +2496,81 @@ def is_id_shaped(value):
 #    only up to it.
 #  - a trailing . ! or ? stays outside the marker, so "see /Users/j/x." keeps
 #    its full stop.
-_ABS_PATH_BODY = r"[^\s\x00-\x1f\x7f\"'`<>|,;:()\[\]{}]"
+#
+# LOOP 5 adds three things on top of the above, none of which touch the
+# limits just stated for the PLAIN unquoted/unescaped case (they still
+# apply, and are still true):
+#
+#  1. QUOTED PATHS. A quote character immediately in front of a recognised
+#     path prefix extends the match to the MATCHING closing quote, spaces
+#     included, so `"/Users/j/Dev Work/plan.md"` masks whole instead of
+#     stopping at the internal space. A quoted path is common in shell
+#     commands and in copy-pasted output; the quote pair IS the boundary the
+#     founder already gave the string, so it takes priority over the space
+#     rule above (which exists for exactly the case where no such boundary
+#     was given).
+#  2. ESCAPED SPACES. `\ ` (backslash then a literal space) is one path
+#     character now, not a terminator, so an unquoted shell-escaped path
+#     (`/Users/j/Dev\ Work/plan.md`) also masks whole.
+#  3. ADJACENT TO A WORD CHARACTER. The FIX-ROUND 11 lookbehind
+#     (?<![A-Za-z0-9_]) is still required for a bare "/" and for a
+#     single-letter drive ("C:\\...") -- dropping it there turns
+#     "https://example.com" into a masked "drive path" starting at the "s"
+#     before "://" (proven against the shipped regex before this change) and
+#     turns "tools/bm_store.py" into a masked path starting at "/bm_store.py".
+#     But a KNOWN, distinctive home-directory root -- /Users, /home, /root,
+#     /Volumes, /private, /cygdrive -- glued directly onto a preceding word
+#     with NO separator at all ("note/Users/jane/secret") used to skip the
+#     mask entirely (KNOWN-LIMITS: "a path immediately preceded by an
+#     alphanumeric or an underscore is not masked at all"), and that gap is
+#     closed for these six names specifically: they are distinctive enough
+#     that the lookbehind is dropped for them alone. DISCLOSED TRADE: a
+#     relative project path that happens to share one of these six segment
+#     names glued the same way (e.g. "src/home/dashboard.tsx") is a false
+#     positive under this rule and gets masked too; privacy wins that tie.
+#     A single-letter drive letter glued to a preceding word
+#     ("seeC:\Users\jane\x") is NOT covered by this loosening (the URL
+#     collision above forces the lookbehind to stay on that one form) and
+#     remains a known, disclosed gap.
+_ROOT_NAMES = ("Users", "home", "root", "Volumes", "private", "cygdrive")
+_ROOT_ALT = "|".join(re.escape(n) for n in _ROOT_NAMES)
+
+# Body: any char that is not whitespace/control/quote/bracket/prose
+# terminator, OR a backslash-escaped space (point 2 above). The escaped unit
+# is a fixed two characters, never itself repeated inside the alternative,
+# so this stays a flat, linear-time class exactly like its predecessor.
+_ABS_PATH_BODY = r"(?:\\ |[^\s\x00-\x1f\x7f\"'`<>|,;:()\[\]{}])"
+
+# Point 1 above: quote, then a body that must OPEN with a recognised
+# absolute-path prefix (so a quoted ordinary sentence is never mistaken for
+# a path), then anything up to the SAME quote. Built once per quote
+# character rather than a backreference class, so the quote that closes is
+# provably the one that opened.
+def _quoted_path_alt(q):
+    qe = re.escape(q)
+    return (qe +
+           r"(?:[A-Za-z]:[\\/]|\\\\|/(?:%s)(?:[\\/]|(?=%s)))"
+           r"[^%s\n]*" % (_ROOT_ALT, qe, qe) +
+           qe)
+
+_QUOTED_PATH_SRC = "|".join(_quoted_path_alt(q) for q in ('"', "'", "`"))
+
+# Point 3 above: a known root name, no adjacency lookbehind.
+_KNOWN_ROOT_SRC = r"/(?:%s)(?:[\\/]%s*)?" % (_ROOT_ALT, _ABS_PATH_BODY)
+
+# Unchanged forms: drive letter and bare "/" both KEEP the not-preceded-by-
+# word-character lookbehind (see point 3's URL note above); UNC's leading
+# "\\\\" is distinctive enough on its own that it never needed one.
+_DRIVE_SRC = r"(?<![A-Za-z0-9_])[A-Za-z]:[\\/]" + _ABS_PATH_BODY + r"*"
+_UNC_SRC = r"\\\\" + _ABS_PATH_BODY + r"*"
+_GENERIC_SLASH_SRC = (r"(?<![A-Za-z0-9_])/"
+                      r"[^\s\x00-\x1f\x7f\"'`<>|,;:()\[\]{}/\\]"
+                      + _ABS_PATH_BODY + r"*")
+
 _ABS_PATH_RE = re.compile(
-    r"(?<![A-Za-z0-9_])"
-    r"(?:[A-Za-z]:[\\/]|\\\\|/)"
-    # First component character: the body class minus the separators, so a
-    # bare "/" or "//" in prose is not itself treated as a path.
-    + r"[^\s\x00-\x1f\x7f\"'`<>|,;:()\[\]{}/\\]"
-    + _ABS_PATH_BODY + r"*")
+    "(?:%s)|(?:%s)|(?:%s)|(?:%s)|(?:%s)" %
+    (_QUOTED_PATH_SRC, _KNOWN_ROOT_SRC, _DRIVE_SRC, _UNC_SRC,
+     _GENERIC_SLASH_SRC))
 
 PATH_WITHHELD_MARKER = "[PATH WITHHELD]"
 
@@ -2495,8 +2580,14 @@ _ABS_PATH_TRAILING = ".!?"
 
 
 def _mask_one_path(match):
-    """Replace one matched path, leaving trailing sentence punctuation."""
+    """Replace one matched path, leaving trailing sentence punctuation.
+
+    A quoted-path match (point 1 above) carries its opening/closing quote as
+    part of the match itself, so those two characters are put back around
+    the marker rather than being swallowed with the path."""
     matched = match.group(0)
+    if len(matched) >= 2 and matched[0] in "\"'`" and matched[-1] == matched[0]:
+        return matched[0] + PATH_WITHHELD_MARKER + matched[0]
     kept = matched.rstrip(_ABS_PATH_TRAILING)
     if len(kept) < 2:
         # Only a separator survived ("/." in prose): not a path, leave it.
@@ -7380,7 +7471,19 @@ class Store(object):
                                            expand_ids=expand_ids)
         out = dict(res)
         fingerprint = L.task_fingerprint(query)
-        excerpt = query if task_excerpt is None else task_excerpt
+        # LOOP 5 (the headline defect): the default used to be `query`
+        # itself, so an ordinary `apply` with no --store-excerpt put up to
+        # 500 characters of the founder's VERBATIM task prose into
+        # learning_applications.task_excerpt, unjustified and with no way to
+        # opt out. task_fingerprint above is already the non-reversible
+        # handle; the default excerpt is now the bounded, deduplicated
+        # SEARCH-TERM set retrieval evaluation actually reads (same
+        # primitive _write_retrieval_run already uses for this exact
+        # reason), not the prompt. A caller that explicitly passes
+        # task_excerpt (bm_learn.py's --store-excerpt opt-in) still gets a
+        # readable, capped, redacted excerpt: that path is unchanged.
+        excerpt = (L.query_terms(redact_text(query)) if task_excerpt is None
+                  else task_excerpt)
         out["task_fingerprint"] = fingerprint
         out["session_id"] = session_id or ""
         out["recorded"] = 0
@@ -10090,9 +10193,12 @@ def _verify_view_reflects_active_records(store, root):
     # name redaction.
     for r in active_rows:
         if r["lifecycle_uuid"][:8] not in generated_block:
+            # LOOP 5: records.name is scrub-only under export_column, same
+            # as every other problem string built in verify() proper.
             problems.append(
                 "active record %r (%s) does not appear in the generated STATE.md view"
-                % (r["name"], r["lifecycle_uuid"][:8]))
+                % (mask_absolute_paths(redact_text(r["name"] or "")),
+                   r["lifecycle_uuid"][:8]))
     return problems
 
 
@@ -10113,13 +10219,26 @@ def verify(root):
         "unacknowledged quarantine directory %s; recover what you need, "
         "then run `%s init --acknowledge-quarantine`"
         % (_quarantine_summary(d), _cmd()) for d in unacknowledged]
+    # LOOP 5: records.name and claims.path are SCRUB-ONLY under export_column
+    # (redact_text + mask_absolute_paths), never safe-to-print raw. verify()'s
+    # own problem strings used to interpolate both verbatim, and cmd_verify's
+    # _out funnel only ever ran redact_text (secret SHAPES) on the assembled
+    # line, never mask_absolute_paths -- so an absolute path glued into a
+    # record name would leak whole out of `bm_store.py verify`, an ordinary,
+    # ungated export surface, and exactly the "corrupted-store verify output"
+    # canary check calls for. Scrubbed HERE, at the one place these strings
+    # are built, so every caller (this CLI, and the MCP server's tool_bm_status,
+    # which already re-applies the same two functions defensively) inherits it.
+    def _scrub(v):
+        return mask_absolute_paths(redact_text(v or ""))
     store = ReadOnlyStore(root)
     try:
         dupes = _exec(store,
             "SELECT name, COUNT(*) AS c FROM records WHERE state='active' "
             "GROUP BY name HAVING COUNT(*) > 1").fetchall()
         for d in dupes:
-            problems.append("more than one ACTIVE record named %r (%d rows)" % (d["name"], d["c"]))
+            problems.append("more than one ACTIVE record named %r (%d rows)"
+                            % (_scrub(d["name"]), d["c"]))
         active_claims = _exec(store,
             "SELECT r.name AS name, c.lifecycle_uuid AS lifecycle_uuid, c.path AS path "
             "FROM claims c JOIN records r ON r.lifecycle_uuid = c.lifecycle_uuid "
@@ -10132,8 +10251,8 @@ def verify(root):
                 if paths_overlap(a["path"], b["path"]):
                     problems.append(
                         "active claims overlap: '%s' (%s) path %r vs '%s' (%s) path %r"
-                        % (a["name"], a["lifecycle_uuid"][:8], a["path"],
-                           b["name"], b["lifecycle_uuid"][:8], b["path"]))
+                        % (_scrub(a["name"]), a["lifecycle_uuid"][:8], _scrub(a["path"]),
+                           _scrub(b["name"]), b["lifecycle_uuid"][:8], _scrub(b["path"])))
         problems.extend(_verify_view_reflects_active_records(store, root))
         for r in _exec(store, "SELECT lifecycle_uuid, name, state FROM records").fetchall():
             last = _exec(store,
@@ -10143,11 +10262,12 @@ def verify(root):
                 if r["state"] != "active":
                     problems.append(
                         "record %r (%s) is in state %r with no transitions row"
-                        % (r["name"], r["lifecycle_uuid"][:8], r["state"]))
+                        % (_scrub(r["name"]), r["lifecycle_uuid"][:8], r["state"]))
             elif last["to_state"] != r["state"]:
                 problems.append(
                     "record %r (%s) is in state %r but its latest transition "
-                    "recorded '%s'" % (r["name"], r["lifecycle_uuid"][:8], r["state"], last["to_state"]))
+                    "recorded '%s'" % (_scrub(r["name"]), r["lifecycle_uuid"][:8],
+                                       r["state"], last["to_state"]))
         return problems
     finally:
         store.close()
