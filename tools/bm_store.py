@@ -73,7 +73,7 @@ import sys
 import unicodedata
 import uuid
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
@@ -925,6 +925,28 @@ def _edit_fingerprint(L, rule, next_version, prop):
         prop["trigger"], prop["action"], prop["because"], prop["domain"]))
 
 
+def _state_change_fingerprint(L, kind, target_uuid, content_parts):
+    """Bind a state-change receipt to ONE command kind, ONE target, and the
+    exact material content of the change proposed for it.
+
+    ONE helper beside _proposal_fingerprint and _edit_fingerprint, shared by
+    every one of the five rule-altering commands that are not create or edit
+    (supersede, resolve-conflict, deprecate, forget, resolve-note), used by
+    the minting path and the spending path so the two can never silently
+    drift (same reason _resolve_proposal gives for why two copies of this
+    arithmetic is the failure mode). `kind` is domain separation exactly like
+    the literal "edit" is for _edit_fingerprint: it is what stops a receipt
+    minted for one of the five commands from ever being spendable as another,
+    and what stops it from ever being spendable as an approval or edit
+    receipt (which, in addition, live in an entirely separate table).
+    `content_parts` is an ordered tuple of the fields that describe WHAT is
+    being done to the target (new state, successor uuid, reason, and so on);
+    a change to any of them moves the hash and dies the receipt, exactly as a
+    changed trigger or action dies an approval receipt."""
+    return L.approval_fingerprint(
+        (kind, target_uuid) + tuple(content_parts))
+
+
 def _approval_guards(store, L, prop, cand):
     """The refusals that stand between a proposal and the injectable set.
 
@@ -1205,9 +1227,27 @@ _TABLES_V7 = _TABLES_V6 + _TABLES_NOTES
 # copying it keeps the two versions provably identical in what must be present.
 _TABLES_V8 = _TABLES_V7
 
+# Schema 9 adds the generic state-change receipt (LOOP 2, 2026-07-30):
+# supersede, resolve-conflict, deprecate, forget and resolving a critical
+# alert all move a rule out of the injectable set or silence one, and only
+# create and edit had a receipt in front of them. ONE table, ONE mint
+# function and ONE spend function serve all five call sites rather than five
+# bespoke checks: this project's own failure ledger names a cross-cutting
+# concern implemented per call site as the root cause behind four separate
+# bugs. `learning_approval_receipts` cannot be reused (its approval_choice
+# CHECK constraint accepts only 'approve' and its candidate_uuid is a NOT
+# NULL foreign key into learning_candidates; a supersede or a resolve-note
+# target is a rule or a note, not a candidate). Its own tuple for the sixth
+# time and for the sixth identical reason: a healthy schema-8 store must be
+# checked against schema 8's table list, or the version check never runs and
+# a store whose only fault is predating the upgrade gets quarantined.
+_TABLES_STATE_CHANGE_RECEIPTS = ("learning_state_change_receipts",)
+
+_TABLES_V9 = _TABLES_V8 + _TABLES_STATE_CHANGE_RECEIPTS
+
 _TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3,
                       4: _TABLES_V4, 5: _TABLES_V5, 6: _TABLES_V6,
-                      7: _TABLES_V7, 8: _TABLES_V8}
+                      7: _TABLES_V7, 8: _TABLES_V8, 9: _TABLES_V9}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -1427,6 +1467,72 @@ CREATE INDEX IF NOT EXISTS learning_approval_receipts_candidate_idx
 
 _RECEIPT_DDL_STATEMENTS = _split_ddl(_RECEIPT_DDL)
 _RECEIPT_INDEX_STATEMENTS = _split_ddl(_RECEIPT_INDEX_DDL)
+
+# The generic state-change receipt (schema 9, LOOP 2, 2026-07-30). ONE table
+# for every rule-altering command that is not create or edit: supersede,
+# resolve-conflict, deprecate, forget, and resolving a critical alert. Same
+# shape as learning_approval_receipts and for the same reasons (see the block
+# comment above it), with two differences forced by having five callers
+# instead of one:
+#
+# kind is the discriminator a bare copy of learning_approval_receipts has no
+# room for: its approval_choice CHECK accepts only 'approve'. Domain
+# separation here works exactly like the literal "edit" does for
+# _edit_fingerprint (see _state_change_fingerprint): a receipt minted for one
+# kind can never spend as another, and the CHECK constraint below is the
+# first of three independent places that is enforced (the fingerprint and the
+# spend function's own comparison are the other two).
+#
+# target_uuid carries NO foreign key, deliberately, and for a stronger reason
+# than consumed_rule_uuid's below: which table it points into DEPENDS ON
+# kind (a rule for supersede/resolve-conflict/deprecate/forget, a note for
+# resolve-note), so no single REFERENCES clause could ever be correct for
+# every row.
+_STATE_CHANGE_RECEIPT_DDL = """
+CREATE TABLE IF NOT EXISTS learning_state_change_receipts (
+  receipt_uuid TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK(kind IN (
+    'supersede', 'resolve-conflict', 'deprecate', 'forget', 'resolve-note')),
+  target_uuid TEXT NOT NULL,
+  nonce_hash TEXT NOT NULL UNIQUE,
+  content_fingerprint TEXT NOT NULL,
+  founder_response_hash TEXT NOT NULL,
+  issued_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  consumed_at TEXT,
+  consumed_target_uuid TEXT
+);
+"""
+
+_STATE_CHANGE_RECEIPT_INDEX_DDL = """
+CREATE INDEX IF NOT EXISTS learning_state_change_receipts_target_idx
+  ON learning_state_change_receipts(kind, target_uuid, consumed_at);
+"""
+
+_STATE_CHANGE_RECEIPT_DDL_STATEMENTS = _split_ddl(_STATE_CHANGE_RECEIPT_DDL)
+_STATE_CHANGE_RECEIPT_INDEX_STATEMENTS = _split_ddl(_STATE_CHANGE_RECEIPT_INDEX_DDL)
+
+# The five kinds, named once so the CHECK constraint, the CLI, and the
+# enumeration test that discovers rule-altering commands all read from the
+# same list rather than three hand-typed copies that can drift.
+STATE_CHANGE_RECEIPT_KINDS = (
+    "supersede", "resolve-conflict", "deprecate", "forget", "resolve-note")
+
+# change_learning_rule_state's DEFAULT receipt kind for each target state
+# that unconditionally requires one (LOOP 2, 2026-07-30). 'confirmed' and
+# 'settled' are deliberately absent: those two transitions are evidence-graded
+# lifecycle promotions, not rule-text changes, and are not gated by this map.
+# A caller may override the default (resolve_learning_conflict does, so its
+# own 'superseded' branch gates under 'resolve-conflict' rather than
+# 'supersede'), but may NOT opt out of gating entirely for a target that is a
+# key in this map: that is the difference between this and the old
+# receipt_kind=None-means-ungated shape, which a direct Python caller could
+# simply omit.
+STATE_CHANGE_GATE_KIND = {
+    "superseded": "supersede",
+    "deprecated": "deprecate",
+    "forgotten": "forget",
+}
 
 # The retrieval run (schema 4, post-audit LOOP P6). What a row here means: at
 # this moment, for THIS task in THIS scope context, the retrieval was asked for
@@ -1947,6 +2053,30 @@ def _migrate_7_to_8(conn):
         conn.execute("ALTER TABLE notes ADD COLUMN %s %s" % (name, decl))
 
 
+def _migrate_8_to_9(conn):
+    """Schema 8 to 9: add the generic state-change receipt table. ADDITIVE
+    ONLY.
+
+    Same contract as every migration before it: no existing row is read,
+    rewritten, or deleted, every statement is CREATE ... IF NOT EXISTS, and it
+    runs inside the caller's BEGIN EXCLUSIVE, so it must never commit, roll
+    back, or open a transaction of its own (see _split_ddl for the incident
+    that proved executescript cannot be used here).
+
+    What this migration deliberately does NOT do: it does not touch a single
+    previously superseded, deprecated, forgotten or contradicted rule, and it
+    does not touch a single previously resolved note. Those moves happened
+    under the guarantee that existed at the time; rewriting them to look
+    receipt-backed would be the dishonest half of this change, exactly as
+    _migrate_2_to_3 states for the rules approved before receipts existed.
+    From here on, supersede, resolve-conflict, deprecate, forget and resolving
+    a critical alert all require one."""
+    for statement in _STATE_CHANGE_RECEIPT_DDL_STATEMENTS:
+        conn.execute(statement)
+    for statement in _STATE_CHANGE_RECEIPT_INDEX_STATEMENTS:
+        conn.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_1_to_2,
     2: _migrate_2_to_3,
@@ -1955,6 +2085,7 @@ _MIGRATIONS = {
     5: _migrate_5_to_6,
     6: _migrate_6_to_7,
     7: _migrate_7_to_8,
+    8: _migrate_8_to_9,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -3461,6 +3592,11 @@ class Store(object):
             # its ALTER TABLE precisely so this call is safe on a store that was
             # just created with the column already present.
             _migrate_7_to_8(self.conn)
+        if SCHEMA_VERSION >= 9:
+            # Same rule as every step above: the migration step is the ONE
+            # text, run here for a fresh store and by _migrate_from for an
+            # old one.
+            _migrate_8_to_9(self.conn)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -3499,6 +3635,8 @@ class Store(object):
             self.conn.executescript(_HANDOVER_INDEX_DDL)
         if SCHEMA_VERSION >= 7:
             self.conn.executescript(_NOTES_INDEX_DDL)
+        if SCHEMA_VERSION >= 9:
+            self.conn.executescript(_STATE_CHANGE_RECEIPT_INDEX_DDL)
 
     # ------------------------------------------------------------------
     # The optional FTS5 fast path (LOOP P7). Read the block above
@@ -5270,19 +5408,28 @@ class Store(object):
         sql += " ORDER BY created_at, note_uuid"
         return [dict(r) for r in _exec(self, sql, tuple(params)).fetchall()]
 
-    def resolve_note(self, prefix, resolution):
+    def resolve_note(self, prefix, resolution, receipt=""):
         """Mark a note answered. The row STAYS, marked resolved (spec section 6
         retention: nothing is deleted by a generator, and nothing here deletes
         either).
 
-        WHAT THIS DOES NOT PROVE, stated rather than implied: nothing here
-        authenticates who resolved the note, exactly as nothing authenticates a
-        founder_ref. A caller able to run this can resolve a critical alert and
-        the approval will then proceed without any refusal. What it cannot do is
-        do it quietly: the resolution text and its timestamp are on the row, and
-        a gate pack renders them beside the alert. The receipt-gated override is
-        the path with a human answer behind it; this one is a record, not a
-        gate."""
+        RECEIPT-GATED since LOOP 2, 2026-07-30, but ONLY for a note that is a
+        critical alert (kind 'alert', severity 'critical'). Before this, a
+        critical alert could be resolved with no receipt at all, and
+        blocking_alerts filters on include_resolved=False, so a resolved
+        critical alert stopped blocking approval with no human answer
+        anywhere: the exact hole the receipt-gated --override-alerts path was
+        built to close, reopened one door over. An ordinary note, and a
+        non-critical alert, still resolve exactly as before: no receipt, no
+        override, nothing gated, because this method is a RECORD of who said
+        what, not the gate itself, for anything that is not a critical alert.
+
+        WHAT THIS STILL DOES NOT PROVE, stated rather than implied: nothing
+        here authenticates who resolved the note, exactly as nothing
+        authenticates a founder_ref. What it cannot do any more, for a
+        critical alert, is happen with nobody having answered anything: the
+        resolution text and its timestamp are on the row, and a gate pack
+        renders them beside the alert, exactly as before."""
         if not (resolution or "").strip():
             raise OwnershipRefused(
                 "no-resolution",
@@ -5294,10 +5441,24 @@ class Store(object):
                 "already-resolved",
                 "note %s was resolved at %s" % (note["note_uuid"][:8],
                                                 note["resolved_at"]))
+        L = _learning()
+        is_critical_alert = (note["kind"] == BLOCKING_NOTE_KIND
+                             and note["severity"] == BLOCKING_NOTE_SEVERITY)
+        rec = None
+        if is_critical_alert:
+            content_parts = (L.normalize_text(resolution),)
+            rec = self._require_state_change_receipt(
+                "resolve-note", note["note_uuid"], receipt, content_parts)
+        ts = now_iso()
         with self._transaction():
+            if rec is not None:
+                # FIRST statement, same reason as everywhere else in this
+                # lane: two calls racing for the same token produce one
+                # resolution and one refusal, never two.
+                self._consume_state_change_receipt(rec, note["note_uuid"], ts)
             _exec(self, "UPDATE notes SET resolved_at=?, resolution=? "
                         "WHERE note_uuid=? AND resolved_at IS NULL",
-                  (now_iso(), redact_text(resolution), note["note_uuid"]))
+                  (ts, redact_text(resolution), note["note_uuid"]))
         return self.get_note(note["note_uuid"])
 
     # THERE IS NO override_note() AND THERE IS NO delete_note(), on purpose.
@@ -5615,15 +5776,209 @@ class Store(object):
             self._fts_write_rule(rule["rule_uuid"])
         return self.get_learning_rule(rule["rule_uuid"])
 
+    # -----------------------------------------------------------------
+    # LOOP 2, 2026-07-30: the generic state-change receipt lane.
+    #
+    # Five commands can alter the live rule set without going through
+    # approve_learning_candidate or edit_learning_rule: supersede,
+    # resolve-conflict, deprecate, forget, and resolving a critical alert.
+    # Before this, exactly one of them (create, via approval) and its sibling
+    # (edit) were receipt-gated; the other five were not, and
+    # resolve-conflict standing a GATE rule down with no receipt at all was
+    # the most serious of the five holes.
+    #
+    # ONE mint function and ONE spend path serve all five call sites below,
+    # rather than five separate checks hand-written per call site: this
+    # project's own failure ledger names a cross-cutting concern implemented
+    # per call site as the root cause behind four separate bugs. Each call
+    # site still supplies its OWN `kind` and its own content_parts, so a
+    # receipt minted for one of the five can never spend as another, exactly
+    # as an edit receipt can never spend as an approval.
+    # -----------------------------------------------------------------
+
+    def mint_state_change_receipt(self, kind, prefix, founder_response,
+                                   content_parts,
+                                   ttl_seconds=APPROVAL_RECEIPT_TTL_SECONDS):
+        """Record that a human answered a question about ONE proposed change
+        to the live rule set that is not a create or an edit, and return a
+        one-time token that lets the matching command spend it.
+
+        `kind` must be one of STATE_CHANGE_RECEIPT_KINDS and selects which of
+        the five commands (supersede, resolve-conflict, deprecate, forget,
+        resolve-note) may later spend this receipt; the table's own CHECK
+        constraint refuses anything else at the door. `prefix` is the rule or
+        note (a note only for kind='resolve-note') this change would apply
+        to, resolved to its full uuid HERE, the same way the spending command
+        resolves it, so the two can never disagree about which row a short
+        prefix named. `content_parts` is the ordered tuple of fields that
+        describe WHAT would change (the destination state, a successor uuid,
+        the reason, and so on): it goes into the fingerprint exactly as the
+        proposed rule text does for mint_approval_receipt, so a receipt
+        minted for one proposed change cannot be spent on a different one.
+
+        founder_response is the founder's literal answer. It is HASHED, never
+        stored, exactly as it is for approval and edit receipts. The returned
+        dict carries the secret under "token"; print it once, log it never."""
+        L = _learning()
+        if kind not in STATE_CHANGE_RECEIPT_KINDS:
+            raise OwnershipRefused(
+                "bad-state-change-kind",
+                "unknown state-change receipt kind %r (known: %s)"
+                % (kind, ", ".join(STATE_CHANGE_RECEIPT_KINDS)))
+        if not (founder_response or "").strip():
+            raise OwnershipRefused(
+                "no-founder-response",
+                "minting a state-change receipt requires the founder's "
+                "actual answer; a receipt with nothing behind it is the "
+                "forgery this whole mechanism exists to stop")
+        if kind == "resolve-note":
+            target_uuid = self.get_note(prefix)["note_uuid"]
+        else:
+            target_uuid = self.get_learning_rule(prefix)["rule_uuid"]
+        fp = _state_change_fingerprint(L, kind, target_uuid, content_parts)
+        try:
+            ttl = int(ttl_seconds)
+        except (TypeError, ValueError):
+            ttl = APPROVAL_RECEIPT_TTL_SECONDS
+        ttl = max(1, min(ttl, APPROVAL_RECEIPT_TTL_SECONDS))
+        token = secrets.token_hex(24)
+        ruuid = uuid.uuid4().hex
+        issued = datetime.datetime.now(datetime.timezone.utc)
+        expires = issued + datetime.timedelta(seconds=ttl)
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO learning_state_change_receipts (receipt_uuid, "
+                  "kind, target_uuid, nonce_hash, content_fingerprint, "
+                  "founder_response_hash, issued_at, expires_at) "
+                  "VALUES (?,?,?,?,?,?,?,?)",
+                  (ruuid, kind, target_uuid, _receipt_token_hash(token), fp,
+                   hashlib.sha256(L.normalize_text(founder_response)
+                                  .encode("utf-8")).hexdigest(),
+                   issued.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                   expires.strftime("%Y-%m-%dT%H:%M:%SZ")))
+        out = dict(_exec(self, "SELECT * FROM learning_state_change_receipts "
+                               "WHERE receipt_uuid=?", (ruuid,)).fetchone())
+        # nonce_hash back out, exactly as mint_approval_receipt does: a
+        # caller printing the whole record must not print the one column
+        # that could be brute forced if the token were ever shortened.
+        out.pop("nonce_hash", None)
+        out["token"] = token
+        out["ttl_seconds"] = ttl
+        return out
+
+    def _state_change_receipt_for_token(self, token):
+        """Look a state-change receipt up BY ITS TOKEN, or refuse.
+
+        Mirrors _receipt_for_token exactly, including the refusal saying
+        nothing about whether the token was unknown, malformed, or for
+        another store: a caller guessing tokens learns nothing from the
+        message it gets back."""
+        row = _exec(self, "SELECT * FROM learning_state_change_receipts "
+                          "WHERE nonce_hash=?",
+                    (_receipt_token_hash(token),)).fetchone()
+        if row is None:
+            raise OwnershipRefused(
+                "bad-state-change-receipt",
+                "that receipt is not valid for this store. Ask the founder "
+                "the question again and mint a fresh one.")
+        return dict(row)
+
+    def _require_state_change_receipt(self, kind, target_uuid, receipt,
+                                       content_parts):
+        """The read-only half of spending a state-change receipt: look it
+        up and refuse for every reason approve_learning_candidate and
+        edit_learning_rule already refuse for, so the five call sites below
+        cannot drift from each other or from the two receipt paths this
+        mirrors. Does NOT consume the receipt: the caller does that with
+        _consume_state_change_receipt as the FIRST statement inside its own
+        transaction, exactly as approve_learning_candidate and
+        edit_learning_rule do, so two callers racing for the same token
+        cannot both win. Returns the receipt row."""
+        L = _learning()
+        if not (receipt or "").strip():
+            raise OwnershipRefused(
+                "no-state-change-receipt",
+                "this changes the live rule set, so it requires a one-time "
+                "receipt from a real founder answer, exactly as approving "
+                "or editing a rule does. There is no override and no "
+                "break-glass: a change nobody answered for is the exact "
+                "thing this refuses to make.")
+        rec = self._state_change_receipt_for_token(receipt.strip())
+        if rec["kind"] != kind:
+            raise OwnershipRefused(
+                "receipt-wrong-kind",
+                "that receipt was minted for %r, not %r. A receipt only "
+                "spends as the command it was asked about."
+                % (rec["kind"], kind))
+        if rec["target_uuid"] != target_uuid:
+            raise OwnershipRefused(
+                "receipt-wrong-target",
+                "that receipt was issued for %s, not %s. One answer "
+                "resolves one target."
+                % (rec["target_uuid"][:8], target_uuid[:8]))
+        if rec["consumed_at"] is not None:
+            raise OwnershipRefused(
+                "receipt-already-used",
+                "that receipt was already spent at %s. An answer resolves "
+                "once; ask again for another change." % rec["consumed_at"])
+        if rec["expires_at"] < now_iso():
+            raise OwnershipRefused(
+                "receipt-expired",
+                "that receipt expired at %s. A stale answer is not consent "
+                "to whatever this says now: ask again." % rec["expires_at"])
+        fp = _state_change_fingerprint(L, kind, target_uuid, content_parts)
+        if fp != rec["content_fingerprint"]:
+            raise OwnershipRefused(
+                "receipt-stale-target",
+                "the target or the change proposed for it has changed "
+                "since receipt %s was issued, so that answer was given "
+                "about something else. Show the founder what it says now "
+                "and ask again." % rec["receipt_uuid"][:8])
+        return rec
+
+    def _consume_state_change_receipt(self, rec, target_uuid, ts):
+        """The FIRST statement inside the caller's transaction, conditional
+        on the receipt still being unspent and unexpired, for the same
+        reason approve_learning_candidate and edit_learning_rule do it this
+        way: two calls racing for the same token produce one change and one
+        refusal, never two."""
+        claimed = _exec(self,
+              "UPDATE learning_state_change_receipts SET consumed_at=?, "
+              "consumed_target_uuid=? WHERE receipt_uuid=? AND "
+              "consumed_at IS NULL AND expires_at >= ?",
+              (ts, target_uuid, rec["receipt_uuid"], ts))
+        if claimed.rowcount != 1:
+            raise OwnershipRefused(
+                "receipt-already-used",
+                "receipt %s was spent or expired between the check and the "
+                "write. Nothing was changed." % rec["receipt_uuid"][:8])
+
     def change_learning_rule_state(self, prefix, target, reason="",
-                                    successor_prefix=None):
+                                    successor_prefix=None, receipt="",
+                                    receipt_kind=None):
         """Move a rule between lifecycle states, refusing illegal moves and
         refusing the ones that need evidence they do not have.
 
         Two named refusals implement plan rules 6 and 8 directly: nothing
         reaches 'confirmed' or 'settled' without at least one SUPPORTING
         evidence row that is not the original approval, and nothing reaches
-        'superseded' without a real successor plus its edge."""
+        'superseded' without a real successor plus its edge.
+
+        UNCONDITIONALLY receipt-gated for target in ('superseded',
+        'deprecated', 'forgotten') since LOOP 2, 2026-07-30: a caller cannot
+        opt out by simply omitting receipt_kind, which is the property that
+        actually matters against the attack this loop defends against
+        (shell access as the same OS user, calling this module directly
+        rather than going through bm_learn.py). STATE_CHANGE_GATE_KIND maps
+        each gated target to the receipt kind it requires by default;
+        receipt_kind overrides that default ONLY to let
+        resolve_learning_conflict's own 'superseded' branch gate under its
+        OWN kind ('resolve-conflict') instead of 'supersede', since both
+        reach this same method and must not be interchangeable. 'confirmed'
+        and 'settled' are deliberately NOT in that map and proceed ungated:
+        they are evidence-graded lifecycle promotions, not one of the five
+        commands this loop closed, and they already carry their own
+        no-supporting-evidence guard below."""
         L = _learning()
         rule = self.get_learning_rule(prefix)
         err = L.state_transition_error(rule["state"], target)
@@ -5676,8 +6031,26 @@ class Store(object):
                     "or deprecate this one instead."
                     % (successor["rule_uuid"][:8], successor["state"],
                        rule["rule_uuid"][:8], ", ".join(L.INJECTABLE_STATES)))
+        rec = None
+        gate_kind = STATE_CHANGE_GATE_KIND.get(target)
+        if gate_kind:
+            # UNCONDITIONAL: a caller cannot skip this by leaving
+            # receipt_kind at its default. receipt_kind, when given, only
+            # SUBSTITUTES a different kind label (resolve_learning_conflict's
+            # own 'resolve-conflict'); it can never remove the gate itself.
+            effective_kind = receipt_kind or gate_kind
+            content_parts = (target, successor["rule_uuid"] if successor else "",
+                             L.normalize_text(reason))
+            rec = self._require_state_change_receipt(
+                effective_kind, rule["rule_uuid"], receipt, content_parts)
         ts = now_iso()
         with self._transaction():
+            if rec is not None:
+                # FIRST statement, conditional on the receipt still being
+                # unspent and unexpired, for the same reason approval and
+                # edit consume theirs this way: two calls racing for the
+                # same token produce one change and one refusal, never two.
+                self._consume_state_change_receipt(rec, rule["rule_uuid"], ts)
             if successor is not None:
                 _exec(self, "INSERT OR IGNORE INTO learning_edges (from_rule_uuid, "
                             "to_rule_uuid, relation, note, created_at) "
@@ -5892,18 +6265,28 @@ class Store(object):
                 found["duplicates"].append((other, v))
         return found
 
-    def resolve_learning_conflict(self, loser_prefix, other_prefix, how, reason=""):
+    def resolve_learning_conflict(self, loser_prefix, other_prefix, how,
+                                   reason="", receipt=""):
         """Execute a founder's decision about ONE conflict, atomically.
 
         `how` names what happens to the rule the founder chose to stand down:
         superseded by the other one, marked contradicted, or deprecated. This
         method does not choose, rank, or suggest which rule that is. It exists
         so the state change and the edge that explains it land together, rather
-        than leaving a rule silenced with no record of why."""
+        than leaving a rule silenced with no record of why.
+
+        RECEIPT-GATED since LOOP 2, 2026-07-30, for all three resolutions,
+        under the ONE kind "resolve-conflict": before this, a conflict
+        against an approved GATE rule could be stood down with no human
+        answer anywhere, the most serious of the five holes this loop closed.
+        `receipt` is a one-time token from mint_state_change_receipt(kind=
+        "resolve-conflict", ...) and it is MANDATORY. There is no override and
+        no break-glass."""
         if how == "superseded":
             return self.change_learning_rule_state(
                 loser_prefix, "superseded", reason=reason,
-                successor_prefix=other_prefix)
+                successor_prefix=other_prefix, receipt=receipt,
+                receipt_kind="resolve-conflict")
         if how not in ("contradicted", "deprecated"):
             raise OwnershipRefused(
                 "bad-resolution",
@@ -5921,8 +6304,15 @@ class Store(object):
         err = L.state_transition_error(loser["state"], how)
         if err:
             raise OwnershipRefused("illegal-state-move", err)
+        content_parts = (how, other["rule_uuid"], L.normalize_text(reason))
+        rec = self._require_state_change_receipt(
+            "resolve-conflict", loser["rule_uuid"], receipt, content_parts)
         ts = now_iso()
         with self._transaction():
+            # FIRST statement, same reason as everywhere else in this lane:
+            # two calls racing for the same token produce one change and one
+            # refusal, never two.
+            self._consume_state_change_receipt(rec, loser["rule_uuid"], ts)
             _exec(self, "INSERT OR IGNORE INTO learning_edges (from_rule_uuid, "
                         "to_rule_uuid, relation, note, created_at) "
                         "VALUES (?,?,'contradicts',?,?)",
@@ -6932,7 +7322,9 @@ class Store(object):
     # None of them AUTO-APPROVES anything. A repeated correction produces
     # evidence, a graded application outcome, and a named loop failure. It
     # never promotes a candidate, never edits a rule, and never changes a
-    # rule's state. Approval stays founder-only, here as everywhere.
+    # rule's state. Approval stays human-confirmed and receipt-gated, here as
+    # everywhere: automatic capture can never approve or promote its own
+    # candidate.
     # -----------------------------------------------------------------
 
     # States where a repeated correction is a genuine loop failure. An

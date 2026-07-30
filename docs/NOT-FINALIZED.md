@@ -715,7 +715,7 @@ What is still honestly open, stated rather than discovered later:
 
 ---
 
-## 21. Approval receipts landed in code; three documents still describe the old flow. OPEN. Added 2026-07-29.
+## 21. Approval receipts landed in code; three documents still describe the old flow. MOSTLY CLOSED 2026-07-30 (Loop 2). SECURITY.md remains OPEN.
 
 Post-audit LOOP 3 (Model A) closed the audit finding in `tools/bm_learn.py`,
 `tools/bm_learning.py` and `tools/bm_store.py`: approval now requires a
@@ -738,6 +738,19 @@ What is NOT done, and it is wording rather than mechanism:
 The loop plan assigns these three files to the Documentation Agent, so this
 loop deliberately did not edit them. Until it does, the shipped documentation
 overstates the guarantee, and `docs/KNOWN-LIMITS.md` carries the honest version.
+
+CLOSED IN PART, 2026-07-30 (Loop 2). The identity overclaim is gone from the
+shipped pages. Six sites were corrected, one more than the audit listed:
+`README.md`, `docs/CORRECTION-LEARNING.md`, `SKILL.md`, `docs/DEMO.md`, the
+`grant-approval` help text in `tools/bm_learn.py`, and a comment in
+`tools/bm_store.py`. Each now states the limit the mechanism actually supports:
+the receipt proves an answer was supplied for this exact proposed rule and has
+not already been used, and it does NOT prove which human supplied the answer.
+
+STILL OPEN, and deliberately not claimed as done: `SECURITY.md` does not yet
+describe the receipt token as a secret with the handling rules the code
+enforces (shown once, never stored, never logged, fifteen-minute life). Loop 2
+did not hold that file. It is the remaining half of this item.
 
 ---
 

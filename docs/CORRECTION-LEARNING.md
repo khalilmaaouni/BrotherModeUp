@@ -379,8 +379,10 @@ An automatic detector watches for correction-shaped messages at the end of a
 session and files them as pending candidates. It runs in English, French and
 Japanese, and a long message is excerpted rather than dropped. It has never,
 under any configuration, been given the ability to approve what it finds.
-Approval is founder-only, forever: that is a hard rule in the code, not a
-setting.
+Approval requires a human-confirmed, one-time receipt-gated answer, always:
+that is a hard rule in the code, not a setting. The receipt proves an answer
+was supplied for this exact proposed rule and has not already been used; it
+does not cryptographically prove which human supplied the answer.
 
 The detector is a set of phrase patterns, not language understanding. A
 correction phrased in a way none of the packs recognise is still missed, and
