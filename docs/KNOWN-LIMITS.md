@@ -438,6 +438,33 @@ What has NOT changed, and matters more than what has:
   identity, exactly as above; and neither minting nor spending an edit receipt
   has a CLI command, so this door is reachable only from imported code, which
   is also the only vector it ever had.
+- **Five more commands can alter the live rule set, and none of them had a
+  receipt, until LOOP 2 on 2026-07-30.** Create and edit were receipt-gated;
+  supersede, resolve-conflict, deprecate, forget, and resolving a critical
+  alert were not. The most serious: `resolve-conflict` could stand an
+  approved GATE rule down (state `contradicted`, `deprecated`, or
+  `superseded`) with no human answer anywhere, and resolving a critical
+  alert unblocked an approval the same way, since `blocking_alerts` stops
+  counting a note the moment it is resolved. Both are reproduced and closed
+  in `tools/test_bm_store.py` (`TestLoop2StateChangeReceipts`). Rather than
+  five separate checks, ONE generic lane now covers all five: a new,
+  additive `learning_state_change_receipts` table (schema 8 to 9), one
+  `mint_state_change_receipt` and one `_require_state_change_receipt`/
+  `_consume_state_change_receipt` pair, keyed by a `kind` discriminator so a
+  receipt minted for one of the five can never spend as another, and the
+  store's own `change_learning_rule_state` gate is now UNCONDITIONAL for
+  supersede/deprecate/forget: a caller cannot opt out by simply omitting the
+  receipt kind, which closes the direct-Python-import vector the same way
+  approval and edit already were closed. An ordinary note, and a
+  non-critical alert, still resolve with no receipt, exactly as before:
+  only a critical alert (kind `alert`, severity `critical`) is gated.
+  `bm_learn.py capture` with no arguments also used to store an EMPTY
+  candidate instead of printing usage (item D6 of the Loop 0 sweep); it now
+  refuses at the CLI layer, leaving `capture_learning_candidate` itself
+  untouched. And the forged-token test's mutation
+  (`tools/test_bm_store.py`) was probabilistic, flaking roughly one run in
+  sixteen when the real token's last character happened to be `0`; it is
+  now a guaranteed-different substitution.
 - **A result limit caps soft rules only, since loop P4 on 2026-07-29, and it
   capped gates too before that.** Reproduced on the real CLI against 05441e7:
   two live global rules, a gate whose trigger shared no vocabulary with the

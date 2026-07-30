@@ -201,6 +201,7 @@ of `docs/BENCHMARK.md` checks exactly that claim mechanically.
 - Semantic retrieval. Step 3 matched on shared words and said so.
 - Automatic correction capture. It exists, it runs in English, French and
   Japanese, and it can only ever file a candidate. Approval in step 2 is
-  founder-only, permanently.
+  human-confirmed, one-time receipt-gated, always: automatic capture can
+  never approve or promote its own candidate.
 - Windows. Every Windows claim in this project comes from CI, not from a
   machine on this desk.
