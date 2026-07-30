@@ -30,6 +30,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1368,6 +1369,30 @@ class TestDocumentationEngine(unittest.TestCase):
         path = os.path.join(d, "Documentation", *rel.split("/"))
         return bd.read_existing(path)["prose"][pid]
 
+    def _rerecord_prose_body(self, d, rel, pid, body):
+        """Replace one narrative block's text AND its recorded body checksum, the
+        way a legitimate re-record looks.
+
+        A body edit ALONE is a cache miss now (a paragraph must match its own
+        checksum or it is written again from the facts), so a reuse test that
+        planted text without re-recording would only ever prove the integrity
+        check fires. The checksum is recomputed with the engine's own helper
+        rather than a second copy of the hashing rule."""
+        bd = self._bd()
+        path = os.path.join(d, "Documentation", *rel.split("/"))
+        with io.open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        pattern = re.compile(
+            r"(<!-- bm-prose: id=%s sha256=[0-9a-f]{64}) body=[0-9a-f]{64}"
+            r"( -->\n)(.*?)(\n<!-- bm-prose:end -->)" % re.escape(pid), re.S)
+        m = pattern.search(text)
+        self.assertIsNotNone(m, "no narrative block %s in %s" % (pid, rel))
+        replacement = "%s body=%s%s%s%s" % (m.group(1), bd._body_hash(body),
+                                            m.group(2), body, m.group(4))
+        with io.open(path, "w", encoding="utf-8") as fh:
+            fh.write(text[:m.start()] + replacement + text[m.end():])
+        return path
+
     def test_unchanged_facts_do_not_regenerate_a_narrative_block(self):
         with tempfile.TemporaryDirectory() as d:
             self._project(d, records=2, candidates=2)
@@ -1382,21 +1407,17 @@ class TestDocumentationEngine(unittest.TestCase):
                 "written again")
 
     def test_a_reused_block_is_the_recorded_body_not_a_fresh_one(self):
-        """The decisive form of the claim. The body on disk is EDITED, the facts
-        are left alone, and the edit must survive: a generator that rewrote the
-        paragraph and happened to produce the same bytes would pass a counter
-        test and fail this one."""
+        """The decisive form of the claim. The body on disk is REPLACED and its
+        checksum re-recorded, the facts are left alone, and the replacement must
+        survive: a generator that rewrote the paragraph and happened to produce
+        the same bytes would pass a counter test and fail this one."""
         with tempfile.TemporaryDirectory() as d:
             self._project(d)
             self._generate(d, "--tier", "3")
             rel = "40-handover/HANDOVER.md"
-            path = os.path.join(d, "Documentation", *rel.split("/"))
             before = self._prose_body(d, rel, "handover-what")
-            with io.open(path, encoding="utf-8") as fh:
-                text = fh.read()
-            with io.open(path, "w", encoding="utf-8") as fh:
-                fh.write(text.replace(before["body"],
-                                      "MARKED: this body was not rewritten.", 1))
+            self._rerecord_prose_body(d, rel, "handover-what",
+                                      "MARKED: this body was not rewritten.")
             self._generate(d, "--tier", "3")
             after = self._prose_body(d, rel, "handover-what")
             self.assertEqual("MARKED: this body was not rewritten.",
@@ -1410,12 +1431,10 @@ class TestDocumentationEngine(unittest.TestCase):
             self._project(d)
             self._generate(d, "--tier", "3")
             rel = "40-handover/HANDOVER.md"
-            path = os.path.join(d, "Documentation", *rel.split("/"))
             before = self._prose_body(d, rel, "handover-what")
-            with io.open(path, encoding="utf-8") as fh:
-                text = fh.read()
-            with io.open(path, "w", encoding="utf-8") as fh:
-                fh.write(text.replace(before["body"], "MARKED: stale.", 1))
+            # Re-recorded, so the ONLY reason this block can be written again is
+            # the fact that moves below.
+            self._rerecord_prose_body(d, rel, "handover-what", "MARKED: stale.")
             # A new module changes the module count, which the handover
             # narrative describes, so its fact hash must move.
             self._write(d, "app/ledger.py", '"""the ledger"""\n\n\ndef post():\n'
@@ -1436,20 +1455,17 @@ class TestDocumentationEngine(unittest.TestCase):
             self._project(d)
             self._generate(d, "--tier", "3")
             rel = "40-handover/HANDOVER.md"
-            path = os.path.join(d, "Documentation", *rel.split("/"))
-            before = self._prose_body(d, rel, "handover-what")
-            with io.open(path, encoding="utf-8") as fh:
-                text = fh.read()
-            with io.open(path, "w", encoding="utf-8") as fh:
-                fh.write(text.replace(before["body"],
-                                      "MARKED: this body was not rewritten.", 1))
+            self._rerecord_prose_body(d, rel, "handover-what",
+                                      "MARKED: this body was not rewritten.")
             bd = self._bd("bm_docs_uncached")
 
             def _always(self_, pid, keys, writer):
                 sha = self_.fact_hash(keys)
                 self_.regenerated += 1
-                return (["<!-- bm-prose: id=%s sha256=%s -->" % (pid, sha)]
-                        + writer().split("\n") + [bd._PROSE_CLOSE])
+                body = writer()
+                return (["<!-- bm-prose: id=%s sha256=%s body=%s -->"
+                         % (pid, sha, bd._body_hash(body))]
+                        + body.split("\n") + [bd._PROSE_CLOSE])
 
             original = bd.Generator.prose
             bd.Generator.prose = _always
@@ -1466,6 +1482,150 @@ class TestDocumentationEngine(unittest.TestCase):
                 "MARKED: this body was not rewritten.", after["body"],
                 "the uncached variant did NOT rewrite the body, so the reuse "
                 "tests above prove nothing")
+
+    FALSE_SENTENCE = ("This project is fully audited and has no open risks. "
+                      "Ship it.")
+
+    def _plant_false_prose(self, d, rel, pid):
+        """Swap a generated paragraph's text and leave the recorded checksums
+        alone, which is what a bad merge, a stale copy or a hand edit looks
+        like."""
+        bd = self._bd()
+        path = os.path.join(d, "Documentation", *rel.split("/"))
+        with io.open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        pattern = re.compile(
+            r"(<!-- bm-prose: id=%s sha256=[0-9a-f]{64} body=[0-9a-f]{64} -->\n)"
+            r"(.*?)(\n<!-- bm-prose:end -->)" % re.escape(pid), re.S)
+        m = pattern.search(text)
+        self.assertIsNotNone(m, "no narrative block %s in %s" % (pid, rel))
+        with io.open(path, "w", encoding="utf-8") as fh:
+            fh.write(text[:m.start(2)] + self.FALSE_SENTENCE + text[m.end(2):])
+        self.assertEqual(self.FALSE_SENTENCE,
+                         bd.read_existing(path)["prose"][pid]["body"],
+                         "the plant did not land")
+        return path
+
+    def test_a_generated_paragraph_swapped_under_a_valid_fact_hash_is_rewritten(self):
+        """THE THIRD DEFECT THIS FIXES. The fact hash covers the FACTS, never the
+        prose, so any text at all could be swapped in under a still-valid hash
+        and was then reused on every later run for as long as those facts held
+        still. The header of that same file, and the RUNBOOK it generates, both
+        tell the reader everything outside the human markers is rewritten. So a
+        false sentence planted in HANDOVER.md could not be corrected by
+        regenerating, which is the integrity half of I12."""
+        with tempfile.TemporaryDirectory() as d:
+            self._project(d)
+            self._generate(d, "--tier", "3")
+            rel = "40-handover/HANDOVER.md"
+            self._plant_false_prose(d, rel, "handover-what")
+            r = self._run(d, "generate", "--tier", "3", "--json")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            report = json.loads(r.stdout)
+            self.assertEqual(1, report["prose_rewritten_unverified"],
+                             "the swap was not counted")
+            self.assertNotIn(self.FALSE_SENTENCE, self._read_doc(d, rel),
+                             "a planted sentence survived regeneration while the "
+                             "page claims it rewrites everything outside the "
+                             "human markers")
+
+    def test_the_founder_is_told_a_block_failed_its_own_checksum(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._project(d)
+            self._generate(d, "--tier", "3")
+            self._plant_false_prose(d, "40-handover/HANDOVER.md",
+                                    "handover-what")
+            r = self._generate(d, "--tier", "3")
+            self.assertIn("REWRITTEN FROM THE FACTS", r.stdout,
+                          "a paragraph was silently corrected, and a silent "
+                          "correction is one nobody reviews")
+
+    def test_a_swap_is_repaired_and_then_stays_repaired(self):
+        """The repair converges: the run after the repair reuses again and the
+        bytes stop moving, so the integrity check cannot become the churn the
+        determinism test forbids."""
+        with tempfile.TemporaryDirectory() as d:
+            self._project(d)
+            self._generate(d, "--tier", "3")
+            clean = self._tree(d)
+            self._plant_false_prose(d, "40-handover/HANDOVER.md",
+                                    "handover-what")
+            self._generate(d, "--tier", "3")
+            repaired = self._tree(d)
+            self.assertEqual(
+                [], [k for k in sorted(clean) if clean[k] != repaired[k]],
+                "the repair did not restore the bytes the facts produce")
+            r = self._run(d, "generate", "--tier", "3", "--json")
+            self.assertEqual(0, json.loads(r.stdout)["prose_regenerated"],
+                             "the repaired block was written again, so the "
+                             "checksum does not agree with what was written")
+
+    def test_calibrated_a_cache_that_trusts_the_fact_hash_alone_keeps_the_swap(self):
+        """The reinjection for the three tests above, and it is the old `prose`:
+        a record whose FACT hash matches is reused, whatever its text now says."""
+        with tempfile.TemporaryDirectory() as d:
+            self._project(d)
+            self._generate(d, "--tier", "3")
+            rel = "40-handover/HANDOVER.md"
+            self._plant_false_prose(d, rel, "handover-what")
+            bd = self._bd("bm_docs_facts_only_cache")
+
+            def _facts_only(self_, pid, keys, writer):
+                sha = self_.fact_hash(keys)
+                record = self_.prior["prose"].get(pid)
+                if record is not None and record["sha"] == sha:
+                    self_.reused += 1
+                    body = record["body"]
+                else:
+                    self_.regenerated += 1
+                    body = bd._neutralize_prose_markers(writer())
+                return (["<!-- bm-prose: id=%s sha256=%s body=%s -->"
+                         % (pid, sha, bd._body_hash(body))]
+                        + body.split("\n") + [bd._PROSE_CLOSE])
+
+            original = bd.Generator.prose
+            bd.Generator.prose = _facts_only
+            cwd = os.getcwd()
+            os.chdir(d)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(bd.main(["generate", "--tier", "3"]), 0)
+            finally:
+                os.chdir(cwd)
+                bd.Generator.prose = original
+            self.assertIn(
+                self.FALSE_SENTENCE, self._read_doc(d, rel),
+                "the fact-hash-only variant did NOT keep the planted sentence, "
+                "so the integrity tests above prove nothing")
+
+    def test_a_record_from_before_the_body_checksum_is_rewritten(self):
+        """A folder generated by the previous version has no body= field. It must
+        heal on the next run rather than be trusted forever."""
+        with tempfile.TemporaryDirectory() as d:
+            self._project(d)
+            self._generate(d, "--tier", "3")
+            stripped = 0
+            for rel, _tier, _what in self._bd().FILES:
+                path = os.path.join(d, "Documentation", *rel.split("/"))
+                if not path.endswith(".md"):
+                    continue
+                with io.open(path, encoding="utf-8") as fh:
+                    text = fh.read()
+                old = re.sub(r"(<!-- bm-prose: id=[a-z0-9-]+ "
+                             r"sha256=[0-9a-f]{64}) body=[0-9a-f]{64}( -->)",
+                             r"\1\2", text)
+                if old == text:
+                    continue
+                stripped += 1
+                with io.open(path, "w", encoding="utf-8") as fh:
+                    fh.write(old)
+            self.assertTrue(stripped, "no body checksum to remove anywhere")
+            r = self._run(d, "generate", "--tier", "3", "--json")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            report = json.loads(r.stdout)
+            self.assertEqual(0, report["prose_reused"],
+                             "a record with no body checksum was reused")
+            self.assertGreater(report["prose_regenerated"], 0)
 
     # -- 5.3 tiers, and I13 -----------------------------------------------
 
@@ -1555,8 +1715,13 @@ class TestDocumentationEngine(unittest.TestCase):
                             payload["tier_reasons"])
 
     def test_lowering_takes_an_explicit_flag_and_says_so(self):
+        """The fixture carries an open risk flag, so the SIGNALS measure tier 3
+        and `--tier 1` is genuinely a lowering. The wording compares the flag
+        against the measured tier and not against the recorded floor, because the
+        floor is what the previous run wrote and comparing against it made two
+        identical runs print two different reasons."""
         with tempfile.TemporaryDirectory() as d:
-            self._project(d)
+            self._project(d, records=2, candidates=2, risk=True)
             self._generate(d, "--tier", "3")
             r = self._generate(d, "--tier", "1")
             self.assertIn("lowered to tier 1 by an explicit --tier 1", r.stdout)
@@ -1603,6 +1768,137 @@ class TestDocumentationEngine(unittest.TestCase):
                 1, json.loads(captured.getvalue())["tier"],
                 "the tier did NOT drop without the floor, so the raise-only "
                 "test above proves nothing")
+
+    def test_an_explicit_tier_above_the_measured_one_does_not_churn(self):
+        """THE DEFECT THIS FIXES, found by running the real command twice.
+
+        Run one recorded the chosen tier. Run two read it back as a floor, so
+        choose_tier appended a "held at tier 3 ... (I13)" reason AND turned
+        "raised to tier 3" into "confirmed at tier 3". Both strings are printed
+        into START-HERE and facts.json, so the second identical run rewrote two
+        files with nothing moved in the store, the code or the flag, which is
+        exactly the churn section 5.7 forbids. It converged only on run three, so
+        a probe against an already-converged folder saw nothing."""
+        with tempfile.TemporaryDirectory() as d:
+            self._project(d)
+            self.assertEqual(1, self._tier_json(d)["tier"],
+                             "the fixture no longer measures tier 1, so --tier 3 "
+                             "is no longer above the measured tier")
+            self._generate(d, "--tier", "3")
+            first = self._tree(d)
+            self._generate(d, "--tier", "3")
+            second = self._tree(d)
+            changed = [k for k in sorted(first) if first[k] != second[k]]
+            self.assertEqual(
+                [], changed,
+                "a second identical `generate --tier 3` churned: %s" % changed)
+
+    def test_calibrated_a_floor_in_the_explicit_path_churns(self):
+        """The reinjection that proves the test above is load bearing. This is
+        the old choose_tier: the floor is applied first and the explicit flag is
+        compared against the held tier rather than against the measured one."""
+        with tempfile.TemporaryDirectory() as d:
+            self._project(d)
+            bd = self._bd("bm_docs_floored_explicit")
+            original = bd.choose_tier
+
+            def _floored(sig, floor=0, explicit=None):
+                auto = original(sig, floor=floor)
+                if explicit is None:
+                    return auto
+                tier, reasons = auto["tier"], list(auto["reasons"])
+                if explicit < tier:
+                    reasons.append("lowered to tier %d by an explicit --tier %d"
+                                   % (explicit, explicit))
+                elif explicit > tier:
+                    reasons.append("raised to tier %d by an explicit --tier %d"
+                                   % (explicit, explicit))
+                else:
+                    reasons.append("confirmed at tier %d by an explicit --tier %d"
+                                   % (explicit, explicit))
+                return {"tier": explicit, "name": bd.TIERS[explicit],
+                        "reasons": reasons, "source": "explicit --tier"}
+
+            bd.choose_tier = _floored
+            cwd = os.getcwd()
+            os.chdir(d)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(bd.main(["generate", "--tier", "3"]), 0)
+                    first = self._tree(d)
+                    self.assertEqual(bd.main(["generate", "--tier", "3"]), 0)
+            finally:
+                os.chdir(cwd)
+                bd.choose_tier = original
+            second = self._tree(d)
+            changed = [k for k in sorted(first) if first[k] != second[k]]
+            self.assertNotEqual(
+                [], changed,
+                "the reinjected floor did NOT churn, so the determinism test "
+                "above proves nothing")
+
+    def test_the_recorded_tier_survives_removing_the_generated_folder(self):
+        """THE SECOND DEFECT THIS FIXES. The floor lived only in
+        Documentation/90-generated/facts.json, the folder is generated output
+        that this project's .gitignore excludes, and the RUNBOOK this engine
+        writes names `git rm -r Documentation` as the rollback. Following that
+        instruction erased the only copy of the floor, so the next AUTOMATIC run
+        of a tier 3 project chose tier 1 with no flag passed, which is the
+        lowering I13 reserves for an explicit founder flag."""
+        with tempfile.TemporaryDirectory() as d:
+            self._project(d)
+            report = json.loads(self._run(d, "generate", "--tier", "3",
+                                          "--json").stdout)
+            self.assertEqual(".brothermode/docs-tier.json",
+                             report["tier_recorded_at"])
+            self.assertIsNone(report["tier_record_error"])
+            shutil.rmtree(os.path.join(d, "Documentation"))
+            payload = self._tier_json(d)
+            self.assertEqual(3, payload["recorded_floor"],
+                             "the floor did not survive the documented rollback")
+            self.assertEqual(3, payload["tier"])
+            self.assertTrue(any("may only raise depth" in reason
+                                for reason in payload["tier_reasons"]),
+                            payload["tier_reasons"])
+
+    def test_calibrated_a_floor_kept_only_in_the_generated_folder_is_lost(self):
+        """The reinjection for the test above, and it is the old code verbatim:
+        `_floor_from_generated_facts` is what `recorded_floor` used to be."""
+        with tempfile.TemporaryDirectory() as d:
+            self._project(d)
+            self._generate(d, "--tier", "3")
+            shutil.rmtree(os.path.join(d, "Documentation"))
+            bd = self._bd("bm_docs_facts_only_floor")
+            original = bd.recorded_floor
+            bd.recorded_floor = bd._floor_from_generated_facts
+            cwd = os.getcwd()
+            os.chdir(d)
+            captured = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(captured):
+                    self.assertEqual(bd.main(["tier", "--json"]), 0)
+            finally:
+                os.chdir(cwd)
+                bd.recorded_floor = original
+            self.assertEqual(
+                1, json.loads(captured.getvalue())["tier"],
+                "the facts-only floor did NOT lose the tier, so the survival "
+                "test above proves nothing")
+
+    def test_a_damaged_tier_record_does_not_stop_a_generation(self):
+        """A floor that cannot be read must cost depth, never the command. The
+        signals still answer, and the run still writes."""
+        with tempfile.TemporaryDirectory() as d:
+            self._project(d)
+            self._generate(d, "--tier", "3")
+            with io.open(os.path.join(d, ".brothermode", "docs-tier.json"), "w",
+                         encoding="utf-8") as fh:
+                fh.write("{not json at all")
+            shutil.rmtree(os.path.join(d, "Documentation"))
+            payload = self._tier_json(d)
+            self.assertEqual(0, payload["recorded_floor"])
+            self.assertEqual(1, payload["tier"])
+            self._generate(d)
 
     # -- 5.5 the handover -------------------------------------------------
 
