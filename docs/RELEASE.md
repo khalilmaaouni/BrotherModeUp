@@ -46,8 +46,9 @@ cat VERSION
 python3 tools/bm_project_facts.py --field release_tag
 ```
 
-The current candidate is `2.0.0-rc.6`, cut 2026-07-31 at the close of the
-first-rank execution loops 0 through 5 (`CHANGELOG.md` has the entries: release
+The current candidate is `2.0.0-rc.7`, cut 2026-07-31 so that the tagged bytes
+and the first fully green CI run (`30564943060`) are the same bytes. It carries
+the first-rank execution loops 0 through 5 (`CHANGELOG.md` has the entries: release
 truth, receipt-gated state changes, bounded gate manifests, mandatory work
 identity, privacy hardening). This project creates release tags through the
 GitHub Desktop app (a command-line tag does not push from Desktop, confirmed
@@ -55,6 +56,10 @@ empirically), so the tag is cut by the founder immediately after the
 release-cut commit lands, and the release-truth suite holds this page honest in
 both directions: its tag tests SKIP with a stated reason while the tag does not
 exist and become mandatory the moment it does.
+
+`v2.0.0-rc.6` is SUPERSEDED, not withdrawn: it is sound and verifies, but it was
+tagged two commits before the Windows shell-quoting fix, so its tagged tree still
+has red CI and cannot point at the green run as its evidence.
 
 **`v2.0.0-rc.5` IS WITHDRAWN. Do not install it.** It was tagged and pushed on
 2026-07-31 and withdrawn roughly fifteen minutes later, on the same grounds as
@@ -106,21 +111,15 @@ should be checked rather than trusted:
   `docs/KNOWN-LIMITS.md` as of today: the engine has never run on a real
   project (only test suites and adversarial review), and one confirmed defect is
   still open (a refused `adopt` attempt still writes a permanent handover block
-  into `STATE.md`). CORRECTED 2026-07-31: this paragraph used to say continuous
-  integration passes on all three platforms and both supported Python versions.
-  That is FALSE. The Windows legs of the `store` job failed in all three runs
-  checked (`30511349840` on commit `2611236`, `30558980744` on `f66e48f`,
-  `30560704272` on `ea006c0`, spanning 2026-07-30T03:30Z to 2026-07-31T16:16Z),
-  on both 3.9 and 3.x. The earliest of those predates the first-rank loops, so
-  it is not a regression from them. The serial `gate` job and both POSIX
-  platforms are green in the same runs. Per-job table and run IDs:
-  `docs/evidence/RELEASE-CANDIDATE-2.0.0-rc.6.md`. The CAUSE is not established;
-  the run log names the failing test and reading it needs an authenticated `gh`.
-  Shipping `2.0.0` plain would assert a confidence this project does not
-  have yet. `2.0.0-rc.1` sorts before `2.0.0` under semver precedence rules,
-  which is the honest ordering: this is a candidate for `2.0.0`, not `2.0.0`
-  itself, until it has survived contact with a real project and a real CI
-  run.
+  into `STATE.md`). CORRECTED TWICE, and both corrections are kept because the
+  sequence is the point. This paragraph first claimed CI passed on all three
+  platforms; that was FALSE, and the Windows `store` legs were red in every run
+  checked. It was corrected to say so on 2026-07-31, and the same day the
+  underlying defect was found and fixed (POSIX-only shell quoting in
+  `invocation()`), so run `30564943060` on commit `f751f9f` is green across all
+  nine jobs. The claim is true NOW, and it was worth nothing while it was merely
+  asserted. Evidence: `docs/evidence/RELEASE-CANDIDATE-2.0.0-rc.6.md`.
+
 - **Why not `0.x`.** `0.x` conventionally signals "anything can break
   without notice, including the public interface." This project's public
   interface (the CLI commands, the hook contract, the vault layout) is
@@ -142,10 +141,10 @@ Until it closes, do not describe this project as `2.0.0` anywhere.
 Tags exist now, so this is the install instruction, not a future one:
 
 ```bash
-git clone --branch v2.0.0-rc.6 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.7 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
-`--branch v2.0.0-rc.6` checks out that exact tag, not a moving branch head. It
+`--branch v2.0.0-rc.7` checks out that exact tag, not a moving branch head. It
 is the current candidate; `python3 tools/bm_project_facts.py --field
 release_tag` prints the tag matching whatever tree you are reading.
 `--depth 1` is optional (a shallow clone of just that tag), included because
@@ -268,13 +267,13 @@ through preparing it.
 
 CURRENT STATE, 2026-07-31, first, because the dated entries under it are a LOG
 and several of them were true only on the day they were written. `VERSION`
-reads `2.0.0-rc.6` and its tag is cut by the founder through GitHub Desktop
+reads `2.0.0-rc.7` and its tag is cut by the founder through GitHub Desktop
 immediately after the release-cut commit; until that moment the pinned clone
 command above does not resolve, the release-truth tests SKIP with a stated
 reason, and this sentence is the honest record of that window. Five earlier
 tags exist (`v2.0.0-rc.1` withdrawn, `v2.0.0-rc.2` superseded, `v2.0.0-rc.3`
-superseded, `v2.0.0-rc.4` superseded, `v2.0.0-rc.5` WITHDRAWN the same day it
-was cut, for a checksum manifest that did not describe its own tree; see the
+superseded, `v2.0.0-rc.4` superseded, `v2.0.0-rc.6` superseded,
+`v2.0.0-rc.5` WITHDRAWN the same day it was cut, for a checksum manifest that did not describe its own tree; see the
 version-scheme section above for the full account). CORRECTED 2026-07-30: the 2026-07-29
 entry directly below said no tag had been cut for `rc.4` and that its pinned
 clone would not resolve; both were true that day and stopped being true when

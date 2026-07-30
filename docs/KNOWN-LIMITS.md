@@ -58,22 +58,17 @@ person was not sure about.
   `scripts/bm_shell.py` mitigates only the writes a caller chooses to declare:
   it is a declaration channel, not a sandbox, and its `--declare-none` screen is
   a short list of obvious write forms, not a shell parser.
-- **OBSERVED 2026-07-31, and the news is mixed: the `gate` job IS green on
-  GitHub, and the Windows `store` legs are RED.** This entry used to say no real
-  Actions run had been observed at all. One has now been observed, three in fact
-  (`30511349840`, `30558980744`, `30560704272`). The serial `gate` job succeeds,
-  as do both POSIX platforms on both Python versions. `store (windows-latest)`
-  fails on both 3.9 and 3.x in all three, and the earliest of those predates the
-  first-rank loops, so it is pre-existing rather than newly introduced. The cause
-  is NOT established: public annotations carry only "exit code 1", and reading
-  the run log needs an authenticated `gh`, which is founder-only here. Since
-  2026-07-31 the Windows-covered suites run under
-  `.github/run_with_annotations.py`, which republishes unittest failure headers
-  as annotations a public repository serves without a login, so the next red run
-  names its own failing tests. Full per-job table:
-  `docs/evidence/RELEASE-CANDIDATE-2.0.0-rc.6.md`. Still unobserved: the
-  failure-artifact upload path, which needs a deliberately broken build on a
-  temporary branch.
+- **OBSERVED GREEN 2026-07-31, on all nine jobs.** This entry used to say no real
+  Actions run had ever been observed. Run `30564943060` for commit `f751f9f`
+  concluded success across the serial `gate` job, both `suite` legs, and all six
+  `store` legs (three platforms, both Python versions). Getting there required
+  fixing a real defect the Windows legs had been failing on: `invocation()` quoted
+  user-facing commands with POSIX-only `shlex.quote`, so a Windows path came back
+  single-quoted and the printed remedy was unrunnable in cmd and PowerShell.
+  What is still NOT proven: the failure-artifact upload path, which needs a
+  deliberately broken build on a temporary branch; and that green stays green,
+  since the Windows fix was verified by CI rather than on a Windows machine here.
+  Full per-job table: `docs/evidence/RELEASE-CANDIDATE-2.0.0-rc.6.md`.
 - **The remaining CI-equivalence gap.** Every refusal in `tools/test_all.py` was
   proven by running it on one machine. The first push to a branch CI watches is what turns
   that from designed to demonstrated.
