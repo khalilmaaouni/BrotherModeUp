@@ -1,6 +1,6 @@
 # Changelog
 
-Unreleased, 2026-07-30: the adoption book, twelve chapters with every command executed against a throwaway project, at `docs/book/brothermode-for-dummies.html` plus a 55 page PDF export (phase D of the documentation and gate-packs spec).
+Unreleased, 2026-07-30: the adoption book, twelve chapters with every command executed against a throwaway project, at `docs/book/brothermode-for-dummies.html` plus a 56 page PDF export (phase D of the documentation and gate-packs spec).
 
 ## 2.0.0-rc.4, 2026-07-29: four parallel lanes merged, fifteen loops landed
 
