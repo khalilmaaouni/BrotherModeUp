@@ -189,6 +189,42 @@ it also warns when your copy is simply old.
 
 To disable it, remove the `check-update` line from `tools/bm_sessionstart.sh`.
 
+## Approval and state-change receipts are secrets
+
+Added 2026-07-31, closing the open half of `docs/NOT-FINALIZED.md` item 21. The
+code enforced these rules before this section existed; a reader had no way to
+learn them from the security page.
+
+A receipt authorises exactly one rule-changing act: approving a candidate into a
+rule, editing an approved rule's injectable text, or a state change (supersede,
+deprecate, forget, resolve-conflict, and resolving a critical alert). What the
+code enforces:
+
+- **Shown once, at mint time, and never again.** `grant-approval` and
+  `grant-state-receipt` print the token; there is deliberately no command that
+  reads a token back out of the store.
+- **Never stored.** Only `sha256` of the token under a domain prefix is kept, and
+  the mint path pops that column out of the record it returns, so a caller
+  printing the whole record cannot print it either.
+- **Withheld from every ordinary export** by the same name-shape policy that
+  withholds every other digest column, so `dump` and the MCP surfaces never
+  carry it.
+- **Fifteen-minute life**, clamped in code, and single use: consumption is a
+  conditional `UPDATE ... WHERE consumed_at IS NULL AND expires_at >= ?` in the
+  same transaction as the change it authorises, so two racing spends cannot both
+  win.
+- **Bound to the exact proposed change.** The fingerprint covers rule text,
+  scope, severity and any override in play, so a receipt minted for one proposal
+  cannot be spent on another, and receipts of one kind cannot spend as another.
+
+**What a receipt does NOT prove.** It proves an answer was supplied for this
+exact proposed change and has not already been used. It does NOT prove which
+human supplied it. Anything able to run the CLI as the same operating-system user
+can mint one by asking, then spend it. The guarantee is "no rule changed without
+a fresh, specific, one-time human answer", not "the founder personally authorised
+this". Treat a leaked token as a short-lived capability: spendable by whoever
+holds it until used or expired.
+
 ## Scope note
 
 This project governs how a Claude Code session behaves. It does not change what

@@ -106,9 +106,16 @@ should be checked rather than trusted:
   `docs/KNOWN-LIMITS.md` as of today: the engine has never run on a real
   project (only test suites and adversarial review), and one confirmed defect is
   still open (a refused `adopt` attempt still writes a permanent handover block
-  into `STATE.md`). Continuous integration now passes on all three platforms and
-  both supported Python versions, including the recovery suite, which is a
-  change from rc.1 rather than a claim about it.
+  into `STATE.md`). CORRECTED 2026-07-31: this paragraph used to say continuous
+  integration passes on all three platforms and both supported Python versions.
+  That is FALSE. The Windows legs of the `store` job failed in all three runs
+  checked (`30511349840` on commit `2611236`, `30558980744` on `f66e48f`,
+  `30560704272` on `ea006c0`, spanning 2026-07-30T03:30Z to 2026-07-31T16:16Z),
+  on both 3.9 and 3.x. The earliest of those predates the first-rank loops, so
+  it is not a regression from them. The serial `gate` job and both POSIX
+  platforms are green in the same runs. Per-job table and run IDs:
+  `docs/evidence/RELEASE-CANDIDATE-2.0.0-rc.6.md`. The CAUSE is not established;
+  the run log names the failing test and reading it needs an authenticated `gh`.
   Shipping `2.0.0` plain would assert a confidence this project does not
   have yet. `2.0.0-rc.1` sorts before `2.0.0` under semver precedence rules,
   which is the honest ordering: this is a candidate for `2.0.0`, not `2.0.0`

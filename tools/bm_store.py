@@ -10767,6 +10767,20 @@ def _cmd_transition(argv, to_state, usage):
     root, _source = require_root()
     store = Store(root, create=False)
     try:
+        # REGISTER ITEM 22 fix, 2026-07-31. `transition` looks a record up by
+        # EXACT lifecycle_uuid, so a short prefix found nothing and the refusal
+        # said "found no such record" about a record that plainly existed. The
+        # message was the worse half of the defect: it blamed a missing row for
+        # what was really unsupported prefix resolution, and sibling commands
+        # (approve, supersede, resolve-note) all take prefixes, so a caller had
+        # every reason to expect one here.
+        #
+        # Resolved at the CLI layer, where the human's shorthand arrives, rather
+        # than inside transition(), which is the concurrency primitive and is
+        # right to demand one exact identity. _resolve_record_uuid refuses an
+        # ambiguous or unknown prefix by name, so a genuinely missing record
+        # still fails loudly, and now says which of the two things went wrong.
+        lifecycle_uuid = store._resolve_record_uuid(lifecycle_uuid)
         before = store.get(lifecycle_uuid)
         rec = store.transition(lifecycle_uuid, expected_version, to_state,
                                 session_id=session_id, note=note, evidence=evidence,
