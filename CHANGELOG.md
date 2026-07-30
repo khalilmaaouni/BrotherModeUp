@@ -2,6 +2,35 @@
 
 Unreleased, 2026-07-30: the adoption book, twelve chapters with every command executed against a throwaway project, at `docs/book/brothermode-for-dummies.html` plus a 56 page PDF export (phase D of the documentation and gate-packs spec).
 
+Unreleased, 2026-07-30: first-rank execution plan, Loop 0 and Loop 1. Gate after both: `test_all: 1082 tests across 7 suites, 1 skipped, 107.8s wall. ALL GREEN`, up from 1057.
+
+- Loop 0, the flag-as-a-name defect swept everywhere it lived rather than only where
+  it was reported. Register item 16 named `claim --help`; the same read of `argv[0]`
+  before flag rejection sat in four code sites covering seven commands. One
+  `_require_positional` helper closes all of them. `fence-lint` now recognises the
+  fence format the store actually renders, instead of only the hand-written V1 lines
+  containing the word `agent`, so it no longer reports "no live fences found" against
+  a STATE.md holding live records. `--handover "<heading>"`, previously the whole
+  person-to-person handover mechanism and absent from every usage line, is documented
+  in the four commands that accept it. STATE.md backups prune to the five most recent
+  at the moment each one is written, logged per deletion, and a test proves the
+  pruner cannot match a file outside the exact pattern it produces itself.
+
+- Loop 1, the public install stops being a moving branch. README, QUICKSTART and
+  SETUP told a new reader to clone `main`, which then auto-installs five hooks that
+  run in all their later sessions; a moving branch is not an acceptable default for
+  auto-run code. The pinned command is now GENERATED from one release fact
+  (`install_command_pinned` in `tools/bm_project_facts.py`) rather than typed, with
+  the development clone kept separate and labelled, and a drift test asserting the
+  pages equal the generated fact exactly. `docs/RELEASE.md` claimed the rc.4 tag had
+  not been cut and "will not resolve" while the tag was cut, pushed, annotated and
+  pointing at `6cc94bc`; that contradiction is gone and a test now refuses it. The
+  doc-status guard matched the historical marker anywhere in a page header, so a
+  sentence merely describing the convention failed the suite; it now anchors at line
+  start. `pyproject.toml`'s `2.0.0rc4` against `VERSION`'s `2.0.0-rc.4` was checked
+  and is NOT drift: it is PEP 440's required spelling, and a normalizing test now
+  pins that they agree.
+
 ## 2.0.0-rc.4, 2026-07-29: four parallel lanes merged, fifteen loops landed
 
 The release cut for the work done on 2026-07-29. Everything below already ran

@@ -11,8 +11,13 @@ something is broken.
 
 ## 1. Install the skill
 
+The public default clones an immutable, tagged release, not a moving branch:
+the tag is generated from the same release fact every other page reads
+(`python3 tools/bm_project_facts.py --field release_tag`), never typed by
+hand, and `tools/test_bm_docs.py` fails this page if it ever disagrees.
+
 ```bash
-git clone https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.4 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 Expected: git prints a few lines ending in something like `Resolving deltas:
@@ -26,6 +31,15 @@ ls ~/.claude/skills/brothermode/SKILL.md
 
 Expected: that exact path printed back. If you get "No such file or
 directory", the clone did not finish or landed somewhere else.
+
+Working on BrotherMode's own code instead of just using it? Use the separate
+development command, which tracks the moving `main` branch on purpose and
+installs into its own directory so the two can never be confused:
+
+```bash
+# Development branch (changes over time)
+git clone --branch main https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode-dev
+```
 
 ## 2. Run the gate, to prove it works on your machine
 

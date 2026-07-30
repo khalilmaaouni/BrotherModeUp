@@ -25,6 +25,18 @@ WHERE EACH FACT COMES FROM
   retrieval_modes             probed in tools/bm_store.py and tools/bm_learning.py
   default_branch              declared below; git cannot be asked without a
                               subprocess, and shipping tools run none
+  repo_url, primary_skill_dir,
+  dev_skill_dir                declared below, for the same reason
+                                default_branch is: no subprocess
+  install_command_pinned,      computed from release_tag plus the constants
+  install_command_dev          above. release_tag is the only piece of this
+                                that can go stale, and it is read fresh from
+                                VERSION on every run, which is the whole
+                                point: an onboarding page states this command
+                                by copying what this tool prints, never by
+                                typing a tag from memory, and
+                                tools/test_bm_docs.py fails a page that
+                                disagrees with it
 
 Python 3.9, standard library only. No network, no subprocess. Reads files,
 writes none. No em or en dashes anywhere in this file or its output.
@@ -48,6 +60,16 @@ ROOT = os.path.dirname(HERE)
 # default branch ever changes, this line changes with it and the documentation
 # consistency suite (tools/test_bm_docs.py) fails until the pages agree.
 DEFAULT_BRANCH = "main"
+
+# The repository's own clone URL and the two install targets. Declared, not
+# measured, for the same reason DEFAULT_BRANCH is: reading them from git would
+# need a subprocess, which every shipping tool in tools/ is banned from
+# running. If this repository is ever renamed or moved, these three lines
+# change together and the documentation consistency suite
+# (tools/test_bm_docs.py) fails until every onboarding page agrees.
+REPO_URL = "https://github.com/khalilmaaouni/BrotherModeUp.git"
+PRIMARY_SKILL_DIR = "~/.claude/skills/brothermode"
+DEV_SKILL_DIR = "~/.claude/skills/brothermode-dev"
 
 # The one command this project gates on, and the verdict a healthy run ends on.
 GATE_COMMAND = "python3 tools/test_all.py"
@@ -125,9 +147,33 @@ def facts(root=ROOT):
     if re.search(r"USING\s+fts5", store_src, re.IGNORECASE):
         modes.append("fts5")
 
+    release_tag = "v" + version
+
+    # THE ONE PLACE THE PRIMARY INSTALL COMMAND IS ASSEMBLED. Every onboarding
+    # page states this command by copying what this tool prints, never by
+    # typing the tag from memory: HEAD moves past the last cut tag on every
+    # loop this project lands, so a hand typed tag is stale the moment it is
+    # written. The one part of this that can drift is release_tag, read fresh
+    # from VERSION above; REPO_URL and PRIMARY_SKILL_DIR are declared
+    # constants, same as DEFAULT_BRANCH.
+    install_command_pinned = ("git clone --branch %s --depth 1 %s %s"
+                              % (release_tag, REPO_URL, PRIMARY_SKILL_DIR))
+    # The separate, clearly labeled development command: tracks the moving
+    # default branch on purpose, into its OWN directory, so a reader can never
+    # confuse it with the pinned install above.
+    install_command_dev = (
+        "# Development branch (changes over time)\n"
+        "git clone --branch %s %s %s"
+        % (DEFAULT_BRANCH, REPO_URL, DEV_SKILL_DIR))
+
     return {
         "version": version,
-        "release_tag": "v" + version,
+        "release_tag": release_tag,
+        "repo_url": REPO_URL,
+        "primary_skill_dir": PRIMARY_SKILL_DIR,
+        "dev_skill_dir": DEV_SKILL_DIR,
+        "install_command_pinned": install_command_pinned,
+        "install_command_dev": install_command_dev,
         "schema_version": schema,
         "test_suites": len(suites),
         "test_suite_files": suites,

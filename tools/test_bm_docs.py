@@ -46,6 +46,17 @@ bpf = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(bpf)
 FACTS = bpf.facts()
 
+
+def _clones_primary_dir(line):
+    """True when a `git clone` LINE targets the pinned primary skill
+    directory, not the development one. FACTS["dev_skill_dir"] is
+    FACTS["primary_skill_dir"] plus a "-dev" suffix, so a bare substring
+    check on the primary directory also matches the development line;
+    excluding a line that also names the dev directory is what tells the two
+    apart."""
+    return (FACTS["primary_skill_dir"] in line
+            and FACTS["dev_skill_dir"] not in line)
+
 # The eight required pack sections, read from the generator rather than retyped:
 # a test that keeps its own copy of the list stops testing the order the moment
 # the two disagree.
@@ -97,6 +108,22 @@ VERSION_CLAIM = re.compile(
 # mention of the word "current" in prose does not silently satisfy it.
 CURRENT_STATUS = re.compile(r"^Status:\s*CURRENT\b", re.MULTILINE)
 
+# The HISTORICAL marker itself, matched at LINE START only (optionally behind
+# markdown bold and leading whitespace), never as a bare substring anywhere in
+# the page's head. The old check was `"HISTORICAL" in head`, which trips on
+# any MENTION of the word, not just a page DECLARING itself historical.
+# Reproduced while writing docs/HANDOVER-2026-07-30.md: a sentence merely
+# describing this very convention ("...the doc-consistency suite enforces
+# that marking...HISTORICAL...") failed the suite before this fix. A page
+# must declare the marker at the start of a line to count.
+HISTORICAL_MARKER = re.compile(r"^\s*\**\s*HISTORICAL\b", re.MULTILINE)
+
+
+def _is_marked_historical(head):
+    """True only when `head` DECLARES itself historical at a line start, not
+    when it merely mentions the word in prose."""
+    return bool(HISTORICAL_MARKER.search(head))
+
 NUMBER_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five",
                 6: "six", 7: "seven", 8: "eight"}
 
@@ -126,7 +153,9 @@ class TestGeneratedFacts(unittest.TestCase):
         for key in ("version", "release_tag", "schema_version", "hook_count",
                     "hook_events", "test_suites", "test_suite_files",
                     "gate_command", "supported_python_floor", "default_branch",
-                    "retrieval_modes"):
+                    "retrieval_modes", "repo_url", "primary_skill_dir",
+                    "dev_skill_dir", "install_command_pinned",
+                    "install_command_dev"):
             self.assertIn(key, data)
         self.assertEqual(data["release_tag"], "v" + data["version"])
         self.assertEqual(data["hook_count"], len(data["hook_events"]))
@@ -220,30 +249,102 @@ class TestNoStaleCurrentNumbers(unittest.TestCase):
 
 
 class TestOneInstall(unittest.TestCase):
+    """The public default install target is an IMMUTABLE tag, generated from
+    one release fact (bm_project_facts.py's release_tag), never hand typed.
+
+    THE DEFECT THIS CLASS GUARDS: before this fix, three of the four active
+    onboarding pages (README.md:54, docs/QUICKSTART.md:15, docs/SETUP.md:19)
+    told a reader to clone with no --branch at all, which lands on whatever
+    commit the default branch happens to be at the moment of the clone, and
+    that code then auto-installs hooks that run in every future session.
+    docs/RELEASE.md was the only page that pinned a tag. `git clone
+    https://github.com/khalilmaaouni/BrotherModeUp.git
+    ~/.claude/skills/brothermode`, with no ref at all, was the reproduction.
+
+    `test_the_plain_install_command_is_identical_everywhere` used to assert
+    that unpinned line was identical across the three pages. That invariant
+    is retired ON PURPOSE, not weakened: fixing the defect means no page may
+    carry that line at all any more, which
+    `test_no_active_page_clones_the_primary_skill_directory_unpinned` below
+    now asserts directly, and the identical-everywhere claim moves to the
+    PINNED command that replaces it."""
+
     CLONE = re.compile(r"^git clone .*BrotherModeUp\.git.*$", re.MULTILINE)
 
-    def test_the_plain_install_command_is_identical_everywhere(self):
+    def test_no_active_page_clones_the_primary_skill_directory_unpinned(self):
+        offenders = []
+        for rel in ACTIVE_DOCS:
+            for line in self.CLONE.findall(read(rel)):
+                if _clones_primary_dir(line) and "--branch" not in line:
+                    offenders.append("%s: %s" % (rel, line.strip()))
+        self.assertEqual(
+            offenders, [],
+            "an active page clones the primary skill directory on a moving "
+            "ref, no tag pinned, which auto-installs hooks that then run in "
+            "every future session with no signal anything changed: %s"
+            % "; ".join(offenders))
+
+    def test_the_primary_install_command_is_identical_on_every_install_page(self):
+        """The one immutable install command, generated from release_tag,
+        must be byte identical across README.md, docs/QUICKSTART.md and
+        docs/SETUP.md, and must match what bm_project_facts.py generates: a
+        page that hand types its own version of the pinned tag is exactly
+        the drift this loop exists to make impossible."""
         seen = {}
         for rel in INSTALL_DOCS:
             for line in self.CLONE.findall(read(rel)):
-                if "--branch" in line:
-                    continue
-                seen.setdefault(line.strip(), []).append(rel)
+                if _clones_primary_dir(line):
+                    seen.setdefault(line.strip(), []).append(rel)
         self.assertEqual(
             len(seen), 1,
-            "the install pages disagree about the clone command: %s"
+            "the install pages disagree about the pinned clone command: %s"
             % json.dumps(seen, indent=2, sort_keys=True))
+        self.assertEqual(
+            list(seen)[0], FACTS["install_command_pinned"],
+            "the pinned clone command on the install pages does not match "
+            "the one bm_project_facts.py generates; it was hand typed "
+            "rather than copied from the tool")
 
     def test_the_pinned_install_uses_the_current_release_tag(self):
-        text = read(os.path.join("docs", "RELEASE.md"))
-        pinned = [l for l in self.CLONE.findall(text) if "--branch" in l]
-        self.assertTrue(pinned, "docs/RELEASE.md no longer shows a pinned clone")
-        for line in pinned:
-            tag = re.search(r"--branch\s+(\S+)", line).group(1)
-            self.assertEqual(
-                tag, FACTS["release_tag"],
-                "docs/RELEASE.md pins %s but VERSION says the current release "
-                "is %s" % (tag, FACTS["release_tag"]))
+        offenders = []
+        for rel in INSTALL_DOCS + (os.path.join("docs", "RELEASE.md"),):
+            text = read(rel)
+            pinned = [l for l in self.CLONE.findall(text) if "--branch" in l
+                     and _clones_primary_dir(l)]
+            for line in pinned:
+                tag = re.search(r"--branch\s+(\S+)", line).group(1)
+                if tag != FACTS["release_tag"]:
+                    offenders.append("%s pins %s" % (rel, tag))
+        self.assertEqual(
+            offenders, [],
+            "a page pins a release tag that disagrees with VERSION (current "
+            "release is %s): %s" % (FACTS["release_tag"], "; ".join(offenders)))
+
+    def test_the_development_command_is_kept_separate_and_labeled(self):
+        """Requirement 1's second half: a development command must exist on
+        every install page, must target a DIFFERENT directory than the
+        pinned one, and must be labeled as a moving target so the two can
+        never be confused."""
+        for rel in INSTALL_DOCS:
+            text = read(rel)
+            self.assertIn(
+                FACTS["dev_skill_dir"], text,
+                "%s has no separate development install target" % rel)
+            dev_lines = [l for l in self.CLONE.findall(text)
+                        if FACTS["dev_skill_dir"] in l]
+            self.assertTrue(
+                dev_lines,
+                "%s: no clone line targets the development directory" % rel)
+            for line in dev_lines:
+                self.assertFalse(
+                    _clones_primary_dir(line),
+                    "%s: the development clone line also resolves as a "
+                    "pinned-directory target, which is exactly the "
+                    "confusion requirement 1 forbids" % rel)
+            self.assertIn(
+                "changes over time", text,
+                "%s: the development command is not labeled as a moving "
+                "target" % rel)
 
     def test_no_active_page_sends_an_installer_to_a_non_default_branch(self):
         offenders = []
@@ -257,6 +358,206 @@ class TestOneInstall(unittest.TestCase):
                          "branch (%s) nor the current tag (%s): %s"
                          % (FACTS["default_branch"], FACTS["release_tag"],
                             "; ".join(offenders)))
+
+
+def _git(*args):
+    """Run git read-only against this repository. Returns (returncode,
+    stdout, stderr) as text. Never raises: a git failure is a fact a test
+    reads and reports, not a crash."""
+    r = subprocess.run(["git"] + list(args), cwd=ROOT, stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE, universal_newlines=True)
+    return r.returncode, r.stdout, r.stderr
+
+
+def _git_bytes(*args):
+    """Same as _git, but the raw bytes of stdout, never text-decoded. A
+    checksum has to be computed over the exact bytes git holds; decoding
+    through a text codec first (universal newlines, an encoding guess) would
+    silently change a binary file's hash and prove nothing."""
+    r = subprocess.run(["git"] + list(args), cwd=ROOT, stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE)
+    return r.returncode, r.stdout, r.stderr
+
+
+def _tag_exists(tag):
+    code, _out, _err = _git("rev-parse", "--verify", "--quiet",
+                            "refs/tags/%s" % tag)
+    return code == 0
+
+
+class TestReleaseTruth(unittest.TestCase):
+    """Loop 1, requirement 3: a release-truth test. Fable's attack prompt
+    treats release identity as a supply-chain boundary; each check below is
+    its OWN test method with a name that says exactly what it protects, so a
+    failing run points at one broken release fact rather than at "release
+    truth" in the abstract.
+
+    Every check that needs the documented tag to exist in git SKIPS, with a
+    stated reason, when it does not, rather than passing on an empty
+    comparison. A test that goes green because it found nothing to check
+    against is the exact defect class this project has already shipped:
+    `v2.0.0-rc.1` was tagged, the branch moved fourteen commits past it with
+    no signal, and nothing caught the two claiming the same identity while
+    holding different code (docs/RELEASE.md, "v2.0.0-rc.1 is WITHDRAWN")."""
+
+    def setUp(self):
+        self.tag = FACTS["release_tag"]
+        self.tag_exists = _tag_exists(self.tag)
+
+    def test_the_documented_tag_exists_in_git(self):
+        """Protects: a reader following the pinned install command gets a ref
+        that actually resolves, not `fatal: Remote branch ... not found`."""
+        if not self.tag_exists:
+            self.skipTest(
+                "tag %s does not exist in this repository yet; cutting it is "
+                "a founder-gated step (docs/RELEASE.md, steps 5 to 7). "
+                "Nothing to verify against until it exists." % self.tag)
+        code, _out, err = _git("rev-parse", "--verify", "--quiet",
+                              "refs/tags/%s" % self.tag)
+        self.assertEqual(code, 0, "%s no longer resolves: %s" % (self.tag, err))
+
+    def test_the_tag_points_at_the_intended_release_commit(self):
+        """Protects: the tag and VERSION describe the SAME commit. 'Intended'
+        is read from git's own history, not trusted by name: the commit that
+        actually set VERSION to the current value, never a commit chosen by
+        this test's own guess."""
+        if not self.tag_exists:
+            self.skipTest("tag %s does not exist yet; see the previous test"
+                          % self.tag)
+        code, out, err = _git("log", "-1", "--format=%H", "--", "VERSION")
+        self.assertEqual(code, 0, err)
+        intended = out.strip()
+        self.assertTrue(intended, "VERSION has no commit history at all")
+        code, tag_commit, err = _git("rev-list", "-n", "1", self.tag)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(
+            tag_commit.strip(), intended,
+            "tag %s points at %s but the commit that last set VERSION to %s "
+            "is %s; the tag and VERSION disagree about which commit is the "
+            "release" % (self.tag, tag_commit.strip(), FACTS["version"],
+                        intended))
+
+    def test_the_primary_install_command_uses_the_tag_not_a_branch(self):
+        """Protects: the public default clone in README.md,
+        docs/QUICKSTART.md and docs/SETUP.md pins --branch <tag>, never a
+        moving branch name such as the default branch."""
+        checked_any = False
+        for rel in INSTALL_DOCS:
+            text = read(rel)
+            for line in re.findall(r"^git clone .*BrotherModeUp\.git.*$", text,
+                                   re.MULTILINE):
+                if not _clones_primary_dir(line):
+                    continue
+                checked_any = True
+                self.assertIn(
+                    "--branch", line,
+                    "%s: the primary clone command has no --branch pin" % rel)
+                tag = re.search(r"--branch\s+(\S+)", line).group(1)
+                self.assertNotEqual(
+                    tag, FACTS["default_branch"],
+                    "%s: the primary install command pins the default "
+                    "branch (%s), not a tag" % (rel, FACTS["default_branch"]))
+                self.assertEqual(
+                    tag, FACTS["release_tag"],
+                    "%s: the primary install command pins %s, not the "
+                    "current release tag %s" % (rel, tag, FACTS["release_tag"]))
+        self.assertTrue(checked_any,
+                        "no install page carries a clone command targeting "
+                        "the primary skill directory at all")
+
+    def test_release_md_does_not_claim_the_tag_is_absent(self):
+        """Protects: docs/RELEASE.md's live "CURRENT STATE" claim about
+        whether the tag exists must agree with git. Reproduced in this
+        repository before this fix: the tag already existed (git tag -l,
+        and it resolves on the configured remote), while docs/RELEASE.md's
+        CURRENT STATE section still said "NO tag has been cut for it"."""
+        text = read(os.path.join("docs", "RELEASE.md"))
+        current_state = text.split("CURRENT STATE", 1)[-1].split("\n\n", 1)[0]
+        if self.tag_exists:
+            self.assertNotIn(
+                "NO tag has been cut", current_state,
+                "docs/RELEASE.md's live CURRENT STATE section claims no tag "
+                "has been cut, but %s exists" % self.tag)
+            self.assertNotIn(
+                "will not resolve", current_state,
+                "docs/RELEASE.md's live CURRENT STATE section still claims "
+                "the pinned clone will not resolve, but the tag it pins now "
+                "exists")
+
+    def test_the_package_version_matches_version_file(self):
+        """Protects: pyproject.toml's version and VERSION describe the same
+        release. PEP 440 forbids the hyphenated pre-release form VERSION
+        uses (2.0.0-rc.4), so pyproject.toml legitimately spells it
+        differently (2.0.0rc4); this normalizes rather than demanding byte
+        identity, because demanding byte identity would fail on a spelling
+        difference that is not actually a defect. pyproject.toml is outside
+        this loop's fence: a real disagreement here is reported, not fixed,
+        by whoever owns that file."""
+        text = read("pyproject.toml")
+        m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', text)
+        self.assertTrue(m, "pyproject.toml has no top level version field")
+        pep440 = m.group(1)
+        normalized = re.sub(r"(\d)rc(\d)", r"\1-rc.\2", pep440)
+        self.assertEqual(
+            normalized, FACTS["version"],
+            "pyproject.toml version %s (normalized to %s) does not match "
+            "VERSION (%s)" % (pep440, normalized, FACTS["version"]))
+
+    def test_the_checksum_manifest_matches_the_tagged_tree(self):
+        """Protects: CHECKSUMS.sha256 actually describes the bytes at the
+        tag, in both directions (every manifested file matches, and no
+        regular file at the tag is missing from the manifest), the same
+        guarantee scripts/verify-install.sh makes for an installed copy.
+        Read entirely through git plumbing against the tag; no checkout, no
+        network."""
+        if not self.tag_exists:
+            self.skipTest("tag %s does not exist yet; nothing to check the "
+                          "checksum manifest against" % self.tag)
+        code, manifest_text, _err = _git("show",
+                                         "%s:CHECKSUMS.sha256" % self.tag)
+        if code != 0:
+            self.skipTest("no CHECKSUMS.sha256 exists at %s" % self.tag)
+        manifested = {}
+        for line in manifest_text.splitlines():
+            if not line.strip():
+                continue
+            digest, path = line.split("  ", 1)
+            manifested[path] = digest
+        code, tree_out, err = _git("ls-tree", "-r", self.tag)
+        self.assertEqual(code, 0, err)
+        tracked = {}
+        for line in tree_out.splitlines():
+            meta, path = line.split("\t", 1)
+            mode, _kind, blob = meta.split()
+            # CHECKSUMS.sha256 is tracked as a regular file but never lists
+            # itself: a manifest line records a hash of the manifest's own
+            # final bytes, which cannot be known until after that line is
+            # written. scripts/checksums.sh excludes it for exactly this
+            # reason, so a real manifest is one entry short of the tracked
+            # set by design, not by defect.
+            if mode in ("100644", "100755") and path != "CHECKSUMS.sha256":
+                tracked[path] = blob
+        missing = sorted(set(tracked) - set(manifested))
+        extra = sorted(set(manifested) - set(tracked))
+        self.assertEqual(
+            missing, [],
+            "regular file(s) at %s missing from CHECKSUMS.sha256: %s"
+            % (self.tag, ", ".join(missing)))
+        self.assertEqual(
+            extra, [],
+            "CHECKSUMS.sha256 lists path(s) not tracked as a regular file "
+            "at %s: %s" % (self.tag, ", ".join(extra)))
+        mismatched = []
+        for path, blob in sorted(tracked.items()):
+            code, content, err = _git_bytes("cat-file", "-p", blob)
+            self.assertEqual(code, 0, err)
+            actual = hashlib.sha256(content).hexdigest()
+            if actual != manifested.get(path):
+                mismatched.append(path)
+        self.assertEqual(
+            mismatched, [],
+            "file(s) whose hash in CHECKSUMS.sha256 does not match their "
+            "content at %s: %s" % (self.tag, ", ".join(mismatched)))
 
 
 class TestVersionAndSchemaAgree(unittest.TestCase):
@@ -332,7 +633,7 @@ class TestHistoricalDocumentsSaySo(unittest.TestCase):
         offenders = []
         for rel in dated_docs():
             head = "\n".join(read(rel).split("\n")[:25])
-            if "HISTORICAL" not in head and not CURRENT_STATUS.search(head):
+            if not _is_marked_historical(head) and not CURRENT_STATUS.search(head):
                 offenders.append(rel)
         self.assertEqual(
             offenders, [],
@@ -345,11 +646,81 @@ class TestHistoricalDocumentsSaySo(unittest.TestCase):
         offenders = []
         for rel in dated_docs():
             head = "\n".join(read(rel).split("\n")[:25])
-            if "HISTORICAL" in head and "uperseded by" not in head:
+            if _is_marked_historical(head) and "uperseded by" not in head:
                 offenders.append(rel)
         self.assertEqual(offenders, [],
                          "marked historical but names nothing to read instead: %s"
                          % ", ".join(offenders))
+
+
+class TestHistoricalMarkerIsAnchored(unittest.TestCase):
+    """The marker guard used to be a bare substring search over a page's head
+    (`"HISTORICAL" in head`), so ANY mention of the word anywhere in the first
+    25 lines tripped it, superseded-by pointer or not. Reproduced while
+    writing docs/HANDOVER-2026-07-30.md: a sentence merely describing this
+    convention failed the suite. This exercises the two real checks above
+    against synthetic pages in a throwaway directory, so the assertion is
+    proven independent of whatever this repository's own docs/ currently
+    contains."""
+
+    def _check(self, root):
+        """The same two predicates test_bm_docs.py runs, against a provided
+        root, so this proves the FIX rather than just the helper function."""
+        status_offenders, pointer_offenders = [], []
+        for dirpath, _dirnames, filenames in os.walk(os.path.join(root, "docs")):
+            for name in sorted(filenames):
+                if not DATED_NAME.search(name):
+                    continue
+                rel = os.path.relpath(os.path.join(dirpath, name), root)
+                with io.open(os.path.join(root, rel), encoding="utf-8") as fh:
+                    head = "\n".join(fh.read().split("\n")[:25])
+                if not _is_marked_historical(head) and not CURRENT_STATUS.search(head):
+                    status_offenders.append(rel)
+                if _is_marked_historical(head) and "uperseded by" not in head:
+                    pointer_offenders.append(rel)
+        return status_offenders, pointer_offenders
+
+    def _write(self, root, name, text):
+        os.makedirs(os.path.join(root, "docs"), exist_ok=True)
+        with io.open(os.path.join(root, "docs", name), "w",
+                     encoding="utf-8") as fh:
+            fh.write(text)
+
+    def test_merely_mentioning_the_marker_word_in_prose_does_not_trip_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write(
+                d, "2026-07-30-example.md",
+                "# Example\n\nStatus: CURRENT as of 2026-07-30.\n\n"
+                "This page describes how the doc-consistency suite enforces "
+                "a HISTORICAL marker on every dated page under docs/.\n")
+            status, pointer = self._check(d)
+            self.assertEqual(status, [], "a mere mention needs no extra status")
+            self.assertEqual(
+                pointer, [],
+                "a mere mention of the word must not demand a "
+                "superseded-by pointer; the old substring check demanded one")
+
+    def test_a_page_that_genuinely_declares_itself_historical_still_trips(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write(
+                d, "2026-07-01-old.md",
+                "# Old page\n\n**HISTORICAL DOCUMENT, dated 2026-07-01. Do "
+                "not read as current. Superseded by README.md.**\n")
+            status, pointer = self._check(d)
+            self.assertEqual(status, [], "marker plus pointer must pass")
+            self.assertEqual(pointer, [], "the pointer is present here")
+
+    def test_declaring_historical_with_no_pointer_is_still_caught(self):
+        """The guard this fix must not weaken: a page that really is
+        historical and gives no superseded-by pointer must still fail."""
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "2026-07-01-old.md",
+                       "# Old page\n\n**HISTORICAL DOCUMENT, dated "
+                       "2026-07-01.**\n")
+            _status, pointer = self._check(d)
+            self.assertEqual(
+                pointer, [os.path.join("docs", "2026-07-01-old.md")],
+                "declaring historical with no pointer must still be caught")
 
 
 class TestGatePacks(unittest.TestCase):
