@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.0.0-rc.5, 2026-07-31: the first-rank loops, cut at the close of loops 0 through 5
+
+One session, six commits, every one behind its own full-gate run. The test count
+moved 1057 to 1194 across seven suites, and the store schema moved 8 to 11 in three
+additive migrations with a durable pre-migration backup taken before the first. The
+dated entries below this heading are that session's log, newest first, each with its
+gate line. Loops 6 through 9 of the execution plan remain open: CI execution
+evidence needs this cut pushed, and the dogfood window, outside-family audit,
+external beta and public benchmark cannot be produced by the machine that built the
+code.
+
 Unreleased, 2026-07-30: the adoption book, twelve chapters with every command executed against a throwaway project, at `docs/book/brothermode-for-dummies.html` plus a 56 page PDF export (phase D of the documentation and gate-packs spec).
 
 Unreleased, 2026-07-31: first-rank execution plan, Loop 5. Gate: `test_all: 1194 tests across 7 suites, 1 skipped, 110.7s wall. ALL GREEN`, up from 1181. Schema unchanged at 11.
