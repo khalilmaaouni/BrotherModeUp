@@ -117,12 +117,15 @@ DOC_ROOT = "Documentation"
 # that goes missing shows up as a missing file rather than as a page nobody
 # notices is gone.
 #
-# DIVERGENCE FROM THE SPEC, recorded rather than smoothed over: section 5.1
-# lists BA-SUMMARY.md in the layout and section 5.3's tier table does not place
-# it in any tier, and the tier table names a "whitepaper" that the layout does
-# not place in a directory. BA-SUMMARY is emitted at tier 2 beside REQUIREMENTS
-# (it is the business narrative those requirements belong to) and the whitepaper
-# is emitted at tier 3 as 20-technical/WHITEPAPER.md.
+# SPEC AMBIGUITY, resolved by the implementer and RATIFIED BY THE FOUNDER on
+# 2026-07-30: section 5.1 lists BA-SUMMARY.md in the layout while section 5.3's
+# tier table does not place it in any tier, and the tier table names a
+# "whitepaper" that the layout does not place in a directory. BA-SUMMARY is
+# emitted at tier 2 beside REQUIREMENTS (it is the business narrative those
+# requirements belong to) and the whitepaper is emitted at tier 3 as
+# 20-technical/WHITEPAPER.md. This is no longer an open question and does not
+# need re-deriving; the ratified statement lives in docs/RELEASE.md under
+# "Ratified: where the business summary and the whitepaper live".
 # IN READING ORDER, which is why the directories are numbered: a stranger opens
 # them top to bottom. The tier column says which of them exist at which depth,
 # and it is deliberately NOT the sort key, because sorting by tier would present

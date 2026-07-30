@@ -25,6 +25,15 @@ person was not sure about.
   path.** Move the install directory by hand without re-running the installer
   and the old entries are no longer recognized as ours; pass `--target <old
   path>` to remove them.
+- **The pinned install command is checked, not self-updating.** Since 2026-07-30
+  (Loop 1) README, QUICKSTART and SETUP carry a tag-pinned clone generated from
+  `install_command_pinned` in `tools/bm_project_facts.py`, and a drift test refuses
+  any page that disagrees with that fact or that clones a moving branch. What the
+  test CANNOT do is edit the pages for you: cutting a new tag makes the suite go red
+  until the generated command is re-pasted. That is deliberate, because a docs
+  rewrite nobody read is how the stale command got there in the first place. It does
+  mean a release cut is a two-step act, and the second step is enforced only by the
+  gate.
 - **`scripts/doctor.py` checks the settings FILE and the hook CODE.** It cannot
   tell whether Claude Code has loaded that file: hooks are read at session
   start, so a mid-session correction is live at the next session. The fence hook
