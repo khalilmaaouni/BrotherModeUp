@@ -3921,6 +3921,13 @@ class TestVerify(unittest.TestCase):
             self.assertTrue(any("STATE.md does not exist" in p for p in problems), problems)
             remedy = next(p for p in problems if "STATE.md does not exist" in p)
             named_path = remedy.split("run `python3 ", 1)[1].split(" dashboard`", 1)[0]
+            # The remedy is quoted for the reader's own shell, so strip that
+            # quoting before treating the result as a path. Before 2026-07-31
+            # this test read the quotes as part of the filename on Windows and
+            # failed there for a reason nobody could see without a login.
+            if len(named_path) > 1 and named_path[0] == named_path[-1] \
+                    and named_path[0] in "'\"":
+                named_path = named_path[1:-1]
             self.assertTrue(os.path.isabs(named_path),
                              "the remedy's own command must be runnable regardless of "
                              "the caller's cwd or which project's root triggered it: %r"
@@ -11049,11 +11056,63 @@ class TestP17InstructionTextMatchesTheInstalledLayout(unittest.TestCase):
                                  bs.invocation("bm-store", mod))
 
     def test_a_path_with_spaces_is_quoted_so_it_can_be_pasted(self):
+        """Quoted for the shell the READER holds, which is not the same shell
+        everywhere. Asserting POSIX single quotes unconditionally passed on
+        Windows for the wrong reason (shlex wrapped the backslashes) and would
+        have gone red the moment the quoting was fixed."""
         with tempfile.TemporaryDirectory() as d:
             target = os.path.join(d, "my project", "bm_store.py")
             os.makedirs(os.path.dirname(target))
             out = bs.invocation("bm-store", target)
-            self.assertIn("'%s'" % target, out)
+            if sys.platform == "win32":
+                self.assertIn('"%s"' % target, out)
+            else:
+                self.assertIn("'%s'" % target, out)
+            self.assertTrue(out.startswith("python3 "), out)
+
+    def test_the_quoted_path_survives_being_read_back_as_a_path(self):
+        """FOUND BY CI ON WINDOWS, 2026-07-31. shlex.quote is POSIX-only, so a
+        Windows path came back wrapped in single quotes, the printed remedy read
+        `python3 'C:\\Users\\...'` (unrunnable in cmd and PowerShell), and any
+        caller parsing the command back out got a string that was no longer a
+        path.
+
+        This asserts the property that actually matters and does so on EVERY
+        platform, which the two real failures could not: strip the platform's
+        own quoting and an absolute path must still be there. It fails on a
+        POSIX box too if someone hardcodes Windows quoting, so it is not a test
+        that only one machine can run."""
+        with tempfile.TemporaryDirectory() as d:
+            for name in ("plain", "with space"):
+                target = os.path.join(d, name, "bm_store.py")
+                os.makedirs(os.path.dirname(target))
+                quoted = bs._quote_path_for_local_shell(target)
+                if sys.platform == "win32":
+                    self.assertNotIn("'", quoted,
+                                     "POSIX single quotes are not Windows shell "
+                                     "syntax: %r" % quoted)
+                    unquoted = quoted.strip('"')
+                else:
+                    unquoted = quoted
+                    if quoted.startswith("'") and quoted.endswith("'"):
+                        unquoted = quoted[1:-1]
+                self.assertTrue(os.path.isabs(unquoted),
+                                 "unquoting %r left %r, which is not a path"
+                                 % (quoted, unquoted))
+                self.assertEqual(os.path.realpath(unquoted),
+                                  os.path.realpath(target))
+
+    def test_a_bare_windows_style_path_is_not_needlessly_quoted(self):
+        """A reader should not have to undo quoting that bought nothing. On
+        Windows a space-free path is passed through bare, because both cmd and
+        PowerShell accept it. Asserted through the helper directly so the rule
+        is pinned on every platform, not only where it takes effect."""
+        self.assertEqual(
+            "already/absolute/no-spaces" if sys.platform != "win32" else
+            r"C:\tools\bm_store.py",
+            bs._quote_path_for_local_shell(
+                "already/absolute/no-spaces" if sys.platform != "win32" else
+                r"C:\tools\bm_store.py"))
 
     def test_the_no_root_refusal_names_a_command_that_resolves(self):
         with tempfile.TemporaryDirectory() as d:
