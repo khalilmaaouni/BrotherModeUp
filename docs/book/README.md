@@ -12,7 +12,7 @@ and is not yet convinced BrotherMode is worth the trouble.
 | File | What it is |
 |---|---|
 | `brothermode-for-dummies.html` | the book. One self-contained file, inline CSS, diagrams as inline SVG, no external reference of any kind. Open it by double clicking it. |
-| `brothermode-for-dummies.pdf` | the PDF export, 55 pages, produced from the HTML on 2026-07-30. See the note below on how, and on what that means for regenerating it. |
+| `brothermode-for-dummies.pdf` | the PDF export, 56 pages, produced from the HTML on 2026-07-30. See the note below on how, and on what that means for regenerating it. |
 
 Twelve chapters, in the order section 7 of the spec lists them, each ending in a
 "try this now" the reader can actually run.
@@ -35,9 +35,14 @@ Verify all of that yourself:
     grep -n 'https://\|http://' docs/book/brothermode-for-dummies.html
     # expect exactly one hit, the git clone line inside a <pre><code> block
 
+The gate checks it as well, so this cannot rot quietly. `TestTheAdoptionBook`
+in `tools/test_bm_docs.py` re-runs chapter six's citation walkthrough and both
+of its alert refusals against a real store through the real command line, and
+fails on the PAGE when the tool stops printing what the page says it prints.
+
 ## The PDF, honestly
 
-The PDF in this folder is real and complete: 55 pages, produced from the HTML on
+The PDF in this folder is real and complete: 56 pages, produced from the HTML on
 this machine on 2026-07-30. It was NOT produced by BrotherMode's own optional
 exporter, and it could not have been.
 
@@ -77,7 +82,7 @@ What that means for you, stated rather than implied:
 
 The page count `file(1)` reports for this PDF is wrong. It prints `8 pages`
 because it reads the first node of a nested page tree. The root node's `/Count`
-is 55, which is the real number.
+is 56, which is the real number.
 
 ## The rules this book holds itself to
 
