@@ -1155,10 +1155,40 @@ def cmd_registry_check(argv):
             print("%s: clean (%d live-looking fences, %.1fd old)" % (p, len(live), age))
 
 
+# D3 fix (fence sweep, 2026-07-30): cmd_fence_lint used to match ONLY
+# hand-written V1 fence lines (a "- " line containing the word "agent"), so
+# it reported "no live fences found" against a STATE.md holding real,
+# store-rendered active claims. This is the exact record-line shape
+# render_state_md (bm_store.py) writes today -- read from that renderer,
+# not guessed:
+#   "- %s (%s, version %s, %s) [%s] owner-session: %s"
+#   % (name, lifecycle_uuid, version, lifetime, tier_text, session_text)
+# lifecycle_uuid is uuid.uuid4().hex (32 lowercase hex chars, bm_store.py's
+# cmd_claim). tier_text is either "no tier" (rendered when no tier was
+# ever claimed) or whatever founder-typed tier string was claimed. This
+# line never contains the word "agent" at all, which is exactly why the
+# old check missed it.
+_STORE_RECORD_LINE_RE = re.compile(
+    r"^- .+ \([0-9a-f]{32}, version \d+, \w+\) \[(?P<tier>.*)\] owner-session: .+$")
+# render_state_md groups records under one of these four section headers;
+# unlike the V1 format (which tagged LANDED/ADOPTED inline on the record's
+# own line), a store-rendered record carries no such marker on its own
+# line -- its state lives ONLY in which section header precedes it.
+_STORE_SECTION_RE = re.compile(r"^## (active|parked|complete|adopted)$")
+
+
 def cmd_fence_lint(argv):
     """PreToolUse dispatch aid: show live fences near cwd so no writer launches
     into an occupied file set. Cheap, read-only, exit 0 always. Reads the hook
-    payload from stdin when no path argument is given."""
+    payload from stdin when no path argument is given.
+
+    Recognises TWO fence shapes: the hand-written V1 line (any "- " line
+    mentioning "agent", excluding one tagged LANDED/ADOPTED) and the
+    store-rendered line render_state_md (bm_store.py) actually writes today
+    (D3, fence sweep 2026-07-30). A store-rendered record only counts as
+    LIVE when it falls under that file's "## active" or "## parked" section
+    header -- "## complete"/"## adopted" is the store's own LANDED/ADOPTED
+    equivalent."""
     cwd = argv[0] if argv else ""
     if not cwd and not sys.stdin.isatty():
         try:
@@ -1173,11 +1203,26 @@ def cmd_fence_lint(argv):
     pats += [p.strip() for p in os.environ.get("BROTHERMODE_REGISTRIES", "").split(":") if p.strip()]
     for pat in pats:
         for p in glob.glob(pat, recursive=True):
+            section = None
             for line in open(p, errors="replace"):
                 s = line.strip()
-                if s.startswith("- ") and "agent" in s.lower() and "LANDED" not in s and "ADOPTED" not in s:
+                header = _STORE_SECTION_RE.match(s)
+                if header:
+                    section = header.group(1)
+                    continue
+                if not s.startswith("- "):
+                    continue
+                rendered = _STORE_RECORD_LINE_RE.match(s)
+                if rendered is not None:
+                    if section not in ("active", "parked"):
+                        continue
+                    tier = ("" if rendered.group("tier") != "no tier"
+                             else " [NO-TIER: declare T1/T2/T3]")
+                elif "agent" in s.lower() and "LANDED" not in s and "ADOPTED" not in s:
                     tier = "" if re.search(r"\btier T[123]\b", s) else " [NO-TIER: declare T1/T2/T3]"
-                    hits.append("%s: %s%s" % (os.path.basename(p), s[:100], tier))
+                else:
+                    continue
+                hits.append("%s: %s%s" % (os.path.basename(p), s[:100], tier))
     if hits:
         print("LIVE FENCES (fence-then-dispatch; overlap means queue):")
         for h in hits[:8]:

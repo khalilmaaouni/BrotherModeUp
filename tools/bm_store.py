@@ -8862,6 +8862,45 @@ def _undelivered_handover_rows(store):
         "ORDER BY created_at, rowid").fetchall()
 
 
+# D5 fix (fence sweep, 2026-07-30): every STATE.md render wrote another
+# STATE.md.bak-<timestamp> and nothing ever removed one -- seven accumulated
+# in fifteen minutes on one machine, and the autosave warning then listed
+# them all. Keep only this many; a named constant, not a magic number,
+# because "how many backups is enough" is a policy a founder may want to
+# change later.
+_STATE_BACKUP_KEEP = 5
+# The EXACT shape write_state_view itself produces below: "STATE.md.bak-" +
+# a fixed-width UTC stamp ("%Y%m%dT%H%M%S%f", 8 digits + "T" + 12 digits)
+# plus an optional "-" + 8 lowercase hex chars (uuid4().hex[:8]) on a same-
+# microsecond collision. Deliberately narrow: a file this code did not
+# create must never be a deletion candidate.
+_STATE_BACKUP_RE = re.compile(r"^STATE\.md\.bak-\d{8}T\d{12}(-[0-9a-f]{8})?$")
+
+
+def _prune_old_state_backups(root):
+    """Delete STATE.md.bak-<timestamp> files beyond the _STATE_BACKUP_KEEP
+    most recent, called at the MOMENT write_state_view creates a fresh one,
+    never batched at the end. The fixed-width timestamp in the name sorts
+    lexically in chronological order, so a plain name sort finds the
+    oldest. Every deletion is logged at the point it happens (fix-round
+    requirement: 'logging each deletion at the deletion, never batched at
+    the end'). Best-effort throughout: a listing or delete failure here
+    must never block the render it is a side effect of."""
+    try:
+        names = sorted(n for n in os.listdir(root) if _STATE_BACKUP_RE.match(n))
+    except OSError:
+        return
+    for name in names[:max(0, len(names) - _STATE_BACKUP_KEEP)]:
+        try:
+            stale_path = safe_project_path(root, name)
+            os.remove(stale_path)
+        except (OSError, OwnershipRefused) as e:
+            _warn("bm_store: could not prune old backup %s (%s)" % (name, e))
+            continue
+        _warn("bm_store: pruned old backup %s (keeping the %d most recent)"
+              % (stale_path, _STATE_BACKUP_KEEP))
+
+
 def write_state_view(root):
     """Regenerate the view and write it into STATE.md between BEGIN/END
     GENERATED markers, preserving any human prose outside them. A file with
@@ -8936,6 +8975,7 @@ def write_state_view(root):
                 root, backup_name + "-" + uuid.uuid4().hex[:8])
         _atomic_write_text(backup_path, existing)
         _warn("bm_store: saved the previous STATE.md as %s before rewriting it" % backup_path)
+        _prune_old_state_backups(root)
     if begin_count == 1:
         pre, rest = existing.split(_STATE_BEGIN, 1)
         _mid, post = rest.split(_STATE_END, 1)
@@ -9432,6 +9472,31 @@ def _reject_unknown_flags(cmd_name, kv, allowed):
         sys.exit(2)
 
 
+def _require_positional(argv, print_usage):
+    """Return argv[0] as a command's required positional (a record name or a
+    lifecycle_uuid), after confirming one is actually there.
+
+    D1/D2 (fence sweep, 2026-07-30): every `cmd_*` below used to read
+    `name = argv[0]` (or `lifecycle_uuid = argv[0]`) the moment argv was
+    non-empty, with no check that argv[0] was not itself a flag the caller
+    forgot a positional in front of. `claim --help` ran with argv ==
+    ["--help"], so "--help" became the record NAME and got claimed for
+    real, before `_reject_unknown_flags` ever saw a flag to reject (it never
+    runs on argv[0] at all). Same shape for `claim --objective X --files a.py`
+    ("--objective" claimed as the name) and for every other command that
+    takes a positional first: park/resume/complete/adopt (--version being
+    read as the lifecycle_uuid), checkpoint, decide.
+
+    print_usage is the command's OWN existing usage block (a zero-arg
+    callable), never a new string invented here, so this refuses in exactly
+    the words the empty-argv case already used. Exits 2 without calling
+    print_usage twice and without touching the store either way."""
+    if not argv or argv[0].startswith("-"):
+        print_usage()
+        sys.exit(2)
+    return argv[0]
+
+
 def _default_cli_session_id():
     """A fresh, unguessable session id for THIS process (GATE 3, fix-round
     2026-07-26): two independent CLI invocations that both omit --session
@@ -9484,19 +9549,25 @@ def cmd_init(argv):
     _out("bm_store: initialized %s (root resolved via %s)" % (store_path(root), source))
 
 
+def _cmd_claim_usage():
+    _out("usage: claim <name> --lifetime persistent|ephemeral --objective TEXT "
+         "[--files PATH ...] [--release-files] [--owner X] [--session SID] "
+         "[--tier T] [--check CMD]")
+    _out("  --files with at least one path REPLACES the fence (on a reclaim).")
+    _out("  --release-files explicitly releases every file (on a reclaim); "
+         "omitting --files entirely LEAVES the existing fence untouched, "
+         "it can never be dropped by accident.")
+    _out("  On a reclaim, omitting --objective/--tier/--check/--owner LEAVES "
+         "each untouched; typing the flag, even with an empty value, sets it.")
+
+
 def cmd_claim(argv):
-    if not argv:
-        _out("usage: claim <name> --lifetime persistent|ephemeral --objective TEXT "
-             "[--files PATH ...] [--release-files] [--owner X] [--session SID] "
-             "[--tier T] [--check CMD]")
-        _out("  --files with at least one path REPLACES the fence (on a reclaim).")
-        _out("  --release-files explicitly releases every file (on a reclaim); "
-             "omitting --files entirely LEAVES the existing fence untouched, "
-             "it can never be dropped by accident.")
-        _out("  On a reclaim, omitting --objective/--tier/--check/--owner LEAVES "
-             "each untouched; typing the flag, even with an empty value, sets it.")
-        sys.exit(2)
-    name = argv[0]
+    # D1/D2 fix (fence sweep, 2026-07-30): `_require_positional` refuses
+    # BEFORE anything reads argv[1:], so `claim --help` or
+    # `claim --objective X --files a.py` (no name in front) print this same
+    # usage block and exit 2 instead of claiming a record literally named
+    # "--help" or "--objective".
+    name = _require_positional(argv, _cmd_claim_usage)
     kv = _parse_kv(argv[1:])
     _reject_unknown_flags("claim", kv,
         ("lifetime", "objective", "files", "release-files", "owner",
@@ -9543,10 +9614,10 @@ def cmd_claim(argv):
 
 
 def _cmd_transition(argv, to_state, usage):
-    if not argv:
-        _out("usage: %s" % usage)
-        sys.exit(2)
-    lifecycle_uuid = argv[0]
+    # D1/D2-class fix (fence sweep, 2026-07-30): same shape as cmd_claim --
+    # `park --version 3` with no lifecycle_uuid in front used to read
+    # "--version" as the uuid. See _require_positional's docstring.
+    lifecycle_uuid = _require_positional(argv, lambda: _out("usage: %s" % usage))
     kv = _parse_kv(argv[1:])
     _reject_unknown_flags("transition", kv,
         ("version", "session", "note", "evidence", "adopt-from-live-session",
@@ -9590,31 +9661,43 @@ def _cmd_transition(argv, to_state, usage):
 
 
 def cmd_park(argv):
-    _cmd_transition(argv, "parked", "park <lifecycle_uuid> --version N [--session SID] [--note TEXT]")
+    # D4 fix (fence sweep, 2026-07-30): --handover "<heading>" is accepted by
+    # _reject_unknown_flags's "transition" allow-list (shared by park/resume/
+    # complete/adopt) but appeared in none of their usage lines, making the
+    # whole person-to-person handover mechanism undiscoverable from the CLI.
+    _cmd_transition(argv, "parked",
+                     "park <lifecycle_uuid> --version N [--session SID] [--note TEXT] "
+                     "[--handover \"<heading>\"]")
 
 
 def cmd_resume(argv):
-    _cmd_transition(argv, "active", "resume <lifecycle_uuid> --version N [--session SID] [--note TEXT]")
+    _cmd_transition(argv, "active",
+                     "resume <lifecycle_uuid> --version N [--session SID] [--note TEXT] "
+                     "[--handover \"<heading>\"]")
 
 
 def cmd_complete(argv):
     _cmd_transition(argv, "complete",
-                     "complete <lifecycle_uuid> --version N --evidence TEXT [--session SID] [--note TEXT]")
+                     "complete <lifecycle_uuid> --version N --evidence TEXT [--session SID] "
+                     "[--note TEXT] [--handover \"<heading>\"]")
 
 
 def cmd_adopt(argv):
     _cmd_transition(argv, "adopted",
                      "adopt <lifecycle_uuid> --version N [--session SID] [--note TEXT] "
                      "[--adopt-from-live-session]  (required to adopt a record that is "
-                     "currently active under a different, live session)")
+                     "currently active under a different, live session) "
+                     "[--handover \"<heading>\"]")
+
+
+def _cmd_checkpoint_usage():
+    _out("usage: checkpoint <lifecycle_uuid> --version N --next TEXT "
+         "[--blockers TEXT] [--files-note TEXT] [--body TEXT]")
 
 
 def cmd_checkpoint(argv):
-    if not argv:
-        _out("usage: checkpoint <lifecycle_uuid> --version N --next TEXT "
-             "[--blockers TEXT] [--files-note TEXT] [--body TEXT]")
-        sys.exit(2)
-    lifecycle_uuid = argv[0]
+    # D1/D2-class fix (fence sweep, 2026-07-30): see _require_positional.
+    lifecycle_uuid = _require_positional(argv, _cmd_checkpoint_usage)
     kv = _parse_kv(argv[1:])
     _reject_unknown_flags("checkpoint", kv,
         ("version", "next", "blockers", "files-note", "body"))
@@ -9644,11 +9727,13 @@ def cmd_checkpoint(argv):
     _out("checkpoint %d recorded for %s (version %s)" % (seq, lifecycle_uuid, expected_version + 1))
 
 
+def _cmd_decide_usage():
+    _out("usage: decide <lifecycle_uuid> --version N --topic T --text TEXT")
+
+
 def cmd_decide(argv):
-    if not argv:
-        _out("usage: decide <lifecycle_uuid> --version N --topic T --text TEXT")
-        sys.exit(2)
-    lifecycle_uuid = argv[0]
+    # D1/D2-class fix (fence sweep, 2026-07-30): see _require_positional.
+    lifecycle_uuid = _require_positional(argv, _cmd_decide_usage)
     kv = _parse_kv(argv[1:])
     _reject_unknown_flags("decide", kv, ("version", "topic", "text"))
     ver_raw = kv.get("version")
