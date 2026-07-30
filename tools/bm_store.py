@@ -119,14 +119,45 @@ def _quote_path_for_local_shell(path):
     contains a space, because cmd and PowerShell both accept a bare path
     otherwise and an unnecessarily quoted one is noise a reader has to undo.
 
-    A path containing a double quote is refused the shortcut and quoted
-    defensively; Windows filenames cannot contain `"` at all, so that branch
-    exists for the impossible-but-cheap case rather than a real one."""
+    WIDENED 2026-07-31 after checking the first version against external ground
+    truth, and the first version was WRONG. It quoted only on a space or a double
+    quote, which let ordinary Windows paths through bare that cmd.exe does not
+    read as one word:
+
+        C:\\R&D\\tools\\bm_store.py      ->  & is a command separator
+        C:\\temp\\100%\\bm_store.py      ->  % begins a variable reference
+        C:\\a!b\\bm_store.py             ->  ! is delayed expansion
+
+    `C:\\Program Files (x86)\\...` survived only because it also has a space; its
+    parentheses are metacharacters too. These are not exotic paths, and the
+    command this project prints is one a human is invited to paste.
+
+    The character set below is taken from mslex, the package that exists because
+    the standard library declines this job ("shlex for windows"), whose cmd rule
+    quotes on whitespace or any of " ^ & | < > ( ) % !. Python's own shlex
+    documentation states the constraint that makes this necessary: "The shlex
+    module is only designed for Unix shells. The quote() function is not
+    guaranteed to be correct on non-POSIX compliant shells or shells from other
+    operating systems such as Windows."
+
+    Not a dependency on mslex: this project is standard library only, so the rule
+    is reimplemented and its source named, which is also why the tests below
+    encode mslex's documented cases rather than this function's own opinion.
+
+    Any whitespace counts, not just a space, because a tab in a path splits an
+    argument exactly as a space does."""
     if sys.platform == "win32":
-        if '"' in path or " " in path:
+        if _WINDOWS_NEEDS_QUOTING.search(path):
+            # A double quote cannot appear in a Windows filename, so dropping it
+            # cannot corrupt a real path, and leaving it would end the quoted
+            # span early and hand the rest of the string to the shell.
             return '"%s"' % path.replace('"', '')
         return path
     return shlex.quote(path)
+
+
+# Whitespace or a cmd.exe metacharacter. Mirrors mslex's `cmd_meta_or_space`.
+_WINDOWS_NEEDS_QUOTING = re.compile(r'[\s"^&|<>()%!]')
 
 
 def invocation(script_name, module_file):
