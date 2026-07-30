@@ -754,6 +754,29 @@ did not hold that file. It is the remaining half of this item.
 
 ---
 
+## 22. `complete <short-prefix>` blames a missing record for unsupported prefix resolution. OPEN. Found 2026-07-30.
+
+Reproduced twice by the orchestrator driving the real binary while the suite was
+green. `bm_store.py complete 5b53b923 --version 1 ...` refuses with
+`refused (stale-identity): expected version 1 in a state that allows -> complete;
+found no such record`, while the record plainly exists and the full 32-character
+lifecycle uuid succeeds on the identical command. Either `complete` does not
+resolve prefixes while sibling commands do, or the refusal message is wrong about
+the cause. The message is the worse half: it tells the caller the record does not
+exist when it does. Not fixed; the session that owns `bm_store.py` next should
+decide whether prefixes belong on lifecycle commands at all, and in either case
+make the refusal name the real reason.
+
+## 23. Local tags `v2.0.0-rc.1` and `v2.0.0-rc.2` differ from the remote's. OPEN. Found 2026-07-31.
+
+`git fetch origin --tags` refuses both with "would clobber existing tag", which
+means the local and remote tag objects for those two names point at different
+things. rc.1 is withdrawn and rc.2 superseded, so nothing current depends on
+either, but a tag whose meaning depends on which clone you ask is exactly the
+drift the release-truth work exists to kill. A session with the founder present
+should compare `git rev-list -n1` for each side and re-point the LOCAL tags to
+match the remote, which is the published truth.
+
 ## What is genuinely finished
 
 All 17 findings of the second audit are closed in code, with CI green on Linux,
