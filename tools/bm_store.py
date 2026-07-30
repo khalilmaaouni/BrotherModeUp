@@ -73,7 +73,7 @@ import sys
 import unicodedata
 import uuid
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
@@ -1198,9 +1198,16 @@ _TABLES_NOTES = ("notes",)
 
 _TABLES_V7 = _TABLES_V6 + _TABLES_NOTES
 
+# Schema 8 adds NO table: it adds ONE column to notes (notes.anchor_line_hash,
+# phase C of the same spec). It still needs its own entry, for the same reason
+# schema 6 needed one: _TABLES is looked up by SCHEMA_VERSION and a missing key
+# is an import-time KeyError. Sharing the schema-7 tuple by name rather than
+# copying it keeps the two versions provably identical in what must be present.
+_TABLES_V8 = _TABLES_V7
+
 _TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3,
                       4: _TABLES_V4, 5: _TABLES_V5, 6: _TABLES_V6,
-                      7: _TABLES_V7}
+                      7: _TABLES_V7, 8: _TABLES_V8}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -1620,6 +1627,32 @@ CREATE INDEX IF NOT EXISTS notes_open_alert_idx
 _NOTES_DDL_STATEMENTS = _split_ddl(_NOTES_DDL)
 _NOTES_INDEX_STATEMENTS = _split_ddl(_NOTES_INDEX_DDL)
 
+# Schema 8, phase C. ONE additive column: the fingerprint of the source line a
+# file anchor points at, taken when the note was written.
+#
+# WHY IT EXISTS. Section 6 requires that a note anchored to a line that has
+# SINCE MOVED be reported rather than silently dropped, and a line number alone
+# cannot answer that question: line 5 of a file that still has 200 lines
+# resolves to whatever sits at line 5 now, so a reviewer reads a note about code
+# that has moved elsewhere as though it described the code in front of them.
+# Reproduced against a real store before this column existed: a note anchored at
+# api/pay.py:99 in a six line file was accepted, listed and rendered, and no
+# command ever mentioned that the line did not exist.
+#
+# WHY A HASH RATHER THAN THE LINE ITSELF. Two reasons, in this order. The
+# column would otherwise hold source text, which is the kind of content the
+# export policy has to withhold, and the name chosen here ends in _hash, so
+# export_column withholds it BY SHAPE with no list to remember (see
+# _DUMP_DIGEST_SUFFIXES). And a fingerprint is all the resolver needs: it can
+# say "still there", "now at line 41" or "no longer in the file" from a digest
+# alone, which is exactly what a reviewer has to be told.
+#
+# DEFAULT ''. An empty fingerprint means "not recorded" (a note written before
+# schema 8, a whole-file anchor with no line, or an anchored line that was
+# blank), and bm_learning.resolve_anchor_line reports that state as
+# unverifiable rather than pretending the anchor was checked.
+_NOTES_V8_COLUMN = ("anchor_line_hash", "TEXT NOT NULL DEFAULT ''")
+
 NOTE_KINDS = ("insight", "alert", "question", "review", "todo", "risk")
 NOTE_SEVERITIES = ("", "info", "warning", "critical")
 NOTE_AUTHOR_KINDS = ("founder", "assistant", "human")
@@ -1883,6 +1916,37 @@ def _migrate_6_to_7(conn):
         conn.execute(statement)
 
 
+def _migrate_7_to_8(conn):
+    """Schema 7 to 8: add notes.anchor_line_hash. ADDITIVE ONLY.
+
+    One ALTER TABLE ADD COLUMN with a NOT NULL DEFAULT, which SQLite performs
+    without rewriting a row and which cannot lose data: every existing note
+    keeps every field it had and arrives with an empty fingerprint, reported as
+    unverifiable rather than as a checked anchor.
+
+    GUARDED ON PRAGMA table_info rather than assumed absent, because this step
+    also runs from _ensure_schema for a brand new store, where the column may
+    already be there: ADD COLUMN on an existing name is a hard sqlite3 error and
+    a fresh store would refuse to open. The guard is what lets one text serve
+    both paths, which is the rule every migration above follows.
+
+    Same contract as every migration before it: it runs inside the caller's
+    BEGIN EXCLUSIVE, so it must never commit, roll back, or open a transaction
+    of its own (see _split_ddl).
+
+    What it deliberately does NOT do: it does not open a single source file to
+    backfill a fingerprint for an existing note. The file has had every
+    opportunity to change since the note was written, so a fingerprint taken now
+    would record TODAY's line as the anchored one and permanently destroy the
+    only fact that could have proved the line moved. An empty fingerprint says
+    "unknown", which is true; a backfilled one would say "unmoved", which would
+    be a guess wearing evidence's clothes."""
+    have = {r[1] for r in conn.execute("PRAGMA table_info(notes)").fetchall()}
+    name, decl = _NOTES_V8_COLUMN
+    if name not in have:
+        conn.execute("ALTER TABLE notes ADD COLUMN %s %s" % (name, decl))
+
+
 _MIGRATIONS = {
     1: _migrate_1_to_2,
     2: _migrate_2_to_3,
@@ -1890,6 +1954,7 @@ _MIGRATIONS = {
     4: _migrate_4_to_5,
     5: _migrate_5_to_6,
     6: _migrate_6_to_7,
+    7: _migrate_7_to_8,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -3362,6 +3427,11 @@ class Store(object):
             # Same rule as every step above: the migration step is the ONE text,
             # run here for a fresh store and by _migrate_from for an old one.
             _migrate_6_to_7(self.conn)
+        if SCHEMA_VERSION >= 8:
+            # Same rule again. _migrate_7_to_8 checks PRAGMA table_info before
+            # its ALTER TABLE precisely so this call is safe on a store that was
+            # just created with the column already present.
+            _migrate_7_to_8(self.conn)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -4946,16 +5016,128 @@ class Store(object):
                 raise OwnershipRefused(
                     "bad-anchor-line",
                     "line numbers start at 1; got %d" % anchor_line)
+        line_hash = ""
+        if anchor_type == "file" and anchor_line is not None:
+            line_hash = self._anchor_fingerprint(key, anchor_line)
         nuuid = uuid.uuid4().hex
         with self._transaction():
             _exec(self,
                   "INSERT INTO notes (note_uuid, kind, severity, author, "
                   "author_kind, anchor_type, anchor_key, anchor_line, body, "
-                  "session_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                  "session_id, created_at, anchor_line_hash) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                   (nuuid, kind, severity, redact_text(author.strip()),
                    author_kind, anchor_type, key, anchor_line,
-                   redact_text(body), session_id or "", now_iso()))
+                   redact_text(body), session_id or "", now_iso(), line_hash))
         return self.get_note(nuuid)
+
+    def _anchor_lines(self, rel):
+        """The lines of one project file with no trailing newlines, or None when
+        the file cannot be read.
+
+        None rather than an exception, because both callers want the same answer
+        for an unreadable file and neither wants a traceback: add_note reports it
+        as an unfingerprintable anchor, and note_anchor_reports reports it as an
+        anchor a reader has to go and check by hand.
+
+        safe_project_path, not os.path.join, for the reason recorded on that
+        function: a joined path follows a symlink out of the project silently,
+        and this one is built from a string a note author typed."""
+        try:
+            full = safe_project_path(self.root, rel)
+        except (OwnershipRefused, ValueError, OSError):
+            return None
+        try:
+            with open(full, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except (OSError, UnicodeError):
+            return None
+        lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        # A file ending in a newline splits to a final empty string, which is not
+        # a line any editor shows and not a line anybody can anchor to. Dropped
+        # after a probe against a real store reported a six line file as having
+        # seven, which would have let a note anchor to a line that does not exist
+        # and made every reported line count wrong by one.
+        if lines and lines[-1] == "":
+            lines.pop()
+        return lines
+
+    def _anchor_fingerprint(self, rel, line):
+        """The fingerprint of the line a file anchor points at, at write time.
+
+        AN OUT OF RANGE LINE IS REFUSED HERE, and that is the same correction
+        phase A's fix round made for identifier anchors. Reproduced against a
+        real store before this existed: `note --anchor file:api/pay.py --line 99`
+        on a six line file was accepted, listed by `notes`, and rendered into the
+        documentation as an ordinary anchored note. Nobody was ever told the line
+        did not exist, and there is nothing a reader can do with a note pointing
+        at a line that was never there.
+
+        A file that cannot be read is NOT refused. A note about a file that this
+        process cannot open (generated later, held in another worktree, unreadable
+        permissions) is still a note worth keeping, so it is stored with an empty
+        fingerprint and reported as unverifiable. The difference between the two
+        cases is knowledge: an out of range line is a fact about a file we read,
+        while an unreadable file tells us nothing at all."""
+        lines = self._anchor_lines(rel)
+        if lines is None:
+            return ""
+        if line > len(lines):
+            raise OwnershipRefused(
+                "anchor-line-out-of-range",
+                "%s has %d line(s), so there is no line %d to anchor a note to. "
+                "A note nobody can follow to a line is a note nobody can act "
+                "on: check the line number, or drop --line to anchor the note "
+                "to the whole file." % (rel, len(lines), line))
+        return _learning().anchor_line_digest(lines[line - 1])
+
+    def note_anchor_reports(self, notes=None):
+        """Where every file-anchored note's line is NOW. A REPORT, never a
+        deletion (spec section 6: a note anchored to a line that has since moved
+        is reported rather than silently dropped).
+
+        One implementation, called by the documentation engine and by the gate
+        packs, for the same reason blocking_alerts is one implementation: two
+        renderers computing this separately would eventually disagree about
+        whether a reviewer is looking at the right line, and the disagreement
+        would be invisible.
+
+        Files are read ONCE each however many notes point at them, because a
+        project with a hundred notes on one module should not read it a hundred
+        times.
+
+        Returns one dict per file-anchored note carrying a line number, ordered
+        problems first (see bm_learning.ANCHOR_STATES) then oldest first, so a
+        reader meets the anchors that no longer resolve before the ones that do.
+        A note with no line, or anchored to something other than a file, is not
+        in the report at all: there is no line to have moved."""
+        L = _learning()
+        rows = self.list_notes() if notes is None else notes
+        cache = {}
+        out = []
+        for note in rows:
+            if note["anchor_type"] != "file" or not note["anchor_line"]:
+                continue
+            rel = note["anchor_key"]
+            if rel not in cache:
+                cache[rel] = self._anchor_lines(rel)
+            found = L.resolve_anchor_line(cache[rel], note["anchor_line"],
+                                          note.get("anchor_line_hash") or "")
+            entry = dict(found)
+            entry["note_uuid"] = note["note_uuid"]
+            entry["id"] = note["note_uuid"][:8]
+            entry["kind"] = note["kind"]
+            entry["severity"] = note["severity"]
+            entry["author"] = note["author"]
+            entry["path"] = rel
+            entry["created_at"] = note["created_at"]
+            entry["resolved"] = bool(note["resolved_at"])
+            entry["problem"] = found["state"] in L.ANCHOR_PROBLEM_STATES
+            out.append(entry)
+        order = {state: i for i, state in enumerate(L.ANCHOR_STATES)}
+        out.sort(key=lambda e: (-order.get(e["state"], 0), e["created_at"],
+                                e["note_uuid"]))
+        return out
 
     # The resolvers an identifier anchor is checked against. One entry per
     # anchor type that HAS an identity in the schema, so a new anchor type

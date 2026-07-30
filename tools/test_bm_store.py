@@ -816,6 +816,17 @@ class TestFixRoundGates(unittest.TestCase):
                                "above: a CREATE TABLE failing mid-migration "
                                "must roll the caller's transaction back, not "
                                "move the founder's store aside",
+            "_migrate_7_to_8": "a schema migration step, run INSIDE the "
+                               "caller's BEGIN EXCLUSIVE. Same exemption and "
+                               "same reason as every other _migrate_*_to_* "
+                               "above: an ALTER TABLE ADD COLUMN failing "
+                               "mid-migration must roll the caller's "
+                               "transaction back, not move the founder's store "
+                               "aside. The PRAGMA table_info probe beside it is "
+                               "schema introspection rather than data access, "
+                               "and routing it through _exec would read 'no "
+                               "such table' on a store that never reached "
+                               "schema 7 as structural damage",
             "_undelivered_handover_rows": "one sqlite_master probe asking "
                                           "whether the handovers table exists "
                                           "at all (LOOP P12). Routing it "
@@ -10782,6 +10793,302 @@ class TestCriticalAlertsRefuseAnApproval(unittest.TestCase):
                 self.assertEqual(ctx.exception.reason, "unresolved-critical-alert")
                 self.assertIn("work record %s" % rec.lifecycle_uuid[:8],
                               str(ctx.exception))
+
+
+class TestSchema8Migration(unittest.TestCase):
+    """Schema 7 to 8: one additive column on notes (anchor_line_hash).
+
+    Phase C of the 2026-07-30 documentation and gate-pack spec, section 6, and
+    I8: additive, atomic, fixtures built from a real store, and a known older
+    version migrates rather than quarantines."""
+
+    def _schema7_store(self, d):
+        """A real store with a real note, stripped back to the schema-7 shape.
+
+        The notes table is rebuilt from bm_store's OWN phase A DDL text rather
+        than from a copy typed here, so the fixture cannot drift from what a
+        schema-7 store actually looked like, and the note's every other field is
+        carried across so the migration is tested against a POPULATED table
+        (an empty one would pass an ALTER TABLE that lost every row)."""
+        with bs.Store(d) as store:
+            rec = store.claim("payments", "persistent", objective="build payments",
+                              files=["api/pay.py"], session_id="sessA")
+            store.add_note(kind="risk", severity="warning",
+                           body="the refund path has no idempotency key",
+                           author="Dana", author_kind="human",
+                           anchor_type="record", anchor_key=rec.lifecycle_uuid)
+        path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        try:
+            keep = [dict(r) for r in conn.execute("SELECT * FROM notes")]
+            self.assertTrue(keep, "the fixture must carry a real note")
+            cols = [c for c in keep[0] if c != "anchor_line_hash"]
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("DROP TABLE notes")
+            for statement in bs._NOTES_DDL_STATEMENTS:
+                conn.execute(statement)
+            for statement in bs._NOTES_INDEX_STATEMENTS:
+                conn.execute(statement)
+            for row in keep:
+                conn.execute(
+                    "INSERT INTO notes (%s) VALUES (%s)"
+                    % (",".join(cols), ",".join("?" * len(cols))),
+                    tuple(row[c] for c in cols))
+            conn.execute("UPDATE meta SET value='7' WHERE key='schema_version'")
+            conn.execute("COMMIT")
+        finally:
+            conn.close()
+        return path
+
+    def _columns(self, path, table):
+        conn = sqlite3.connect(path)
+        try:
+            return {r[1] for r in conn.execute("PRAGMA table_info(%s)" % table)}
+        finally:
+            conn.close()
+
+    def test_the_fixture_really_is_missing_the_column(self):
+        """Calibration for every test below: if the fixture already had the
+        column, all of them would pass without the migration existing."""
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema7_store(d)
+            self.assertNotIn("anchor_line_hash", self._columns(path, "notes"))
+
+    def test_a_schema7_store_migrates_instead_of_being_quarantined(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema7_store(d)
+            with bs.Store(d) as store:
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT value FROM meta WHERE key='schema_version'"
+                    ).fetchone()["value"], str(bs.SCHEMA_VERSION))
+            self.assertIn("anchor_line_hash", self._columns(path, "notes"))
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")), [],
+                "a healthy schema-7 store must MIGRATE, never be quarantined")
+
+    def test_the_migration_keeps_every_note_and_every_field(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._schema7_store(d)
+            with bs.Store(d) as store:
+                notes = store.list_notes()
+            self.assertEqual(len(notes), 1)
+            self.assertEqual(notes[0]["body"],
+                             "the refund path has no idempotency key")
+            self.assertEqual(notes[0]["author"], "Dana")
+            self.assertEqual(notes[0]["kind"], "risk")
+            self.assertEqual(
+                notes[0]["anchor_line_hash"], "",
+                "an existing note must arrive with NO fingerprint. A backfilled "
+                "one would claim today's line was the anchored line and destroy "
+                "the only fact that could prove the line moved.")
+
+    def test_the_migration_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._schema7_store(d)
+            with bs.Store(d):
+                pass
+            with bs.Store(d) as store:
+                self.assertEqual(len(store.list_notes()), 1)
+
+    def test_a_fresh_store_has_the_column(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d):
+                pass
+            path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+            self.assertIn("anchor_line_hash", self._columns(path, "notes"))
+
+
+class TestAnchoredLinesAreReportedNeverDropped(unittest.TestCase):
+    """Spec section 6: a note anchored to a line that has since moved is
+    REPORTED, never silently dropped, and nothing a generator writes deletes a
+    note."""
+
+    SOURCE = ("def pay():\n    return 1\n\n\ndef refund():\n    return 2\n")
+
+    def _project(self, d, source=None):
+        os.makedirs(os.path.join(d, "api"))
+        self._write(d, source or self.SOURCE)
+        return bs.Store(d)
+
+    def _write(self, d, source):
+        with io.open(os.path.join(d, "api", "pay.py"), "w",
+                     encoding="utf-8") as fh:
+            fh.write(source)
+
+    def _note(self, store, line=5, kind="risk"):
+        return store.add_note(kind=kind, severity="warning",
+                              body="the refund path has no idempotency key",
+                              author="Dana", author_kind="human",
+                              anchor_type="file", anchor_key="api/pay.py",
+                              anchor_line=line)
+
+    def test_an_out_of_range_line_is_refused_at_the_door(self):
+        """Reproduced against a real store before this guard existed: `note
+        --anchor file:api/pay.py --line 99` on a six line file was accepted,
+        listed and rendered, and no command ever said the line did not exist."""
+        with tempfile.TemporaryDirectory() as d:
+            store = self._project(d)
+            try:
+                # SELF DIAGNOSING, after one unreproduced failure of this test
+                # during the phase C round (nine reruns and forty runs of this
+                # class did not repeat it). The refusal below can only happen if
+                # the store could READ the file: an unreadable file is
+                # deliberately not refused, it is stored with no fingerprint and
+                # reported as unverifiable. Asserting readability first means a
+                # future failure says which of the two broke instead of leaving
+                # a bare "OwnershipRefused not raised" to guess at.
+                self.assertEqual(len(store._anchor_lines("api/pay.py")), 6,
+                                 "the store must be able to read the fixture "
+                                 "file for the range check to run at all")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    self._note(store, line=99)
+                self.assertEqual(ctx.exception.reason,
+                                 "anchor-line-out-of-range")
+                self.assertIn("6 line(s)", str(ctx.exception))
+                self.assertEqual(store.list_notes(), [],
+                                 "a refused note must not be stored")
+            finally:
+                store.close()
+
+    def test_a_whole_file_anchor_needs_no_line_and_is_not_reported(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = self._project(d)
+            try:
+                store.add_note(kind="insight", body="this module is the money path",
+                               author="Dana", author_kind="human",
+                               anchor_type="file", anchor_key="api/pay.py")
+                self.assertEqual(store.note_anchor_reports(), [],
+                                 "a note with no line has no line to have moved")
+            finally:
+                store.close()
+
+    def test_an_unmoved_line_resolves(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = self._project(d)
+            try:
+                self._note(store)
+                found = store.note_anchor_reports()
+                self.assertEqual(len(found), 1)
+                self.assertEqual(found[0]["state"], "resolves")
+                self.assertEqual(found[0]["now_line"], 5)
+                self.assertFalse(found[0]["problem"])
+            finally:
+                store.close()
+
+    def test_a_moved_line_is_reported_with_where_it_went(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = self._project(d)
+            try:
+                note = self._note(store)
+                self._write(d, '"""money"""\nimport json\n\n\n' + self.SOURCE)
+                found = store.note_anchor_reports()
+                self.assertEqual(len(found), 1)
+                self.assertEqual(found[0]["state"], "moved")
+                self.assertEqual(found[0]["line"], 5)
+                self.assertEqual(found[0]["now_line"], 9)
+                self.assertTrue(found[0]["problem"])
+                self.assertIn("moved from line 5 to line 9", found[0]["why"])
+                self.assertEqual(
+                    [n["note_uuid"] for n in store.list_notes()],
+                    [note["note_uuid"]],
+                    "reporting a moved anchor must not touch the note")
+            finally:
+                store.close()
+
+    def test_a_deleted_line_is_reported_gone_and_the_note_survives(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = self._project(d)
+            try:
+                self._note(store)
+                self._write(d, "def pay():\n    return 1\n")
+                found = store.note_anchor_reports()
+                self.assertEqual(found[0]["state"], "gone")
+                self.assertIsNone(found[0]["now_line"])
+                self.assertEqual(len(store.list_notes()), 1,
+                                 "nothing deletes a note")
+            finally:
+                store.close()
+
+    def test_an_unreadable_file_is_reported_not_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = self._project(d)
+            try:
+                self._note(store)
+                os.remove(os.path.join(d, "api", "pay.py"))
+                found = store.note_anchor_reports()
+                self.assertEqual(found[0]["state"], "file-missing")
+                self.assertTrue(found[0]["problem"])
+            finally:
+                store.close()
+
+    def test_a_note_written_against_an_unreadable_file_is_kept(self):
+        """The other direction: a note about a file this process cannot open is
+        still a note worth keeping, stored with no fingerprint and reported as
+        unverifiable rather than refused."""
+        with tempfile.TemporaryDirectory() as d:
+            store = self._project(d)
+            try:
+                note = store.add_note(
+                    kind="todo", body="this file does not exist yet",
+                    author="Dana", author_kind="human", anchor_type="file",
+                    anchor_key="api/not_written_yet.py", anchor_line=12)
+                self.assertEqual(note["anchor_line_hash"], "")
+                self.assertEqual(store.note_anchor_reports()[0]["state"],
+                                 "file-missing")
+            finally:
+                store.close()
+
+    def test_reindentation_is_not_reported_as_a_move(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = self._project(d)
+            try:
+                self._note(store, line=6)
+                self._write(d, "def pay():\n    return 1\n\n\n"
+                               "def refund():\n        return 2\n")
+                self.assertEqual(store.note_anchor_reports()[0]["state"],
+                                 "resolves")
+            finally:
+                store.close()
+
+    def test_a_resolved_note_stays_resolved_and_stays_in_the_report(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = self._project(d)
+            try:
+                note = self._note(store)
+                store.resolve_note(note["note_uuid"][:8], "the key landed")
+                self._write(d, "def pay():\n    return 1\n")
+                found = store.note_anchor_reports()
+                self.assertEqual(len(found), 1)
+                self.assertTrue(found[0]["resolved"])
+                self.assertEqual(found[0]["state"], "gone")
+                self.assertEqual(store.list_notes()[0]["resolution"],
+                                 "the key landed")
+            finally:
+                store.close()
+
+    def test_problems_sort_in_front_of_resolving_anchors(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = self._project(d)
+            try:
+                self._note(store, line=1, kind="insight")
+                self._note(store, line=5)
+                self._write(d, '"""money"""\n\n\n' + self.SOURCE)
+                states = [f["state"] for f in store.note_anchor_reports()]
+                self.assertEqual(states, ["moved", "moved"])
+            finally:
+                store.close()
+
+    def test_the_fingerprint_is_withheld_from_an_ordinary_export(self):
+        """I9. The fingerprint is named *_hash so export_column withholds it BY
+        SHAPE, and the body a person typed is withheld by default-deny."""
+        self.assertTrue(
+            bs.export_column("notes", "anchor_line_hash", "a" * 64)
+            .startswith("[WITHHELD:"))
+        self.assertTrue(
+            bs.export_column("notes", "body", "the refund path double charges")
+            .startswith("[WITHHELD:"))
 
 
 if __name__ == "__main__":
