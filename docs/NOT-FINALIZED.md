@@ -46,7 +46,7 @@ reference is prose a caller types. Neither authenticates WHICH human answered.
 Anyone who can run `grant-approval` can mint a receipt and type a reference.
 PARTIAL.
 
-## P7 (found in passing, NOT this loop's code): the loop-close gate flakes 1 run in 16. OPEN.
+## P7 (found in passing, NOT this loop's code): the loop-close gate flakes 1 run in 16. CLOSED 2026-07-31 (Loop 2).
 
 `test_bm_store.py::TestPostAuditLoop3ApprovalReceipts::
 test_a_forged_token_refuses_and_says_nothing_useful_to_a_guesser` forges a token
@@ -58,10 +58,12 @@ elsewhere, and both times green on the next run.
 
 It is a defect in the test, not in the receipts: the fix is to forge a character
 that cannot collide, for example flipping the last character between "0" and "1"
-based on what it already is. Left untouched here deliberately, because that file
-region belongs to another loop and a green-looking gate is worth less than an
-honest note. Anyone reading a single red run of that test should re-run before
-believing it. OPEN.
+based on what it already is.
+
+CLOSED 2026-07-31 by Loop 2, using exactly that fix: the last character now flips
+between "0" and "1" based on what it already is, so the forged token can never
+equal the real one. Proven by running the single test 100 consecutive times with
+no failure.
 
 ## P7: the FTS5 fast path ships DISABLED by default. DEFERRED, deliberately.
 
@@ -778,15 +780,58 @@ the record it could not find. Three tests, including a calibration that drives
 `transition()` with a raw prefix and confirms the original misleading refusal
 still reproduces at that layer.
 
-## 23. Local tags `v2.0.0-rc.1` and `v2.0.0-rc.2` differ from the remote's. OPEN. Found 2026-07-31.
+## 23. The two oldest published tags are lightweight, not annotated. OPEN (low impact). Found 2026-07-31, and this entry's first version was WRONG.
 
-`git fetch origin --tags` refuses both with "would clobber existing tag", which
-means the local and remote tag objects for those two names point at different
-things. rc.1 is withdrawn and rc.2 superseded, so nothing current depends on
-either, but a tag whose meaning depends on which clone you ask is exactly the
-drift the release-truth work exists to kill. A session with the founder present
-should compare `git rev-list -n1` for each side and re-point the LOCAL tags to
-match the remote, which is the published truth.
+CORRECTED the same day, before anyone acted on it. The first version of this
+entry said the local and remote tags "point at different things" and proposed
+re-pointing the local ones. That was wrong, and acting on it would have
+DESTROYED information. Checked rather than assumed:
+
+    remote v2.0.0-rc.1 -> 7c2e0ec   (no ^{} line: LIGHTWEIGHT)
+    local  v2.0.0-rc.1 -> tag object ea0ca74 -> commit 7c2e0ec  (ANNOTATED)
+    remote v2.0.0-rc.2 -> 2aef6a4   (no ^{} line: LIGHTWEIGHT)
+    local  v2.0.0-rc.2 -> tag object 09224c7 -> commit 2aef6a4  (ANNOTATED)
+
+Both names resolve to the SAME COMMIT on both sides. `git fetch --tags` refuses
+with "would clobber existing tag" because the ref points at a tag OBJECT locally
+and at a COMMIT on the remote, which is a difference in representation, not in
+meaning. The local copies carry more information, so re-pointing them at the
+remote would lose the annotation for nothing.
+
+THE REAL FINDING, smaller than the one first recorded: `docs/RELEASE.md` requires
+release tags to be annotated ("annotated, not lightweight, as the steps below
+require"), and the two OLDEST published tags do not meet that rule. `rc.4`,
+`rc.6` and `rc.7` all do (each shows a `^{}` line on the remote). Impact is low:
+`rc.1` is withdrawn and `rc.2` superseded, so nothing current depends on either,
+and a lightweight tag still names the right commit. Left OPEN rather than fixed
+because correcting it means force-updating two published refs, which is the act
+this project refuses to perform on its own initiative.
+
+The lesson is the entry itself: it was written from a fetch warning rather than
+from a comparison, and the comparison took one command.
+
+## 24. The two intermittent failures from the 2026-07-30 handover could NOT be reproduced. UNDECIDABLE, 2026-07-31.
+
+The handover named two flakes and asked for deterministic interleaves rather than
+retries. Neither could be reproduced tonight, and neither is claimed fixed.
+
+**Handover item 9, "the store suite fails when it runs slowly."** The recorded
+correlate was 71 seconds for a failing run against 12 to 13 for a passing one. The
+store suite was run three times under deliberate CPU load (four busy processes),
+which slowed it from about 21 seconds to about 32: `Ran 660 tests ... OK` all three
+times. It also ran inside roughly fifteen full-gate runs across this session with no
+occurrence. That is evidence of absence at THIS load on THIS machine, not proof the
+defect is gone, and 32 seconds is well short of the 71 recorded.
+
+**Handover item 10**, named as
+`test_calibrated_without_the_lock_the_same_pair_duplicates_the_handover`, DOES NOT
+EXIST in the tree under that name, and `tools/test_bm_store.py` contains no
+`threading.Thread` at all, so the deliberate two-thread race it describes is not in
+that suite now. Either it was renamed or removed between the handover and today.
+
+Recorded as UNDECIDABLE rather than closed. Anyone seeing a single red run of the
+store suite should re-run before believing it, and should capture the failing test
+name, which the CI annotation wrapper added today now does automatically.
 
 ## What is genuinely finished
 
