@@ -7,11 +7,23 @@ person was not sure about.
 
 ## rc.4 merge: what the merged tree does NOT prove
 
-- **A gate corpus is not bounded by your limit.** Every applicable gate is
-  returned at every limit, deliberately, so a limit can never hide a safety
-  rule. The cost is that a store with many gates returns all of them on every
-  query, most at relevance 0.0. Reproduced with twelve gates; recorded in
-  `docs/NOT-FINALIZED.md` under the rc.4 merge entry.
+- **A gate corpus is not bounded by your limit, and since 2026-07-30 (Loop 3) its
+  full TEXT is.** Every applicable gate is still returned at every limit,
+  deliberately, so a limit can never hide a safety rule. What changed is that gates
+  are no longer all printed in full: every applicable gate appears in a compact,
+  deterministic, hashed manifest, and full text is expanded only when the trigger
+  matches, the scope is narrow and matched, the query reaches the gate's own action
+  text, or the caller names the gate by ID. Ambient expansions are capped at
+  `GATE_EXPANSION_CAP = 5` per call; an explicit `--expand <id>` is never capped,
+  because withholding a gate the caller named would be the same hiding this project
+  refuses to do for `limit`. Measured on a 20-gate store: 5722 characters before,
+  1849 after.
+
+  Two honest costs. At ONE gate the manifest's fixed header and footer make the
+  output slightly LARGER than the old behaviour (524 characters against 454); the
+  saving only begins past roughly two gates. And `GATE_EXPANSION_CAP` is a hardcoded
+  constant, tunable by neither flag nor environment variable, so a founder who wants
+  a different bound has to edit the source.
 - **The installer is verified on macOS only** (Python 3.9.6). It is
   stdlib-only and POSIX-path-only and nothing in it is macOS-specific, but no
   Linux run has happened, so Linux is expected-to-work rather than tested.

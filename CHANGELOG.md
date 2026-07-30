@@ -2,6 +2,47 @@
 
 Unreleased, 2026-07-30: the adoption book, twelve chapters with every command executed against a throwaway project, at `docs/book/brothermode-for-dummies.html` plus a 56 page PDF export (phase D of the documentation and gate-packs spec).
 
+Unreleased, 2026-07-30: first-rank execution plan, Loop 3. Gate: `test_all: 1149 tests across 7 suites, 1 skipped, 110.8s wall. ALL GREEN`, up from 1132. Store schema 9 to 10.
+
+- Mandatory gates were safe in one direction and unsafe in the other. A limit could
+  never hide a gate, which is right, but the cost was that every applicable gate
+  printed in FULL on every query: twenty approved gates produced twenty full
+  trigger, action and why blocks at 5722 characters, most at relevance 0.0. A model
+  handed twenty irrelevant mandatory rules ignores all twenty, so unbounded
+  visibility is its own failure mode.
+
+  Every applicable gate now appears in a compact manifest, one bounded line each,
+  sorted by rule identity so it is query-independent and byte-identical across a
+  relevant and an irrelevant query, with a hash over the whole gate set so adding,
+  removing or editing a gate moves it. Full text is expanded only when the trigger
+  matches, the scope is narrow and matched, the query reaches the gate's own action
+  text, or the caller names the gate by ID. Ambient expansions are capped at
+  `GATE_EXPANSION_CAP = 5`; an explicit `--expand <id>` is never capped, because
+  withholding a gate the caller named by name would be the same hiding this project
+  already refuses to do for `limit`. Twenty gates: 5722 characters before, 1849
+  after.
+
+  Nothing is dropped from the result set. `presentation` decides what a caller SHOWS
+  for a row, never what retrieval RETURNS, and `gates_returned` and `gates_total`
+  keep the meanings they already had.
+
+  Short IDs are `"G" + rule_uuid[:8]`. The uuid is minted once at approval and never
+  reassigned, even across supersede, deprecate or forget, so an ID a human wrote
+  down does not renumber when the corpus changes. A counter would have.
+
+  Honest cost, measured and not buried: at ONE gate the manifest's fixed header and
+  footer make the output LARGER than before, 524 characters against 454. The saving
+  begins past roughly two gates and then grows at about 70 characters per gate
+  instead of 270.
+
+- Application records can now distinguish presentation from disposition.
+  `disposition` already carried followed, ignored, not_relevant and unknown; the new
+  `presentation` and `action_reached` columns add whether a gate was seen compact or
+  in full, and whether the query's own wording reached the rule's do-clause. Additive,
+  defaulting to 'unknown' for pre-migration rows, with no backfill, because a value
+  computed today would falsely claim to describe a retrieval that happened before the
+  column existed.
+
 Unreleased, 2026-07-30: first-rank execution plan, Loop 2. Gate: `test_all: 1132 tests across 7 suites, 1 skipped, 111.9s wall. ALL GREEN`, up from 1082. Store schema 8 to 9.
 
 - Five commands could alter the live rule set with no human answer anywhere, and
