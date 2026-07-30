@@ -256,8 +256,14 @@ def _d(text, limit=300):
     """Every store-derived string that reaches a document passes through here:
     control characters stripped, length capped. A newline inside an objective
     could otherwise forge a markdown heading, and a heading is structure these
-    documents are writing on purpose."""
-    return L.safe_display(text or "", limit)
+    documents are writing on purpose.
+
+    An em dash, an en dash or a look-alike becomes a plain hyphen here (I7), and
+    THIS is the place for it: the text arriving is a note body somebody else
+    typed or a source line from a file this project does not own, so the copy
+    rule cannot be met by writing carefully. Display only: the store keeps the
+    body verbatim and the file keeps its bytes."""
+    return L.plain_dashes(L.safe_display(text or "", limit))
 
 
 def _cell(text, limit=120):
@@ -1480,12 +1486,20 @@ class Generator(object):
                 "prose_rewritten_unverified": self.rewritten_unverified,
                 "human_blocks_preserved": self.preserved,
                 "notes": len(self.notes),
-                "note_anchors_checked": len(self.anchors),
+                "note_anchors_checked": self.anchors_checked(),
                 "note_anchor_problems": [
                     {"id": a["id"], "path": a["path"], "line": a["line"],
                      "state": a["state"], "now_line": a["now_line"],
                      "why": a["why"]}
                     for a in self.anchor_problems()],
+                # Separate from the count above, not folded into it: see
+                # unchecked_anchors. An anchor nobody could check is a fact a
+                # reader needs, and it is not evidence of a check.
+                "note_anchors_unchecked": [
+                    {"id": a["id"], "path": a["path"], "line": a["line"],
+                     "state": a["state"], "now_line": a["now_line"],
+                     "why": a["why"]}
+                    for a in self.unchecked_anchors()],
                 "recorded_floor_before": self.floor,
                 "tier_recorded_at": (
                     os.path.relpath(floor_path, self.root).replace("\\", "/")
@@ -1574,6 +1588,23 @@ class Generator(object):
         """The file anchors a reader has to act on: moved, gone, or in a file
         that could not be read. Reported, never dropped (spec section 6)."""
         return [a for a in self.anchors if a["problem"]]
+
+    def unchecked_anchors(self):
+        """The file anchors that were NOT checked, because no fingerprint of the
+        line was recorded when the note was written.
+
+        Counted apart from the checked ones deliberately. These anchors are not
+        problems (nothing is known to be wrong) and they are not checks either:
+        a move of one of these lines cannot be detected at all. Folding them into
+        one total made the CLI and the decision index both state that every
+        anchor had been checked against the files on disk, which for a store
+        carried over by the schema 7 to 8 migration was true of none of them."""
+        return [a for a in self.anchors
+                if a["state"] == L.ANCHOR_UNCHECKABLE_STATE]
+
+    def anchors_checked(self):
+        """How many file anchors were really compared against the file on disk."""
+        return len(self.anchors) - len(self.unchecked_anchors())
 
     def _regen(self):
         cmd = self.command()
@@ -2361,13 +2392,21 @@ class Generator(object):
                  "line number beside it.")
         w.append("")
         problems = self.anchor_problems()
+        unchecked = self.unchecked_anchors()
         if not problems:
-            checked = len(self.anchors)
+            checked = self.anchors_checked()
             if checked:
                 w.append("- none. %d file anchor(s) with a line were checked "
                          "against the files as they are on disk." % checked)
-            else:
+            elif not self.anchors:
                 w.append("- none. No note is anchored to a specific line yet.")
+            else:
+                # NOT "none, all checked". Saying nothing is wrong when nothing
+                # could be looked at is the failure this branch exists to avoid.
+                w.append("- none found, and none could be looked for: none of "
+                         "the %d file anchor(s) with a line carries a "
+                         "fingerprint. Read the paragraph below before trusting "
+                         "any line number in this folder." % len(self.anchors))
         for found in problems:
             w.append("- `%s` %s%s by %s, anchored `%s` line %d: %s"
                      % (found["id"], found["kind"],
@@ -2378,6 +2417,29 @@ class Generator(object):
             if found["now_line"]:
                 w.append("  - the line it was written about now reads: `%s`"
                          % _cell(found["text"], 160))
+        if unchecked:
+            w.append("")
+            w.append("### Anchors that could not be checked at all")
+            w.append("")
+            w.append("%d file anchor(s) below carry no fingerprint of the line "
+                     "they point at: the note was written before fingerprints "
+                     "existed, or the line it points at was blank. A move of one "
+                     "of these lines cannot be detected, so the line number "
+                     "beside the note is not evidence that the note is about the "
+                     "code now sitting there. These are counted apart from the "
+                     "checked anchors, and they are not counted as problems: "
+                     "nothing is known to be wrong with them."
+                     % len(unchecked))
+            w.append("")
+            for found in unchecked:
+                w.append("- `%s` %s%s by %s, anchored `%s` line %d: NOT CHECKED. "
+                         "%s"
+                         % (found["id"], found["kind"],
+                            " [%s]" % found["severity"] if found["severity"]
+                            else "",
+                            _d(found["author"], 60) or "unnamed",
+                            _cell(found["path"], 80), found["line"],
+                            _d(found["why"], 300)))
         w.append("")
         w.append("## Lineage")
         w.append("")
@@ -2778,8 +2840,20 @@ def cmd_generate(argv):
     # SAID OUT LOUD RATHER THAN LEFT IN A PAGE. A moved anchor is the one thing
     # in this report a reader has to go and fix, and burying it 300 lines into
     # the decision index is how it stays unfixed.
-    _out("  %d note(s), %d line anchor(s) checked against the files on disk"
-         % (report["notes"], report["note_anchors_checked"]))
+    summary = ("  %d note(s), %d line anchor(s) checked against the files on disk"
+               % (report["notes"], report["note_anchors_checked"]))
+    if report["note_anchors_unchecked"]:
+        # SAID IN THE SAME BREATH AS THE CHECKED COUNT. Printed on its own line
+        # further down, this reads as a footnote to a claim the reader has
+        # already believed.
+        summary += (", %d that could not be checked at all (no fingerprint was "
+                    "recorded for the line)"
+                    % len(report["note_anchors_unchecked"]))
+    _out(summary)
+    for found in report["note_anchors_unchecked"]:
+        _out("  ANCHOR %s: note %s at %s line %d. %s"
+             % (found["state"].upper(), found["id"], found["path"],
+                found["line"], found["why"]))
     for found in report["note_anchor_problems"]:
         _out("  ANCHOR %s: note %s at %s line %d. %s"
              % (found["state"].upper(), found["id"], found["path"],

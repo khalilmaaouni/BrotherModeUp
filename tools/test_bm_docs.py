@@ -25,6 +25,7 @@ Standard library only. Python 3.9. Reads files, writes none.
 No em or en dashes anywhere in this file or its output.
 """
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -2058,6 +2059,7 @@ class TestCollaborationLayer(unittest.TestCase):
 
     DOCS = os.path.join(HERE, "bm_docs.py")
     PACKS = os.path.join(HERE, "bm_packs.py")
+    LEARN = os.path.join(HERE, "bm_learn.py")
     SOURCE = ("\"\"\"the money path\"\"\"\n"
               "import json\n"
               "\n"
@@ -2340,6 +2342,231 @@ class TestCollaborationLayer(unittest.TestCase):
             first = self._read_doc(d, "30-decisions/INDEX.md")
             self._generate(d, "--tier", "3")
             self.assertEqual(first, self._read_doc(d, "30-decisions/INDEX.md"))
+
+    # -- I7 on text this project does not write ----------------------------
+
+    EN = chr(0x2013)
+    EM = chr(0x2014)
+
+    def _dashed_project(self, d):
+        """A project whose SOURCE and whose note body both hold a dash. This is
+        the shape the copy rule cannot reach by writing carefully: the body is
+        typed by a reviewer and the source line belongs to the project being
+        documented."""
+        bs = self._bs()
+        self._write(d, "app/pay.py",
+                    "def charge(a):\n    return a\n"
+                    "LABEL = \"total %s net of fees\"\n" % self.EM)
+        self._write(d, "tools/test_all.py", "# the gate\n")
+        store = bs.Store(d)
+        try:
+            rec = store.claim("payments", "persistent",
+                              objective="build the money path",
+                              files=["app/pay.py"], owner="Dana",
+                              session_id="sessA")
+            note = store.add_note(
+                kind="risk", severity="warning",
+                body="label copy needs review %s see design" % self.EN,
+                author="Dana, backend", author_kind="human",
+                anchor_type="file", anchor_key="app/pay.py", anchor_line=3)
+        finally:
+            store.close()
+        return rec, note
+
+    def _generated_pages(self, d):
+        root = os.path.join(d, "Documentation")
+        for base, _dirs, names in os.walk(root):
+            for name in sorted(names):
+                full = os.path.join(base, name)
+                with io.open(full, encoding="utf-8") as fh:
+                    yield os.path.relpath(full, root), fh.read()
+
+    def test_a_dash_from_a_note_or_a_source_line_never_reaches_a_page(self):
+        """I7 (spec section 3) on text that came from OUTSIDE this repository.
+
+        The suite's other dash test scans this project's own files and the older
+        generated-folder test uses a dash free fixture, so both stayed green
+        while a reviewer's en dash and a quoted source line's em dash landed
+        verbatim in INDEX.md, HANDOVER.md and CODE-MAP.md. Reproduced against a
+        real store and the real CLI before the fix.
+
+        facts.json is scanned by the same walk and passes on its own terms: it is
+        the machine record and json.dumps escapes a non-ASCII character, so the
+        bytes on disk carry no dash for a human to read."""
+        with tempfile.TemporaryDirectory() as d:
+            self._dashed_project(d)
+            self._write(d, "app/pay.py",
+                        "# a\n# b\ndef charge(a):\n    return a\n"
+                        "LABEL = \"total %s net of fees\"\n" % self.EM)
+            self._generate(d, "--tier", "3")
+            seen_body = seen_quote = False
+            for rel, text in self._generated_pages(d):
+                for i, line in enumerate(text.split("\n"), 1):
+                    for label, ch in (("en", self.EN), ("em", self.EM)):
+                        self.assertNotIn(
+                            ch, line,
+                            "%s dash on line %d of %s, carried in from a note "
+                            "body or a quoted source line" % (label, i, rel))
+                if "label copy needs review - see design" in text:
+                    seen_body = True
+                if "total - net of fees" in text:
+                    seen_quote = True
+            self.assertTrue(seen_body,
+                            "the note body has to still be rendered, with a "
+                            "hyphen, not dropped to satisfy the rule")
+            self.assertTrue(seen_quote,
+                            "the moved line has to still be quoted, with a "
+                            "hyphen, not dropped to satisfy the rule")
+
+    def test_the_store_keeps_the_authors_own_dash_untouched(self):
+        """The fix is DISPLAY only. A generator that rewrote the row would be
+        editing a human's words, which section 10 forbids outright."""
+        with tempfile.TemporaryDirectory() as d:
+            _rec, note = self._dashed_project(d)
+            self._generate(d, "--tier", "3")
+            bs = self._bs()
+            store = bs.Store(d)
+            try:
+                after = [n for n in store.list_notes()
+                         if n["note_uuid"] == note["note_uuid"]][0]
+            finally:
+                store.close()
+            self.assertIn(self.EN, after["body"])
+            with io.open(os.path.join(d, "app", "pay.py"),
+                         encoding="utf-8") as fh:
+                self.assertIn(self.EM, fh.read())
+
+    # -- I9 on the digest of an anchored line -------------------------------
+
+    def _learn(self, d, *args):
+        r = self._run(d, self.LEARN, *args)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return r.stdout
+
+    def test_the_digest_of_an_anchored_line_is_withheld_from_note_payloads(self):
+        """I9, default deny. The column is named anchor_line_hash so that
+        export_column withholds it BY SHAPE, and `bm_store dump` does. The CLI
+        --json payloads never reached that policy, so `notes --json` handed out
+        the unsalted sha256 of the anchored line while facts.json redacted the
+        line itself: a guessed value could be confirmed byte for byte.
+
+        Reproduced against a real store on a real .env before the fix."""
+        with tempfile.TemporaryDirectory() as d:
+            bs = self._bs()
+            secret = "SECRET_KEY=sk-live-DEADBEEF-founder-private"
+            self._write(d, ".env", "A=1\nB=2\n%s\n" % secret)
+            self._write(d, "tools/test_all.py", "# the gate\n")
+            store = bs.Store(d)
+            try:
+                store.claim("config", "persistent", objective="wire the config",
+                            files=[".env"], owner="Dana", session_id="sessA")
+            finally:
+                store.close()
+            digest = hashlib.sha256(secret.encode("utf-8")).hexdigest()
+            written = self._learn(d, "note", "--kind", "insight", "--anchor",
+                                  "file:.env", "--line", "3", "--body",
+                                  "check this config line", "--author", "Dana",
+                                  "--json")
+            listed = self._learn(d, "notes", "--json")
+            note_id = json.loads(written)["note_uuid"][:8]
+            resolved = self._learn(d, "resolve-note", note_id, "--because",
+                                   "the key moved to the keychain", "--json")
+            for label, payload in (("note --json", written),
+                                   ("notes --json", listed),
+                                   ("resolve-note --json", resolved)):
+                self.assertNotIn(digest, payload,
+                                 "%s hands out the sha256 of the anchored line, "
+                                 "which confirms a guess at that line byte for "
+                                 "byte" % label)
+                self.assertIn("WITHHELD", payload,
+                              "%s should say the digest was withheld rather "
+                              "than drop the field silently" % label)
+            # The body the operator just typed still comes back: this fix
+            # withholds a digest, it does not withhold the CLI's own output.
+            self.assertIn("check this config line", listed)
+
+    def test_a_review_note_payload_goes_through_the_same_withholding(self):
+        with tempfile.TemporaryDirectory() as d:
+            ids = self._project(d)
+            r = self._run(d, self.PACKS, "review", ids["candidate"][:8],
+                          "--by", "Priya", "--verdict", "approve",
+                          "--notes", "the money path is fine", "--json")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            payload = json.loads(r.stdout)
+            self.assertIn("anchor_line_hash", payload,
+                          "the field stays in the payload; only its value is "
+                          "subject to the policy")
+            self.assertEqual(payload["anchor_line_hash"], "",
+                             "a candidate anchor has no line to fingerprint")
+
+    # -- an anchor nobody could check is not a checked anchor ---------------
+
+    def _blank_line_note(self, d):
+        bs = self._bs()
+        store = bs.Store(d)
+        try:
+            return store.add_note(
+                kind="risk", severity="warning", body="blank line anchor",
+                author="Eve, data", author_kind="human", anchor_type="file",
+                anchor_key="app/pay.py", anchor_line=3)["note_uuid"]
+        finally:
+            store.close()
+
+    def test_an_anchor_with_no_fingerprint_is_never_counted_as_checked(self):
+        """Spec section 6 plus honest output. An anchor with no fingerprint
+        resolves to state unverifiable with problem False, so it reached no
+        human-facing page at all and BOTH the CLI summary and INDEX.md asserted
+        it had been checked against the files on disk. Every note carried over by
+        the schema 7 to 8 migration is in exactly this state, so on any
+        pre-existing store the index claimed every prior anchor was checked when
+        none of them could be."""
+        with tempfile.TemporaryDirectory() as d:
+            self._project(d)
+            # Line 3 of SOURCE is blank, so anchor_line_digest returns '' and
+            # nothing can ever detect a move of that line.
+            note = self._blank_line_note(d)
+            report = self._generate(d, "--tier", "3")
+            self.assertIn("could not be checked at all", report.stdout)
+            self.assertIn("ANCHOR UNVERIFIABLE", report.stdout)
+            self.assertIn("1 line anchor(s) checked", report.stdout,
+                          "the one real anchor is still counted as checked")
+            facts = self._facts(d)
+            unchecked = [a for a in facts["note_anchors"]
+                         if a["state"] == "unverifiable"]
+            self.assertEqual(len(unchecked), 1)
+            text = self._read_doc(d, "30-decisions/INDEX.md")
+            head = text.index("## Anchors that no longer resolve")
+            section = text[head:text.index("## Lineage")]
+            self.assertIn("### Anchors that could not be checked at all",
+                          section)
+            self.assertIn(note[:8], section)
+            self.assertIn("NOT CHECKED", section)
+            self.assertNotIn("2 file anchor(s) with a line were checked",
+                             section,
+                             "an anchor that could not be looked at is not an "
+                             "anchor that was checked")
+
+    def test_a_store_where_no_anchor_can_be_checked_says_so(self):
+        """The migrated-store shape: nothing verifiable at all. The old wording
+        would have said none, every anchor checked."""
+        with tempfile.TemporaryDirectory() as d:
+            bs = self._bs()
+            self._write(d, "app/pay.py", "alpha\nbeta\n\ngamma\n")
+            self._write(d, "tools/test_all.py", "# the gate\n")
+            store = bs.Store(d)
+            try:
+                store.claim("payments", "persistent", objective="the path",
+                            files=["app/pay.py"], owner="Dana",
+                            session_id="sessA")
+            finally:
+                store.close()
+            self._blank_line_note(d)
+            report = self._generate(d, "--tier", "3")
+            self.assertIn("0 line anchor(s) checked", report.stdout)
+            section = self._read_doc(d, "30-decisions/INDEX.md")
+            self.assertIn("none found, and none could be looked for", section)
+            self.assertNotIn("were checked against the files as they are on "
+                             "disk", section)
 
 
 class TestNoDashes(unittest.TestCase):

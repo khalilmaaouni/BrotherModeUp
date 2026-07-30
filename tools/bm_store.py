@@ -2258,6 +2258,35 @@ def export_column(table, column, value):
         return mask_absolute_paths(redact_text(value))
     return withheld_marker(value)
 
+
+def withhold_digest_columns(table, row):
+    """One store row as a CLI's --json may print it, with every digest-shaped
+    column run through export_column. Pure; returns a new dict.
+
+    WHY THIS EXISTS BESIDE export_column RATHER THAN INSTEAD OF IT. dump() renders
+    whole rows and passes every column through the full policy. A CLI's --json
+    prints ONE entity to the operator who just typed the command, so it
+    deliberately shows columns dump withholds: a note's body is the text that
+    operator typed a second earlier, and withholding it there would send people
+    to --raw and lose the whole policy. The DIGEST rule is the one part that must
+    hold on that surface too, because a digest is unreadable and therefore
+    useless as diagnostics, while an unsalted digest of a line of a file is a
+    confirmation oracle for text every other surface redacts.
+
+    FIX ROUND P2, 2026-07-30, reproduced against a real store before this
+    existed: `bm_store dump` printed notes.anchor_line_hash as
+    "[WITHHELD: 64-char digest]" while `bm_learn notes --json` two commands away
+    printed the exact sha256 of the anchored line, so a note anchored at
+    .env line 3 handed out a byte for byte check on the value of
+    SECRET_KEY=... that facts.json redacts. The column was named with a _hash
+    suffix precisely so the shape rule would cover it; this is the surface where
+    the shape rule was never reached."""
+    out = dict(row)
+    for column in list(out):
+        if column.endswith(_DUMP_DIGEST_SUFFIXES):
+            out[column] = export_column(table, column, out[column])
+    return out
+
 _DUMP_SAFE_COLUMNS = frozenset((
     ("meta", "key"), ("meta", "value"),
     ("records", "lifecycle_uuid"), ("records", "lifetime"),

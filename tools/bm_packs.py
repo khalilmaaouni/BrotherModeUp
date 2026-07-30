@@ -1196,7 +1196,13 @@ def cmd_review(argv):
     finally:
         store.close()
     if kv.get("json"):
-        _out(json.dumps(note, indent=2, sort_keys=True))
+        # Digest-shaped columns withheld by the one policy (I9), the same as
+        # every other note payload a CLI prints. A review note is anchored to a
+        # candidate and so carries no line fingerprint today; routing it anyway
+        # means the next digest column on notes is covered here the day it
+        # exists rather than the day somebody remembers this surface.
+        _out(json.dumps(bs.withhold_digest_columns("notes", note),
+                        indent=2, sort_keys=True))
         return 0
     _out("review %s recorded against candidate %s"
          % (note["note_uuid"][:8], cand["candidate_uuid"][:8]))

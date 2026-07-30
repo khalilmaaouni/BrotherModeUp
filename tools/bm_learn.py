@@ -1635,6 +1635,18 @@ def _anchor(spec):
     return atype.strip(), key.strip()
 
 
+def _note_payload(n):
+    """One note row as --json prints it: the digest-shaped columns withheld by
+    bm_store.withhold_digest_columns, which is the one withholding policy (I9).
+
+    Presentation only, which is why it lives here. Reproduced against a real
+    store before this existed: `notes --json` printed notes.anchor_line_hash in
+    full, the unsalted sha256 of the anchored source line, while
+    `bm_store dump` withheld the same column and facts.json redacted the line
+    itself. A guessed line could be confirmed byte for byte from that digest."""
+    return bs.withhold_digest_columns("notes", n)
+
+
 def _note_line(n):
     state = "open"
     if n["resolved_at"]:
@@ -1677,7 +1689,7 @@ def cmd_note(argv):
     finally:
         store.close()
     if kv.get("json"):
-        _out(json.dumps(n, indent=2, sort_keys=True))
+        _out(json.dumps(_note_payload(n), indent=2, sort_keys=True))
         return 0
     _out("note %s recorded" % n["note_uuid"][:8])
     _out("  " + _note_line(n))
@@ -1726,7 +1738,8 @@ def cmd_notes(argv):
     finally:
         store.close()
     if kv.get("json"):
-        _out(json.dumps(rows, indent=2, sort_keys=True))
+        _out(json.dumps([_note_payload(r) for r in rows],
+                        indent=2, sort_keys=True))
         return 0
     if not rows:
         _out("no notes match")
@@ -1765,7 +1778,7 @@ def cmd_resolve_note(argv):
     finally:
         store.close()
     if kv.get("json"):
-        _out(json.dumps(n, indent=2, sort_keys=True))
+        _out(json.dumps(_note_payload(n), indent=2, sort_keys=True))
         return 0
     _out("note %s resolved" % n["note_uuid"][:8])
     _out("  " + _note_line(n))
