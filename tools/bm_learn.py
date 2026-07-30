@@ -549,6 +549,13 @@ def _delivery_footer(res, limit):
     quiet again without deleting the call."""
     _out("Gates: %d of %d applicable returned. A result limit cannot hide one."
          % (res.get("gates_returned", 0), res.get("gates_total", 0)))
+    if "gate_manifest" in res:
+        # LOOP 3. "returned" above is the never-hidden guarantee; this line is
+        # the OTHER half, how much of that was full text versus the compact
+        # manifest, which is what actually keeps a large corpus readable.
+        _out("  of those: %d shown in full (bounded per call), %d in the "
+             "compact manifest only. Pull one by id with --expand."
+             % (res.get("gates_expanded", 0), res.get("gates_manifest_only", 0)))
     omitted = _soft_omitted(res)
     if omitted:
         _out("Soft rules: %d shown, %d omitted by --limit %d. Raise the limit "
@@ -635,9 +642,11 @@ def _recording_footer(res, record_arg):
 
 _USAGE = {
     "lookup": "usage: lookup --query \"what you want to read\" [--artifact ...] "
-              "[--limit N]   (READ ONLY; use `apply` before doing the work)",
+              "[--limit N] [--expand G1234abcd,...]   "
+              "(READ ONLY; use `apply` before doing the work)",
     "apply": "usage: apply --query \"what you are about to do\" --session ID "
-             "[--record UUID] [--artifact ...] [--limit N]",
+             "[--record UUID] [--artifact ...] [--limit N] "
+             "[--expand G1234abcd,...]",
     "relevant": "usage: relevant --query \"...\"   (DEPRECATED alias; use "
                 "`lookup` to read or `apply` to do the work)",
 }
@@ -665,13 +674,13 @@ def _retrieve_command(mode, argv):
       cannot read a failed write as a clean run."""
     recording_flag = mode != "lookup"
     known = {"query", "project", "domain", "artifact", "relationship", "tool",
-             "limit", "json", "session", "record", "not-shown"}
+             "limit", "json", "session", "record", "not-shown", "expand"}
     if mode == "relevant":
         known.add("record-applications")
     pos, kv = _parse(argv, known,
                      wants_value=("query", "project", "domain", "artifact",
                                   "relationship", "tool", "limit", "session",
-                                  "record"))
+                                  "record", "expand"))
     if mode == "relevant":
         _err("bm_learn: `relevant` is DEPRECATED and will be removed in the "
              "next major version. It is now an alias: use `lookup` to read "
@@ -704,6 +713,13 @@ def _retrieve_command(mode, argv):
         return 2
     if mode == "relevant":
         recording_flag = bool(kv.get("record-applications"))
+    # --expand takes a comma-separated list of short gate ids (G1234abcd) or
+    # rule_uuid prefixes, so a caller who already knows which gate matters can
+    # pull its full text without depending on relevance or scope to trigger
+    # Layer B. Blank entries from a stray comma are dropped rather than
+    # passed through as a request for the empty id.
+    expand_ids = set(x.strip() for x in (kv.get("expand") or "").split(",")
+                     if x.strip())
     store = _store()
     try:
         if recording_flag:
@@ -711,9 +727,11 @@ def _retrieve_command(mode, argv):
                 query, context=_ctx(kv), limit=limit,
                 session_id=kv.get("session", ""),
                 record_prefix=kv.get("record"),
-                shown_to_model=not kv.get("not-shown"))
+                shown_to_model=not kv.get("not-shown"),
+                expand_ids=expand_ids)
         else:
-            res = store.retrieve_learning_rules(query, context=_ctx(kv), limit=limit)
+            res = store.retrieve_learning_rules(query, context=_ctx(kv), limit=limit,
+                                                expand_ids=expand_ids)
     finally:
         store.close()
     if recording_flag:
@@ -747,9 +765,28 @@ def _retrieve_command(mode, argv):
         _delivery_footer(res, limit)
         _recording_footer(res, kv.get("record", ""))
         return exit_code
+    # LOOP 3, Layer A. Every applicable gate, compact, always, printed once
+    # here regardless of how many of them go on to earn full text below. This
+    # is what keeps a 20-gate corpus a bounded read instead of twenty repeats
+    # of the same trigger/action/why block: manifest membership is the "not
+    # hidden" guarantee now, not the full block.
+    manifest = res.get("gate_manifest")
+    if manifest and manifest["count"]:
+        _out(manifest["text"])
+        _out("")
     _out("RELEVANT FOUNDER RULES (mode=%s)" % res["mode"])
     for r in res["results"]:
         why = r["why"]
+        if L.is_gate(r) and r.get("presentation") == "manifest":
+            # NOT printed as its own block. It is already a line in the
+            # manifest above (same short id, so --expand pulls it by that
+            # id), and repeating a trigger/action/why block per gate here is
+            # exactly the flooding this loop exists to stop. A conflict
+            # involving this gate is still disclosed: it is caught below by
+            # the UNRESOLVED CONFLICT section, which walks res["conflicts"]
+            # (built from every row in `results`, not just the ones printed
+            # in full here), so nothing about this gate's conflicts is lost.
+            continue
         _out("")
         _out("  %s  rank=%d" % (r["rule_uuid"][:8], r["rank"]))
         _out("  Scope: %s     State: %s%s" % (
@@ -779,6 +816,8 @@ def _retrieve_command(mode, argv):
              % (terms, why["relevance"],
                 (", bm25 %s (mode=%s)" % (why.get("bm25", 0.0), why["mode"]))
                 if why["mode"] == L.FTS5_MODE else ""))
+        if L.is_gate(r) and r.get("expansion_reason"):
+            _out("  Expanded: %s" % r["expansion_reason"])
         if r.get("conflicts_with"):
             _out("  CONFLICT: contradicts %s. Both are live; see below."
                  % ", ".join(u[:8] for u in r["conflicts_with"]))

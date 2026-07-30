@@ -1086,6 +1086,144 @@ def split_gates(rules):
     return gates, soft
 
 
+# -----------------------------------------------------------------------
+# LOOP 3: mandatory gates delivered whole, without flooding the prompt.
+#
+# retrieve_learning_rules (bm_store.py) already guarantees every applicable
+# gate is RETURNED. It says nothing about how much text that costs: a corpus
+# of twenty gates is twenty full trigger/action/because blocks, and a model
+# handed twenty mandatory rules at once tends to act on none of them. Two
+# layers fix the two failure directions, and neither is allowed to weaken
+# the other:
+#
+#   Layer A (gate_manifest, below): every applicable gate, ALWAYS, in a
+#   compact form bounded per entry so the total grows predictably rather
+#   than exploding with the corpus. This is the "never hidden" guarantee,
+#   moved off full text and onto a form small enough to actually read.
+#
+#   Layer B (gate_expansion_reason, below): full gate text only when the
+#   query hits the gate's trigger, the gate's scope is narrow and matched,
+#   the query's wording reaches the gate's own action, or the caller asks
+#   for that gate by its short id. bm_store.py additionally caps how many
+#   gates this can expand per call (GATE_EXPANSION_CAP), because "bounded
+#   per gate" alone does not bound the SUM once a corpus is large enough.
+# -----------------------------------------------------------------------
+
+# Per-gate manifest entry is bounded, not the whole manifest: total size then
+# grows linearly and predictably with the gate count instead of being capped
+# at a number that would have to hide a gate to hold. safe_display leaves
+# room for the "..." it appends on truncation.
+GATE_MANIFEST_ACTION_CHARS = 100
+
+# How many gates a single retrieval may hand back as FULL text. Independent
+# of --limit (which only ever governed soft rules, see retrieve_learning_rules)
+# and independent of the corpus size: a store with 200 gates still expands at
+# most this many per call. Every gate that does not make the cut is still in
+# the compact manifest and can be pulled in full by id, so nothing is hidden,
+# only deferred.
+GATE_EXPANSION_CAP = 5
+
+
+def gate_short_id(rule):
+    """Stable short id for a gate, for the compact manifest and for
+    `--expand`.
+
+    Derived from rule_uuid, which is minted once at approval and never
+    reassigned (bm_store.approve_learning_candidate) and never reused (a
+    superseded or forgotten rule keeps its own uuid forever; see
+    change_learning_rule_state). It is therefore stable across every
+    operation that can happen to the CORPUS: approving another gate,
+    editing this gate's text (a version bump, not a new uuid), superseding
+    or forgetting a different rule. A counter that renumbered on each
+    retrieval would not have that property; the same gate could read "G3"
+    today and "G2" tomorrow because an unrelated gate ahead of it in
+    creation order was forgotten. rule_uuid never moves, so this never
+    does either. The "G" prefix plus 8 hex characters mirrors the prefix
+    length already used for display everywhere else in this codebase (see
+    `_rule_line` and every `rule_uuid[:8]` in bm_learn.py), so a founder
+    already reading rule ids elsewhere recognizes the shape."""
+    return "G" + (rule.get("rule_uuid") or "")[:8]
+
+
+def gate_manifest(gates):
+    """The Layer A compact manifest over `gates` (already-filtered gate rows,
+    any order). Pure: given the same rows it returns the same text and hash
+    every time, which is what "deterministic" and "manifest stability" mean
+    for this function specifically.
+
+    Deliberately NOT a function of the query or the ranking: every applicable
+    gate belongs in this manifest regardless of relevance, so sorting by
+    rule_uuid (not rank_key) is what makes the same gate corpus produce a
+    byte-identical manifest whether the query was "colour of the orb" or the
+    gate's own trigger text. Ranking still governs Layer B (which gates get
+    expanded) and the order of `results`; it has no say here.
+
+    Returns a dict: count, hash (over the complete gate SET: every gate's
+    short id, uuid, current version and full action text, so adding,
+    removing or editing any one gate changes it), entries (one per gate,
+    bounded action text), and text (the rendered block)."""
+    ordered = sorted(gates, key=lambda r: r.get("rule_uuid") or "")
+    entries = []
+    fingerprint_parts = []
+    for r in ordered:
+        gid = gate_short_id(r)
+        action = plain_dashes(safe_display(r.get("action_text", ""),
+                                           GATE_MANIFEST_ACTION_CHARS))
+        entries.append({"id": gid, "rule_uuid": r.get("rule_uuid", ""),
+                        "action": action})
+        fingerprint_parts.extend([gid, r.get("rule_uuid", ""),
+                                  str(r.get("current_version", "")),
+                                  r.get("action_text", "") or ""])
+    digest = approval_fingerprint(fingerprint_parts)
+    lines = ["MANDATORY FOUNDER GATES - %d ACTIVE" % len(entries), ""]
+    for e in entries:
+        lines.append("%s  %s" % (e["id"], e["action"]))
+    lines.append("")
+    lines.append("Full gate text available by id (--expand <id>).")
+    lines.append("Manifest hash: %s" % digest)
+    return {"count": len(entries), "hash": digest, "entries": entries,
+            "text": "\n".join(lines)}
+
+
+def gate_expansion_reason(rule, query, context=None, expand_ids=None,
+                          fts_scores=None):
+    """Why (if at all) `rule`, a gate, earns FULL text this retrieval, or
+    None when it stays manifest-only. Only ever called on rows that already
+    passed `is_gate`; a soft rule has no expansion question to answer,
+    because a soft rule was never a candidate for the compact form.
+
+    Checked in the order the plan lists the four triggers:
+      1. explicit id request: the caller named this exact gate.
+      2. narrow, matched scope: this gate is not a global rule, and it is
+         already in the eligible set BECAUSE its scope matched the caller's
+         context (see retrieve_learning_rules), so scope narrowness alone
+         is the signal once eligibility already required the match.
+      3. trigger matched: the query's wording overlaps the gate's OWN
+         trigger_text (the situation the founder wrote for this rule),
+         either lexically or via the FTS index.
+      4. action reached: the query's wording overlaps the gate's OWN
+         action_text (the do-clause), which is the strongest signal that
+         the thing being attempted is literally the thing the gate is
+         about, distinct from merely sharing a topic with the trigger.
+
+    Pure and read-only, like rank_key: it decides, it does not write."""
+    expand_ids = expand_ids or ()
+    ruuid = rule.get("rule_uuid", "")
+    if ruuid in expand_ids or gate_short_id(rule) in expand_ids:
+        return "requested-by-id"
+    if rule.get("scope_type") != "global":
+        return "narrow-scope-matched"
+    trigger_hit = lexical_overlap(query, rule.get("trigger_text", ""),
+                                  "", "", "") > 0
+    if fts_scores is not None and ruuid in fts_scores:
+        trigger_hit = True
+    if trigger_hit:
+        return "trigger-matched"
+    if lexical_overlap(query, "", rule.get("action_text", ""), "", "") > 0:
+        return "action-reached"
+    return None
+
+
 def disposition_needs_reason(disposition, severity, rule_type):
     """True when recording this disposition requires a stated reason.
 

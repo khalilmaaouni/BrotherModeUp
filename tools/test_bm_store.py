@@ -898,6 +898,16 @@ class TestFixRoundGates(unittest.TestCase):
                                "mid-migration must roll the caller's "
                                "transaction back, not move the founder's "
                                "store aside",
+            "_migrate_9_to_10": "a schema migration step, run INSIDE the "
+                                "caller's BEGIN EXCLUSIVE (LOOP 3, "
+                                "learning_applications.presentation and "
+                                ".action_reached). Same exemption and same "
+                                "reason as _migrate_7_to_8: an ALTER TABLE ADD "
+                                "COLUMN failing mid-migration must roll the "
+                                "caller's transaction back, not move the "
+                                "founder's store aside, and the PRAGMA "
+                                "table_info probe beside it is schema "
+                                "introspection rather than data access",
         }
         with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
             source = f.read()
@@ -6205,6 +6215,360 @@ class TestLearningApi(unittest.TestCase):
     # injection is bounded by the gate count and not by --limit) is recorded
     # in docs/KNOWN-LIMITS.md instead of being enforced here.
 
+    # -----------------------------------------------------------------
+    # LOOP 3: mandatory gates delivered whole, without flooding the prompt.
+    #
+    # Layer A (gate_manifest) is the "never hidden" guarantee, moved off
+    # full text; Layer B (presentation='expanded', gate_expansion_reason,
+    # GATE_EXPANSION_CAP) is the bounded full-text half. Both directions
+    # named in the plan's Fable attack prompt are covered below: hiding a
+    # gate through limits/ranking/scope/state/conflict/empty-query, and a
+    # corpus large enough to make full-text injection unusable.
+    # -----------------------------------------------------------------
+
+    def _many_gates(self, store, n, topic="dangerous thing"):
+        """`n` global gates sharing enough vocabulary that a single query can
+        make ALL of them expansion candidates at once. That collision is the
+        POINT for the cap tests below: it is what makes GATE_EXPANSION_CAP
+        the thing deciding how many expand, rather than the fixture doing it
+        by construction."""
+        return [_approved(store, self._cap(
+            store, trigger="%s %d" % (topic, i),
+            action="refuse %s %d, always" % (topic, i),
+            because="")["candidate_uuid"],
+            founder_ref="yes", severity="gate") for i in range(n)]
+
+    def test_manifest_covers_zero_one_three_and_twenty_gates(self):
+        """Tests list item: 0, 1, 3, 20 gates. Every count must produce a
+        manifest whose entries are exactly the live gates, no more, no
+        fewer, and whose declared count agrees."""
+        for n in (0, 1, 3, 20):
+            with tempfile.TemporaryDirectory() as d:
+                with bs.Store(d) as store:
+                    gates = self._many_gates(store, n)
+                    res = store.retrieve_learning_rules("colour of the orb")
+                    manifest = res["gate_manifest"]
+                    self.assertEqual(manifest["count"], n, "n=%d" % n)
+                    self.assertEqual(
+                        set(e["rule_uuid"] for e in manifest["entries"]),
+                        set(g["rule_uuid"] for g in gates), "n=%d" % n)
+                    self.assertEqual(res["gates_total"], n)
+                    self.assertEqual(res["gates_returned"], n)
+
+    def test_limit_zero_and_negative_never_shrink_the_manifest(self):
+        """Tests list item: --limit 0. The manifest is built from `gates`
+        before the soft-rule limit is ever applied, so it must be identical
+        at limit=0, limit=5 and a negative limit."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gates = self._many_gates(store, 4)
+                ids = set(g["rule_uuid"] for g in gates)
+                for limit in (0, -1, -100, 5):
+                    res = store.retrieve_learning_rules("colour of the orb",
+                                                         limit=limit)
+                    self.assertEqual(
+                        set(e["rule_uuid"] for e in res["gate_manifest"]["entries"]),
+                        ids, "limit=%d dropped a gate from the manifest" % limit)
+
+    def test_no_gate_omitted_from_the_compact_manifest(self):
+        """Tests list item: no gate omitted from the compact manifest. Named
+        separately from the limit test above because this is the property
+        the calibration test below breaks and restores."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gates = self._many_gates(store, 6)
+                res = store.retrieve_learning_rules("colour of the orb", limit=0)
+                present = set(e["rule_uuid"] for e in res["gate_manifest"]["entries"])
+                for g in gates:
+                    self.assertIn(g["rule_uuid"], present)
+
+    def test_manifest_is_identical_for_an_irrelevant_and_a_relevant_query(self):
+        """Tests list items: irrelevant query, relevant query, manifest
+        stability. Layer A is not a function of the query at all: the exact
+        same gate corpus must render the exact same manifest text and hash
+        whether the query shares no words with any gate or matches one
+        exactly, because every applicable gate belongs in it regardless of
+        relevance."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._many_gates(store, 5)
+                irrelevant = store.retrieve_learning_rules("colour of the orb")
+                relevant = store.retrieve_learning_rules("dangerous thing 2")
+                repeat = store.retrieve_learning_rules("colour of the orb")
+                self.assertEqual(irrelevant["gate_manifest"]["text"],
+                                 relevant["gate_manifest"]["text"])
+                self.assertEqual(irrelevant["gate_manifest"]["hash"],
+                                 relevant["gate_manifest"]["hash"])
+                self.assertEqual(irrelevant["gate_manifest"]["text"],
+                                 repeat["gate_manifest"]["text"],
+                                 "manifest is not deterministic across two "
+                                 "identical calls")
+
+    def test_manifest_hash_changes_when_a_gate_is_edited(self):
+        """Tests list item: manifest hash changes when a gate changes."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gates = self._many_gates(store, 3)
+                before = store.retrieve_learning_rules(
+                    "colour of the orb")["gate_manifest"]["hash"]
+                _edited(store, gates[0]["rule_uuid"], 1,
+                       action="refuse dangerous thing 0 in a NEW way, always")
+                after = store.retrieve_learning_rules(
+                    "colour of the orb")["gate_manifest"]["hash"]
+                self.assertNotEqual(before, after)
+
+    def test_adding_a_gate_changes_the_hash_and_the_gate_appears(self):
+        """Attacker test: adding a gate must change the hash AND the new
+        gate must be visible in the manifest, not just accounted for in a
+        count."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._many_gates(store, 3)
+                before = store.retrieve_learning_rules("colour of the orb")
+                new_gate = _approved(store, self._cap(
+                    store, trigger="a brand new danger",
+                    action="refuse the brand new danger, always",
+                    because="")["candidate_uuid"],
+                    founder_ref="yes", severity="gate")
+                after = store.retrieve_learning_rules("colour of the orb")
+                self.assertNotEqual(before["gate_manifest"]["hash"],
+                                    after["gate_manifest"]["hash"])
+                self.assertIn(new_gate["rule_uuid"],
+                             [e["rule_uuid"] for e in after["gate_manifest"]["entries"]])
+
+    def test_removing_a_gate_changes_the_hash_and_no_stale_entry_survives(self):
+        """Attacker test: forgetting a gate must change the hash AND that
+        gate's id must never appear in a later manifest. Dead gates are not
+        resurrected by the manifest any more than by gates_total (see
+        test_dead_gates_are_not_resurrected_by_the_guarantee above)."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gates = self._many_gates(store, 3)
+                before = store.retrieve_learning_rules("colour of the orb")
+                _state_changed(store, gates[1]["rule_uuid"], "forgotten",
+                               reason="obsolete")
+                after = store.retrieve_learning_rules("colour of the orb")
+                self.assertNotEqual(before["gate_manifest"]["hash"],
+                                    after["gate_manifest"]["hash"])
+                self.assertNotIn(gates[1]["rule_uuid"],
+                                 [e["rule_uuid"]
+                                  for e in after["gate_manifest"]["entries"]])
+                self.assertEqual(after["gate_manifest"]["count"], 2)
+
+    def test_a_conflicting_gate_pair_both_appear_in_the_manifest(self):
+        """Tests list item: conflicting gates. Showing one side of a
+        contradiction is worse than showing neither; the manifest must not
+        pick a side either."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = _approved(store, self._cap(
+                    store, trigger="about to force push",
+                    action="always force push", because="")["candidate_uuid"],
+                    founder_ref="yes", severity="gate")
+                b = _approved(store, self._cap(
+                    store, trigger="about to force push",
+                    action="never force push", because="")["candidate_uuid"],
+                    founder_ref="yes", severity="gate",
+                    conflict_override="both kept on purpose for this test")
+                res = store.retrieve_learning_rules("colour of the orb", limit=0)
+                present = set(e["rule_uuid"] for e in res["gate_manifest"]["entries"])
+                self.assertIn(a["rule_uuid"], present)
+                self.assertIn(b["rule_uuid"], present)
+
+    def test_narrow_matched_scope_expands_but_an_unrelated_global_gate_does_not(self):
+        """Tests list item: narrow scope. A project-scoped gate whose scope
+        matched the caller's context earns full text on that signal alone;
+        an unrelated global gate the query never mentions stays manifest
+        only."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                narrow = _approved(store, self._cap(
+                    store, trigger="deploying this specific project",
+                    action="run the project-specific release checklist",
+                    because="", scope_type="project",
+                    scope_key="tonari")["candidate_uuid"],
+                    founder_ref="yes", severity="gate")
+                unrelated = _approved(store, self._cap(
+                    store, trigger="an entirely unrelated situation",
+                    action="do something with no shared vocabulary at all",
+                    because="")["candidate_uuid"],
+                    founder_ref="yes", severity="gate")
+                res = store.retrieve_learning_rules(
+                    "colour of the orb", context={"project": "tonari"})
+                rows = {r["rule_uuid"]: r for r in res["results"]}
+                self.assertEqual(rows[narrow["rule_uuid"]]["presentation"], "expanded")
+                self.assertEqual(rows[narrow["rule_uuid"]]["expansion_reason"],
+                                 "narrow-scope-matched")
+                self.assertEqual(rows[unrelated["rule_uuid"]]["presentation"],
+                                 "manifest")
+                self.assertIsNone(rows[unrelated["rule_uuid"]]["expansion_reason"])
+
+    def test_trigger_matched_query_expands_a_global_gate(self):
+        """Tests list item: relevant query. A global gate whose own
+        trigger_text the query's wording overlaps earns full text even
+        though its scope is not narrow."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gate = _approved(store, self._cap(
+                    store, trigger="pushing directly to the main branch",
+                    action="open a pull request instead", because="")
+                    ["candidate_uuid"], founder_ref="yes", severity="gate")
+                res = store.retrieve_learning_rules("pushing to the main branch now")
+                row = next(r for r in res["results"] if r["rule_uuid"] == gate["rule_uuid"])
+                self.assertEqual(row["presentation"], "expanded")
+                self.assertEqual(row["expansion_reason"], "trigger-matched")
+
+    def test_action_reached_query_expands_a_global_gate(self):
+        """A query whose wording reaches the gate's own DO clause, not its
+        trigger, is the fourth Layer B signal and is tracked independently
+        as `action_reached` on the row."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gate = _approved(store, self._cap(
+                    store, trigger="a totally unrelated situation with no overlap",
+                    action="always open a pull request instead of pushing directly",
+                    because="")["candidate_uuid"],
+                    founder_ref="yes", severity="gate")
+                res = store.retrieve_learning_rules(
+                    "opening a pull request instead of pushing directly")
+                row = next(r for r in res["results"] if r["rule_uuid"] == gate["rule_uuid"])
+                self.assertEqual(row["presentation"], "expanded")
+                self.assertEqual(row["expansion_reason"], "action-reached")
+                self.assertTrue(row["action_reached"])
+
+    def test_irrelevant_query_leaves_an_unrelated_gate_manifest_only(self):
+        """Tests list item: irrelevant query. No trigger, scope or action
+        signal fires, so the gate is present (never hidden) but not
+        expanded."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gate = _approved(store, self._cap(
+                    store, trigger="about to force push",
+                    action="never force push", because="")["candidate_uuid"],
+                    founder_ref="yes", severity="gate")
+                res = store.retrieve_learning_rules("colour of the orb")
+                row = next(r for r in res["results"] if r["rule_uuid"] == gate["rule_uuid"])
+                self.assertEqual(row["presentation"], "manifest")
+                self.assertIsNone(row["expansion_reason"])
+                self.assertIn(gate["rule_uuid"],
+                             [e["rule_uuid"] for e in res["gate_manifest"]["entries"]])
+
+    def test_full_text_count_stays_bounded_however_large_the_corpus(self):
+        """Tests list item: full result count remains bounded. 20 gates that
+        ALL match the query (worst case for flooding) must still expand at
+        most GATE_EXPANSION_CAP of them; the rest stay manifest-only, never
+        dropped."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gates = self._many_gates(store, 20, topic="dangerous thing")
+                res = store.retrieve_learning_rules("dangerous thing")
+                L = bs._learning()
+                self.assertLessEqual(res["gates_expanded"], L.GATE_EXPANSION_CAP)
+                self.assertEqual(res["gates_expanded"] + res["gates_manifest_only"],
+                                 20)
+                self.assertLessEqual(res["full_text_count"], L.GATE_EXPANSION_CAP)
+                # And still not one of the 20 is missing from the manifest.
+                self.assertEqual(res["gate_manifest"]["count"], 20)
+
+    def test_explicit_expand_by_id_is_never_capped(self):
+        """The fourth Layer B trigger, the caller naming a gate, must survive
+        even when the ambient cap is forced to zero: an explicit ask is not
+        the same failure mode `limit` already refuses to allow, so it gets
+        the same refusal to hide."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gates = self._many_gates(store, 8, topic="dangerous thing")
+                target = gates[3]
+                L = bs._learning()
+                with mock.patch.object(L, "GATE_EXPANSION_CAP", 0):
+                    res = store.retrieve_learning_rules(
+                        "colour of the orb",
+                        expand_ids={L.gate_short_id(target)})
+                    self.assertEqual(res["gates_expanded"], 1)
+                    row = next(r for r in res["results"]
+                              if r["rule_uuid"] == target["rule_uuid"])
+                    self.assertEqual(row["presentation"], "expanded")
+                    self.assertEqual(row["expansion_reason"], "requested-by-id")
+                    for other in gates:
+                        if other["rule_uuid"] == target["rule_uuid"]:
+                            continue
+                        orow = next(r for r in res["results"]
+                                   if r["rule_uuid"] == other["rule_uuid"])
+                        self.assertEqual(orow["presentation"], "manifest")
+
+    def test_application_records_presentation_and_action_reached(self):
+        """Outcome evidence: recording an application must persist which
+        presentation this row actually had and whether the query's wording
+        reached the gate's own action, not merely that a gate was shown."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                reached = _approved(store, self._cap(
+                    store, trigger="an unrelated trigger with no overlap",
+                    action="always double check the release checklist before publishing",
+                    because="")["candidate_uuid"],
+                    founder_ref="yes", severity="gate")
+                manifest_only = _approved(store, self._cap(
+                    store, trigger="a second unrelated topic",
+                    action="a second do clause sharing nothing with the query",
+                    because="")["candidate_uuid"],
+                    founder_ref="yes", severity="gate")
+                store.record_learning_applications(
+                    "double check the release checklist before publishing",
+                    session_id="s1", limit=0)
+                apps = store.list_learning_applications(session_id="s1")
+                by_rule = {a["rule_uuid"]: a for a in apps}
+                self.assertEqual(by_rule[reached["rule_uuid"]]["presentation"],
+                                 "expanded")
+                self.assertEqual(by_rule[reached["rule_uuid"]]["action_reached"],
+                                 "yes")
+                self.assertEqual(by_rule[manifest_only["rule_uuid"]]["presentation"],
+                                 "manifest")
+                self.assertEqual(
+                    by_rule[manifest_only["rule_uuid"]]["action_reached"], "no")
+
+    def test_calibrated_loop3_a_truncated_manifest_would_have_failed_this_suite(self):
+        """CALIBRATION 1/2. Reinstate a manifest that respects a slice (the
+        exact shape Loop P4 already refused for `results`) and prove a gate
+        goes missing; restore the real implementation and prove it does
+        not. Patches bm_learning.gate_manifest itself, which is the same
+        module object bm_store.py's `_learning()` hands back, so this
+        exercises the real retrieve_learning_rules code path, not a
+        reimplementation of it."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gates = self._many_gates(store, 5)
+                L = bs._learning()
+                real_gate_manifest = L.gate_manifest
+                truncated = lambda gs: real_gate_manifest(gs[:1])
+                with mock.patch.object(L, "gate_manifest", side_effect=truncated):
+                    broken = store.retrieve_learning_rules("colour of the orb")
+                    missing = [g["rule_uuid"] for g in gates if g["rule_uuid"] not in
+                              [e["rule_uuid"] for e in broken["gate_manifest"]["entries"]]]
+                    self.assertTrue(missing,
+                        "the fixture no longer reproduces a truncated manifest, "
+                        "so the passing assertion below proves nothing")
+                fixed = store.retrieve_learning_rules("colour of the orb")
+                present = set(e["rule_uuid"] for e in fixed["gate_manifest"]["entries"])
+                for g in gates:
+                    self.assertIn(g["rule_uuid"], present,
+                                 "a real gate went missing from the real manifest")
+
+    def test_calibrated_loop3_an_unbounded_cap_would_have_failed_this_suite(self):
+        """CALIBRATION 2/2. Force GATE_EXPANSION_CAP up to "no cap at all"
+        and prove every matching gate expands (the exact flooding this loop
+        exists to stop); restore the real cap and prove it holds."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._many_gates(store, 20, topic="dangerous thing")
+                L = bs._learning()
+                with mock.patch.object(L, "GATE_EXPANSION_CAP", 10 ** 6):
+                    broken = store.retrieve_learning_rules("dangerous thing")
+                    self.assertEqual(broken["gates_expanded"], 20,
+                        "the fixture no longer reproduces unbounded expansion, "
+                        "so the passing assertion below proves nothing")
+                fixed = store.retrieve_learning_rules("dangerous thing")
+                self.assertLessEqual(fixed["gates_expanded"], L.GATE_EXPANSION_CAP)
+                self.assertLess(fixed["gates_expanded"], 20)
 
     def test_uuid_prefix_ambiguity_is_refused_not_guessed(self):
         with tempfile.TemporaryDirectory() as d:
