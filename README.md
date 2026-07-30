@@ -150,9 +150,12 @@ page. The full, current list is
 - **A founder-approved correction memory now exists (`tools/bm_learn.py`).**
   You can capture a correction, approve it into a rule, retrieve which rules
   apply to a piece of work with the reason shown, and grade whether a rule
-  actually prevented rework or a defect. Approval is founder-only, always: no
-  part of this system, automatic capture included, can approve its own
-  candidate. Plain-language walkthrough with real command output:
+  actually prevented rework or a defect. Approval is human-confirmed,
+  one-time receipt-gated: no part of this system, automatic capture
+  included, can approve or promote its own candidate. The receipt proves an
+  answer was supplied for this exact proposed rule and has not already been
+  used; it does not cryptographically prove which human supplied the
+  answer. Plain-language walkthrough with real command output:
   [`docs/CORRECTION-LEARNING.md`](docs/CORRECTION-LEARNING.md). The single
   most important honest gap: **it has never run on a real day of your work
   yet, only on tests and scripted probes.** That is the highest-harm open item

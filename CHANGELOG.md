@@ -2,6 +2,47 @@
 
 Unreleased, 2026-07-30: the adoption book, twelve chapters with every command executed against a throwaway project, at `docs/book/brothermode-for-dummies.html` plus a 56 page PDF export (phase D of the documentation and gate-packs spec).
 
+Unreleased, 2026-07-30: first-rank execution plan, Loop 2. Gate: `test_all: 1132 tests across 7 suites, 1 skipped, 111.9s wall. ALL GREEN`, up from 1082. Store schema 8 to 9.
+
+- Five commands could alter the live rule set with no human answer anywhere, and
+  only one of them was gated. `supersede`, `deprecate` and `forget` deactivated or
+  replaced a rule for free; `resolve-conflict` could stand down a GATE rule, the
+  strongest kind, for free; and resolving a critical alert unblocked the approval it
+  was blocking, for free. All five now require a one-time receipt minted from a real
+  answer, through ONE shared lane (`learning_state_change_receipts`,
+  `mint_state_change_receipt`, `_require_state_change_receipt`), not five bespoke
+  checks. Per-call-site implementation of a cross-cutting concern is this project's
+  named root cause behind four earlier bugs, so the shape was chosen deliberately.
+
+  Receipts are kind-discriminated and cannot cross-spend: a deprecate receipt cannot
+  spend as a forget, a state-change receipt cannot spend as an approval, and neither
+  direction works. Verified through the real CLI against a throwaway store, not only
+  in tests: `forget --yes` with no receipt refuses `no-state-change-receipt` at exit
+  2, with a forged 48-character token refuses `bad-state-change-receipt` at exit 2,
+  and the gate rule survives every attempt. Note that `forget` reaches its `--yes`
+  confirmation guard BEFORE the receipt check, so a probe that stops at the first
+  refusal never tests the receipt at all.
+
+- A mechanical stop, so this cannot silently regress. An enumeration test reads
+  `bm_learn.py`'s own `COMMANDS` dict (38 entries, discovered, never hand-typed) and
+  requires every command to be either receipt-gated or on an explicit allowlist with
+  a stated reason. A sixth rule-altering command added later fails the suite until it
+  is gated or reasoned about. Calibrated by adding a fake command to the real dict
+  and confirming the test names it.
+
+- The forged-token approval test mutated the last character to "0", which is not a
+  mutation one time in sixteen. It now flips to a guaranteed different value, and ran
+  100 consecutive times with no flake.
+
+- Approval wording now matches the mechanism at six sites. The receipt proves an
+  answer was supplied for this exact proposed rule and has not already been used. It
+  does NOT prove which human supplied it, and no shipped page says otherwise now.
+
+- `capture` with no arguments stored an EMPTY candidate while the same CLI correctly
+  refused unknown flags. It prints usage and exits non-zero. Fixed at the CLI layer
+  deliberately, not in `capture_learning_candidate`, which has roughly thirty
+  legitimate call shapes across the suites.
+
 Unreleased, 2026-07-30: first-rank execution plan, Loop 0 and Loop 1. Gate after both: `test_all: 1082 tests across 7 suites, 1 skipped, 107.8s wall. ALL GREEN`, up from 1057.
 
 - Loop 0, the flag-as-a-name defect swept everywhere it lived rather than only where

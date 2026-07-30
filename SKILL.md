@@ -87,11 +87,16 @@ The constitution outranks every learned rule. A learned rule may narrow how you
 work; it may never weaken a gate in this file. Conflicts are surfaced to the
 founder, never resolved by preferring the newer rule.
 
-Nothing here approves anything. Only the founder promotes a candidate into a
-rule: by running `bm_learn.py approve` themselves, or by answering an approval
-question window, in which case the orchestrator runs the command and records the
-founder's exact answer as the approval reference. The decision is never the
-orchestrator's; a window the founder did not answer approves nothing.
+Nothing here approves anything. A candidate is promoted into a rule only with
+a human-confirmed, one-time receipt-gated answer: by running `bm_learn.py
+approve` themselves, or by answering an approval question window, in which
+case the orchestrator runs the command and records the founder's exact answer
+as the approval reference. The receipt proves an answer was supplied for this
+exact proposed rule and has not already been used; it does not
+cryptographically prove which human supplied the answer. The decision is
+never the orchestrator's; a window the founder did not answer approves
+nothing, and automatic capture can never approve or promote its own
+candidate.
 
 Founder decisions travel through the client's native question UI, never through
 walls of chat text: one window per decision, 2 to 4 options each with the
