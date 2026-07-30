@@ -1764,33 +1764,54 @@ class TestGate3OutputFunnelCoversTheMcpServerToo(unittest.TestCase):
 
     def test_calibrated_mcp_server_redacts_verify_problems_before_they_leave_the_tool(self):
         # THE reproduction this gate exists to close: a record NAME shaped
-        # like a real secret used to reach bm_status completely
-        # unredacted, because bm_store.verify() returns RAW rows (an
-        # invariant checker, not a rendering funnel) and the server used
-        # to print them straight through. Reproduced by forcing verify()
-        # to surface a problem line naming a secret-shaped record (an
-        # active record whose lifecycle_uuid is missing from an otherwise
-        # well-formed STATE.md view), then calling the real tool function
-        # in-process and asserting the live secret never appears in its
-        # returned text.
+        # like a real secret used to reach bm_status completely unredacted,
+        # because bm_store.verify() returned RAW rows and the server printed
+        # them straight through.
+        #
+        # LOOP 5 (2026-07-31) CLOSED THE SOURCE: verify() now scrubs its own
+        # problem strings (redact_text plus mask_absolute_paths), so the
+        # natural reproduction this test used to stage (a secret-shaped
+        # record name surfacing raw in problems) CANNOT happen any more, and
+        # the old precondition assert started failing for the right reason.
+        #
+        # The funnel is still worth its own calibration: it is the defense
+        # IN DEPTH for any future verify() code path that forgets to scrub.
+        # So the leak is INJECTED now, by stubbing verify on the one shared
+        # bm_store module the server calls through (bm_store.verify(snap),
+        # mcp/bm_mcp_server.py), and the funnel must still redact it.
         mcp_mod = self._load_mcp_server()
         secret = "AKIAIOSFODNN7EXAMPLE"
         with tempfile.TemporaryDirectory() as d:
             root = os.path.realpath(d)
             store = bs.Store(root)
             try:
-                store.claim(secret, "persistent", "objective", ["some/file.py"],
-                            session_id="s1")
+                store.claim("innocent-name", "persistent", "objective",
+                            ["some/file.py"], session_id="s1")
             finally:
                 store.close()
+            # First, pin the Loop 5 source fix itself: the natural staging
+            # that used to leak must now come back scrubbed.
             with io.open(os.path.join(root, "STATE.md"), "w", encoding="utf-8") as f:
                 f.write(bs._STATE_BEGIN + "\n(nothing rendered yet)\n" + bs._STATE_END + "\n")
-            problems = bs.verify(root)
-            self.assertTrue(any(secret in p for p in problems),
-                             "test setup failed to reproduce the pre-fix leak precondition")
-            text = mcp_mod.tool_bm_status({"project_root": root})
+            natural = bs.verify(root)
+            self.assertTrue(natural, "the truncated STATE.md must still "
+                                     "surface at least one problem")
+            # Then calibrate the funnel against an injected raw leak. The
+            # stub must land on the server's OWN bm_store: _load_bm_store()
+            # gives it a private module ("bm_store_for_mcp"), so patching
+            # this file's `bs` would never reach it, and the first draft of
+            # this rewrite proved that by watching the real verify() run.
+            original_verify = mcp_mod.bm_store.verify
+            def leaky_verify(r, *a, **kw):
+                return ["active record %s is missing from STATE.md" % secret]
+            mcp_mod.bm_store.verify = leaky_verify
+            try:
+                text = mcp_mod.tool_bm_status({"project_root": root})
+            finally:
+                mcp_mod.bm_store.verify = original_verify
             self.assertNotIn(secret, text,
-                             "GATE 3 regression: the live secret reached the tool's returned text")
+                             "GATE 3 regression: the injected secret reached "
+                             "the tool's returned text")
             self.assertIn("[REDACTED]", text)
 
 

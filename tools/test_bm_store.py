@@ -3868,6 +3868,41 @@ class TestVerify(unittest.TestCase):
             problems = bs.verify(d)
             self.assertTrue(any("overlap" in p for p in problems), problems)
 
+    def test_verify_scrubs_a_path_shaped_record_name_in_its_own_problems(self):
+        """LOOP 5: verify() problem strings embed records.name and
+        claims.path RAW, both scrub-only columns under export_column. This
+        is the 'corrupted-store verify output' canary check the plan's
+        attack prompt names explicitly: an invariant violation must not be
+        the one path that leaks a founder-typed name or path unmasked."""
+        canary_path = "/Users/jane.doe/Clients/CANARY-Acme-secret"
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("one", "ephemeral", "obj", ["a/b.py"], session_id="s1")
+                conn = store.conn
+                conn.execute("BEGIN IMMEDIATE")
+                ts = bs.now_iso()
+                conn.execute(
+                    "INSERT INTO records (lifecycle_uuid, name, lifetime, state, "
+                    "objective, owner, session_id, tier, check_cmd, evidence, "
+                    "version, created_at, updated_at) VALUES "
+                    "(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    ("deadbeefcafe", canary_path, "ephemeral", "active", "obj2",
+                     "", "s2", "", "", "", 1, ts, ts))
+                conn.execute(
+                    "INSERT INTO claims (lifecycle_uuid, path) VALUES (?,?)",
+                    ("deadbeefcafe", "a/b.py"))
+                conn.execute("COMMIT")
+            finally:
+                store.close()
+            problems = bs.verify(d)
+            self.assertTrue(any("overlap" in p for p in problems), problems)
+            for p in problems:
+                self.assertNotIn(canary_path, p,
+                                 "verify() leaked a path-shaped record name "
+                                 "unmasked: %r" % p)
+                self.assertNotIn("Clients/CANARY-Acme-secret", p)
+
     # -- GATE 4 (release-blockers spec, 2026-07-26) --------------------
 
     def test_gate4_missing_state_md_remedy_names_an_absolute_resolvable_path(self):
@@ -7857,6 +7892,84 @@ class TestLoop7ApplicationLifecycle(unittest.TestCase):
         self.assertFalse(out["advised"])
         self.assertEqual(out["unknown_signals"], ["vibes"])
 
+
+class TestLoop5NoVerbatimTaskExcerptByDefault(unittest.TestCase):
+    """LOOP 5, the headline defect: an ordinary `apply` used to put up to 500
+    characters of the founder's VERBATIM task prose into
+    learning_applications.task_excerpt, unjustified and with no opt-out.
+    The default is now the bounded, deduplicated search-term set; a
+    verbatim, readable excerpt is available only when the caller explicitly
+    passes task_excerpt (bm_learn.py's --store-excerpt)."""
+
+    TRIGGER = "writing an executive update"
+    ACTION = "state customer impact before technical detail"
+    TASK = ("CANARY-TASK-PROMPT writing an executive update about "
+           "/Users/j/Dev Work/memo.md")
+
+    def _rule(self, store):
+        c = store.capture_learning_candidate(
+            "manual", trigger=self.TRIGGER, action=self.ACTION,
+            because="the founder said so", scope_type="global", scope_key="")
+        return _approved(store, c["candidate_uuid"], founder_ref="founder in chat")
+
+    def test_default_apply_stores_no_verbatim_task_prose(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                store.record_learning_applications(self.TASK, session_id="S1")
+                apps = store.list_learning_applications(session_id="S1")
+                self.assertEqual(len(apps), 1)
+                self.assertNotIn("CANARY-TASK-PROMPT", apps[0]["task_excerpt"])
+                self.assertNotIn("Dev Work", apps[0]["task_excerpt"])
+                # The bounded term set is still there, so a past retrieval
+                # can be re-ranked: it is a real value, not blanked out.
+                self.assertTrue(apps[0]["task_excerpt"])
+
+    def test_explicit_opt_in_still_stores_a_readable_excerpt(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                store.record_learning_applications(
+                    self.TASK, session_id="S1", task_excerpt=self.TASK)
+                apps = store.list_learning_applications(session_id="S1")
+                self.assertIn("CANARY-TASK-PROMPT", apps[0]["task_excerpt"])
+
+    def test_calibrated_reverting_the_default_leaks_the_verbatim_task(self):
+        """CALIBRATION for the headline defect: put the pre-fix default
+        (excerpt = query) back and the verbatim prompt returns; restore the
+        shipped default and it is gone again."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                store.record_learning_applications(self.TASK, session_id="S1")
+                shipped = store.list_learning_applications(session_id="S1")
+                self.assertNotIn("CANARY-TASK-PROMPT", shipped[0]["task_excerpt"])
+
+        # The calibration reverts the one line the fix changed: forcing
+        # query_terms to hand back the raw text it was given, rather than
+        # the tokenized term set, reproduces the pre-fix "excerpt = query"
+        # behaviour without touching record_learning_applications itself.
+        L = bs._learning()
+        with mock.patch.object(L, "query_terms", lambda t, **k: t):
+            with tempfile.TemporaryDirectory() as d:
+                with bs.Store(d) as store:
+                    self._rule(store)
+                    store.record_learning_applications(self.TASK, session_id="S1")
+                    reverted = store.list_learning_applications(session_id="S1")
+                    self.assertIn("CANARY-TASK-PROMPT",
+                                 reverted[0]["task_excerpt"],
+                                 "REINJECTION CHECK: forcing query_terms to "
+                                 "return the raw query must leak the prompt "
+                                 "again, proving the default is what guards it")
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                store.record_learning_applications(self.TASK, session_id="S1")
+                restored = store.list_learning_applications(session_id="S1")
+                self.assertNotIn("CANARY-TASK-PROMPT",
+                                restored[0]["task_excerpt"])
+
+
 class TestLoop8ExternalGrading(unittest.TestCase):
     """Loop 8. The difference between storage growth and learning.
 
@@ -10574,6 +10687,21 @@ class TestLoop11ExportWithholdingPolicy(unittest.TestCase):
                                  "session_id %r survived an ordinary dump" % bad)
                 self.assertIn("WITHHELD", default)
 
+    def test_hand_typed_hyphenated_codename_is_withheld_not_exported(self):
+        """LOOP 5, KNOWN-LIMITS: 'a hand-typed hyphenated codename with no
+        separators passes the shape gate'. This is a human session LABEL,
+        not a generated id, and must be withheld like any other founder
+        text -- it merely happened to be typed without spaces."""
+        codename = "acme-turnaround-q3-canary"
+        self.assertFalse(bs.is_id_shaped(codename), codename)
+        with tempfile.TemporaryDirectory() as d:
+            self._seed_session(d, codename)
+            default = self._default_dump(d)
+            self.assertNotIn(codename, default,
+                             "hand-typed session label %r survived an "
+                             "ordinary dump" % codename)
+            self.assertIn("WITHHELD", default)
+
     def test_generated_session_id_still_exports_so_rows_still_join(self):
         """The gate must not cost the join a dump is read for."""
         generated = bs._default_cli_session_id()
@@ -10604,6 +10732,24 @@ class TestLoop11ExportWithholdingPolicy(unittest.TestCase):
                          "REINJECTION CHECK: the session_id path leak must "
                          "come back under the pre-fix safe-column policy")
         self.assertNotIn(self.SESSION_PATH, shipped_after)
+
+    def test_calibrated_reverting_the_loose_id_shape_leaks_the_codename(self):
+        """CALIBRATION for the LOOP 5 session-label fix: put the old, loose
+        short-tag character class back and the hand-typed codename exports
+        again; restore the shipped four-shape allowlist and it is gone."""
+        old_re = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
+        codename = "acme-turnaround-q3-canary"
+        with tempfile.TemporaryDirectory() as d:
+            self._seed_session(d, codename)
+            shipped_before = self._default_dump(d)
+            with mock.patch.object(bs, "_ID_SHAPED_RE", old_re):
+                reinjected = self._default_dump(d)
+            shipped_after = self._default_dump(d)
+        self.assertNotIn(codename, shipped_before)
+        self.assertIn(codename, reinjected,
+                     "REINJECTION CHECK: the loose shape class must let the "
+                     "hand-typed codename back out")
+        self.assertNotIn(codename, shipped_after)
 
     # -- FIX ROUND: non-ASCII and punctuation path tails -----------------
 
@@ -10690,6 +10836,89 @@ class TestLoop11ExportWithholdingPolicy(unittest.TestCase):
         self.assertEqual(bs.mask_absolute_paths("and/or"), "and/or")
         self.assertEqual(bs.mask_absolute_paths(""), "")
         self.assertIsNone(bs.mask_absolute_paths(None))
+
+    # -- LOOP 5: quoted, escaped, and word-adjacent absolute paths -------
+
+    def test_mask_absolute_paths_masks_a_quoted_path_whole_spaces_included(self):
+        self.assertEqual(
+            bs.mask_absolute_paths('"/Users/j/Dev Work/plan.md"'),
+            '"' + bs.PATH_WITHHELD_MARKER + '"')
+        self.assertEqual(
+            bs.mask_absolute_paths("'/home/user/clients/beijing deal/notes'"),
+            "'" + bs.PATH_WITHHELD_MARKER + "'")
+        # A quoted ordinary sentence with no path prefix right after the
+        # quote is not treated as a path at all.
+        self.assertEqual(bs.mask_absolute_paths('"just a sentence"'),
+                          '"just a sentence"')
+
+    def test_mask_absolute_paths_masks_an_escaped_space_path_whole(self):
+        self.assertEqual(
+            bs.mask_absolute_paths("/Users/j/Dev\\ Work/plan.md"),
+            bs.PATH_WITHHELD_MARKER)
+
+    def test_mask_absolute_paths_masks_known_roots_glued_to_a_word(self):
+        """KNOWN-LIMITS: 'an absolute path immediately preceded by an
+        alphanumeric or an underscore is not masked at all'. Closed for the
+        six distinctive home-directory root names."""
+        self.assertEqual(
+            bs.mask_absolute_paths("note/Users/jane/secret and more"),
+            "note" + bs.PATH_WITHHELD_MARKER + " and more")
+        self.assertEqual(
+            bs.mask_absolute_paths("x/home/user/clients/acme"),
+            "x" + bs.PATH_WITHHELD_MARKER)
+
+    def test_mask_absolute_paths_two_in_one_field_both_masked(self):
+        self.assertEqual(
+            bs.mask_absolute_paths("/Users/j/a /Users/k/b"),
+            bs.PATH_WITHHELD_MARKER + " " + bs.PATH_WITHHELD_MARKER)
+
+    def test_mask_absolute_paths_url_false_positive_not_worsened(self):
+        """Pre-existing, disclosed behaviour (not introduced by LOOP 5): a
+        URL's scheme letter still collides with the drive-letter form. This
+        test pins that the LOOP 5 changes did not make it WORSE (e.g. by
+        dropping the drive lookbehind, which would also start eating the
+        scheme itself instead of just the following colon-slash)."""
+        masked = bs.mask_absolute_paths("See https://example.com/docs")
+        self.assertIn("http", masked)
+
+    def test_calibrated_reverting_known_root_lookbehind_drop_hides_the_glue(self):
+        """CALIBRATION: reinstate the plain not-preceded-by-word-char
+        lookbehind on the known-root form and the glued-path leak returns."""
+        old_re = re.compile(
+            r"(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|\\\\|/)"
+            + bs._ABS_PATH_BODY + r"*")
+        glued = "note/Users/jane/secret"
+        self.assertEqual(bs.mask_absolute_paths(glued),
+                         "note" + bs.PATH_WITHHELD_MARKER)
+        with mock.patch.object(bs, "_ABS_PATH_RE", old_re):
+            self.assertIn("Users/jane/secret", bs.mask_absolute_paths(glued),
+                          "REINJECTION CHECK: the old lookbehind must leak "
+                          "the glued path again")
+        self.assertEqual(bs.mask_absolute_paths(glued),
+                         "note" + bs.PATH_WITHHELD_MARKER)
+
+    def test_calibrated_reverting_quote_awareness_leaks_the_space_tail(self):
+        """CALIBRATION, named explicitly in the LOOP 5 brief: 'path masking
+        with spaces'. Revert to a regex with no quoted-path alternative (the
+        plain space-stops-the-match behaviour from before this loop), prove
+        the quoted space-path canary leaks its tail, then restore and prove
+        it is gone."""
+        old_re = re.compile(
+            r"(?:[A-Za-z]:[\\/]|\\\\|/(?:%s)(?:[\\/]%s*)?)|"
+            r"(?<![A-Za-z0-9_])[A-Za-z]:[\\/]%s*|\\\\%s*|"
+            r"(?<![A-Za-z0-9_])/[^\s\x00-\x1f\x7f\"'`<>|,;:()\[\]{}/\\]%s*"
+            % (bs._ROOT_ALT, bs._ABS_PATH_BODY, bs._ABS_PATH_BODY,
+               bs._ABS_PATH_BODY, bs._ABS_PATH_BODY))
+        quoted = '"/Users/j/Dev Work/plan.md"'
+        self.assertEqual(bs.mask_absolute_paths(quoted),
+                         '"' + bs.PATH_WITHHELD_MARKER + '"')
+        with mock.patch.object(bs, "_ABS_PATH_RE", old_re):
+            reverted = bs.mask_absolute_paths(quoted)
+            self.assertIn("Work/plan.md", reverted,
+                          "REINJECTION CHECK: without quote-awareness the "
+                          "space must cut the mask short again")
+        self.assertEqual(bs.mask_absolute_paths(quoted),
+                         '"' + bs.PATH_WITHHELD_MARKER + '"')
 
     def test_cli_dump_default_is_valid_json_and_raw_warns_about_prose(self):
         with tempfile.TemporaryDirectory() as d:
