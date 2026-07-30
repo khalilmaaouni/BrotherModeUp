@@ -5324,5 +5324,123 @@ class TestP18FixBenchmarkArgumentsCannotBuyAnUnearnedGreen(unittest.TestCase):
         self.assertIn("of 1 run", out.stdout)
 
 
+class TestFenceLintRecognizesStoreRenderedFences(unittest.TestCase):
+    """D3 (fence sweep, 2026-07-30). bm_telemetry.py's cmd_fence_lint used to
+    match ONLY hand-written V1 fence lines (a "- " line containing the word
+    "agent"), so it reported "no live fences found" against a STATE.md
+    holding a REAL, store-rendered active claim.
+
+    Reproduced against a throwaway store before the fix:
+        $ bm_telemetry.py fence-lint .
+        fence-lint: no live fences found under .
+    even though STATE.md held exactly one active claim. The fix teaches
+    cmd_fence_lint the exact record-line shape render_state_md (bm_store.py)
+    writes today, derived by reading that renderer, and uses the STATE
+    SECTION HEADER ("## active"/"## parked" vs "## complete"/"## adopted"),
+    not per-line text, to tell a live record apart from a finished one."""
+
+    def setUp(self):
+        # BROTHERMODE_REGISTRIES points this checkout's own dev environment
+        # at real project STATE.md files; scrubbed so a test asserting "no
+        # live fences" cannot be polluted (or falsely passed) by whatever
+        # ambient project state happens to be lying around outside the
+        # throwaway store this test builds.
+        self._old_registries = os.environ.pop("BROTHERMODE_REGISTRIES", None)
+
+    def tearDown(self):
+        if self._old_registries is not None:
+            os.environ["BROTHERMODE_REGISTRIES"] = self._old_registries
+
+    def test_fence_lint_sees_a_live_store_rendered_claim(self):
+        with tempfile.TemporaryDirectory() as d:
+            bs.init_project(d).close()
+            store = bs.Store(d, create=False)
+            try:
+                store.claim("myrec", "ephemeral", "test D3", ["foo.py"], tier="T2")
+            finally:
+                store.close()
+            bs.write_state_view(d)
+            code, out = _call_thread_cmd_in_process(d, bm.cmd_fence_lint, [d])
+        self.assertEqual(code, 0)
+        self.assertIn("LIVE FENCES", out)
+        self.assertIn("myrec", out)
+
+    def test_fence_lint_ignores_a_completed_record(self):
+        # A record moved to "complete" must NOT show up as live, mirroring
+        # the old V1 rule's LANDED/ADOPTED exclusion for the new format --
+        # its state now lives in the SECTION HEADER, not inline text.
+        with tempfile.TemporaryDirectory() as d:
+            bs.init_project(d).close()
+            store = bs.Store(d, create=False)
+            try:
+                rec = store.claim("donerec", "ephemeral", "finish D3", ["bar.py"],
+                                   session_id="s1")
+                store.transition(rec.lifecycle_uuid, rec.version, "complete",
+                                  session_id="s1", evidence="shipped")
+            finally:
+                store.close()
+            bs.write_state_view(d)
+            code, out = _call_thread_cmd_in_process(d, bm.cmd_fence_lint, [d])
+        self.assertEqual(code, 0)
+        self.assertNotIn("donerec", out)
+        self.assertIn("no live fences found", out)
+
+    def test_calibrated_pre_fix_fence_lint_misses_a_live_store_rendered_claim(self):
+        """CALIBRATION: reinject the exact pre-fix cmd_fence_lint body
+        (matching ONLY the V1 "- ... agent ..." shape) onto the real
+        bm_telemetry module object, in-process, and confirm the SAME live
+        claim the first test above sees is now invisible to it -- proving
+        the section-header + regex recognition the real fix adds is what
+        makes the difference, not something about this test's setup."""
+        def _pre_fix_cmd_fence_lint(argv):
+            cwd = argv[0] if argv else ""
+            if not cwd and not sys.stdin.isatty():
+                try:
+                    cwd = (json.load(sys.stdin) or {}).get("cwd", "")
+                except Exception:
+                    cwd = ""
+            cwd = cwd or os.getcwd()
+            hits = []
+            pats = [os.path.join(cwd, "STATE.md")]
+            pats += [p.strip() for p in
+                     os.environ.get("BROTHERMODE_REGISTRIES", "").split(":") if p.strip()]
+            for pat in pats:
+                for p in glob.glob(pat, recursive=True):
+                    for line in open(p, errors="replace"):
+                        s = line.strip()
+                        if (s.startswith("- ") and "agent" in s.lower()
+                                and "LANDED" not in s and "ADOPTED" not in s):
+                            tier = ("" if re.search(r"\btier T[123]\b", s)
+                                     else " [NO-TIER: declare T1/T2/T3]")
+                            hits.append("%s: %s%s" % (os.path.basename(p), s[:100], tier))
+            if hits:
+                print("LIVE FENCES (fence-then-dispatch; overlap means queue):")
+                for h in hits[:8]:
+                    print("  " + h)
+            else:
+                print("fence-lint: no live fences found under %s" % cwd)
+
+        real = bm.cmd_fence_lint
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                bs.init_project(d).close()
+                store = bs.Store(d, create=False)
+                try:
+                    store.claim("myrec", "ephemeral", "test D3", ["foo.py"], tier="T2")
+                finally:
+                    store.close()
+                bs.write_state_view(d)
+                bm.cmd_fence_lint = _pre_fix_cmd_fence_lint
+                code, out = _call_thread_cmd_in_process(d, bm.cmd_fence_lint, [d])
+        finally:
+            bm.cmd_fence_lint = real
+        self.assertIn(
+            "no live fences found", out,
+            "REINJECTION CHECK: the pre-fix V1-only matcher must miss the "
+            "store-rendered claim, proving the section/regex recognition "
+            "added by the real fix is what finds it")
+        self.assertNotIn("myrec", out)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

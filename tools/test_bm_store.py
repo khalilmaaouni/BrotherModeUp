@@ -2448,6 +2448,94 @@ class TestFixRound7(unittest.TestCase):
                              "the backup file must be reported on stderr; wanted %r, got %r"
                              % (wanted, reported))
 
+    # -- D5 (fence sweep, 2026-07-30): STATE.md.bak-* must not breed --------
+    # Reproduced again on 2026-07-30 at STATE.md.bak-20260730T055214435189:
+    # every render wrote another backup and nothing ever removed one, seven
+    # accumulated in fifteen minutes on one machine, and the autosave
+    # warning then listed all of them.
+
+    def test_d5_old_backups_are_pruned_beyond_the_keep_count(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("thing", "ephemeral", "obj", [])
+            finally:
+                store.close()
+            bs.write_state_view(d)  # first render: nothing to back up yet
+            path = os.path.join(d, "STATE.md")
+            for _ in range(bs._STATE_BACKUP_KEEP + 3):
+                bs.write_state_view(d)
+            backups = sorted(glob.glob(path + ".bak-*"))
+            self.assertEqual(
+                len(backups), bs._STATE_BACKUP_KEEP,
+                "must keep exactly the %d most recent backups, found %d: %s"
+                % (bs._STATE_BACKUP_KEEP, len(backups), backups))
+
+    def test_d5_pruning_never_touches_a_file_outside_its_own_exact_pattern(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("thing", "ephemeral", "obj", [])
+            finally:
+                store.close()
+            bs.write_state_view(d)
+            # A decoy that LOOKS like a backup but is not the exact shape
+            # this code itself produces (a human note, or a file from some
+            # other tool) -- must never be a deletion candidate.
+            decoy = os.path.join(d, "STATE.md.bak-not-a-real-stamp")
+            with io.open(decoy, "w", encoding="utf-8") as f:
+                f.write("human note, not a real backup\n")
+            for _ in range(bs._STATE_BACKUP_KEEP + 3):
+                bs.write_state_view(d)
+            self.assertTrue(os.path.exists(decoy),
+                             "a file not matching the exact STATE.md.bak-<timestamp> "
+                             "pattern must never be pruned")
+            backups = [n for n in os.listdir(d) if bs._STATE_BACKUP_RE.match(n)]
+            self.assertEqual(len(backups), bs._STATE_BACKUP_KEEP)
+
+    def test_d5_prune_logs_each_deletion_at_the_deletion(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("thing", "ephemeral", "obj", [])
+            finally:
+                store.close()
+            bs.write_state_view(d)
+            for _ in range(bs._STATE_BACKUP_KEEP):
+                bs.write_state_view(d)
+            # One more render must prune exactly the oldest backup and log
+            # it at the moment of that deletion, never batched at the end.
+            with mock.patch.object(bs, "_warn") as warn_mock:
+                bs.write_state_view(d)
+            reported = [str(arg) for call in warn_mock.call_args_list for arg in call.args]
+            self.assertTrue(any("pruned old backup" in msg for msg in reported),
+                             "each deletion must be logged at the point it happens: %s"
+                             % reported)
+
+    def test_calibrated_reinjecting_a_no_op_prune_lets_backups_accumulate_without_bound(self):
+        # CALIBRATION: reinject a no-op onto the real PRODUCT symbol
+        # _prune_old_state_backups, in-process, so the patch is scoped to
+        # this test. Confirms backups accumulate past _STATE_BACKUP_KEEP
+        # again -- the exact D5 defect shape -- proving the real call from
+        # write_state_view is what enforces the cap.
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("thing", "ephemeral", "obj", [])
+            finally:
+                store.close()
+            bs.write_state_view(d)
+            path = os.path.join(d, "STATE.md")
+            with mock.patch.object(bs, "_prune_old_state_backups", lambda root: None):
+                for _ in range(bs._STATE_BACKUP_KEEP + 3):
+                    bs.write_state_view(d)
+            backups = glob.glob(path + ".bak-*")
+            self.assertGreater(
+                len(backups), bs._STATE_BACKUP_KEEP,
+                "REINJECTION CHECK: with pruning disabled, backups must accumulate "
+                "past the cap again (the exact D5 defect shape), proving "
+                "_prune_old_state_backups is what enforces it")
+
     # -- GATE B: the fail-closed redaction promise must actually hold -
 
     def test_calibrated_gateB_genuinely_absent_bm_telemetry_refuses_state_view(self):
@@ -3916,6 +4004,137 @@ class TestCLIExitCodes(unittest.TestCase):
                 "defect shape), proving the real check above is what refuses it")
             self.assertEqual(data["records"][0]["objective"], "",
                              "the typo'd flag's value must never have reached 'objective'")
+
+
+# -- D1/D2/D4 (fence sweep, 2026-07-30): a flag in the positional slot ------
+
+class TestFenceSweepPositionalFlagRefusal(unittest.TestCase):
+    """D1/D2: `cmd_claim` read `name = argv[0]` BEFORE any flag was
+    recognized as a flag, so `claim --help` (argv == ["--help"]) claimed a
+    record literally named "--help", and `claim --objective X --files a.py`
+    (no positional name at all) claimed one named "--objective". Neither
+    ever reached `_reject_unknown_flags`, which only inspects argv[1:].
+
+    SAME-CLASS SWEEP: every other `cmd_*` reading `<name> = argv[0]` right
+    after an `if not argv:` usage check had the identical hole --
+    `_cmd_transition` (shared by park/resume/complete/adopt, reading
+    lifecycle_uuid), cmd_checkpoint, and cmd_decide. All four are fixed by
+    the same `_require_positional` helper, so `park --version 3` no longer
+    treats "--version" as the lifecycle_uuid either.
+
+    D4 (piggybacked here since it touches the SAME usage lines this class
+    already exercises): `--handover "<heading>"` is accepted by every
+    _cmd_transition command but appeared in none of their usage text."""
+
+    def test_claim_help_flag_is_refused_not_claimed_as_a_name(self):
+        with tempfile.TemporaryDirectory() as d:
+            _run_cli(["init"], d)
+            r = _run_cli(["claim", "--help"], d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("usage: claim", r.stdout)
+            data = json.loads(_run_cli(["dump"], d).stdout)
+            self.assertEqual(data["records"], [],
+                              "'--help' must never become a claimed record name")
+
+    def test_claim_with_only_flags_and_no_name_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            _run_cli(["init"], d)
+            r = _run_cli(["claim", "--objective", "X", "--files", "a.py"], d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("usage: claim", r.stdout)
+            data = json.loads(_run_cli(["dump"], d).stdout)
+            self.assertEqual(data["records"], [],
+                              "'--objective' must never become a claimed record name")
+
+    def test_park_with_a_flag_in_the_uuid_slot_is_refused(self):
+        # --bogus-flag, not --version, is the one deliberately in argv[0]'s
+        # place: _cmd_transition's OWN "--version is required" branch also
+        # reprints this same usage text, so a bogus flag that additionally
+        # left --version genuinely missing would pass for the wrong reason
+        # (masking exactly the D1/D2-class hole this test exists to catch).
+        # --bogus-flag together with a real --version 1 isolates the ONE
+        # thing under test: argv[0] itself being a flag.
+        with tempfile.TemporaryDirectory() as d:
+            _run_cli(["init"], d)
+            _run_cli(["claim", "thing", "--lifetime", "ephemeral",
+                      "--objective", "obj", "--session", "s1"], d)
+            r = _run_cli(["park", "--bogus-flag", "--version", "1", "--session", "s1"], d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("usage: park", r.stdout)
+            still = json.loads(_run_cli(["dump"], d).stdout)["records"][0]
+            self.assertEqual(still["state"], "active",
+                             "a refused park (no lifecycle_uuid) must change nothing")
+
+    def test_checkpoint_with_a_flag_in_the_uuid_slot_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            _run_cli(["init"], d)
+            _run_cli(["claim", "thing", "--lifetime", "ephemeral",
+                      "--objective", "obj", "--session", "s1"], d)
+            r = _run_cli(["checkpoint", "--next", "wire it up"], d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("usage: checkpoint", r.stdout)
+            data = json.loads(_run_cli(["dump"], d).stdout)
+            self.assertEqual(data.get("digests", []), [],
+                              "a refused checkpoint (no lifecycle_uuid) must record nothing")
+
+    def test_decide_with_a_flag_in_the_uuid_slot_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            _run_cli(["init"], d)
+            _run_cli(["claim", "thing", "--lifetime", "ephemeral",
+                      "--objective", "obj", "--session", "s1"], d)
+            r = _run_cli(["decide", "--topic", "t", "--text", "x"], d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("usage: decide", r.stdout)
+            data = json.loads(_run_cli(["dump"], d).stdout)
+            self.assertEqual(data.get("decisions", []), [],
+                              "a refused decide (no lifecycle_uuid) must record nothing")
+
+    # -- D4: --handover documented in the usage line that accepts it --------
+
+    def test_park_resume_complete_adopt_usage_documents_handover(self):
+        with tempfile.TemporaryDirectory() as d:
+            _run_cli(["init"], d)
+            for cmd in ("park", "resume", "complete", "adopt"):
+                r = _run_cli([cmd], d)
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertIn("--handover", r.stdout,
+                             "%s usage must document --handover" % cmd)
+
+    # -- CALIBRATION -----------------------------------------------------
+
+    def test_calibrated_reinjecting_the_pre_fix_positional_read_lets_claim_and_park_steal_a_flag(self):
+        # CALIBRATION: reinject the pre-fix shape onto the real PRODUCT
+        # symbol `_require_positional` (shared by claim, park/resume/
+        # complete/adopt, checkpoint and decide): the ONLY thing missing is
+        # the check that argv[0] is not itself a flag. In-process, so the
+        # patch is scoped to this test and cannot leak across the
+        # subprocess boundary the other tests above use.
+        def _broken_require_positional(argv, print_usage):
+            if not argv:
+                print_usage()
+                sys.exit(2)
+            return argv[0]  # THE BUG: no argv[0].startswith("-") check
+
+        original = bs._require_positional
+        with tempfile.TemporaryDirectory() as d:
+            bs.init_project(d).close()
+            with mock.patch.object(bs, "_require_positional", _broken_require_positional):
+                with mock.patch.object(bs, "require_root", lambda *a, **k: (d, "test")):
+                    bs.cmd_claim(["--help"])
+            store = bs.Store(d)
+            try:
+                data = store.dump()
+            finally:
+                store.close()
+            self.assertEqual(
+                len(data["records"]), 1,
+                "REINJECTION CHECK: with the positional-flag check removed, "
+                "'claim --help' must still silently claim a record named "
+                "'--help' (the exact D1/D2 defect shape), proving the real "
+                "check in _require_positional is what refuses it")
+            self.assertEqual(data["records"][0]["name"], "--help")
+        self.assertIs(bs._require_positional, original,
+                      "the patch must not leak past its own `with` block")
 
 
 # ---------------------------------------------------------------------------
