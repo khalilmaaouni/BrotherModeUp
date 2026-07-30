@@ -715,7 +715,7 @@ What is still honestly open, stated rather than discovered later:
 
 ---
 
-## 21. Approval receipts landed in code; three documents still describe the old flow. MOSTLY CLOSED 2026-07-30 (Loop 2). SECURITY.md remains OPEN.
+## 21. Approval receipts landed in code; three documents still describe the old flow. CLOSED 2026-07-31.
 
 Post-audit LOOP 3 (Model A) closed the audit finding in `tools/bm_learn.py`,
 `tools/bm_learning.py` and `tools/bm_store.py`: approval now requires a
@@ -747,14 +747,16 @@ shipped pages. Six sites were corrected, one more than the audit listed:
 the receipt proves an answer was supplied for this exact proposed rule and has
 not already been used, and it does NOT prove which human supplied the answer.
 
-STILL OPEN, and deliberately not claimed as done: `SECURITY.md` does not yet
-describe the receipt token as a secret with the handling rules the code
-enforces (shown once, never stored, never logged, fifteen-minute life). Loop 2
-did not hold that file. It is the remaining half of this item.
+CLOSED 2026-07-31. `SECURITY.md` now carries "Approval and state-change
+receipts are secrets": shown once, never stored, withheld from every ordinary
+export, fifteen-minute clamped life, single use through a conditional UPDATE in
+the same transaction as the change, and bound by fingerprint to the exact
+proposal. It also states plainly what a receipt does NOT prove, so the page
+cannot be read as claiming founder identity authentication.
 
 ---
 
-## 22. `complete <short-prefix>` blames a missing record for unsupported prefix resolution. OPEN. Found 2026-07-30.
+## 22. `complete <short-prefix>` blames a missing record for unsupported prefix resolution. CLOSED 2026-07-31.
 
 Reproduced twice by the orchestrator driving the real binary while the suite was
 green. `bm_store.py complete 5b53b923 --version 1 ...` refuses with
@@ -766,6 +768,15 @@ the cause. The message is the worse half: it tells the caller the record does no
 exist when it does. Not fixed; the session that owns `bm_store.py` next should
 decide whether prefixes belong on lifecycle commands at all, and in either case
 make the refusal name the real reason.
+
+CLOSED 2026-07-31. Resolved at the CLI layer in `_cmd_transition`, which now
+passes its positional through `_resolve_record_uuid` before calling
+`transition()`. The concurrency primitive still demands one exact identity,
+which is correct for it; the human's shorthand is expanded where the human's
+shorthand arrives. An unknown or ambiguous prefix still refuses, and now names
+the record it could not find. Three tests, including a calibration that drives
+`transition()` with a raw prefix and confirms the original misleading refusal
+still reproduces at that layer.
 
 ## 23. Local tags `v2.0.0-rc.1` and `v2.0.0-rc.2` differ from the remote's. OPEN. Found 2026-07-31.
 

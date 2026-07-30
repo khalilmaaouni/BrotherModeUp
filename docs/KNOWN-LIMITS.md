@@ -58,11 +58,24 @@ person was not sure about.
   `scripts/bm_shell.py` mitigates only the writes a caller chooses to declare:
   it is a declaration channel, not a sandbox, and its `--declare-none` screen is
   a short list of obvious write forms, not a shell parser.
-- **CI equivalence is proven locally, not on GitHub.** Every refusal was proven
-  by running `tools/test_all.py` on one machine. No real GitHub Actions run of
-  the `gate` job, the fence-hook step, the two suites added to CI at this merge
-  (`test_bm_docs.py`, `test_install.py`, `test_bm_runtimes.py`) or the artifact
-  upload has been observed. The first push to a branch CI watches is what turns
+- **OBSERVED 2026-07-31, and the news is mixed: the `gate` job IS green on
+  GitHub, and the Windows `store` legs are RED.** This entry used to say no real
+  Actions run had been observed at all. One has now been observed, three in fact
+  (`30511349840`, `30558980744`, `30560704272`). The serial `gate` job succeeds,
+  as do both POSIX platforms on both Python versions. `store (windows-latest)`
+  fails on both 3.9 and 3.x in all three, and the earliest of those predates the
+  first-rank loops, so it is pre-existing rather than newly introduced. The cause
+  is NOT established: public annotations carry only "exit code 1", and reading
+  the run log needs an authenticated `gh`, which is founder-only here. Since
+  2026-07-31 the Windows-covered suites run under
+  `.github/run_with_annotations.py`, which republishes unittest failure headers
+  as annotations a public repository serves without a login, so the next red run
+  names its own failing tests. Full per-job table:
+  `docs/evidence/RELEASE-CANDIDATE-2.0.0-rc.6.md`. Still unobserved: the
+  failure-artifact upload path, which needs a deliberately broken build on a
+  temporary branch.
+- **The remaining CI-equivalence gap.** Every refusal in `tools/test_all.py` was
+  proven by running it on one machine. The first push to a branch CI watches is what turns
   that from designed to demonstrated.
 - **The fence hook suite runs in CI on Linux and macOS only.** It contains
   deliberate win32 skips, so it is written to be Windows-aware, but it has never

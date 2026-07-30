@@ -4140,6 +4140,53 @@ class TestFenceSweepPositionalFlagRefusal(unittest.TestCase):
     already exercises): `--handover "<heading>"` is accepted by every
     _cmd_transition command but appeared in none of their usage text."""
 
+    def test_a_lifecycle_prefix_resolves_instead_of_claiming_no_such_record(self):
+        """REGISTER ITEM 22, 2026-07-31. `complete <8-char-prefix>` refused with
+        "found no such record" while the record plainly existed and the full
+        32-character uuid worked. transition() looks up by EXACT uuid, so the
+        prefix matched nothing, and the message blamed a missing row for what
+        was really unsupported prefix resolution.
+
+        Both halves matter. Sibling commands take prefixes, so a caller has
+        every reason to expect one here; and a refusal that names the wrong
+        cause sends the reader hunting for a record that is sitting right
+        there."""
+        with tempfile.TemporaryDirectory() as d:
+            _run_cli(["init"], d)
+            out = _run_cli(["claim", "prefix-probe", "--objective", "o",
+                            "--session", "s1"], d).stdout
+            full = re.search(r"lifecycle ([0-9a-f]{32})", out).group(1)
+            r = _run_cli(["complete", full[:8], "--version", "1",
+                          "--session", "s1", "--evidence", "gate green"], d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("is now complete", r.stdout)
+
+    def test_an_unknown_prefix_still_refuses_and_says_which_thing_is_wrong(self):
+        """The fix must not turn a genuinely missing record into a pass. An
+        unknown prefix still refuses, and the refusal names the record it could
+        not find rather than a version mismatch."""
+        with tempfile.TemporaryDirectory() as d:
+            _run_cli(["init"], d)
+            _run_cli(["claim", "present", "--objective", "o", "--session", "s1"], d)
+            r = _run_cli(["complete", "ffffffff", "--version", "1",
+                          "--session", "s1", "--evidence", "e"], d)
+            self.assertNotEqual(r.returncode, 0, r.stdout)
+            self.assertIn("record", (r.stdout + r.stderr).lower())
+
+    def test_calibrated_reinjecting_the_exact_lookup_reproduces_the_lying_refusal(self):
+        """CALIBRATION. Drive transition() the way the CLI used to, with the
+        raw prefix and no resolution, and confirm it produces the original
+        misleading refusal. If this stops reproducing, the fix above is being
+        tested against a defect that no longer exists in the form recorded."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rec = store.claim("prefix-calib", "ephemeral", "o", [],
+                                  session_id="s1")
+                with self.assertRaises(bs.StaleIdentity) as ctx:
+                    store.transition(rec.lifecycle_uuid[:8], 1, "complete",
+                                     session_id="s1", evidence="e")
+                self.assertIn("no such record", str(ctx.exception))
+
     def test_claim_help_flag_is_refused_not_claimed_as_a_name(self):
         with tempfile.TemporaryDirectory() as d:
             _run_cli(["init"], d)
