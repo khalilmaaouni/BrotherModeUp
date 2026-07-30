@@ -4146,8 +4146,18 @@ class LookupApplySplitTest(unittest.TestCase):
             self.assertEqual(n.returncode, 2, n.stdout)
             self.assertIn("requires --session", n.stderr)
             self.assertEqual(self._rows(root), 0)
-            r = self._learn(root, ["apply", "--query", self.QUERY, "--session",
+            # LOOP 4: --session alone is no longer a work identity. The bare
+            # call refuses at exit 2 (a USAGE refusal, before retrieval, which
+            # is why it prints no rules) and names all three ways forward.
+            i = self._learn(root, ["apply", "--query", self.QUERY, "--session",
                                    "s1"])
+            self.assertEqual(i.returncode, 2, i.stdout)
+            self.assertIn("requires a work identity", i.stderr)
+            self.assertIn("--new-record", i.stderr)
+            self.assertEqual(self._rows(root), 0,
+                             "a refused apply must record nothing")
+            r = self._learn(root, ["apply", "--query", self.QUERY, "--session",
+                                   "s1", "--new-record", "p5-rules"])
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn("use the GitHub Desktop app", r.stdout)
             self.assertIn("recorded 1 application(s)", r.stdout)
@@ -4155,38 +4165,56 @@ class LookupApplySplitTest(unittest.TestCase):
             self.assertEqual(self._rows(root), 1)
 
     def test_re_running_apply_is_idempotent(self):
+        """LOOP 4: idempotency is now per work record, so the re-runs have to
+        name the SAME record. Repeating --new-record would be three DIFFERENT
+        tasks that happen to share wording, which is exactly the case Loop 4
+        exists to keep apart, so it must NOT collapse to one row."""
         with tempfile.TemporaryDirectory() as root:
             self._rule(root)
-            for _ in range(3):
+            first = self._learn(root, ["apply", "--query", self.QUERY,
+                                       "--session", "s1", "--new-record",
+                                       "p5-idem"])
+            self.assertEqual(first.returncode, 0, first.stderr)
+            rec = re.search(r"provisional work record ([0-9a-f]{8})",
+                            first.stdout)
+            self.assertIsNotNone(rec, first.stdout)
+            for _ in range(2):
                 r = self._learn(root, ["apply", "--query", self.QUERY,
-                                       "--session", "s1"])
+                                       "--session", "s1", "--record",
+                                       rec.group(1)])
                 self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(self._rows(root), 1,
                              "apply duplicated rows on re-run")
             self.assertIn("1 already recorded", r.stdout)
 
-    def test_apply_after_a_work_record_exists_links_the_earlier_rows(self):
-        """The natural order of work: retrieve, THEN claim the record. The
-        already-recorded row has to gain the link, because nothing else in this
+    def test_apply_against_a_record_claimed_first_lands_the_link_immediately(self):
+        """LOOP 4 REPLACED THIS TEST'S PREMISE, and the old premise is recorded
+        here rather than deleted, because a reader deserves to know the order
+        changed on purpose.
+
+        It used to assert the order "retrieve bare, THEN claim, then link the
+        earlier row afterwards". That order is gone: a bare apply with session
+        identity alone now refuses, so there is no unlinked earlier row left to
+        rescue. The natural order the execution plan asks for is the reverse,
+        record first and application second, and it is better because the link
+        is never absent even briefly.
+
+        What survives unchanged is the property the old test actually protected:
+        the work record reaches the application row, since nothing else in this
         codebase can set that column afterwards."""
         with tempfile.TemporaryDirectory() as root:
             self._rule(root)
             env = dict(os.environ, BROTHERMODE_ROOT=root)
-            first = self._learn(root, ["apply", "--query", self.QUERY,
-                                       "--session", "s1"])
-            self.assertEqual(first.returncode, 0, first.stderr)
             c = subprocess.run([sys.executable, os.path.join(HERE, "bm_store.py"),
                                 "claim", "p5-late-record"], cwd=root, env=env,
                                capture_output=True, text=True)
             self.assertEqual(c.returncode, 0, c.stderr)
             uuid_m = re.search(r"lifecycle ([0-9a-f]{32})", c.stdout)
             self.assertIsNotNone(uuid_m, c.stdout)
-            second = self._learn(root, ["apply", "--query", self.QUERY,
-                                        "--session", "s1", "--record",
-                                        uuid_m.group(1)])
-            self.assertEqual(second.returncode, 0, second.stderr)
-            self.assertIn("linked 1 already recorded application(s)",
-                          second.stdout)
+            applied = self._learn(root, ["apply", "--query", self.QUERY,
+                                         "--session", "s1", "--record",
+                                         uuid_m.group(1)])
+            self.assertEqual(applied.returncode, 0, applied.stderr)
             self.assertEqual(self._rows(root), 1)
             db = os.path.join(root, ".brothermode", "store.sqlite3")
             con = sqlite3.connect(db)
@@ -4195,7 +4223,8 @@ class LookupApplySplitTest(unittest.TestCase):
                                   "learning_applications").fetchone()[0]
             finally:
                 con.close()
-            self.assertTrue(rec, "the late work record never landed on the row")
+            self.assertEqual(rec, uuid_m.group(1),
+                             "the work record never landed on the row")
 
     def test_a_failed_recording_returns_the_rules_and_a_loud_partial_status(self):
         """The rules must survive a bookkeeping failure, and the failure must
@@ -4221,8 +4250,15 @@ class LookupApplySplitTest(unittest.TestCase):
             os.environ["BROTHERMODE_ROOT"] = root
             try:
                 with contextlib.redirect_stdout(buf):
+                    # LOOP 4: a work identity is required, so this call has to
+                    # supply one to reach the recording path at all. That is
+                    # the point of the test: this is the path that REACHED
+                    # retrieval and then failed to record, which still exits 3
+                    # with the rules printed. The identity refusal is exit 2
+                    # and lives before retrieval, a different thing entirely.
                     code = learn_mod.cmd_apply(["--query", self.QUERY,
-                                                "--session", "s1"])
+                                                "--session", "s1",
+                                                "--new-record", "p5-broken"])
             finally:
                 store_mod.Store.record_learning_applications = original
                 if old_root is None:
@@ -4325,14 +4361,24 @@ class LookupApplySplitTest(unittest.TestCase):
             self.assertIn("1 already recorded", again.stdout)
             self.assertEqual(self._rows(root), 2, "re-run duplicated a row")
 
-    def test_apply_without_a_record_discloses_the_row_it_found(self):
-        """`already recorded` IS NOT `recorded FOR THIS WORK`.
+    def test_apply_now_prevents_the_ambiguity_it_used_to_only_disclose(self):
+        """LOOP 4 CLOSED THIS BY PREVENTION INSTEAD OF DISCLOSURE.
 
-        With no --record there is nothing to key on beyond the shared task
-        wording, so an existing row may belong to a different unit of work. The
-        ambiguity is real and cannot be resolved here; printing a bare
-        "status: recorded." resolves it by guessing, in the direction that
-        looks like success. It is disclosed instead."""
+        The old contract: with no --record there was nothing to key on beyond
+        the shared task wording, so an existing row might belong to a different
+        unit of work. That ambiguity could not be resolved, so it was DISCLOSED,
+        with a NOTE naming the record the found row belonged to.
+
+        The new contract is stronger. A bare apply cannot happen at all, so the
+        ambiguous row can never be created in the first place, and there is
+        nothing left to disclose. A prevented ambiguity beats a well-described
+        one.
+
+        NOTE FOR A LATER SESSION: the disclosure branch in bm_learn.py that
+        prints "NOTE: an already recorded row for this task belongs to work
+        record ..." is believed UNREACHABLE from `apply` now. It has not been
+        confirmed unreachable from the deprecated `relevant` alias, so it is
+        left in place rather than deleted on an assumption."""
         with tempfile.TemporaryDirectory() as root:
             self._rule(root)
             env = dict(os.environ, BROTHERMODE_ROOT=root)
@@ -4347,11 +4393,11 @@ class LookupApplySplitTest(unittest.TestCase):
             self.assertNotIn("NOTE: an already recorded row", first.stdout)
             bare = self._learn(root, ["apply", "--query", self.QUERY,
                                       "--session", "s1"])
-            self.assertEqual(bare.returncode, 0, bare.stderr)
-            self.assertIn("NOTE: an already recorded row for this task belongs "
-                          "to work record %s." % rec[:8], bare.stdout)
-            self.assertIn("If this is different work, re-run with --record",
-                          bare.stdout)
+            self.assertEqual(bare.returncode, 2, bare.stdout)
+            self.assertIn("requires a work identity", bare.stderr)
+            self.assertEqual(
+                self._rows(root), 1,
+                "the refused bare apply must not have added an ambiguous row")
 
     def test_calibrated_the_old_optional_flag_reproduces_the_unrecorded_run(self):
         """CALIBRATION. Put the pre-fix contract back (recording opt-in, no

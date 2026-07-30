@@ -73,10 +73,24 @@ import sys
 import unicodedata
 import uuid
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
+
+# LOOP 4, 2026-07-30: the environment-provided active record for `apply`.
+# Named BM_* rather than BROTHERMODE_*, matching BM_FENCE_SESSION_ID and
+# BM_APPROVAL_RECEIPT (bm_fence_hook.py, bm_learn.py): every BROTHERMODE_*
+# variable in this project configures ROOT/VAULT-level, global settings
+# (BROTHERMODE_ROOT, BROTHERMODE_VAULT, BROTHERMODE_FTS5, ...), while every
+# BM_* variable mirrors one specific CLI flag as a per-invocation fallback
+# (BM_FENCE_SESSION_ID mirrors --session-id, BM_APPROVAL_RECEIPT and
+# BM_STATE_CHANGE_RECEIPT mirror --receipt). Grepped before adding this: no
+# existing env var conveys "the active work record" under either prefix, so
+# this is new, and it follows the second, narrower pattern on purpose: a
+# record identity is exactly the kind of per-invocation value a CLI flag
+# already expresses, not a standing root/vault path.
+ACTIVE_RECORD_ENV = "BM_ACTIVE_RECORD"
 
 # How long an approval receipt stays usable. Short on purpose: the receipt
 # exists to carry ONE human answer across the gap between the question window
@@ -1254,10 +1268,23 @@ _TABLES_V9 = _TABLES_V8 + _TABLES_STATE_CHANGE_RECEIPTS
 # upgrade gets quarantined.
 _TABLES_V10 = _TABLES_V9
 
+# Schema 11 (LOOP 4, 2026-07-30) adds two new tables: learning_retrieval_
+# membership (the exact eligible corpus of a retrieval, not only its count)
+# and provisional_records (the ledger of which records rows started life as
+# a provisional work identity). Its own tuple for the same reason every
+# schema above got one: a healthy schema-10 store must be checked against
+# schema 10's table list, or the version check never runs and a store whose
+# only fault is predating this upgrade gets quarantined. The DDL text itself
+# (_LOOP4_DDL) is defined further down, after _split_ddl exists; this tuple
+# only needs the table NAMES, which cost nothing to name this early.
+_TABLES_LOOP4 = ("learning_retrieval_membership", "provisional_records")
+
+_TABLES_V11 = _TABLES_V10 + _TABLES_LOOP4
+
 _TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3,
                       4: _TABLES_V4, 5: _TABLES_V5, 6: _TABLES_V6,
                       7: _TABLES_V7, 8: _TABLES_V8, 9: _TABLES_V9,
-                      10: _TABLES_V10}
+                      10: _TABLES_V10, 11: _TABLES_V11}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -1793,6 +1820,67 @@ _APPLICATIONS_V10_COLUMNS = (
      "CHECK(action_reached IN ('yes','no','unknown'))"),
 )
 
+# Schema 11 (LOOP 4, 2026-07-30): durable work identity for substantial
+# applications, and the retrieval corpus's exact membership rather than only
+# its count. TWO new tables, both ADDITIVE ONLY (CREATE TABLE IF NOT EXISTS,
+# no ALTER on any existing table), for the same reason schema 9 and schema
+# 10 each had to add a table/columns rather than widen a constraint:
+# learning_applications.record_uuid is already nullable and REFERENCES
+# records(lifecycle_uuid) (since schema 2), and the founder's live store
+# already holds application rows with NULL record_uuid. "every new apply
+# needs a work identity" cannot be expressed as NOT NULL on that column
+# without rewriting every existing row, so it is enforced at the command and
+# API layer instead (bm_learn.py cmd_apply's own check, and
+# record_learning_applications's require_record_identity guard below); the
+# column stays exactly as nullable as it has always been.
+#
+# learning_retrieval_membership answers the question eligible_count cannot:
+# WHICH rules, at WHAT version, were eligible for one retrieval. A count
+# survives a rule swap (one forgotten, one approved, the total unchanged);
+# a membership row for each does not, because it names rule_uuid and
+# rule_version, never a tally. eligible_count is UNTOUCHED, still written and
+# read exactly as schema 4 defined it (see :7400 and
+# classify_learning_applications); this table is the reconstruction detail
+# recorded ALONGSIDE it, never a replacement for it.
+#
+# provisional_records marks a SUBSET of ordinary records rows, rather than
+# widening records.state's CHECK to add a 'provisional' value -- the exact
+# trap named up front for this loop: SQLite cannot alter a CHECK constraint
+# without a full table rebuild, the same wall schema 9 hit for state and
+# schema 10 hit for shown_to_model. The underlying records row this table
+# points at is completely ordinary (state 'active', lifetime 'ephemeral', no
+# claimed files), so every existing mechanism -- fences, dashboard,
+# transition() -- already works on it for free. This table is only the
+# ledger of which records rows started life provisional, and when each was
+# promoted or cancelled. Promotion and cancellation never touch the
+# records row's lifecycle_uuid, which is why linked applications survive
+# both untouched: their record_uuid foreign key points at a primary key that
+# never moves.
+_LOOP4_DDL = """
+CREATE TABLE IF NOT EXISTS learning_retrieval_membership (
+  retrieval_uuid TEXT NOT NULL REFERENCES learning_retrieval_runs(retrieval_uuid) ON DELETE CASCADE,
+  rule_uuid TEXT NOT NULL,
+  rule_version INTEGER NOT NULL,
+  PRIMARY KEY(retrieval_uuid, rule_uuid)
+);
+CREATE TABLE IF NOT EXISTS provisional_records (
+  lifecycle_uuid TEXT PRIMARY KEY REFERENCES records(lifecycle_uuid) ON DELETE CASCADE,
+  requested_name TEXT NOT NULL DEFAULT '',
+  created_session_id TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  promoted_at TEXT,
+  cancelled_at TEXT
+);
+"""
+
+_LOOP4_INDEX_DDL = """
+CREATE INDEX IF NOT EXISTS learning_retrieval_membership_rule_idx
+  ON learning_retrieval_membership(rule_uuid, rule_version);
+"""
+
+_LOOP4_DDL_STATEMENTS = _split_ddl(_LOOP4_DDL)
+_LOOP4_INDEX_STATEMENTS = _split_ddl(_LOOP4_INDEX_DDL)
+
 NOTE_KINDS = ("insight", "alert", "question", "review", "todo", "risk")
 NOTE_SEVERITIES = ("", "info", "warning", "critical")
 NOTE_AUTHOR_KINDS = ("founder", "assistant", "human")
@@ -2137,6 +2225,31 @@ def _migrate_9_to_10(conn):
                 % (name, decl))
 
 
+def _migrate_10_to_11(conn):
+    """Schema 10 to 11 (LOOP 4): add learning_retrieval_membership and
+    provisional_records. ADDITIVE ONLY.
+
+    Same contract as _migrate_8_to_9 (the last table-only migration): two
+    CREATE TABLE IF NOT EXISTS statements plus one index, safe whether this
+    runs against a genuinely old schema-10 store or, via _ensure_schema,
+    against a brand new one that already has both tables. Runs inside the
+    caller's BEGIN EXCLUSIVE, so it must never commit, roll back, or open a
+    transaction of its own.
+
+    What this deliberately does NOT do: it does not backfill
+    learning_retrieval_membership for any run recorded before this loop
+    existed. A schema-10 run recorded only eligible_count, never which rules
+    were eligible, and there is no way to reconstruct that set after the
+    fact without guessing at a corpus that may have already moved. A
+    pre-loop-4 run therefore has zero membership rows rather than a
+    backfilled guess wearing a fact's clothes, the same rule _migrate_9_to_10
+    states for presentation and action_reached."""
+    for statement in _LOOP4_DDL_STATEMENTS:
+        conn.execute(statement)
+    for statement in _LOOP4_INDEX_STATEMENTS:
+        conn.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_1_to_2,
     2: _migrate_2_to_3,
@@ -2147,6 +2260,7 @@ _MIGRATIONS = {
     7: _migrate_7_to_8,
     8: _migrate_8_to_9,
     9: _migrate_9_to_10,
+    10: _migrate_10_to_11,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -3668,6 +3782,11 @@ class Store(object):
             # before its ALTER TABLE precisely so this call is safe on a
             # store that was just created with the columns already present.
             _migrate_9_to_10(self.conn)
+        if SCHEMA_VERSION >= 11:
+            # Same rule again. Both statements in _migrate_10_to_11 are
+            # CREATE TABLE IF NOT EXISTS, so this call is safe on a store
+            # that was just created with both tables already present.
+            _migrate_10_to_11(self.conn)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -3708,6 +3827,8 @@ class Store(object):
             self.conn.executescript(_NOTES_INDEX_DDL)
         if SCHEMA_VERSION >= 9:
             self.conn.executescript(_STATE_CHANGE_RECEIPT_INDEX_DDL)
+        if SCHEMA_VERSION >= 11:
+            self.conn.executescript(_LOOP4_INDEX_DDL)
 
     # ------------------------------------------------------------------
     # The optional FTS5 fast path (LOOP P7). Read the block above
@@ -6719,6 +6840,17 @@ class Store(object):
         return {"mode": mode, "results": out,
                 "omitted": soft_omitted,
                 "eligible": len(eligible),
+                # LOOP 4. The exact eligible corpus, not only its size:
+                # (rule_uuid, version) for EVERY row in `eligible`, gate or
+                # soft, chosen or cut by `limit`. `eligible` is unaffected by
+                # `limit` (see its own comment above), so this membership
+                # already covers the full denominator `eligible_count`
+                # names, before ranking or the soft-rule cut ever run.
+                # Consumed by _write_retrieval_run to populate
+                # learning_retrieval_membership; a caller that never records
+                # (lookup) simply drops this key on the floor, unread.
+                "eligible_membership": [(r["rule_uuid"], int(r["current_version"]))
+                                        for r in eligible],
                 "gates_returned": gates_returned,
                 "gates_total": len(gates),
                 "soft_returned": len(soft_kept),
@@ -6779,6 +6911,195 @@ class Store(object):
         rows = _exec(self, "SELECT lifecycle_uuid FROM records "
                            "WHERE lifecycle_uuid LIKE ?", (prefix + "%",)).fetchall()
         return _one_or_refuse(rows, "record", prefix)["lifecycle_uuid"]
+
+    def _resolve_record_uuid_for_apply(self, prefix, session_id):
+        """Resolve a --record argument for `apply`, LOOP 4's "protect the
+        links" checks that a bare identifier lookup (_resolve_record_uuid)
+        does not make: existence alone is not enough to accept a new
+        substantial-work application against a record.
+
+        Three named refusals from this one call, each its own reason
+        string surfaced via OwnershipRefused.reason (record_error_kind at
+        the caller):
+          not-found / ambiguous      -- _resolve_record_uuid's own, for
+                                        applying against a nonexistent record
+          closed-record              -- the record's state is 'complete':
+                                        applying against work already marked
+                                        done is refused rather than silently
+                                        reopening it by proxy
+          provisional-cross-session  -- the record is a provisional identity
+                                        that has not yet been promoted (or
+                                        cancelled -- that case is already
+                                        'closed-record' above, since
+                                        cancelling moves the underlying
+                                        record to 'complete'), and this
+                                        apply's session is not the one that
+                                        created it: reusing an unpromoted
+                                        provisional identity from a
+                                        different, unrelated session is
+                                        exactly the silent merge this loop
+                                        exists to prevent. Once promoted, the
+                                        restriction lifts and any session may
+                                        apply against it like any other
+                                        record."""
+        record_uuid = self._resolve_record_uuid(prefix)
+        if record_uuid is None:
+            return None
+        row = _exec(self, "SELECT state FROM records WHERE lifecycle_uuid=?",
+                   (record_uuid,)).fetchone()
+        if row is not None and row["state"] == "complete":
+            raise OwnershipRefused(
+                "closed-record",
+                "record %s is closed (state 'complete'); apply new "
+                "substantial work against a still-open record, or claim a "
+                "new one with --new-record" % record_uuid[:8])
+        prov = _exec(self, "SELECT created_session_id, promoted_at, "
+                          "cancelled_at FROM provisional_records "
+                          "WHERE lifecycle_uuid=?", (record_uuid,)).fetchone()
+        if prov is not None and not prov["promoted_at"] and not prov["cancelled_at"]:
+            if (session_id or "") != (prov["created_session_id"] or ""):
+                raise OwnershipRefused(
+                    "provisional-cross-session",
+                    "record %s is an unpromoted provisional record created "
+                    "by a different session; a different session cannot "
+                    "apply against it until it is promoted to a full "
+                    "record (or claim your own with --new-record)"
+                    % record_uuid[:8])
+        return record_uuid
+
+    def _insert_provisional_record(self, name, session_id):
+        """The INSERT statements for one provisional record, with NO
+        transaction of its own (LOOP 4): shared by create_provisional_record
+        (which wraps it in one, for standalone use) and
+        record_learning_applications's --new-record path, which must create
+        the record and the application it is for in the SAME transaction, or
+        not at all.
+
+        MECHANICAL NEVER-MERGE GUARANTEE, not a convention. Every call mints
+        a fresh uuid4 lifecycle_uuid, never looked up by name, objective or
+        any other text, and the STORED name is the founder's requested name
+        plus that uuid's own first 8 hex characters, joined by '--prov-', a
+        substring no valid name may already end with intact (valid_name
+        rejects whitespace and the reserved-character set, but not this
+        exact literal, so the guarantee is the fresh uuid, not the
+        separator). Two calls with the IDENTICAL requested name -- the exact
+        "two tasks worded the same way" case this loop's acceptance
+        criterion names -- therefore write two distinct primary keys under
+        two distinct stored names: the one_active_per_name unique index can
+        never reject the second as a collision with the first, and nothing
+        downstream that resolves a record by name can accidentally land on
+        the wrong one.
+
+        The underlying records row is otherwise perfectly ordinary: state
+        'active', lifetime 'ephemeral', no claimed files. Every existing
+        mechanism (fences, dashboard, transition()) therefore already works
+        on it; provisional_records is only the ledger of which records rows
+        started life this way and when each was promoted or cancelled."""
+        valid_name(name)
+        lifecycle_uuid = uuid.uuid4().hex
+        suffix = "--prov-%s" % lifecycle_uuid[:8]
+        base = name[:max(1, 60 - len(suffix))] if len(name) + len(suffix) > 60 else name
+        stored_name = base + suffix
+        valid_name(stored_name)
+        ts = now_iso()
+        self._admit(stored_name, "ephemeral", [])
+        _exec(self,
+              "INSERT INTO records (lifecycle_uuid, name, lifetime, state, "
+              "objective, owner, session_id, tier, check_cmd, evidence, "
+              "version, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+              (lifecycle_uuid, stored_name, "ephemeral", "active", "", "",
+               session_id or "", "", "", "", 1, ts, ts))
+        _exec(self,
+              "INSERT INTO transitions (lifecycle_uuid, from_state, to_state, "
+              "session_id, note, at) VALUES (?,?,?,?,?,?)",
+              (lifecycle_uuid, None, "active", session_id or "",
+               "claimed provisional", ts))
+        _exec(self,
+              "INSERT INTO provisional_records (lifecycle_uuid, "
+              "requested_name, created_session_id, created_at) "
+              "VALUES (?,?,?,?)",
+              (lifecycle_uuid, name, session_id or "", ts))
+        return lifecycle_uuid
+
+    def create_provisional_record(self, name, session_id=""):
+        """Public entry point: create a provisional record standalone, in
+        its own transaction. See _insert_provisional_record for the
+        mechanical never-merge guarantee and what a provisional record
+        actually is."""
+        with self._transaction():
+            lifecycle_uuid = self._insert_provisional_record(name, session_id)
+        return self._record_by_uuid(lifecycle_uuid)
+
+    def _resolve_provisional_row(self, prefix):
+        rows = _exec(self, "SELECT * FROM provisional_records "
+                          "WHERE lifecycle_uuid LIKE ?",
+                     (prefix + "%",)).fetchall()
+        return _one_or_refuse(rows, "provisional record", prefix)
+
+    def list_provisional_records(self):
+        """Every provisional record ever created, promoted or cancelled or
+        not: the ledger LOOP 4's "visible in project status" requirement
+        needs (render_state_md annotates active, not-yet-promoted rows from
+        this list)."""
+        return [dict(r) for r in _exec(self,
+            "SELECT * FROM provisional_records ORDER BY created_at").fetchall()]
+
+    def promote_provisional_record(self, prefix):
+        """Turn a provisional record into an ordinary full record. Nothing
+        about the records row itself changes -- same lifecycle_uuid, same
+        state -- so every application that already links to it keeps
+        linking to it; only provisional_records.promoted_at is set, which is
+        what lifts the provisional-cross-session restriction
+        _resolve_record_uuid_for_apply enforces above."""
+        row = self._resolve_provisional_row(prefix)
+        if row["promoted_at"]:
+            raise OwnershipRefused(
+                "already-promoted",
+                "record %s was already promoted at %s"
+                % (row["lifecycle_uuid"][:8], row["promoted_at"]))
+        if row["cancelled_at"]:
+            raise OwnershipRefused(
+                "already-cancelled",
+                "record %s was cancelled at %s and cannot be promoted"
+                % (row["lifecycle_uuid"][:8], row["cancelled_at"]))
+        ts = now_iso()
+        with self._transaction():
+            _exec(self, "UPDATE provisional_records SET promoted_at=? "
+                       "WHERE lifecycle_uuid=?", (ts, row["lifecycle_uuid"]))
+        return self._record_by_uuid(row["lifecycle_uuid"])
+
+    def cancel_provisional_record(self, prefix, session_id="", note=""):
+        """Cancel a provisional record before it is ever promoted. The
+        underlying records row is never deleted, only moved to 'complete'
+        via the ordinary transition() path (so ownership is still checked:
+        only the session that holds it, or a session that already owns it
+        via parked/adopted, may cancel it), which is why every application
+        already linked to it stays linked: its record_uuid foreign key still
+        resolves to a live row, forever."""
+        row = self._resolve_provisional_row(prefix)
+        if row["promoted_at"]:
+            raise OwnershipRefused(
+                "already-promoted",
+                "record %s was already promoted at %s and is no longer "
+                "provisional; cancel does not apply to a promoted record"
+                % (row["lifecycle_uuid"][:8], row["promoted_at"]))
+        if row["cancelled_at"]:
+            raise OwnershipRefused(
+                "already-cancelled",
+                "record %s was already cancelled at %s"
+                % (row["lifecycle_uuid"][:8], row["cancelled_at"]))
+        rec = self._record_by_uuid(row["lifecycle_uuid"])
+        if rec is not None and rec.state == "active":
+            self.transition(
+                row["lifecycle_uuid"], rec.version, "complete",
+                session_id=session_id,
+                evidence="cancelled: provisional record dropped before promotion",
+                note=note or "cancelled provisional record")
+        ts = now_iso()
+        with self._transaction():
+            _exec(self, "UPDATE provisional_records SET cancelled_at=? "
+                       "WHERE lifecycle_uuid=?", (ts, row["lifecycle_uuid"]))
+        return self._record_by_uuid(row["lifecycle_uuid"])
 
     def _prior_application(self, fingerprint, rule_uuid, version, session_id,
                            record_uuid):
@@ -6885,12 +7206,35 @@ class Store(object):
                values["artifact_key"], values["relationship_key"],
                values["tool_key"], int(limit), res["mode"],
                int(res["eligible"]), len(res["results"]), ts))
+        # LOOP 4: the exact eligible corpus, not only eligible_count above.
+        # (retrieval_uuid, rule_uuid) is this table's own primary key, so a
+        # rule that happens to appear twice in `eligible_membership` (it
+        # cannot today, but nothing upstream is this function's business to
+        # assume) writes once rather than raising mid-transaction.
+        for rule_uuid, rule_version in res.get("eligible_membership", ()):
+            _exec(self,
+                  "INSERT OR IGNORE INTO learning_retrieval_membership "
+                  "(retrieval_uuid, rule_uuid, rule_version) VALUES (?,?,?)",
+                  (run_uuid, rule_uuid, rule_version))
 
     def get_learning_retrieval_run(self, prefix):
         rows = _exec(self, "SELECT * FROM learning_retrieval_runs "
                            "WHERE retrieval_uuid LIKE ?",
                      (prefix + "%",)).fetchall()
         return _one_or_refuse(rows, "retrieval run", prefix)
+
+    def get_retrieval_membership(self, retrieval_uuid):
+        """The exact eligible corpus stored for ONE retrieval run: a set of
+        (rule_uuid, rule_version) pairs (LOOP 4). Takes the run's full uuid,
+        not a prefix (get_learning_retrieval_run already resolves a prefix
+        to one; this reads the membership rows that belong to it). A run
+        written before schema 11 existed has no rows here, which is the
+        honest answer for a run this loop never observed, not a backfilled
+        guess -- same rule as every additive column above."""
+        rows = _exec(self, "SELECT rule_uuid, rule_version FROM "
+                          "learning_retrieval_membership WHERE retrieval_uuid=? "
+                          "ORDER BY rule_uuid", (retrieval_uuid,)).fetchall()
+        return set((r["rule_uuid"], int(r["rule_version"])) for r in rows)
 
     def list_learning_retrieval_runs(self, session_id=None,
                                      task_fingerprint=None):
@@ -6941,9 +7285,26 @@ class Store(object):
 
     def record_learning_applications(self, query, context=None, limit=5,
                                       session_id="", record_prefix=None,
+                                      new_record_name=None,
+                                      require_record_identity=False,
                                       shown_to_model=True, task_excerpt=None,
                                       expand_ids=None):
         """Retrieve rules for a task AND record that they were surfaced.
+
+        LOOP 4 adds durable work identity. `require_record_identity=True`
+        (bm_learn.py's `apply` always passes it; `lookup` never calls this
+        method at all) refuses BEFORE any retrieval runs, with no partial
+        write and no rules returned, unless the caller supplied exactly one
+        of: `record_prefix` (an existing work record), `new_record_name` (a
+        provisional one, created atomically with this call, see
+        _insert_provisional_record), or ACTIVE_RECORD_ENV in the
+        environment. This is deliberately NOT folded into the record_error /
+        record_error_kind soft-failure path below: a missing identity is not
+        a database write that failed, it is the caller never having
+        supplied the one thing this whole loop exists to require, so it is
+        refused as loudly as a missing --session already is at the CLI
+        layer, and enforced here too so a direct API caller gets the same
+        refusal a CLI caller does.
 
         LOOP 3: each application row also records `presentation` ('expanded'
         or 'manifest', from the retrieval's per-row decision) and
@@ -6974,7 +7335,11 @@ class Store(object):
         column afterwards, so dropping the flag would strand the row for good
         and permanently unlink the application from the work it belongs to.
         An application already pointing at a DIFFERENT record is never touched
-        and never moved: that work keeps its row, and this work gets its own.
+        and never moved: that work keeps its row, and this work gets its own
+        (this is the structural "never relink" guarantee LOOP 4's link
+        protection names: _prior_application's own lookup never selects a
+        foreign-linked row for UPDATE, so there is no code path here that
+        could move a link even by accident).
 
         The retrieval result is returned whatever happens to the write, and
         that now includes a bad --record. Resolving the work record prefix is
@@ -6982,8 +7347,35 @@ class Store(object):
         comes back as `record_error` with the rules intact instead of aborting
         the whole run and leaving the caller with no founder rules at all.
         `record_error_kind` says which sort of failure it was, because a bad
-        argument will fail identically forever and a busy database will not."""
+        argument will fail identically forever and a busy database will not.
+        LOOP 4 adds two more named `record_error_kind` values from the SAME
+        resolution step, both refusals rather than database failures:
+        'closed-record' (the record's state is 'complete') and
+        'provisional-cross-session' (an unpromoted provisional record
+        created by a different session)."""
         L = _learning()
+        explicit_prefix = (record_prefix or "").strip() or None
+        env_record = os.environ.get(ACTIVE_RECORD_ENV, "").strip() or None
+        if explicit_prefix and new_record_name:
+            raise OwnershipRefused(
+                "ambiguous-identity",
+                "pass --record OR --new-record, not both (%r and %r): each "
+                "names a different way to identify this work and only one "
+                "can govern a single apply" % (record_prefix, new_record_name))
+        effective_prefix = explicit_prefix or (None if new_record_name else env_record)
+        if require_record_identity and not (effective_prefix or new_record_name):
+            raise OwnershipRefused(
+                "no-work-identity",
+                "apply requires a work identity beyond session_id alone. "
+                "Pass exactly one of: (1) --record <existing-work-uuid> to "
+                "attach this to work already claimed; (2) --new-record "
+                "<name> to create a provisional work record atomically with "
+                "this application; or (3) set %s in the environment to an "
+                "active record's uuid, previously established by "
+                "`bm_store.py claim` or `bm_threads.py start`. A "
+                "substantial-work application with only a session id cannot "
+                "be tied back to one unambiguous unit of work."
+                % ACTIVE_RECORD_ENV)
         res = self.retrieve_learning_rules(query, context=context, limit=limit,
                                            expand_ids=expand_ids)
         out = dict(res)
@@ -6999,6 +7391,7 @@ class Store(object):
         out["record_error"] = ""
         out["record_error_kind"] = ""
         out["retrieval_uuid"] = ""
+        out["new_record_uuid"] = ""
         # Echoed back because the CLI prints it beside the run id, and reading
         # it off the caller's own argument keeps the printed line true even
         # when the write fails and no run row exists to read it from.
@@ -7014,8 +7407,21 @@ class Store(object):
         run_uuid = uuid.uuid4().hex
         recorded, already, linked, uuids, elsewhere = 0, 0, 0, [], set()
         try:
-            record_uuid = self._resolve_record_uuid(record_prefix)
             with self._transaction():
+                # LOOP 4: identity resolution moves INSIDE the transaction
+                # so --new-record's provisional creation is atomic WITH the
+                # retrieval run and application rows it is for -- all or
+                # nothing, never a provisional record with no application to
+                # show for it. An existing --record (or env fallback) is
+                # resolved here too, which only changes when the raise
+                # happens (now inside a transaction that has written
+                # nothing yet), never what it raises.
+                if new_record_name:
+                    record_uuid = self._insert_provisional_record(
+                        new_record_name, session_id or "")
+                else:
+                    record_uuid = self._resolve_record_uuid_for_apply(
+                        effective_prefix, session_id or "")
                 self._write_retrieval_run(run_uuid, res, query, fingerprint,
                                           context, limit,
                                           session_id or "", record_uuid, ts)
@@ -7074,6 +7480,8 @@ class Store(object):
             out["applications"] = uuids
             out["already_linked_records"] = sorted(elsewhere)
             out["retrieval_uuid"] = run_uuid
+            if new_record_name:
+                out["new_record_uuid"] = record_uuid
         except (OwnershipRefused, sqlite3.IntegrityError) as e:
             # PROPERTY 2 above, enforced here and nowhere else. The transaction
             # has already rolled back, so nothing partial survives; the caller
@@ -9325,6 +9733,20 @@ def render_state_md(root):
     store = ReadOnlyStore(root)
     try:
         rows = _exec(store, "SELECT * FROM records ORDER BY state, name").fetchall()
+        # LOOP 4: which records rows are provisional and still awaiting a
+        # decision (not yet promoted, not yet cancelled), keyed by
+        # lifecycle_uuid so the loop below can annotate each one in O(1).
+        # sqlite_master-guarded like _undelivered_handover_rows: a store that
+        # predates schema 11 has no such table, and this must render its
+        # section exactly as before rather than quarantine over an absent
+        # optional annotation.
+        provisional_by_uuid = {}
+        if _exec(store, "SELECT 1 FROM sqlite_master WHERE type='table' "
+                       "AND name='provisional_records'").fetchone():
+            for p in _exec(store, "SELECT * FROM provisional_records "
+                                  "WHERE promoted_at IS NULL "
+                                  "AND cancelled_at IS NULL").fetchall():
+                provisional_by_uuid[p["lifecycle_uuid"]] = p
         lines = [_STATE_BEGIN,
                  "_Generated by bm_store.py, %s. Edit outside the markers; "
                  "anything inside them is overwritten on the next render._" % now_iso(),
@@ -9372,9 +9794,19 @@ def render_state_md(root):
                 # CURRENT version to act at all. Printing both means a human
                 # reading STATE.md can act on what they read without a
                 # separate `dump` round trip.
-                lines.append("- %s (%s, version %s, %s) [%s] owner-session: %s"
+                # LOOP 4: an unpromoted, uncancelled provisional record is
+                # flagged right here, in the SAME line every other mutating
+                # command already reads lifecycle_uuid and version off of,
+                # which is what makes it "visible in project status"
+                # without a second query.
+                provisional_tag = (
+                    " [PROVISIONAL, created %s]"
+                    % provisional_by_uuid[r["lifecycle_uuid"]]["created_at"]
+                    if r["lifecycle_uuid"] in provisional_by_uuid else "")
+                lines.append("- %s (%s, version %s, %s) [%s] owner-session: %s%s"
                              % (_redacted_view_text(r["name"]), r["lifecycle_uuid"],
-                                r["version"], r["lifetime"], tier_text, session_text))
+                                r["version"], r["lifetime"], tier_text, session_text,
+                                provisional_tag))
                 lines.append("  objective: %s"
                              % (_redacted_view_text(r["objective"]) if r["objective"] else "(none)"))
                 files_text = (", ".join(_redacted_view_text(f) for f in files)
