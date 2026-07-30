@@ -46,18 +46,36 @@ cat VERSION
 python3 tools/bm_project_facts.py --field release_tag
 ```
 
-The current candidate is `2.0.0-rc.5`, cut 2026-07-31 at the close of the
+The current candidate is `2.0.0-rc.6`, cut 2026-07-31 at the close of the
 first-rank execution loops 0 through 5 (`CHANGELOG.md` has the entries: release
 truth, receipt-gated state changes, bounded gate manifests, mandatory work
-identity, privacy hardening). At the moment this page was written the TAG
-`v2.0.0-rc.5` was not yet created: this project creates release tags through
-the GitHub Desktop app (a command-line tag does not push from Desktop,
-confirmed empirically), so the tag is cut by the founder immediately after the
-release-cut commit lands, and the release-truth suite holds this page honest
-in both directions: its tag tests SKIP with a stated reason while the tag does
-not exist and become mandatory the moment it does.
+identity, privacy hardening). This project creates release tags through the
+GitHub Desktop app (a command-line tag does not push from Desktop, confirmed
+empirically), so the tag is cut by the founder immediately after the
+release-cut commit lands, and the release-truth suite holds this page honest in
+both directions: its tag tests SKIP with a stated reason while the tag does not
+exist and become mandatory the moment it does.
 
-`2.0.0-rc.4` before it is superseded, cut 2026-07-29 when the four parallel
+**`v2.0.0-rc.5` IS WITHDRAWN. Do not install it.** It was tagged and pushed on
+2026-07-31 and withdrawn roughly fifteen minutes later, on the same grounds as
+`rc.1`: its `CHECKSUMS.sha256` did not describe its own tree. Eight shipped
+files were absent from the manifest, including `tools/bm_docs.py`,
+`tools/bm_docs_export.py` and `tools/bm_packs.py`, so `verify-install.sh`
+against that tag reports three real tools as unknown files. The cause was
+operator error, recorded rather than smoothed over: the release-cut session ran
+`scripts/checksums.sh` with its output redirected to `/dev/null` instead of
+passing the documented output path, so the manifest was never rewritten and the
+commit message claiming it had been regenerated was false. The tag object still
+exists on the remote because deleting a published tag is the failure this
+project refuses on principle; withdrawal is a statement, not a deletion.
+
+What CAUGHT it is worth recording next to the failure: the release-truth test
+added the same day, `test_the_checksum_manifest_matches_the_tagged_tree`, was
+skipping with a stated reason while no tag existed, and turned mandatory the
+instant the tag was pushed. It failed on its first live run against a real tag,
+naming all eight files. No human noticed; a test did.
+
+`2.0.0-rc.4` before that is superseded, cut 2026-07-29 when the four parallel
 work lanes were merged back into `v2`.
 
 CORRECTED 2026-07-30, kept for the record. The paragraph about rc.4 used to say
@@ -117,10 +135,10 @@ Until it closes, do not describe this project as `2.0.0` anywhere.
 Tags exist now, so this is the install instruction, not a future one:
 
 ```bash
-git clone --branch v2.0.0-rc.5 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.6 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
-`--branch v2.0.0-rc.5` checks out that exact tag, not a moving branch head. It
+`--branch v2.0.0-rc.6` checks out that exact tag, not a moving branch head. It
 is the current candidate; `python3 tools/bm_project_facts.py --field
 release_tag` prints the tag matching whatever tree you are reading.
 `--depth 1` is optional (a shallow clone of just that tag), included because
@@ -243,12 +261,14 @@ through preparing it.
 
 CURRENT STATE, 2026-07-31, first, because the dated entries under it are a LOG
 and several of them were true only on the day they were written. `VERSION`
-reads `2.0.0-rc.5` and its tag is cut by the founder through GitHub Desktop
+reads `2.0.0-rc.6` and its tag is cut by the founder through GitHub Desktop
 immediately after the release-cut commit; until that moment the pinned clone
 command above does not resolve, the release-truth tests SKIP with a stated
-reason, and this sentence is the honest record of that window. Four earlier
+reason, and this sentence is the honest record of that window. Five earlier
 tags exist (`v2.0.0-rc.1` withdrawn, `v2.0.0-rc.2` superseded, `v2.0.0-rc.3`
-superseded, `v2.0.0-rc.4` superseded). CORRECTED 2026-07-30: the 2026-07-29
+superseded, `v2.0.0-rc.4` superseded, `v2.0.0-rc.5` WITHDRAWN the same day it
+was cut, for a checksum manifest that did not describe its own tree; see the
+version-scheme section above for the full account). CORRECTED 2026-07-30: the 2026-07-29
 entry directly below said no tag had been cut for `rc.4` and that its pinned
 clone would not resolve; both were true that day and stopped being true when
 the founder cut that tag, which is exactly why it is dated evidence rather
