@@ -1,6 +1,23 @@
 # Changelog
 
-## 2.0.0-rc.5, 2026-07-31: the first-rank loops, cut at the close of loops 0 through 5
+## 2.0.0-rc.6, 2026-07-31: the first-rank loops, re-cut after rc.5 was withdrawn
+
+Identical work to `rc.5` plus one corrected file. `v2.0.0-rc.5` is WITHDRAWN: its
+`CHECKSUMS.sha256` omitted eight shipped files, including `tools/bm_docs.py`,
+`tools/bm_docs_export.py` and `tools/bm_packs.py`, so `verify-install.sh` against
+that tag reports three real tools as unknown. Operator error, stated plainly: the
+release-cut session ran `scripts/checksums.sh` with its output redirected to
+`/dev/null` rather than passing the documented output path, so the manifest was
+never rewritten while the commit message claimed it had been. The tag object stays
+on the remote; withdrawal is a statement, not a deletion, because deleting a
+published tag is the failure this project refuses on principle.
+
+The defect was caught by `test_the_checksum_manifest_matches_the_tagged_tree`, added
+hours earlier in Loop 1, which skipped with a stated reason while no tag existed and
+turned mandatory the moment one was pushed. It failed on its first live run against a
+real tag and named all eight files.
+
+## 2.0.0-rc.5, 2026-07-31 (WITHDRAWN): the first-rank loops, cut at the close of loops 0 through 5
 
 One session, six commits, every one behind its own full-gate run. The test count
 moved 1057 to 1194 across seven suites, and the store schema moved 8 to 11 in three
