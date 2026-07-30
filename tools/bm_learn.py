@@ -583,6 +583,12 @@ def _recording_footer(res, record_arg):
     _out("recorded %d application(s), %d already recorded for this task "
          "(task %s)" % (res["recorded"], res["already_recorded"],
                         res["task_fingerprint"]))
+    if res.get("new_record_uuid"):
+        # LOOP 4: --new-record's whole point is a durable identity the
+        # caller did not have before this call, so it is printed, not left
+        # to a follow-up `dashboard` round trip.
+        _out("  created provisional work record %s"
+             % res["new_record_uuid"][:8])
     if res.get("linked"):
         # Said out loud because the whole point of re-running with --record is
         # that the link lands, and a silent "already recorded" once left the
@@ -645,8 +651,9 @@ _USAGE = {
               "[--limit N] [--expand G1234abcd,...]   "
               "(READ ONLY; use `apply` before doing the work)",
     "apply": "usage: apply --query \"what you are about to do\" --session ID "
-             "[--record UUID] [--artifact ...] [--limit N] "
-             "[--expand G1234abcd,...]",
+             "(--record UUID | --new-record NAME | %s in the environment) "
+             "[--artifact ...] [--limit N] [--expand G1234abcd,...]"
+             % bs.ACTIVE_RECORD_ENV,
     "relevant": "usage: relevant --query \"...\"   (DEPRECATED alias; use "
                 "`lookup` to read or `apply` to do the work)",
 }
@@ -674,13 +681,14 @@ def _retrieve_command(mode, argv):
       cannot read a failed write as a clean run."""
     recording_flag = mode != "lookup"
     known = {"query", "project", "domain", "artifact", "relationship", "tool",
-             "limit", "json", "session", "record", "not-shown", "expand"}
+             "limit", "json", "session", "record", "new-record", "not-shown",
+             "expand"}
     if mode == "relevant":
         known.add("record-applications")
     pos, kv = _parse(argv, known,
                      wants_value=("query", "project", "domain", "artifact",
                                   "relationship", "tool", "limit", "session",
-                                  "record", "expand"))
+                                  "record", "new-record", "expand"))
     if mode == "relevant":
         _err("bm_learn: `relevant` is DEPRECATED and will be removed in the "
              "next major version. It is now an alias: use `lookup` to read "
@@ -694,11 +702,11 @@ def _retrieve_command(mode, argv):
         # Named refusal rather than _parse's generic unknown-flag line, because
         # someone reaching for these flags wants the recorded path and should
         # be sent there, not told the flag does not exist.
-        for flag in ("session", "record", "not-shown"):
+        for flag in ("session", "record", "new-record", "not-shown"):
             if kv.get(flag):
                 _err("bm_learn: lookup never writes, so --%s means nothing "
                      "here. Use: apply --query \"...\" --session ID "
-                     "[--record UUID]" % flag)
+                     "(--record UUID | --new-record NAME)" % flag)
                 return 2
     if mode == "apply" and not (kv.get("session") or "").strip():
         _err("bm_learn: apply requires --session ID. An application row with "
@@ -706,6 +714,34 @@ def _retrieve_command(mode, argv):
              "to, and an untied row is the bookkeeping this command exists to "
              "prevent. For a read with no work attached, use `lookup`.")
         return 2
+    # LOOP 4: session identity alone is not enough for `apply`. A durable
+    # work identity is required beyond it: an existing --record, a fresh
+    # --new-record, or an active record BrotherMode already established in
+    # the environment. Checked here, before the store is even opened, so a
+    # missing identity is refused exactly like a missing --session above,
+    # not attempted and reported as a partial write.
+    if mode == "apply":
+        record_arg = (kv.get("record") or "").strip()
+        new_record_arg = (kv.get("new-record") or "").strip()
+        env_active = os.environ.get(bs.ACTIVE_RECORD_ENV, "").strip()
+        if record_arg and new_record_arg:
+            _err("bm_learn: apply takes --record OR --new-record, not both "
+                 "(%r and %r); each names a different way to identify this "
+                 "work and only one can govern a single apply."
+                 % (record_arg, new_record_arg))
+            return 2
+        if not (record_arg or new_record_arg or env_active):
+            _err("bm_learn: apply requires a work identity beyond --session. "
+                 "Pass exactly one of:")
+            _err("  --record <existing-work-uuid>   attach to work already claimed")
+            _err("  --new-record <name>              create a provisional work "
+                 "record atomically with this application")
+            _err("  %s=<uuid> in the environment     use the record BrotherMode "
+                 "already made active (`bm_store.py claim` or "
+                 "`bm_threads.py start`)" % bs.ACTIVE_RECORD_ENV)
+            _err("A substantial-work application with session identity alone "
+                 "cannot be tied back to one unambiguous unit of work.")
+            return 2
     try:
         limit = int(kv.get("limit", 5))
     except ValueError:
@@ -727,6 +763,13 @@ def _retrieve_command(mode, argv):
                 query, context=_ctx(kv), limit=limit,
                 session_id=kv.get("session", ""),
                 record_prefix=kv.get("record"),
+                new_record_name=kv.get("new-record"),
+                # Only `apply` requires a work identity beyond --session;
+                # `relevant`'s deprecated opt-in path stays exactly as
+                # lenient as it always was, since this loop's mandate is
+                # about apply's OWN refusal at the door above, not about
+                # retroactively tightening the alias it survives as.
+                require_record_identity=(mode == "apply"),
                 shown_to_model=not kv.get("not-shown"),
                 expand_ids=expand_ids)
         else:
@@ -932,6 +975,60 @@ def cmd_disposition(argv):
     cls, why = L.classify_application(app["disposition"], app["shown_to_model"],
                                        app["outcome"])
     _out("  %s: %s" % (cls or "no finding", why))
+    return 0
+
+
+def cmd_promote(argv):
+    """Turn a provisional work record (LOOP 4, from `apply --new-record`)
+    into an ordinary full record. Nothing about the underlying record
+    changes -- same lifecycle_uuid, same state -- so every application
+    already linked to it stays linked.
+
+    usage: promote <lifecycle_uuid-or-prefix> [--json]"""
+    pos, kv = _parse(argv, {"json"})
+    if len(pos) != 1:
+        _err("usage: promote <lifecycle_uuid-or-prefix> [--json]")
+        return 2
+    store = _store()
+    try:
+        rec = store.promote_provisional_record(pos[0])
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps({"lifecycle_uuid": rec.lifecycle_uuid, "name": rec.name,
+                         "state": rec.state, "version": rec.version},
+                        indent=2, sort_keys=True))
+        return 0
+    _out("promoted '%s' (lifecycle %s) to a full work record"
+         % (rec.name, rec.lifecycle_uuid))
+    return 0
+
+
+def cmd_cancel(argv):
+    """Cancel a provisional work record (LOOP 4) before it is ever promoted.
+    The underlying record is never deleted, only moved to 'complete'; every
+    application already linked to it stays linked, forever.
+
+    usage: cancel <lifecycle_uuid-or-prefix> [--session ID] [--because "..."] [--json]"""
+    pos, kv = _parse(argv, {"session", "because", "json"},
+                     wants_value=("session", "because"))
+    if len(pos) != 1:
+        _err("usage: cancel <lifecycle_uuid-or-prefix> [--session ID] "
+             "[--because \"...\"] [--json]")
+        return 2
+    store = _store()
+    try:
+        rec = store.cancel_provisional_record(
+            pos[0], session_id=kv.get("session", ""), note=kv.get("because", ""))
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps({"lifecycle_uuid": rec.lifecycle_uuid, "name": rec.name,
+                         "state": rec.state, "version": rec.version},
+                        indent=2, sort_keys=True))
+        return 0
+    _out("cancelled '%s' (lifecycle %s); state is now %s"
+         % (rec.name, rec.lifecycle_uuid, rec.state))
     return 0
 
 
@@ -2009,6 +2106,8 @@ COMMANDS = {
     "relevant": cmd_relevant,
     "applications": cmd_applications,
     "disposition": cmd_disposition,
+    "promote": cmd_promote,
+    "cancel": cmd_cancel,
     "classify": cmd_classify,
     "should-retrieve": cmd_should_retrieve,
     "why": cmd_why,

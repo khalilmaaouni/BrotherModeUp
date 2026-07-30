@@ -908,6 +908,14 @@ class TestFixRoundGates(unittest.TestCase):
                                 "founder's store aside, and the PRAGMA "
                                 "table_info probe beside it is schema "
                                 "introspection rather than data access",
+            "_migrate_10_to_11": "a schema migration step, run INSIDE the "
+                                 "caller's BEGIN EXCLUSIVE (LOOP 4, "
+                                 "learning_retrieval_membership and "
+                                 "provisional_records). Same exemption and "
+                                 "same reason as _migrate_8_to_9: a CREATE "
+                                 "TABLE failing mid-migration must roll the "
+                                 "caller's transaction back, not move the "
+                                 "founder's store aside",
         }
         with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
             source = f.read()
@@ -12505,6 +12513,14 @@ class TestLoop2RuleAlteringCommandEnumeration(unittest.TestCase):
         "applications": "read only (bm_store.list_learning_applications)",
         "disposition": "grades an application (bm_store.set_application_disposition); "
                       "does not alter rule text",
+        "promote": "LOOP 4: moves a provisional WORK RECORD's own ledger flag "
+                  "(bm_store.promote_provisional_record sets "
+                  "provisional_records.promoted_at); touches no learning_rules "
+                  "row at all",
+        "cancel": "LOOP 4: moves a provisional WORK RECORD's own lifecycle "
+                 "(bm_store.cancel_provisional_record transitions the record "
+                 "to 'complete' and sets provisional_records.cancelled_at); "
+                 "touches no learning_rules row at all",
         "classify": "classifies applications (bm_store.classify_learning_applications); "
                    "does not alter rule text",
         "should-retrieve": "read only",
@@ -12775,6 +12791,607 @@ class TestLoop2CliWiring(unittest.TestCase):
             spend = self._run(root, ["resolve-note", nid, "--because", "fixed it",
                                     "--receipt", token])
             self.assertEqual(spend.returncode, 0, spend.stderr)
+
+
+class TestSchema11Migration(unittest.TestCase):
+    """Schema 10 to 11 (LOOP 4, 2026-07-30): learning_retrieval_membership
+    and provisional_records. Same discipline as TestSchema9Migration: the
+    fixture is a REAL store reverted to schema 10, not hand-written DDL, so
+    it cannot drift from the schema anyone actually has."""
+
+    def _schema10_store(self, d):
+        with bs.Store(d) as store:
+            store.claim("alpha", "persistent", "keep me", ["src/a.py"])
+            c = store.capture_learning_candidate(
+                "manual", trigger="writing an executive update",
+                action="state customer impact first",
+                because="leaders need the business state first",
+                scope_type="global", scope_key="")
+            _approved(store, c["candidate_uuid"],
+                     founder_ref="approved before this loop's tables existed")
+        path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            for t in bs._TABLES_LOOP4:
+                conn.execute("DROP TABLE IF EXISTS %s" % t)
+            conn.execute("UPDATE meta SET value='10' WHERE key='schema_version'")
+            conn.execute("COMMIT")
+        finally:
+            conn.close()
+        return path
+
+    def _snapshot(self, path):
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        try:
+            out = {}
+            for t in bs._TABLES_V10:
+                rows = [dict(r) for r in conn.execute("SELECT * FROM %s" % t)]
+                if t == "meta":
+                    rows = [r for r in rows if r.get("key") != "schema_version"]
+                out[t] = json.dumps(rows, sort_keys=True, default=str)
+            return out
+        finally:
+            conn.close()
+
+    def _tables(self, path):
+        conn = sqlite3.connect(path)
+        try:
+            return {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            conn.close()
+
+    def test_a_schema10_store_migrates_instead_of_being_quarantined(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema10_store(d)
+            with bs.Store(d) as store:
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT value FROM meta WHERE key='schema_version'"
+                    ).fetchone()["value"], str(bs.SCHEMA_VERSION))
+            self.assertTrue(set(bs._TABLES_LOOP4) <= self._tables(path))
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")), [],
+                "a healthy schema-10 store must MIGRATE, never be quarantined")
+
+    def test_migration_preserves_every_schema10_row(self):
+        """Including the rule approved before these tables existed."""
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema10_store(d)
+            before = self._snapshot(path)
+            with bs.Store(d):
+                pass
+            self.assertEqual(before, self._snapshot(path))
+
+    def test_migration_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema10_store(d)
+            with bs.Store(d):
+                pass
+            first = self._snapshot(path)
+            with bs.Store(d):
+                pass
+            self.assertEqual(first, self._snapshot(path))
+
+    def test_calibrated_interrupted_migration_rolls_back_completely(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema10_store(d)
+            original = bs._MIGRATIONS[10]
+
+            def _fail_half_way(conn):
+                conn.execute(bs._LOOP4_DDL_STATEMENTS[0])
+                raise RuntimeError("simulated interruption mid-migration")
+
+            bs._MIGRATIONS[10] = _fail_half_way
+            try:
+                with self.assertRaises(RuntimeError):
+                    bs.Store(d)
+            finally:
+                bs._MIGRATIONS[10] = original
+            conn = sqlite3.connect(path)
+            try:
+                v = conn.execute(
+                    "SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(v, "10", "an interrupted migration must not move the version")
+            for t in bs._TABLES_LOOP4:
+                self.assertNotIn(t, self._tables(path))
+            with bs.Store(d):
+                pass
+            self.assertTrue(set(bs._TABLES_LOOP4) <= self._tables(path))
+
+    def test_loop4_ddl_split_matches_the_table_list(self):
+        self.assertEqual(len(bs._LOOP4_DDL_STATEMENTS), len(bs._TABLES_LOOP4))
+        self.assertEqual(len(bs._LOOP4_INDEX_STATEMENTS), 1)
+
+    def test_a_fresh_store_is_born_at_schema11_with_both_tables_present(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT value FROM meta WHERE key='schema_version'"
+                    ).fetchone()["value"], str(bs.SCHEMA_VERSION))
+            self.assertTrue(
+                set(bs._TABLES_LOOP4) <= self._tables(
+                    os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)))
+
+    def test_record_uuid_did_not_become_not_null(self):
+        """THE TRAP, checked mechanically: learning_applications.record_uuid
+        must stay exactly as nullable as it always was. A store that
+        already holds application rows with a NULL record_uuid (the
+        founder's real store does) must keep opening and reading them
+        without any migration attempting to rewrite that column."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                info = {r[1]: r for r in store.conn.execute(
+                    "PRAGMA table_info(learning_applications)").fetchall()}
+                record_uuid_col = info["record_uuid"]
+                # PRAGMA table_info's notnull column is index 3: 0 means the
+                # column accepts NULL.
+                self.assertEqual(record_uuid_col[3], 0,
+                                 "record_uuid must remain NULLable")
+                # And a NULL actually stores and reads back through the real
+                # API, not merely that the DDL claims to allow it: the
+                # pre-loop-4 call shape (require_record_identity=False, no
+                # --record) is exactly what the founder's existing NULL rows
+                # came from, and it must keep working unchanged.
+                c = store.capture_learning_candidate(
+                    "manual", trigger="writing tests",
+                    action="write a regression test", because="catch it",
+                    scope_type="global", scope_key="")
+                _approved(store, c["candidate_uuid"], founder_ref="ref1")
+                res = store.record_learning_applications(
+                    "writing tests today", session_id="s1",
+                    require_record_identity=False)
+                app_uuid = res["applications"][0]
+                row = store.conn.execute(
+                    "SELECT record_uuid FROM learning_applications "
+                    "WHERE application_uuid=?", (app_uuid,)).fetchone()
+                self.assertIsNone(row["record_uuid"])
+
+
+class TestLoop4RetrievalMembership(unittest.TestCase):
+    """LOOP 4: learning_retrieval_membership stores the exact eligible
+    corpus (rule_uuid, rule_version), not only eligible_count."""
+
+    def _approve(self, store, trigger, action, because, ref):
+        c = store.capture_learning_candidate(
+            "manual", trigger=trigger, action=action, because=because,
+            scope_type="global", scope_key="")
+        return _approved(store, c["candidate_uuid"], founder_ref=ref)
+
+    def test_membership_recorded_for_an_eligible_rule(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._approve(store, "writing tests",
+                                     "write a regression test",
+                                     "catch it next time", "ref1")
+                res = store.record_learning_applications(
+                    "writing tests today", session_id="s1",
+                    new_record_name="task-x", require_record_identity=True)
+                mem = store.get_retrieval_membership(res["retrieval_uuid"])
+                self.assertEqual(
+                    mem, {(rule["rule_uuid"], int(rule["current_version"]))})
+                self.assertEqual(res["eligible"], 1)
+
+    def test_eligible_count_still_matches_membership_size(self):
+        """Backstop for the promise that eligible_count is untouched: for a
+        freshly recorded run, its size and the count must agree."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._approve(store, "writing tests", "write a regression test",
+                             "catch it next time", "ref1")
+                res = store.record_learning_applications(
+                    "writing tests today", session_id="s1",
+                    new_record_name="task-x", require_record_identity=True)
+                run = store.get_learning_retrieval_run(res["retrieval_uuid"])
+                mem = store.get_retrieval_membership(res["retrieval_uuid"])
+                self.assertEqual(int(run["eligible_count"]), len(mem))
+
+    def test_identical_count_swap_reconstructs_exact_historical_corpus(self):
+        """THE HEART OF THE LOOP. Swap one eligible rule for another so the
+        COUNT stays identical, then prove the stored membership of the
+        FIRST run still names the exact original rule, not the swapped-in
+        one, and that grading the first run against TODAY's corpus (after
+        the swap) would name the wrong rule."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule1 = self._approve(store, "writing tests",
+                                      "write a regression test",
+                                      "catch it next time", "ref1")
+                res1 = store.record_learning_applications(
+                    "writing tests today", session_id="s1",
+                    new_record_name="task-x", require_record_identity=True)
+                run1 = res1["retrieval_uuid"]
+                mem1 = store.get_retrieval_membership(run1)
+                self.assertEqual(res1["eligible"], 1)
+                self.assertEqual(mem1, {(rule1["rule_uuid"],
+                                        int(rule1["current_version"]))})
+
+                # THE SWAP: forget rule1, approve rule2. Eligible count for
+                # an identical query is 1 both before and after.
+                _state_changed(store, rule1["rule_uuid"], "forgotten",
+                              reason="superseded by rule2")
+                rule2 = self._approve(store, "writing tests",
+                                      "add a regression test file",
+                                      "catch it next time too", "ref2")
+
+                res2 = store.record_learning_applications(
+                    "writing tests today", session_id="s2",
+                    new_record_name="task-y", require_record_identity=True)
+                run2 = res2["retrieval_uuid"]
+                mem2 = store.get_retrieval_membership(run2)
+
+                # THE IDENTICAL-COUNT PROPERTY the loop names explicitly.
+                self.assertEqual(res1["eligible"], res2["eligible"],
+                                 "the swap must not change the COUNT")
+                # THE RECONSTRUCTION PROPERTY: run1's stored membership
+                # still names rule1, never rule2, no matter what happened
+                # to the corpus since.
+                self.assertEqual(mem1, {(rule1["rule_uuid"],
+                                        int(rule1["current_version"]))})
+                self.assertNotIn((rule2["rule_uuid"],
+                                 int(rule2["current_version"])), mem1)
+                # And run2's membership is the NEW corpus, not the old one:
+                # the two runs' membership sets differ even though their
+                # counts are identical, which is the exact case a
+                # count-only ledger cannot tell apart.
+                self.assertNotEqual(mem1, mem2)
+                self.assertEqual(mem2, {(rule2["rule_uuid"],
+                                        int(rule2["current_version"]))})
+                # GRADING AGAINST TODAY'S CORPUS WOULD HAVE BEEN WRONG: rule1
+                # is forgotten now, so "today's eligible set" for the same
+                # query is rule2 alone, which does not contain rule1 -- the
+                # rule run1 was actually graded against.
+                today = store.retrieve_learning_rules(
+                    "writing tests today", limit=100)
+                today_membership = set(
+                    (r["rule_uuid"], int(r["current_version"]))
+                    for r in today["results"])
+                self.assertNotEqual(
+                    today_membership, mem1,
+                    "grading run1 against today's corpus would be wrong: "
+                    "rule1 (what run1 actually saw) is gone from it")
+
+
+class TestLoop4ProvisionalRecords(unittest.TestCase):
+    """LOOP 4: provisional records. Durable UUID, visible in project
+    status, promotable, cancellable, linked applications preserved across
+    both, and mechanically never merging with unrelated work."""
+
+    def test_never_merge_identical_requested_names_are_distinct_records(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rec1 = store.create_provisional_record("task-x", session_id="s1")
+                rec2 = store.create_provisional_record("task-x", session_id="s1")
+                self.assertNotEqual(rec1.lifecycle_uuid, rec2.lifecycle_uuid)
+                self.assertNotEqual(rec1.name, rec2.name)
+                # Mechanical, not conventional: the one_active_per_name
+                # unique index did not have to be consulted for these to
+                # differ, because the stored names already do.
+                rows = store.conn.execute(
+                    "SELECT COUNT(*) AS c FROM records WHERE state='active' "
+                    "AND lifecycle_uuid IN (?,?)",
+                    (rec1.lifecycle_uuid, rec2.lifecycle_uuid)).fetchone()
+                self.assertEqual(rows["c"], 2)
+
+    def test_provisional_record_is_visible_in_project_status(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rec = store.create_provisional_record("task-x", session_id="s1")
+            view = bs.render_state_md(d)
+            self.assertIn(rec.lifecycle_uuid, view)
+            self.assertIn("PROVISIONAL", view)
+
+    def test_promotion_preserves_linked_applications_and_lifecycle_uuid(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                res = store.record_learning_applications(
+                    "a task", session_id="s1", new_record_name="task-x",
+                    require_record_identity=True)
+                rec_uuid = res["new_record_uuid"]
+                before = store.list_learning_applications(record_prefix=rec_uuid)
+                promoted = store.promote_provisional_record(rec_uuid)
+                self.assertEqual(promoted.lifecycle_uuid, rec_uuid)
+                after = store.list_learning_applications(record_prefix=rec_uuid)
+                self.assertEqual(
+                    [a["application_uuid"] for a in before],
+                    [a["application_uuid"] for a in after],
+                    "promotion must not move or drop any linked application")
+
+    def test_cancellation_preserves_linked_applications_and_closes_record(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                res = store.record_learning_applications(
+                    "a task", session_id="s1", new_record_name="task-x",
+                    require_record_identity=True)
+                rec_uuid = res["new_record_uuid"]
+                before = store.list_learning_applications(record_prefix=rec_uuid)
+                store.cancel_provisional_record(rec_uuid, session_id="s1")
+                after = store.list_learning_applications(record_prefix=rec_uuid)
+                self.assertEqual(
+                    [a["application_uuid"] for a in before],
+                    [a["application_uuid"] for a in after],
+                    "cancellation must not move or drop any linked application")
+                self.assertEqual(store.get(rec_uuid).state, "complete")
+
+    def test_promote_after_cancel_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rec = store.create_provisional_record("task-x", session_id="s1")
+                store.cancel_provisional_record(rec.lifecycle_uuid, session_id="s1")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.promote_provisional_record(rec.lifecycle_uuid)
+                self.assertEqual(ctx.exception.reason, "already-cancelled")
+
+    def test_cancel_after_promote_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rec = store.create_provisional_record("task-x", session_id="s1")
+                store.promote_provisional_record(rec.lifecycle_uuid)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.cancel_provisional_record(rec.lifecycle_uuid, session_id="s1")
+                self.assertEqual(ctx.exception.reason, "already-promoted")
+
+    def test_list_provisional_records_reports_every_one(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.create_provisional_record("task-x", session_id="s1")
+                store.create_provisional_record("task-y", session_id="s1")
+                self.assertEqual(len(store.list_provisional_records()), 2)
+
+
+class TestLoop4ProtectLinks(unittest.TestCase):
+    """LOOP 4: protect the links. Each refusal below is its own reason
+    string, and relinking is checked as a structural property that already
+    holds rather than a new refusal (see its own test)."""
+
+    def test_apply_against_nonexistent_record_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                res = store.record_learning_applications(
+                    "a task", session_id="s1",
+                    record_prefix="deadbeef00000000000000000000000",
+                    require_record_identity=True)
+                self.assertEqual(res["record_error_kind"], "not-found")
+
+    def test_apply_against_closed_record_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rec = store.create_provisional_record("task-x", session_id="s1")
+                store.cancel_provisional_record(rec.lifecycle_uuid, session_id="s1")
+                res = store.record_learning_applications(
+                    "a task", session_id="s1", record_prefix=rec.lifecycle_uuid,
+                    require_record_identity=True)
+                self.assertEqual(res["record_error_kind"], "closed-record")
+
+    def test_apply_against_unpromoted_provisional_from_other_session_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rec = store.create_provisional_record("task-x", session_id="sA")
+                res = store.record_learning_applications(
+                    "a task", session_id="sB", record_prefix=rec.lifecycle_uuid,
+                    require_record_identity=True)
+                self.assertEqual(res["record_error_kind"],
+                                 "provisional-cross-session")
+
+    def test_apply_against_own_unpromoted_provisional_same_session_succeeds(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rec = store.create_provisional_record("task-x", session_id="sA")
+                res = store.record_learning_applications(
+                    "a task", session_id="sA", record_prefix=rec.lifecycle_uuid,
+                    require_record_identity=True)
+                self.assertEqual(res["record_error"], "")
+
+    def test_promoted_provisional_accepts_a_different_session(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rec = store.create_provisional_record("task-x", session_id="sA")
+                store.promote_provisional_record(rec.lifecycle_uuid)
+                res = store.record_learning_applications(
+                    "a task", session_id="sB", record_prefix=rec.lifecycle_uuid,
+                    require_record_identity=True)
+                self.assertEqual(res["record_error"], "")
+
+    def test_relink_never_moves_an_existing_link_to_a_different_record(self):
+        """Structural, not a new refusal: _prior_application never selects a
+        row already linked to a DIFFERENT record for UPDATE, so a second
+        apply for the identical task under a different --record writes its
+        OWN new row instead of moving the first one's link."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                c = store.capture_learning_candidate(
+                    "manual", trigger="writing tests",
+                    action="write a regression test", because="catch it",
+                    scope_type="global", scope_key="")
+                _approved(store, c["candidate_uuid"], founder_ref="ref1")
+                res_a = store.record_learning_applications(
+                    "writing tests today", session_id="s1",
+                    new_record_name="task-a", require_record_identity=True)
+                rec_a = res_a["new_record_uuid"]
+                app_a = res_a["applications"][0]
+
+                rec_b = store.create_provisional_record("task-b", session_id="s1")
+                res_b = store.record_learning_applications(
+                    "writing tests today", session_id="s1",
+                    record_prefix=rec_b.lifecycle_uuid,
+                    require_record_identity=True)
+                self.assertEqual(res_b["record_error"], "")
+                app_b = res_b["applications"][0]
+
+                self.assertNotEqual(app_a, app_b,
+                                   "distinct work must get distinct rows")
+                row_a = store.get_learning_application(app_a)
+                self.assertEqual(row_a["record_uuid"], rec_a,
+                                 "the first application's link must never move")
+                row_b = store.get_learning_application(app_b)
+                self.assertEqual(row_b["record_uuid"], rec_b.lifecycle_uuid)
+
+
+class TestLoop4MandatoryIdentity(unittest.TestCase):
+    """LOOP 4: `apply` on the real CLI, through subprocess, so this proves
+    what the founder actually sees (message text, exit code), not only what
+    the Store API returns."""
+
+    def _run(self, root, args, extra_env=None):
+        e = dict(os.environ, BROTHERMODE_ROOT=root,
+                BROTHERMODE_VAULT=os.path.join(root, "vault"))
+        if extra_env:
+            e.update(extra_env)
+        return subprocess.run([sys.executable, os.path.join(HERE, "bm_learn.py")]
+                              + args, cwd=root, env=e, capture_output=True, text=True)
+
+    def _init(self, root):
+        e = dict(os.environ, BROTHERMODE_ROOT=root)
+        r = subprocess.run([sys.executable, os.path.join(HERE, "bm_store.py"), "init"],
+                           cwd=root, env=e, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_apply_without_identity_is_refused_and_names_three_ways_forward(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            r = self._run(root, ["apply", "--query", "fix the login bug",
+                                "--session", "s1"])
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("--record", r.stderr)
+            self.assertIn("--new-record", r.stderr)
+            self.assertIn(bs.ACTIVE_RECORD_ENV, r.stderr)
+
+    def test_apply_with_record_and_new_record_both_refused(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            r = self._run(root, ["apply", "--query", "fix the login bug",
+                                "--session", "s1", "--record", "deadbeef",
+                                "--new-record", "task-x"])
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("not both", r.stderr)
+
+    def test_apply_with_new_record_succeeds_and_is_visible_in_dashboard(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            r = self._run(root, ["apply", "--query", "fix the login bug",
+                                "--session", "s1", "--new-record", "task-x"])
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("created provisional work record", r.stdout)
+            dash = subprocess.run(
+                [sys.executable, os.path.join(HERE, "bm_store.py"), "dashboard"],
+                cwd=root, env=dict(os.environ, BROTHERMODE_ROOT=root),
+                capture_output=True, text=True)
+            self.assertIn("PROVISIONAL", dash.stdout)
+
+    def test_apply_with_env_active_record_succeeds(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            made = self._run(root, ["apply", "--query", "task one",
+                                    "--session", "s1", "--new-record", "task-x"])
+            self.assertEqual(made.returncode, 0, made.stdout + made.stderr)
+            listed = subprocess.run(
+                [sys.executable, os.path.join(HERE, "bm_store.py"), "dump"],
+                cwd=root, env=dict(os.environ, BROTHERMODE_ROOT=root),
+                capture_output=True, text=True)
+            rec_uuid = json.loads(listed.stdout)["records"][0]["lifecycle_uuid"]
+            r = self._run(root, ["apply", "--query", "task two", "--session", "s1"],
+                          extra_env={"BM_ACTIVE_RECORD": rec_uuid})
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_lookup_unaffected_no_session_no_record_required(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            r = self._run(root, ["lookup", "--query", "fix the login bug"])
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_lookup_new_record_flag_refused(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            r = self._run(root, ["lookup", "--query", "fix the login bug",
+                                "--new-record", "x"])
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("means nothing here", r.stderr)
+
+    def test_two_identical_wording_tasks_one_session_get_distinct_histories(self):
+        """The plan's own headline acceptance criterion (line 486)."""
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            a = self._run(root, ["apply", "--query", "fix the login bug",
+                                "--session", "s1", "--new-record", "task-a"])
+            b = self._run(root, ["apply", "--query", "fix the login bug",
+                                "--session", "s1", "--new-record", "task-b"])
+            self.assertEqual(a.returncode, 0, a.stdout + a.stderr)
+            self.assertEqual(b.returncode, 0, b.stdout + b.stderr)
+            listed = subprocess.run(
+                [sys.executable, os.path.join(HERE, "bm_store.py"), "dump"],
+                cwd=root, env=dict(os.environ, BROTHERMODE_ROOT=root),
+                capture_output=True, text=True)
+            uuids = {r["lifecycle_uuid"] for r in json.loads(listed.stdout)["records"]}
+            self.assertEqual(len(uuids), 2,
+                             "two identical-wording tasks in one session must "
+                             "produce two distinct work records")
+
+
+class TestLoop4Calibration(unittest.TestCase):
+    """CALIBRATION for both LOOP 4 protections: revert each, prove the old
+    defect reappears, restore, prove the protection holds again."""
+
+    def test_calibrated_mandatory_identity_reverts_and_restores(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                # REVERT: require_record_identity=False is the pre-loop-4
+                # call shape. A session-only apply must succeed again,
+                # reproducing the defect this loop closes.
+                reverted = store.record_learning_applications(
+                    "a task", session_id="s1", require_record_identity=False)
+                self.assertEqual(reverted.get("record_error"), "")
+                # RESTORE: require_record_identity=True is what cmd_apply
+                # always passes. The identical call now refuses.
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.record_learning_applications(
+                        "a task", session_id="s1", require_record_identity=True)
+                self.assertEqual(ctx.exception.reason, "no-work-identity")
+
+    def test_calibrated_membership_swap_test_reverts_and_restores(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                c1 = store.capture_learning_candidate(
+                    "manual", trigger="writing tests",
+                    action="write a regression test", because="catch it",
+                    scope_type="global", scope_key="")
+                rule1 = _approved(store, c1["candidate_uuid"], founder_ref="ref1")
+                res1 = store.record_learning_applications(
+                    "writing tests today", session_id="s1",
+                    new_record_name="task-x", require_record_identity=True)
+                run1 = res1["retrieval_uuid"]
+
+                def _assert_reconstructs():
+                    mem1 = store.get_retrieval_membership(run1)
+                    self.assertEqual(
+                        mem1, {(rule1["rule_uuid"], int(rule1["current_version"]))},
+                        "stored membership must still name the original rule")
+
+                # GREEN: membership intact, the swap test's own assertion holds.
+                _assert_reconstructs()
+
+                # REVERT: simulate the count-only, pre-loop-4 shape by
+                # deleting this run's membership rows (what a store that
+                # never wrote them would look like).
+                store.conn.execute(
+                    "DELETE FROM learning_retrieval_membership "
+                    "WHERE retrieval_uuid=?", (run1,))
+                store.conn.commit()
+                with self.assertRaises(AssertionError):
+                    _assert_reconstructs()
+
+                # RESTORE: re-record the same retrieval, which re-populates
+                # membership, and the assertion is green again.
+                res1b = store.record_learning_applications(
+                    "writing tests today", session_id="s1",
+                    record_prefix=res1["new_record_uuid"],
+                    require_record_identity=True)
+                run1 = res1b["retrieval_uuid"]
+                _assert_reconstructs()
 
 
 if __name__ == "__main__":
