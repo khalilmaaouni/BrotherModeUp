@@ -117,11 +117,20 @@ jobs:
         run: |
           git config --global user.email ci@example.com
           git config --global user.name ci
+      # Wrapped since 2026-07-31 (Loop 6). The Windows legs had been failing on
+      # every run for days while the local gate was green, and naming the failing
+      # test needed an authenticated log download that credentials policy here
+      # makes impossible for the machine that could fix it. A red CI whose reason
+      # nobody can read is barely better than no CI.
+      # run_with_annotations.py re-emits unittest FAIL/ERROR headers as GitHub
+      # annotations, which a PUBLIC repository serves to an anonymous caller, so
+      # the next red run names its own failing tests without any login. It
+      # forwards the child's exit code and output unchanged and is never a gate.
       - name: Run V2 store tests
-        run: python tools/test_bm_store.py
+        run: python .github/run_with_annotations.py tools/test_bm_store.py
       # The recovery suite runs on Windows too, not only on the POSIX legs above.
       # Recovery is the subsystem whose failure loses work rather than merely
       # reporting it wrongly, so it gets the widest platform coverage, not the
       # narrowest.
       - name: Run the recovery suite
-        run: python tools/test_bm_autosave.py
+        run: python .github/run_with_annotations.py tools/test_bm_autosave.py
