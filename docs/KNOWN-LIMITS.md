@@ -87,11 +87,13 @@ person was not sure about.
   deliberately NOT the plan's literal design (a separate internal session UUID
   column beside an optional human label); that split remains open as a schema-12
   candidate, recorded in `docs/NOT-FINALIZED.md`.
-- **An approved rule's own `because_text` appears in `applications` output.** It
-  is founder-authored prose that the founder explicitly promoted into a rule, and
-  showing an applied rule's reason is arguably the product working. Whether it
-  should still be withheld from any surface is an open founder ruling, not a
-  settled behaviour.
+- **An approved rule's own `because_text` appears in `applications` output, and
+  that is settled.** Founder ruling 2026-07-31: it is a feature, not a leak. The
+  founder wrote it, explicitly promoted it into a rule, and retrieval exists to
+  show rules with their reasons, so `applications` keeps explaining WHY a rule
+  applied. Recorded here so the canary suite's "rule reason" field is read as
+  "must not leak from surfaces that withhold founder prose", not as "must never
+  render anywhere".
 - **Windows owner-only file modes and ACLs.** Nothing in this project configures
   a Windows ACL. Stdlib only, with no subprocess in the shipping tools, rules
   out both `icacls` and `pywin32`, so `os.chmod` is best-effort there and the
