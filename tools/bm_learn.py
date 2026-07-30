@@ -173,6 +173,25 @@ def cmd_capture(argv):
                      wants_value=("trigger", "action", "because", "domain",
                                   "scope", "scope-key", "source", "session",
                                   "raw", "record"))
+    # LOOP 0 SWEEP, D6, ORCHESTRATOR RULING (2026-07-30): `capture` with no
+    # arguments used to store an EMPTY candidate at exit 0 instead of
+    # printing usage, while this same CLI already refuses an unknown flag.
+    # Fixed HERE, at the command line, not in bm_store.capture_learning_candidate:
+    # that store method has roughly thirty legitimate call shapes across the
+    # test suites, and an all-empty refusal bolted into the shared primitive
+    # is a policy change with a blast radius nobody sized. The user error
+    # happens at the command line, so the refusal belongs at the command
+    # line.
+    if not (kv.get("trigger") or "").strip() and not (kv.get("action") or "").strip() \
+            and not (kv.get("because") or "").strip():
+        _err("usage: capture --trigger \"...\" --action \"...\" "
+             "[--because \"...\"] [--domain ...] "
+             "[--scope global|project|domain|artifact|relationship|tool] "
+             "[--scope-key ...] [--source ...] [--session ...] "
+             "[--raw \"...\"] [--record <id>]")
+        _err("capture needs at least a trigger, an action, or a because; a "
+             "candidate with none of the three is not a correction anyone gave")
+        return 2
     scope = kv.get("scope", "project")
     scope_key = kv.get("scope-key")
     if scope_key is None and scope == "project":
@@ -317,6 +336,13 @@ def _shape_kwargs(kv):
 
 def cmd_grant_approval(argv):
     """Turn one real answer from the founder into a one-time approval receipt.
+
+    Human-confirmed, one-time receipt-gated approval. Automatic capture
+    cannot approve or promote its own candidates.
+
+    WHAT THIS DOES NOT PROVE. The receipt proves that an answer was supplied
+    for this exact proposed rule and has not already been used. It does not
+    cryptographically prove which human supplied the answer.
 
     Run this the moment he answers a question window, with the rule-shaping
     flags set to EXACTLY what he was shown. The token it prints is the only copy
@@ -944,19 +970,117 @@ def cmd_should_retrieve(argv):
     return 0
 
 
+_STATE_CHANGE_RECEIPT_ENV = "BM_STATE_CHANGE_RECEIPT"
+
+
+def _state_change_receipt(kv):
+    """--receipt, or the shared env var, exactly as cmd_approve reads
+    BM_APPROVAL_RECEIPT: argv is visible to every process on the machine
+    through ps, so the token may also arrive by environment. Neither path
+    logs it."""
+    return kv.get("receipt") or os.environ.get(_STATE_CHANGE_RECEIPT_ENV, "")
+
+
+def cmd_grant_state_receipt(argv):
+    """Turn one real answer from the founder into a one-time receipt for
+    supersede, resolve-conflict, deprecate, forget, or resolving a critical
+    alert (LOOP 2, 2026-07-30): the same mechanism grant-approval uses for
+    creating a rule, generalised to the four other commands that can also
+    alter the live rule set.
+
+    Run this the moment he answers, with the shaping flags set to EXACTLY
+    what he was shown: the token is bound to the target and to the exact
+    change proposed for it, and dies if either changes before the matching
+    command spends it. --because is the content every kind fingerprints on
+    (the reason for supersede/resolve-conflict/deprecate/forget, the exact
+    resolution text for resolve-note): it must read, word for word, whatever
+    the matching command's own --because will carry when it spends this
+    receipt."""
+    pos, kv = _parse(argv, {"answer", "with", "how", "because", "json"},
+                     wants_value=("answer", "with", "how", "because"))
+    if len(pos) < 2 or not (kv.get("answer") or "").strip():
+        _err("usage: grant-state-receipt <kind> <target-id> --answer "
+             "\"<what the founder actually said>\" [--with <rule-id>] "
+             "[--how superseded|contradicted|deprecated] --because \"...\"")
+        _err("kind is one of: %s" % ", ".join(bs.STATE_CHANGE_RECEIPT_KINDS))
+        return 2
+    kind, target = pos[0], pos[1]
+    if kind not in bs.STATE_CHANGE_RECEIPT_KINDS:
+        _err("bm_learn: unknown state-change receipt kind %r (known: %s)"
+             % (kind, ", ".join(bs.STATE_CHANGE_RECEIPT_KINDS)))
+        return 2
+    if kind in ("supersede", "resolve-conflict") and not kv.get("with"):
+        _err("%s receipts need --with <rule-id>, the exact successor or "
+             "other rule the founder was shown" % kind)
+        return 2
+    if kind == "resolve-conflict" and kv.get("how") not in (
+            "superseded", "contradicted", "deprecated"):
+        _err("resolve-conflict receipts need --how superseded|contradicted|deprecated")
+        return 2
+    if kind == "resolve-note" and not (kv.get("because") or "").strip():
+        _err("resolve-note receipts need --because \"exact text that will "
+             "resolve the alert\"")
+        return 2
+    reason = kv.get("because", "")
+    store = _store()
+    try:
+        with_uuid = (store.get_learning_rule(kv["with"])["rule_uuid"]
+                    if kv.get("with") else "")
+        if kind == "supersede":
+            content_parts = ("superseded", with_uuid, reason)
+        elif kind == "resolve-conflict":
+            content_parts = (kv["how"], with_uuid, reason)
+        elif kind == "deprecate":
+            content_parts = ("deprecated", "", reason)
+        elif kind == "forget":
+            content_parts = ("forgotten", "", reason)
+        else:  # resolve-note
+            content_parts = (reason,)
+        rec = store.mint_state_change_receipt(
+            kind, target, founder_response=kv["answer"],
+            content_parts=content_parts)
+    finally:
+        store.close()
+    if kv.get("json"):
+        _out(json.dumps(rec, indent=2, sort_keys=True))
+        return 0
+    _out("state-change receipt %s for %s (%s)"
+         % (rec["receipt_uuid"][:8], rec["target_uuid"][:8], kind))
+    _out("  expires %s (%d seconds), one target, one use"
+         % (rec["expires_at"], rec["ttl_seconds"]))
+    _out("  it dies if the target or the change proposed for it changes "
+         "before you spend it")
+    _out("")
+    _out("  RECEIPT TOKEN, shown once and stored nowhere:")
+    _out("  %s" % rec["token"])
+    _out("")
+    _out("  spend it with the matching command's --receipt (or put it in "
+         "%s so it stays out of your shell history)" % _STATE_CHANGE_RECEIPT_ENV)
+    _out("  do not paste it into a log, a transcript or a commit message")
+    return 0
+
+
 def cmd_forget(argv):
-    pos, kv = _parse(argv, {"yes", "because"}, wants_value=("because",))
+    pos, kv = _parse(argv, {"yes", "because", "receipt"},
+                     wants_value=("because", "receipt"))
     if not pos:
-        _err("usage: forget <rule-id> --yes")
+        _err("usage: forget <rule-id> --yes --receipt <token>")
         return 2
     if not kv.get("yes"):
         _err("forget removes a rule from every future retrieval. Re-run with --yes "
              "if that is what you want.")
         return 2
+    receipt = _state_change_receipt(kv)
+    if not receipt:
+        _err("forget requires a one-time receipt (no-state-change-receipt): "
+             "run `grant-state-receipt forget <rule-id> --answer \"...\"` first.")
+        return 2
     store = _store()
     try:
         r = store.change_learning_rule_state(pos[0], "forgotten",
-                                              reason=kv.get("because", ""))
+                                              reason=kv.get("because", ""),
+                                              receipt=receipt,
+                                              receipt_kind="forget")
     finally:
         store.close()
     _out("forgotten %s. It will not be retrieved again. A tombstone remains so "
@@ -965,14 +1089,22 @@ def cmd_forget(argv):
 
 
 def cmd_deprecate(argv):
-    pos, kv = _parse(argv, {"because"}, wants_value=("because",))
+    pos, kv = _parse(argv, {"because", "receipt"},
+                     wants_value=("because", "receipt"))
     if not pos:
-        _err("usage: deprecate <rule-id> --because \"...\"")
+        _err("usage: deprecate <rule-id> --because \"...\" --receipt <token>")
+        return 2
+    receipt = _state_change_receipt(kv)
+    if not receipt:
+        _err("deprecate requires a one-time receipt (no-state-change-receipt): "
+             "run `grant-state-receipt deprecate <rule-id> --answer \"...\"` first.")
         return 2
     store = _store()
     try:
         r = store.change_learning_rule_state(pos[0], "deprecated",
-                                              reason=kv.get("because", ""))
+                                              reason=kv.get("because", ""),
+                                              receipt=receipt,
+                                              receipt_kind="deprecate")
     finally:
         store.close()
     _out("deprecated %s (kept for history, not retrieved)" % r["rule_uuid"][:8])
@@ -1266,16 +1398,24 @@ def cmd_merge(argv):
 
 def cmd_supersede(argv):
     """Replace an old rule with a newer one, in one step."""
-    pos, kv = _parse(argv, {"with", "because", "json"},
-                     wants_value=("with", "because"))
+    pos, kv = _parse(argv, {"with", "because", "json", "receipt"},
+                     wants_value=("with", "because", "receipt"))
     if not pos or not kv.get("with"):
-        _err("usage: supersede <old-rule> --with <new-rule> --because \"...\"")
+        _err("usage: supersede <old-rule> --with <new-rule> --because \"...\" "
+             "--receipt <token>")
+        return 2
+    receipt = _state_change_receipt(kv)
+    if not receipt:
+        _err("supersede requires a one-time receipt (no-state-change-receipt): "
+             "run `grant-state-receipt supersede <old-rule> --with <new-rule> "
+             "--answer \"...\"` first.")
         return 2
     store = _store()
     try:
         old = store.change_learning_rule_state(
             pos[0], "superseded", reason=kv.get("because", ""),
-            successor_prefix=kv["with"])
+            successor_prefix=kv["with"], receipt=receipt,
+            receipt_kind="supersede")
     finally:
         store.close()
     if kv.get("json"):
@@ -1291,17 +1431,27 @@ def cmd_resolve_conflict(argv):
 
     You choose which one. This command records the choice and the reason; it
     has no opinion about which rule was right."""
-    pos, kv = _parse(argv, {"with", "how", "because", "json"},
-                     wants_value=("with", "how", "because"))
+    pos, kv = _parse(argv, {"with", "how", "because", "json", "receipt"},
+                     wants_value=("with", "how", "because", "receipt"))
     if not pos or not kv.get("with") or not kv.get("how"):
         _err("usage: resolve-conflict <rule> --with <other-rule> "
-             "--how superseded|contradicted|deprecated --because \"...\"")
+             "--how superseded|contradicted|deprecated --because \"...\" "
+             "--receipt <token>")
         _err("the rule you name is the one that stands down")
+        return 2
+    receipt = _state_change_receipt(kv)
+    if not receipt:
+        _err("resolve-conflict requires a one-time receipt "
+             "(no-state-change-receipt): run `grant-state-receipt "
+             "resolve-conflict <rule> --with <other-rule> --how ... "
+             "--answer \"...\"` first. There is no override: standing a "
+             "conflict down without one is the exact hole this closes.")
         return 2
     store = _store()
     try:
         r = store.resolve_learning_conflict(pos[0], kv["with"], kv["how"],
-                                             reason=kv.get("because", ""))
+                                             reason=kv.get("because", ""),
+                                             receipt=receipt)
     finally:
         store.close()
     if kv.get("json"):
@@ -1767,14 +1917,27 @@ def cmd_notes(argv):
 
 def cmd_resolve_note(argv):
     """Record that a note was answered. NOT an override: see the docstring on
-    bm_store.resolve_note for what this does and does not prove."""
-    pos, kv = _parse(argv, {"because", "json"}, wants_value=("because",))
+    bm_store.resolve_note for what this does and does not prove.
+
+    A CRITICAL alert additionally needs a receipt (LOOP 2, 2026-07-30):
+    resolving one used to unblock an approval with no human answer anywhere,
+    since blocking_alerts stops counting a note the moment it is resolved. An
+    ordinary note, and a non-critical alert, still resolve with no receipt,
+    exactly as before."""
+    pos, kv = _parse(argv, {"because", "json", "receipt"},
+                     wants_value=("because", "receipt"))
     if not pos or not (kv.get("because") or "").strip():
-        _err("usage: resolve-note <note-id> --because \"what resolved it\"")
+        _err("usage: resolve-note <note-id> --because \"what resolved it\" "
+             "[--receipt <token>]")
+        _err("a receipt is required only when the note is a critical alert; "
+             "run `grant-state-receipt resolve-note <note-id> --because "
+             "\"<the same text, word for word>\" --answer \"...\"` first if "
+             "it is")
         return 2
     store = _store()
     try:
-        n = store.resolve_note(pos[0], kv["because"])
+        n = store.resolve_note(pos[0], kv["because"],
+                               receipt=_state_change_receipt(kv))
     finally:
         store.close()
     if kv.get("json"):
@@ -1798,6 +1961,7 @@ COMMANDS = {
     "candidates": cmd_candidates,
     "show-candidate": cmd_show_candidate,
     "grant-approval": cmd_grant_approval,
+    "grant-state-receipt": cmd_grant_state_receipt,
     "approve": cmd_approve,
     "reject": cmd_reject,
     "rules": cmd_rules,

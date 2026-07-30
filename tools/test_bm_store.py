@@ -40,6 +40,18 @@ bs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(bs)
 sys.modules["bm_store"] = bs
 
+# LOOP 2, 2026-07-30. Loaded read-only, for exactly one purpose: the
+# enumeration test discovers every rule-altering command from bm_learn's OWN
+# COMMANDS table rather than a hand-typed list. bm_learn.py loads its own
+# bm_store.py by path (bm_learn._load), so `bl.bs` is a SEPARATE module
+# instance from `bs` above; every exception assertion in this file still goes
+# through THIS module's `bs.OwnershipRefused`, never bl's, and the tests below
+# call store methods directly rather than bl's CLI functions for that reason.
+_bl_spec = importlib.util.spec_from_file_location("bm_learn", os.path.join(HERE, "bm_learn.py"))
+bl = importlib.util.module_from_spec(_bl_spec)
+_bl_spec.loader.exec_module(bl)
+sys.modules["bm_learn"] = bl
+
 # The rule-shaping arguments a receipt is fingerprinted over. Kept next to the
 # helper that uses them so a new shaping argument this list forgets shows up as
 # a receipt that never matches, loudly, rather than as a receipt that silently
@@ -81,6 +93,47 @@ def _approved(store, prefix, **kw):
         prefix, founder_response="the founder answered yes, in a test",
         **{k: v for k, v in kw.items() if k in _RECEIPT_SHAPE})
     return store.approve_learning_candidate(prefix, receipt=rec["token"], **kw)
+
+
+def _state_changed(store, prefix, target, reason="", successor_prefix=None,
+                   receipt_kind=None):
+    """Move a rule the way the product now does (LOOP 2, 2026-07-30): through
+    a real, minted, one-time state-change receipt, for supersede, deprecate
+    and forget. Every one of those three in this suite that is not itself
+    testing the gate goes through here, for the same reason _approved and
+    _edited exist: a test that could still call change_learning_rule_state
+    directly with no receipt would keep passing against a door the product
+    no longer has.
+
+    receipt_kind defaults from STATE_CHANGE_GATE_KIND (the same default the
+    store itself uses), so a caller only overrides it to reach
+    resolve_learning_conflict's own 'resolve-conflict' kind through this same
+    underlying move."""
+    kind = receipt_kind or bs.STATE_CHANGE_GATE_KIND.get(target, target)
+    successor_uuid = (store.get_learning_rule(successor_prefix)["rule_uuid"]
+                      if successor_prefix else "")
+    rec = store.mint_state_change_receipt(
+        kind, prefix, founder_response="the founder answered yes, in a test",
+        content_parts=(target, successor_uuid, reason))
+    return store.change_learning_rule_state(
+        prefix, target, reason=reason, successor_prefix=successor_prefix,
+        receipt=rec["token"], receipt_kind=kind)
+
+
+def _conflict_resolved(store, loser_prefix, other_prefix, how, reason=""):
+    """resolve_learning_conflict the way the product now does (LOOP 2,
+    2026-07-30): through a real, minted, one-time 'resolve-conflict'
+    receipt, for all three resolutions (superseded, contradicted,
+    deprecated). This is the loop's headline case: before this, a conflict
+    against an approved GATE rule could be stood down with no receipt at
+    all."""
+    other_uuid = store.get_learning_rule(other_prefix)["rule_uuid"]
+    rec = store.mint_state_change_receipt(
+        "resolve-conflict", loser_prefix,
+        founder_response="the founder answered yes, in a test",
+        content_parts=(how, other_uuid, reason))
+    return store.resolve_learning_conflict(
+        loser_prefix, other_prefix, how, reason=reason, receipt=rec["token"])
 
 
 # Two tests below need a module to be GENUINELY absent, not merely patched to
@@ -837,6 +890,14 @@ class TestFixRoundGates(unittest.TestCase):
                                           "render a section. The real SELECT "
                                           "right after it does go through "
                                           "_exec",
+            "_migrate_8_to_9": "a schema migration step, run INSIDE the "
+                               "caller's BEGIN EXCLUSIVE (LOOP 2, the generic "
+                               "state-change receipt table). Same exemption "
+                               "and same reason as every other "
+                               "_migrate_*_to_* above: a CREATE TABLE failing "
+                               "mid-migration must roll the caller's "
+                               "transaction back, not move the founder's "
+                               "store aside",
         }
         with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
             source = f.read()
@@ -5891,7 +5952,7 @@ class TestLearningApi(unittest.TestCase):
             with bs.Store(d) as store:
                 rule = _approved(store,
                     self._cap(store)["candidate_uuid"], founder_ref="yes")
-                store.change_learning_rule_state(rule["rule_uuid"], "forgotten")
+                _state_changed(store, rule["rule_uuid"], "forgotten")
                 self.assertEqual(store.list_learning_rules(), [])
                 res = store.retrieve_learning_rules("executive update customer impact")
                 self.assertEqual(res["results"], [])
@@ -6050,10 +6111,10 @@ class TestLearningApi(unittest.TestCase):
                     store, trigger="about to delete files",
                     action="never delete files", because="")["candidate_uuid"],
                     founder_ref="yes", severity="gate")
-                store.change_learning_rule_state(dep["rule_uuid"], "deprecated",
-                                                 reason="no longer needed")
-                store.change_learning_rule_state(gone["rule_uuid"], "forgotten",
-                                                 reason="obsolete")
+                _state_changed(store, dep["rule_uuid"], "deprecated",
+                              reason="no longer needed")
+                _state_changed(store, gone["rule_uuid"], "forgotten",
+                              reason="obsolete")
                 res = store.retrieve_learning_rules("colour of the orb", limit=0)
                 self.assertEqual(res["results"], [])
                 self.assertEqual(res["gates_total"], 0)
@@ -6521,8 +6582,8 @@ class TestLoop6ConflictGraph(unittest.TestCase):
             with bs.Store(d) as store:
                 old = self._rule(store, self.ALWAYS)
                 new = self._rule(store, self.NEVER, override="replacing the old one")
-                store.change_learning_rule_state(
-                    old["rule_uuid"], "superseded", reason="changed my mind",
+                _state_changed(
+                    store, old["rule_uuid"], "superseded", reason="changed my mind",
                     successor_prefix=new["rule_uuid"])
                 got = store.get_learning_rule(old["rule_uuid"])
                 self.assertEqual(got["state"], "superseded")
@@ -6608,8 +6669,8 @@ class TestLoop6ConflictGraph(unittest.TestCase):
                                   trigger="reviewing swift code")
                 dead = self._rule(store, "check nullability last",
                                   trigger="reviewing kotlin code")
-                store.change_learning_rule_state(dead["rule_uuid"], "forgotten",
-                                                 reason="dropped kotlin")
+                _state_changed(store, dead["rule_uuid"], "forgotten",
+                              reason="dropped kotlin")
                 with self.assertRaises(bs.OwnershipRefused) as ctx:
                     store.change_learning_rule_state(
                         live["rule_uuid"], "superseded", reason="replaced",
@@ -6635,11 +6696,11 @@ class TestLoop6ConflictGraph(unittest.TestCase):
                 new = self._rule(store, "check optionals and force unwraps",
                                  trigger="reviewing swift code",
                                  override="replacing the old one")
-                store.change_learning_rule_state(
-                    old["rule_uuid"], "superseded", reason="sharper wording",
+                _state_changed(
+                    store, old["rule_uuid"], "superseded", reason="sharper wording",
                     successor_prefix=new["rule_uuid"])
-                store.change_learning_rule_state(new["rule_uuid"], "forgotten",
-                                                 reason="dropped swift")
+                _state_changed(store, new["rule_uuid"], "forgotten",
+                              reason="dropped swift")
                 codes = [f["code"] for f in store.learning_verify()["findings"]]
                 self.assertIn("dead-successor", codes)
                 self.assertFalse(store.learning_verify()["ok"])
@@ -6652,8 +6713,8 @@ class TestLoop6ConflictGraph(unittest.TestCase):
                                trigger="writing a commit message")
                 b = self._rule(store, "prefer imperative commit messages",
                                trigger="writing a commit message")
-                store.change_learning_rule_state(a["rule_uuid"], "superseded",
-                                                 successor_prefix=b["rule_uuid"])
+                _state_changed(store, a["rule_uuid"], "superseded",
+                              successor_prefix=b["rule_uuid"])
                 with self.assertRaises(bs.OwnershipRefused) as ctx:
                     store.change_learning_rule_state(b["rule_uuid"], "superseded",
                                                      successor_prefix=a["rule_uuid"])
@@ -6712,11 +6773,11 @@ class TestLoop6ConflictGraph(unittest.TestCase):
                 a = self._rule(store, self.ALWAYS)
                 b = self._rule(store, self.NEVER, override="both for now")
                 self.assertEqual(len(store.learning_conflicts()["contradictions"]), 1)
-                store.change_learning_rule_state(a["rule_uuid"], "deprecated",
-                                                 reason="old")
+                _state_changed(store, a["rule_uuid"], "deprecated",
+                              reason="old")
                 self.assertEqual(store.learning_conflicts()["contradictions"], [],
                                  "a rule that cannot be injected cannot conflict")
-                store.change_learning_rule_state(a["rule_uuid"], "forgotten")
+                _state_changed(store, a["rule_uuid"], "forgotten")
                 self.assertEqual(store.learning_conflicts()["contradictions"], [])
                 self.assertTrue(store.learning_verify()["ok"])
 
@@ -6810,9 +6871,9 @@ class TestLoop6ConflictGraph(unittest.TestCase):
                     store.resolve_learning_conflict(a["rule_uuid"], b["rule_uuid"],
                                                     "contradicted", reason="  ")
                 self.assertEqual(ctx.exception.reason, "no-reason")
-                store.resolve_learning_conflict(a["rule_uuid"], b["rule_uuid"],
-                                                "contradicted",
-                                                reason="the newer one stands")
+                _conflict_resolved(store, a["rule_uuid"], b["rule_uuid"],
+                                   "contradicted",
+                                   reason="the newer one stands")
                 self.assertEqual(store.get_learning_rule(a["rule_uuid"])["state"],
                                  "contradicted")
                 self.assertTrue(store.learning_verify()["ok"])
@@ -8102,8 +8163,14 @@ class TestPostAuditLoop3ApprovalReceipts(unittest.TestCase):
             with bs.Store(d) as store:
                 c = self._cap(store)
                 real = self._mint(store, c)
-                for forged in ("deadbeef", real["receipt_uuid"],
-                               real["token"][:-1] + "0"):
+                # DETERMINISTIC, not probabilistic (LOOP 2, 2026-07-30): the
+                # old "real['token'][:-1] + '0'" only forged a different
+                # token when the real last character was not itself '0', a
+                # roughly 1-in-16 flake this loop's own forged-token test was
+                # named for.
+                last = real["token"][-1]
+                forged_token = real["token"][:-1] + ("1" if last == "0" else "0")
+                for forged in ("deadbeef", real["receipt_uuid"], forged_token):
                     with self.assertRaises(bs.OwnershipRefused) as ctx:
                         store.approve_learning_candidate(
                             c["candidate_uuid"], founder_ref="f", receipt=forged)
@@ -8970,8 +9037,8 @@ class TestPostAuditLoopP6RetrievalRuns(unittest.TestCase):
                 self.assertEqual(before["counts"]["retrieval_limit_miss"], 1)
                 shown = [a["rule_uuid"]
                          for a in store.list_learning_applications(session_id="S1")]
-                store.change_learning_rule_state(
-                    shown[0] if shown else one["rule_uuid"], "deprecated",
+                _state_changed(
+                    store, shown[0] if shown else one["rule_uuid"], "deprecated",
                     reason="no longer wanted")
                 after = store.classify_learning_applications()
                 self.assertEqual(after["retrieval_misses"], [])
@@ -8990,8 +9057,8 @@ class TestPostAuditLoopP6RetrievalRuns(unittest.TestCase):
                     self.TASK + " for investors", session_id="S1", limit=1)
                 shown = [a["rule_uuid"]
                          for a in store.list_learning_applications(session_id="S1")]
-                store.change_learning_rule_state(shown[0], "deprecated",
-                                                 reason="no longer wanted")
+                _state_changed(store, shown[0], "deprecated",
+                              reason="no longer wanted")
                 with mock.patch.object(
                         bs.Store, "_historical_corpus",
                         staticmethod(lambda res, run: (res["results"], ""))):
@@ -10591,8 +10658,15 @@ class TestAnchoredNotes(unittest.TestCase):
                                    body="the retry path double charges",
                                    author="Dana", author_kind="human",
                                    anchor_type="file", anchor_key="api/pay.py")
-                done = store.resolve_note(n["note_uuid"][:8],
-                                          "fixed in the idempotency key change")
+                # LOOP 2, 2026-07-30: this note is a CRITICAL alert, so
+                # resolving it now needs a state-change receipt of its own,
+                # exactly as approving or editing a rule does.
+                text = "fixed in the idempotency key change"
+                rec = store.mint_state_change_receipt(
+                    "resolve-note", n["note_uuid"], founder_response="yes",
+                    content_parts=(text,))
+                done = store.resolve_note(n["note_uuid"][:8], text,
+                                          receipt=rec["token"])
                 self.assertIsNotNone(done["resolved_at"])
                 self.assertIn("idempotency", done["resolution"])
                 self.assertEqual(len(store.list_notes()), 1,
@@ -10709,7 +10783,17 @@ class TestCriticalAlertsRefuseAnApproval(unittest.TestCase):
             with bs.Store(d) as store:
                 _rec, cand = self._seed(store)
                 note = self._alert(store)
-                store.resolve_note(note["note_uuid"], "fixed by the retry rework")
+                # LOOP 2, 2026-07-30: resolving a CRITICAL alert now needs a
+                # state-change receipt of its own (see
+                # TestLoop2StateChangeReceipts for the hole this closes:
+                # before this, resolving one unblocked an approval with no
+                # human answer anywhere).
+                text = "fixed by the retry rework"
+                state_rec = store.mint_state_change_receipt(
+                    "resolve-note", note["note_uuid"], founder_response="yes",
+                    content_parts=(text,))
+                store.resolve_note(note["note_uuid"], text,
+                                   receipt=state_rec["token"])
                 rec = self._mint(store, cand)
                 rule = store.approve_learning_candidate(
                     cand["candidate_uuid"], founder_ref="he said yes",
@@ -11308,6 +11392,1025 @@ class TestAnchoredLinesAreReportedNeverDropped(unittest.TestCase):
         self.assertTrue(
             bs.export_column("notes", "body", "the refund path double charges")
             .startswith("[WITHHELD:"))
+
+
+class TestLoop2CaptureUsageRefusal(unittest.TestCase):
+    """LOOP 0 SWEEP, item D6, ORCHESTRATOR RULING (2026-07-30): `bm_learn.py
+    capture` with no arguments stored an EMPTY candidate instead of printing
+    usage, while the same CLI already refuses an unknown flag. Fixed at the
+    CLI layer (cmd_capture), not in bm_store.capture_learning_candidate,
+    which keeps its roughly thirty legitimate call shapes untouched."""
+
+    def _run(self, root, args):
+        e = dict(os.environ, BROTHERMODE_ROOT=root)
+        return subprocess.run([sys.executable, os.path.join(HERE, "bm_learn.py")]
+                              + args, cwd=root, env=e, capture_output=True, text=True)
+
+    def _init(self, root):
+        e = dict(os.environ, BROTHERMODE_ROOT=root)
+        r = subprocess.run([sys.executable, os.path.join(HERE, "bm_store.py"), "init"],
+                           cwd=root, env=e, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_capture_with_no_arguments_prints_usage_and_exits_nonzero(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            r = self._run(root, ["capture"])
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("usage: capture", r.stderr)
+            # REPRODUCTION CHECK: the old defect stored an empty candidate at
+            # exit 0. This asserts the actual store state, not just the exit
+            # code, so a refusal that still wrote something would be caught.
+            listed = self._run(root, ["candidates", "--json"])
+            self.assertEqual(listed.returncode, 0, listed.stderr)
+            self.assertEqual(json.loads(listed.stdout), [],
+                             "a refused capture must create no candidate")
+
+    def test_capture_with_only_whitespace_flags_also_refuses(self):
+        """Unknown flag refusal already exists; this must match it: a
+        trigger/action/because of only whitespace is the same as absent."""
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            r = self._run(root, ["capture", "--trigger", "   ", "--action", "",
+                                "--because", ""])
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("usage: capture", r.stderr)
+
+    def test_capture_with_a_real_field_still_succeeds(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            r = self._run(root, ["capture", "--scope", "global", "--trigger",
+                                "pushing to main", "--action", "never force push"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("captured", r.stdout)
+
+    def test_calibrated_reinjecting_the_all_empty_capture_stores_an_empty_candidate(self):
+        """CALIBRATION. Call the store's own capture_learning_candidate
+        directly with everything empty, exactly as the CLI used to let
+        through: the exact reported defect reappears (an empty candidate,
+        stored, at exit 0-equivalent). This proves the guard added above is a
+        CLI-layer refusal, not a change to the shared primitive: the store
+        method itself still accepts an all-empty call, on purpose, because
+        its own thirty call shapes are not this loop's to re-litigate."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                cand = store.capture_learning_candidate(
+                    "manual", trigger="", action="", because="",
+                    scope_type="global")
+                self.assertEqual(cand["proposed_trigger"], "")
+                self.assertEqual(cand["proposed_action"], "")
+                self.assertEqual(len(store.list_learning_candidates(status=None)), 1,
+                                 "REPRODUCTION: the store itself still accepts this; "
+                                 "the refusal added by this loop lives in cmd_capture")
+
+
+class TestSchema9Migration(unittest.TestCase):
+    """Schema 8 to 9 (LOOP 2, 2026-07-30): the generic state-change receipt
+    table. Same discipline as TestPostAuditLoop3Schema3Migration: the fixture
+    is a REAL store reverted to schema 8, not hand-written DDL, so it cannot
+    drift from the schema anyone actually has."""
+
+    def _schema8_store(self, d):
+        with bs.Store(d) as store:
+            store.claim("alpha", "persistent", "keep me", ["src/a.py"])
+            c = store.capture_learning_candidate(
+                "manual", trigger="writing an executive update",
+                action="state customer impact first",
+                because="leaders need the business state first",
+                scope_type="global", scope_key="")
+            _approved(store, c["candidate_uuid"],
+                     founder_ref="approved before this loop's table existed")
+        path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            for t in bs._TABLES_STATE_CHANGE_RECEIPTS:
+                conn.execute("DROP TABLE IF EXISTS %s" % t)
+            conn.execute("UPDATE meta SET value='8' WHERE key='schema_version'")
+            conn.execute("COMMIT")
+        finally:
+            conn.close()
+        return path
+
+    def _snapshot(self, path):
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        try:
+            out = {}
+            for t in bs._TABLES_V8:
+                rows = [dict(r) for r in conn.execute("SELECT * FROM %s" % t)]
+                if t == "meta":
+                    rows = [r for r in rows if r.get("key") != "schema_version"]
+                out[t] = json.dumps(rows, sort_keys=True, default=str)
+            return out
+        finally:
+            conn.close()
+
+    def _tables(self, path):
+        conn = sqlite3.connect(path)
+        try:
+            return {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            conn.close()
+
+    def test_a_schema8_store_migrates_instead_of_being_quarantined(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema8_store(d)
+            with bs.Store(d) as store:
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT value FROM meta WHERE key='schema_version'"
+                    ).fetchone()["value"], str(bs.SCHEMA_VERSION))
+            self.assertTrue(set(bs._TABLES_STATE_CHANGE_RECEIPTS) <= self._tables(path))
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")), [],
+                "a healthy schema-8 store must MIGRATE, never be quarantined")
+
+    def test_migration_preserves_every_schema8_row(self):
+        """Including the rule approved before this table existed. Rewriting
+        it to look receipt-backed would be the dishonest half of this
+        change, exactly as _migrate_2_to_3 states for its own predecessor
+        rules."""
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema8_store(d)
+            before = self._snapshot(path)
+            with bs.Store(d):
+                pass
+            self.assertEqual(before, self._snapshot(path))
+
+    def test_migration_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema8_store(d)
+            with bs.Store(d):
+                pass
+            first = self._snapshot(path)
+            with bs.Store(d):
+                pass
+            self.assertEqual(first, self._snapshot(path))
+
+    def test_calibrated_interrupted_migration_rolls_back_completely(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema8_store(d)
+            original = bs._MIGRATIONS[8]
+
+            def _fail_half_way(conn):
+                conn.execute(bs._STATE_CHANGE_RECEIPT_DDL_STATEMENTS[0])
+                raise RuntimeError("simulated interruption mid-migration")
+
+            bs._MIGRATIONS[8] = _fail_half_way
+            try:
+                with self.assertRaises(RuntimeError):
+                    bs.Store(d)
+            finally:
+                bs._MIGRATIONS[8] = original
+            conn = sqlite3.connect(path)
+            try:
+                v = conn.execute(
+                    "SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(v, "8", "an interrupted migration must not move the version")
+            for t in bs._TABLES_STATE_CHANGE_RECEIPTS:
+                self.assertNotIn(t, self._tables(path))
+            with bs.Store(d):
+                pass
+            self.assertTrue(set(bs._TABLES_STATE_CHANGE_RECEIPTS) <= self._tables(path))
+
+    def test_state_change_receipt_ddl_split_matches_the_table_and_index_lists(self):
+        self.assertEqual(len(bs._STATE_CHANGE_RECEIPT_DDL_STATEMENTS),
+                         len(bs._TABLES_STATE_CHANGE_RECEIPTS))
+        self.assertEqual(len(bs._STATE_CHANGE_RECEIPT_INDEX_STATEMENTS), 1)
+
+    def test_a_fresh_store_is_born_at_schema9_with_the_table_present(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT value FROM meta WHERE key='schema_version'"
+                    ).fetchone()["value"], str(bs.SCHEMA_VERSION))
+            self.assertTrue(
+                set(bs._TABLES_STATE_CHANGE_RECEIPTS) <= self._tables(
+                    os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)))
+
+
+class TestLoop2StateChangeReceipts(unittest.TestCase):
+    """LOOP 2, 2026-07-30. Five commands can alter the live rule set without
+    going through approve_learning_candidate or edit_learning_rule: supersede,
+    resolve-conflict, deprecate, forget, and resolving a critical alert.
+    Before this loop only create and edit were receipt-gated. The most
+    serious of the five holes, reproduced first below, is resolve-conflict
+    standing an approved GATE rule down with no receipt at all.
+
+    ONE generic lane (learning_state_change_receipts, mint_state_change_receipt,
+    _require_state_change_receipt, _consume_state_change_receipt) serves all
+    five call sites, not five bespoke checks: this project's own failure
+    ledger names a cross-cutting concern implemented per call site as the
+    root cause behind four separate bugs."""
+
+    def _cap(self, store, **kw):
+        kw.setdefault("source_type", "manual")
+        kw.setdefault("trigger", "writing an executive update")
+        kw.setdefault("action", "state customer impact before technical detail")
+        kw.setdefault("because", "leaders need the business state first")
+        kw.setdefault("scope_type", "global")
+        kw.setdefault("scope_key", "")
+        return store.capture_learning_candidate(**kw)
+
+    def _rule(self, store, gate=False, **kw):
+        founder_ref = kw.pop("founder_ref", "f")
+        conflict_override = kw.pop("conflict_override", "")
+        c = self._cap(store, **kw)
+        return _approved(store, c["candidate_uuid"], founder_ref=founder_ref,
+                         severity="gate" if gate else "soft",
+                         conflict_override=conflict_override)
+
+    def _critical_alert(self, store, **kw):
+        kw.setdefault("kind", bs.BLOCKING_NOTE_KIND)
+        kw.setdefault("severity", bs.BLOCKING_NOTE_SEVERITY)
+        kw.setdefault("body", "the retry path double charges")
+        kw.setdefault("author", "Dana, backend")
+        kw.setdefault("author_kind", "human")
+        kw.setdefault("anchor_type", "candidate")
+        return store.add_note(**kw)
+
+    def _reopen_rule(self, store, rule_uuid, state):
+        """Force a rule back to an earlier state WITHOUT going through the
+        API, exactly as TestPostAuditLoop3ApprovalReceipts._repending does
+        for candidates: needed only so the reuse test can reach the receipt
+        check at all. The ordinary state-transition guard would otherwise
+        refuse the SECOND call before the receipt check ever ran, because the
+        rule has already left the state this move requires."""
+        store.conn.execute("BEGIN IMMEDIATE")
+        store.conn.execute("UPDATE learning_rules SET state=? WHERE rule_uuid=?",
+                           (state, rule_uuid))
+        store.conn.execute("COMMIT")
+
+    def _reopen_note(self, store, note_uuid):
+        """Same technique, for the resolve-note reuse test: force resolved_at
+        back to NULL without touching the receipt's own consumed_at."""
+        store.conn.execute("BEGIN IMMEDIATE")
+        store.conn.execute(
+            "UPDATE notes SET resolved_at=NULL WHERE note_uuid=?", (note_uuid,))
+        store.conn.execute("COMMIT")
+
+    # -- missing receipt, one per command -----------------------------------
+
+    def test_supersede_without_receipt_refuses_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                old = self._rule(store, trigger="t1", action="a1")
+                new = self._rule(store, trigger="t2", action="a2")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(
+                        old["rule_uuid"], "superseded", reason="r",
+                        successor_prefix=new["rule_uuid"])
+                self.assertEqual(ctx.exception.reason, "no-state-change-receipt")
+                self.assertEqual(
+                    store.get_learning_rule(old["rule_uuid"])["state"], "approved")
+
+    def test_deprecate_without_receipt_refuses_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(rule["rule_uuid"], "deprecated",
+                                                     reason="r")
+                self.assertEqual(ctx.exception.reason, "no-state-change-receipt")
+                self.assertEqual(
+                    store.get_learning_rule(rule["rule_uuid"])["state"], "approved")
+
+    def test_forget_without_receipt_refuses_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(rule["rule_uuid"], "forgotten",
+                                                     reason="r")
+                self.assertEqual(ctx.exception.reason, "no-state-change-receipt")
+                self.assertEqual(
+                    store.get_learning_rule(rule["rule_uuid"])["state"], "approved")
+
+    def test_resolve_conflict_against_a_gate_rule_without_receipt_refuses(self):
+        """THE HEADLINE CASE. Reproduced before this loop: resolve-conflict
+        could stand an approved GATE rule down with no human answer anywhere,
+        the most serious of the five holes this loop closed."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gate = self._rule(store, trigger="push to main",
+                                  action="never force push", gate=True)
+                other = self._rule(store, trigger="push to main",
+                                   action="always force push",
+                                   founder_ref="f2", conflict_override="accepted for the test")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.resolve_learning_conflict(
+                        gate["rule_uuid"], other["rule_uuid"], "contradicted",
+                        reason="testing")
+                self.assertEqual(ctx.exception.reason, "no-state-change-receipt")
+                self.assertEqual(
+                    store.get_learning_rule(gate["rule_uuid"])["state"], "approved",
+                    "REPRODUCTION CHECK: a GATE rule must not stand down with "
+                    "no receipt at all")
+
+    def test_resolve_note_on_a_critical_alert_without_receipt_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                cand = self._cap(store)
+                note = self._critical_alert(store, anchor_key=cand["candidate_uuid"])
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.resolve_note(note["note_uuid"], "fixed it")
+                self.assertEqual(ctx.exception.reason, "no-state-change-receipt")
+                self.assertIsNone(
+                    store.get_note(note["note_uuid"])["resolved_at"],
+                    "REPRODUCTION CHECK: a critical alert must not resolve "
+                    "with no receipt at all")
+
+    # -- the direct-API bypass this loop actually defends against -----------
+
+    def test_the_store_api_cannot_skip_the_gate_by_omitting_receipt_kind(self):
+        """The attack this loop defends against is shell access as the same
+        OS user, calling bm_store.py directly rather than through
+        bm_learn.py. A caller that simply leaves receipt_kind at its default
+        must NOT get an ungated move: the gate is keyed off `target`, not off
+        whether the caller happened to pass a kind."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(rule["rule_uuid"], "deprecated",
+                                                     reason="bypass attempt")
+                self.assertEqual(ctx.exception.reason, "no-state-change-receipt")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(rule["rule_uuid"], "forgotten",
+                                                     reason="bypass attempt")
+                self.assertEqual(ctx.exception.reason, "no-state-change-receipt")
+                self.assertEqual(
+                    store.get_learning_rule(rule["rule_uuid"])["state"], "approved")
+
+    # -- successes, one per command ------------------------------------------
+
+    def test_supersede_with_a_valid_receipt_succeeds(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                old = self._rule(store, trigger="t1", action="a1", gate=True)
+                new = self._rule(store, trigger="t2", action="a2", founder_ref="f2")
+                out = _state_changed(store, old["rule_uuid"], "superseded",
+                                     reason="replaced", successor_prefix=new["rule_uuid"])
+                self.assertEqual(out["state"], "superseded")
+                self.assertEqual(out["superseded_by"], new["rule_uuid"])
+
+    def test_deprecate_with_a_valid_receipt_succeeds(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                out = _state_changed(store, rule["rule_uuid"], "deprecated", reason="r")
+                self.assertEqual(out["state"], "deprecated")
+
+    def test_forget_with_a_valid_receipt_succeeds(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                out = _state_changed(store, rule["rule_uuid"], "forgotten", reason="r")
+                self.assertEqual(out["state"], "forgotten")
+
+    def test_resolve_conflict_contradicted_with_a_valid_receipt_succeeds(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                gate = self._rule(store, trigger="push to main",
+                                  action="never force push", gate=True)
+                other = self._rule(store, trigger="push to main",
+                                   action="always force push", founder_ref="f2",
+                                   conflict_override="accepted for the test")
+                out = _conflict_resolved(store, gate["rule_uuid"], other["rule_uuid"],
+                                         "contradicted", reason="testing")
+                self.assertEqual(out["state"], "contradicted")
+
+    def test_resolve_conflict_superseded_branch_with_a_valid_receipt_succeeds(self):
+        """resolve-conflict's 'superseded' branch delegates to
+        change_learning_rule_state, and must gate under its OWN kind
+        ('resolve-conflict'), not 'supersede': a plain supersede receipt must
+        not spend here (see the cross-kind test below)."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                old = self._rule(store, trigger="t3", action="a3")
+                new = self._rule(store, trigger="t4", action="a4", founder_ref="f2")
+                out = _conflict_resolved(store, old["rule_uuid"], new["rule_uuid"],
+                                         "superseded", reason="rs")
+                self.assertEqual(out["state"], "superseded")
+
+    def test_resolve_note_critical_alert_with_a_valid_receipt_succeeds(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                cand = self._cap(store)
+                note = self._critical_alert(store, anchor_key=cand["candidate_uuid"])
+                text = "fixed it"
+                rec = store.mint_state_change_receipt(
+                    "resolve-note", note["note_uuid"], founder_response="yes",
+                    content_parts=(text,))
+                out = store.resolve_note(note["note_uuid"], text, receipt=rec["token"])
+                self.assertIsNotNone(out["resolved_at"])
+
+    # -- ordinary and non-critical notes still resolve with NO receipt -------
+
+    def test_resolving_an_ordinary_note_needs_no_receipt(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                cand = self._cap(store)
+                note = store.add_note(kind="insight", body="worth remembering",
+                                      author="Dana", author_kind="human",
+                                      anchor_type="candidate",
+                                      anchor_key=cand["candidate_uuid"])
+                out = store.resolve_note(note["note_uuid"], "noted")
+                self.assertIsNotNone(out["resolved_at"])
+
+    def test_resolving_a_non_critical_alert_needs_no_receipt(self):
+        """Only kind='alert' AND severity='critical' together are a blocking
+        alert (blocking_alerts filters on both). A warning-severity alert has
+        no teeth and needs no receipt to resolve."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                cand = self._cap(store)
+                note = self._critical_alert(store, severity="warning",
+                                            anchor_key=cand["candidate_uuid"])
+                out = store.resolve_note(note["note_uuid"], "downgraded, fixed")
+                self.assertIsNotNone(out["resolved_at"])
+
+    # -- reused, expired, wrong target, stale content ------------------------
+
+    def test_a_spent_state_change_receipt_refuses_the_second_time(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                rec = store.mint_state_change_receipt(
+                    "deprecate", rule["rule_uuid"], founder_response="yes",
+                    content_parts=("deprecated", "", "r"))
+                store.change_learning_rule_state(
+                    rule["rule_uuid"], "deprecated", reason="r",
+                    receipt=rec["token"], receipt_kind="deprecate")
+                self._reopen_rule(store, rule["rule_uuid"], "approved")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(
+                        rule["rule_uuid"], "deprecated", reason="r",
+                        receipt=rec["token"], receipt_kind="deprecate")
+                self.assertEqual(ctx.exception.reason, "receipt-already-used")
+
+    def test_a_spent_resolve_note_receipt_refuses_the_second_time(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                cand = self._cap(store)
+                note = self._critical_alert(store, anchor_key=cand["candidate_uuid"])
+                rec = store.mint_state_change_receipt(
+                    "resolve-note", note["note_uuid"], founder_response="yes",
+                    content_parts=("fixed",))
+                store.resolve_note(note["note_uuid"], "fixed", receipt=rec["token"])
+                self._reopen_note(store, note["note_uuid"])
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.resolve_note(note["note_uuid"], "fixed", receipt=rec["token"])
+                self.assertEqual(ctx.exception.reason, "receipt-already-used")
+
+    def test_an_expired_state_change_receipt_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                rec = store.mint_state_change_receipt(
+                    "forget", rule["rule_uuid"], founder_response="yes",
+                    content_parts=("forgotten", "", "r"))
+                store.conn.execute("BEGIN IMMEDIATE")
+                store.conn.execute(
+                    "UPDATE learning_state_change_receipts SET "
+                    "expires_at='2000-01-01T00:00:00Z' WHERE receipt_uuid=?",
+                    (rec["receipt_uuid"],))
+                store.conn.execute("COMMIT")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(
+                        rule["rule_uuid"], "forgotten", reason="r",
+                        receipt=rec["token"], receipt_kind="forget")
+                self.assertEqual(ctx.exception.reason, "receipt-expired")
+
+    def test_a_receipt_for_another_rule_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = self._rule(store, trigger="t1", action="a1")
+                b = self._rule(store, trigger="t2", action="a2", founder_ref="f2")
+                rec = store.mint_state_change_receipt(
+                    "deprecate", a["rule_uuid"], founder_response="yes",
+                    content_parts=("deprecated", "", "r"))
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(
+                        b["rule_uuid"], "deprecated", reason="r",
+                        receipt=rec["token"], receipt_kind="deprecate")
+                self.assertEqual(ctx.exception.reason, "receipt-wrong-target")
+                self.assertEqual(
+                    store.get_learning_rule(b["rule_uuid"])["state"], "approved")
+
+    def test_a_receipt_is_stale_once_the_reason_changes(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                rec = store.mint_state_change_receipt(
+                    "deprecate", rule["rule_uuid"], founder_response="yes",
+                    content_parts=("deprecated", "", "the original reason"))
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(
+                        rule["rule_uuid"], "deprecated", reason="a different reason",
+                        receipt=rec["token"], receipt_kind="deprecate")
+                self.assertEqual(ctx.exception.reason, "receipt-stale-target")
+
+    def test_a_resolve_conflict_receipt_is_stale_if_how_changes(self):
+        """`how` is part of the content a resolve-conflict receipt binds to,
+        exactly as the override flags are part of an approval receipt's
+        fingerprint: a receipt minted for 'contradicted' cannot be redirected
+        to 'deprecated' just because both are legal target states."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = self._rule(store, trigger="t1", action="a1")
+                b = self._rule(store, trigger="t2", action="a2", founder_ref="f2")
+                other_uuid = b["rule_uuid"]
+                rec = store.mint_state_change_receipt(
+                    "resolve-conflict", a["rule_uuid"], founder_response="yes",
+                    content_parts=("contradicted", other_uuid, "r"))
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.resolve_learning_conflict(
+                        a["rule_uuid"], b["rule_uuid"], "deprecated", reason="r",
+                        receipt=rec["token"])
+                self.assertEqual(ctx.exception.reason, "receipt-stale-target")
+
+    # -- wrong kind, both directions, within the new lane --------------------
+
+    def test_a_deprecate_receipt_cannot_spend_as_a_forget_receipt(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                rec = store.mint_state_change_receipt(
+                    "deprecate", rule["rule_uuid"], founder_response="yes",
+                    content_parts=("deprecated", "", "r"))
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(
+                        rule["rule_uuid"], "forgotten", reason="r",
+                        receipt=rec["token"], receipt_kind="forget")
+                self.assertEqual(ctx.exception.reason, "receipt-wrong-kind")
+
+    def test_a_forget_receipt_cannot_spend_as_a_deprecate_receipt(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                rec = store.mint_state_change_receipt(
+                    "forget", rule["rule_uuid"], founder_response="yes",
+                    content_parts=("forgotten", "", "r"))
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(
+                        rule["rule_uuid"], "deprecated", reason="r",
+                        receipt=rec["token"], receipt_kind="deprecate")
+                self.assertEqual(ctx.exception.reason, "receipt-wrong-kind")
+
+    def test_a_plain_supersede_receipt_cannot_spend_via_resolve_conflict(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = self._rule(store, trigger="t1", action="a1")
+                b = self._rule(store, trigger="t2", action="a2", founder_ref="f2")
+                rec = store.mint_state_change_receipt(
+                    "supersede", a["rule_uuid"], founder_response="yes",
+                    content_parts=("superseded", b["rule_uuid"], "r"))
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.resolve_learning_conflict(
+                        a["rule_uuid"], b["rule_uuid"], "superseded", reason="r",
+                        receipt=rec["token"])
+                self.assertEqual(ctx.exception.reason, "receipt-wrong-kind")
+
+    # -- cross-table: never interchangeable with approval or edit receipts --
+
+    def test_a_state_change_receipt_cannot_spend_as_an_approval_receipt(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                rec = store.mint_state_change_receipt(
+                    "deprecate", rule["rule_uuid"], founder_response="yes",
+                    content_parts=("deprecated", "", "r"))
+                c2 = self._cap(store, trigger="t2", action="a2")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.approve_learning_candidate(
+                        c2["candidate_uuid"], founder_ref="f", receipt=rec["token"])
+                self.assertEqual(ctx.exception.reason, "bad-approval-receipt")
+
+    def test_an_approval_receipt_cannot_spend_as_a_state_change_receipt(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                c = self._cap(store)
+                rec = store.mint_approval_receipt(c["candidate_uuid"],
+                                                  founder_response="yes")
+                rule = self._rule(store, trigger="t2", action="a2", founder_ref="f2")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(
+                        rule["rule_uuid"], "deprecated", reason="r",
+                        receipt=rec["token"], receipt_kind="deprecate")
+                self.assertEqual(ctx.exception.reason, "bad-state-change-receipt")
+
+    # -- secrecy: read the bytes on disk, not the display path ---------------
+
+    def test_the_state_change_token_is_never_stored_returned_again_or_dumped(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                rec = store.mint_state_change_receipt(
+                    "deprecate", rule["rule_uuid"],
+                    founder_response="the founder's literal answer, in a test",
+                    content_parts=("deprecated", "", "r"))
+                token = rec["token"]
+                self.assertNotIn("nonce_hash", rec)
+                for blob in (json.dumps(store.dump(), default=str),
+                             json.dumps(store.dump(raw=True), default=str)):
+                    self.assertNotIn(token, blob,
+                                     "the token reached a display surface")
+                self.assertNotIn(
+                    "the founder's literal answer, in a test",
+                    json.dumps(store.dump(raw=True), default=str),
+                    "the founder's literal answer is hashed, never stored")
+                dumped_row = store.dump()["learning_state_change_receipts"][0]
+                for secret_col in ("nonce_hash", "content_fingerprint",
+                                   "founder_response_hash"):
+                    self.assertTrue(
+                        dumped_row[secret_col].startswith("[WITHHELD:"),
+                        "%s leaked in an ordinary export" % secret_col)
+            path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+            with io.open(path, "rb") as f:
+                raw_bytes = f.read()
+            self.assertNotIn(token.encode("ascii"), raw_bytes,
+                             "the token is in the database file")
+            self.assertNotIn(b"the founder's literal answer, in a test", raw_bytes,
+                             "the founder's literal answer is in the database file")
+
+    # -- calibration: the loop's headline case -------------------------------
+
+    def test_calibrated_resolve_conflict_gate_reproduction(self):
+        """CALIBRATION for the loop's headline case. Patch away the two
+        functions resolve_learning_conflict's gate depends on (simulating the
+        world before this loop, where they did not exist) and the exact
+        reported hole reopens: an approved GATE rule stands down against no
+        receipt at all. Restore, and the SAME attempt refuses again. A green
+        test that was never proven red first is not evidence (this file's own
+        standing rule)."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                loser = self._rule(store, trigger="push to main",
+                                   action="never force push", gate=True)
+                other = self._rule(store, trigger="push to main",
+                                   action="always force push", founder_ref="f2",
+                                   conflict_override="accepted for the test")
+                with mock.patch.object(
+                        bs.Store, "_require_state_change_receipt",
+                        lambda self, *a, **k: None), \
+                     mock.patch.object(
+                        bs.Store, "_consume_state_change_receipt",
+                        lambda self, *a, **k: None):
+                    out = store.resolve_learning_conflict(
+                        loser["rule_uuid"], other["rule_uuid"], "contradicted",
+                        reason="reproducing the hole", receipt="")
+                self.assertEqual(
+                    out["state"], "contradicted",
+                    "REPRODUCTION: a GATE rule stood down with NO receipt at "
+                    "all while the gate was patched away")
+                # protection restored: the identical attempt on a fresh pair
+                # of rules now refuses.
+                loser2 = self._rule(store, trigger="deleting a remote branch",
+                                    action="never delete the remote branch",
+                                    gate=True, founder_ref="f3")
+                other2 = self._rule(store, trigger="deleting a remote branch",
+                                    action="always delete the remote branch",
+                                    founder_ref="f4",
+                                    conflict_override="accepted for the test")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.resolve_learning_conflict(
+                        loser2["rule_uuid"], other2["rule_uuid"], "contradicted",
+                        reason="protection restored", receipt="")
+                self.assertEqual(ctx.exception.reason, "no-state-change-receipt")
+
+
+class TestLoop2RuleAlteringCommandEnumeration(unittest.TestCase):
+    """LOOP 2, 2026-07-30: THE MECHANICAL STOP.
+
+    Five commands altered the live rule set with no receipt in front of them
+    (supersede, resolve-conflict, deprecate, forget, resolve-note on a
+    critical alert). This enumerates bm_learn's OWN command table --
+    mechanically, from bl.COMMANDS, never a list retyped by hand here -- and
+    asserts every single command is either proven receipt-gated below or
+    carries an explicit, reasoned allowlist entry. A sixth rule-altering
+    command added next year, with no gate and no allowlist entry, fails
+    test_every_command_is_classified BY NAME until someone classifies it."""
+
+    # command -> the OwnershipRefused reason its own store method raises with
+    # no receipt at all. 'resolve-note' is proven separately in
+    # test_resolve_note_is_gated_only_for_a_critical_alert, because its gate
+    # is conditional on the note's own severity, not a bare "always refuses".
+    GATED = {
+        "approve": "no-approval-receipt",
+        "supersede": "no-state-change-receipt",
+        "resolve-conflict": "no-state-change-receipt",
+        "deprecate": "no-state-change-receipt",
+        "forget": "no-state-change-receipt",
+        "resolve-note": None,
+    }
+
+    # command -> one-line reason it does not alter the live, injected rule
+    # set and therefore needs no receipt at all. Every reason names the file
+    # and, where useful, the line this was verified at.
+    NOT_RULE_ALTERING = {
+        "capture": "stores a raw observation as a PENDING candidate "
+                   "(bm_store.capture_learning_candidate); inert until approved",
+        "note": "adds a note (bm_store.add_note); notes are not injectable rule text",
+        "notes": "read only (bm_store.list_notes)",
+        "index-status": "read only (bm_store.learning_index_status)",
+        "rebuild-index": "rebuilds the retrieval index, not rule text "
+                         "(bm_store.rebuild_learning_index)",
+        "outcome": "records external evidence as a pending candidate "
+                  "(bm_store.capture_outcome_candidate), not a rule change",
+        "inbox": "imports pending candidates (bm_store.import_correction_inbox); "
+                "inert until approved",
+        "metrics": "read only (bm_store.learning_capture_metrics)",
+        "candidates": "read only (bm_store.list_learning_candidates)",
+        "show-candidate": "read only (bm_store.get_learning_candidate)",
+        "grant-approval": "mints an approval receipt; does not itself alter a rule",
+        "grant-state-receipt": "mints a state-change receipt (this loop's own "
+                              "mint command); does not itself alter a rule",
+        "reject": "marks a candidate rejected (bm_store.reject_learning_candidate); "
+                 "never touches learning_rules",
+        "rules": "read only (bm_store.list_learning_rules)",
+        "lookup": "read only retrieval, writes nothing ever (bm_learn.py:26)",
+        "apply": "retrieves and records an application "
+                "(bm_store.record_learning_applications); does not alter rule text",
+        "relevant": "deprecated alias of apply/lookup (bm_learn.py cmd_relevant)",
+        "applications": "read only (bm_store.list_learning_applications)",
+        "disposition": "grades an application (bm_store.set_application_disposition); "
+                      "does not alter rule text",
+        "classify": "classifies applications (bm_store.classify_learning_applications); "
+                   "does not alter rule text",
+        "should-retrieve": "read only",
+        "why": "read only (bm_store.get_learning_rule plus evidence and versions)",
+        "conflicts": "read only (bm_store.learning_conflicts)",
+        "link": "records a non-supersedes edge (bm_store.link_learning_rules); "
+               "explicitly refuses relation='supersedes' at the door "
+               "(bm_store.py link_learning_rules), so it cannot silence a rule",
+        "merge": "folds a duplicate candidate in as evidence only "
+                "(bm_learn.py:1246, bm_store.merge_learning_candidate); does not "
+                "alter any injectable rule's text",
+        "confirm": "an evidence-graded lifecycle promotion "
+                  "(bm_store.change_learning_rule_state target='confirmed'/'settled') "
+                  "with its own no-supporting-evidence guard; does not alter text, "
+                  "severity, or supersession",
+        "rework": "records external evidence as a graded candidate "
+                 "(bm_store.record_outcome_event), not a rule change",
+        "escaped-defect": "records external evidence as a graded candidate "
+                         "(bm_store.record_outcome_event), not a rule change",
+        "repeat-check": "read only unless --record, which adds EVIDENCE "
+                       "(bm_store.add_learning_evidence), not rule text",
+        "loop-failures": "read only (bm_store.learning_loop_failures)",
+        "rule-outcomes": "read only (bm_store.learning_rule_outcomes)",
+        "verify": "read only diagnostic (bm_store.learning_verify)",
+    }
+
+    def _assert_every_command_classified(self, commands):
+        classified = set(self.GATED) | set(self.NOT_RULE_ALTERING)
+        unclassified = set(commands) - classified
+        self.assertEqual(
+            unclassified, set(),
+            "these bm_learn commands are neither proven receipt-gated nor "
+            "explicitly allowlisted as not rule-altering: %s. A sixth "
+            "rule-altering command must be classified (gated, with a proven "
+            "refusal reason, or allowlisted with a one-line reason) before "
+            "it can ship." % sorted(unclassified))
+
+    def test_every_command_is_classified(self):
+        self._assert_every_command_classified(bl.COMMANDS)
+        # The allowlist itself must not silently drift from bm_learn.py by
+        # naming a command that no longer exists.
+        classified = set(self.GATED) | set(self.NOT_RULE_ALTERING)
+        stale = classified - set(bl.COMMANDS)
+        self.assertEqual(stale, set(),
+                         "classified name(s) that are not real bm_learn "
+                         "commands: %s" % sorted(stale))
+
+    def test_calibrated_enumeration_catches_an_unclassified_command(self):
+        """CALIBRATION for the mechanical stop itself. A command that is
+        neither proven gated nor allowlisted must fail the check BY NAME:
+        add one to a COPY of the real table and confirm it fails, then
+        confirm the real table (with no such gap) passes clean."""
+        fake_commands = dict(bl.COMMANDS)
+        fake_commands["revoke-everything"] = lambda argv: 0
+        with self.assertRaises(AssertionError) as ctx:
+            self._assert_every_command_classified(fake_commands)
+        self.assertIn("revoke-everything", str(ctx.exception))
+        # protection restored: the real table has no such gap.
+        self._assert_every_command_classified(bl.COMMANDS)
+
+    # -- a light probe per GATED entry, proving the classification true ------
+
+    def _cap(self, store, **kw):
+        kw.setdefault("source_type", "manual")
+        kw.setdefault("trigger", "writing an executive update")
+        kw.setdefault("action", "state customer impact before technical detail")
+        kw.setdefault("because", "leaders need the business state first")
+        kw.setdefault("scope_type", "global")
+        kw.setdefault("scope_key", "")
+        return store.capture_learning_candidate(**kw)
+
+    def _rule(self, store, **kw):
+        founder_ref = kw.pop("founder_ref", "f")
+        c = self._cap(store, **kw)
+        return _approved(store, c["candidate_uuid"], founder_ref=founder_ref)
+
+    def test_approve_is_gated(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                c = self._cap(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.approve_learning_candidate(
+                        c["candidate_uuid"], founder_ref="f", receipt="")
+                self.assertEqual(ctx.exception.reason, self.GATED["approve"])
+
+    def test_supersede_is_gated(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                old = self._rule(store, trigger="t1", action="a1")
+                new = self._rule(store, trigger="t2", action="a2", founder_ref="f2")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(
+                        old["rule_uuid"], "superseded", successor_prefix=new["rule_uuid"])
+                self.assertEqual(ctx.exception.reason, self.GATED["supersede"])
+
+    def test_deprecate_is_gated(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(rule["rule_uuid"], "deprecated")
+                self.assertEqual(ctx.exception.reason, self.GATED["deprecate"])
+
+    def test_forget_is_gated(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.change_learning_rule_state(rule["rule_uuid"], "forgotten")
+                self.assertEqual(ctx.exception.reason, self.GATED["forget"])
+
+    def test_resolve_conflict_is_gated(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                a = self._rule(store, trigger="t1", action="a1")
+                b = self._rule(store, trigger="t2", action="a2", founder_ref="f2")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.resolve_learning_conflict(
+                        a["rule_uuid"], b["rule_uuid"], "deprecated", reason="r")
+                self.assertEqual(ctx.exception.reason, self.GATED["resolve-conflict"])
+
+    def test_resolve_note_is_gated_only_for_a_critical_alert(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                cand = self._cap(store)
+                critical = store.add_note(
+                    kind=bs.BLOCKING_NOTE_KIND, severity=bs.BLOCKING_NOTE_SEVERITY,
+                    body="the retry path double charges", author="Dana",
+                    author_kind="human", anchor_type="candidate",
+                    anchor_key=cand["candidate_uuid"])
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.resolve_note(critical["note_uuid"], "fixed")
+                self.assertEqual(ctx.exception.reason, "no-state-change-receipt")
+                ordinary = store.add_note(
+                    kind="insight", body="worth remembering", author="Dana",
+                    author_kind="human", anchor_type="candidate",
+                    anchor_key=cand["candidate_uuid"])
+                out = store.resolve_note(ordinary["note_uuid"], "noted")
+                self.assertIsNotNone(out["resolved_at"],
+                                     "an ordinary note must not need a receipt")
+
+    def test_merge_is_correctly_allowlisted_not_gated(self):
+        """The brief's own example: merge folds a candidate in as evidence
+        only. Proven here, not assumed: a merge call with no receipt anywhere
+        in scope must succeed and must not touch any rule's text."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                rule = self._rule(store)
+                dup = self._cap(store, raw_text="told you this before",
+                                trigger="writing an executive update",
+                                action="state customer impact before technical detail",
+                                session_id="s-99")
+                out = store.merge_learning_candidate(dup["candidate_uuid"],
+                                                     rule["rule_uuid"],
+                                                     reason="said twice")
+                self.assertEqual(out["rule_uuid"], rule["rule_uuid"])
+                self.assertEqual(len(store.list_learning_rules()), 1,
+                                 "a merge must not create or alter a rule")
+
+
+class TestLoop2CliWiring(unittest.TestCase):
+    """The store-level gate is only as good as the CLI that fronts it (LOOP
+    2, 2026-07-30). Row 11 of the plan's test matrix is explicitly CLI-level:
+    exit code AND the reason text on stderr, because a gate that only the
+    Python API respects is not a gate Fable's shell access respects.
+
+    Driven through the real binaries via subprocess, the same pattern
+    test_bm.py's own CLI tests use, because the exit code and stderr text ARE
+    the deliverable here: a script has to be able to gate on both."""
+
+    def _run(self, root, args):
+        e = dict(os.environ, BROTHERMODE_ROOT=root)
+        return subprocess.run([sys.executable, os.path.join(HERE, "bm_learn.py")]
+                              + args, cwd=root, env=e, capture_output=True, text=True)
+
+    def _init(self, root):
+        e = dict(os.environ, BROTHERMODE_ROOT=root)
+        r = subprocess.run([sys.executable, os.path.join(HERE, "bm_store.py"), "init"],
+                           cwd=root, env=e, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def _approve(self, root, trigger, action, because="because", gate=False):
+        cap = self._run(root, ["capture", "--scope", "global", "--trigger", trigger,
+                              "--action", action, "--because", because,
+                              "--source", "manual", "--json"])
+        self.assertEqual(cap.returncode, 0, cap.stderr)
+        cid = json.loads(cap.stdout)["candidate_uuid"]
+        g = self._run(root, ["grant-approval", cid, "--answer", "yes, do it"]
+                      + (["--gate"] if gate else []) + ["--json"])
+        self.assertEqual(g.returncode, 0, g.stderr)
+        token = json.loads(g.stdout)["token"]
+        a = self._run(root, ["approve", cid, "--receipt", token, "--ref", "test",
+                            "--json"] + (["--gate"] if gate else []))
+        self.assertEqual(a.returncode, 0, a.stderr)
+        return json.loads(a.stdout)["rule_uuid"]
+
+    def test_resolve_conflict_without_receipt_refuses_at_the_cli(self):
+        """Row 11 equivalent for this loop's headline case: exit code AND
+        the reason text on stderr, driven through the real bm_learn.py."""
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            r1 = self._approve(root, "push to main", "never force push", gate=True)
+            r2 = self._approve(root, "reviewing a branch", "always allow the merge")
+            r = self._run(root, ["resolve-conflict", r1, "--with", r2,
+                                "--how", "contradicted", "--because", "testing"])
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("no-state-change-receipt", r.stderr)
+
+    def test_supersede_round_trip_through_grant_state_receipt(self):
+        """Proves the CLI glue end to end: grant-state-receipt's own
+        content_parts computation must match what `supersede` computes when
+        it spends the token, or this round trip would fail with
+        receipt-stale-target."""
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            old = self._approve(root, "t1", "a1")
+            new = self._approve(root, "t2", "a2")
+            without = self._run(root, ["supersede", old, "--with", new,
+                                       "--because", "replaced"])
+            self.assertEqual(without.returncode, 2)
+            self.assertIn("no-state-change-receipt", without.stderr)
+            mint = self._run(root, ["grant-state-receipt", "supersede", old,
+                                   "--with", new, "--because", "replaced",
+                                   "--answer", "yes supersede it", "--json"])
+            self.assertEqual(mint.returncode, 0, mint.stderr)
+            token = json.loads(mint.stdout)["token"]
+            spend = self._run(root, ["supersede", old, "--with", new,
+                                     "--because", "replaced", "--receipt", token,
+                                     "--json"])
+            self.assertEqual(spend.returncode, 0, spend.stderr)
+            self.assertEqual(json.loads(spend.stdout)["state"], "superseded")
+
+    def test_forget_round_trip_through_grant_state_receipt(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            rule = self._approve(root, "t3", "a3")
+            without = self._run(root, ["forget", rule, "--yes"])
+            self.assertEqual(without.returncode, 2)
+            self.assertIn("no-state-change-receipt", without.stderr)
+            mint = self._run(root, ["grant-state-receipt", "forget", rule,
+                                   "--answer", "yes forget it", "--json"])
+            self.assertEqual(mint.returncode, 0, mint.stderr)
+            token = json.loads(mint.stdout)["token"]
+            spend = self._run(root, ["forget", rule, "--yes", "--receipt", token])
+            self.assertEqual(spend.returncode, 0, spend.stderr)
+
+    def test_resolve_note_critical_alert_round_trip(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init(root)
+            cap = self._run(root, ["capture", "--scope", "global", "--trigger", "t4",
+                                  "--action", "a4", "--source", "manual", "--json"])
+            self.assertEqual(cap.returncode, 0, cap.stderr)
+            cid = json.loads(cap.stdout)["candidate_uuid"]
+            note = self._run(root, ["note", "--kind", "alert", "--severity", "critical",
+                                    "--anchor", "candidate:" + cid,
+                                    "--body", "the retry path double charges",
+                                    "--author", "Dana", "--json"])
+            self.assertEqual(note.returncode, 0, note.stderr)
+            nid = json.loads(note.stdout)["note_uuid"]
+            without = self._run(root, ["resolve-note", nid, "--because", "fixed it"])
+            self.assertEqual(without.returncode, 2)
+            self.assertIn("no-state-change-receipt", without.stderr)
+            mint = self._run(root, ["grant-state-receipt", "resolve-note", nid,
+                                   "--because", "fixed it", "--answer", "yes",
+                                   "--json"])
+            self.assertEqual(mint.returncode, 0, mint.stderr)
+            token = json.loads(mint.stdout)["token"]
+            spend = self._run(root, ["resolve-note", nid, "--because", "fixed it",
+                                    "--receipt", token])
+            self.assertEqual(spend.returncode, 0, spend.stderr)
 
 
 if __name__ == "__main__":
