@@ -594,6 +594,8 @@ def decision_rows(store, root):
         out.append({
             "index": i,
             "kind": "candidate",
+            "uuid": cand["candidate_uuid"],
+            "rule_uuid": cand["resulting_rule_uuid"] or "",
             "id": cand["candidate_uuid"][:8],
             "title": cand["proposed_action"] or "(no action recorded)",
             "trigger": cand["proposed_trigger"],
@@ -620,6 +622,8 @@ def decision_rows(store, root):
         out.append({
             "index": 0,
             "kind": "rule",
+            "uuid": rule["rule_uuid"],
+            "rule_uuid": rule["rule_uuid"],
             "id": rule["rule_uuid"][:8],
             "title": rule["action_text"] or "(no action recorded)",
             "trigger": rule["trigger_text"],
@@ -648,12 +652,20 @@ def note_rows(store):
         if n["overridden_at"]:
             state += ", overridden"
         out.append({
+            "uuid": n["note_uuid"],
             "id": n["note_uuid"][:8],
             "kind": n["kind"],
             "severity": n["severity"],
             "author": n["author"],
             "author_kind": n["author_kind"],
+            # The composite string a reader sees, AND the three parts a renderer
+            # groups by. Before the parts were carried, "notes at their anchors"
+            # was one flat list at the end of the decision index, and a note
+            # about app/pay.py appeared nowhere near app/pay.py in the code map.
             "anchor": where,
+            "anchor_type": n["anchor_type"],
+            "anchor_key": n["anchor_key"],
+            "anchor_line": n["anchor_line"],
             "state": state,
             "created_at": n["created_at"],
             "body": n["body"],
@@ -669,13 +681,45 @@ def lineage(store, items, decisions, notes):
 
     A query, not a stored field (spec section 6). Every event carries the
     timestamp the store recorded and the author the store recorded, so a chain
-    with no author reads as a chain with no author rather than as mine."""
+    with no author reads as a chain with no author rather than as mine.
+
+    THE JOIN USED TO MATCH NOTHING, and this is the defect phase C found by
+    driving the real command line against a real store while the suite was
+    green. Notes were grouped by the composite anchor STRING, whose key half is
+    a full 32 character uuid, and compared against the eight character short id
+    a document displays, so `("candidate", "1a2b3c4d")` was looked up in a map
+    keyed by `("candidate", "1a2b3c4d5e6f...")` and no note ever joined any
+    chain. The lineage section rendered the capture, the receipt and the rule and
+    silently dropped every human word written about them, which is the one thing
+    a lineage query exists to carry. Matching now happens on the raw anchor
+    fields, and a fixture in the suite proves a note anchored to a candidate, to
+    a work record and to a decision all reach the chain.
+
+    A decision anchor is free text (a decision has no single column identity at
+    schema 8: it is a record uuid plus a sequence number), so it is matched by
+    PREFIX on the record uuid plus an exact sequence number. An author who types
+    four characters where two records match will see the note in both chains.
+    That is deliberate: the anchor as typed is printed beside the note, so an
+    under-specified anchor is visible in the document rather than resolved by
+    guesswork into one chain that may be the wrong one."""
     out = {}
-    by_note_anchor = {}
+    by_anchor = {}
     for n in notes:
-        atype, _, akey = n["anchor"].partition(":")
-        key = akey.split(":")[0]
-        by_note_anchor.setdefault((atype, key), []).append(n)
+        by_anchor.setdefault((n["anchor_type"], n["anchor_key"]), []).append(n)
+
+    def _event(n, prefix=""):
+        return {
+            "at": n["created_at"],
+            "who": "%s (%s)" % (n["author"] or "unnamed", n["author_kind"]),
+            "what": "%s%s%s anchored %s, %s: %s"
+                    % (prefix, n["kind"],
+                       " [%s]" % n["severity"] if n["severity"] else "",
+                       n["anchor"], n["state"], n["body"]),
+        }
+
+    def _notes_at(atype, key):
+        return by_anchor.get((atype, key), [])
+
     for row in decisions:
         if row["kind"] != "candidate":
             continue
@@ -684,14 +728,8 @@ def lineage(store, items, decisions, notes):
             "who": "captured from %s" % row["source_type"],
             "what": "candidate %s recorded" % row["id"],
         }]
-        for n in by_note_anchor.get(("candidate", row["id"]), []):
-            events.append({
-                "at": n["created_at"],
-                "who": "%s (%s)" % (n["author"] or "unnamed", n["author_kind"]),
-                "what": "%s%s: %s" % (n["kind"],
-                                      " [%s]" % n["severity"] if n["severity"]
-                                      else "", n["body"]),
-            })
+        for n in _notes_at("candidate", row["uuid"]):
+            events.append(_event(n))
         if row["receipts"]:
             events.append({"at": row["created_at"], "who": "the founder",
                            "what": "%d approval receipt(s) minted"
@@ -699,16 +737,61 @@ def lineage(store, items, decisions, notes):
         if row["rule"]:
             events.append({"at": row["created_at"], "who": "the store",
                            "what": "became rule %s" % row["rule"]})
+            # A note written against the RULE is a note about this decision:
+            # the rule is what the decision became, and a reviewer asking what
+            # touched the decision has to be shown the argument that happened
+            # after approval as well as the one before it.
+            for n in _notes_at("rule", row["rule_uuid"]):
+                events.append(_event(n, prefix="on the resulting rule, "))
+        events.sort(key=lambda e: (e["at"], e["what"]))
+        out[row["id"]] = events
+    for row in decisions:
+        if row["kind"] != "rule":
+            continue
+        # An approved rule with no candidate row behind it (imported, or its
+        # candidate expired) would otherwise have nowhere to hang a note.
+        if any(d["kind"] == "candidate" and d["rule_uuid"] == row["uuid"]
+               for d in decisions):
+            continue
+        events = [{"at": row["created_at"], "who": "the store",
+                   "what": "rule %s is %s" % (row["id"], row["status"])}]
+        for n in _notes_at("rule", row["uuid"]):
+            events.append(_event(n))
         events.sort(key=lambda e: (e["at"], e["what"]))
         out[row["id"]] = events
     for item in items:
+        record_notes = _notes_at("record", item["id"])
         for dec in item["decisions"]:
             key = "%s#%d" % (item["short"], dec["seq"])
-            out[key] = [{
+            events = [{
                 "at": dec["created_at"],
                 "who": item["owner"] or "unrecorded owner",
                 "what": "%s: %s" % (dec["topic"] or "untitled", dec["text"]),
             }]
+            for n in notes:
+                if n["anchor_type"] != "decision":
+                    continue
+                uuid_part, sep, seq_part = n["anchor_key"].rpartition("#")
+                if not sep or seq_part.strip() != str(dec["seq"]):
+                    continue
+                if uuid_part.strip() and item["id"].startswith(uuid_part.strip()):
+                    events.append(_event(n))
+            for n in record_notes:
+                events.append(_event(
+                    n, prefix="on the work record this decision belongs to, "))
+            events.sort(key=lambda e: (e["at"], e["what"]))
+            out[key] = events
+        if record_notes and not item["decisions"]:
+            # A record with notes and no recorded decision still has a chain,
+            # and dropping it would hide every question asked about the work.
+            events = [{"at": item["created_at"],
+                       "who": item["owner"] or "unrecorded owner",
+                       "what": "work record %s opened: %s"
+                               % (item["short"], item["objective"] or item["name"])}]
+            for n in record_notes:
+                events.append(_event(n))
+            events.sort(key=lambda e: (e["at"], e["what"]))
+            out[item["short"]] = events
     return out
 
 
@@ -1227,6 +1310,13 @@ class Generator(object):
         self.items = work_items(store)
         self.decisions = decision_rows(store, root)
         self.notes = note_rows(store)
+        # WHERE EVERY FILE-ANCHORED LINE IS NOW, from the store's own report so
+        # that this folder and a gate pack cannot disagree about whether a
+        # reviewer is looking at the line a note was written about (spec section
+        # 6: a note anchored to a line that has since moved is REPORTED). The
+        # report never changes a note and never drops one.
+        self.anchors = store.note_anchor_reports()
+        self.anchor_by_note = {a["note_uuid"]: a for a in self.anchors}
         self.inventory = module_inventory(root)
         self.graph = work_graph(root, self.items)
         self.imports = import_graph(root)
@@ -1267,6 +1357,7 @@ class Generator(object):
             "schedule": self.graph,
             "decisions": self.decisions,
             "notes": self.notes,
+            "note_anchors": self.anchors,
             "lineage": lineage(self.store, self.items, self.decisions,
                                self.notes),
             "modules": self.inventory["modules"],
@@ -1388,6 +1479,13 @@ class Generator(object):
                 "prose_regenerated": self.regenerated,
                 "prose_rewritten_unverified": self.rewritten_unverified,
                 "human_blocks_preserved": self.preserved,
+                "notes": len(self.notes),
+                "note_anchors_checked": len(self.anchors),
+                "note_anchor_problems": [
+                    {"id": a["id"], "path": a["path"], "line": a["line"],
+                     "state": a["state"], "now_line": a["now_line"],
+                     "why": a["why"]}
+                    for a in self.anchor_problems()],
                 "recorded_floor_before": self.floor,
                 "tier_recorded_at": (
                     os.path.relpath(floor_path, self.root).replace("\\", "/")
@@ -1422,6 +1520,60 @@ class Generator(object):
             out.append(HUMAN_END)
             out.append("")
         return out
+
+    # -- notes at their anchors (spec section 6) --------------------------
+    #
+    # ONE renderer, called from the code map, the work breakdown, the decision
+    # index and the handover, so a note reads the same wherever a reader meets
+    # it. Grouping is by the RAW anchor fields rather than by the composite
+    # display string: the display string truncates a long path, and a truncated
+    # key silently matches nothing.
+
+    def notes_at(self, anchor_type, anchor_key):
+        """Every note anchored exactly here, oldest first. Never filtered by
+        state: a resolved note stays visible, marked resolved, because the fact
+        that somebody once raised it is part of what a reader needs."""
+        return [n for n in self.notes
+                if n["anchor_type"] == anchor_type
+                and n["anchor_key"] == anchor_key]
+
+    def note_bullets(self, notes, indent=""):
+        """Markdown bullets for a group of notes, with the anchor's current
+        whereabouts attached to any file anchor that is no longer simply where it
+        was. Returns [] for an empty group so a caller can test it as a
+        condition."""
+        out = []
+        for note in notes:
+            line = ("%s- `%s` %s%s by %s (%s), %s, %s: %s"
+                    % (indent, note["id"], note["kind"],
+                       " [%s]" % note["severity"] if note["severity"] else "",
+                       _d(note["author"], 60) or "unnamed", note["author_kind"],
+                       note["created_at"], note["state"],
+                       _d(note["body"], 300)))
+            out.append(line)
+            if note["anchor_line"]:
+                out.append("%s  - anchored at line %d. %s"
+                           % (indent, note["anchor_line"],
+                              _d(self._anchor_sentence(note), 300)))
+            if note["resolution"]:
+                out.append("%s  - resolved: %s"
+                           % (indent, _d(note["resolution"], 200)))
+            if note["override_by"]:
+                out.append("%s  - overridden by %s: %s"
+                           % (indent, _d(note["override_by"], 60),
+                              _d(note["override_reason"], 200)))
+        return out
+
+    def _anchor_sentence(self, note):
+        found = self.anchor_by_note.get(note["uuid"])
+        if not found:
+            return "No anchor report was produced for this note."
+        return found["why"]
+
+    def anchor_problems(self):
+        """The file anchors a reader has to act on: moved, gone, or in a file
+        that could not be read. Reported, never dropped (spec section 6)."""
+        return [a for a in self.anchors if a["problem"]]
 
     def _regen(self):
         cmd = self.command()
@@ -1669,6 +1821,10 @@ class Generator(object):
                     w.append("  - #%d %s: %s"
                              % (dec["seq"], _d(dec["topic"], 80) or "untitled",
                                 _d(dec["text"], 300)))
+            here = self.notes_at("record", item["id"])
+            if here:
+                w.append("- Notes anchored to this record:")
+                w.extend(self.note_bullets(here, indent="  "))
             if item["digests"]:
                 last = item["digests"][-1]
                 w.append("- Last checkpoint intent: %s"
@@ -2005,6 +2161,15 @@ class Generator(object):
                 w.append("Top level names: %s."
                          % ", ".join("`%s`" % n for n in mod["top_level"]))
                 w.append("")
+            # The notes about THIS file, beside this file. They used to appear
+            # only in one flat list at the end of the decision index, which is
+            # the last place a reader opening the code map would look.
+            here = self.notes_at("file", mod["path"])
+            if here:
+                w.append("Notes anchored here: %d." % len(here))
+                w.append("")
+                w.extend(self.note_bullets(here))
+                w.append("")
         w.append("## Test files: %d" % len(self.inventory["tests"]))
         w.append("")
         if not self.inventory["tests"]:
@@ -2112,6 +2277,18 @@ class Generator(object):
                             _cell(row["scope"], 40), _cell(row["title"], 100),
                             pack))
             w.append("")
+            for row in cands:
+                here = self.notes_at("candidate", row["uuid"])
+                if row["rule_uuid"]:
+                    here = here + self.notes_at("rule", row["rule_uuid"])
+                if not here:
+                    continue
+                w.append("Notes anchored to D-%d (`%s`):"
+                         % (row["index"], row["id"]))
+                w.append("")
+                w.extend(self.note_bullets(sorted(
+                    here, key=lambda n: (n["created_at"], n["id"]))))
+                w.append("")
             w.append("A pack is generated on demand, never in advance: `%s pack "
                      "<id>` in bm_packs.py writes the eight section review an "
                      "engineer needs. `%s stakes <id>` prints the one line a "
@@ -2138,10 +2315,28 @@ class Generator(object):
                          % (item["short"], dec["seq"],
                             _d(dec["topic"], 80) or "untitled",
                             dec["created_at"], _d(dec["text"], 300)))
+                # A decision anchor is free text (a decision is a record uuid
+                # plus a sequence number and has no single column identity), so
+                # it is matched by prefix on the uuid and an exact sequence.
+                nested = []
+                for note in self.notes:
+                    if note["anchor_type"] != "decision":
+                        continue
+                    uuid_part, sep, seq_part = note["anchor_key"].rpartition("#")
+                    if not sep or seq_part.strip() != str(dec["seq"]):
+                        continue
+                    uuid_part = uuid_part.strip()
+                    if uuid_part and item["id"].startswith(uuid_part):
+                        nested.append(note)
+                w.extend(self.note_bullets(nested, indent="  "))
         if not any_dec:
             w.append("- none recorded")
         w.append("")
-        w.append("## Notes at their anchors")
+        w.append("## Every note, oldest first")
+        w.append("")
+        w.append("The same notes appear beside the file, the record or the "
+                 "decision each one is anchored to. This list is the complete "
+                 "one, in the order the concerns were raised.")
         w.append("")
         if not self.notes:
             w.append("- none")
@@ -2156,6 +2351,33 @@ class Generator(object):
                 w.append("  - overridden by %s: %s"
                          % (_d(note["override_by"], 60),
                             _d(note["override_reason"], 200)))
+        w.append("")
+        w.append("## Anchors that no longer resolve")
+        w.append("")
+        w.append("A note anchored to a line that has since moved is reported "
+                 "here rather than dropped, and nothing in this folder deletes a "
+                 "note or edits one. Every entry below is a note whose line is "
+                 "not where it was written: go and read it before trusting the "
+                 "line number beside it.")
+        w.append("")
+        problems = self.anchor_problems()
+        if not problems:
+            checked = len(self.anchors)
+            if checked:
+                w.append("- none. %d file anchor(s) with a line were checked "
+                         "against the files as they are on disk." % checked)
+            else:
+                w.append("- none. No note is anchored to a specific line yet.")
+        for found in problems:
+            w.append("- `%s` %s%s by %s, anchored `%s` line %d: %s"
+                     % (found["id"], found["kind"],
+                        " [%s]" % found["severity"] if found["severity"] else "",
+                        _d(found["author"], 60) or "unnamed",
+                        _cell(found["path"], 80), found["line"],
+                        _d(found["why"], 300)))
+            if found["now_line"]:
+                w.append("  - the line it was written about now reads: `%s`"
+                         % _cell(found["text"], 160))
         w.append("")
         w.append("## Lineage")
         w.append("")
@@ -2312,6 +2534,12 @@ class Generator(object):
                         " [%s]" % note["severity"] if note["severity"] else "",
                         _d(note["author"], 60) or "unnamed", note["state"],
                         note["anchor"], _d(note["body"], 300)))
+            found = self.anchor_by_note.get(note["uuid"])
+            if found and found["problem"]:
+                # A trap whose line has moved is worse than no trap: the reader
+                # opens the line, sees ordinary code, and concludes the warning
+                # was stale.
+                w.append("  - %s" % _d(found["why"], 300))
         w.append("")
         blockers = [(i, d["blockers"]) for i in self.items
                     for d in i["digests"] if (d["blockers"] or "").strip()]
@@ -2547,6 +2775,15 @@ def cmd_generate(argv):
         _out("  %s" % entry["path"])
     _out("  %d human block(s) preserved verbatim"
          % report["human_blocks_preserved"])
+    # SAID OUT LOUD RATHER THAN LEFT IN A PAGE. A moved anchor is the one thing
+    # in this report a reader has to go and fix, and burying it 300 lines into
+    # the decision index is how it stays unfixed.
+    _out("  %d note(s), %d line anchor(s) checked against the files on disk"
+         % (report["notes"], report["note_anchors_checked"]))
+    for found in report["note_anchor_problems"]:
+        _out("  ANCHOR %s: note %s at %s line %d. %s"
+             % (found["state"].upper(), found["id"], found["path"],
+                found["line"], found["why"]))
     _out("  narrative: %d block(s) reused against unchanged facts, %d "
          "regenerated" % (report["prose_reused"], report["prose_regenerated"]))
     if report["prose_rewritten_unverified"]:

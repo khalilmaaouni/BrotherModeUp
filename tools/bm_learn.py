@@ -1681,6 +1681,14 @@ def cmd_note(argv):
         return 0
     _out("note %s recorded" % n["note_uuid"][:8])
     _out("  " + _note_line(n))
+    if (n["anchor_type"] == "file" and n["anchor_line"]
+            and not n["anchor_line_hash"]):
+        # SAID AT WRITE TIME, because this is the one moment the author can fix
+        # it. No fingerprint means a later move of that line cannot be detected,
+        # and the reports will say unverifiable rather than pretending otherwise.
+        _out("  the anchored line could not be fingerprinted (the file could "
+             "not be read, or the line is blank), so if it later moves nothing "
+             "can detect that. Anchor to a line with code on it, or drop --line.")
     if n["kind"] == bs.BLOCKING_NOTE_KIND and n["severity"] == bs.BLOCKING_NOTE_SEVERITY:
         # WHAT THIS SAYS DEPENDS ON THE ANCHOR, because the store's teeth do.
         # bm_store.blocking_alerts matches a file, a candidate and a work
@@ -1703,13 +1711,18 @@ def cmd_note(argv):
 def cmd_notes(argv):
     pos, kv = _parse(argv, {"kind", "anchor", "severity", "open", "json"},
                      wants_value=("kind", "anchor", "severity"))
-    anchors = [_anchor(kv["anchor"])] if kv.get("anchor") else None
+    anchor_pairs = [_anchor(kv["anchor"])] if kv.get("anchor") else None
     store = _store()
     try:
         rows = store.list_notes(
             kinds=(kv["kind"],) if kv.get("kind") else None,
             severities=(kv["severity"],) if kv.get("severity") else None,
-            anchors=anchors, include_resolved=not kv.get("open"))
+            anchors=anchor_pairs, include_resolved=not kv.get("open"))
+        # One read per file however many notes point at it, and the SAME
+        # implementation the documentation engine and the packs use, so no two
+        # surfaces can disagree about whether a reviewer is looking at the line
+        # the note was written about.
+        anchors = {r["note_uuid"]: r for r in store.note_anchor_reports(rows)}
     finally:
         store.close()
     if kv.get("json"):
@@ -1721,6 +1734,13 @@ def cmd_notes(argv):
     for n in rows:
         _out(_note_line(n))
         _out("     %s" % L.safe_display(n["body"], 200))
+        # WHERE THE ANCHORED LINE IS NOW, printed for every anchor that is not
+        # simply still there. Before this, a note anchored to a line that had
+        # moved listed exactly like one that had not, and the author read the
+        # note as being about whatever now sits at that line number.
+        found = anchors.get(n["note_uuid"])
+        if found is not None and found["state"] != "resolves":
+            _out("     ANCHOR %s: %s" % (found["state"].upper(), found["why"]))
         if n["resolved_at"]:
             _out("     resolved %s: %s"
                  % (n["resolved_at"], L.safe_display(n["resolution"], 160)))

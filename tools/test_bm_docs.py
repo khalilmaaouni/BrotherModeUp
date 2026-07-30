@@ -2047,6 +2047,301 @@ class TestDocumentationEngine(unittest.TestCase):
 
 
 
+class TestCollaborationLayer(unittest.TestCase):
+    """Phase C of docs/superpowers/specs/2026-07-30-documentation-and-gate-packs
+    -design.md, section 6: notes rendered AT their anchors, lineage as a query,
+    a moved anchor reported rather than dropped, and nothing a generator writes
+    deleting a note.
+
+    One real store, one real repository, one real CLI, in a throwaway directory.
+    """
+
+    DOCS = os.path.join(HERE, "bm_docs.py")
+    PACKS = os.path.join(HERE, "bm_packs.py")
+    SOURCE = ("\"\"\"the money path\"\"\"\n"
+              "import json\n"
+              "\n"
+              "\n"
+              "def charge(n):\n"
+              "    return n\n"
+              "\n"
+              "\n"
+              "def refund(n):\n"
+              "    return -n\n")
+
+    def _mod(self, name, path):
+        spec = importlib.util.spec_from_file_location(name, path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def _bs(self):
+        return self._mod("bm_store_for_collab_tests",
+                         os.path.join(HERE, "bm_store.py"))
+
+    def _bd(self):
+        return self._mod("bm_docs_for_collab_tests", self.DOCS)
+
+    def _write(self, root, rel, text):
+        full = os.path.join(root, *rel.split("/"))
+        parent = os.path.dirname(full)
+        if parent and not os.path.isdir(parent):
+            os.makedirs(parent)
+        with io.open(full, "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def _project(self, d):
+        """A record with a decision, a candidate, and one note of every anchor
+        type that has an identity: file, record, candidate and decision."""
+        bs = self._bs()
+        self._write(d, "app/pay.py", self.SOURCE)
+        self._write(d, "app/checkout.py",
+                    "from app import pay\n\n\ndef buy(n):\n"
+                    "    return pay.charge(n)\n")
+        self._write(d, "tools/test_all.py", "# the gate\n")
+        store = bs.Store(d)
+        try:
+            rec = store.claim("payments", "persistent",
+                              objective="build the money path",
+                              files=["app/pay.py"], owner="Dana",
+                              session_id="sessA")
+            store.decide(rec.lifecycle_uuid, rec.version, "provider",
+                         "we chose the boring provider on purpose")
+            cand = store.capture_learning_candidate(
+                "manual", trigger="when touching the money path",
+                action="always run the payment tests before committing",
+                because="we shipped a double charge once", scope_type="project",
+                scope_key="demo", record_uuid=rec.lifecycle_uuid)
+            ids = {"record": rec.lifecycle_uuid,
+                   "candidate": cand["candidate_uuid"]}
+            ids["file_note"] = store.add_note(
+                kind="risk", severity="warning",
+                body="the refund path has no idempotency key",
+                author="Dana, backend", author_kind="human",
+                anchor_type="file", anchor_key="app/pay.py",
+                anchor_line=9)["note_uuid"]
+            ids["record_note"] = store.add_note(
+                kind="insight", body="the fence covers only app/pay.py",
+                author="Sam, data", author_kind="human",
+                anchor_type="record", anchor_key=rec.lifecycle_uuid)["note_uuid"]
+            ids["candidate_note"] = store.add_note(
+                kind="question", body="does the client always send a request id",
+                author="Sam, data", author_kind="human",
+                anchor_type="candidate",
+                anchor_key=cand["candidate_uuid"])["note_uuid"]
+            ids["decision_note"] = store.add_note(
+                kind="review", body="matches the payment gateway contract",
+                author="Priya, review", author_kind="human",
+                anchor_type="decision",
+                anchor_key="%s#1" % rec.lifecycle_uuid[:8])["note_uuid"]
+        finally:
+            store.close()
+        return ids
+
+    def _run(self, d, tool, *args):
+        return subprocess.run([sys.executable, tool] + list(args), cwd=d,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              universal_newlines=True)
+
+    def _generate(self, d, *extra):
+        r = self._run(d, self.DOCS, "generate", *extra)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return r
+
+    def _read_doc(self, d, rel):
+        with io.open(os.path.join(d, "Documentation", *rel.split("/")),
+                     encoding="utf-8") as fh:
+            return fh.read()
+
+    def _facts(self, d):
+        return json.loads(self._read_doc(d, "90-generated/facts.json"))
+
+    # -- rendering at the anchor -------------------------------------------
+
+    def test_a_file_anchored_note_renders_beside_that_file_in_the_code_map(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._project(d)
+            self._generate(d, "--tier", "3")
+            text = self._read_doc(d, "20-technical/CODE-MAP.md")
+            head = text.index("### `app/pay.py`")
+            after = text[head + 8:]
+            ends = [i for i in (after.find("\n### "), after.find("\n## "))
+                    if i != -1]
+            section = text[head:head + 8 + (min(ends) if ends else len(after))]
+            self.assertIn("Notes anchored here", section)
+            self.assertIn("the refund path has no idempotency key", section,
+                          "a note about app/pay.py has to appear beside "
+                          "app/pay.py, not only in a flat list at the end of "
+                          "the decision index")
+            self.assertIn("anchored at line 9", section)
+
+    def test_a_record_anchored_note_renders_under_that_record_in_the_wbs(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._project(d)
+            self._generate(d, "--tier", "3")
+            text = self._read_doc(d, "10-business/WBS.md")
+            self.assertIn("Notes anchored to this record", text)
+            self.assertIn("the fence covers only app/pay.py", text)
+
+    def test_a_decision_anchored_note_renders_under_that_decision(self):
+        with tempfile.TemporaryDirectory() as d:
+            ids = self._project(d)
+            self._generate(d, "--tier", "3")
+            text = self._read_doc(d, "30-decisions/INDEX.md")
+            head = text.index("## Decisions recorded against work records")
+            section = text[head:text.index("##", head + 4)]
+            self.assertIn("matches the payment gateway contract", section)
+            self.assertIn(ids["decision_note"][:8], section)
+
+    def test_a_candidate_anchored_note_renders_under_its_candidate(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._project(d)
+            self._generate(d, "--tier", "3")
+            text = self._read_doc(d, "30-decisions/INDEX.md")
+            head = text.index("Notes anchored to D-1")
+            section = text[head:text.index("##", head)]
+            self.assertIn("does the client always send a request id", section)
+
+    # -- lineage as a query ------------------------------------------------
+
+    def test_lineage_carries_every_author_who_touched_a_decision(self):
+        """THE CALIBRATED DEFECT of this phase, found by driving the real CLI
+        against a real store while the suite was green: lineage grouped notes by
+        the composite anchor string (a full 32 character uuid) and looked them up
+        by the eight character short id, so no note ever joined any chain and the
+        section rendered the machine events alone."""
+        with tempfile.TemporaryDirectory() as d:
+            ids = self._project(d)
+            self._generate(d, "--tier", "3")
+            facts = self._facts(d)
+            lineage = facts["lineage"]
+            cand_key = ids["candidate"][:8]
+            dec_key = "%s#1" % ids["record"][:8]
+            self.assertIn(cand_key, lineage)
+            self.assertIn(dec_key, lineage)
+            cand_chain = " | ".join(
+                "%s %s" % (e["who"], e["what"]) for e in lineage[cand_key])
+            self.assertIn("does the client always send a request id", cand_chain)
+            self.assertIn("Sam, data (human)", cand_chain)
+            dec_chain = " | ".join(
+                "%s %s" % (e["who"], e["what"]) for e in lineage[dec_key])
+            self.assertIn("matches the payment gateway contract", dec_chain)
+            self.assertIn("Priya, review (human)", dec_chain)
+            self.assertIn("the fence covers only app/pay.py", dec_chain,
+                          "a note on the record a decision belongs to touched "
+                          "that decision")
+            for chain in lineage.values():
+                self.assertEqual([e["at"] for e in chain],
+                                 sorted(e["at"] for e in chain),
+                                 "a lineage chain is in order or it is not a "
+                                 "lineage")
+
+    def test_lineage_renders_into_the_decision_index(self):
+        with tempfile.TemporaryDirectory() as d:
+            ids = self._project(d)
+            self._generate(d, "--tier", "3")
+            text = self._read_doc(d, "30-decisions/INDEX.md")
+            head = text.index("## Lineage")
+            section = text[head:]
+            self.assertIn("`%s#1`" % ids["record"][:8], section)
+            self.assertIn("matches the payment gateway contract", section)
+
+    # -- a moved anchor is reported ----------------------------------------
+
+    def _move_the_line(self, d):
+        self._write(d, "app/pay.py", "# a new first line\n" * 3 + self.SOURCE)
+
+    def test_a_moved_anchor_is_reported_in_the_index_and_on_the_command_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            ids = self._project(d)
+            self._generate(d, "--tier", "3")
+            self.assertIn("- none. 1 file anchor(s)",
+                          self._read_doc(d, "30-decisions/INDEX.md"))
+            self._move_the_line(d)
+            report = self._generate(d, "--tier", "3")
+            self.assertIn("ANCHOR MOVED", report.stdout)
+            self.assertIn("line 9", report.stdout)
+            text = self._read_doc(d, "30-decisions/INDEX.md")
+            head = text.index("## Anchors that no longer resolve")
+            section = text[head:text.index("## Lineage")]
+            self.assertIn(ids["file_note"][:8], section)
+            self.assertIn("moved from line 9 to line 12", section)
+            self.assertIn("def refund(n):", section)
+
+    def test_a_moved_anchor_is_reported_in_the_facts_and_in_the_handover(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._project(d)
+            self._generate(d, "--tier", "3")
+            self._move_the_line(d)
+            self._generate(d, "--tier", "3")
+            states = [a["state"] for a in self._facts(d)["note_anchors"]]
+            self.assertEqual(states, ["moved"])
+            self.assertIn("moved from line 9 to line 12",
+                          self._read_doc(d, "40-handover/HANDOVER.md"))
+
+    def test_a_gate_pack_reports_the_moved_anchor_beside_the_note(self):
+        with tempfile.TemporaryDirectory() as d:
+            ids = self._project(d)
+            self._move_the_line(d)
+            r = self._run(d, self.PACKS, "pack", ids["candidate"][:8],
+                          "--cite", "app/pay.py:12-13")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            directory = os.path.join(d, "Documentation", "30-decisions")
+            name = sorted(f for f in os.listdir(directory)
+                          if f.startswith("D-"))[0]
+            with io.open(os.path.join(directory, name), encoding="utf-8") as fh:
+                text = fh.read()
+            self.assertIn("ANCHOR MOVED", text)
+            self.assertIn("moved from line 9 to line 12", text)
+
+    def test_a_deleted_anchor_line_is_reported_and_the_note_is_kept(self):
+        with tempfile.TemporaryDirectory() as d:
+            ids = self._project(d)
+            self._write(d, "app/pay.py", "def charge(n):\n    return n\n")
+            report = self._generate(d, "--tier", "3")
+            self.assertIn("ANCHOR GONE", report.stdout)
+            text = self._read_doc(d, "30-decisions/INDEX.md")
+            self.assertIn(ids["file_note"][:8], text)
+            self.assertIn("the refund path has no idempotency key", text,
+                          "the note survives the line it pointed at")
+
+    # -- nothing a generator writes deletes a note -------------------------
+
+    def test_generation_deletes_no_note_and_keeps_a_resolved_one_resolved(self):
+        with tempfile.TemporaryDirectory() as d:
+            ids = self._project(d)
+            bs = self._bs()
+            store = bs.Store(d)
+            try:
+                store.resolve_note(ids["record_note"][:8], "the fence was widened")
+                before = store.list_notes()
+            finally:
+                store.close()
+            self._move_the_line(d)
+            self._generate(d, "--tier", "3")
+            self._run(d, self.PACKS, "pack", ids["candidate"][:8])
+            store = bs.Store(d)
+            try:
+                after = store.list_notes()
+            finally:
+                store.close()
+            self.assertEqual([n["note_uuid"] for n in before],
+                             [n["note_uuid"] for n in after])
+            resolved = [n for n in after if n["note_uuid"] == ids["record_note"]]
+            self.assertEqual(resolved[0]["resolution"], "the fence was widened")
+            self.assertTrue(resolved[0]["resolved_at"])
+            self.assertIn("resolved", self._read_doc(d, "10-business/WBS.md"))
+
+    def test_regeneration_over_a_moved_anchor_is_still_byte_identical(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._project(d)
+            self._move_the_line(d)
+            self._generate(d, "--tier", "3")
+            first = self._read_doc(d, "30-decisions/INDEX.md")
+            self._generate(d, "--tier", "3")
+            self.assertEqual(first, self._read_doc(d, "30-decisions/INDEX.md"))
+
+
 class TestNoDashes(unittest.TestCase):
     """The project's own copy rule, enforced on the files this suite governs."""
 
