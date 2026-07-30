@@ -73,7 +73,7 @@ import sys
 import unicodedata
 import uuid
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
@@ -1245,9 +1245,19 @@ _TABLES_STATE_CHANGE_RECEIPTS = ("learning_state_change_receipts",)
 
 _TABLES_V9 = _TABLES_V8 + _TABLES_STATE_CHANGE_RECEIPTS
 
+# Schema 10 (LOOP 3, 2026-07-30) adds two columns to the EXISTING
+# learning_applications table (presentation, action_reached), not a new
+# table, so the table LIST is provably identical to schema 9's. Same shape
+# as _TABLES_V8 = _TABLES_V7 above, for the same reason: a healthy
+# schema-9 store must be checked against schema 9's table list, or the
+# version check never runs and a store whose only fault is predating this
+# upgrade gets quarantined.
+_TABLES_V10 = _TABLES_V9
+
 _TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3,
                       4: _TABLES_V4, 5: _TABLES_V5, 6: _TABLES_V6,
-                      7: _TABLES_V7, 8: _TABLES_V8, 9: _TABLES_V9}
+                      7: _TABLES_V7, 8: _TABLES_V8, 9: _TABLES_V9,
+                      10: _TABLES_V10}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -1759,6 +1769,30 @@ _NOTES_INDEX_STATEMENTS = _split_ddl(_NOTES_INDEX_DDL)
 # unverifiable rather than pretending the anchor was checked.
 _NOTES_V8_COLUMN = ("anchor_line_hash", "TEXT NOT NULL DEFAULT ''")
 
+# Schema 10 (LOOP 3, 2026-07-30): two columns added to learning_applications,
+# not a widened shown_to_model. shown_to_model's own CHECK(shown_to_model IN
+# (0,1)) cannot be altered in SQLite (ALTER TABLE has no MODIFY/DROP
+# CONSTRAINT), which is the exact wall _migrate_8_to_9's own comment names
+# for the receipt table, so a six-way distinction (present in the manifest,
+# expanded in full, action reached, followed, violated, not relevant) is
+# built ADDITIVELY instead of by widening a boolean. `disposition` already
+# carries followed/ignored/not_relevant/unknown (a gate ignored while it
+# applied IS a violation, read off the existing value; nothing new is needed
+# for that half). What was missing is the PRESENTATION half (was this row
+# shown as the compact manifest line or as full text) and whether the
+# query's own wording reached the gate's action. 'unknown' is the default for
+# both, and it STAYS 'unknown' for every row written before schema 10: same
+# rule as anchor_line_hash above, no backfilled guess for a run this loop
+# never observed.
+_APPLICATIONS_V10_COLUMNS = (
+    ("presentation",
+     "TEXT NOT NULL DEFAULT 'unknown' "
+     "CHECK(presentation IN ('manifest','expanded','unknown'))"),
+    ("action_reached",
+     "TEXT NOT NULL DEFAULT 'unknown' "
+     "CHECK(action_reached IN ('yes','no','unknown'))"),
+)
+
 NOTE_KINDS = ("insight", "alert", "question", "review", "todo", "risk")
 NOTE_SEVERITIES = ("", "info", "warning", "critical")
 NOTE_AUTHOR_KINDS = ("founder", "assistant", "human")
@@ -2077,6 +2111,32 @@ def _migrate_8_to_9(conn):
         conn.execute(statement)
 
 
+def _migrate_9_to_10(conn):
+    """Schema 9 to 10: add learning_applications.presentation and
+    .action_reached. ADDITIVE ONLY.
+
+    Same contract as _migrate_7_to_8 (the last column-only migration): each
+    is one ALTER TABLE ADD COLUMN with a NOT NULL DEFAULT, guarded on
+    PRAGMA table_info so this is safe whether it runs against a genuinely
+    old schema-9 store or, via _ensure_schema, against a brand new one that
+    already has the column. Runs inside the caller's BEGIN EXCLUSIVE, so it
+    must never commit, roll back, or open a transaction of its own.
+
+    What this deliberately does NOT do: it does not read a single existing
+    learning_applications row to infer what was actually shown for it. A row
+    written before this loop existed has no recorded answer to "manifest or
+    expanded", and 'unknown' says exactly that; guessing 'expanded' because
+    that used to be the only shape full text came in would be describing
+    today's categories onto a run that predates them."""
+    have = {r[1] for r in conn.execute(
+        "PRAGMA table_info(learning_applications)").fetchall()}
+    for name, decl in _APPLICATIONS_V10_COLUMNS:
+        if name not in have:
+            conn.execute(
+                "ALTER TABLE learning_applications ADD COLUMN %s %s"
+                % (name, decl))
+
+
 _MIGRATIONS = {
     1: _migrate_1_to_2,
     2: _migrate_2_to_3,
@@ -2086,6 +2146,7 @@ _MIGRATIONS = {
     6: _migrate_6_to_7,
     7: _migrate_7_to_8,
     8: _migrate_8_to_9,
+    9: _migrate_9_to_10,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -2497,6 +2558,11 @@ _DUMP_SAFE_COLUMNS = frozenset((
     ("learning_applications", "disposition"),
     ("learning_applications", "outcome"),
     ("learning_applications", "closed_at"),
+    # LOOP 3 (schema 10): presentation and action_reached are schema enums,
+    # exactly like disposition and outcome above, never founder-typed free
+    # text, so they belong on this list for the same reason those two do.
+    ("learning_applications", "presentation"),
+    ("learning_applications", "action_reached"),
 ))
 
 
@@ -3597,6 +3663,11 @@ class Store(object):
             # text, run here for a fresh store and by _migrate_from for an
             # old one.
             _migrate_8_to_9(self.conn)
+        if SCHEMA_VERSION >= 10:
+            # Same rule again. _migrate_9_to_10 checks PRAGMA table_info
+            # before its ALTER TABLE precisely so this call is safe on a
+            # store that was just created with the columns already present.
+            _migrate_9_to_10(self.conn)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -6444,7 +6515,7 @@ class Store(object):
         }
 
     def retrieve_learning_rules(self, query, context=None, limit=5,
-                                 include_reasons=True):
+                                 include_reasons=True, expand_ids=None):
         """Rules relevant to a task, most relevant first, each able to say why.
 
         Read-only by contract: it writes nothing, records no application, and
@@ -6458,7 +6529,25 @@ class Store(object):
         `limit` caps SOFT rules only. Every applicable live gate rule is
         returned no matter what the caller passed, including limit 0 and
         negative limits, and the result reports gates_returned, gates_total,
-        soft_returned and soft_omitted so the two can be told apart."""
+        soft_returned and soft_omitted so the two can be told apart.
+
+        LOOP 3 adds the other half: every gate is ALWAYS returned, but not
+        every gate is returned as FULL TEXT. `gate_manifest` in the result is
+        the compact, bounded-per-gate listing of every applicable gate,
+        independent of query or ranking (see bm_learning.gate_manifest).
+        Each row also carries `presentation` ('expanded' or 'manifest') and,
+        for gates, `expansion_reason`: full text is included in `results`
+        only for a gate that clears one of the four Layer B triggers
+        (bm_learning.gate_expansion_reason), and even then bm_learning's
+        GATE_EXPANSION_CAP bounds how many gates this single call may expand,
+        so full-text size cannot grow without limit alongside the corpus.
+        `expand_ids` lets a caller pull a specific gate's full text by its
+        short id or rule_uuid regardless of relevance. A gate that does not
+        make the expansion cut is never dropped from `results`: it is
+        included with presentation='manifest', matching the manifest, so
+        gates_returned/gates_total keeps meaning exactly what it always has
+        (every applicable gate accounted for), and only the TEXT shown for
+        it is deferred to the manifest line."""
         L = _learning()
         context = context or {}
         in_scope = [r for r in self.list_learning_rules(states=L.INJECTABLE_STATES)
@@ -6533,6 +6622,62 @@ class Store(object):
             if include_reasons:
                 row["why"] = L.explain_rank(r, query, context, fts_scores, mode)
             out.append(row)
+        # LOOP 3: Layer A (manifest) and Layer B (bounded full-text expansion).
+        #
+        # gate_manifest is built from `gates` alone: every applicable gate,
+        # independent of this call's query or ranking, which is what makes it
+        # deterministic across two different queries against the same corpus
+        # (see bm_learning.gate_manifest's own docstring).
+        #
+        # `presentation` decides what a caller SHOWS for each row, never what
+        # this method RETURNS: every gate stays in `out`/`results` exactly as
+        # before this loop (gates_returned/gates_total keep their existing
+        # meaning, nothing is cut), and the dict every row carries still has
+        # its full trigger/action/because text. What changes is which gates
+        # are worth reading in full THIS call. An explicit --expand request
+        # is never capped: the caller named the gate, so withholding it would
+        # be the exact hiding Loop P4 already refuses to do for `limit`.
+        # Every other trigger competes for GATE_EXPANSION_CAP slots in the
+        # same rank order `out` is already in, so the choice of WHICH gates
+        # expand when more than the cap qualify is deterministic and matches
+        # the founder's own relevance ordering rather than list position.
+        # `action_reached` answers ONE narrow question, independent of which
+        # trigger (if any) governs `presentation` below: does the query's own
+        # wording overlap this row's action_text, i.e. is the thing being
+        # attempted the thing this rule's do-clause is about. Computed for
+        # every row, gate or soft, because outcome evidence needs the same
+        # answer for both once an application is recorded.
+        for row in out:
+            row["action_reached"] = L.lexical_overlap(
+                query, "", row.get("action_text", ""), "", "") > 0
+        expand_ids = set(expand_ids or ())
+        for row in out:
+            if not L.is_gate(row):
+                row["presentation"] = "expanded"
+                row["expansion_reason"] = None
+                continue
+            reason = L.gate_expansion_reason(row, query, context,
+                                             expand_ids, fts_scores)
+            row["expansion_reason"] = reason
+            if reason is None:
+                row["presentation"] = "manifest"
+            elif reason == "requested-by-id":
+                row["presentation"] = "expanded"
+            else:
+                row["presentation"] = None  # decided below, once capped
+        cap_left = L.GATE_EXPANSION_CAP
+        for row in out:
+            if row["presentation"] is None:
+                if cap_left > 0:
+                    row["presentation"] = "expanded"
+                    cap_left -= 1
+                else:
+                    row["presentation"] = "manifest"
+        gate_manifest_data = L.gate_manifest(gates)
+        gates_expanded = sum(1 for r in out
+                             if L.is_gate(r) and r["presentation"] == "expanded")
+        gates_manifest_only = sum(1 for r in out
+                                  if L.is_gate(r) and r["presentation"] == "manifest")
         # CONFLICTS ARE SURFACED, NEVER SILENTLY RESOLVED (Loop 6).
         #
         # If two injectable rules contradict each other and one of them is about
@@ -6578,7 +6723,20 @@ class Store(object):
                 "gates_total": len(gates),
                 "soft_returned": len(soft_kept),
                 "soft_omitted": soft_omitted,
-                "conflicts": conflicts}
+                "conflicts": conflicts,
+                # LOOP 3. gate_manifest is the compact Layer A listing, every
+                # applicable gate, always. gates_expanded/gates_manifest_only
+                # split gates_returned by presentation so a caller can prove
+                # the expansion cap held without recounting `results` by hand;
+                # their sum always equals gates_returned. full_text_count is
+                # the actual number of FULL-TEXT blocks this call produced
+                # (expanded gates plus every soft rule, which was already
+                # bounded by `limit`), which is the number that must stay
+                # bounded regardless of corpus size.
+                "gate_manifest": gate_manifest_data,
+                "gates_expanded": gates_expanded,
+                "gates_manifest_only": gates_manifest_only,
+                "full_text_count": gates_expanded + len(soft_kept)}
 
     # -----------------------------------------------------------------
     # Loop 7: the application lifecycle.
@@ -6783,8 +6941,19 @@ class Store(object):
 
     def record_learning_applications(self, query, context=None, limit=5,
                                       session_id="", record_prefix=None,
-                                      shown_to_model=True, task_excerpt=None):
+                                      shown_to_model=True, task_excerpt=None,
+                                      expand_ids=None):
         """Retrieve rules for a task AND record that they were surfaced.
+
+        LOOP 3: each application row also records `presentation` ('expanded'
+        or 'manifest', from the retrieval's per-row decision) and
+        `action_reached` ('yes' when this row's expansion reason was
+        specifically that the query's wording reached the gate's own
+        action_text, 'no' for every other row, including a soft rule or a
+        manifest-only gate). Both are additive columns (schema 10); a row
+        written before schema 10 reads back 'unknown' for each, which is the
+        honest answer for a run this loop never observed, not a backfilled
+        guess.
 
         One application row per returned rule VERSION per unit of work.
         Idempotent per (task fingerprint, rule, version, session, work record):
@@ -6815,7 +6984,8 @@ class Store(object):
         `record_error_kind` says which sort of failure it was, because a bad
         argument will fail identically forever and a busy database will not."""
         L = _learning()
-        res = self.retrieve_learning_rules(query, context=context, limit=limit)
+        res = self.retrieve_learning_rules(query, context=context, limit=limit,
+                                           expand_ids=expand_ids)
         out = dict(res)
         fingerprint = L.task_fingerprint(query)
         excerpt = query if task_excerpt is None else task_excerpt
@@ -6875,18 +7045,27 @@ class Store(object):
                     score = None
                     if isinstance(r.get("why"), dict):
                         score = r["why"].get("relevance")
+                    # LOOP 3: presentation and action_reached are read off THIS
+                    # row's own retrieval decision, not recomputed, so the
+                    # application row can never disagree with what was
+                    # actually shown for it in `res["results"]`.
+                    presentation = r.get("presentation") or "unknown"
+                    action_reached = ("yes" if r.get("action_reached")
+                                      else "no")
                     _exec(self,
                           "INSERT INTO learning_applications (application_uuid, "
                           "rule_uuid, rule_version, session_id, record_uuid, "
                           "task_fingerprint, task_excerpt, retrieved_at, "
                           "retrieval_rank, retrieval_score, scope_match, "
-                          "shown_to_model, retrieval_uuid) "
-                          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                          "shown_to_model, retrieval_uuid, presentation, "
+                          "action_reached) "
+                          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                           (au, r["rule_uuid"], version, session_id or "",
                            record_uuid, fingerprint,
                            redact_text(L.safe_display(excerpt, 500)), ts,
                            int(r["rank"]), score, scope_match,
-                           1 if shown_to_model else 0, run_uuid))
+                           1 if shown_to_model else 0, run_uuid,
+                           presentation, action_reached))
                     recorded += 1
                     uuids.append(au)
             out["recorded"] = recorded
