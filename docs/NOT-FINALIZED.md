@@ -439,12 +439,26 @@ The PROSE gap this entry opened with is UNCHANGED and still OPEN for
 A scrubber that now matches its own documented token shapes is still not a
 redactor of ordinary sentences.
 
-## 16. `bm_store.py claim --help` claims a record named `--help`. OPEN. Found 2026-07-28.
+## 16. `bm_store.py claim --help` claims a record named `--help`. CLOSED 2026-07-30 (Loop 0).
 
 Reproduced: `python3 tools/bm_store.py claim --help` prints
 `claimed '--help' as lifecycle 11783c30...`. Unknown and help flags are treated
 as a record name instead of exiting non-zero. Small, cosmetic in isolation, and
 recorded because the new learning CLI must NOT copy the pattern from its sibling.
+
+Closed by Loop 0, and it was WIDER than this entry said. The defect was never
+specific to `claim`, and it was never specific to `--help`: every command that read
+`argv[0]` as a positional before rejecting unknown flags had it, so
+`claim --objective "X"` created a record named `--objective` just as readily. The
+sweep found four code sites covering seven commands: `cmd_claim`, `cmd_checkpoint`,
+`cmd_decide`, and the shared `_cmd_transition` behind park, resume, complete and
+adopt.
+
+One helper, `_require_positional` (`tools/bm_store.py:9475`), now refuses any
+`argv[0]` beginning with `-` and prints that command's own usage before the store is
+touched. Calibrated: reverting the helper turns six of the seven new tests red and
+errors the seventh, which is the evidence that they test the fix rather than
+agreeing with it.
 
 ## 17. The English-only, 400-character correction filter. CLOSED 2026-07-29 (Loop 4).
 
