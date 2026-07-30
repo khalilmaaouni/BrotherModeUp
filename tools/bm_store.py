@@ -100,6 +100,35 @@ APPROVAL_RECEIPT_TTL_SECONDS = 900
 # Domain separation, so a hash of the same random string somewhere else in this
 # project can never be mistaken for a receipt token hash.
 _RECEIPT_TOKEN_DOMAIN = "brothermode-approval-receipt-v1:"
+def _quote_path_for_local_shell(path):
+    """Quote a path for the shell the READER is actually holding.
+
+    FOUND BY CI, 2026-07-31, and it was a real defect in shipped instruction
+    text rather than a test artifact. `shlex.quote` implements POSIX shell
+    quoting and nothing else. A Windows path is full of backslashes, none of
+    which are in shlex's safe set, so `shlex.quote(r"C:\\Users\\x\\bm_store.py")`
+    returns that path wrapped in SINGLE QUOTES. The remedy this project prints
+    to a Windows user therefore read `python3 'C:\\Users\\...'`, which neither
+    cmd.exe nor PowerShell will run: both treat the single quote as part of the
+    filename. Every user-facing instruction in bm_docs, bm_packs and bm_learn
+    flows through invocation(), so one wrong quoting rule broke all of them on
+    one platform.
+
+    The two shells disagree, so the answer has to depend on where the reader is:
+    POSIX keeps shlex; Windows gets double quotes, and only when the path
+    contains a space, because cmd and PowerShell both accept a bare path
+    otherwise and an unnecessarily quoted one is noise a reader has to undo.
+
+    A path containing a double quote is refused the shortcut and quoted
+    defensively; Windows filenames cannot contain `"` at all, so that branch
+    exists for the impossible-but-cheap case rather than a real one."""
+    if sys.platform == "win32":
+        if '"' in path or " " in path:
+            return '"%s"' % path.replace('"', '')
+        return path
+    return shlex.quote(path)
+
+
 def invocation(script_name, module_file):
     """The command a reader can actually paste, in the layout they have.
 
@@ -127,7 +156,7 @@ def invocation(script_name, module_file):
                 and os.path.isfile(candidate)
                 and os.access(candidate, os.X_OK)):
             return script_name
-        return "python3 %s" % shlex.quote(here)
+        return "python3 %s" % _quote_path_for_local_shell(here)
     except Exception:
         return "python3 %s" % module_file
 
