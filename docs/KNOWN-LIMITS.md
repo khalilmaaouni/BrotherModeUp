@@ -72,16 +72,26 @@ person was not sure about.
   `docs/DESIGN.md`, `docs/WHITEPAPER.md`, `docs/OBSIDIAN.md`, `docs/SUNSET.md`,
   `docs/REMAINING.md`, the PDFs and the one-pager HTML source, is unchecked. The
   suite catches stale FACTS it can generate, not a stale claim written in prose.
-- **Absolute paths containing a space are only partly masked.** Masking stops at
-  the first space, so `/Users/j/Dev Work/plan.md` leaves `Work/plan.md` visible
-  in an ordinary export. Withheld columns are unaffected: they reproduce nothing
-  at all. A secret glued directly to letters or digits is likewise not
-  redacted, and an absolute path immediately preceded by an alphanumeric or an
-  underscore is not masked at all.
-- **A session id is exported when it LOOKS like a generated identifier.**
-  `--session` is free text, so a hand-typed hyphenated codename with no
-  separators passes the shape gate. It is narrower than "prose, a path or a key
-  is withheld" and wider than "only generated ids appear".
+- **Path masking, narrowed 2026-07-31 (Loop 5) but not closed.** Quoted paths,
+  escaped spaces, Windows drive paths, UNC paths, Unicode segments, multiple paths
+  in one field, and paths glued to a word at the six known roots (`Users`, `home`,
+  `root`, `Volumes`, `private`, `cygdrive`) now mask correctly. Still true: an
+  UNQUOTED path containing a bare space masks only up to the space, and a
+  single-letter Windows drive glued to a word stays unmasked, deliberately,
+  because masking it provably swallows `https://` URLs. The known-root list can
+  also OVER-mask a relative path that happens to share one of those six segment
+  names. Withheld columns are unaffected: they reproduce nothing at all.
+- **Session labels are gated by an allowlist of generated shapes, not by a schema
+  split.** Since 2026-07-31 (Loop 5) only the four real generated id shapes
+  export; any hand-typed label, hyphenated or not, is withheld. This is
+  deliberately NOT the plan's literal design (a separate internal session UUID
+  column beside an optional human label); that split remains open as a schema-12
+  candidate, recorded in `docs/NOT-FINALIZED.md`.
+- **An approved rule's own `because_text` appears in `applications` output.** It
+  is founder-authored prose that the founder explicitly promoted into a rule, and
+  showing an applied rule's reason is arguably the product working. Whether it
+  should still be withheld from any surface is an open founder ruling, not a
+  settled behaviour.
 - **Windows owner-only file modes and ACLs.** Nothing in this project configures
   a Windows ACL. Stdlib only, with no subprocess in the shipping tools, rules
   out both `icacls` and `pywin32`, so `os.chmod` is best-effort there and the
