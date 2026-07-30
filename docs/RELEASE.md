@@ -46,15 +46,26 @@ cat VERSION
 python3 tools/bm_project_facts.py --field release_tag
 ```
 
-The current candidate is `2.0.0-rc.4`, cut 2026-07-29 when the four parallel
-work lanes were merged back into `v2` (`CHANGELOG.md` has the entry).
+The current candidate is `2.0.0-rc.5`, cut 2026-07-31 at the close of the
+first-rank execution loops 0 through 5 (`CHANGELOG.md` has the entries: release
+truth, receipt-gated state changes, bounded gate manifests, mandatory work
+identity, privacy hardening). At the moment this page was written the TAG
+`v2.0.0-rc.5` was not yet created: this project creates release tags through
+the GitHub Desktop app (a command-line tag does not push from Desktop,
+confirmed empirically), so the tag is cut by the founder immediately after the
+release-cut commit lands, and the release-truth suite holds this page honest
+in both directions: its tag tests SKIP with a stated reason while the tag does
+not exist and become mandatory the moment it does.
 
-CORRECTED 2026-07-30. This paragraph used to say the TAG `v2.0.0-rc.4` did not
-exist yet and that cutting it was still pending. That stopped being true the
-moment the founder cut it: `git tag -l` lists it, `git cat-file -t
-v2.0.0-rc.4` reports `tag` (annotated, not lightweight, as the steps below
-require), and it points at the exact commit that set `VERSION` to
-`2.0.0-rc.4`. HEAD has since moved twelve commits past that tag, on purpose:
+`2.0.0-rc.4` before it is superseded, cut 2026-07-29 when the four parallel
+work lanes were merged back into `v2`.
+
+CORRECTED 2026-07-30, kept for the record. The paragraph about rc.4 used to say
+the TAG `v2.0.0-rc.4` did not exist yet and that cutting it was still pending.
+That stopped being true the moment the founder cut it: `git tag -l` lists it,
+`git cat-file -t v2.0.0-rc.4` reports `tag` (annotated, not lightweight, as
+the steps below require), and it points at the exact commit that set `VERSION`
+to `2.0.0-rc.4`. HEAD then moved twelve commits past that tag, on purpose:
 this project lands a wave of work on top of a cut tag before the next one is
 cut, so a moving HEAD is not a sign the tag itself is stale. `git describe
 --tags` shows where HEAD stands relative to it. `2.0.0-rc.3` before it is
@@ -106,10 +117,10 @@ Until it closes, do not describe this project as `2.0.0` anywhere.
 Tags exist now, so this is the install instruction, not a future one:
 
 ```bash
-git clone --branch v2.0.0-rc.4 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.5 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
-`--branch v2.0.0-rc.4` checks out that exact tag, not a moving branch head. It
+`--branch v2.0.0-rc.5` checks out that exact tag, not a moving branch head. It
 is the current candidate; `python3 tools/bm_project_facts.py --field
 release_tag` prints the tag matching whatever tree you are reading.
 `--depth 1` is optional (a shallow clone of just that tag), included because
@@ -230,15 +241,18 @@ through preparing it.
 
 ## What has and has not happened, stated honestly
 
-CURRENT STATE, 2026-07-30, first, because the dated entries under it are a LOG
-and several of them were true only on the day they were written. Four tags now
-exist (`v2.0.0-rc.1` withdrawn, `v2.0.0-rc.2` superseded, `v2.0.0-rc.3`
-superseded, `v2.0.0-rc.4` current). `VERSION` reads `2.0.0-rc.4` and the tag
-IS cut: the pinned clone command above resolves. CORRECTED 2026-07-30: the
-2026-07-29 entry directly below said no tag had been cut for `rc.4` and that
-the pinned clone would not resolve; both were true that day and are not true
-now, which is exactly why it is dated evidence rather than kept as today's
-paragraph. CI is green on three platforms as of 2026-07-27; the Windows handle
+CURRENT STATE, 2026-07-31, first, because the dated entries under it are a LOG
+and several of them were true only on the day they were written. `VERSION`
+reads `2.0.0-rc.5` and its tag is cut by the founder through GitHub Desktop
+immediately after the release-cut commit; until that moment the pinned clone
+command above does not resolve, the release-truth tests SKIP with a stated
+reason, and this sentence is the honest record of that window. Four earlier
+tags exist (`v2.0.0-rc.1` withdrawn, `v2.0.0-rc.2` superseded, `v2.0.0-rc.3`
+superseded, `v2.0.0-rc.4` superseded). CORRECTED 2026-07-30: the 2026-07-29
+entry directly below said no tag had been cut for `rc.4` and that its pinned
+clone would not resolve; both were true that day and stopped being true when
+the founder cut that tag, which is exactly why it is dated evidence rather
+than kept as today's paragraph. CI is green on three platforms as of 2026-07-27; the Windows handle
 leak that failed on `rc.1` is fixed. The checksum manifest was regenerated at
 the rc.4 release-cut commit, which is the exact commit the tag points at, so
 it describes the tagged tree rather than an earlier one. Read the entries
