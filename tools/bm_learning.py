@@ -345,6 +345,41 @@ def safe_display(text, limit=200):
     return flat[:limit - 3].rstrip() + "..."
 
 
+# The dash characters the project's copy rule forbids (I7 of
+# docs/superpowers/specs/2026-07-30-documentation-and-gate-packs-design.md: no em
+# dashes and no en dashes anywhere, INCLUDING generated output), mapped to what a
+# rendered page shows instead.
+#
+# WHY A TABLE RATHER THAN DISCIPLINE. Text from OUTSIDE this repository reaches a
+# generated page on every run: a note body is typed by a reviewer, and a quoted
+# source line comes from whatever file the note was anchored to. Reproduced
+# against a real store and a real project before this existed: a note body
+# holding an en dash and an anchored source line holding an em dash both landed
+# verbatim in Documentation/30-decisions/INDEX.md,
+# Documentation/40-handover/HANDOVER.md and
+# Documentation/20-technical/CODE-MAP.md, and the suite stayed green because its
+# fixtures were dash free.
+#
+# WHY A HYPHEN. It is the ASCII stand-in, it keeps the sentence readable, and it
+# changes nothing about what the text says. The look-alikes (figure dash,
+# horizontal bar, the two long dashes, the vertical and small compatibility
+# forms, the fullwidth hyphen) are mapped too, because they read as an em or en
+# dash to a human and a rule a reader can see broken is broken.
+_DASH_LOOKALIKES = {0x2012: "-", 0x2013: "-", 0x2014: "-", 0x2015: "-",
+                    0x2E3A: "-", 0x2E3B: "-", 0xFE31: "-", 0xFE32: "-",
+                    0xFE58: "-", 0xFF0D: "-"}
+
+
+def plain_dashes(text):
+    """`text` with every em dash, en dash and dash look-alike replaced by a plain
+    ASCII hyphen. Pure.
+
+    DISPLAY ONLY. Nothing here rewrites what the store holds: a note keeps the
+    body its author typed and a file keeps its own bytes. This is what a
+    generated document or a CLI line shows for them."""
+    return (text or "").translate(_DASH_LOOKALIKES)
+
+
 def safe_scope(scope_type, scope_key, limit=80):
     """The displayable "type:key" scope string, control characters removed.
 
@@ -1304,6 +1339,14 @@ ANCHOR_STATES = ("resolves", "unverifiable", "moved", "gone", "file-missing")
 # render site, so a document, a pack and the CLI cannot disagree about what
 # counts as a problem.
 ANCHOR_PROBLEM_STATES = ("moved", "gone", "file-missing")
+
+# The state that is NEITHER a problem nor a check: no fingerprint was recorded
+# when the note was written, so nothing is known to be wrong AND nothing was
+# verified. Named here for the same reason the two sets above are: a report that
+# counts one of these as "checked against the files on disk" tells a reader the
+# anchor was verified when it provably cannot be, and every note carried over by
+# the schema 7 to 8 migration is in this state by design.
+ANCHOR_UNCHECKABLE_STATE = "unverifiable"
 
 
 def anchor_line_digest(text):
