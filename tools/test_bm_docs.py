@@ -2569,6 +2569,294 @@ class TestCollaborationLayer(unittest.TestCase):
                              "disk", section)
 
 
+class TestTheAdoptionBook(unittest.TestCase):
+    """Phase D of docs/superpowers/specs/2026-07-30-documentation-and-gate-packs
+    -design.md, section 7: every claim in the book must be true of the shipped
+    code at the tag it documents.
+
+    WHY THIS CLASS EXISTS
+      An adversarial pass produced two readings of chapter six. One said the
+      citation walkthrough was impossible against the shipped tool; running the
+      tool against the file state the chapter itself displays reproduced every
+      printed line, including the recorded hash prefix, so that reading was
+      wrong. The other said the alert figure promised more than the guard
+      delivers; running the guard confirmed it, because the guard is anchored and
+      a re-captured correction carries a fresh anchor. Neither could be settled
+      by reading the page. Both are settled here, through the real CLIs against
+      a real store in a throwaway directory, so the page cannot drift back into
+      either error unnoticed.
+
+    A prose assertion in this class is not decoration. Each one pins a sentence
+    that the tool behaviour in the same test just proved, so when the behaviour
+    changes the failure lands on the page, which is the file that then has to be
+    corrected.
+    """
+
+    BOOK = os.path.join("docs", "book", "brothermode-for-dummies.html")
+    PACKS = os.path.join(HERE, "bm_packs.py")
+    LEARN = os.path.join(HERE, "bm_learn.py")
+
+    # The module chapter six quotes, at the state its section three displays:
+    # line 7 is blank and `def order_total` sits on line 8. That blank first
+    # cited line is the whole reason the chapter prints citation-changed rather
+    # than citation-moved, so this fixture may not be tidied into something that
+    # reads better.
+    PRICING = ('"""Price a tea order. All money is in whole pence."""\n'
+               "\n"
+               "\n"
+               "def line_total(unit_pence, quantity):\n"
+               "    return unit_pence * quantity\n"
+               "\n"
+               "\n"
+               "def order_total(lines):\n"
+               "    total = 0\n"
+               "    for unit, qty in lines:\n"
+               "        total += line_total(unit, qty)\n"
+               "    return total\n")
+
+    def _mod(self, name, path):
+        spec = importlib.util.spec_from_file_location(name, path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def _bs(self):
+        return self._mod("bm_store_for_book_tests",
+                         os.path.join(HERE, "bm_store.py"))
+
+    def _flat(self, text):
+        """One line, single spaces. The claims below are pinned by their words,
+        not by where the paragraph happens to wrap."""
+        return " ".join(text.split())
+
+    def _write(self, root, rel, text):
+        full = os.path.join(root, *rel.split("/"))
+        parent = os.path.dirname(full)
+        if parent and not os.path.isdir(parent):
+            os.makedirs(parent)
+        with io.open(full, "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def _run(self, d, tool, *args):
+        env = dict(os.environ)
+        # Autosave and telemetry read this. A test may not write to the
+        # machine's real vault, so it points inside the throwaway tree.
+        env["BROTHERMODE_VAULT"] = os.path.join(d, "vault")
+        return subprocess.run([sys.executable, tool] + list(args), cwd=d,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              universal_newlines=True, env=env)
+
+    def _both(self, r):
+        return r.stdout + r.stderr
+
+    def _capture(self, d, trigger, action, record_uuid=None):
+        bs = self._bs()
+        store = bs.Store(d)
+        try:
+            cand = store.capture_learning_candidate(
+                "manual", trigger=trigger, action=action,
+                because="the totals drifted", scope_type="project",
+                scope_key="tealeaf", record_uuid=record_uuid,
+                session_id="sessBook")
+        finally:
+            store.close()
+        return cand["candidate_uuid"]
+
+    def _pack_text(self, d):
+        folder = os.path.join(d, "Documentation", "30-decisions")
+        names = sorted(n for n in os.listdir(folder) if n.startswith("D-"))
+        self.assertEqual(len(names), 1, names)
+        with io.open(os.path.join(folder, names[0]), encoding="utf-8") as fh:
+            return fh.read()
+
+    # -- chapter six, the citation walkthrough -----------------------------
+
+    def test_the_citation_walkthrough_prints_what_the_tool_prints(self):
+        book = read(self.BOOK)
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "src/pricing.py", self.PRICING)
+            self._write(d, "tests/test_pricing.py",
+                        "from src import pricing\n\n\ndef test_order_total():\n"
+                        "    assert pricing.order_total([(1, 2)]) == 2\n")
+            cand = self._capture(d, "when totalling an order",
+                                 "recompute stored order totals in a migration")
+            r = self._run(d, self.PACKS, "pack", cand,
+                          "--cite", "src/pricing.py:7-12")
+            self.assertEqual(r.returncode, 0, self._both(r))
+            recorded = [ln for ln in self._pack_text(d).split("\n")
+                        if "bm-cite:" in ln]
+            self.assertEqual(len(recorded), 1, recorded)
+            self.assertTrue('anchor=""' in recorded[0],
+                            "the cited first line is blank, so the recorded "
+                            "anchor has to be empty, exactly as the chapter "
+                            "displays it. The pack recorded: %s"
+                            % recorded[0].strip())
+
+            # "Insert two lines at the top of the cited file, then regenerate."
+            self._write(d, "src/pricing.py", "import decimal\n\n" + self.PRICING)
+            r = self._run(d, self.PACKS, "pack", cand)
+            self.assertEqual(r.returncode, 2, self._both(r))
+            printed = self._flat(self._both(r))
+            self.assertIn("refused (citation-changed): src/pricing.py lines "
+                          "7-12 still start with the cited anchor", printed)
+            remedy = "--recite src/pricing.py:7-12@return unit_pence * quantity"
+            self.assertIn(remedy, printed)
+            self.assertTrue(remedy in self._flat(book),
+                            "the chapter prints this exact remedy, so the tool "
+                            "has to keep printing it. Missing from the page: %r"
+                            % remedy)
+
+            # The chapter then runs the remedy it printed, and shows it working.
+            r = self._run(d, self.PACKS, "pack", cand, "--recite",
+                          "src/pricing.py:7-12@return unit_pence * quantity")
+            self.assertEqual(r.returncode, 0, self._both(r))
+            self.assertIn("1 citation(s) re-read from disk", self._both(r))
+
+    def test_a_cited_line_with_text_on_it_gives_the_other_refusal(self):
+        """The chapter names both refusals, because both are reachable and the
+        difference is whether the cited first line has text on it. This is the
+        one the chapter does not print in full."""
+        self.assertTrue("citation-moved" in read(self.BOOK),
+                        "the chapter has to name this refusal, because a reader "
+                        "who only ever sees citation-changed reads the guard as "
+                        "broken the first time the other one fires")
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "src/pricing.py", self.PRICING)
+            cand = self._capture(d, "when totalling an order",
+                                 "recompute stored order totals in a migration")
+            r = self._run(d, self.PACKS, "pack", cand,
+                          "--cite", "src/pricing.py:5-9")
+            self.assertEqual(r.returncode, 0, self._both(r))
+            self._write(d, "src/pricing.py", "import decimal\n\n" + self.PRICING)
+            r = self._run(d, self.PACKS, "pack", cand)
+            self.assertEqual(r.returncode, 2, self._both(r))
+            printed = self._flat(self._both(r))
+            self.assertIn("refused (citation-moved): src/pricing.py line 5 no "
+                          "longer starts with the cited anchor", printed)
+            self.assertIn("It is now at line 7.", printed)
+            self.assertIn("--recite src/pricing.py:7-11@", printed,
+                          "the moved refusal names the SHIFTED range, which is "
+                          "exactly how it differs from citation-changed")
+
+    # -- chapter six, the alert figure -------------------------------------
+
+    def test_the_alert_figure_claims_only_what_the_anchor_delivers(self):
+        book = self._flat(read(self.BOOK))
+        # assertIn against a whole book prints the whole book, which buries the
+        # finding under the page. Every check below reports the phrase only.
+        self.assertFalse(
+            "critical alert closes all of them" in book,
+            "chapter six claims 'critical alert closes all of them'. The guard "
+            "is anchored, so no caption may promise that one alert closes every "
+            "route to a rule.")
+        for phrase in ("An alert guards the gates it is anchored to, which is "
+                       "narrower than every gate",
+                       "capture the same correction a second time and you get a "
+                       "new candidate with nothing anchored to it, and that "
+                       "gate opens",
+                       "A file anchor and a record anchor outlive the "
+                       "candidate."):
+            self.assertTrue(phrase in book,
+                            "chapter six no longer states the anchored scope of "
+                            "the alert guard. Missing: %r" % phrase)
+
+    def test_a_recaptured_correction_reaches_a_rule_as_the_book_says(self):
+        """The narrow half of the claim, proven both ways: the anchored gate
+        refuses, and a fresh candidate carrying the same sentence does not.
+
+        IF THE GUARD IS EVER WIDENED to match rule text rather than anchors,
+        this test fails, and the fix is to correct the paragraph in chapter six.
+        It is not to weaken the assertion.
+        """
+        bs = self._bs()
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "src/pricing.py", self.PRICING)
+            trigger = "when a stored total is recomputed"
+            action = "run the recompute migration over live invoices"
+            first = self._capture(d, trigger, action)
+            store = bs.Store(d)
+            try:
+                note = store.add_note(
+                    kind="alert", severity="critical",
+                    body="no dry run mode, this rewrites live invoices",
+                    author="Priya", author_kind="human",
+                    anchor_type="candidate", anchor_key=first)
+            finally:
+                store.close()
+            r = self._run(d, self.LEARN, "grant-approval", first,
+                          "--answer", "yes")
+            self.assertEqual(r.returncode, 2, self._both(r))
+            self.assertIn("refused (unresolved-critical-alert)", self._both(r))
+
+            second = self._capture(d, trigger, action)
+            r = self._run(d, self.LEARN, "grant-approval", second,
+                          "--answer", "yes")
+            self.assertEqual(r.returncode, 0, self._both(r))
+            tokens = re.findall(r"\b[0-9a-f]{40,}\b", self._both(r))
+            self.assertTrue(tokens, self._both(r))
+            r = self._run(d, self.LEARN, "approve", second,
+                          "--receipt", tokens[0], "--ref", "book claim probe")
+            self.assertEqual(r.returncode, 0, self._both(r))
+            self.assertIn("approved as rule", self._both(r))
+
+            store = bs.Store(d)
+            try:
+                rows = [n for n in store.list_notes(include_resolved=True)
+                        if n["note_uuid"] == note["note_uuid"]]
+            finally:
+                store.close()
+            self.assertEqual(len(rows), 1)
+            self.assertFalse(rows[0]["resolved_at"],
+                             "the alert was never answered, which is the point")
+            self.assertFalse(rows[0]["overridden_at"],
+                             "and no override was recorded, so the page may not "
+                             "claim the founder had to answer the objection")
+
+    def test_a_file_anchored_alert_blocks_a_later_candidate_as_the_book_says(self):
+        """The remedy the new paragraph prints: anchor the alert to the file and
+        it stands in front of a candidate captured afterwards, whose wording is
+        different, purely because of the file that candidate would change."""
+        bs = self._bs()
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "src/pricing.py", self.PRICING)
+            store = bs.Store(d)
+            try:
+                rec = store.claim("pricing", "persistent",
+                                  objective="fix the totals",
+                                  files=["src/pricing.py"], owner="Dana",
+                                  session_id="sessBook")
+                store.add_note(
+                    kind="alert", severity="critical",
+                    body="no dry run mode on anything that rewrites this file",
+                    author="Priya", author_kind="human",
+                    anchor_type="file", anchor_key="src/pricing.py")
+            finally:
+                store.close()
+            cand = self._capture(d, "when VAT changes mid month",
+                                 "reprice open invoices in a migration",
+                                 record_uuid=rec.lifecycle_uuid)
+            r = self._run(d, self.LEARN, "grant-approval", cand,
+                          "--answer", "yes")
+            self.assertEqual(r.returncode, 2, self._both(r))
+            printed = self._flat(self._both(r))
+            self.assertIn("refused (unresolved-critical-alert)", printed)
+            self.assertIn("about file src/pricing.py", printed)
+
+    # -- the page itself ---------------------------------------------------
+
+    def test_the_book_opens_offline_and_carries_no_foreign_dash(self):
+        book = read(self.BOOK)
+        offenders = [i for i, line in enumerate(book.split("\n"), 1)
+                     if "\u2013" in line or "\u2014" in line]
+        self.assertEqual(offenders, [], "em or en dash at line(s) %s"
+                         % ", ".join(str(i) for i in offenders))
+        for pat in ("src=\"http", "src='http", "@import url(http",
+                    "<script src", "<link "):
+            self.assertFalse(pat in book,
+                             "section 7 requires the page to render offline "
+                             "with no external request, and %r is one" % pat)
+
+
 class TestNoDashes(unittest.TestCase):
     """The project's own copy rule, enforced on the files this suite governs."""
 

@@ -1121,9 +1121,14 @@ regenerates, and refuses if the lines have moved.</p>
   and re-cite with --recite src/pricing.py:7-12@return unit_pence * quantity to
   record that you did.</code></pre>
 
-<p>It refused, it explained exactly what changed, and it handed you the command that
-records that a human looked at the new text. You cannot re-cite by accident; that
-is the point. Do as it says:</p>
+<p>There are two refusals here, not one, and which one you see depends on the first
+line you cited. Line 7 of this file is blank, which is why the recorded anchor above
+is empty, so nothing can be checked against it and the content hash is what catches
+the edit: <code>citation-changed</code>, at the range you cited. Cite a first line
+that has text on it and the same edit produces <code>citation-moved</code> instead,
+naming the line the anchor slid to and printing the shifted range. Either way you
+get a <code>--recite</code> command you can paste, and neither one can be satisfied
+by accident. Do as it says:</p>
 
 <pre><code>python3 tools/bm_packs.py pack 33275f67 \
   --recite "src/pricing.py:7-12@return unit_pence * quantity"</code></pre>
@@ -1178,7 +1183,7 @@ does not carry over to the next gate. Or fix the actual problem:</p>
   expires 2026-07-30T02:08:08Z (900 seconds), one candidate, one use</code></pre>
 
 <figure>
-<svg viewBox="0 0 620 246" role="img" aria-label="Gate flow: a candidate goes to the approval command, which checks unresolved critical alerts. If one exists it refuses, and you either resolve it or override with a recorded reason. With no alert it goes straight through. Only then is a receipt minted and the rule created.">
+<svg viewBox="0 0 620 246" role="img" aria-label="Gate flow: a candidate goes to the approval command, which checks the unresolved critical alerts anchored to that candidate, to its work record, or to a file it would change. If one exists it refuses, and you either resolve it or override with a recorded reason. With no such alert it goes straight through. Only then is a receipt minted and the rule created.">
 <rect class="svgbox" x="0" y="6" width="126" height="42" rx="4"/>
 <text class="svgtxt" x="12" y="26">candidate</text>
 <text class="svgtxt-s" x="12" y="42">inert, changes nothing</text>
@@ -1213,8 +1218,36 @@ does not carry over to the next gate. Or fix the actual problem:</p>
 <text class="svgtxt-s" x="452" y="42">versioned, explainable</text>
 </svg>
 <figcaption>Every route to a rule passes through a human answer, and an unresolved
-critical alert closes all of them.</figcaption>
+critical alert anchored to this candidate closes the route drawn here.</figcaption>
 </figure>
+
+<div class="note">
+<p><strong>An alert guards the gates it is anchored to, which is narrower than
+every gate, and you should know the difference before you rely on it.</strong> The
+refusal fires when the unresolved critical alert is anchored to that candidate, to
+the work record the candidate came from, or to any file in the change set the
+approval would touch. Nothing anchors an objection to the WORDS of a correction,
+only to a candidate, a record or a file, so capture the same correction a second time
+and you get a new candidate with nothing anchored to it, and that gate opens. The
+objection does not chase the wording around. (Once a rule exists, the duplicate
+detector does compare wording and refuses the repeat, but that is a different guard
+and it is not watching for anybody's objection.) Anchor the alert where the risk
+actually lives instead:</p>
+
+<pre><code>python3 tools/bm_learn.py note --kind alert --severity critical \
+  --anchor file:src/pricing.py --author "Priya" --author-kind human \
+  --body "no dry run mode on anything that rewrites this file"</code></pre>
+
+<pre class="out"><code>refused (unresolved-critical-alert): a critical alert is unresolved and stands in
+  front of this approval: Priya wrote 'no dry run mode on anything that rewrites
+  this file' about file src/pricing.py (note c82261b2). Resolve it, or re-run with
+  an explicit override reason. 1 unresolved critical alert(s) match this approval.</code></pre>
+
+<p>That second refusal caught a candidate captured later, with different wording,
+purely because of the file it would change. A file anchor and a record anchor
+outlive the candidate. A candidate anchor does not, so it is the weakest of the
+three and the one to avoid when the objection is really about the code.</p>
+</div>
 
 <h3>Recording the verdict where it counts</h3>
 
