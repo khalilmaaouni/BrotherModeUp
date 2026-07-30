@@ -92,10 +92,11 @@ What the code actually writes inside your project today:
   owner-only where the platform supports it (on Windows this is best-effort;
   rely on your user profile's access control).
 
-You can verify both claims yourself; the tools are about 39,143 lines of
-standard-library Python and shell (re-measured 2026-07-29 at the rc.4 release
-cut with every lane merged, which is why the figure jumped: a test fails if it
-drifts more than 15 percent from what the command below returns). Most of that growth is test
+You can verify both claims yourself; the tools are about 46,513 lines of
+standard-library Python and shell (re-measured 2026-07-30 with the gate deep
+dive packs and the documentation engine landed: a test fails if it drifts more
+than 15 percent from what the command below returns, and it did, which is why
+this figure moved rather than being left to rot). Most of that growth is test
 code, which is the kind a reader of a security document should want.
 
 It went UP by roughly 2,700 lines on 2026-07-27, and that direction deserves

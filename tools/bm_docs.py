@@ -171,8 +171,22 @@ HUMAN_END = bs.HUMAN_BLOCK_END
 # The narrative cache record (I12). Written by the generator, read back by the
 # generator. Without a recorded hash there is nothing for a changed fact to
 # disagree with, so the cache would either never reuse or never refresh.
+#
+# TWO hashes, and the second one is here because the first one alone let the page
+# lie. sha256= is the hash of the FACTS the paragraph describes, and it decides
+# whether the paragraph is worth writing again. body= is the hash of the
+# paragraph's own text. Without it, any text at all could be swapped in under a
+# still-valid fact hash and would then be reused on every later run for as long
+# as those facts held still, while the header of that same file told the reader
+# everything outside the human markers gets rewritten. So a recorded body that
+# does not match its own checksum is a cache MISS and the paragraph is written
+# again from the facts. A record with no body= at all is a miss for the same
+# reason, which is how a folder generated before this existed heals itself on the
+# next run. This is integrity against a bad merge, a stale copy and a hand edit,
+# not a defence against somebody who deliberately recomputes the checksum.
 _PROSE_OPEN = re.compile(
-    r"^<!-- bm-prose: id=(?P<id>[a-z0-9-]+) sha256=(?P<sha>[0-9a-f]{64}) -->$")
+    r"^<!-- bm-prose: id=(?P<id>[a-z0-9-]+) sha256=(?P<sha>[0-9a-f]{64})"
+    r"(?: body=(?P<body>[0-9a-f]{64}))? -->$")
 _PROSE_CLOSE = "<!-- bm-prose:end -->"
 
 _SKIP_DIRS = frozenset((".git", ".brothermode", "node_modules", "__pycache__",
@@ -302,6 +316,7 @@ def read_existing(path):
     human_buf = []
     prose_id = None
     prose_sha = ""
+    prose_body_sha = ""
     prose_buf = []
     for line in text.split("\n"):
         stripped = line.strip()
@@ -320,8 +335,10 @@ def read_existing(path):
         if prose_id is not None:
             if stripped == _PROSE_CLOSE:
                 out["prose"][prose_id] = {"sha": prose_sha,
+                                          "body_sha": prose_body_sha,
                                           "body": "\n".join(prose_buf)}
-                prose_id, prose_sha, prose_buf = None, "", []
+                prose_id, prose_sha, prose_body_sha = None, "", ""
+                prose_buf = []
             else:
                 prose_buf.append(line)
             continue
@@ -329,6 +346,9 @@ def read_existing(path):
         if m:
             prose_id = m.group("id")
             prose_sha = m.group("sha")
+            # "" when the record predates the body checksum, which reads as
+            # "unknown" and therefore as a miss.
+            prose_body_sha = m.group("body") or ""
             prose_buf = []
     if inside_human and human_buf:
         # An unterminated human block. KEPT, because losing a paragraph because
@@ -340,6 +360,13 @@ def read_existing(path):
     # the facts its hash claims, and the cost of dropping it is that the block
     # gets written again.
     return out
+
+
+def _body_hash(body):
+    """The checksum a narrative block records over its own text. Computed on the
+    exact string the block is written from and read back from, so a round trip
+    through the file agrees with itself."""
+    return hashlib.sha256((body or "").encode("utf-8")).hexdigest()
 
 
 def _neutralize_prose_markers(body):
@@ -1000,7 +1027,18 @@ def choose_tier(sig, floor=0, explicit=None):
     automatic decision can move up and can never move down: documentation that
     quietly got thinner is documentation a reader cannot trust to still contain
     what they read last week. `explicit` is a founder passing --tier, which is
-    the one way down and is recorded as such."""
+    the one way down and is recorded as such.
+
+    THE FLOOR IS CONSULTED ONLY ON THE AUTOMATIC PATH, and that is not a
+    softening of I13, it is what makes `--tier N` deterministic. I13 constrains
+    AUTOMATIC decisions; an explicit flag is the founder's answer in both
+    directions and needs no floor. Letting the floor into the explicit path made
+    two identical `generate --tier 3` runs disagree: the first run recorded the
+    chosen tier, the second read it back as a floor, appended a "held at tier N"
+    reason and turned "raised to" into "confirmed at", so a folder churned with
+    nothing moved in the store, the code or the flag. Every reason on the
+    explicit path now compares the flag against the tier the SIGNALS measured,
+    which no generation can change."""
     reasons = []
     tier = 1
     for test, why in (
@@ -1039,24 +1077,29 @@ def choose_tier(sig, floor=0, explicit=None):
                        "recorded decisions"
                        % (sig["tracked_files"], sig["work_records"],
                           sig["gates"], sig["recorded_decisions"]))
+    measured = tier
     source = "automatic"
-    if floor and floor > tier:
-        reasons.append(
-            "held at tier %d because the previous generation recorded tier %d "
-            "and an automatic decision may only raise depth (I13); pass "
-            "--tier %d to lower it on purpose" % (floor, floor, tier))
-        tier = floor
-        source = "automatic, held at the recorded floor"
-    if explicit is not None:
-        if explicit < tier:
-            reasons.append("lowered to tier %d by an explicit --tier %d, which "
-                           "is the only way documentation depth goes down"
-                           % (explicit, explicit))
-        elif explicit > tier:
-            reasons.append("raised to tier %d by an explicit --tier %d"
-                           % (explicit, explicit))
+    if explicit is None:
+        if floor and floor > tier:
+            reasons.append(
+                "held at tier %d because the previous generation recorded tier "
+                "%d and an automatic decision may only raise depth (I13); pass "
+                "--tier %d to lower it on purpose" % (floor, floor, tier))
+            tier = floor
+            source = "automatic, held at the recorded floor"
+    else:
+        if explicit < measured:
+            reasons.append("lowered to tier %d by an explicit --tier %d, below "
+                           "the tier %d the signals measured, which is the only "
+                           "way documentation depth goes down"
+                           % (explicit, explicit, measured))
+        elif explicit > measured:
+            reasons.append("raised to tier %d by an explicit --tier %d, above "
+                           "the tier %d the signals measured"
+                           % (explicit, explicit, measured))
         else:
-            reasons.append("confirmed at tier %d by an explicit --tier %d"
+            reasons.append("confirmed at tier %d by an explicit --tier %d, "
+                           "which is the tier the signals measured"
                            % (explicit, explicit))
         tier = explicit
         source = "explicit --tier"
@@ -1064,10 +1107,12 @@ def choose_tier(sig, floor=0, explicit=None):
             "source": source}
 
 
-def recorded_floor(root):
-    """The tier the last generation wrote, or 0. Read from the generated
-    facts.json, which is the engine's own output and therefore the one place a
-    floor can live without a schema change."""
+def _floor_from_generated_facts(root):
+    """The tier recorded inside the generated facts.json, or 0.
+
+    Kept, and read second, because it is the human-visible copy and because a
+    folder generated before the durable record existed still has this one. It is
+    NOT sufficient on its own: see recorded_floor."""
     path = os.path.join(root, DOC_ROOT, "90-generated", "facts.json")
     if not os.path.isfile(path):
         return 0
@@ -1078,6 +1123,91 @@ def recorded_floor(root):
         return 0
     tier = data.get("tier")
     return tier if isinstance(tier, int) and tier in TIERS else 0
+
+
+def floor_record_path(root):
+    """Where the durable tier record lives: beside the store, not inside the
+    generated folder.
+
+    It sits next to the store on purpose. The store is this project's memory and
+    the floor is a fact about that memory, so the floor travels exactly as far as
+    the rows it protects, and no further. Inside `Documentation/` it did not
+    travel that far at all: the folder is generated output, this repository's own
+    .gitignore excludes it, and the RUNBOOK this engine writes tells the founder
+    the rollback is `git rm -r Documentation`. Following that instruction erased
+    the only copy of the floor, so the very next automatic run of a tier 3
+    project emitted tier 1 and quietly stopped maintaining PROCESS-DIAGRAMS,
+    CODE-MAP and the whitepaper. That is an automatic decision lowering depth,
+    which is exactly what I13 reserves for an explicit founder flag."""
+    return bs.safe_project_path(root, bs.STORE_DIRNAME, "docs-tier.json")
+
+
+def _floor_from_record(root):
+    """The tier the durable record holds, or 0 when there is none or it is not
+    readable. Never raises: a missing or damaged floor must not stop a founder
+    from generating documentation, it must only stop the tier from sinking."""
+    try:
+        path = floor_record_path(root)
+    except Exception:
+        return 0
+    if not os.path.isfile(path):
+        return 0
+    try:
+        with io.open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (ValueError, OSError):
+        return 0
+    if not isinstance(data, dict):
+        return 0
+    tier = data.get("tier")
+    return tier if isinstance(tier, int) and tier in TIERS else 0
+
+
+def recorded_floor(root):
+    """The tier the last generation wrote, or 0.
+
+    The deeper of the two records answers. The durable record beside the store is
+    the one that survives removing the generated folder; facts.json is the
+    human-visible copy and the only one an older folder has. Both are written by
+    the same run, so they only ever disagree when one of them was removed."""
+    return max(_floor_from_record(root), _floor_from_generated_facts(root))
+
+
+def _relative_floor_record(root):
+    """The floor record as a page should name it: a project-relative path, so the
+    document reads the same on every machine."""
+    try:
+        return os.path.relpath(floor_record_path(root), root).replace("\\", "/")
+    except Exception:
+        return "%s/docs-tier.json" % bs.STORE_DIRNAME
+
+
+def write_floor_record(root, tier):
+    """Record the tier just generated, durably. Returns the path written, or
+    None with a reason a caller can print.
+
+    Through the same file funnel every other generated file uses, so this cannot
+    become a second, weaker way to write a file. The funnel creates no directory,
+    which is right here: the store directory exists whenever generation ran at
+    all, and if it does not, the honest outcome is to say the floor could not be
+    recorded rather than to invent a place for it."""
+    try:
+        path = floor_record_path(root)
+    except Exception as exc:
+        return None, "the path could not be built (%s)" % type(exc).__name__
+    directory = os.path.dirname(path)
+    if not os.path.isdir(directory):
+        return None, "%s does not exist" % bs.STORE_DIRNAME
+    text = json.dumps({"layout_version": 1, "tier": tier},
+                      indent=2, sort_keys=True) + "\n"
+    try:
+        bs.write_generated_document(path, text)
+    except Exception as exc:
+        # Deliberately broad and deliberately not silent: the documentation is
+        # already on disk at this point, and a floor that could not be written is
+        # a sentence in the report, not a lost generation.
+        return None, "%s: %s" % (type(exc).__name__, exc)
+    return path, None
 
 
 # ---------------------------------------------------------------------------
@@ -1113,6 +1243,7 @@ class Generator(object):
         self.prior = {"human": [], "prose": {}}
         self.reused = 0
         self.regenerated = 0
+        self.rewritten_unverified = 0
         self.preserved = 0
 
     # -- facts -----------------------------------------------------------
@@ -1157,22 +1288,39 @@ class Generator(object):
     # -- narrative, cached against facts (I12) ---------------------------
 
     def prose(self, pid, keys, writer):
-        """A narrative block, regenerated ONLY when the facts it describes moved.
+        """A narrative block, regenerated ONLY when the facts it describes moved,
+        or when the recorded text no longer matches its own checksum.
 
         `writer` is a callable and is NOT called on a cache hit. That is the
         difference between a cache and a comment: a version that always wrote the
         paragraph and then compared it would satisfy the letter of I12 and pay
         the whole cost it exists to avoid, and no test could tell the two apart.
-        """
+
+        The body checksum is the other half, and it is what makes the header of
+        every generated page true. Reusing recorded text on the strength of a
+        FACT hash alone means a paragraph swapped by a bad merge, a stale copy or
+        a hand edit is reused for as long as those facts hold still, so a false
+        sentence in HANDOVER.md could not be corrected by regenerating. Text that
+        fails its own checksum is written again and the founder is told how many
+        blocks that was."""
         sha = self.fact_hash(keys)
         record = self.prior["prose"].get(pid)
-        if record is not None and record["sha"] == sha:
+        intact = (record is not None
+                  and record["body_sha"] != ""
+                  and record["body_sha"] == _body_hash(record["body"]))
+        if record is not None and record["sha"] == sha and intact:
             self.reused += 1
             body = record["body"]
         else:
+            if record is not None and record["sha"] == sha and not intact:
+                # The facts did not move, so only the text did. Named, because a
+                # silently corrected paragraph is a corrected paragraph nobody
+                # reviews.
+                self.rewritten_unverified += 1
             self.regenerated += 1
             body = _neutralize_prose_markers(writer())
-        out = ["<!-- bm-prose: id=%s sha256=%s -->" % (pid, sha)]
+        out = ["<!-- bm-prose: id=%s sha256=%s body=%s -->"
+               % (pid, sha, _body_hash(body))]
         out.extend(body.split("\n"))
         out.append(_PROSE_CLOSE)
         return out
@@ -1227,6 +1375,10 @@ class Generator(object):
                             "human_blocks": len(self.prior["human"]),
                             "secret_shaped_human_lines": hits})
             self.preserved += len(self.prior["human"])
+        # LAST, and outside the generated folder. Last because a floor recorded
+        # for pages that were never written would hold a later run at a depth
+        # nothing on disk supports.
+        floor_path, floor_error = write_floor_record(self.root, self.tier)
         return {"tier": self.tier, "tier_name": TIERS[self.tier],
                 "tier_source": self.decision["source"],
                 "tier_reasons": self.decision["reasons"],
@@ -1234,7 +1386,13 @@ class Generator(object):
                 "stale_from_a_deeper_tier": self.stale(),
                 "prose_reused": self.reused,
                 "prose_regenerated": self.regenerated,
+                "prose_rewritten_unverified": self.rewritten_unverified,
                 "human_blocks_preserved": self.preserved,
+                "recorded_floor_before": self.floor,
+                "tier_recorded_at": (
+                    os.path.relpath(floor_path, self.root).replace("\\", "/")
+                    if floor_path else None),
+                "tier_record_error": floor_error,
                 "critical_path": self.graph["critical_path"],
                 "critical_days": self.graph["critical_days"]}
 
@@ -2262,6 +2420,13 @@ class Generator(object):
                  "diff after regenerating is the expected result and a non "
                  "empty one means a fact moved.")
         w.append("")
+        w.append("A generated paragraph edited in place does NOT survive, and "
+                 "that is deliberate: each one records a checksum of its own "
+                 "text, so a sentence changed by a hand edit, a bad merge or a "
+                 "stale copy is written again from the recorded facts and the "
+                 "run says how many blocks that was. Write in the human markers, "
+                 "which are the one place nothing rewrites.")
+        w.append("")
         w.append("## If the store is unhappy")
         w.append("")
         w.append("- `%s verify` names what it found rather than guessing."
@@ -2281,6 +2446,13 @@ class Generator(object):
         w.append("```")
         w.append("git rm -r %s" % DOC_ROOT)
         w.append("```")
+        w.append("")
+        w.append("The chosen tier is recorded in `%s`, beside the store rather "
+                 "than inside this folder, so the rollback above does not "
+                 "quietly shrink the documentation: the next automatic run "
+                 "rebuilds at the same depth. Depth only goes down when somebody "
+                 "passes `--tier N` on purpose."
+                 % _relative_floor_record(self.root))
         w.append("")
         return w
 
@@ -2377,6 +2549,21 @@ def cmd_generate(argv):
          % report["human_blocks_preserved"])
     _out("  narrative: %d block(s) reused against unchanged facts, %d "
          "regenerated" % (report["prose_reused"], report["prose_regenerated"]))
+    if report["prose_rewritten_unverified"]:
+        _out("  REWRITTEN FROM THE FACTS: %d narrative block(s) held text that "
+             "could not be verified against a recorded checksum of itself, "
+             "either because it did not match or because the record was written "
+             "before checksums existed, so it was not trusted and not reused. "
+             "Human blocks are never touched by this."
+             % report["prose_rewritten_unverified"])
+    if report["tier_recorded_at"]:
+        _out("  tier %d recorded in %s, which is what stops a later automatic "
+             "run from lowering it (I13)"
+             % (report["tier"], report["tier_recorded_at"]))
+    else:
+        _out("  THE TIER COULD NOT BE RECORDED (%s), so a later automatic run "
+             "may choose a shallower tier from the signals alone"
+             % report["tier_record_error"])
     if report["critical_path"]:
         _out("  critical path: %s (%d recorded day(s))"
              % (" -> ".join(report["critical_path"]), report["critical_days"]))
