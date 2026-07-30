@@ -230,6 +230,8 @@ Storage schema 7 adds one table, `notes`: an anchored row carrying a kind
 (`insight`, `alert`, `question`, `review`, `todo`, `risk`), a severity where one
 applies, its author, the file, candidate, rule, record or decision it is
 anchored to, and its body. Notes are written by people, never generated.
+Schema 8 adds one column to that table, `anchor_line_hash`, described under
+"Where an anchored line went" below.
 
 One kind has teeth. An UNRESOLVED `alert` at severity `critical`, anchored to a
 candidate, to the work record that candidate came from, or to any file that
@@ -239,6 +241,41 @@ minted and when it is spent, so an alert raised after the founder answered still
 stops the rule being created. An alert anchored to a rule or to a decision is
 recorded and rendered at its anchor but refuses nothing by itself, and the
 command that writes it says so rather than promising teeth it does not have.
+
+### Where an anchored line went
+
+A note anchored to a file AND a line records a fingerprint of that line when it
+is written (schema 8, `notes.anchor_line_hash`), and every surface that renders
+notes reports where the line is now: still there, moved to a different line
+number, no longer in the file, or in a file that could not be read. A note whose
+line has moved is REPORTED, never dropped and never edited, in
+`bm_learn.py notes`, in the generated documentation, and in a gate pack.
+
+Two write-time refusals come with it. A line past the end of the file is
+refused (`anchor-line-out-of-range`), because a note nobody can follow to a line
+is a note nobody can act on. A line that cannot be fingerprinted (the file could
+not be read, or the line is blank) is NOT refused: the note is kept, the command
+says the anchor is untracked, and the reports call it unverifiable rather than
+pretending it was checked.
+
+```
+$ python3 tools/bm_learn.py note --kind risk --severity warning \
+    --author "Dana, backend" --anchor file:api/pay.py --line 99 \
+    --body "the refund path has no idempotency key"
+refused (anchor-line-out-of-range): api/pay.py has 6 line(s), so there is no
+line 99 to anchor a note to.
+
+$ python3 tools/bm_learn.py notes
+7dfdc389  risk     warning   open     file:api/pay.py:5  by Dana, backend
+     the refund path has no idempotency key
+     ANCHOR MOVED: the anchored line moved from line 5 to line 9
+```
+
+Lineage is a query rather than a stored field: everything that touched a
+decision, in order, with authors. It joins the capture, the notes anchored to
+the candidate, to the resulting rule, to the work record and to the decision
+itself, the approval receipts and the rule that came out. It is rendered in
+`Documentation/30-decisions/INDEX.md` and carried in `facts.json`.
 
 An identifier anchor is resolved when the note is written: the prefix you type
 becomes the full uuid it names, or the write is refused because it names nothing

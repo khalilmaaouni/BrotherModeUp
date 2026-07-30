@@ -1276,3 +1276,120 @@ def parse_window_days(text):
     if value <= 0:
         return (None, "a window must be positive, got %r" % (text,))
     return (value * factor, "")
+
+
+# ---------------------------------------------------------------------------
+# Where an anchored line is NOW (phase C of the 2026-07-30 documentation and
+# gate-pack spec, section 6: "a note anchored to a line that has since moved is
+# reported rather than silently dropped").
+#
+# Two pure functions and one vocabulary. The caller reads the file, because
+# this module opens nothing; everything below is decidable from a list of lines,
+# a line number, and the fingerprint the store recorded when the note was
+# written.
+#
+# WHY A FINGERPRINT AT ALL. Without one, a moved line is undetectable: line 5
+# of a file that still has 200 lines resolves to whatever is at line 5 now, and
+# a reviewer reads a note about code that has moved somewhere else as though it
+# were about the code in front of them. Reproduced against a real store before
+# this existed: a note anchored at api/pay.py:99 in a six line file was stored,
+# listed and rendered with no complaint from any command.
+# ---------------------------------------------------------------------------
+
+# Ordered worst-news last, because a report sorts by it and a reader should
+# reach the anchors that no longer exist without scrolling.
+ANCHOR_STATES = ("resolves", "unverifiable", "moved", "gone", "file-missing")
+
+# The states a reader has to act on. Named here rather than re-derived at each
+# render site, so a document, a pack and the CLI cannot disagree about what
+# counts as a problem.
+ANCHOR_PROBLEM_STATES = ("moved", "gone", "file-missing")
+
+
+def anchor_line_digest(text):
+    """The fingerprint of one anchored source line, or '' when there is nothing
+    worth fingerprinting.
+
+    Leading and trailing whitespace is stripped before hashing, so
+    re-indentation is not reported as a move: the line is the same line, and a
+    report that cried move on every reformat would be ignored within a week.
+
+    A blank line fingerprints as '', which the resolver reports as
+    unverifiable rather than as a match: the digest of an empty string would
+    match every other blank line in the file, so the honest answer is that this
+    anchor cannot be tracked, said out loud."""
+    norm = (text or "").strip()
+    if not norm:
+        return ""
+    return hashlib.sha256(norm.encode("utf-8")).hexdigest()
+
+
+def resolve_anchor_line(lines, line, digest):
+    """Where the anchored line is now. Pure; the caller does the reading.
+
+    `lines` is the file's lines with no trailing newlines, or None when the file
+    could not be read at all. `line` is the 1-based number the note was written
+    against. `digest` is what anchor_line_digest returned then.
+
+    Returns a dict carrying state, the line the note claims, the line it is on
+    now when that can be established, the text found there, every candidate when
+    a file repeats the same line, and one sentence saying what a reader should
+    make of it. Never raises, and never returns None: a note whose anchor cannot
+    be checked is reported as uncheckable, which is the whole point."""
+    claimed = int(line) if line else 0
+    out = {"state": "resolves", "line": claimed, "now_line": claimed,
+           "text": "", "candidates": [], "why": ""}
+    if lines is None:
+        out["state"] = "file-missing"
+        out["now_line"] = None
+        out["why"] = ("the file this note is anchored to could not be read, so "
+                      "the note is reported here instead of being rendered "
+                      "beside code")
+        return out
+    total = len(lines)
+    in_range = 1 <= claimed <= total
+    if in_range:
+        out["text"] = lines[claimed - 1]
+    if not digest:
+        out["state"] = "unverifiable"
+        out["why"] = ("no fingerprint was recorded for this anchor (it predates "
+                      "the fingerprint, or the anchored line was blank), so a "
+                      "move cannot be detected and the line shown is whatever "
+                      "is there now")
+        if not in_range:
+            out["state"] = "gone"
+            out["now_line"] = None
+            out["why"] = ("line %d is past the end of the file, which now has "
+                          "%d line(s), and no fingerprint was recorded to find "
+                          "it by" % (claimed, total))
+        return out
+    if in_range and anchor_line_digest(lines[claimed - 1]) == digest:
+        out["why"] = "the anchored line is still line %d" % claimed
+        return out
+    matches = [i + 1 for i, text in enumerate(lines)
+               if anchor_line_digest(text) == digest]
+    if not matches:
+        out["state"] = "gone"
+        out["now_line"] = None
+        out["candidates"] = []
+        out["why"] = ("the line this note was written about is no longer in the "
+                      "file (it was line %d; the file now has %d line(s)). The "
+                      "note is kept and reported: nothing deletes it."
+                      % (claimed, total))
+        return out
+    # Nearest first, so a file that repeats one line puts the likeliest new
+    # home of the note in front of the reader instead of the first one found.
+    matches.sort(key=lambda n: (abs(n - claimed), n))
+    out["state"] = "moved"
+    out["now_line"] = matches[0]
+    out["candidates"] = matches
+    out["text"] = lines[matches[0] - 1]
+    if len(matches) == 1:
+        out["why"] = ("the anchored line moved from line %d to line %d"
+                      % (claimed, matches[0]))
+    else:
+        out["why"] = ("the anchored line moved from line %d; %d line(s) in the "
+                      "file match its fingerprint (%s), nearest first"
+                      % (claimed, len(matches),
+                         ", ".join(str(n) for n in matches[:8])))
+    return out
