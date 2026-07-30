@@ -11102,6 +11102,48 @@ class TestP17InstructionTextMatchesTheInstalledLayout(unittest.TestCase):
                 self.assertEqual(os.path.realpath(unquoted),
                                   os.path.realpath(target))
 
+    def test_windows_quoting_matches_the_external_reference_rule(self):
+        """VALIDATED AGAINST EXTERNAL GROUND TRUTH, 2026-07-31, and it caught a
+        real gap in this project's own first fix.
+
+        The first version of `_quote_path_for_local_shell` quoted only on a space
+        or a double quote. Checked against `mslex` (the package that exists
+        precisely because the standard library declines this job; its cmd rule
+        quotes on whitespace or any of " ^ & | < > ( ) % !), that was too narrow,
+        and the paths it let through bare are ordinary rather than exotic:
+
+            C:\\R&D\\...            & is a command separator in cmd.exe
+            C:\\temp\\100%\\...     % begins a variable reference
+            C:\\a!b\\...            ! is delayed expansion
+
+        `C:\\Program Files (x86)\\...` escaped only because it also has a space.
+
+        The cases below are the external rule, not this function's own opinion,
+        which is the point: a test written from the implementation would have
+        agreed with the implementation and found nothing."""
+        hazardous = [
+            r"C:\R&D\tools\bm_store.py",
+            r"C:\Program Files (x86)\bm\bm_store.py",
+            r"C:\temp\100%\bm_store.py",
+            r"C:\a!b\bm_store.py",
+            r"C:\a^b\bm_store.py",
+            r"C:\a|b\bm_store.py",
+            r"C:\a<b\bm_store.py",
+            r"C:\a>b\bm_store.py",
+            "C:\\tab\there\\bm_store.py",
+        ]
+        with mock.patch.object(sys, "platform", "win32"):
+            for path in hazardous:
+                quoted = bs._quote_path_for_local_shell(path)
+                self.assertTrue(
+                    quoted.startswith('"') and quoted.endswith('"'),
+                    "cmd.exe does not read %r as one word, so it must be "
+                    "quoted; got %r" % (path, quoted))
+            # And the converse, so the rule cannot degrade into "quote always",
+            # which would be correct but would make every printed command noisy.
+            plain = r"C:\plain\tools\bm_store.py"
+            self.assertEqual(plain, bs._quote_path_for_local_shell(plain))
+
     def test_a_bare_windows_style_path_is_not_needlessly_quoted(self):
         """A reader should not have to undo quoting that bought nothing. On
         Windows a space-free path is passed through bare, because both cmd and
