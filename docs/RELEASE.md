@@ -47,11 +47,19 @@ python3 tools/bm_project_facts.py --field release_tag
 ```
 
 The current candidate is `2.0.0-rc.4`, cut 2026-07-29 when the four parallel
-work lanes were merged back into `v2` (`CHANGELOG.md` has the entry). The TAG
-`v2.0.0-rc.4` does not exist yet: cutting it is a founder action, and the
-release-cut commit deliberately creates no tag and moves none. `2.0.0-rc.3`
-before it is superseded, not withdrawn, as is `v2.0.0-rc.2`. `v2.0.0-rc.1` IS
-withdrawn; see the section below for why that distinction matters.
+work lanes were merged back into `v2` (`CHANGELOG.md` has the entry).
+
+CORRECTED 2026-07-30. This paragraph used to say the TAG `v2.0.0-rc.4` did not
+exist yet and that cutting it was still pending. That stopped being true the
+moment the founder cut it: `git tag -l` lists it, `git cat-file -t
+v2.0.0-rc.4` reports `tag` (annotated, not lightweight, as the steps below
+require), and it points at the exact commit that set `VERSION` to
+`2.0.0-rc.4`. HEAD has since moved twelve commits past that tag, on purpose:
+this project lands a wave of work on top of a cut tag before the next one is
+cut, so a moving HEAD is not a sign the tag itself is stale. `git describe
+--tags` shows where HEAD stands relative to it. `2.0.0-rc.3` before it is
+superseded, not withdrawn, as is `v2.0.0-rc.2`. `v2.0.0-rc.1` IS withdrawn;
+see the section below for why that distinction matters.
 
 Reasoning, stated plainly because a version number is a claim and this one
 should be checked rather than trusted:
@@ -222,17 +230,20 @@ through preparing it.
 
 ## What has and has not happened, stated honestly
 
-CURRENT STATE, 2026-07-29, first, because the dated entries under it are a LOG
-and several of them were true only on the day they were written. Three tags
+CURRENT STATE, 2026-07-30, first, because the dated entries under it are a LOG
+and several of them were true only on the day they were written. Four tags now
 exist (`v2.0.0-rc.1` withdrawn, `v2.0.0-rc.2` superseded, `v2.0.0-rc.3`
-superseded). `VERSION` now reads `2.0.0-rc.4` and NO tag has been cut for it:
-the pinned clone command above will not resolve until the founder creates that
-tag. CI is green on three platforms as of 2026-07-27; the Windows handle leak
-that failed on `rc.1` is fixed. The checksum manifest was last regenerated at
-the rc.4 release-cut commit, on an untagged commit, so the "never against an
-actual tagged release" line below is history for `rc.3` and live again for
-`rc.4` until the tag exists. Read the entries below
-as the arc, not as today's status; `docs/KNOWN-LIMITS.md` is the live one.
+superseded, `v2.0.0-rc.4` current). `VERSION` reads `2.0.0-rc.4` and the tag
+IS cut: the pinned clone command above resolves. CORRECTED 2026-07-30: the
+2026-07-29 entry directly below said no tag had been cut for `rc.4` and that
+the pinned clone would not resolve; both were true that day and are not true
+now, which is exactly why it is dated evidence rather than kept as today's
+paragraph. CI is green on three platforms as of 2026-07-27; the Windows handle
+leak that failed on `rc.1` is fixed. The checksum manifest was regenerated at
+the rc.4 release-cut commit, which is the exact commit the tag points at, so
+it describes the tagged tree rather than an earlier one. Read the entries
+below as the arc, not as today's status; `docs/KNOWN-LIMITS.md` is the live
+one.
 
 - **A release IS tagged now.** Corrected 2026-07-26: `v2.0.0-rc.1` exists on
   commit `7c2e0ec`, published as a GitHub pre-release. The clone command above
@@ -260,3 +271,26 @@ as the arc, not as today's status; `docs/KNOWN-LIMITS.md` is the live one.
   them start to finish. The first real release is also the first test of
   this document; if a step is wrong, fix this file in the same change that
   discovers the problem, rather than silently working around it once.
+
+## Ratified: where the business summary and the whitepaper live
+
+Founder-ratified 2026-07-30, settled, and not to be reopened. This is not a
+release step; it is recorded here because this is the release identity work
+that surfaced it, and this file is this project's home for a decision stated
+once rather than re-argued in every document that touches it.
+
+`tools/bm_docs.py` generates a numbered documentation folder from this
+project's own store, and two of its pages sit outside the literal tier table
+its own design spec describes:
+
+- `BA-SUMMARY.md` stays at tier 2, `10-business/BA-SUMMARY.md`: the business
+  narrative belongs beside `REQUIREMENTS.md`, which is also tier 2.
+- `WHITEPAPER.md` stays at tier 3, `20-technical/WHITEPAPER.md`: the long-form
+  account of why the project is built this way sits at the deepest tier,
+  alongside `CODE-MAP.md` and `PROCESS-DIAGRAMS.md`.
+
+Until this loop, that placement was recorded only as a code comment inside
+`tools/bm_docs.py`, beside its `FILES` tuple. `tools/bm_docs.py` is outside
+this document's fence, so its own comment still needs to change to point here
+rather than re-deriving the reasoning; that edit belongs to whoever owns that
+file next.

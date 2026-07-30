@@ -48,10 +48,29 @@ several people at once is not what it is for.
 ## Quick start
 
 The full, copy-pasteable, ten-minute path, with the expected output of every
-command, is [`docs/QUICKSTART.md`](docs/QUICKSTART.md). The short version:
+command, is [`docs/QUICKSTART.md`](docs/QUICKSTART.md). The short version.
+This clones an immutable, tagged release, not a moving branch: the code that
+lands in `~/.claude/skills/brothermode` then runs automatically on every
+future Claude Code session through five hooks, and a moving branch feeding
+auto-run code was the weakest link the original external audit named.
 
 ```bash
-git clone https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.4 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+```
+
+That tag is not typed by hand: it is generated from the same release fact
+every other page reads (`python3 tools/bm_project_facts.py --field
+release_tag`), and `tools/test_bm_docs.py` fails if this page ever disagrees
+with it.
+
+Working on BrotherMode's own code, rather than just using it? Use the
+separate development command instead, which tracks the moving `main` branch
+on purpose and installs into its own directory so the two can never be
+confused:
+
+```bash
+# Development branch (changes over time)
+git clone --branch main https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode-dev
 ```
 
 Then follow `docs/QUICKSTART.md` (or the longer reference, `docs/SETUP.md`) to
