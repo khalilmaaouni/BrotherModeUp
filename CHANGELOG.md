@@ -2,6 +2,42 @@
 
 Unreleased, 2026-07-30: the adoption book, twelve chapters with every command executed against a throwaway project, at `docs/book/brothermode-for-dummies.html` plus a 56 page PDF export (phase D of the documentation and gate-packs spec).
 
+Unreleased, 2026-07-31: first-rank execution plan, Loop 5. Gate: `test_all: 1194 tests across 7 suites, 1 skipped, 110.7s wall. ALL GREEN`, up from 1181. Schema unchanged at 11.
+
+- Default `apply` no longer stores the founder's verbatim query. New application
+  rows keep a bounded, stopword-free term set (the primitive retrieval runs already
+  used) plus the non-reversible task fingerprint; `--store-excerpt` is the explicit
+  opt-in for a readable excerpt. Historical rows are untouched: what changed is what
+  NEW rows store, never a rewrite of the founder's existing data. Verified at the
+  byte level: a canaried task prompt does not appear in the sqlite file at all.
+
+- Path masking handles quoted paths, escaped spaces, Windows drive paths, UNC paths,
+  Unicode segments, several paths in one field, and paths glued to a word at the six
+  known roots. Two honest remainders are in KNOWN-LIMITS: bare unquoted spaces still
+  truncate the mask, and a glued single-letter drive stays unmasked because masking
+  it provably swallows https URLs.
+
+- Hand-typed session labels no longer export. The shape gate is an allowlist of the
+  four real generated id shapes now, so a codename a human typed is withheld while
+  generated ids keep their joins. The plan's literal design, a schema-level split of
+  internal uuid from optional label, was NOT built and is recorded as open.
+
+- Two surfaces were printing raw rows outside the withholding policy and now route
+  through it: `applications` and `disposition` (text and `--json`). And `verify()`
+  itself scrubbed nothing on its problem lines; a corrupted store could echo record
+  names and paths raw. Its problems now pass through the same redact and mask pair,
+  which broke the one test that deliberately staged the old leak as its calibration
+  precondition; that test now pins the source fix AND still calibrates the MCP
+  funnel by injecting a leak through the server's own private bm_store module.
+
+- Nine-field canary suite: objective, task prompt, session label, path, correction
+  text, approval answer, rule reason, disposition reason, outcome reference, seeded
+  through the real CLI and asserted absent from dump, applications, disposition and
+  the MCP status surface, including the corrupted-store error path. One disclosed
+  survivor, by design pending a founder ruling: an approved rule's own because_text
+  in `applications` output, which is founder-promoted rule content rather than
+  incidental capture.
+
 Unreleased, 2026-07-30: first-rank execution plan, Loop 4. Gate: `test_all: 1181 tests across 7 suites, 1 skipped, 112.2s wall. ALL GREEN`, up from 1149. Store schema 10 to 11.
 
 - Session plus query text cannot tell two tasks apart, so `apply` no longer accepts
