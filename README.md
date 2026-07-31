@@ -29,8 +29,10 @@ release_tag`), and `tools/test_bm_docs.py` fails if this page ever disagrees
 with it.
 
 A Claude Code plugin install path, with no cloning and no JSON editing, is
-new in this release. Nobody has installed BrotherMode that way yet, including
-the author. The guided beginner layer (the six /brotherme commands and the
+new in this release. It has been installed exactly once: on the author's
+machine, from a local copy of this repository, cycle recorded in
+docs/evidence/2026-07-31-first-plugin-install.md. No install from GitHub or
+another machine yet. The guided beginner layer (the six /brotherme commands and the
 guided skill) is designed to load through the plugin path; on this project's
 own machine a clone carrying the plugin manifest also registered it in a live
 session (one observation, not a verified install path). The pinned clone
