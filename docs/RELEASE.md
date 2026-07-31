@@ -46,7 +46,7 @@ cat VERSION
 python3 tools/bm_project_facts.py --field release_tag
 ```
 
-The current candidate is `2.0.0-rc.8`, cut 2026-07-31 so that the tagged bytes
+The current candidate is `2.0.0-rc.9`, cut 2026-07-31 so that the tagged bytes
 and the first fully green CI run (`30564943060`) are the same bytes. It carries
 the first-rank execution loops 0 through 5 (`CHANGELOG.md` has the entries: release
 truth, receipt-gated state changes, bounded gate manifests, mandatory work
@@ -141,10 +141,10 @@ Until it closes, do not describe this project as `2.0.0` anywhere.
 Tags exist now, so this is the install instruction, not a future one:
 
 ```bash
-git clone --branch v2.0.0-rc.8 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.9 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
-`--branch v2.0.0-rc.8` checks out that exact tag, not a moving branch head. It
+`--branch v2.0.0-rc.9` checks out that exact tag, not a moving branch head. It
 is the current candidate; `python3 tools/bm_project_facts.py --field
 release_tag` prints the tag matching whatever tree you are reading.
 `--depth 1` is optional (a shallow clone of just that tag), included because
@@ -267,7 +267,7 @@ through preparing it.
 
 CURRENT STATE, 2026-07-31, first, because the dated entries under it are a LOG
 and several of them were true only on the day they were written. `VERSION`
-reads `2.0.0-rc.8` and its tag is cut by the founder through GitHub Desktop
+reads `2.0.0-rc.9` and its tag is cut by the founder through GitHub Desktop
 immediately after the release-cut commit; until that moment the pinned clone
 command above does not resolve, the release-truth tests SKIP with a stated
 reason, and this sentence is the honest record of that window. Five earlier

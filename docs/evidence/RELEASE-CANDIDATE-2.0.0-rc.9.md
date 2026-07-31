@@ -1,4 +1,4 @@
-# Release evidence, 2.0.0-rc.8
+# Release evidence, 2.0.0-rc.9
 
 Status: CURRENT as of 2026-07-31.
 
@@ -9,14 +9,14 @@ executed, it says so instead of leaving the gap for a reader to discover.
 
 | Fact | Value |
 |---|---|
-| Tag | `v2.0.0-rc.8`, annotated |
-| Tag object | created at cut time through GitHub Desktop |
-| Commit | the rc.8 release-cut commit named in CHANGELOG |
+| Tag | `v2.0.0-rc.9`, annotated |
+| Tag object | annotated, created through GitHub Desktop |
+| Commit | the rc.9 release-cut commit, which is also the commit that sets VERSION |
 | Branch | `main`, remote equals local at cut time (`0 0` ahead/behind) |
-| `VERSION` | `2.0.0-rc.8` |
-| `pyproject.toml` | `2.0.0rc8` (PEP 440 spelling of the same release) |
+| `VERSION` | `2.0.0-rc.9` |
+| `pyproject.toml` | `2.0.0rc9` (PEP 440 spelling of the same release) |
 | Checksum manifest | 156 entries, regenerated last, after every other edit |
-| Supersedes | `v2.0.0-rc.7` (superseded: sound and green, but predates the loop estimate ledger), `v2.0.0-rc.6` (superseded, not withdrawn: sound, but tagged before the Windows fix) and `v2.0.0-rc.5` (WITHDRAWN, see below) |
+| Supersedes | `v2.0.0-rc.8` (superseded: its tag pointed two commits past its own version bump, so two commits claimed one version), `v2.0.0-rc.7` (superseded: sound and green, but predates the loop estimate ledger), `v2.0.0-rc.6` (superseded, not withdrawn: sound, but tagged before the Windows fix) and `v2.0.0-rc.5` (WITHDRAWN, see below) |
 
 ## Local gate, run after the last edit
 
@@ -33,8 +33,8 @@ tag exists were ACTIVE for this run. That is why the skip count is 1 rather than
 ## Clean install from the published tag, executed against rc.7
 
 ```
-git clone --branch v2.0.0-rc.8 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git
-cat VERSION                  -> 2.0.0-rc.8
+git clone --branch v2.0.0-rc.9 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git
+cat VERSION                  -> 2.0.0-rc.9
 sh scripts/verify-install.sh -> 158 file(s) match, 0 mismatched, 0 missing,
                                 0 wrong type, 0 extra
 ```
@@ -92,6 +92,39 @@ The three tests added assert the property on EVERY platform (strip the
 platform's own quoting and an absolute path must remain), so a POSIX box catches
 a future regression too. One neighbouring test had been passing on Windows for
 the wrong reason and is now platform-aware.
+
+## Gate conditions, recorded beside the verdict
+
+Adopted at a parallel session's recommendation, and it is the more useful half of
+this document. A green recorded without its conditions is the failure that stream
+wrote up as green-only-on-the-machine-that-wrote-it.
+
+`test_all: 1215 tests across 8 suites, 1 skipped, 385.2s wall. ALL GREEN` was
+measured on an UNLOADED machine. The same suites on a heavily loaded machine ran 3
+to 11 times slower (`test_bm_docs` 50.3s to 575.7s, `test_bm_store` 68.6s to 584.5s
+in a parallel session's run of this same tree) and still passed.
+
+## An unreproduced failure, recorded rather than resolved
+
+A parallel session saw `test_bm.py` FAIL once at rc.7 on a loaded machine. It has
+not been reproduced since, including in a later run under MUCH heavier load which
+should have failed harder and did not. Its own captured failure text pointed at
+telemetry rating and rework lines, which are trailing stdout that appears in
+PASSING runs too, so it identifies nothing.
+
+Status: UNREPRODUCED AND UNEXPLAINED, one sighting. Not called a flake, because the
+evidence does not carry that label, and not called fixed.
+
+**A DIFFERENT, separately reproduced defect was found and fixed in the same area,
+and the two must not be merged into one tidy story.**
+`TestLoop12RedactionIsLinearInInputSize.test_a_run_of_underscores_does_not_blow_up_either`
+was a bare `assertLess(self._time("_" * 32000), 2.0)` with no baseline, so it
+measured the machine rather than the algorithm. Reproduced here: 0.198s unloaded,
+past 2.0s under five busy processes, with `test_bm.py` taking 1023s against a normal
+40 to 90. It now asserts the RATIO (linear is about 4x on a 4x input, quadratic
+about 16x, ceiling 8x), calibrated in both directions and green three times under
+the load that broke it. Whether this is the defect the other session saw is UNKNOWN,
+because that sighting's test id was never captured.
 
 ## What this release does NOT prove
 

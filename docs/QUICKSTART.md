@@ -17,7 +17,7 @@ the tag is generated from the same release fact every other page reads
 hand, and `tools/test_bm_docs.py` fails this page if it ever disagrees.
 
 ```bash
-git clone --branch v2.0.0-rc.8 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.9 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 Expected: git prints a few lines ending in something like `Resolving deltas:
