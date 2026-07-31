@@ -35,6 +35,21 @@ and what belongs in it. The short version: `ARCHITECTURE.md` for the one-page
 technical map, `decisions/` for why past choices were made, `docs/` for the
 fuller requirements, process, QA gate, and data model detail.
 
+## How a project here starts and ends
+
+Two documents bracket every project built from this template:
+
+- `CANVAS.md` is filled in at kickoff, before real work starts. It is the
+  one-page agreement on the outcome, what is included and excluded, the
+  success checks, and the initial forecast. Once you approve it, it is the
+  project's source of direction.
+- `DELIVERY-PACKET.md` is filled in at delivery. It says what was actually
+  delivered, how it was verified after the final edit, what an independent
+  review found, and how to roll back if something goes wrong.
+
+Everything between those two documents (the day-to-day files above) exists to
+get honestly from the first one to the second one.
+
 ## How to run this, verified
 
 <Every command here must actually have been run and its output checked before

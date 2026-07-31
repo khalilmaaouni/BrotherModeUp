@@ -1,0 +1,65 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/tools/bm_sessionstart.sh\"",
+            "timeout": 30,
+            "statusMessage": "Loading your project memory"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_telemetry.py\" outcomes-append",
+            "timeout": 30,
+            "statusMessage": "Saving the session record"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_telemetry.py\" stop-warn",
+            "timeout": 15,
+            "statusMessage": "Checking for unfinished work"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_autosave.py\" precompact; printf %s \"$p\" | python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_telemetry.py\" precompact-brief'",
+            "timeout": 60,
+            "statusMessage": "Saving your work before the context is condensed"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_fence_hook.py\"",
+            "timeout": 10,
+            "statusMessage": "Checking that only one worker edits this file"
+          }
+        ]
+      }
+    ]
+  }
+}
