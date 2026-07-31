@@ -163,6 +163,10 @@ find "$TARGET" ! -type d \
     ! -path "$TARGET/threads/*" \
     ! -path "$TARGET/.superpowers" \
     ! -path "$TARGET/.superpowers/*" \
+    ! -path "$TARGET/Documentation" \
+    ! -path "$TARGET/Documentation/*" \
+    ! -path "$TARGET/.claude" \
+    ! -path "$TARGET/.claude/*" \
     ! -name '.DS_Store' \
     ! -name '*.bak*' \
     ! -name 'STATE.md' \

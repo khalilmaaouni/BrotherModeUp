@@ -68,7 +68,9 @@ person was not sure about.
   What is still NOT proven: the failure-artifact upload path, which needs a
   deliberately broken build on a temporary branch; and that green stays green,
   since the Windows fix was verified by CI rather than on a Windows machine here.
-  Full per-job table: `docs/evidence/RELEASE-CANDIDATE-2.0.0-rc.6.md`.
+  Full per-job table: the current release evidence file in `docs/evidence/`
+  (the rc.6 file this line used to cite was renamed forward at each
+  release cut; `docs/evidence/RELEASE-CANDIDATE-2.0.0-rc.9.md` carries it now).
 - **The remaining CI-equivalence gap.** Every refusal in `tools/test_all.py` was
   proven by running it on one machine. The first push to a branch CI watches is what turns
   that from designed to demonstrated.

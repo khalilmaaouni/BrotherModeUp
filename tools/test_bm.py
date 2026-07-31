@@ -5330,6 +5330,60 @@ class TestP17PackagingManifestMatchesTheRepository(unittest.TestCase):
             "standard library only")
 
 
+class TestTheGuidedLoopLawIsWrittenAndWired(unittest.TestCase):
+    """Ratified 2026-08-01: guidance and judgment sit on the strongest
+    capability profile, execution routes down to the cheapest profile that
+    passes the done-check. That routing only survives if it is written law
+    that other pages point at, not a preference one session remembered. This
+    suite pins the three places the law must exist and agree: the delegation
+    reference that states it, the beginner conductor that translates it, and
+    the profiles reference that carries the routing language it uses. Any of
+    the three drifting silently is exactly the failure this project logs as
+    a rule in a prompt rather than a control that runs."""
+
+    ROOT = os.path.dirname(HERE)
+
+    def _text(self, *parts):
+        path = os.path.join(self.ROOT, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "%s is missing; the guided-loop law cannot be "
+                        "checked and must not be assumed" % os.path.join(*parts))
+        return _read(path)
+
+    def test_the_delegation_reference_states_the_loop_and_its_stages(self):
+        text = self._text("references", "delegation.md")
+        self.assertIn("## The guided loop", text,
+                      "references/delegation.md lost the guided-loop section")
+        for stage in ("GUIDE.", "EXECUTE.", "VERIFY.", "LAND."):
+            self.assertIn(stage, text,
+                          "the guided loop lost its %s stage" % stage.rstrip("."))
+        self.assertIn("Escalation rule", text,
+                      "the loop without its escalation rule loops a failing "
+                      "executor forever, which is the defect the rule exists "
+                      "to prevent")
+
+    def test_the_beginner_conductor_points_at_the_loop_in_plain_language(self):
+        text = self._text("skills", "brotherme", "SKILL.md")
+        self.assertIn("guided loop", text,
+                      "the beginner conductor no longer mentions the guided "
+                      "loop; the beginner surface and the expert law have "
+                      "come apart")
+        self.assertIn("references/delegation.md", text,
+                      "the beginner conductor must point at the file that "
+                      "holds the loop law, not restate it")
+        self.assertIn("picking the right helper for the job", text,
+                      "the plain-language name for the loop is bound by "
+                      "references/terminology.md and must appear verbatim")
+
+    def test_the_profiles_reference_carries_the_routing_language(self):
+        text = self._text("references", "profiles.md")
+        for profile in ("Navigator", "Builder", "Reviewer", "Fast Worker",
+                        "Vision Worker", "Researcher"):
+            self.assertIn(profile, text,
+                          "references/profiles.md lost the %s profile the "
+                          "guided loop routes by" % profile)
+
+
 class TestP18FixApprovalReferenceIsTheFoundersOwn(unittest.TestCase):
     """LOOP P18-fix. The launch drafts say a correction becomes a rule only
     when you approve it by hand WITH A REASON RECORDED. The store enforced

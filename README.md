@@ -12,31 +12,44 @@ the technical detail stays out of the way until you ask for it.
 
 ## Quick start
 
-The full, copy-pasteable, ten-minute path, with the expected output of every
-command, is [`docs/QUICKSTART.md`](docs/QUICKSTART.md). The short version:
-this clones an immutable, tagged release, not a moving branch, because code
-that runs automatically on every future session should come from a fixed,
-checkable snapshot; a moving branch feeding auto-run code was the weakest
-link the original external audit named.
+Two ways in. The plugin way is two lines and no folders; the pinned clone is
+the path that has been proven end to end the most times. The full,
+copy-pasteable, ten-minute walkthrough with the expected output of every
+command is [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
+
+**The plugin way (two lines, inside Claude Code).** This repository is its
+own plugin marketplace: add it once, install from it, and the six /brotherme
+commands, the guided skill, and the five hooks register on the next start.
+Upgrading later is one `/plugin` update from the same source; uninstalling
+removes the plugin and leaves your project data and vault untouched.
+
+```
+/plugin marketplace add khalilmaaouni/BrotherModeUp
+/plugin install brotherme@brotherme-marketplace
+```
+
+Honest label: this path has been installed exactly once, on the author's
+machine, from a local copy of this repository (cycle recorded in
+docs/evidence/2026-07-31-first-plugin-install.md, including `claude plugin
+validate` passing). The GitHub form above is the same mechanism pointed at
+this repository; no install from GitHub or from another machine has been
+recorded yet, which is exactly what keeps this release a candidate.
+
+**The pinned clone (the most-proven path).** This clones an immutable, tagged
+release, not a moving branch, because code that runs automatically on every
+future session should come from a fixed, checkable snapshot; a moving branch
+feeding auto-run code was the weakest link the original external audit named.
 
 ```bash
-git clone --branch v2.0.0-rc.9 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.10 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 That tag is not typed by hand: it is generated from the same release fact
 every other page reads (`python3 tools/bm_project_facts.py --field
 release_tag`), and `tools/test_bm_docs.py` fails if this page ever disagrees
-with it.
-
-A Claude Code plugin install path, with no cloning and no JSON editing, is
-new in this release. It has been installed exactly once: on the author's
-machine, from a local copy of this repository, cycle recorded in
-docs/evidence/2026-07-31-first-plugin-install.md. No install from GitHub or
-another machine yet. The guided beginner layer (the six /brotherme commands and the
-guided skill) is designed to load through the plugin path; on this project's
-own machine a clone carrying the plugin manifest also registered it in a live
-session (one observation, not a verified install path). The pinned clone
-above remains the verified install path.
+with it. Do not run both paths at once on one machine: the plugin wires the
+same five hooks the clone's installer wires, so a machine carrying both runs
+every hook twice (docs/KNOWN-LIMITS.md records this; pick one).
 `docs/QUICKSTART.md` describes both and labels their status honestly.
 
 Working on BrotherMode's own code, rather than just using it? Use the
