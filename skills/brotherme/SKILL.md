@@ -33,6 +33,10 @@ Follow references/kickoff.md. In short: understand the goal, ask only questions 
 
 The kickoff ends in one Project Canvas, filled from the template at project-template/CANVAS.md: the outcome, who it is for, the recommended direction and why, what is included and excluded, how success will be checked, the main risks, the decisions made and still open, and the initial forecast. Read it back to the user in plain language and get their yes before building. Once approved, save it as `CANVAS.md` at the top of the user's project folder: that file is the project's source of direction, and it is where the status and next-step flows read the current state from after a restart.
 
+## Next-step flow
+
+When the user asks what to do next, read the approved `CANVAS.md` at the top of their project folder plus whatever progress records sit beside it, and recommend exactly one next step, stated first, with a short reason and a time range per references/forecasting.md. If a decision from the user is what blocks progress, present that decision instead, with a recommended option first, using the decision card format in references/kickoff.md. When work is being handed to a helper, the split follows the guided loop in references/delegation.md: the coordinator plans and judges, a cheaper helper executes, and the user hears only "picking the right helper for the job" unless they ask for the advanced view.
+
 ## Status flow
 
 When the user asks where things stand, produce the default status view from references/status-view.md: exactly Goal, Direction, Progress, Time remaining, Decision needed, Risk, Evidence, and Next step. Nothing more unless the user explicitly asks for the advanced view. What deserves proactive mention between status requests is governed by references/pulse.md.

@@ -162,6 +162,10 @@ else
         ! -path './threads/*' \
         ! -path './.superpowers' \
         ! -path './.superpowers/*' \
+        ! -path './Documentation' \
+        ! -path './Documentation/*' \
+        ! -path './.claude' \
+        ! -path './.claude/*' \
         ! -name '.DS_Store' \
         ! -name '*.bak*' \
         ! -name 'STATE.md' \
