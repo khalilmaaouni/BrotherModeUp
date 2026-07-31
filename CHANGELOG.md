@@ -1,6 +1,24 @@
 # Changelog
 
-## 2.0.0-rc.8, 2026-07-31: the loop estimate ledger lands, and the gate finds a privacy hole in it
+## 2.0.0-rc.9, 2026-07-31: one commit is the release, because the release-truth test refused two
+
+Same content as rc.8 plus the linearity fix, cut again so that the tag and VERSION
+name the SAME commit.
+
+rc.8 was tagged at 284d786, two commits past the commit that set VERSION to
+2.0.0-rc.8 (d9410c7), on the reasoning that the tag should carry the flake fix rather
+than predate it. That reasoning was right about the fix and wrong about the tag: it
+left TWO commits both claiming to be 2.0.0-rc.8, which is the ambiguity a version
+number exists to prevent.
+
+`test_the_tag_points_at_the_intended_release_commit`, added in Loop 1 that morning,
+refused it in exactly those words: "the tag and VERSION disagree about which commit
+is the release". The test was right. The published rc.8 tag stays where it is,
+because deleting a published tag is the failure this project refuses on principle;
+it is SUPERSEDED, and rc.9 is the cut where the version bump and the fix travel
+together.
+
+## 2.0.0-rc.8, 2026-07-31 (SUPERSEDED): the loop estimate ledger lands, and the gate finds a privacy hole in it
 
 `tools/bm_ledger.py` and its suite arrive from the live installed skill, where another
 session built them to a founder directive: declare a loop's expected minutes and
