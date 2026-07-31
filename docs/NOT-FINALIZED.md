@@ -363,6 +363,24 @@ Remaining: a one-command installer, hooks written by the installer rather than b
 hand, and a Windows-native hook dispatcher, since the documented install path is
 still shell-dependent.
 
+CORRECTED 2026-08-01. This item said Phase 3 was not started. Part of it has since
+shipped, and part of what it asked for is still genuinely open.
+
+What shipped: a one-command installer and uninstaller, both tested, at
+scripts/install.py, scripts/uninstall.py and tools/test_install.py; these write the
+hooks rather than asking a founder to hand-edit settings.json, which is the specific
+gap this item named. Separately, on 2026-08-01, a Claude Code plugin packaging
+merged into main: .claude-plugin/plugin.json, .claude-plugin/marketplace.json,
+hooks/hooks.json, skills/brotherme/ and six commands under commands/. That gives a
+second, no-cloning install path alongside the tagged-clone one.
+
+What is still honestly open: the plugin path has been installed exactly once, on
+the author's own machine, from a local copy of the repository, not from GitHub (see
+docs/evidence/2026-07-31-first-plugin-install.md). No install from GitHub has
+happened yet, and no external user has ever installed either path. The
+Windows-native hook dispatcher this item also asked for is still not built, so the
+documented install path remains shell-dependent on that front.
+
 ## 12. The independent re-audit was never run. DEFERRED.
 
 The plan's Loop 0 was a closing adversarial pass against all 17 findings plus the
