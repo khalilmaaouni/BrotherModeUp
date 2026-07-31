@@ -810,7 +810,7 @@ this project refuses to perform on its own initiative.
 The lesson is the entry itself: it was written from a fetch warning rather than
 from a comparison, and the comparison took one command.
 
-## 24. The two intermittent failures from the 2026-07-30 handover could NOT be reproduced. UNDECIDABLE, 2026-07-31.
+## 24. The two handover flakes were not reproduced, but a THIRD load-sensitive failure was found and FIXED. 2026-07-31.
 
 The handover named two flakes and asked for deterministic interleaves rather than
 retries. Neither could be reproduced tonight, and neither is claimed fixed.
@@ -832,6 +832,37 @@ that suite now. Either it was renamed or removed between the handover and today.
 Recorded as UNDECIDABLE rather than closed. Anyone seeing a single red run of the
 store suite should re-run before believing it, and should capture the failing test
 name, which the CI annotation wrapper added today now does automatically.
+
+**A THIRD load-sensitive failure, in `test_bm.py`, WAS reproduced and IS fixed.**
+Surfaced by a parallel session reporting the rc.7 gate red on a loaded machine,
+then reproduced here under five busy processes: `test_bm.py` took 1023 seconds
+against a normal 40 to 90, and
+`TestLoop12RedactionIsLinearInInputSize.test_a_run_of_underscores_does_not_blow_up_either`
+failed. Unloaded, the same class runs in 0.198 seconds.
+
+The test was a bare stopwatch, `assertLess(self._time("_" * 32000), 2.0)`, with no
+baseline, so it measured the MACHINE rather than the algorithm. It also violated the
+principle its own class docstring states two lines above it: "A wall-clock budget is
+a blunt instrument, so this asserts the SHAPE." Its sibling already followed that
+rule and carries a comment saying its ceiling is loose "so a busy machine cannot fail
+this"; this one had no such protection.
+
+**The first fix was wrong, and calibration is what caught it.** Rewriting it in the
+sibling's shape, `assertLess(large, max(small, 0.005) * 40)`, was tried and a
+deliberately reinjected quadratic redactor PASSED it: a quadratic inflates the small
+measurement too, so a ceiling derived from `small` rises with the very defect it
+exists to catch. Measured: linear gave 0.069s and 0.193s, a 2.8x ratio; quadratic
+gave 0.208s and 3.243s, a 15.6x ratio, and 3.243 still sat under its 8.3s ceiling.
+
+The assertion is now on the RATIO itself, which no defect can inflate: 4x the input
+is about 4x the work when linear and about 16x when quadratic, ceiling 8x. Calibrated
+both ways (linear 2.4x passes, reinjected quadratic 8.7x fails) and confirmed green
+three times under the five-process load that produced the original failure.
+
+**The same weakness remains in the sibling `test_quadratic_blowup_is_gone`**, which
+still derives its ceiling from `small`. It has not failed, and it was left alone
+rather than changed on the same day its neighbour was, but it is the identical shape
+and should move to a ratio next time that file is opened.
 
 ## What is genuinely finished
 
