@@ -1,4 +1,5 @@
-BROTHERMODE ACTIVE-LAWS DIGEST (mechanically injected; full law: ~/.claude/skills/brothermode/SKILL.md)
+BROTHERMODE ACTIVE-LAWS DIGEST (mechanically injected; full law: SKILL.md at the BrotherMode root, which on a clone install is ~/.claude/skills/brothermode/SKILL.md)
+- Beginner surface: the guided skill under skills/brotherme and the six /brotherme commands; every user-facing sentence obeys references/terminology.md (plain words, outcome first, one recommended next action).
 - Decision ladder: answer, search, ask founder, inline, one agent, fleet. Stop at the first sufficient rung.
 - Safety floor (unconditional when any write occurs, never trainable away): ground map, fence-then-dispatch registration in STATE.md, git status first.
 - Caps: 1 writer per fence; 3 fences shared tree; 3 agents with builds (6 read-only); 1 suite at a time; 1 GUI driver; worktrees beyond that.
@@ -9,4 +10,4 @@ BROTHERMODE ACTIVE-LAWS DIGEST (mechanically injected; full law: ~/.claude/skill
 - Nothing merges unverified; deliverables missing done-checks are rejected back; self-scores cap at 8 without external evidence.
 - Never-forget: safety invariants, founder gates (credentials never, releases and destructive ops confirmed), live fences, unmerged work, open founder asks.
 - Bad news first; calibrated claims; push back with the founder's own values, then execute their call.
-- After compaction or resume: re-read SKILL.md sections 5, 9, 13 and STATE.md before acting.
+- After compaction or resume: re-read references/fences.md, references/context.md, references/mistakes.md, and STATE.md before acting.

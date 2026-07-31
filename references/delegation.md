@@ -2,7 +2,7 @@
 
 LOAD WHEN: deciding whether to delegate to an agent or fleet, picking a model tier, or setting a token budget for a phase or agent.
 
-(Extracted verbatim from SKILL.md sections 3, 4; see SKILL.md for the full law.)
+(Extracted from SKILL.md sections 3, 4 and since extended in place with capability-profile routing and the assignment explanation; this file is the full law for delegation.)
 
 ## 3. Delegation, the decision ladder, and model routing
 Not everything is an agent. Climb this ladder and stop at the first rung that
@@ -31,11 +31,20 @@ tool calls; T2 scoped comparison or fix = 2-4 subagents, 10-15 calls each; T3 fu
 audit = 10+ subagents with divided fenced scopes. PARALLEL WAVE LAW (measured up to
 90 percent time cut): independent read-only or disjointly-fenced subagents launch
 as ONE wave, never serially (build-contenders still cap at 3); independent tool
-calls batch in one message. Model tiers: haiku for mechanical bulk (effort low),
-sonnet for well-scoped search and routine implementation from a precise spec, opus
-for architecture, hard debugging, adversarial review, judging, and synthesis
-(effort medium; high only for the hardest verify and judge stages). Unclear:
-inherit the session default.
+calls batch in one message. ROUTING IS BY CAPABILITY PROFILE, never by a
+hard-coded model version name (the six profiles and the user's quality policy
+live in references/profiles.md): Fast Worker for mechanical or low-risk bulk
+(effort low); Builder for well-scoped search and routine implementation from a
+precise spec; Navigator for architecture, hard debugging, and difficult
+tradeoffs; Reviewer for adversarial review, judging, and synthesis (effort
+medium; high only for the hardest verify and judge stages); Researcher for
+current or external evidence gathering; Vision Worker for anything judged by
+looking at rendered output. Each runtime maps the profiles to whatever models
+it currently offers. Per-runtime mapping example, Claude Code as configured on
+this machine today (an example of a mapping, never the routing law itself):
+Fast Worker maps to haiku, Builder and Researcher map to sonnet, Navigator and
+Reviewer map to opus. Unclear which profile fits: inherit the session default
+model rather than guessing.
 Every brief stands alone: goal, exact readable and writable files, the fence, the
 constraints, the return format, a runnable done-check, and its token budget. A brief
 that cannot name its files is not ready; explore first. Two additions proven by
@@ -47,6 +56,39 @@ match reality), and the orchestrator RE-RUNS each done-check rather than trustin
 Read-only work fans out in parallel; IMPLEMENTATION STAYS SERIAL, one writer, because
 parallel implementers on shared files produce exactly the collisions the fence exists
 to prevent.
+
+## Assignment explanation, a mandatory section of every brief
+
+Before any task is dispatched, the assignment answers these five questions,
+and the user-facing version of the answers uses plain language
+(references/terminology.md):
+
+```text
+Who or what is doing this?
+Why is this the right worker?
+What can it change?
+How will its work be checked?
+Who accepts the result?
+```
+
+Example, in the shape status and pulse views reuse:
+
+```text
+Task: Validate the database migration
+Builder: Claude Code subagent / Builder profile
+Why: Strong repository editing and test execution support
+Write scope: migrations/ and migration tests only
+Reviewer: a separate Claude Code session / Reviewer profile
+Acceptance: clean migration on an empty and populated database
+Human gate: required before production apply
+```
+
+An assignment that cannot answer all five is not ready to dispatch.
+Cross-runtime dispatch (for example a Codex CLI builder) stays out of worked
+examples until a runtime other than Claude Code has been driven end to end;
+docs/RUNTIMES.md records what is verified where. This
+section adds a required explanation on top of the brief law above; it changes
+nothing about fences, budgets, or caps.
 
 THE METHOD SPINE, in order, with the mechanic that dies first if only the idea
 survives: BRAINSTORM to an approved written design before any creative or structural

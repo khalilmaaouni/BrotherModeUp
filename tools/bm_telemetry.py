@@ -1088,7 +1088,7 @@ def cmd_startup_nags():
     active = {r.get("ts", "")[:10] for r in led if 0 < (age_days(r.get("ts", "")) or 99) <= 3}
     missing = sorted(d for d in active if d and d not in log_days and d != today)
     if missing:
-        print("BROTHERMODE NAG: active day(s) %s have no vault session log; backfill or waive with a note."
+        print("BROTHERMODE NAG: active day(s) %s have no session log in project memory; backfill or waive with a note."
               % ", ".join(missing))
 
 
@@ -1128,8 +1128,8 @@ def cmd_stop_warn():
     except OSError:
         return
     print(json.dumps({"systemMessage":
-        "BrotherMode: substantial session, no vault session log written today. "
-        "Write the log before closing (vault law), or note why it is not needed."}))
+        "BrotherMode: substantial session, but no session log written to project memory today. "
+        "Write the log before closing, or note why it is not needed."}))
 
 
 def cmd_registry_check(argv):

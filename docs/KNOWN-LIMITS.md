@@ -580,3 +580,34 @@ The original external audit contained 63 findings. Twenty-two were reproduced by
 execution. The remainder were triaged into phases by class rather than each being
 re-proven. If one of them matters to a decision, re-verify it rather than trusting
 this file.
+
+## The plugin install path and the beginner layer: brand new, never installed
+
+Added 2026-07-31 on the beginner-first branch. The facts, stated so the
+QUICKSTART honesty label has a register entry behind it:
+
+- The Claude Code plugin packaging (`.claude-plugin/plugin.json`, the
+  repository marketplace manifest, `hooks/hooks.json`, the six `/brotherme`
+  commands, and the guided skill at `skills/brotherme/`) is new. Nobody has
+  installed BrotherMode through it yet, including the author. No install
+  evidence exists under `docs/evidence/` for this path.
+- The marketplace install command only works once these files exist on the
+  branch or tag the marketplace add fetches. If your copy predates them, the
+  command fails; that is a missing-files condition, not a broken machine.
+- `hooks/hooks.json` mirrors the same five hook events `scripts/install.py`
+  wires into `settings.json`, but the plugin-managed wiring has never been
+  exercised end to end. The `scripts/install.py` path is the exercised one.
+- How the guided layer loads is only partly proven. On this project's own
+  machine, a working copy at `~/.claude/skills/brothermode` that contains the
+  plugin manifest, the commands, and the guided skill DID register all six
+  `/brotherme` commands and the guided skill in a live Claude Code session on
+  2026-07-31 (one observation, one machine, one Claude Code version). No
+  fresh-machine install of either path has demonstrated the guided layer yet;
+  treat reachability as promising, not verified.
+- There is no first-run wizard. The guided skill is instructed to ask where
+  private project memory should live before writing there, but the automatic
+  session records (hooks) default to `~/BrotherModeVault` on their own the
+  first time they fire, without asking. Moving that means setting the
+  `BROTHERMODE_VAULT` environment variable, which is exactly the kind of step
+  the beginner path exists to remove. A real first-run setup is designed
+  (`docs/specs/canonical-project-protocol.md` is the direction) but not built.
