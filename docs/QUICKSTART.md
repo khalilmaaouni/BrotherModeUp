@@ -7,9 +7,12 @@ publication. Pick one; do not do both.
 
 ## Path 1: install as a plugin (the simple way)
 
-Honesty label, read this first: this install path is brand new. Nobody has
-installed BrotherMode this way yet, including the author; you would be the
-first, and this page will say so until a real install has been recorded. It
+Honesty label, read this first: this install path has been installed exactly
+once: on the author's machine on 2026-07-31, from a local copy of this
+repository rather than from GitHub, with the full add, install, verify,
+uninstall cycle recorded in docs/evidence/2026-07-31-first-plugin-install.md
+(all seven skills and five hooks registered). Nobody has installed it from
+GitHub or on any other machine yet. It
 also ships more than new packaging: the guided beginner layer (the six
 /brotherme commands and the guided skill) is new in this release and is
 designed to load through this path; on this project's own machine a clone
