@@ -1,4 +1,4 @@
-# Release evidence, 2.0.0-rc.7
+# Release evidence, 2.0.0-rc.8
 
 Status: CURRENT as of 2026-07-31.
 
@@ -9,20 +9,20 @@ executed, it says so instead of leaving the gap for a reader to discover.
 
 | Fact | Value |
 |---|---|
-| Tag | `v2.0.0-rc.7`, annotated |
-| Tag object | `48168e31f193` (annotated) |
-| Commit | `d6c70b3e9e5040255512606e7d948e97d6358816` |
+| Tag | `v2.0.0-rc.8`, annotated |
+| Tag object | created at cut time through GitHub Desktop |
+| Commit | the rc.8 release-cut commit named in CHANGELOG |
 | Branch | `main`, remote equals local at cut time (`0 0` ahead/behind) |
-| `VERSION` | `2.0.0-rc.7` |
-| `pyproject.toml` | `2.0.0rc7` (PEP 440 spelling of the same release) |
+| `VERSION` | `2.0.0-rc.8` |
+| `pyproject.toml` | `2.0.0rc8` (PEP 440 spelling of the same release) |
 | Checksum manifest | 156 entries, regenerated last, after every other edit |
-| Supersedes | `v2.0.0-rc.6` (superseded, not withdrawn: sound, but tagged before the Windows fix) and `v2.0.0-rc.5` (WITHDRAWN, see below) |
+| Supersedes | `v2.0.0-rc.7` (superseded: sound and green, but predates the loop estimate ledger), `v2.0.0-rc.6` (superseded, not withdrawn: sound, but tagged before the Windows fix) and `v2.0.0-rc.5` (WITHDRAWN, see below) |
 
 ## Local gate, run after the last edit
 
 ```
 python3 tools/test_all.py
-test_all: 1194 tests across 7 suites, 1 skipped, 321.9s wall. ALL GREEN
+test_all: 1215 tests across 8 suites, 1 skipped, 385.2s wall. ALL GREEN
 exit 0
 ```
 
@@ -33,8 +33,8 @@ tag exists were ACTIVE for this run. That is why the skip count is 1 rather than
 ## Clean install from the published tag, executed against rc.7
 
 ```
-git clone --branch v2.0.0-rc.7 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git
-cat VERSION                  -> 2.0.0-rc.7
+git clone --branch v2.0.0-rc.8 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git
+cat VERSION                  -> 2.0.0-rc.8
 sh scripts/verify-install.sh -> 158 file(s) match, 0 mismatched, 0 missing,
                                 0 wrong type, 0 extra
 ```
