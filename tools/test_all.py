@@ -89,6 +89,10 @@ SUITES = (
     "test_install.py",
     "test_bm_runtimes.py",
     "test_bm_autosave.py",
+    # The loop estimate ledger, landed from the live install 2026-07-31. Early
+    # for the same reason as the docs suite: it is fast and it fails on one of
+    # its own three laws rather than on timing.
+    "test_bm_ledger.py",
     "test_bm.py",
 )
 
