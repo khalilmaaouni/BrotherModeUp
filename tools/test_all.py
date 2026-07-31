@@ -64,6 +64,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -447,6 +448,84 @@ def _discover():
     return known, unlisted, missing
 
 
+def _run_until_silent(path, silence_limit):
+    """Run a suite, killing it only when it STOPS PRODUCING OUTPUT.
+
+    CHANGED 2026-07-31, and the reason is the same one that produced two test
+    fixes earlier the same day: a bare wall-clock budget measures the MACHINE,
+    not the code. The old rule killed any suite whose TOTAL runtime passed the
+    limit, so on a machine running six sessions a suite that normally takes 40
+    to 90 seconds was killed at 907 seconds while its output showed tests still
+    passing, on two different machines within an hour. A red that names no
+    defect is worse than a slow green: it teaches the reader to re-run instead
+    of to read.
+
+    The distinction that fixes it: a HANG is a suite that stops progressing,
+    and that is observable, while slowness is not a defect at all. unittest
+    emits a line per test, so silence is the signal and elapsed time is noise.
+    A genuinely wedged suite still trips this, at the same limit as before,
+    because a wedged suite emits nothing.
+
+    HOW THE LIMIT IS DERIVED, because the obvious next mistake is to lower it.
+    Silence between lines is ONE TEST'S RUNTIME, and that is exactly as
+    load-sensitive as the total was. Shortening this number reintroduces the
+    same defect one level down: a test that takes 8s unloaded takes 400s at
+    load 50, and a 60s or 120s limit would kill it and print STOPPED
+    PROGRESSING just as wrongly as the old message did, only sooner and with
+    more confidence.
+
+    So the limit is: the slowest SINGLE test in the slowest suite, times the
+    worst load multiple worth tolerating. Both halves are measured, not felt.
+    Load multiples actually observed on 2026-07-31 with six sessions on one
+    box: the store suite 12.4s to 584.5s (47x) and the docs suite 15s to 670.7s
+    (45x). A 45x design margin is therefore ordinary here, not paranoid.
+
+    900s is KEPT unchanged for that reason: it clears a 45x multiple on a 20s
+    test. Nobody has yet measured the slowest single test, so nobody has earned
+    the right to lower it. The cheap measurement when someone wants the real
+    number: run one suite with -v on a QUIET machine and take the largest gap
+    between consecutive test lines. That figure, times the multiple you choose
+    on purpose, is the limit.
+
+    Returns (ok, output, timed_out). Never raises for a suite that merely runs
+    long. Reads incrementally on a thread so a suite writing a lot cannot fill
+    the pipe buffer and deadlock, which plain Popen.wait() would allow."""
+    proc = subprocess.Popen(
+        [sys.executable, path], cwd=HERE,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        universal_newlines=True, bufsize=1)
+    chunks = []
+    last = [time.time()]
+
+    def _pump():
+        for line in iter(proc.stdout.readline, ""):
+            chunks.append(line)
+            last[0] = time.time()
+        try:
+            proc.stdout.close()
+        except Exception:
+            pass
+
+    pump = threading.Thread(target=_pump)
+    pump.daemon = True
+    pump.start()
+    timed_out = False
+    while True:
+        if proc.poll() is not None:
+            break
+        if time.time() - last[0] > silence_limit:
+            timed_out = True
+            proc.kill()
+            break
+        time.sleep(0.5)
+    pump.join(timeout=10)
+    try:
+        proc.wait(timeout=10)
+    except Exception:
+        pass
+    return (proc.returncode == 0 and not timed_out), "".join(chunks), timed_out
+
+
 def _run_one(name, timeout=None):
     """Run one suite in its own process. Returns (ok, tests, skipped, seconds,
     tail, output). Never raises: a suite that cannot start at all, or hangs, is
@@ -456,29 +535,26 @@ def _run_one(name, timeout=None):
         timeout = DEFAULT_TIMEOUT
     started = time.time()
     try:
-        proc = subprocess.run(
-            [sys.executable, path],
-            cwd=HERE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            universal_newlines=True,
-            timeout=timeout)
+        ok_run, partial, timed_out = _run_until_silent(path, timeout)
     except OSError as exc:
         return (False, 0, 0, time.time() - started,
                 "could not start: %s" % exc, "could not start: %s" % exc)
-    except subprocess.TimeoutExpired as exc:
+    if timed_out:
         # A hung suite used to hang the gate. Report it as a timeout, keep the
         # partial output (it names the last test that started, which is almost
         # always the one that wedged), and carry on with the other suites.
         elapsed = time.time() - started
-        partial = exc.output or ""
-        if isinstance(partial, bytes):
-            partial = partial.decode("utf-8", "replace")
         lines = [ln for ln in partial.splitlines() if ln.strip()]
-        tail = ("TIMED OUT after %.0fs (limit %.0fs), killed. Last output: %s"
-                % (elapsed, timeout,
+        tail = ("STOPPED PROGRESSING: no output for %.0fs (limit %.0fs), killed "
+                "after %.0fs total. Last output: %s"
+                % (timeout, timeout, elapsed,
                    " | ".join(lines[-3:]) if lines else "(none)"))
         return False, 0, 0, elapsed, tail, partial + "\n" + tail + "\n"
+    class _P(object):
+        pass
+    proc = _P()
+    proc.stdout = partial
+    proc.returncode = 0 if ok_run else 1
     elapsed = time.time() - started
     out = proc.stdout or ""
     m = _RAN_RE.search(out)
