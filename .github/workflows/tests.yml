@@ -67,6 +67,11 @@ jobs:
         run: python3 tools/test_install.py
       - name: Run the cross-runtime adapter suite
         run: python3 tools/test_bm_runtimes.py
+      # The loop estimate ledger, landed 2026-07-31. Stdlib only and
+      # filesystem only, so it has no platform constraint; it runs on the POSIX
+      # legs alongside the other suites that arrived the same way.
+      - name: Run the loop estimate ledger suite
+        run: python3 tools/test_bm_ledger.py
   # One serial job that runs the SAME command a loop close runs locally
   # (Loop 9 task 2, answered yes). The split jobs above exist for per-platform
   # evidence and cannot be replaced by this one; this one exists because the
