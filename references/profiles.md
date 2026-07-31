@@ -1,8 +1,8 @@
-# Work-nature profiles and role assignment
+# Work-nature profiles, role assignment, and capability model profiles
 
-LOAD WHEN: work is being classified at the start of a task, to pick its work-nature profile and assign hats.
+LOAD WHEN: work is being classified at the start of a task, to pick its work-nature profile and assign hats, or a worker capability profile is being chosen for routing.
 
-(Extracted verbatim from SKILL.md sections 1, 2; see SKILL.md for the full law.)
+(Extracted from SKILL.md sections 1, 2 and since extended in place with the capability model profiles; this file is the full law for profiles.)
 
 ## 1. Work-nature profiles (adapt everything to the work)
 Pick the closest profile; blend when the task genuinely spans two. The profile sets
@@ -51,4 +51,33 @@ before scoring), Analyst (numbers discipline), Designer (grammar-true beauty),
 Security and privacy officer (data flows, credentials never), Safety officer
 (structural gates for vulnerable users), Editor (voice, locale register), Project
 lead (phases, fences, budgets, the honest Remaining list).
+
+## 3. Capability model profiles (the routing language)
+
+Work is routed to workers by capability, never by a hard-coded model version
+name. Six profiles cover every assignment:
+
+- Navigator: discovery, clarification, architecture, difficult tradeoffs.
+- Builder: implementation and tool use.
+- Reviewer: independent specification and quality review.
+- Fast Worker: mechanical or low-risk tasks.
+- Vision Worker: screenshots, design comparison, visual QA.
+- Researcher: current or external evidence gathering.
+
+The user states one simple quality preference in plain words, and only that:
+
+- Best quality
+- Balanced
+- Economy
+- Use my preferred models
+
+The design is that each runtime maps the six profiles to whatever models it
+currently offers under the chosen preference; the mapping lives with the
+runtime, never in this law. references/delegation.md carries one per-runtime
+mapping example. Honest limit: nothing stores this preference today and no
+automatic mapping mechanism exists. Within a session the coordinator follows
+the stated preference in how it delegates, and that is all that exists;
+docs/specs/canonical-project-protocol.md is the design this grows into. In
+user-facing text this whole mechanism is "picking the right helper for the
+job" (references/terminology.md).
 
