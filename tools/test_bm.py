@@ -3594,16 +3594,35 @@ class TestLoop12RedactionIsLinearInInputSize(unittest.TestCase):
         return time.time() - start
 
     def test_quadratic_blowup_is_gone(self):
-        small = self._time("x " + "B" * 8000)
+        # FIXED 2026-07-31. This test carried BOTH failure modes at once, which
+        # is worse than either alone, and its own comment was half true:
+        #
+        #   assertLess(large, max(small, 0.005) * 40)   CANNOT FAIL for the
+        #     reason it exists. A quadratic inflates `small` too, so a ceiling
+        #     derived from `small` rises with the defect it is meant to catch.
+        #     Demonstrated by reinjecting a quadratic redactor: it produced a
+        #     15.6x ratio, textbook O(n^2), and still sat under its own 8.3s
+        #     ceiling. The old comment claimed this ceiling was "deliberately
+        #     loose so a busy machine cannot fail this", which was true, and
+        #     quietly also meant a busy DEFECT could not fail it either.
+        #
+        #   assertLess(large, 2.0)   CAN FAIL when nothing is wrong. A bare
+        #     wall clock measures the machine. Its neighbour with the identical
+        #     shape failed at 1023s on a five-session machine while the code
+        #     under test was unchanged.
+        #
+        # Both are replaced by the ratio, which no defect can inflate and no
+        # load can move: 4x the input is about 4x the work when linear and
+        # about 16x when quadratic, so 8x separates them with room for noise,
+        # and both timings are taken under whatever load is present so
+        # contention cancels.
+        small = max(self._time("x " + "B" * 8000), 0.001)
         large = self._time("x " + "B" * 32000)
-        # Quadratic would be 16x. Linear is 4x. The ceiling is deliberately
-        # loose so a busy machine cannot fail this, and still an order of
-        # magnitude below the defect.
-        self.assertLess(large, max(small, 0.005) * 40,
+        self.assertLess(large / small, 8.0,
                         "redact() scaling looks superlinear: 8000 chars took "
-                        "%.4fs, 32000 took %.4fs" % (small, large))
-        self.assertLess(large, 2.0,
-                        "32 KB of text took %.2fs to redact" % large)
+                        "%.4fs, 32000 took %.4fs, a %.1fx ratio where linear is "
+                        "about 4x and quadratic about 16x"
+                        % (small, large, large / small))
 
     def test_a_run_of_underscores_does_not_blow_up_either(self):
         # "_" is excluded from the boundary lookbehind on purpose, so it is the
