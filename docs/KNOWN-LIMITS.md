@@ -581,16 +581,23 @@ execution. The remainder were triaged into phases by class rather than each bein
 re-proven. If one of them matters to a decision, re-verify it rather than trusting
 this file.
 
-## The plugin install path and the beginner layer: brand new, never installed
+## The plugin install path and the beginner layer: brand new, installed once
 
 Added 2026-07-31 on the beginner-first branch. The facts, stated so the
 QUICKSTART honesty label has a register entry behind it:
 
 - The Claude Code plugin packaging (`.claude-plugin/plugin.json`, the
   repository marketplace manifest, `hooks/hooks.json`, the six `/brotherme`
-  commands, and the guided skill at `skills/brotherme/`) is new. Nobody has
-  installed BrotherMode through it yet, including the author. No install
-  evidence exists under `docs/evidence/` for this path.
+  commands, and the guided skill at `skills/brotherme/`) is new. It has been installed exactly once: on the
+  author's machine on 2026-07-31, from a local copy of the repository, full
+  cycle in `docs/evidence/2026-07-31-first-plugin-install.md` (in the public
+  repository). No install from GitHub or on any other machine yet. Two
+  defects that first install surfaced: a name collision (a development copy
+  carrying the same manifest name is refused loading while the plugin is
+  installed; the development copy is now named differently) and double
+  wiring (the plugin auto-wires the same five hook events scripts/install.py
+  wires into settings.json, so a machine carrying both runs every hook twice
+  while the plugin is installed; pick one wiring, not both).
 - The marketplace install command only works once these files exist on the
   branch or tag the marketplace add fetches. If your copy predates them, the
   command fails; that is a missing-files condition, not a broken machine.
