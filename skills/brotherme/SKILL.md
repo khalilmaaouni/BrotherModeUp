@@ -47,4 +47,4 @@ When the user asks to wrap up, fill every field of project-template/DELIVERY-PAC
 
 ## Honesty about this product
 
-This plugin install path is new in this release and nobody has installed it yet, including the author; the git-clone install described in the repository README is the verified path. BrotherME is verified on Claude Code only. The file to believe about limits is docs/KNOWN-LIMITS.md inside this installed BrotherME folder; never contradict it or claim beyond it.
+This plugin install path is new in this release and has been installed exactly once, on the author's machine from a local copy of the repository (evidence in docs/evidence/); the git-clone install described in the repository README is the verified path. BrotherME is verified on Claude Code only. The file to believe about limits is docs/KNOWN-LIMITS.md inside this installed BrotherME folder; never contradict it or claim beyond it.
