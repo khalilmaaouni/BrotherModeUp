@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BrotherME, explained simply</title>
+<style>
+  :root {
+    --paper: #FAF8F4;
+    --ink: #22302C;
+    --muted: #5C6B66;
+    --accent: #1D6A5C;
+    --accent-soft: #ECF2EE;
+    --amber: #A8650F;
+    --amber-soft: #F8EFE2;
+    --line: #DDE4E0;
+    --code-bg: #22302C;
+    --code-ink: #E9F0ED;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #101A17;
+      --ink: #E4EBE8;
+      --muted: #93A39D;
+      --accent: #54B8A6;
+      --accent-soft: #17251F;
+      --amber: #E0A55A;
+      --amber-soft: #241B10;
+      --line: #26332E;
+      --code-bg: #0B120F;
+      --code-ink: #D7E4DF;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #101A17;
+    --ink: #E4EBE8;
+    --muted: #93A39D;
+    --accent: #54B8A6;
+    --accent-soft: #17251F;
+    --amber: #E0A55A;
+    --amber-soft: #241B10;
+    --line: #26332E;
+    --code-bg: #0B120F;
+    --code-ink: #D7E4DF;
+  }
+  :root[data-theme="light"] {
+    --paper: #FAF8F4;
+    --ink: #22302C;
+    --muted: #5C6B66;
+    --accent: #1D6A5C;
+    --accent-soft: #ECF2EE;
+    --amber: #A8650F;
+    --amber-soft: #F8EFE2;
+    --line: #DDE4E0;
+    --code-bg: #22302C;
+    --code-ink: #E9F0ED;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Avenir Next", "Segoe UI", -apple-system, sans-serif;
+    line-height: 1.65;
+    font-size: 1.05rem;
+  }
+  main { max-width: 44rem; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+  h1, h2 {
+    font-family: Georgia, "Times New Roman", serif;
+    line-height: 1.2;
+    text-wrap: balance;
+    font-weight: 600;
+  }
+  h1 { font-size: 2.6rem; margin: 0 0 0.5rem; }
+  h2 { font-size: 1.6rem; margin: 3rem 0 0.75rem; color: var(--accent); }
+  p { margin: 0 0 1rem; }
+  .kicker {
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.78rem;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+  }
+  .lede { font-size: 1.2rem; color: var(--muted); margin-bottom: 0; }
+  .rule { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  pre {
+    background: var(--code-bg);
+    color: var(--code-ink);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    font-family: Menlo, Consolas, monospace;
+    font-size: 0.95rem;
+    line-height: 1.7;
+  }
+  .steps { display: grid; gap: 0; margin: 1.5rem 0; border-left: 3px solid var(--accent); }
+  .step { padding: 0.9rem 0 0.9rem 1.25rem; }
+  .step + .step { border-top: 1px solid var(--line); }
+  .step b { color: var(--accent); }
+  .cmds { display: grid; gap: 0.75rem; margin: 1.5rem 0; }
+  .cmd {
+    display: grid;
+    grid-template-columns: minmax(11rem, auto) 1fr;
+    gap: 0.25rem 1.25rem;
+    padding: 0.85rem 1rem;
+    background: var(--accent-soft);
+    border-radius: 8px;
+    align-items: baseline;
+  }
+  .cmd code {
+    font-family: Menlo, Consolas, monospace;
+    font-size: 0.92rem;
+    color: var(--accent);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .cmd span { color: var(--ink); }
+  .limits {
+    background: var(--amber-soft);
+    border-left: 3px solid var(--amber);
+    border-radius: 0 8px 8px 0;
+    padding: 1.25rem 1.5rem;
+    margin: 1.5rem 0;
+  }
+  .limits h2 { color: var(--amber); margin-top: 0; font-size: 1.35rem; }
+  .limits ul { margin: 0; padding-left: 1.2rem; }
+  .limits li { margin-bottom: 0.5rem; }
+  footer {
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  a { color: var(--accent); }
+  @media (max-width: 540px) {
+    h1 { font-size: 2rem; }
+    .cmd { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <p class="kicker">BrotherME for Claude Code</p>
+  <h1>A careful project partner, explained simply</h1>
+  <p class="lede">You describe what you want in plain words. BrotherME plans it with you, does the work with the right helpers, and refuses to call anything finished until a real check has passed.</p>
+
+  <hr class="rule">
+
+  <h2>What it actually is</h2>
+  <p>Claude Code out of the box is a very capable worker that waits for instructions. BrotherME turns it into a careful colleague. Before building anything, it agrees the goal and direction with you. While working, it tells you what is happening in plain language, keeps a written record of decisions and progress that survives crashes and restarts, and brings you bad news first instead of burying it. And when it says something is done, that claim always comes with proof: a check that ran after the last change and passed.</p>
+  <p>You never need to learn the machinery. If you can describe what you want and answer a few plain questions, you can use it.</p>
+
+  <h2>Install it in two lines</h2>
+  <p>Open Claude Code and type these two commands, one at a time:</p>
+  <pre>/plugin marketplace add khalilmaaouni/BrotherModeUp
+/plugin install brotherme</pre>
+  <p>If Claude Code asks which source to install from, pick the one you just added, and restart if it tells you to. That is the whole install. To check it worked, type <code>/brotherme-help</code>. To remove it later, type <code>/plugin uninstall brotherme</code>; your projects and records stay untouched. To upgrade, follow the current QUICKSTART page in the repository, which always carries the exact commands for the newest release.</p>
+
+  <h2>The six commands</h2>
+  <div class="cmds">
+    <div class="cmd"><code>/brotherme-start</code><span>Begin a project. It asks what you want to accomplish and turns your answers into a one-page project brief you approve before anything is built.</span></div>
+    <div class="cmd"><code>/brotherme-status</code><span>Where things stand: goal, progress, time remaining, any decision waiting on you, and the evidence behind each claim.</span></div>
+    <div class="cmd"><code>/brotherme-next</code><span>The single best next step, with a reason and an honest time range.</span></div>
+    <div class="cmd"><code>/brotherme-review</code><span>Checks finished work against a written definition of done, point by point, and never softens a failing point.</span></div>
+    <div class="cmd"><code>/brotherme-deliver</code><span>Wraps up. Delivery requires proof; without a passing check it tells you plainly what remains instead.</span></div>
+    <div class="cmd"><code>/brotherme-help</code><span>Explains what you have and what to do next, in plain words.</span></div>
+  </div>
+
+  <h2>How the work gets done: the guided loop</h2>
+  <p>Under the surface, every piece of delegated work runs through the same four-stage loop. The strongest model available does the thinking and the judging; cheaper, faster models do the labor. You get top-grade judgment without paying top-grade prices for routine work.</p>
+  <div class="steps">
+    <div class="step"><b>1. Guide.</b> The coordinator, on the strongest model, writes precise instructions: what to do, which files may change, and the exact check that will prove success.</div>
+    <div class="step"><b>2. Execute.</b> A cheaper helper does the work. Mechanical jobs go to the fastest tier, scoped building work to the middle tier.</div>
+    <div class="step"><b>3. Verify.</b> A separate reviewer, never the one who did the work, tries to prove the result wrong rather than to confirm it.</div>
+    <div class="step"><b>4. Land.</b> The coordinator re-runs the proving check itself before accepting anything. A pasted result is a claim; the re-run is the evidence.</div>
+  </div>
+  <p>If a helper fails its check twice, the work moves up one grade with the failure attached, instead of looping forever. In everyday language, all of this is just "picking the right helper for the job."</p>
+
+  <h2>What it protects you from</h2>
+  <p>Four everyday failures, each with a built-in guard. Losing work: it saves progress to disk before the AI's memory fills up, so a crash or restart does not lose the thread. Two workers overwriting each other: one writer per file at a time, and a mechanical gate enforces it rather than a promise. Confident nonsense: nothing gets called done without a check that ran and passed after the last change. Quiet scope drift: decisions go through you, one at a time, with a recommended option first.</p>
+
+  <div class="limits">
+    <h2>Honest limits, before you rely on it</h2>
+    <ul>
+      <li>This is release candidate 2.0.0-rc.10, not a finished 2.0.0. The remaining step is real: nobody has yet run it on live day-to-day work for a full week.</li>
+      <li>The two-line install above has been through its full cycle exactly once, on the author's machine. You may be the first person to run it from GitHub. If it misbehaves, the repository's issue page wants to hear about it.</li>
+      <li>It is verified on Claude Code only. Other AI coding tools get advisory files, not enforced guarantees.</li>
+      <li>Use one install path, not both. The plugin and the older clone-based install wire the same automation; a machine carrying both runs everything twice.</li>
+    </ul>
+  </div>
+
+  <h2>Where to go deeper</h2>
+  <p>Everything lives in one repository: <a href="https://github.com/khalilmaaouni/BrotherModeUp">github.com/khalilmaaouni/BrotherModeUp</a>. Start with QUICKSTART for the walkthrough, KNOWN-LIMITS for the full honest list, and the README for how the whole thing is built and checked.</p>
+
+  <footer>
+    BrotherME 2.0.0-rc.10, 2026-08-01. This page ships inside the repository at docs/brotherme-explained.html and is regenerated with each release.
+  </footer>
+</main>
+</body>
+</html>

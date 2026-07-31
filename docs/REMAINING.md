@@ -8,6 +8,28 @@ The original brief had ten items, A through J. Six are substantially delivered, 
 partly delivered, and two things were LOST today and belong on this list rather than in a
 footnote.
 
+CORRECTED 2026-08-01. Three items below were true when written and have since moved.
+This paragraph does not delete them (see item 2, item 6 and the CI line under "Still
+true from the earlier limits list"): it names what changed and where the evidence lives,
+and a one-line marker sits inline at each of the three so nobody reads the old claim as
+current.
+
+- The CI-never-ran claim ("Still true from the earlier limits list": "Continuous
+  integration has never executed"). CI has since run and is green: all nine jobs,
+  observed 2026-07-31, per docs/KNOWN-LIMITS.md (the "OBSERVED GREEN 2026-07-31" entry)
+  and docs/evidence/RELEASE-CANDIDATE-2.0.0-rc.9.md.
+- The no-tagged-release claim (item 6, "No tagged release, and this is a security gap
+  not a nicety"). Tagged, annotated releases now exist: v2.0.0-rc.1 through v2.0.0-rc.9
+  at the time of this correction (rc.1 and rc.5 withdrawn for checksum defects, the
+  others superseded as each next candidate lands; VERSION names the current one). The
+  install command in README.md's Quick start clones a pinned tag, not a
+  moving branch, and tools/test_bm_docs.py fails the page if it ever disagrees.
+- The learning-redesign-is-only-law-text claim (item 2, "The learning redesign is law
+  text, not code"). The correction-learning system is now built and tested:
+  tools/bm_learn.py and tools/bm_learning.py implement it, the store schema is at
+  version 11, and loops 0 through 5 of the plan have landed. See
+  docs/CORRECTION-LEARNING.md and the rc.8/rc.9 entries in CHANGELOG.md.
+
 ## 1. The telemetry tool never got its audit pass (biggest gap)
 
 `tools/bm_telemetry.py` is 1,211 lines. It holds the corrections ledger, the outcomes
@@ -31,6 +53,8 @@ learning loops depend on. Publishing a tool whose own honesty gate prints an unm
 number undercuts the thing the project is selling.
 
 ## 2. The learning redesign is law text, not code
+
+(CORRECTED 2026-08-01: see the correction block at the top.)
 
 Section 8 of the constitution now describes four loops (corrections, revealed taste,
 calibration on divergent predictions only, and the division of labour) plus honest NOT
@@ -64,6 +88,8 @@ what decisions are open without reading files.
 
 ## 6. No tagged release, and this is a security gap not a nicety
 
+(CORRECTED 2026-08-01: see the correction block at the top.)
+
 The install instruction still clones a MOVING BRANCH into a location whose code runs
 automatically on every session. For a tool that reads transcripts and installs hooks,
 the original audit called this the weakest link in the design. It needs tagged,
@@ -85,6 +111,9 @@ copies, so the port is contained rather than a merge problem.
   cannot fire is decoration.
 
 ## Still true from the earlier limits list
+
+(CORRECTED 2026-08-01: the "continuous integration has never executed" claim below
+is stale; see the correction block at the top.)
 
 Continuous integration has never executed. Windows is designed for, not proven. The
 `vault-template` ignore file covers the JSONL ledgers but not the resume briefs, intent

@@ -1,6 +1,53 @@
 # Changelog
 
-## 2.0.0-rc.9, 2026-07-31: one commit is the release, because the release-truth test refused two
+## 2.0.0-rc.10, 2026-08-01: the beginner layer lands in main, and the repository becomes its own store
+
+The layer that made this usable by a person with no technical background
+existed for two days on a local branch nobody could install from. This cut
+merges it: the six guided commands (/brotherme-start, -status, -next, -review,
+-deliver, -help), the plain-language conductor skill, the Project Canvas and
+Delivery Packet templates, the plugin and marketplace manifests, hooks.json,
+and the canonical schema with its drift suite. The repository is now its own
+Claude Code plugin marketplace: `/plugin marketplace add
+khalilmaaouni/BrotherModeUp` then `/plugin install brotherme` is the whole
+install, and README.md leads with it, honestly labeled (installed exactly
+once, on the author's machine, from a local copy; never yet from GitHub).
+
+The guided loop became written, tested law rather than a habit:
+`references/delegation.md` now states that guidance and judgment sit on the
+strongest capability profile while execution routes down to the cheapest
+profile that passes the done-check, with an escalation rule after two failed
+checks and a de-escalation rule for shapes that have succeeded twice. A new
+suite class in `tools/test_bm.py` pins the law in its three homes (the
+delegation reference, the beginner conductor, the profiles reference) so any
+of them drifting turns CI red. This cut was itself run that way: three
+read-only audits and the stale-doc corrections executed on a lower grade
+against briefs and done-checks written and re-run by the orchestrating
+session.
+
+Honesty repairs in the same cut: the merge audit's one blocking defect (the
+next-step command entered a flow the conductor skill never defined) is fixed
+by defining the flow; two pages cited a release evidence file (rc.6) that a
+later cut had renamed forward, and now say so instead of pointing at nothing;
+`docs/REMAINING.md` carried three claims that stopped being true in July (CI
+never ran, no tagged release, the learning system is law text rather than
+code) and now corrects them in place, dated, with the old text preserved;
+`docs/NOT-FINALIZED.md` item 11 no longer calls the public install "not
+started" when an installer, an uninstaller, and their test suite shipped.
+And the release runbook's own verify step caught a real drift while cutting
+this release: `Documentation/` was gitignored as machine-generated on
+2026-07-30, but the exclusion lists in `scripts/verify-install.sh` and
+`scripts/checksums.sh` (documented as kept in sync with it) never learned
+that, so a user who ran `bm_docs.py generate` in an installed copy would be
+told their install could not be trusted. Both lists now also exclude
+`Documentation/` and `.claude/`; `build/` stays deliberately unexcluded, since
+a forgotten build directory failing the verify is the tamper check working.
+What did NOT change: no real multi-day dogfood window has run, the fence hook
+still does not see Bash writes, and no external user has ever installed this.
+Those stay open in docs/NOT-FINALIZED.md, which is why this is rc.10 and not
+2.0.0.
+
+## 2.0.0-rc.9, 2026-07-31 (SUPERSEDED): one commit is the release, because the release-truth test refused two
 
 Same content as rc.8 plus the linearity fix, cut again so that the tag and VERSION
 name the SAME commit.

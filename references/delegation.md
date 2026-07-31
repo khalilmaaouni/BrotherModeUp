@@ -90,6 +90,34 @@ docs/RUNTIMES.md records what is verified where. This
 section adds a required explanation on top of the brief law above; it changes
 nothing about fences, budgets, or caps.
 
+## The guided loop (guidance up, execution down)
+
+Every delegated unit of work runs as one loop with four stages, and the model
+grade moves in a fixed direction through it: guidance and judgment sit on the
+strongest capability profile in the session, execution routes DOWN to the
+cheapest profile that can pass the stated done-check.
+
+1. GUIDE. The orchestrator (Navigator posture, the session's strongest grade)
+   writes the brief: goal, files, fence, constraints, return format, done-check,
+   tier. A brief the orchestrator would not sign is not dispatched.
+2. EXECUTE. The work runs on the lowest grade the task tolerates: Fast Worker
+   for mechanical bulk, Builder for scoped implementation from a precise spec.
+   Ratified 2026-08-01 as law, not preference: routing execution up to the
+   strongest grade without a stated reason is the OVERTHOUGHT failure mode,
+   logged as such.
+3. VERIFY. Review and judging never route below the guide's grade (Reviewer
+   posture, refute-first). An executor never verifies its own work, and a
+   verifier never edits the work it judged.
+4. LAND. The orchestrator re-runs the done-check itself before folding
+   anything in. A pasted green line is a claim; the re-run is the evidence.
+
+Escalation rule: an executor that fails its done-check twice is not looped a
+third time; the work moves one grade up with the failure evidence attached.
+De-escalation rule: a task shape that has succeeded twice on a lower grade in
+this project's ledger defaults there next time. In user-facing language this
+whole loop is "picking the right helper for the job" (references/terminology.md);
+the profile-to-model mapping stays with the runtime (references/profiles.md).
+
 THE METHOD SPINE, in order, with the mechanic that dies first if only the idea
 survives: BRAINSTORM to an approved written design before any creative or structural
 work (two gates, the design and then the spec file, and no exception for work that
