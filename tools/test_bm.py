@@ -3609,7 +3609,41 @@ class TestLoop12RedactionIsLinearInInputSize(unittest.TestCase):
         # "_" is excluded from the boundary lookbehind on purpose, so it is the
         # one character that can still start a match at every offset. The
         # bounded prefix is what keeps that linear.
-        self.assertLess(self._time("_" * 32000), 2.0)
+        #
+        # FIXED 2026-07-31: this test used to be a bare stopwatch,
+        # `assertLess(self._time("_" * 32000), 2.0)`, with no baseline. That
+        # measures the MACHINE, not the algorithm, and it violated the principle
+        # this class's own docstring states two lines above it: a wall-clock
+        # budget is a blunt instrument, so assert the SHAPE. Its sibling
+        # test_quadratic_blowup_is_gone already did exactly that, and carries a
+        # comment saying its ceiling is loose "so a busy machine cannot fail
+        # this". This one had no such protection and duly failed on a machine
+        # running five sessions: 0.198s unloaded, past 2.0s under load, while
+        # the code under test had not changed at all.
+        #
+        # Shaped, not stopwatched, and the SHAPE IS THE RATIO rather than a
+        # multiple of the smaller timing. That distinction was found by
+        # calibration, not by reasoning: an `assertLess(large, small * 40)` form
+        # was written first and a deliberately reinjected quadratic redactor
+        # PASSED it, because a quadratic inflates the small measurement too, so
+        # the ceiling it derives from `small` rises with the defect it is meant
+        # to catch. Measured: linear gave 0.069s and 0.193s, a 2.8x ratio;
+        # quadratic gave 0.208s and 3.243s, a 15.6x ratio, and 3.243 still sat
+        # under its 8.3s ceiling.
+        #
+        # 4x the input is 4x the work when linear and 16x when quadratic, so the
+        # ratio separates them cleanly and a ceiling on it cannot be inflated by
+        # the defect. 8x leaves generous room for noise while staying half the
+        # quadratic signature. Both timings are taken under whatever load is
+        # present, so contention scales them together and cancels in the ratio,
+        # which is the property the old absolute ceiling did not have.
+        small = max(self._time("_" * 8000), 0.001)
+        large = self._time("_" * 32000)
+        self.assertLess(large / small, 8.0,
+                        "redact() on an underscore run looks superlinear: 8000 "
+                        "chars took %.4fs, 32000 took %.4fs, a %.1fx ratio "
+                        "where linear is about 4x and quadratic about 16x"
+                        % (small, large, large / small))
 
 
 class TestLoop12PairedArtifactsAreRedacted(unittest.TestCase):
