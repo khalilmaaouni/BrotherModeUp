@@ -1,5 +1,58 @@
 # Quick start
 
+Two ways in. Path 1 is the simple one: two commands typed inside Claude Code,
+nothing else. Path 2 is the step-by-step one, written for technical users, and
+it is the path every command of which has been run and checked before
+publication. Pick one; do not do both.
+
+## Path 1: install as a plugin (the simple way)
+
+Honesty label, read this first: this install path is brand new. Nobody has
+installed BrotherMode this way yet, including the author; you would be the
+first, and this page will say so until a real install has been recorded. It
+also ships more than new packaging: the guided beginner layer (the six
+/brotherme commands and the guided skill) is new in this release and is
+designed to load through this path; on this project's own machine a clone
+carrying the plugin manifest also registered it in a live session, a single
+observation and not a verified path. If anything in this path fails or looks
+wrong, copy
+the error into Claude Code and ask for help in plain words, or hand Path 2
+below to someone technical; that path is checked command by command.
+
+No file editing of any kind happens on this path. You will not touch
+`settings.json`, you will not edit JSON, and you will not run Python by hand.
+The plugin brings its own automatic wiring with it.
+
+Open Claude Code and type these two commands, one at a time:
+
+```
+/plugin marketplace add khalilmaaouni/BrotherModeUp
+```
+
+```
+/plugin install brotherme
+```
+
+If Claude Code asks which marketplace to install from, pick the one you just
+added. Restart Claude Code if it tells you to. Then type:
+
+```
+/brotherme-help
+```
+
+That command explains what you have and what to do next in plain language.
+When you are ready to try it on something real, type `/brotherme-start` and
+describe what you want in your own words; it will guide you from there, one
+decision at a time. The first time you start a project it asks where your
+private project memory should live before writing anything there; if that
+question is ever skipped, the automatic session records fall back to a folder
+called `BrotherModeVault` in your home folder, and you can ask to move it.
+
+To remove it later: `/plugin uninstall brotherme`. That is the whole path. The
+rest of this page is Path 2 and applies only if you skipped Path 1.
+
+## Path 2: install by git clone (the verified way)
+
 A literal, ten-minute path from nothing installed to seeing this thing do
 something real. Every command below was run, as written, in a scratch copy of
 this repository before this page was published. Where a step takes longer than

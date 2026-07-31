@@ -5271,6 +5271,52 @@ class TestP17PackagingManifestMatchesTheRepository(unittest.TestCase):
             "VERSION says %r (PEP 440 spelling %r) but pyproject.toml would "
             "publish %r" % (repo, normalized, declared.group(1)))
 
+    def test_plugin_manifest_version_matches_the_VERSION_file(self):
+        """Same drift class as the pyproject check above, third copy of the
+        same fact: .claude-plugin/plugin.json carries a version field, and a
+        plugin labelled with a version that is not this release is the same
+        supply-chain lie as a mislabelled wheel. Plugin manifests are not
+        PEP 440, so here the match is exact: the manifest must say what the
+        VERSION file says, character for character."""
+        path = os.path.join(self.ROOT, ".claude-plugin", "plugin.json")
+        self.assertTrue(os.path.isfile(path),
+                        ".claude-plugin/plugin.json is missing: the plugin "
+                        "packaging contract cannot be checked and must not "
+                        "be assumed")
+        manifest = json.loads(_read(path))
+        repo = _read(os.path.join(self.ROOT, "VERSION")).strip()
+        self.assertEqual(
+            repo, manifest.get("version"),
+            "VERSION says %r but .claude-plugin/plugin.json would ship %r"
+            % (repo, manifest.get("version")))
+
+    def test_marketplace_manifest_versions_match_the_VERSION_file(self):
+        """The marketplace manifest carries the same fact in two MORE places
+        (metadata.version and each listed plugin's version). Same drift
+        class, same rule: every copy matches VERSION character for character,
+        or the release is mislabelled somewhere a user will trust."""
+        path = os.path.join(self.ROOT, ".claude-plugin", "marketplace.json")
+        if not os.path.isfile(path):
+            self.skipTest("no marketplace manifest in this repository")
+        manifest = json.loads(_read(path))
+        repo = _read(os.path.join(self.ROOT, "VERSION")).strip()
+        found = []
+        meta_ver = (manifest.get("metadata") or {}).get("version")
+        if meta_ver is not None:
+            found.append(("metadata.version", meta_ver))
+        for i, plug in enumerate(manifest.get("plugins") or []):
+            if plug.get("version") is not None:
+                found.append(("plugins[%d].version" % i, plug.get("version")))
+        self.assertTrue(found,
+                        "marketplace.json exists but carries no version "
+                        "field anywhere; the consistency contract cannot "
+                        "be checked and must not be assumed")
+        for where, val in found:
+            self.assertEqual(
+                repo, val,
+                "VERSION says %r but marketplace.json %s says %r"
+                % (repo, where, val))
+
     def test_the_package_declares_no_dependencies(self):
         """Standard library only is an invariant of this project, not a
         current state of affairs. If a dependency ever appears here it must
