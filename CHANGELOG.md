@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.0.0-rc.8, 2026-07-31: the loop estimate ledger lands, and the gate finds a privacy hole in it
+
+`tools/bm_ledger.py` and its suite arrive from the live installed skill, where another
+session built them to a founder directive: declare a loop's expected minutes and
+tokens BEFORE the work, close with measured actuals and a why sentence, graded on a
+named 25 percent band. Three laws enforced rather than remembered: a close against an
+undeclared loop is refused because an estimate written afterwards is a prediction of
+the past; history is append-only, so changing your mind appends rather than edits; and
+actual tokens are optional, absent reading NO-DATA rather than a number somebody
+invented.
+
+It was not copied in unread, and that mattered. The repository's own pre-write gate
+refused the file: "bm_ledger.py writes files but is not in the reviewed inventory.
+Review whether every text it writes passes through redaction." THE REVIEW FOUND IT DID
+NOT. The tool stores a founder-written why sentence and a loop name, which is exactly
+the shape a secret gets pasted into ("slow because the key was wrong"), and it wrote
+both to disk raw while all ten sibling tools route such text through `redact_text`.
+
+A `_scrub_row` step now runs before every append: the free-text fields pass through
+the store's redactor, while numbers, verdicts, timestamps and the run identifier the
+tool generates itself are left alone because they are not founder prose. `bm_store` is
+imported lazily by path so the file stays a standalone script, and a failed import
+REFUSES the write rather than falling back to writing unscrubbed. Proved on the real
+binary: a declare whose loop name carried an `sk-` shaped key left zero occurrences of
+it in the ledger file. Three tests, including a calibration that removes the scrub and
+confirms the secret does land, so the green can go red.
+
+Two further gates caught the landing rather than anyone remembering: the packaging
+manifest (a pipx install would have shipped without the tool) and the CI inventory
+check (a suite in the gate that no workflow step executed). Both closed. The gate is
+eight suites and 1215 tests now.
+
 ## 2.0.0-rc.7, 2026-07-31: the first fully green CI, and the defect it took to get there
 
 Cut so that the tagged bytes and the green continuous-integration run are the same
