@@ -47,7 +47,7 @@ rehearse_fresh_install.py: fresh-HOME clone-path rehearsal
   gate: RUN
 
 [1/7] copy (clone stand-in) into fakehome/.claude/skills/brothermode: PASS
-    237 files copied from /Users/khalil.maaouni/Documents/BrotherModeUp to /var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/bm-rehearsal-9dktcd8g/fakehome/.claude/skills/brothermode
+    237 files copied from /Users/.../BrotherModeUp to /var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/bm-rehearsal-9dktcd8g/fakehome/.claude/skills/brothermode
     disclosed deviation: this is a plain recursive copy, not git clone. It excludes .brothermode, .git, node_modules, the same list scripts/checksums.sh and scripts/verify-install.sh use.
     present at target: SKILL.md, VERSION
 [2/7] python3 tools/test_all.py from the copy: FAIL
@@ -201,7 +201,7 @@ rehearse_fresh_install.py: fresh-HOME clone-path rehearsal
   gate: SKIPPED (--skip-gate)
 
 [1/7] copy (clone stand-in) into fakehome/.claude/skills/brothermode: PASS
-    237 files copied from /Users/khalil.maaouni/Documents/BrotherModeUp to .../fakehome/.claude/skills/brothermode
+    237 files copied from /Users/.../BrotherModeUp to .../fakehome/.claude/skills/brothermode
     disclosed deviation: this is a plain recursive copy, not git clone. It excludes .brothermode, .git, node_modules, the same list scripts/checksums.sh and scripts/verify-install.sh use.
     present at target: SKILL.md, VERSION
 [2/7] python3 tools/test_all.py from the copy: PASS
