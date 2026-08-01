@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.0.0-rc.12.dev1, unreleased development identity, 2026-08-01: the release-closure program opens, rc.10 and rc.11 are retired
+
+The tree carried `2.0.0-rc.11` (and, briefly the same day, `2.0.0-rc.10`)
+while neither commit was ever tagged: rc.10's release-cut commit (`8aa6dd1`)
+and rc.11's (`54cb898`) both landed on `main` and were pushed, but the
+founder had not cut either tag before the next commit moved past it. An
+external review of the resulting release-closure plan ratified amendment A1:
+cutting a tag for either commit now would recreate the two-trees ambiguity
+this project has already reproduced once (`v2.0.0-rc.1`), so both `rc.10` and
+`rc.11` are marked SUPERSEDED, NEVER TAGGED and no tag will ever be cut for
+them.
+
+`VERSION` moves to `2.0.0-rc.12.dev1`, a development identity, so the tree
+stops claiming an untagged release name. The public install target stays
+pinned at `v2.0.0-rc.9`, the last tag actually cut and known to resolve
+(`python3 tools/bm_project_facts.py --field install_target_tag`), independent
+of what `VERSION` says. `tools/bm_project_facts.py` gains `is_development`
+and `install_target_tag`; `install_command_pinned` is now built from
+`install_target_tag`, never from `release_tag`, and `release_tag` itself is
+`None` for a development identity rather than naming a tag that must never
+exist. This opens the release-closure program's feature freeze: nothing
+lands unless it closes a blocker named in
+`docs/evidence/2026-08-01-source-BrotherME_Final_Release_Closure_Plan_Fable_Governed.md`.
+
 ## Unreleased on main, 2026-08-01 evening: the documentation earns its keep, after a 1 of 5
 
 The founder rated the freshly shipped summary and book 1 of 5: weak, and

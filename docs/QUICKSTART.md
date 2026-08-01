@@ -74,11 +74,14 @@ something is broken.
 
 The public default clones an immutable, tagged release, not a moving branch:
 the tag is generated from the same release fact every other page reads
-(`python3 tools/bm_project_facts.py --field release_tag`), never typed by
-hand, and `tools/test_bm_docs.py` fails this page if it ever disagrees.
+(`python3 tools/bm_project_facts.py --field install_target_tag`), the last
+tag actually cut and known to resolve, never typed by hand, and
+`tools/test_bm_docs.py` fails this page if it ever disagrees. The
+development tree itself currently reads `2.0.0-rc.12.dev1`, a development
+identity rather than a tagged release; `docs/RELEASE.md` explains why.
 
 ```bash
-git clone --branch v2.0.0-rc.11 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.9 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 Expected: git prints a few lines ending in something like `Resolving deltas:
