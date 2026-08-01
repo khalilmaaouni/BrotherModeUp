@@ -18,14 +18,14 @@ The goal of kickoff is one agreed direction, not a completed interview.
    first. Never a wall of questions.
 5. Present the recommended direction first; alternatives only when they are
    materially useful, never for completeness.
-6. Close kickoff by writing the project brief: outcome, intended user,
+6. Close kickoff by recording the project brief: outcome, intended user,
    recommended direction and why, what is included, what is explicitly not,
    success checks, main risks, decisions made, decisions still open, and the
-   initial forecast (format per references/forecasting.md). The canvas
-   template at project-template/CANVAS.md carries these headings. Save the
-   approved brief as `CANVAS.md` at the top of the user's project folder; the
-   status and next-step flows read the current state from there after a
-   restart.
+   initial forecast (format per references/forecasting.md). Record it with
+   `python3 tools/bm_project.py start`, which writes the project into the
+   store (the single source of truth) and generates `CANVAS.md` in the
+   project folder as a readable view; the status and next-step flows read
+   the store after a restart, never the markdown.
 7. The brief is the source of direction from then on. Work does not start
    until the main scope and the highest-stakes open decision are settled.
 
