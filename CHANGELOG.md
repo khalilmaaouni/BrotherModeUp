@@ -2,6 +2,16 @@
 
 ## 2.0.0-rc.11, 2026-08-01: the explainer earns its excitement, help grows a deep tour, and updating becomes one command
 
+SECOND LATE ADDITION, same day: the founder accepted both artifacts and named
+the missing organ: a big, visible statement of the philosophy and the laws.
+Both now carry it: the explainer gains "The philosophy, and the laws" (the
+founding belief that a rule in a prompt is not a control, then the ten laws,
+each with the failure it kills), placed before the walkthrough; the book gains
+"The philosophy, before the chapters" with the fuller ten-laws treatment, each
+law naming the chapters that enforce and demonstrate it, plus the three-shape
+honesty (machinery, handover, or discipline, and which is which). New test
+pins hold both sections in place.
+
 LATE ADDITION, same day, before the tag: the founder judged the explainer the
 summary and asked for the book behind it, and the July 30 adoption book at
 docs/book/ turned out to have been disconnected from every session since it was
