@@ -46,16 +46,23 @@ cat VERSION
 python3 tools/bm_project_facts.py --field release_tag
 ```
 
-The current candidate is `2.0.0-rc.10`, cut 2026-08-01. It lands the beginner
-layer in main (the six /brotherme commands, the guided conductor skill, the
-plugin and marketplace manifests, hooks.json), makes this repository itself an
-installable Claude Code plugin marketplace, writes the guided loop into
-`references/delegation.md` as tested law (guidance and judgment on the
-strongest capability profile, execution routed down to the cheapest profile
-that passes the done-check), and corrects the stale status claims in
-`docs/REMAINING.md` and `docs/NOT-FINALIZED.md`. `v2.0.0-rc.9`, cut 2026-07-31
-so that the tagged bytes and the first fully green CI run (`30564943060`) were
-the same bytes, is SUPERSEDED by it. This project creates release tags through
+The current candidate is `2.0.0-rc.11`, cut 2026-08-01, the same day as rc.10.
+It adds the seventh command (`/brotherme-update`, wrapping the verified plugin
+update lines), the deep tour behind `/brotherme-help` (an HTML view of where a
+project stands, built from the docs engine), and the rebuilt explainer
+(`docs/brotherme-explained.html`: a full worked example told as a conversation,
+loop advice, equal-weight good-at and not-good-at columns, six tutorial cards).
+
+`2.0.0-rc.10` is SUPERSEDED WITHOUT EVER BEING TAGGED, a first for this
+project and worth recording plainly: its release-cut commit (`8aa6dd1`) landed
+on main and was pushed, but the founder had not yet cut its tag when the rc.11
+work landed the same day, so no `v2.0.0-rc.10` tag exists and none should ever
+be created (a tag cut now would point at a commit the CHANGELOG has already
+moved past, recreating the rc.8 ambiguity). Its pinned clone command never
+resolved during its short life, which the pages honestly stated the whole
+time. `v2.0.0-rc.9`, cut 2026-07-31 so that the tagged bytes and the first
+fully green CI run (`30564943060`) were the same bytes, is SUPERSEDED
+normally. This project creates release tags through
 the GitHub Desktop app (a command-line tag does not push from Desktop,
 confirmed empirically), so the tag is cut by the founder immediately after the
 release-cut commit lands, and the release-truth suite holds this page honest in
@@ -148,10 +155,10 @@ Until it closes, do not describe this project as `2.0.0` anywhere.
 Tags exist now, so this is the install instruction, not a future one:
 
 ```bash
-git clone --branch v2.0.0-rc.10 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.11 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
-`--branch v2.0.0-rc.10` checks out that exact tag, not a moving branch head. It
+`--branch v2.0.0-rc.11` checks out that exact tag, not a moving branch head. It
 is the current candidate; `python3 tools/bm_project_facts.py --field
 release_tag` prints the tag matching whatever tree you are reading.
 `--depth 1` is optional (a shallow clone of just that tag), included because
@@ -224,7 +231,12 @@ run of it as a test of the runbook, not just of the code.
    existing convention) describing what changed for a user: what is new,
    what broke, what is still unproven. Keep it consistent with
    `docs/KNOWN-LIMITS.md`; do not let a changelog entry claim more certainty
-   than the limits file admits.
+   than the limits file admits. **In the same change, update
+   `docs/brotherme-explained.html`** wherever the release touched a feature:
+   its "What makes it different" section carries what each feature does, how
+   to use it, and when it matters, and it declares on the page that it is
+   kept current by rule (founder directive 2026-08-01). A release that
+   changes a feature and ships the old explainer breaks that declared rule.
 3. **Generate the checksum manifest**, from the repository root, after steps
    1 and 2 are committed (the manifest must describe the exact tree being
    released, not an earlier one):
@@ -272,15 +284,17 @@ through preparing it.
 
 ## What has and has not happened, stated honestly
 
-CURRENT STATE, 2026-08-01, first, because the dated entries under it are a LOG
-and several of them were true only on the day they were written. `VERSION`
-reads `2.0.0-rc.10` and its tag is cut by the founder through GitHub Desktop
+CURRENT STATE, 2026-08-01 (second cut of the day), first, because the dated
+entries under it are a LOG and several of them were true only on the day they
+were written. `VERSION`
+reads `2.0.0-rc.11` and its tag is cut by the founder through GitHub Desktop
 immediately after the release-cut commit; until that moment the pinned clone
 command above does not resolve, the release-truth tests SKIP with a stated
 reason, and this sentence is the honest record of that window. Nine earlier
 tags exist (`v2.0.0-rc.1` withdrawn, `v2.0.0-rc.2` superseded, `v2.0.0-rc.3`
 superseded, `v2.0.0-rc.4` superseded, `v2.0.0-rc.6` superseded, `v2.0.0-rc.7`
 superseded, `v2.0.0-rc.8` superseded, `v2.0.0-rc.9` superseded,
+`2.0.0-rc.10` superseded without ever being tagged (see the version scheme),
 `v2.0.0-rc.5` WITHDRAWN the same day it was cut, for a checksum manifest that did not describe its own tree; see the
 version-scheme section above for the full account). CORRECTED 2026-07-30: the 2026-07-29
 entry directly below said no tag had been cut for `rc.4` and that its pinned
