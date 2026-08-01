@@ -107,7 +107,9 @@ def maybe_remove_consent_config(remove_consent_flag, dry):
         _out("consent: --remove-consent was given; removing it.")
     elif sys.stdin.isatty():
         try:
-            answer = input("Remove it too? [y/N]: ")
+            answer = input("Remove the saved consent settings too? You "
+                           "would run setup again on the next install. "
+                           "[y/N]: ")
         except EOFError:
             answer = ""
         do_remove = answer.strip().lower() in ("y", "yes")

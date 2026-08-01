@@ -615,6 +615,133 @@ class DoctorTenChecksCase(unittest.TestCase):
         self.assertEqual(checks["checksums"]["status"], "SKIP")
 
 
+class DoctorStrictAndSummaryCase(unittest.TestCase):
+    """I2 (external review, Loop 3/5): doctor.py used to fold STATUS_SKIP
+    into "all_ok" silently, so a run that only ever SKIPPED read on the exit
+    code alone exactly like a run that actually proved something. Built on a
+    genuinely healthy install (fence wired and live, consent, vault, mode
+    wiring all PASS) so store and checksums are the only SKIPs here,
+    proving the summary line's math and --strict's opt-in against a real
+    fail_count of zero, not a fixture that was already failing for some
+    unrelated reason (the fixture in DoctorTenChecksCase above never wires a
+    fence, so it always has at least one FAIL and cannot tell "exits 0
+    despite a SKIP" apart from "exits 0 because nothing failed yet")."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="bm-consent-doctor-strict-")
+        self.home = os.path.join(self.tmp, "home")
+        self.project = os.path.join(self.tmp, "project")
+        os.makedirs(self.home)
+        os.makedirs(self.project)
+        # A real, working fence hook, the same way tools/test_install.py's
+        # own DoctorCase builds one: copied tools/*.py so bm_fence_hook.py
+        # can load its sibling bm_store.py, wired into settings.json exactly
+        # as scripts/install.py would write it.
+        self.tools = os.path.join(self.tmp, "install", "tools")
+        os.makedirs(self.tools)
+        for name in sorted(os.listdir(HERE)):
+            if name.endswith(".py") and not name.startswith("test_"):
+                shutil.copy2(os.path.join(HERE, name), os.path.join(self.tools, name))
+        self.fence = os.path.join(self.tools, "bm_fence_hook.py")
+        self.settings = os.path.join(self.tmp, "settings.json")
+        with io.open(self.settings, "w", encoding="utf-8") as fh:
+            json.dump({"hooks": {"PreToolUse": [{
+                "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+                "hooks": [{"type": "command", "command": "python3 " + self.fence,
+                          "timeout": 10}]}]}}, fh)
+        self.vault = os.path.join(self.home, "Vault")
+        os.makedirs(self.vault)
+        _write_consented_config(
+            os.path.join(self.home, ".brotherme", "config.json"),
+            self.vault, mode="clone")
+        self.env = _clean_env(self.home)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def run_doctor(self, *extra):
+        return subprocess.run(
+            [sys.executable, DOCTOR, "--settings", self.settings, "--json"] + list(extra),
+            cwd=self.project, env=self.env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=300)
+
+    def test_default_mode_exits_0_with_skips_present(self):
+        r = self.run_doctor()
+        payload = json.loads(r.stdout)
+        by_key = {c["key"]: c for c in payload["checks"]}
+        self.assertEqual(by_key["fence"]["status"], "PASS", by_key["fence"]["message"])
+        self.assertEqual(by_key["consent"]["status"], "PASS")
+        self.assertEqual(by_key["vault"]["status"], "PASS")
+        skip_keys = [k for k, c in by_key.items() if c["status"] == "SKIP"]
+        self.assertTrue(skip_keys, "test precondition: at least one check "
+                        "must SKIP (store and checksums are expected to)")
+        self.assertEqual(payload["failed"], 0)
+        self.assertEqual(r.returncode, 0, "a SKIP-only, zero-FAIL run must "
+                         "still exit 0 by default: %s" % r.stdout)
+
+    def test_summary_reports_proven_skipped_failed_counts(self):
+        r = self.run_doctor()
+        payload = json.loads(r.stdout)
+        checks = payload["checks"]
+        self.assertEqual(len(checks), 10)
+        proven = sum(1 for c in checks if c["status"] == "PASS")
+        skipped = sum(1 for c in checks if c["status"] == "SKIP")
+        failed = sum(1 for c in checks if c["status"] == "FAIL")
+        self.assertEqual(payload["proven"], proven)
+        self.assertEqual(payload["skipped"], skipped)
+        self.assertEqual(payload["failed"], failed)
+        self.assertEqual(proven + skipped + failed, 10)
+        self.assertIn("%d of 10 proven" % proven, payload["summary"])
+        self.assertIn("%d skipped" % skipped, payload["summary"])
+        self.assertIn("%d failed" % failed, payload["summary"])
+
+    def test_plain_text_mode_prints_the_same_summary_line(self):
+        r = subprocess.run(
+            [sys.executable, DOCTOR, "--settings", self.settings],
+            cwd=self.project, env=self.env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=300)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertRegex(r.stdout, r"\d+ of 10 proven, \d+ skipped, \d+ failed\.")
+
+    def test_strict_flag_exits_nonzero_and_lists_each_skip(self):
+        base = self.run_doctor()
+        base_payload = json.loads(base.stdout)
+        skip_keys = [c["key"] for c in base_payload["checks"] if c["status"] == "SKIP"]
+        self.assertTrue(skip_keys, "test precondition: need at least one SKIP")
+
+        r = self.run_doctor("--strict")
+        self.assertNotEqual(r.returncode, 0,
+                            "--strict must exit nonzero when any check SKIPped")
+        payload = json.loads(r.stdout)
+        self.assertTrue(payload["strict"])
+        self.assertFalse(payload["strict_ok"])
+        self.assertEqual(payload["failed"], 0,
+                         "--strict changed a genuine FAIL count, not just the exit code")
+
+        r2 = subprocess.run(
+            [sys.executable, DOCTOR, "--settings", self.settings, "--strict"],
+            cwd=self.project, env=self.env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=300)
+        self.assertNotEqual(r2.returncode, 0)
+        self.assertIn("%d check(s) skipped" % len(skip_keys), r2.stdout)
+        for key in skip_keys:
+            title = {c["key"]: c["title"] for c in base_payload["checks"]}[key]
+            self.assertIn(title, r2.stdout,
+                          "--strict's listing dropped the skipped check %r" % key)
+
+    def test_strict_flag_still_exits_nonzero_on_a_real_fail(self):
+        """--strict must not accidentally soften a genuine FAIL into a SKIP
+        reading, or the flag would be less strict than the default."""
+        os.remove(self.fence)
+        r = self.run_doctor("--strict")
+        self.assertNotEqual(r.returncode, 0)
+        payload = json.loads(r.stdout)
+        self.assertGreater(payload["failed"], 0)
+
+
 class UninstallConsentRemovalCase(unittest.TestCase):
     """(h) scripts/uninstall.py D-5: offers to remove the consent config,
     asked or via --remove-consent, never silent; the plugin-path caveat is
