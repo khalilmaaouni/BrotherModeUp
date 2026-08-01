@@ -125,23 +125,46 @@ def default_settings_path():
     return os.path.join(os.path.expanduser("~"), ".claude", "settings.json")
 
 
+def _mask_home(path):
+    """Replace the operator's own home-directory prefix with a generic
+    /Users/... placeholder before this path is printed (R5, external review
+    Loop 3/5): every message below that names an absolute path runs through
+    this, so a remediation command doctor.py prints never leaks the machine's
+    real account name. Mirrors the same, simpler technique scripts/
+    rehearse_fresh_install.py's step1_clone already uses for the same
+    reason: the heavier, free-text bs.mask_absolute_paths in
+    tools/bm_store.py replaces a whole path with a withheld marker, which
+    would make a printed command impossible to run; this hides only the
+    account name and keeps the rest of the path, including the command,
+    copy-pasteable."""
+    if not path:
+        return path
+    home = os.path.expanduser("~")
+    if home and path.startswith(home):
+        return "/Users/..." + path[len(home):]
+    return path
+
+
 def read_settings(path):
     """Returns (settings_dict, error_string). Never raises on bad input: an
     unreadable settings file is a finding to report, not a traceback."""
     if not os.path.exists(path):
-        return None, "no settings file at %s" % path
+        return None, ("no settings file at %s. This file is normally created "
+                      "by python3 scripts/install.py, which also wires the "
+                      "hooks into it; run that to create it."
+                      % _mask_home(path))
     try:
         with io.open(path, encoding="utf-8") as fh:
             raw = fh.read()
     except (IOError, OSError) as exc:
-        return None, "settings file at %s could not be read: %s" % (path, exc)
+        return None, "settings file at %s could not be read: %s" % (_mask_home(path), exc)
     try:
         data = json.loads(raw)
     except ValueError as exc:
         return None, ("settings file at %s is not valid JSON (%s). Claude Code "
-                      "ignores it silently, so EVERY hook is off." % (path, exc))
+                      "ignores it silently, so EVERY hook is off." % (_mask_home(path), exc))
     if not isinstance(data, dict):
-        return None, "settings file at %s is JSON but not an object" % path
+        return None, "settings file at %s is JSON but not an object" % _mask_home(path)
     return data, None
 
 
@@ -354,7 +377,7 @@ def doctor(settings_path):
                  "the one-writer promise is a ledger, not a boundary. Fix: run "
                  "python3 scripts/install.py (or --upgrade over an existing "
                  "install), or add the block in docs/HOOKS.md by hand."
-                 % (settings_path, FENCE_BASENAME)], notes)
+                 % (_mask_home(settings_path), FENCE_BASENAME)], notes)
     if len(entries) > 1:
         notes.append("%d fence entries are wired; the first one is the one "
                      "checked below." % len(entries))
@@ -410,7 +433,7 @@ STATUS_FAIL = "FAIL"
 STATUS_SKIP = "SKIP"
 
 CHECK_TITLES = collections.OrderedDict((
-    ("fence", "fence hook wired and live"),
+    ("fence", "the write-protection check (fence hook) wired and live"),
     ("version", "VERSION matches the plugin manifest"),
     ("runtime", "python3 3.9+ and git are available"),
     ("consent", "setup has been completed"),
@@ -435,7 +458,10 @@ def _run_check(key, fn, *args):
         return fn(*args)
     except Exception as exc:  # noqa: BLE001 - a check must never crash doctor
         return _result(key, STATUS_FAIL,
-                       "FAIL: this check crashed (%s: %s)."
+                       "FAIL: this check crashed (%s: %s). Re-run with --json "
+                       "for the full check list, and report this at "
+                       "https://github.com/khalilmaaouni/BrotherModeUp/issues "
+                       "(include the --json output)."
                        % (type(exc).__name__, exc))
 
 
@@ -482,29 +508,29 @@ def check_version_identity(root):
         missing = version_path if not os.path.isfile(version_path) else manifest_path
         return _result("version", STATUS_SKIP,
                        "SKIP: %s is not there, so there is nothing to compare "
-                       "this install root against." % missing)
+                       "this install root against." % _mask_home(missing))
     try:
         version_text = io.open(version_path, encoding="utf-8").read().strip()
     except (IOError, OSError) as exc:
         return _result("version", STATUS_FAIL,
-                       "FAIL: could not read %s: %s" % (version_path, exc))
+                       "FAIL: could not read %s: %s" % (_mask_home(version_path), exc))
     try:
         manifest = json.loads(io.open(manifest_path, encoding="utf-8").read())
     except (IOError, OSError, ValueError) as exc:
         return _result("version", STATUS_FAIL,
                        "FAIL: could not read or parse %s: %s"
-                       % (manifest_path, exc))
+                       % (_mask_home(manifest_path), exc))
     manifest_version = manifest.get("version") if isinstance(manifest, dict) else None
     if manifest_version != version_text:
         return _result("version", STATUS_FAIL,
                        "FAIL: VERSION says %r but %s says %r. Bring them back "
                        "in agreement (docs/RELEASE.md's release-cut steps), "
                        "or this install cannot tell you honestly which "
-                       "release it is." % (version_text, manifest_path,
+                       "release it is." % (version_text, _mask_home(manifest_path),
                                            manifest_version))
     return _result("version", STATUS_PASS,
                    "PASS: VERSION and %s both say %s."
-                   % (manifest_path, version_text))
+                   % (_mask_home(manifest_path), version_text))
 
 
 def check_runtime():
@@ -529,17 +555,18 @@ def check_consent():
     if err:
         return _result("consent", STATUS_FAIL,
                        "FAIL: the config at %s could not be read (%s). Run: "
-                       "python3 scripts/setup.py --reconfigure" % (cfg_path, err))
+                       "python3 scripts/setup.py --reconfigure"
+                       % (_mask_home(cfg_path), err))
     if not _bm_setup.is_consented(cfg):
         return _result("consent", STATUS_FAIL,
                        "FAIL: setup has not been completed yet, so nothing "
                        "below that depends on it can be checked either. Run: "
                        "python3 scripts/setup.py")
     return _result("consent", STATUS_PASS,
-                   "PASS: setup is complete (config at %s)." % cfg_path)
+                   "PASS: setup is complete (config at %s)." % _mask_home(cfg_path))
 
 
-def check_vault():
+def check_vault(root):
     cfg, err = _bm_setup.read_config()
     if err or not _bm_setup.is_consented(cfg):
         return _result("vault", STATUS_SKIP,
@@ -554,14 +581,15 @@ def check_vault():
     if not os.path.isdir(vault_path):
         return _result("vault", STATUS_FAIL,
                        "FAIL: the vault path %s does not exist yet. Create it: "
-                       "cp -R <your BrotherMode install>/vault-template %s"
-                       % (vault_path, vault_path))
+                       "cp -R %s/vault-template %s"
+                       % (_mask_home(vault_path), _mask_home(root), _mask_home(vault_path)))
     if not os.access(vault_path, os.W_OK):
         return _result("vault", STATUS_FAIL,
                        "FAIL: the vault path %s exists but is not writable by "
-                       "you. Fix its permissions." % vault_path)
+                       "you. Fix it: chmod u+w %s"
+                       % (_mask_home(vault_path), _mask_home(vault_path)))
     return _result("vault", STATUS_PASS,
-                   "PASS: the vault at %s exists and is writable." % vault_path)
+                   "PASS: the vault at %s exists and is writable." % _mask_home(vault_path))
 
 
 def _plugin_name(root):
@@ -613,7 +641,7 @@ def check_duplicate_install(settings, settings_err, settings_path, root):
         return _result("duplicate_install", STATUS_SKIP,
                        "SKIP: %s could not be read, so this cannot be "
                        "checked here; see the settings.json check below."
-                       % settings_path)
+                       % _mask_home(settings_path))
     plugin_name = _plugin_name(root)
     has_plugin = _plugin_enabled(settings, plugin_name)
     has_clone = _clone_fence_present(settings)
@@ -625,11 +653,11 @@ def check_duplicate_install(settings, settings_err, settings_path, root):
                        "fires twice. Keep one: run '/plugin uninstall %s' to "
                        "remove the plugin wiring, or run 'python3 "
                        "scripts/uninstall.py' to remove the clone wiring."
-                       % (plugin_name, settings_path, plugin_name))
+                       % (plugin_name, _mask_home(settings_path), plugin_name))
     which = "plugin" if has_plugin else ("clone" if has_clone else "neither")
     return _result("duplicate_install", STATUS_PASS,
                    "PASS: only one install method (%s) is wired in %s."
-                   % (which, settings_path))
+                   % (which, _mask_home(settings_path)))
 
 
 def check_store_health(doctor_root):
@@ -637,12 +665,15 @@ def check_store_health(doctor_root):
     if not os.path.isfile(store_path):
         return _result("store", STATUS_SKIP,
                        "SKIP: no project store at %s under the current "
-                       "directory." % store_path)
+                       "directory." % _mask_home(store_path))
     bm_store = os.path.join(doctor_root, "tools", "bm_store.py")
     if not os.path.isfile(bm_store):
         return _result("store", STATUS_FAIL,
                        "FAIL: a store exists at %s but %s is not there to "
-                       "verify it." % (store_path, bm_store))
+                       "verify it. Reinstall BrotherMode to restore it: "
+                       "python3 scripts/install.py --upgrade (or update via "
+                       "your plugin manager)."
+                       % (_mask_home(store_path), _mask_home(bm_store)))
     try:
         r = subprocess.run(
             [sys.executable, bm_store, "verify"], cwd=os.getcwd(),
@@ -673,7 +704,7 @@ def check_hook_wiring_matches_mode(settings, settings_err, settings_path, root):
         return _result("mode_wiring", STATUS_FAIL,
                        "FAIL: %s could not be read (%s), so hook wiring "
                        "cannot be compared against installation_mode."
-                       % (settings_path, settings_err))
+                       % (_mask_home(settings_path), settings_err))
     mode = cfg.get("installation_mode")
     plugin_name = _plugin_name(root)
     has_plugin = _plugin_enabled(settings, plugin_name)
@@ -682,20 +713,20 @@ def check_hook_wiring_matches_mode(settings, settings_err, settings_path, root):
         if has_clone:
             return _result("mode_wiring", STATUS_PASS,
                            "PASS: installation_mode is clone and a clone "
-                           "hook wiring is present in %s." % settings_path)
+                           "hook wiring is present in %s." % _mask_home(settings_path))
         return _result("mode_wiring", STATUS_FAIL,
                        "FAIL: installation_mode is clone but no BrotherMode "
                        "hook wiring was found in %s. Run: python3 "
-                       "scripts/install.py" % settings_path)
+                       "scripts/install.py" % _mask_home(settings_path))
     if mode == "plugin":
         if has_plugin:
             return _result("mode_wiring", STATUS_PASS,
                            "PASS: installation_mode is plugin and %s is "
-                           "enabled in %s." % (plugin_name, settings_path))
+                           "enabled in %s." % (plugin_name, _mask_home(settings_path)))
         return _result("mode_wiring", STATUS_FAIL,
                        "FAIL: installation_mode is plugin but %s is not "
                        "enabled in %s. Run: /plugin install %s"
-                       % (plugin_name, settings_path, plugin_name))
+                       % (plugin_name, _mask_home(settings_path), plugin_name))
     return _result("mode_wiring", STATUS_FAIL,
                    "FAIL: the config's installation_mode is %r, which is "
                    "neither plugin nor clone. Run: python3 scripts/setup.py "
@@ -732,19 +763,19 @@ def check_checksums(root):
     manifest_path = os.path.join(root, "CHECKSUMS.sha256")
     if not os.path.isfile(manifest_path):
         return _result("checksums", STATUS_SKIP,
-                       "SKIP: no CHECKSUMS.sha256 at %s." % manifest_path)
+                       "SKIP: no CHECKSUMS.sha256 at %s." % _mask_home(manifest_path))
     if _git_tree_state(root) == "dirty":
         return _result("checksums", STATUS_SKIP,
                        "SKIP: %s is a live git working tree with uncommitted "
                        "changes, so CHECKSUMS.sha256 (generated from a clean, "
                        "checked-out release) cannot be compared honestly "
                        "here. Commit your work or check out a clean tag, "
-                       "then re-run this check." % root)
+                       "then re-run this check." % _mask_home(root))
     try:
         text = io.open(manifest_path, encoding="utf-8").read()
     except (IOError, OSError) as exc:
         return _result("checksums", STATUS_FAIL,
-                       "FAIL: could not read %s: %s" % (manifest_path, exc))
+                       "FAIL: could not read %s: %s" % (_mask_home(manifest_path), exc))
     problems = []
     listed = 0
     for line in text.splitlines():
@@ -790,7 +821,7 @@ def check_settings_json(settings_path):
     if err:
         return _result("settings_json", STATUS_FAIL, "FAIL: %s" % err)
     return _result("settings_json", STATUS_PASS,
-                   "PASS: %s is valid JSON." % settings_path)
+                   "PASS: %s is valid JSON." % _mask_home(settings_path))
 
 
 def run_all_checks(settings_path):
@@ -808,7 +839,7 @@ def run_all_checks(settings_path):
         _run_check("version", check_version_identity, root),
         _run_check("runtime", check_runtime),
         _run_check("consent", check_consent),
-        _run_check("vault", check_vault),
+        _run_check("vault", check_vault, root),
         _run_check("duplicate_install", check_duplicate_install,
                    settings_for_scan, settings_err, settings_path, root),
         _run_check("store", check_store_health, root),
@@ -829,6 +860,10 @@ def build_parser():
                         "(default ~/.claude/settings.json)")
     p.add_argument("--json", action="store_true",
                    help="print one JSON object instead of plain text")
+    p.add_argument("--strict", action="store_true",
+                   help="treat any SKIP as a failure too: exit nonzero and "
+                        "list each skipped check and why (default: a SKIP "
+                        "can be legitimate and still exits 0)")
     return p
 
 
@@ -841,13 +876,32 @@ def main(argv):
     settings_path = os.path.abspath(args.settings or default_settings_path())
 
     checks = run_all_checks(settings_path)
-    all_ok = all(c.status in (STATUS_PASS, STATUS_SKIP) for c in checks)
+    proven = sum(1 for c in checks if c.status == STATUS_PASS)
+    skipped = sum(1 for c in checks if c.status == STATUS_SKIP)
     fail_count = sum(1 for c in checks if c.status == STATUS_FAIL)
+    # I2 (external review, Loop 3/5): STATUS_SKIP used to be folded into
+    # "all_ok" with no visible count anywhere, so a run that only ever
+    # SKIPPED (no store, no manifest, setup never run) read on the exit
+    # code alone exactly like a run that actually PROVED ten things. The
+    # exit code still accepts a SKIP as legitimate by default (a SKIP can be
+    # an honest "nothing to check yet"), but the summary line below states
+    # all three counts every time, so a vacuous pass is impossible to
+    # misread; --strict is the opt-in for a caller (a release gate, a CI
+    # job) that wants every SKIP treated as a blocker instead of a shrug.
+    summary = ("%d of %d proven, %d skipped, %d failed."
+              % (proven, len(checks), skipped, fail_count))
+    ok = fail_count == 0 and not (args.strict and skipped)
 
     if args.json:
         payload = {
-            "settings": settings_path,
-            "ok": all_ok,
+            "settings": _mask_home(settings_path),
+            "ok": fail_count == 0,
+            "strict": args.strict,
+            "strict_ok": ok,
+            "proven": proven,
+            "skipped": skipped,
+            "failed": fail_count,
+            "summary": summary,
             "checks": [
                 {"id": i, "key": c.key, "title": c.title,
                  "status": c.status, "message": c.message}
@@ -855,21 +909,30 @@ def main(argv):
             ],
         }
         _out(json.dumps(payload, indent=2, sort_keys=True))
-        return EXIT_OK if all_ok else EXIT_PROBLEMS
+        return EXIT_OK if ok else EXIT_PROBLEMS
 
     _out("BrotherMode doctor: %d checks" % len(checks))
-    _out("  settings: %s" % settings_path)
+    _out("  settings: %s" % _mask_home(settings_path))
     for i, c in enumerate(checks, 1):
         _out("")
         _out("[%d/%d] %s: %s" % (i, len(checks), c.title, c.status))
         for line in c.message.splitlines():
             _out("  %s" % line)
     _out("")
+    _out(summary)
     if fail_count:
         _out("%d of %d checks FAILED. Follow each remediation above, then "
              "re-run this command." % (fail_count, len(checks)))
         return EXIT_PROBLEMS
-    _out("All %d checks passed (some may say SKIP, which is not a failure; "
+    if args.strict and skipped:
+        _out("--strict: %d check(s) skipped, and --strict treats a SKIP as "
+             "a failure:" % skipped)
+        for c in checks:
+            if c.status == STATUS_SKIP:
+                reason = c.message.splitlines()[0] if c.message else "(no reason given)"
+                _out("  - %s: %s" % (c.title, reason))
+        return EXIT_PROBLEMS
+    _out("All %d checks passed (SKIP is not a failure unless --strict; "
          "see the reason printed next to it)." % len(checks))
     return EXIT_OK
 
