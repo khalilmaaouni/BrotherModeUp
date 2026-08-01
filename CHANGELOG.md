@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased on main, 2026-08-01 evening: the documentation earns its keep, after a 1 of 5
+
+The founder rated the freshly shipped summary and book 1 of 5: weak, and
+complicated where it should be practical. The diagnosis, confirmed by three
+researchers on fetched sources and two red-team readers with measurements:
+every gate checked truth and none checked usefulness, so both artifacts were
+accurate walls of prose organized around the product instead of the reader
+(summary: 4,942 words with the install command at 90 percent depth and
+nothing ever shown; book: the seven guided commands first appearing at
+chapter thirteen, 4,100 words before first success, two early exercises
+broken as printed).
+
+Both were rebuilt against a ratified spec
+(docs/superpowers/specs/2026-08-01-docs-rebuild-after-1of5-design.md). The
+summary is 771 body words: a falsifiable hero (the plugin that refuses to
+say done), the two-line install ten lines from the top, one REAL captured
+refusal transcript as the first evidence, one dated status box replacing
+nine scattered disclaimers, the eight mechanisms once. The book inverted
+from product tour to task-first: cheat sheet, then DO, SOLVE, UNDERSTAND,
+LOOK UP, 217 words to first proven success, the broken exercises fixed and
+re-run, every original chapter preserved with its anchors (chapter six
+byte-identical for its replay suite). A usefulness gate now stands in front
+of the founder's eyes: mechanical pins (a 1,600-word cap on the summary,
+install-line depth, the cheat sheet and task index anchors) plus a fresh
+hostile red reader who must score any documentation artifact 3 of 5 or
+better before the founder is asked to look.
+
 ## 2.0.0-rc.11, 2026-08-01: the explainer earns its excitement, help grows a deep tour, and updating becomes one command
 
 SECOND LATE ADDITION, same day: the founder accepted both artifacts and named
