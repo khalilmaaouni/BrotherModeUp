@@ -675,3 +675,36 @@ QUICKSTART honesty label has a register entry behind it:
   and this CLI-based setup are two separate entry points that have not been
   unified into one first-run experience, and `docs/specs/canonical-project-
   protocol.md` remains the longer-term direction, not what shipped here.
+
+## The rc.9 install gap, found by the Loop 9 preliminary refuter pass (2026-08-02)
+
+Three related facts, all true at once, all resolved only by the founder
+cutting the next release tag at program end:
+
+- **The pinned install commands install the pre-fix tree.** Every install
+  page pins `v2.0.0-rc.9`, the last resolvable tag, per the Loop 0
+  version law. But rc.9 predates every commit of the release-closure
+  program, so a user installing today gets the acknowledged-broken
+  five-event hand-wiring blocks, no Bash-write detection, and none of
+  loops 1 through 8. The release branch's own install path does not
+  install the release branch. This is the designed cost of refusing to
+  tag mid-program (a late rc.10 or rc.11 tag would have recreated the
+  rc.8 two-trees ambiguity); it stops being true the moment the next tag
+  is cut and the three doc pins move to it.
+- **rc.9 cannot read a store this branch has touched.** rc.9 code
+  understands store schema 11; the program's Loop 1 migrated the schema
+  to 12. An rc.9 install pointed at a schema-12 store refuses loudly at
+  session start ("store schema_version is 12 but this BrotherMode
+  understands at most 11. Upgrade BrotherMode; do not downgrade the
+  store.") and touches nothing, so the mismatch is safe but noisy. The
+  founder's own machine shows this warning every session for exactly
+  this reason. It ends when the live install is upgraded past the
+  schema-12 migration.
+- **doctor's wiring check reads 1 of 7 hook groups.** Check 8's healthy
+  verdict confirms the PreToolUse fence entry and nothing else: an
+  install missing SessionEnd, Stop, PreCompact, PostToolUse and both
+  Bash-audit groups (telemetry, autosave and the Loop 6 detection all
+  dead) still prints "All 10 checks passed". Widening the check to all
+  seven groups is a post-freeze fix; until then, the mechanical
+  cross-check is `python3 tools/test_install.py`, whose shape assertions
+  do read all seven.

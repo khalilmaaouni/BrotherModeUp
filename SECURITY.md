@@ -249,9 +249,15 @@ this project stops being able to promise anything".
 - **The vault** (`BROTHERMODE_VAULT`, default `~/BrotherModeVault`): session
   telemetry and captured corrections, both described above.
 - **The consent config** (`~/.brotherme/config.json`): records that setup
-  ran and where your vault lives. Not secret by itself, but every
-  write-capable hook refuses to write anything until this file says you
-  said yes, so it is the switch that gates everything else on this list.
+  ran and where your vault lives. Not secret by itself, but every hook
+  that writes YOUR CONTENT (telemetry, autosave, the Bash audit) refuses
+  to write anything until this file says you said yes, so it is the
+  switch that gates your data leaving a session. One narrow exception,
+  named so this sentence stays true: the fence hook does not check
+  consent, and on first use it mints its own session token file (a
+  machine-generated 64-hex value, no founder data) under
+  `.brothermode/fence/`, because ownership proof has to exist before the
+  hook can refuse anyone. It writes nothing else.
 - **Your Claude Code `settings.json`**: what `scripts/install.py` edits to
   wire the hooks. If an attacker could rewrite it, they could point a hook
   command anywhere.

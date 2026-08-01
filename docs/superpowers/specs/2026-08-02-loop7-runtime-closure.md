@@ -115,6 +115,11 @@ hooks a suite actually exercises.
 
 ## Gate evidence
 
-python3 tools/test_all.py after the last edit of this loop's session:
-see the loop-close report for the quoted line. test_bm_runtimes.py runs
-inside it; a failure there fails the loop.
+python3 tools/test_all.py after the last content edit of this loop's
+commit train: the exact green line is quoted in the message of the commit
+that lands Founder Report 5 (the file
+2026-08-02-founder-report-5-loop7.md beside this one) and in the wave 15
+close record. test_bm_runtimes.py runs inside that gate; a failure there
+fails the loop. The Loop 9 preliminary refuter panel additionally re-ran
+TestCommittedOutputMatchesTheRegistry and TestCapabilityClaimsStaySeparate
+directly, both OK, while attacking this closure.
