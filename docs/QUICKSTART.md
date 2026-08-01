@@ -188,25 +188,35 @@ python3 -m json.tool ~/.claude/settings.json
 
 Expected: the file prints back, reformatted, with no error.
 
-Then prove the fence is not just wired but LIVE:
+Then prove the fence is not just wired but LIVE, and check the rest of the
+install at the same time:
 
 ```bash
 python3 ~/.claude/skills/brothermode/scripts/doctor.py
 ```
 
-Expected: `OK: the wired hook denied a foreign write and allowed the owner's
-own write`, followed by three lines saying what that did not prove. Doctor
-builds a throwaway project in a temporary directory, claims one file under one
-session, then asks the hook you actually wired to approve an edit of that file
-from a different session. A healthy fence refuses. It then asks again as the
-owner, because a hook that denies everything would pass the first half and
-would be a brick rather than a fence. Nothing outside the temporary directory
-is touched, and it is deleted when doctor exits.
+Doctor runs ten checks, each printing PASS, FAIL with a one-sentence fix, or
+SKIP with the reason nothing could be checked yet (SKIP is not a failure).
+Add `--json` instead of reading the plain text if a script needs to consume
+the result.
 
-Exit code 1 means the fence is not enforcing, and the output names which way it
-is dead: no `PreToolUse` entry at all, an entry pointing at a file that is not
-there, a matcher that leaves some write tools ungated, or a hook that runs and
-refuses nothing.
+| # | Check | A FAIL means, in plain words |
+|---|-------|-------------------------------|
+| 1 | Fence hook wired and live | The blocked-write simulation below: builds a throwaway project, claims one file under one session, then asks the hook you actually wired to approve an edit of that file from a different session. A healthy fence refuses, then allows the same write when the owner asks; a hook that denies everything would pass only the first half and would be a brick, not a fence. Nothing outside a temporary directory is touched. A FAIL names which way it is dead: no `PreToolUse` entry, an entry pointing at a file that is not there, a matcher that leaves some write tools ungated, or a hook that runs and refuses nothing. |
+| 2 | VERSION matches the plugin manifest | `VERSION` and `.claude-plugin/plugin.json` disagree about which release this is. |
+| 3 | python3 3.9+ and git on PATH | One of those two is missing from this machine. |
+| 4 | Setup has been completed | Run `python3 scripts/setup.py`; nothing below this line can be checked before that. |
+| 5 | Vault path exists and is writable | Create it (`cp -R vault-template <your vault path>`) or fix its permissions. |
+| 6 | Only one install method is wired | Both the plugin and a clone install are wiring hooks in the same `settings.json`, so every hook fires twice. Remove one: `/plugin uninstall <name>` or `python3 scripts/uninstall.py`. |
+| 7 | Project store health | A `.brothermode/store.sqlite3` under the current directory failed its own `verify`; SKIP, not FAIL, when there is no store here yet. |
+| 8 | Hook wiring matches installation_mode | The consent config says `plugin` or `clone` and the hooks actually wired disagree with it. |
+| 9 | CHECKSUMS.sha256 self-check | A shipped file does not match the release manifest, the signature of an update that did not finish. |
+| 10 | settings.json is valid JSON | Claude Code silently ignores a broken settings file, so every hook, not only the fence, is off. |
+
+Checks 4, 5 and 8 SKIP until setup has run (`python3 scripts/setup.py`); that
+is expected on a machine that just finished Step 3 above and has not yet
+created a vault. Every other check applies from the moment the hooks are
+wired.
 
 To remove the wiring later:
 

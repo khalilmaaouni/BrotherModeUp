@@ -36,6 +36,24 @@ SHELL = os.path.join(ROOT, "scripts", "bm_shell.py")
 EXIT_REFUSED = 4
 
 
+def write_consented_config(dirpath):
+    """Write a completed Loop 3 consent config plus a writable vault dir
+    under dirpath, returning the config path. Doctor's consent and vault
+    checks (D-3 checks 4 and 5) FAIL without one, which is their tested
+    job; these fixtures exercise everything downstream of consent, so
+    they consent first, the same order the QUICKSTART documents."""
+    vault = os.path.join(dirpath, "vault")
+    if not os.path.isdir(vault):
+        os.makedirs(vault)
+    cfg = os.path.join(dirpath, "consent.json")
+    with io.open(cfg, "w", encoding="utf-8") as fh:
+        json.dump({"setup_complete": True, "vault_path": vault,
+                   "privacy_notice_version": "2026-08-01",
+                   "installation_mode": "clone",
+                   "security_mode": "standard"}, fh)
+    return cfg
+
+
 class InstallerCase(unittest.TestCase):
 
     def setUp(self):
@@ -151,12 +169,21 @@ class TestCleanInstall(InstallerCase):
         env["HOME"] = self.home
         env.pop("BROTHERMODE_ROOT", None)
         env.pop("BM_FENCE_STRICT", None)
+        env["BROTHERME_CONFIG"] = write_consented_config(self.tmp)
         d = subprocess.run(
-            [sys.executable, doctor, "--settings", self.settings],
+            [sys.executable, doctor, "--settings", self.settings, "--json"],
             env=env, cwd=self.tmp, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, universal_newlines=True, timeout=300)
-        self.assertEqual(d.returncode, 0, d.stdout + d.stderr)
-        self.assertIn("denied a foreign write", d.stdout)
+        # This test's subject is the FENCE check of the installed copy, so
+        # it asserts that check by name from the machine output. Overall
+        # exit 0 is deliberately NOT demanded here: an install copied from
+        # a mid-development tree cannot match the release CHECKSUMS.sha256
+        # (check 9 measures release integrity), and demanding it would make
+        # this test red on every commit between release cuts.
+        report = json.loads(d.stdout)
+        fence = [c for c in report["checks"] if c["key"] == "fence"]
+        self.assertEqual(len(fence), 1, d.stdout)
+        self.assertEqual(fence[0]["status"], "PASS", d.stdout + d.stderr)
 
     def test_machine_state_is_not_copied(self):
         for name in (".git", "__pycache__", "threads"):
@@ -663,6 +690,14 @@ class DoctorCase(unittest.TestCase):
                 shutil.copy2(os.path.join(HERE, name),
                              os.path.join(self.tools, name))
         self.fence = os.path.join(self.tools, "bm_fence_hook.py")
+        self.consent_cfg = write_consented_config(self.tmp)
+        # A private HOME for doctor's home-relative reads (duplicate-install
+        # check, settings discovery). Made in setUp so the leaves-nothing-
+        # behind test's before-snapshot already contains it; macOS drops a
+        # Library dir inside any HOME a subprocess uses, and inside this
+        # subdir that noise stays out of the top-level listing.
+        self.home = os.path.join(self.tmp, "home")
+        os.makedirs(self.home)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -682,6 +717,8 @@ class DoctorCase(unittest.TestCase):
         env = dict(os.environ)
         env.pop("BROTHERMODE_ROOT", None)
         env.pop("BM_FENCE_STRICT", None)
+        env["BROTHERME_CONFIG"] = self.consent_cfg
+        env["HOME"] = self.home
         return subprocess.run(
             [sys.executable, DOCTOR, "--settings", self.settings],
             env=env, cwd=self.tmp, stdout=subprocess.PIPE,

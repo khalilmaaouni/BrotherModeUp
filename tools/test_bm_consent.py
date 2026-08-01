@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """Suite for the Loop 3 consent gate: scripts/setup.py, tools/bm_sessionstart.sh
 and tools/bm_telemetry.py's SessionEnd path (design D-1/D-2,
-docs/superpowers/specs/2026-08-01-loop3-consent-install-design.md).
+docs/superpowers/specs/2026-08-01-loop3-consent-install-design.md); and, since
+WP-E on the same design, scripts/doctor.py's ten-check surface (D-3),
+commands/brotherme-update.md's verification steps (D-4), and
+scripts/uninstall.py's consent-config removal (D-5).
 
 Every test here runs the real files as real subprocesses (sh for the hook
-script, python3 for the two CLIs) against a FAKE HOME, and often a fake
+script, python3 for the CLIs) against a FAKE HOME, and often a fake
 BROTHERME_CONFIG path too, under a temporary directory. Nothing in this file
 writes to the real ~/.brotherme or the real ~/BrotherModeVault, and nothing
-imports scripts/setup.py or tools/bm_telemetry.py into this process, for the
-same reason tools/test_install.py does not import scripts/install.py: a gate
-that is only ever exercised in-process is not exercised at the layer a
-founder's terminal actually uses.
+imports scripts/setup.py, scripts/doctor.py, scripts/uninstall.py or
+tools/bm_telemetry.py into this process, for the same reason
+tools/test_install.py does not import scripts/install.py: a gate that is only
+ever exercised in-process is not exercised at the layer a founder's terminal
+actually uses.
 
 THE ONE TEST THAT MATTERS MOST: sessionstart pre-consent creates ZERO files
 anywhere under a fresh HOME and a fresh project root. That is the review's
@@ -22,6 +26,7 @@ Python 3.9, standard library only.
 No em or en dashes anywhere in this file, its comments, or its output.
 """
 
+import hashlib
 import io
 import json
 import os
@@ -37,6 +42,9 @@ ROOT = os.path.dirname(HERE)
 SESSIONSTART = os.path.join(HERE, "bm_sessionstart.sh")
 TELEMETRY = os.path.join(HERE, "bm_telemetry.py")
 SETUP = os.path.join(ROOT, "scripts", "setup.py")
+DOCTOR = os.path.join(ROOT, "scripts", "doctor.py")
+UNINSTALL = os.path.join(ROOT, "scripts", "uninstall.py")
+UPDATE_MD = os.path.join(ROOT, "commands", "brotherme-update.md")
 DIGEST = os.path.join(ROOT, "DIGEST.md")
 
 EXIT_OK = 0
@@ -413,6 +421,288 @@ class SetupConsentStateProbeCase(unittest.TestCase):
             json.dump({"setup_complete": False}, fh)
         r = self._probe()
         self.assertEqual(r.returncode, EXIT_FAILED)
+
+
+class DoctorTenChecksCase(unittest.TestCase):
+    """(g) scripts/doctor.py's ten-check surface (Loop 3 design D-3, WP-E).
+    Consent gates the checks that depend on it, the store check reports
+    bm_store.py verify's own verdict, and the duplicate-install and
+    checksum checks catch the two named failure classes by name."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="bm-consent-doctor-")
+        self.home = os.path.join(self.tmp, "home")
+        self.project = os.path.join(self.tmp, "project")
+        os.makedirs(self.home)
+        os.makedirs(self.project)
+        self.settings = os.path.join(self.tmp, "settings.json")
+        self.write_settings({})
+        self.env = _clean_env(self.home)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def write_settings(self, obj):
+        with io.open(self.settings, "w", encoding="utf-8") as fh:
+            json.dump(obj, fh)
+
+    def run_doctor(self):
+        return subprocess.run(
+            [sys.executable, DOCTOR, "--settings", self.settings, "--json"],
+            cwd=self.project, env=self.env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=300)
+
+    def _checks(self, stdout):
+        payload = json.loads(stdout)
+        return {c["key"]: c for c in payload["checks"]}
+
+    def test_unconsented_consent_check_fails_and_vault_check_skips(self):
+        r = self.run_doctor()
+        checks = self._checks(r.stdout)
+        self.assertEqual(checks["consent"]["status"], "FAIL",
+                         checks["consent"]["message"])
+        self.assertIn(SETUP_SENTENCE, checks["consent"]["message"])
+        self.assertEqual(checks["vault"]["status"], "SKIP",
+                         checks["vault"]["message"])
+
+    def test_consented_with_a_valid_store_reports_verifys_own_verdict(self):
+        vault = os.path.join(self.home, "Vault")
+        os.makedirs(vault)
+        _write_consented_config(
+            os.path.join(self.home, ".brotherme", "config.json"), vault)
+        store_cli = os.path.join(HERE, "bm_store.py")
+        r = subprocess.run(
+            [sys.executable, store_cli, "init"], cwd=self.project,
+            env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=120)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+        r = self.run_doctor()
+        checks = self._checks(r.stdout)
+        self.assertEqual(checks["consent"]["status"], "PASS")
+        self.assertEqual(checks["vault"]["status"], "PASS")
+        self.assertEqual(checks["store"]["status"], "PASS")
+        self.assertIn("healthy", checks["store"]["message"],
+                      "the store check did not report verify's own verdict")
+
+    def test_no_store_is_a_skip_not_a_fail(self):
+        r = self.run_doctor()
+        checks = self._checks(r.stdout)
+        self.assertEqual(checks["store"]["status"], "SKIP")
+
+    def test_duplicate_install_fixture_fails_naming_both(self):
+        fence_dir = os.path.join(self.tmp, "clone_tools")
+        os.makedirs(fence_dir)
+        fence_path = os.path.join(fence_dir, "bm_fence_hook.py")
+        with io.open(fence_path, "w", encoding="utf-8") as fh:
+            fh.write("# stub, never executed by this test\n")
+        self.write_settings({
+            "hooks": {"PreToolUse": [{
+                "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+                "hooks": [{"type": "command",
+                           "command": "python3 " + fence_path,
+                           "timeout": 10}],
+            }]},
+            "enabledPlugins": {"brotherme@some-marketplace": True},
+        })
+        r = self.run_doctor()
+        checks = self._checks(r.stdout)
+        self.assertEqual(checks["duplicate_install"]["status"], "FAIL")
+        msg = checks["duplicate_install"]["message"]
+        self.assertIn("plugin", msg)
+        self.assertIn("clone", msg)
+        self.assertIn("/plugin uninstall", msg,
+                      "the which-to-remove sentence lost the plugin side")
+        self.assertIn("scripts/uninstall.py", msg,
+                      "the which-to-remove sentence lost the clone side")
+
+    def test_checksum_tamper_fails_naming_the_file(self):
+        fake_root = os.path.join(self.tmp, "fake_install")
+        fake_scripts = os.path.join(fake_root, "scripts")
+        os.makedirs(fake_scripts)
+        for name in ("doctor.py", "setup.py"):
+            shutil.copy2(os.path.join(ROOT, "scripts", name),
+                        os.path.join(fake_scripts, name))
+        payload = os.path.join(fake_root, "payload.txt")
+        with io.open(payload, "w", encoding="utf-8") as fh:
+            fh.write("original content\n")
+        with io.open(payload, "rb") as fh:
+            digest = hashlib.sha256(fh.read()).hexdigest()
+        with io.open(os.path.join(fake_root, "CHECKSUMS.sha256"), "w",
+                    encoding="utf-8") as fh:
+            fh.write("%s  payload.txt\n" % digest)
+        # Tamper AFTER the manifest is written, so the manifest is stale
+        # exactly the way a half-finished update leaves it.
+        with io.open(payload, "w", encoding="utf-8") as fh:
+            fh.write("tampered content\n")
+
+        r = subprocess.run(
+            [sys.executable, os.path.join(fake_scripts, "doctor.py"),
+             "--settings", self.settings, "--json"],
+            cwd=self.project, env=self.env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=300)
+        checks = self._checks(r.stdout)
+        self.assertEqual(checks["checksums"]["status"], "FAIL")
+        self.assertIn("payload.txt", checks["checksums"]["message"],
+                      "the checksum check did not name the tampered file")
+
+    def test_checksum_check_skips_a_dirty_git_working_tree(self):
+        """A live development checkout with ordinary uncommitted edits (this
+        project's own actual state, mid-loop, most days) is not the
+        half-finished RELEASE update check 9 exists to catch; a checked-in
+        manifest was generated from a clean, tagged checkout and was never
+        going to describe a moving working tree. Distinguished from the
+        tamper test above by one thing only: here the change is real but
+        UNCOMMITTED, there the manifest itself was already finalized against
+        a clean tree that was then silently changed after the fact."""
+        fake_root = os.path.join(self.tmp, "fake_git_install")
+        fake_scripts = os.path.join(fake_root, "scripts")
+        os.makedirs(fake_scripts)
+        for name in ("doctor.py", "setup.py"):
+            shutil.copy2(os.path.join(ROOT, "scripts", name),
+                        os.path.join(fake_scripts, name))
+        payload = os.path.join(fake_root, "payload.txt")
+        with io.open(payload, "w", encoding="utf-8") as fh:
+            fh.write("committed content\n")
+        with io.open(payload, "rb") as fh:
+            digest = hashlib.sha256(fh.read()).hexdigest()
+        with io.open(os.path.join(fake_root, "CHECKSUMS.sha256"), "w",
+                    encoding="utf-8") as fh:
+            fh.write("%s  payload.txt\n" % digest)
+
+        git_env = dict(self.env)
+        git_env.update({"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+                        "GIT_COMMITTER_NAME": "t",
+                        "GIT_COMMITTER_EMAIL": "t@example.com"})
+        for cmd in (["git", "init"], ["git", "add", "-A"],
+                    ["git", "commit", "-m", "initial"]):
+            r = subprocess.run(cmd, cwd=fake_root, env=git_env,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               universal_newlines=True, timeout=60)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+        # Dirty the tree WITHOUT committing: an ordinary live edit, not a
+        # half-finished release checkout.
+        with io.open(payload, "a", encoding="utf-8") as fh:
+            fh.write("an uncommitted local edit\n")
+
+        r = subprocess.run(
+            [sys.executable, os.path.join(fake_scripts, "doctor.py"),
+             "--settings", self.settings, "--json"],
+            cwd=self.project, env=self.env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=300)
+        checks = self._checks(r.stdout)
+        self.assertEqual(checks["checksums"]["status"], "SKIP",
+                         checks["checksums"]["message"])
+
+    def test_no_manifest_is_a_skip_not_a_fail(self):
+        fake_root = os.path.join(self.tmp, "fake_install_no_manifest")
+        fake_scripts = os.path.join(fake_root, "scripts")
+        os.makedirs(fake_scripts)
+        for name in ("doctor.py", "setup.py"):
+            shutil.copy2(os.path.join(ROOT, "scripts", name),
+                        os.path.join(fake_scripts, name))
+        r = subprocess.run(
+            [sys.executable, os.path.join(fake_scripts, "doctor.py"),
+             "--settings", self.settings, "--json"],
+            cwd=self.project, env=self.env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=300)
+        checks = self._checks(r.stdout)
+        self.assertEqual(checks["checksums"]["status"], "SKIP")
+
+
+class UninstallConsentRemovalCase(unittest.TestCase):
+    """(h) scripts/uninstall.py D-5: offers to remove the consent config,
+    asked or via --remove-consent, never silent; the plugin-path caveat is
+    always printed."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="bm-consent-uninstall-")
+        self.home = os.path.join(self.tmp, "home")
+        os.makedirs(self.home)
+        self.settings = os.path.join(self.tmp, "settings.json")
+        with io.open(self.settings, "w", encoding="utf-8") as fh:
+            json.dump({}, fh)
+        # Deliberately does not exist and does not look like a BrotherMode
+        # checkout: this suite is testing the consent-removal step, which
+        # runs after hook removal is already settled, and an explicit
+        # --target lets that point be reached without a real install.
+        self.target = os.path.join(self.tmp, "not-a-real-install")
+        self.env = _clean_env(self.home)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def run_uninstall(self, *args, **kw):
+        stdin = kw.pop("input", "")
+        return subprocess.run(
+            [sys.executable, UNINSTALL, "--target", self.target,
+             "--settings", self.settings] + list(args),
+            cwd=self.tmp, env=self.env, input=stdin,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=300)
+
+    def _cfg_path(self):
+        return os.path.join(self.home, ".brotherme", "config.json")
+
+    def test_remove_consent_flag_removes_the_config(self):
+        cfg_path = self._cfg_path()
+        _write_consented_config(cfg_path, os.path.join(self.home, "Vault"))
+        r = self.run_uninstall("--remove-consent")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(os.path.isfile(cfg_path),
+                         "--remove-consent did not remove the config")
+        self.assertIn(cfg_path, r.stdout)
+
+    def test_without_the_flag_and_no_terminal_the_config_survives(self):
+        cfg_path = self._cfg_path()
+        _write_consented_config(cfg_path, os.path.join(self.home, "Vault"))
+        r = self.run_uninstall(input="")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(os.path.isfile(cfg_path),
+                        "the config was removed without ever being asked")
+        self.assertIn(cfg_path, r.stdout,
+                      "uninstall said nothing about the config it left behind")
+
+    def test_no_config_at_all_prints_nothing_about_consent(self):
+        r = self.run_uninstall()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("consent:", r.stdout)
+
+    def test_the_plugin_path_caveat_is_always_printed(self):
+        r = self.run_uninstall()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("/plugin uninstall", r.stdout)
+        self.assertIn("not this script's bookkeeping", r.stdout)
+
+
+class UpdateCommandFileCase(unittest.TestCase):
+    """(i) commands/brotherme-update.md (Loop 3 design D-4): the pinned
+    lines tools/test_bm.py already asserts survive, and the two new
+    verification steps plus the rollback sentence are present."""
+
+    def test_pinned_lines_survive_and_the_new_steps_are_present(self):
+        with io.open(UPDATE_MD, encoding="utf-8") as fh:
+            text = fh.read()
+        for line in ("/plugin marketplace update brotherme-marketplace",
+                     "/plugin update brotherme",
+                     "git fetch --tags",
+                     "git ls-remote --tags"):
+            self.assertIn(line, text,
+                          "commands/brotherme-update.md lost the pinned "
+                          "line %r" % line)
+        self.assertIn("scripts/doctor.py", text,
+                      "the update command never names the doctor "
+                      "invocation that verifies the update")
+        self.assertIn("CHECKSUMS.sha256", text,
+                      "the update command never names the checksum "
+                      "self-check that catches a half-finished update")
+        self.assertIn("git checkout <the tag you were on before>", text,
+                      "the update command lost the rollback sentence")
 
 
 if __name__ == "__main__":
