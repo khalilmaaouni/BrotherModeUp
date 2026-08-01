@@ -7,6 +7,19 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # Capture the hook JSON from stdin ONCE so we can both ignore it (digest/nags)
 # and replay it to the compaction hint below.
 PAYLOAD="$(cat 2>/dev/null)"
+
+# Consent gate (Loop 3 design D-1): before any write or store command below,
+# check consent via scripts/setup.py's cheap --consent-state probe (exit 0
+# consented, non-zero otherwise: absent config, setup_complete false, or a
+# broken config all read the same way here, fail closed). Not consented means
+# this script prints exactly one plain sentence and exits 0 having written
+# nothing at all: no digest, no telemetry, no store verify. scripts/setup.py
+# is the ONLY place that creates ~/.brotherme/config.json.
+if ! python3 "$DIR/scripts/setup.py" --consent-state >/dev/null 2>&1; then
+  echo "BrotherMode setup is not complete yet; run: python3 scripts/setup.py"
+  exit 0
+fi
+
 cat "$DIR/DIGEST.md" 2>/dev/null
 python3 "$DIR/tools/bm_telemetry.py" startup-nags 2>/dev/null
 python3 "$DIR/tools/bm_telemetry.py" check-update 2>/dev/null

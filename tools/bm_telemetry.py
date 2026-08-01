@@ -6,6 +6,13 @@ Subcommands:
                     session transcript, appends ONE atomic JSONL line to the ledger
                     (schema 2: GenAI semconv token names) and scans the MAIN
                     transcript's short founder messages for correction candidates.
+                    LOOP 3 WP-D (2026-08-01), consent gate: this now checks
+                    scripts/setup.py's shared consent reader FIRST. Setup absent
+                    or incomplete means it prints one sentence and returns having
+                    appended nothing to the ledger or the corrections file; the
+                    gate is the same one bm_sessionstart.sh checks before it
+                    writes anything, so the two entry points can never disagree
+                    on whether the founder has consented yet.
   migrate           One-time ledger migration to schema 2 (idempotent, temp+rename,
                     line-count recheck; never backfills absent values).
   scorecard         Renders the 9-metric dashboard from the ledger + companion files.
@@ -407,6 +414,53 @@ def _get_bm_learning():
     return _bm_learning_cache[0], _bm_learning_cache[1]
 
 
+def _load_bm_setup():
+    """Load scripts/setup.py by path, same shape as _load_bm_learning above:
+    scripts/setup.py is the ONE place the consent config schema and its
+    reader (read_config, is_consented) live (Loop 3 design D-1/D-2), and this
+    is how the SessionEnd entry point reaches them without a second, drifting
+    copy. Loading a module that itself imports subprocess (for its own doctor
+    invocation, never called from the pure functions this file uses) does not
+    make THIS file import subprocess: the "no subprocess in tools/" audit
+    (tools/test_bm.py) scans source lines of tools/*.py, and no such line is
+    ever written here."""
+    try:
+        import importlib.util
+        here = os.path.dirname(os.path.abspath(__file__))
+        root = os.path.dirname(here)
+        spec = importlib.util.spec_from_file_location(
+            "bm_setup_for_telemetry", os.path.join(root, "scripts", "setup.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod, None
+    except Exception as e:
+        return None, repr(e)
+
+
+_bm_setup_cache = []
+
+
+def _get_bm_setup():
+    if not _bm_setup_cache:
+        _bm_setup_cache.extend(_load_bm_setup())
+    return _bm_setup_cache[0], _bm_setup_cache[1]
+
+
+def _consented():
+    """True only when scripts/setup.py's own is_consented() says so. Fails
+    CLOSED (not consented) on any load error: an unloadable setup module, a
+    missing config, or a corrupt one must never be read as permission to
+    write, matching D-1's "absent or false" rule exactly."""
+    mod, _err = _get_bm_setup()
+    if mod is None:
+        return False
+    try:
+        cfg, _cfg_err = mod.read_config()
+        return bool(mod.is_consented(cfg))
+    except Exception:
+        return False
+
+
 CORRECTION_CAP_PER_SESSION = 8
 
 
@@ -535,6 +589,9 @@ def scan_corrections(sid, project, user_texts):
 
 
 def cmd_outcomes_append():
+    if not _consented():
+        print("bm_telemetry: setup is not complete yet; run: python3 scripts/setup.py")
+        return
     try:
         payload = json.load(sys.stdin)
     except Exception:
