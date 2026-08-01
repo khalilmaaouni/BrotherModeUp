@@ -30,6 +30,19 @@ eighteen were applied. The stage stepper is plain anchor links
 with CSS scrolling, chosen over a script after a script-stripped preview
 proved buttons can die where anchors cannot.
 
+A second founder review, minutes after the cut, asked the page to carry
+ambition. The small-ask-versus-big-build section now runs two concrete
+timelines side by side (a rename finished in minutes against a three-week,
+three-language booking product) and names what wakes up at each size. The
+features section grows to eight mechanisms: the founder-gate law (risky
+moments come back to you, credentials never held) is promoted to a card of
+its own. The personas go from three to seven, adding the data engineer, the
+backend engineer, the infrastructure engineer and the engineering lead, each
+with a deep, stack-shaped case, all still labeled designed-for stories. Same
+page, same design system, same honesty labels; the drift tests that pin the
+labels and the same-change update rule are untouched. The ratified spec
+carries this as its amendment section.
+
 /brotherme-help now offers a deep tour: the session runs the existing docs
 engine (tools/bm_docs.py generate) and builds one HTML view of where the
 project stands: state, process diagrams, data model, decisions, code map, and

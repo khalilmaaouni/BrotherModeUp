@@ -351,11 +351,29 @@
   </div>
 
   <h2>A small ask and a big build</h2>
-  <p>Ask for one small thing (rename a file, draft one email) and BrotherME takes the shortest path: no ceremony, no paperwork, the change and its check. The rules wake up only when the work gets heavy, and that is deliberate: the machinery scales with the ask.</p>
-  <p>An ambitious build is where it earns its keep. Picture a real product: an app, a website, a data pipeline behind them, copy in three languages, worked across weeks of sessions. That shape is exactly where AI work usually falls apart: one session forgets what the last one decided, two parallel efforts overwrite each other, confident summaries hide failures, and by week three nobody can say what was actually verified. Each of those failure shapes has a named counter here: written state that survives any crash or restart, one writer per file enforced by a gate, parallel helpers behind separate walls, forecasts that are ranges and get corrected by actuals, and a delivery rule that refuses the word done without a passing check. On a one-hour task you barely notice these. Across a three-week build, they compound into the difference between shipping and starting over.</p>
+  <p>Ask for one small thing (rename a file, draft one email) and BrotherME takes the shortest path: no ceremony, no paperwork, the change and its check. It sizes up every task before touching anything, and a task that is one step, familiar, and cheap to undo gets treated exactly that lightly. The rules wake up only when the work gets heavy, and that is deliberate: the machinery scales with the ask.</p>
+  <div class="usecases">
+    <div class="usecase">
+      <h3>The small ask: minutes</h3>
+      <p>"Rename the product from Swift to Nimbus, everywhere."</p>
+      <div class="tut">
+        <div class="tut-part"><b>What wakes up</b>Almost nothing. It finds every mention, changes them in one pass, and runs one check: a search proving zero old names survive, run after the last change.</div>
+        <div class="tut-part"><b>What you see</b>One line before, one line after, done. No brief, no forecast, no decision cards. The machinery stays asleep because nothing here needs it.</div>
+      </div>
+    </div>
+    <div class="usecase">
+      <h3>The big build: three weeks</h3>
+      <p>"A booking product for my tour company: the app, the marketing site, the data behind both, in English, Japanese and Spanish."</p>
+      <div class="tut">
+        <div class="tut-part"><b>What wakes up</b>Everything, in order. A one-page brief you approve. Four lanes of work, each behind its own wall so nothing overwrites anything. Cheap helpers doing the labor, the strongest model judging it, failures escalating on their own. A forecast in ranges that gets corrected by what actually happened. Decision cards when your taste is needed, one at a time.</div>
+        <div class="tut-part"><b>What you see</b>One morning status instead of four scrollbacks. Bad news first when a check fails. At the end, a delivery packet: what was built, every check that ran after the last change, what was left out on purpose and what adding it would take.</div>
+      </div>
+    </div>
+  </div>
+  <p>The big build is where it earns its keep, because that shape is exactly where AI work usually falls apart: one session forgets what the last one decided, two parallel efforts overwrite each other, confident summaries hide failures, and by week three nobody can say what was actually verified. Each of those failure shapes has a named counter here: written state that survives any crash or restart, one writer per file enforced by a gate, parallel helpers behind separate walls, forecasts that are ranges and get corrected by actuals, and a delivery rule that refuses the word done without a passing check. On a one-hour task you barely notice these. Across a three-week build, they compound into the difference between shipping and starting over. The engineer personas further down show the same machinery carrying real technical weight.</p>
 
   <h2>What makes it different</h2>
-  <p>Seven mechanisms. For each: what it does, how you use it, when it matters. This section is kept current by rule: any release that changes a feature updates this section in the same change.</p>
+  <p>Eight mechanisms. For each: what it does, how you use it, when it matters. This section is kept current by rule: any release that changes a feature updates this section in the same change.</p>
   <div class="usecases">
     <div class="usecase">
       <h3>The guided loop</h3>
@@ -399,6 +417,12 @@
       <div class="tut"><div class="tut-part"><b>How to use it</b>Automatic register. Answer the card; work continues.</div>
       <div class="tut-part"><b>When it matters</b>Always. It is how a non-technical owner keeps real control without reading logs.</div></div>
     </div>
+    <div class="usecase">
+      <h3>Risky moments come back to you</h3>
+      <p>Sign-ins, payments, publishing, and anything destructive stay yours: it prepares the exact step with its undo, then hands you the button. It never types, stores, or logs your credentials.</p>
+      <div class="tut"><div class="tut-part"><b>How to use it</b>Automatic. When a step needs your accounts or could destroy something, it arrives prepared, with its rollback, and waits for you.</div>
+      <div class="tut-part"><b>When it matters</b>Production systems, money, anything public. It is why you can hand over the labor without handing over the keys.</div></div>
+    </div>
   </div>
 
   <h2>What it is good at, and what it is not</h2>
@@ -426,8 +450,8 @@
     </div>
   </div>
 
-  <h2>Who it is built for, three people deep</h2>
-  <p>Three personas, from no technical background to plenty. Told with the same honesty as everything else on this page: these are designed-for stories, and none of these people exists as a customer yet.</p>
+  <h2>Who it is built for, seven people deep</h2>
+  <p>Seven personas, from no technical background to plenty of it. Told with the same honesty as everything else on this page: these are designed-for stories, and none of these people exists as a customer yet.</p>
   <div class="usecases">
     <div class="usecase">
       <h3>The first-time founder</h3>
@@ -438,7 +462,7 @@
       </div>
     </div>
     <div class="usecase">
-      <h3>The ambitious founder with several irons in the fire</h3>
+      <h3>The solo founder with several irons in the fire</h3>
       <p>Seasoned, impatient, delegating hard, running more than one project at once.</p>
       <div class="tut">
         <div class="tut-part"><b>Their deep case</b>A product rebuild in four lanes at once: the app, the site, the data work, the launch copy. Each lane runs behind its own wall, so four parallel efforts cannot overwrite each other; the guided loop sends bulk labor to cheap helpers while judgment stays on the strongest model; every morning starts with one <code>/brotherme-status</code> view instead of four scrollbacks. When they correct course once (never announce a launch before legal reads the copy), that correction is offered as a stored rule and resurfaces on every future launch as a gate. When a contractor joins in week two, the deep tour behind <code>/brotherme-help</code> generates the where-do-we-stand page that replaces a day of onboarding calls.</div>
@@ -451,6 +475,38 @@
       <div class="tut">
         <div class="tut-part"><b>Their deep case</b>They join mid-project and take the deep tour: the live code map, the data model, every decision with its reasoning. Then they claim the module they want to write by hand, and the same gate that keeps two helpers from colliding now keeps helpers out of THEIR files while they work in their own editor. Their code lands under the same law as everyone else's: tests beside the code, a check after the last change, review by a reader who did not write it. When they want to extend BrotherME itself, the co-build section shows the house conventions: mirror the closest sibling file, give every risky call an explicit failure path, keep the seam small.</div>
         <div class="tut-part"><b>What carries them</b>One writer per file shared between humans and helpers, proof or it is not done, the deep tour.</div>
+      </div>
+    </div>
+    <div class="usecase">
+      <h3>The data engineer</h3>
+      <p>Owns the pipelines and the warehouse. Lives and dies by numbers being right.</p>
+      <div class="tut">
+        <div class="tut-part"><b>Their deep case</b>Rebuilding the orders mart that six dashboards sit on, fed by three source systems that disagree. The brief pins what correct means before any SQL is written: row counts reconcile against each source, revenue matches finance's monthly total, and the six dashboards keep working. Helpers draft the bulk transformations, and the house rule for all data work is that every headline number gets re-derived a second, independent way before anyone sees it, so the mart's totals are checked by a query that does not share the mart's own joins. A separate checker hunts fan-out: it plants duplicate keys on purpose and fails the build if a join multiplies them. The backfill script and the model rewrite run in parallel without colliding, because each file has one writer at a time. And in week three, the week-one decision about late-arriving orders is still on disk, quoted in the delivery packet next to the reconciliation runs that prove the cutover.</div>
+        <div class="tut-part"><b>What carries them</b>Proof or it is not done, second-way checks on every number, one writer per file, memory that survives.</div>
+      </div>
+    </div>
+    <div class="usecase">
+      <h3>The backend engineer</h3>
+      <p>Ships APIs other teams build against. A wrong error path at 2 a.m. is their phone ringing.</p>
+      <div class="tut">
+        <div class="tut-part"><b>Their deep case</b>Splitting one overloaded payments endpoint into a clean, versioned interface. The plan is contract first: the new interface and everyone who consumes it are written down and agreed before implementation starts. The schema migration is rehearsed in both directions against a restored copy, and the rollout plan carries a rollback beside every step, written before the step runs. Helpers draft handlers and tests, but the house law is that every call across a boundary (network, database, queue) shows its explicit failure path, and a separate checker attacks exactly those paths: timeouts, double-sends, malformed payloads, a queue that answers late. Done is refused until the suite runs green after the last edit. And the moment anything needs production access, the prepared command comes back with its undo and waits, because it holds no keys to production and never will.</div>
+        <div class="tut-part"><b>What carries them</b>Risky moments come back to you, checkers built to break error paths, proof or it is not done.</div>
+      </div>
+    </div>
+    <div class="usecase">
+      <h3>The infrastructure engineer</h3>
+      <p>Owns the clusters, the infrastructure code, and the pipeline everyone else's merges run through.</p>
+      <div class="tut">
+        <div class="tut-part"><b>Their deep case</b>A cluster upgrade that has to happen across several evenings. BrotherME drafts the runbook: every command in order, each with its rollback beside it and its dry-run output attached, reviewed before anything real runs. It holds no apply rights on production, as a law rather than a setting: plans and diffs are its work, the apply is the engineer's own hand, every time. Module work runs in parallel safely because each module has one writer at a time, and free disk is checked before heavy builds instead of failing halfway through one. When evening two starts, the runbook's exact position is read back from disk rather than reconstructed from memory. And when the upgrade is finally declared done, that claim carries the verification commands that ran after the last change, not a paragraph of confidence.</div>
+        <div class="tut-part"><b>What carries them</b>Risky moments come back to you, one writer per file, memory that survives, honest status.</div>
+      </div>
+    </div>
+    <div class="usecase">
+      <h3>The engineering lead</h3>
+      <p>Runs a small team plus AI helpers, and owns what quality means for both.</p>
+      <div class="tut">
+        <div class="tut-part"><b>Their deep case</b>Four workstreams at once: a feature, a refactor, a data fix, the release notes. Each runs behind its own wall, so the team's humans and the AI helpers stop overwriting each other, and the walls double as review boundaries, because who owns which files is written down instead of remembered. When the lead corrects course once, in plain words (no schema change ships without its migration plan), that correction is offered back as a standing rule, takes effect only with an explicit yes, and then resurfaces on every future schema task. A new joiner takes the deep tour behind <code>/brotherme-help</code> and gets the live map (state, decisions, code layout) instead of two days of onboarding calls. And the session records show, week by week, where forecasts drifted from actuals, so next month's plan argues from evidence.</div>
+        <div class="tut-part"><b>What carries them</b>Rules that stick, one writer per file, the deep tour, honest forecasting.</div>
       </div>
     </div>
   </div>
