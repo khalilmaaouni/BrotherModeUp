@@ -80,6 +80,10 @@ jobs:
       # write nothing before setup consent exists.
       - name: Run the consent gate suite
         run: python3 tools/test_bm_consent.py
+      # The Bash-write detection suite, landed 2026-08-01 (Loop 6): the
+      # hook that reports the cross-fence write the fence hook cannot block.
+      - name: Run the bash audit suite
+        run: python3 tools/test_bm_bash_audit.py
   # One serial job that runs the SAME command a loop close runs locally
   # (Loop 9 task 2, answered yes). The split jobs above exist for per-platform
   # evidence and cannot be replaced by this one; this one exists because the

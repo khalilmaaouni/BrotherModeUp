@@ -10269,17 +10269,106 @@ class Store(object):
                 evidence_ref=run_dict.get("evidence_ref") or "")
         return run_dict["run_id"]
 
-    # -- read accessors (D-2, loop2 mechanical commands design, 2026-08-01)
-    # get_project, list_projects, list_tasks, get_task, list_forecasts,
-    # latest_forecast, list_alerts, list_evidence, list_attribution: the
-    # display-side reads a mechanical command needs instead of pulling the
-    # whole store through dump() or reaching past this module into raw SQL
-    # (which would skip redaction entirely). Same TWO FAILURE POLICIES split
-    # this module's own docstring names for dump/render_state_md/
-    # render_digest: these are advisory, not a mutation, so a missing id
-    # degrades to None (get_*) or an empty list (list_*) rather than raising
-    # OwnershipRefused. Redaction is IDENTICAL to dump()'s, via the shared
-    # _export_row helper above, so these add no new disclosure surface.
+    def purge_project(self, project_id, actor, confirmation_token):
+        """Composite (WP-H, loop6 security-closure design, D-3): erase
+        `project_id` and every row that belongs to it (its tasks, the
+        dependencies rows naming one of those tasks on either side, its
+        forecasts, the alerts tied to it, and the evidence whose subject is
+        the project itself or one of its tasks), in ONE transaction, then
+        remove the project row last. Refuses (OwnershipRefused, nothing
+        changed) when `project_id` names no project ('not-found'), or when
+        `confirmation_token` does not equal `project_id`
+        ('bad-confirmation'): a typo in a typed confirmation, or a caller
+        that forgot the flag, gets a refusal instead of an accidental
+        purge.
+
+        Alerts carry no project_id column of their own (see raise_alert's
+        own docstring), so "tied to it" is read back off the attribution
+        trail this same project's own alert.raised events wrote: every
+        alert this project ever raised, whether still open or already
+        resolved.
+
+        The attribution row this writes ('project.purged') is inserted
+        BEFORE the project row is removed, in the SAME transaction, so an
+        interrupted purge can never leave the erasure undocumented. Every
+        OTHER attribution row this project ever accumulated
+        (project.upserted, task.created, alert.raised, and the rest) is
+        DELIBERATELY KEPT, purge_project never touches the attribution
+        table except to append: the record that a deletion happened is the
+        one thing a deletion must not erase, and a founder purging a
+        project a year from now still deserves an audit trail explaining
+        that it once existed and who removed it, even once every entity
+        row it described is gone. bm_project.py's export command is how a
+        caller keeps a copy of everything else before running this.
+
+        Returns a dict of {table_name: rows_removed} counts, so a caller
+        can report exactly what left the store without a second read."""
+        if confirmation_token != project_id:
+            raise OwnershipRefused(
+                "bad-confirmation",
+                "confirmation token %r does not match project %r; "
+                "nothing was removed" % (confirmation_token, project_id))
+        with self._transaction():
+            row = _exec(self, "SELECT project_id FROM projects "
+                        "WHERE project_id=?", (project_id,)).fetchone()
+            if row is None:
+                raise OwnershipRefused(
+                    "not-found", "no project %r to purge" % (project_id,))
+            removed = {}
+            removed["dependencies"] = _exec(self,
+                "DELETE FROM dependencies WHERE task_id IN "
+                "(SELECT task_id FROM tasks WHERE project_id=?) OR "
+                "depends_on_task_id IN "
+                "(SELECT task_id FROM tasks WHERE project_id=?)",
+                (project_id, project_id)).rowcount
+            removed["evidence"] = _exec(self,
+                "DELETE FROM evidence WHERE "
+                "(subject_type='project' AND subject_id=?) OR "
+                "(subject_type='task' AND subject_id IN "
+                "(SELECT task_id FROM tasks WHERE project_id=?))",
+                (project_id, project_id)).rowcount
+            alert_rows = _exec(self,
+                "SELECT DISTINCT evidence_ref FROM attribution WHERE "
+                "project_id=? AND event_type='alert.raised' AND "
+                "evidence_ref != ''", (project_id,)).fetchall()
+            alerts_removed = 0
+            for alert_row in alert_rows:
+                alerts_removed += _exec(
+                    self, "DELETE FROM alerts WHERE alert_id=?",
+                    (alert_row["evidence_ref"],)).rowcount
+            removed["alerts"] = alerts_removed
+            removed["forecasts"] = _exec(
+                self, "DELETE FROM forecasts WHERE project_id=?",
+                (project_id,)).rowcount
+            removed["tasks"] = _exec(
+                self, "DELETE FROM tasks WHERE project_id=?",
+                (project_id,)).rowcount
+            self._write_attribution(
+                project_id, None, "project.purged", actor,
+                action="purge_project",
+                reason="removed %d task(s), %d dependency row(s), %d "
+                       "forecast(s), %d alert(s), %d evidence row(s)"
+                       % (removed["tasks"], removed["dependencies"],
+                          removed["forecasts"], removed["alerts"],
+                          removed["evidence"]))
+            _exec(self, "DELETE FROM projects WHERE project_id=?",
+                  (project_id,))
+            removed["projects"] = 1
+        return removed
+
+    # -- read accessors (D-2, loop2 mechanical commands design, 2026-08-01;
+    # list_dependencies added WP-H, loop6 security-closure design, D-3)
+    # get_project, list_projects, list_tasks, get_task, list_dependencies,
+    # list_forecasts, latest_forecast, list_alerts, list_evidence,
+    # list_attribution: the display-side reads a mechanical command needs
+    # instead of pulling the whole store through dump() or reaching past
+    # this module into raw SQL (which would skip redaction entirely). Same
+    # TWO FAILURE POLICIES split this module's own docstring names for
+    # dump/render_state_md/render_digest: these are advisory, not a
+    # mutation, so a missing id degrades to None (get_*) or an empty list
+    # (list_*) rather than raising OwnershipRefused. Redaction is IDENTICAL
+    # to dump()'s, via the shared _export_row helper above, so these add no
+    # new disclosure surface.
     #
     # LOOP 2 REDACTION FIX: every accessor below now also takes raw=False,
     # mirroring dump(raw=True) exactly (same gate inside _export_row; dump()
@@ -10344,6 +10433,25 @@ class Store(object):
         S = _schema()
         return _export_row(self.conn, "tasks", dict(row), S.Task.LIST_FIELDS,
                             raw=raw)
+
+    def list_dependencies(self, project_id, raw=False):
+        """Every dependencies row that names one of `project_id`'s own
+        tasks on EITHER side (task_id or depends_on_task_id): the queryable
+        mirror of every in-project task's depends_on list (see create_task's
+        own docstring), added for WP-H's export (D-3, loop6 security-closure
+        design) so bm_project.py can round-trip this table without issuing
+        SQL of its own. `raw` is accepted for the same signature every
+        other D-2 accessor carries, but both columns are identifier-shaped
+        and already listed in _DUMP_SAFE_COLUMNS, so redaction never
+        touches them either way."""
+        rows = _exec(self,
+            "SELECT * FROM dependencies WHERE task_id IN "
+            "(SELECT task_id FROM tasks WHERE project_id=?) OR "
+            "depends_on_task_id IN "
+            "(SELECT task_id FROM tasks WHERE project_id=?)",
+            (project_id, project_id)).fetchall()
+        return [_export_row(self.conn, "dependencies", dict(r), raw=raw)
+                for r in rows]
 
     def list_forecasts(self, project_id, raw=False):
         """Every forecast ever added for `project_id`, oldest first: append

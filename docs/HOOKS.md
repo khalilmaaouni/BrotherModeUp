@@ -283,11 +283,15 @@ stopped enforcing is visible rather than silent.
 
 These are real, and listing them is better than implying coverage that does not exist.
 
-- **Bash is not gated.** `rm`, `sed -i`, `>`, `tee`, `git checkout` and a hundred other
-  shell forms write files, and no reliable parse of arbitrary shell exists. Gating
-  `Edit|Write|MultiEdit|NotebookEdit` and pretending Bash was covered would be a
-  guarantee this file cannot keep. The policy that goes with that limit is in the next
-  section.
+- **Bash is still not gated. Since 2026-08-01 (Loop 6, D-1) it is DETECTED.**
+  `rm`, `sed -i`, `>`, `tee`, `git checkout` and a hundred other shell forms write
+  files, and no reliable parse of arbitrary shell exists, so `tools/bm_bash_audit.py`
+  cannot and does not block any of them: `Edit|Write|MultiEdit|NotebookEdit` is still
+  the only matcher that can refuse a call before it runs. What changed is that a
+  fenced file changed BY a Bash call FROM a session that does not own that fence is no
+  longer invisible: see "The Bash-write detection hook" below for what it actually
+  proves and what it still cannot see. The policy for shell writes in general is in
+  the next section, unchanged.
 - **Unclaimed paths are allowed by default.** The hook enforces "not across someone
   else's fence", not "everything must be claimed", unless strict mode is on.
 - **The hook cannot verify the store side.** An agent can still write any label into the
@@ -362,6 +366,87 @@ Closing that last gap would need a capability this project does not have: a PreT
 payload for `Bash` that names the files a command will touch (the harness does not
 provide one), or an OS-level write mediator such as a sandbox profile or a FUSE layer,
 both of which are far outside "Python 3.9, standard library only".
+
+## The Bash-write detection hook (D-1, Loop 6, added 2026-08-01)
+
+`tools/bm_bash_audit.py` does not close the gap above. It answers a narrower, honest
+question instead: **after** a `Bash` call finishes, did it change a file another
+session's fence covers? It is a PAIR of hooks, both wired to the `Bash` matcher, both
+pointed at the same file:
+
+- **PreToolUse** (`bm_bash_audit.py pre`): before the shell command runs, read every
+  ACTIVE record's claims through `tools/bm_fence_hook.py`'s own `active_claims`
+  (the same function the fence hook itself calls, so "what is fenced right now" can
+  never disagree between this hook and the fence hook), and for every claimed path
+  that is a real, existing file, record its size, mtime and sha256 into a snapshot
+  file under `.brothermode/bash-audit/`.
+- **PostToolUse** (`bm_bash_audit.py post`): after the shell command finishes, re-read
+  the same snapshot and re-hash every path in it. For any path whose sha256 changed (or
+  that was deleted) and whose recorded owner is not this session's own fence label
+  (derived through `bm_fence_hook.session_label`, the identical identity system
+  docs/HOOKS.md describes above), raise ONE alert row through the store's service layer
+  (`severity: high`, `category: fence-breach`, `requires_human: true`, the changed
+  path named in the message) and print one plain sentence to stderr. The alert's
+  message is run through the store's own export-policy masking functions
+  (`redact_text`, then `mask_absolute_paths`) before it is stored, so a founder-typed
+  record name cannot smuggle a secret or an absolute path into the row unmasked.
+
+This hook is **detection, not prevention, on purpose** (D-1's own words): by the time
+the alert exists, the write already happened. It never has a decision to make, so
+unlike `bm_fence_hook.py` it never writes to stdout at all; every diagnostic goes to
+stderr, and both entrypoints always exit 0, whatever went wrong. It is consent-gated
+exactly like `tools/bm_autosave.py`: pre-consent, both entrypoints check first, before
+reading stdin, and write nothing at all.
+
+**What it can see:** a fenced file whose bytes are different, or gone, after a Bash
+call from a session that is not that fence's owner.
+
+**What it cannot see, stated rather than implied:**
+
+- **A write that restores the original bytes before PostToolUse fires.** The
+  comparison is END STATE against snapshot, not "did anything happen in between". A
+  command that overwrites a fenced file and then overwrites it back to the original
+  content, all inside one `Bash` call, leaves no trace: the hash matches, and nothing
+  is reported.
+- **A Bash call that also removes its own snapshot.** The snapshot file lives under
+  `.brothermode/bash-audit/` inside the project root the command is already running
+  in; a command sophisticated enough to target it (`rm -rf .brothermode`, for
+  instance) removes the evidence along with covering its tracks, and PostToolUse then
+  fails open with "no snapshot was recorded" rather than reporting a breach.
+- **Timing races.** The snapshot is taken once, at PreToolUse, and compared once, at
+  PostToolUse. A second, concurrent process (a background job, a second terminal, a
+  parallel session) that changes the same fenced file in the gap between those two
+  moments is indistinguishable from the Bash call itself having changed it: this hook
+  attributes the whole delta to the Bash call it wrapped, because that is the only
+  thing it observed.
+- **A claim on a directory or a glob-shaped path.** The snapshot only covers a claim
+  path that resolves to a real, existing FILE at PreToolUse time (a literal
+  `os.path.isfile` check); it does not expand a directory or glob-shaped claim into
+  the files it would cover, so a new file created inside a claimed directory during
+  the Bash call is invisible to it.
+- **A session claimed under a `--session` string bm_fence_hook.py never issued.** The
+  ownership comparison is the identical one `bm_fence_hook.py` already makes
+  (`records.session_id == the label this process derives from its own token`); a
+  record claimed by hand with an arbitrary `--session` value that is not a real
+  derived label will never match, on either hook.
+
+### Installing the Bash audit hook
+
+The Claude Code plugin manifest, `hooks/hooks.json`, wires both entrypoints today:
+`PreToolUse` gets a second matcher group (`"matcher": "Bash"`, alongside the existing
+`Edit|Write|MultiEdit|NotebookEdit` group), and a new `PostToolUse` key wires the
+`post` entrypoint the same way. `scripts/install.py`'s clone-install path (the one
+QUICKSTART documents, and the one `tools/test_install.py` exercises end to end) does
+**not** wire it yet: `tools/bm_bash_audit.py` was added to that script's `OWNED_TOOLS`
+list (so the smoke test's file-presence check and hook-ownership matching both cover
+it), but `HOOK_EVENTS`, `hook_groups()` and `hook_commands()` were deliberately left
+unchanged, because `tools/test_install.py` hard-asserts a fixed shape (one hook group
+per event, five wired events, five hook commands sharing one target-path prefix) that
+a second `PreToolUse` group or a new `PostToolUse` event would break, and that suite
+sits outside this change's fence. Until a follow-up loop updates both the installer
+and its test suite together, a clone install gets the fence hook but not the Bash
+audit hook; the plugin install path gets both. Recorded honestly in
+docs/KNOWN-LIMITS.md rather than left for someone to discover.
 
 ## What a follow-up change to bm_store.py would need to add
 

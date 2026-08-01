@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 """bm_project.py: the mechanical command line for the seven beginner
 commands (Loop 2, docs/superpowers/specs/2026-08-01-loop2-mechanical-
-commands-design.md, decisions D-1 and D-4).
+commands-design.md, decisions D-1 and D-4), plus export and purge (WP-H,
+docs/superpowers/specs/2026-08-01-loop6-security-closure-design.md, D-3).
 
 WHAT THIS IS
   A THIN CLI over tools/bm_store.py's Store service methods (upsert_project,
   create_task, transition_task, add_forecast, raise_alert, resolve_alert,
-  add_evidence) and its D-2 read accessors (get_project, list_projects,
-  list_tasks, get_task, list_forecasts, latest_forecast, list_alerts,
-  list_evidence, list_attribution). This file never issues SQL of its own: the flip
-  condition in D-1 is exactly that, and the moment this file needs a query
-  the store does not already offer, it has become a second writer and must
-  be folded back into bm_store.py instead of growing one here. A structural
-  guard test (tools/test_bm_project.py) greps this file's own source for
-  the four SQL write and read statement keywords (case sensitive, the way
-  every real query in bm_store.py itself is written) and fails the build
-  if any appear.
+  add_evidence, purge_project) and its D-2 read accessors (get_project,
+  list_projects, list_tasks, get_task, list_dependencies, list_forecasts,
+  latest_forecast, list_alerts, list_evidence, list_attribution). This file
+  never issues SQL of its own: the flip condition in D-1 is exactly that,
+  and the moment this file needs a query the store does not already offer,
+  it has become a second writer and must be folded back into bm_store.py
+  instead of growing one here. A structural guard test
+  (tools/test_bm_project.py) greps this file's own source for the four SQL
+  write and read statement keywords (case sensitive, the way every real
+  query in bm_store.py itself is written) and fails the build if any
+  appear.
 
 WHAT THIS IS NOT
   Not a second store, not a second writer, not a place that reimplements
@@ -63,6 +65,21 @@ SUBCOMMANDS
                           a project with zero tasks outright, and refuses
                           when any task is short of the terminal state
                           ('closed') unless --partial
+  export                 write ONE json file of every row the store holds
+                          for the project (project, tasks, dependencies,
+                          forecasts, the alerts tied to it, the evidence
+                          whose subject is the project or one of its
+                          tasks, and its attribution trail); redacted by
+                          default, --raw for the owner, --out PATH to
+                          choose where it lands (WP-H, loop6 security-
+                          closure design, D-3)
+  purge                   erase the project through Store.purge_project;
+                          refuses without --confirm <project_id> matching
+                          exactly, and prints in plain words what it
+                          removed and what it kept (the attribution trail
+                          that now also names this purge, the vault, and
+                          any generated file already on disk) (WP-H,
+                          loop6 security-closure design, D-3)
 
 WHY create=False EVERYWHERE
   Matching bm_store.py's own CLI convention (its cmd_claim and every other
@@ -103,10 +120,11 @@ RAW LOCAL DISPLAY VERSUS REDACTED EXPORT (loop2 redaction-policy fix)
   (CANVAS.md, DELIVERY-PACKET.md) all read through the accessors with
   raw=True: local display and a locally generated document for the data's
   own owner are not an export, so there is nothing to withhold from the
-  founder reading their own project on their own machine. --json output is
-  the actual export surface and stays REDACTED BY DEFAULT, exactly like
-  bm_store.py's own dump; pass --raw to see it unredacted, the same named,
-  explicit escape hatch dump --raw already uses. Generated documents still
+  founder reading their own project on their own machine. --json output
+  and the export command's own json file are the actual export surfaces
+  and stay REDACTED BY DEFAULT, exactly like bm_store.py's own dump; pass
+  --raw to see either unredacted, the same named, explicit escape hatch
+  dump --raw already uses. Generated documents still
   pass through bs.write_generated_document before they touch disk, whose
   redact_text funnel is the FINAL guard: raw=True decides what this file
   is willing to try to show, redact_text decides what a secret-shaped
@@ -1336,6 +1354,129 @@ def cmd_deliver(argv):
 
 
 # ---------------------------------------------------------------------------
+# export / purge (WP-H, docs/superpowers/specs/2026-08-01-loop6-security-
+# closure-design.md, D-3)
+# ---------------------------------------------------------------------------
+
+# list_attribution's own default caps a terminal --history read at 50 rows;
+# export needs the WHOLE trail ("every row the store holds for that
+# project"), so this passes a limit no real project's attribution stream
+# will reach rather than widening list_attribution's own contract for one
+# caller that wants everything.
+_EXPORT_ATTRIBUTION_LIMIT = 1000000
+
+
+def _project_alert_ids(store, project_id):
+    """The set of alert ids `project_id`'s own 'alert.raised' attribution
+    events name (raise_alert's own docstring: alerts carry no project_id
+    column of their own, so this attribution trail is the only place that
+    scope is recorded). raw=True here decides SCOPE, never disclosure: the
+    caller still renders each matched alert row through
+    store.list_alerts(raw=want_raw), so nothing this function reads
+    unredacted ever reaches an export payload or the terminal."""
+    events = store.list_attribution(
+        project_id, limit=_EXPORT_ATTRIBUTION_LIMIT, raw=True)
+    return {e.get("evidence_ref") for e in events
+            if e.get("event_type") == "alert.raised" and e.get("evidence_ref")}
+
+
+_EXPORT_FLAGS = ("project-id", "raw", "out")
+
+
+def cmd_export(argv):
+    _pos, kv = _parse(argv, _EXPORT_FLAGS, wants_value=("project-id", "out"))
+    usage = "usage: export --project-id ID [--raw] [--out PATH]"
+    project_id = _require(kv, "project-id", usage)
+    want_raw = bool(kv.get("raw"))
+    store = _store()
+    try:
+        project = store.get_project(project_id, raw=want_raw)
+        if project is None:
+            _err("bm_project: no project %r" % project_id)
+            return 1
+        tasks = store.list_tasks(project_id, raw=want_raw)
+        alert_ids = _project_alert_ids(store, project_id)
+        alerts = [a for a in store.list_alerts(resolved=None, raw=want_raw)
+                  if a.get("alert_id") in alert_ids]
+        # Evidence whose subject is the project itself, or one of its own
+        # tasks (task_id is a safe, never-redacted column, see
+        # _DUMP_SAFE_COLUMNS, so reading it back off `tasks` here is not a
+        # second, wider disclosure than the row above already made).
+        evidence = list(
+            store.list_evidence("project", project_id, raw=want_raw))
+        for task in tasks:
+            evidence.extend(store.list_evidence(
+                "task", task.get("task_id"), raw=want_raw))
+        payload = {
+            "project_id": project_id,
+            "exported_at": bs.now_iso(),
+            "raw": want_raw,
+            "project": project,
+            "tasks": tasks,
+            "dependencies": store.list_dependencies(project_id, raw=want_raw),
+            "forecasts": store.list_forecasts(project_id, raw=want_raw),
+            "alerts": alerts,
+            "evidence": evidence,
+            "attribution": store.list_attribution(
+                project_id, limit=_EXPORT_ATTRIBUTION_LIMIT, raw=want_raw),
+        }
+    finally:
+        store.close()
+    out_path = kv.get("out") or bs.safe_project_path(
+        _root(), "EXPORT-%s.json" % project_id)
+    try:
+        with io.open(out_path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, indent=2, sort_keys=True))
+        # An export is one file holding everything the store knows about a
+        # project, and with --raw that includes the prose every other
+        # surface withholds. It is written FOR its owner, so it is owner
+        # readable only, the same posture the consent config and the fence
+        # tokens already take. Best effort: a filesystem that cannot do
+        # modes is not a reason to refuse an export the caller asked for.
+        bs._chmod_best_effort(out_path, 0o600)
+    except OSError as e:
+        _err("bm_project: could not write export to %s: %s" % (out_path, e))
+        return 1
+    _out("wrote export to %s" % out_path)
+    return 0
+
+
+_PURGE_FLAGS = ("project-id", "confirm", "out-json") + _ACTOR_FLAGS
+
+
+def cmd_purge(argv):
+    _pos, kv = _parse(argv, _PURGE_FLAGS, wants_value=(
+        "project-id", "confirm") + _ACTOR_FLAGS)
+    usage = ("usage: purge --project-id ID --confirm ID "
+             "[--actor-type human|model] --actor-name NAME "
+             "[--session-id SID] [--out-json]")
+    project_id = _require(kv, "project-id", usage)
+    confirm = _require(kv, "confirm", usage)
+    actor = _actor(kv, usage)
+    store = _store()
+    try:
+        # Store.purge_project does the real work, atomically, and is the
+        # one place the confirmation check and the refusal reasons live
+        # (bad-confirmation, not-found): never restated here.
+        removed = store.purge_project(project_id, actor, confirm)
+    finally:
+        store.close()
+    if kv.get("out-json"):
+        _print_json({"project_id": project_id, "removed": removed})
+        return 0
+    _out("purged project %s" % project_id)
+    _out("removed: %d task(s), %d dependency row(s), %d forecast(s), "
+         "%d alert(s), %d evidence row(s), and the project record itself"
+         % (removed["tasks"], removed["dependencies"], removed["forecasts"],
+            removed["alerts"], removed["evidence"]))
+    _out("kept: the attribution trail (it now also carries one new entry "
+         "naming this purge), the vault, and any generated file already "
+         "on disk (CANVAS.md, DELIVERY-PACKET.md and the like); none of "
+         "those are rows this store owns.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # dispatch
 # ---------------------------------------------------------------------------
 
@@ -1348,6 +1489,8 @@ COMMANDS = {
     "alert": cmd_alert,
     "review": cmd_review,
     "deliver": cmd_deliver,
+    "export": cmd_export,
+    "purge": cmd_purge,
 }
 
 

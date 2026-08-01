@@ -59,6 +59,30 @@
             "statusMessage": "Checking that only one worker edits this file"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_bash_audit.py\" pre",
+            "timeout": 10,
+            "statusMessage": "Noting the fenced files before this shell command runs"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_bash_audit.py\" post",
+            "timeout": 15,
+            "statusMessage": "Checking whether that shell command crossed a fence"
+          }
+        ]
       }
     ]
   }
