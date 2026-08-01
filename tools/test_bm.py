@@ -5416,6 +5416,29 @@ class TestTheSeventhCommandAndTheDeepTourAreWired(unittest.TestCase):
                          "the shipped command set drifted from the seven "
                          "this release documents: %r" % found)
 
+    def test_the_five_store_backed_commands_name_the_mechanical_command(self):
+        """Loop 2 WP-C, decision D-3 (docs/superpowers/specs/2026-08-01-
+        loop2-mechanical-commands-design.md): the five store-backed command
+        files must literally name their tools/bm_project.py invocation, not
+        just describe a flow in prose. A command file that never names the
+        mechanical command leaves the model free to answer from memory of
+        the conversation instead of running the one thing that actually
+        knows the project's state."""
+        expected = {
+            "brotherme-start.md": "python3 tools/bm_project.py start",
+            "brotherme-status.md": "python3 tools/bm_project.py status",
+            "brotherme-next.md": "python3 tools/bm_project.py next",
+            "brotherme-review.md": "python3 tools/bm_project.py review",
+            "brotherme-deliver.md": "python3 tools/bm_project.py deliver",
+        }
+        for filename, invocation in expected.items():
+            text = self._text("commands", filename)
+            self.assertIn(invocation, text,
+                          "%s lost its mechanical command %r; a beginner "
+                          "command file that does not name the real "
+                          "command it runs leaves the model free to "
+                          "answer from memory instead" % (filename, invocation))
+
     def test_the_update_command_teaches_only_verified_lines(self):
         text = self._text("commands", "brotherme-update.md")
         for line in ("/plugin marketplace update brotherme-marketplace",
