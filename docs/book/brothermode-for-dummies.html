@@ -148,7 +148,86 @@ memory system in full, and two composed walkthroughs of ambitious work.</p>
 <li><a href="#ch15">Building something big</a></li>
 <li><a href="#ch16">Numbers that survive scrutiny</a></li>
 </ol>
+<p>Before any of them: <a href="#philosophy">the philosophy, and the ten laws</a>,
+which is the shortest honest answer to why this project exists at all.</p>
 </nav>
+
+<h2 id="philosophy">The philosophy, before the chapters</h2>
+
+<p>Every chapter in this book is an application of one uncomfortable belief, so
+the belief deserves its own page: <strong>an AI's confidence is not evidence,
+and a rule written in a prompt is not a control.</strong> Anyone can tell a
+model to be careful, to double-check, to never overwrite work. The telling
+costs nothing and changes little, because the model that forgets your file
+also forgets your instruction. Every mechanism in this project exists because
+somebody took that belief seriously and asked: what would this rule look like
+if it did not depend on being remembered?</p>
+
+<p>The answer, each time, is one of two shapes. Either the rule becomes
+machinery (a gate that refuses, a test that fails, a hook that records), or
+the rule becomes a handover (the risky step is prepared completely and given
+to a human hand). A rule that is neither machinery nor a handover is listed
+honestly as discipline, which is the weakest of the three and says so. That
+three-way honesty about its own rules, more than any single feature, is what
+makes this project itself.</p>
+
+<h3>The ten laws</h3>
+
+<p>Stated once, plainly, each with the failure it exists to kill. The chapters
+that enforce and demonstrate each are named in parentheses.</p>
+
+<ul>
+<li><strong>1. Look before touching.</strong> A session maps what is already
+true (what changed, what is claimed, what is mid-flight) before writing
+anything, and coordinates with work it finds rather than overwriting it.
+Kills: the confident session that flattens another's work. (Chapters three,
+eight, fifteen.)</li>
+<li><strong>2. One writer per file.</strong> The claim is written before the
+work starts; a mechanical gate refuses the second writer; the refusal names
+the holder. Kills: silent overwrites, the way parallel work actually dies.
+(Chapters three, eight, fifteen.)</li>
+<li><strong>3. Proof, or it is not done.</strong> Done requires a check that
+ran after the last change and passed, quoted, and delivery packets carry the
+evidence. Kills: the confident summary, the cheapest thing a model produces.
+(Chapters four, six, thirteen.)</li>
+<li><strong>4. The guided loop.</strong> The strongest model plans and judges;
+cheaper helpers execute; two failed checks escalate upward with the failure
+attached. Kills: paying judgment prices for labor, and trusting labor with
+judgment. (Chapters thirteen, fifteen, sixteen.)</li>
+<li><strong>5. Ranges, never promises.</strong> Estimates carry a range, a
+confidence, and the assumption most likely to move them; actuals feed the
+next forecast. Kills: the point estimate, a lie about certainty. (Chapters
+four, thirteen.)</li>
+<li><strong>6. Bad news first, labels on numbers.</strong> A failing check
+leads the message; a number that could not be independently verified carries
+its label at the number. Kills: the buried caveat. (Chapters five,
+sixteen.)</li>
+<li><strong>7. The human holds the keys.</strong> Decisions arrive one at a
+time with a recommendation first; anything touching credentials, money,
+publishing, production, or deletion is prepared fully and handed over.
+Kills: the automation that quietly outgrew its permission. (Chapters eight,
+fifteen.)</li>
+<li><strong>8. Memory lives on disk.</strong> Decisions, progress, failures,
+and open work are written to plain files (the vault, the state records) that
+survive crashes, restarts, and compaction. Kills: the project that resets
+every morning. (Chapters seven, nine, fourteen.)</li>
+<li><strong>9. Corrections become law only by consent.</strong> A correction
+can become a standing rule retrieved before similar work, promoted only with
+the human's explicit receipt, and no learned rule may ever weaken the laws
+above it. Kills: repeating the same correction forever, and also the tool
+that rewrites its own constitution. (Chapter five.)</li>
+<li><strong>10. Wrong claims are corrected in daylight.</strong> A sentence
+that turns out false gets a dated correction on top, never a silent rewrite;
+this book and the release pages practice it visibly. Kills: the document
+that is always right in hindsight. (Chapters ten, eleven, and the release
+history.)</li>
+</ul>
+
+<p>One more honest sentence, because the laws demand it of the page that
+states them: the mechanical half of laws two and three is enforced on Claude
+Code; on every other tool these laws travel as written instruction, which is
+the discipline shape, not the machinery shape, and chapter ten is the honest
+map of that difference.</p>
 
 <h2 id="ch1"><span class="chnum">Chapter one</span>Monday, and what actually goes wrong</h2>
 
