@@ -3247,6 +3247,11 @@ class TestTheAdoptionBook(unittest.TestCase):
                       book,
                       "chapter two no longer teaches the marketplace "
                       "install path")
+        self.assertIn('id="philosophy"', book,
+                      "the book lost its philosophy-and-laws section, the "
+                      "page the founder asked to be big and visible")
+        self.assertEqual(book.count("<strong>%d. " % 10), 1,
+                         "the ten-laws list no longer reaches law ten")
 
 
 class TestNoDashes(unittest.TestCase):

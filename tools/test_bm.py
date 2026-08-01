@@ -5460,6 +5460,17 @@ class TestTheSeventhCommandAndTheDeepTourAreWired(unittest.TestCase):
                       "same-change update rule docs/RELEASE.md step 2 binds "
                       "releases to")
 
+    def test_the_explainer_states_the_philosophy_and_the_laws(self):
+        """Founder directive 2026-08-01: the philosophy and the laws that
+        make the product what it is must be big and visible on the summary
+        page, not implied by the features around them."""
+        text = self._text("docs", "brotherme-explained.html")
+        self.assertIn("The philosophy, and the laws", text,
+                      "the explainer lost its philosophy section")
+        self.assertIn("a rule written in a prompt is not a control", text,
+                      "the founding belief sentence is gone from the "
+                      "explainer's philosophy section")
+
 
 class TestP18FixApprovalReferenceIsTheFoundersOwn(unittest.TestCase):
     """LOOP P18-fix. The launch drafts say a correction becomes a rule only
