@@ -71,6 +71,7 @@ import io
 import json
 import os
 import sys
+import time
 import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -228,6 +229,18 @@ def _read_stdin_json():
 SNAPSHOT_DIRNAME = "bash-audit"
 _SLOT_DOMAIN = "bm-bash-audit-slot-v1|"
 
+# A4 (loop6 refuter finding): a snapshot written at PreToolUse is normally
+# removed once its matching PostToolUse comparison finishes (see
+# _run_post). When that PostToolUse never runs at all -- the Bash call was
+# denied before it started, the hook itself timed out, or the session was
+# killed mid-call -- the snapshot is orphaned: nothing else ever cleans it
+# up, and each one holds paths plus sha256 digests of every file that was
+# fenced at that moment, unbounded, forever. 24 hours is the TTL: long
+# enough that no snapshot from an in-progress session is ever mistaken for
+# an orphan (a PostToolUse fires seconds after its PreToolUse, not hours
+# later), short enough that a crashed session's leftovers do not linger.
+SNAPSHOT_TTL_SECONDS = 24 * 60 * 60
+
 ALERT_PROJECT_ID = "brothermode-bash-audit"
 ALERT_SEVERITY = "high"
 ALERT_CATEGORY = "fence-breach"
@@ -294,6 +307,33 @@ def _ensure_snapshot_dir(root, bs):
     return d
 
 
+def _reap_stale_snapshots(root, bs):
+    """A4 (loop6 refuter finding): best-effort age-based cleanup for
+    orphaned snapshot files, run at the START of every pre phase (see
+    _run_pre). Removes any *.json file under the snapshot directory whose
+    own mtime is older than SNAPSHOT_TTL_SECONDS (24 hours). Never raises
+    and never blocks the pre phase's own work: a single unreadable or
+    unremovable entry, or a directory that cannot be listed at all, is
+    skipped rather than fatal, because this is housekeeping, not part of
+    the snapshot-and-compare contract this file exists for."""
+    try:
+        d = snapshot_dir(root, bs)
+        if not os.path.isdir(d):
+            return
+        cutoff = time.time() - SNAPSHOT_TTL_SECONDS
+        for name in os.listdir(d):
+            if not name.endswith(".json"):
+                continue
+            p = os.path.join(d, name)
+            try:
+                if os.path.isfile(p) and os.stat(p).st_mtime < cutoff:
+                    os.remove(p)
+            except OSError:
+                continue
+    except Exception:
+        pass
+
+
 def _entry_for_claim(root, rel_path, row):
     """(path, size, mtime, sha256, owner metadata) for ONE claimed path, or
     None when that path is not a real, readable file right now (a directory
@@ -320,6 +360,18 @@ def _entry_for_claim(root, rel_path, row):
         "record_name": row.get("name") or "",
         "lifecycle_uuid": row.get("lifecycle_uuid") or "",
     }
+
+
+def _remove_snapshot_best_effort(path):
+    """Delete a snapshot file whose job is finished. Never raises: an
+    unreadable filesystem here must not turn a successful comparison into a
+    reported failure. Called ONLY after a comparison completes, per A3
+    (see _run_post): never from an early-return or a _FailOpen path, or a
+    retry would have nothing left to compare against."""
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
 
 def _load_snapshot(path):
@@ -438,6 +490,10 @@ def _run_pre(payload):
         raise _FailOpen("no BrotherMode project root found from %s"
                         % (cwd or os.getcwd()))
 
+    # A4: reap anything orphaned from an earlier call before doing this
+    # call's own work. Best effort, never fatal to this pre phase.
+    _reap_stale_snapshots(root, bs)
+
     if not os.path.isfile(bs.store_path(root)):
         raise _FailOpen("no store at %s; nothing to snapshot" % bs.store_path(root))
 
@@ -525,15 +581,6 @@ def _run_post(payload):
 
     spath = snapshot_path(root, bs, session_id, tool_use_id)
     snapshot = _load_snapshot(spath)
-    # Best-effort cleanup: this snapshot describes exactly ONE Bash call,
-    # already finished by the time PostToolUse fires, so it is removed
-    # whether or not a breach is found. Never allowed to turn a successful
-    # comparison into a failure: an unreadable filesystem here is reported,
-    # not raised.
-    try:
-        os.remove(spath)
-    except OSError:
-        pass
 
     try:
         my_label = fh.session_label(root, session_id)
@@ -566,6 +613,14 @@ def _run_post(payload):
             breaches.append((rel_path, entry))
 
     if not breaches:
+        # A3 fix (loop6 refuter finding): the snapshot is removed only once
+        # the comparison it exists for has actually completed. This used to
+        # be removed unconditionally right after _load_snapshot, BEFORE this
+        # store-existence check below, so a post phase that could not reach
+        # the store lost its baseline with no way to retry. Every early
+        # return and every raised _FailOpen above and below this point must
+        # leave the snapshot exactly where it was.
+        _remove_snapshot_best_effort(spath)
         return
 
     if not os.path.isfile(bs.store_path(root)):
@@ -573,6 +628,8 @@ def _run_post(payload):
                         "be recorded" % (bs.store_path(root), len(breaches)))
     for rel_path, entry in breaches:
         _raise_breach_alert(bs, root, rel_path, entry, session_id)
+    # Every breach was recorded successfully: this snapshot's job is done.
+    _remove_snapshot_best_effort(spath)
 
 
 def cmd_post(argv):

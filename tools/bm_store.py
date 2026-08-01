@@ -10301,8 +10301,26 @@ class Store(object):
         row it described is gone. bm_project.py's export command is how a
         caller keeps a copy of everything else before running this.
 
-        Returns a dict of {table_name: rows_removed} counts, so a caller
-        can report exactly what left the store without a second read."""
+        A6/A7 fixes (loop6 refuter findings, 2026-08-01). A6: a task in
+        ANOTHER project can depend on a task in this one; the dependencies
+        row naming that edge is removed (the FK requires it) and the
+        foreign task's own tasks.depends_on JSON mirror is scrubbed of the
+        purged task id in this SAME transaction, but neither is counted
+        under this project's own "dependencies": they are reported under
+        the separate `cross_project_edges_removed` key, naming the
+        affected foreign task ids, so a caller never folds another
+        project's own fallout into this project's totals. A7: an alert is
+        deleted only when every alert.raised event naming its id, across
+        the WHOLE attribution table, points at this project; an alert_id
+        also claimed by another project's own trail is ambiguous ownership
+        and is left alone, reported under `alerts_skipped`, rather than
+        deleted on a single dangling evidence_ref pointer.
+
+        Returns a dict of {table_name: rows_removed} counts, plus
+        `cross_project_edges_removed` (list of foreign task ids) and
+        `alerts_skipped` (list of alert ids left untouched), so a caller
+        can report exactly what left the store, and what could not be
+        safely attributed, without a second read."""
         if confirmation_token != project_id:
             raise OwnershipRefused(
                 "bad-confirmation",
@@ -10315,28 +10333,99 @@ class Store(object):
                 raise OwnershipRefused(
                     "not-found", "no project %r to purge" % (project_id,))
             removed = {}
+
+            # A6 fix (loop6 refuter findings): a task in ANOTHER project can
+            # depend on a task in THIS one. The dependencies row naming that
+            # edge must still go (the FK requires the depended-on task to
+            # exist), but it is not this project's own row to count, and
+            # the foreign task's own tasks.depends_on JSON mirror would
+            # otherwise go stale, still naming a task_id that exists
+            # nowhere any more. Both sides are fixed here, in the SAME
+            # transaction: the queryable dependencies table and the JSON
+            # column must never disagree about what a surviving task
+            # depends on. Reported under a SEPARATE key
+            # (cross_project_edges_removed), naming the affected foreign
+            # task ids, so a caller never folds another project's own
+            # fallout into this project's counts.
+            cross_rows = _exec(self,
+                "SELECT DISTINCT task_id FROM dependencies WHERE "
+                "depends_on_task_id IN "
+                "(SELECT task_id FROM tasks WHERE project_id=?) AND "
+                "task_id NOT IN "
+                "(SELECT task_id FROM tasks WHERE project_id=?)",
+                (project_id, project_id)).fetchall()
+            cross_task_ids = sorted(r["task_id"] for r in cross_rows)
+
             removed["dependencies"] = _exec(self,
                 "DELETE FROM dependencies WHERE task_id IN "
-                "(SELECT task_id FROM tasks WHERE project_id=?) OR "
-                "depends_on_task_id IN "
                 "(SELECT task_id FROM tasks WHERE project_id=?)",
-                (project_id, project_id)).rowcount
+                (project_id,)).rowcount
+            _exec(self,
+                "DELETE FROM dependencies WHERE depends_on_task_id IN "
+                "(SELECT task_id FROM tasks WHERE project_id=?) AND "
+                "task_id NOT IN "
+                "(SELECT task_id FROM tasks WHERE project_id=?)",
+                (project_id, project_id))
+            removed["cross_project_edges_removed"] = cross_task_ids
+
+            purged_task_ids = set(r["task_id"] for r in _exec(
+                self, "SELECT task_id FROM tasks WHERE project_id=?",
+                (project_id,)).fetchall())
+            for foreign_task_id in cross_task_ids:
+                frow = _exec(
+                    self, "SELECT depends_on FROM tasks WHERE task_id=?",
+                    (foreign_task_id,)).fetchone()
+                if frow is None:
+                    continue
+                try:
+                    deps = json.loads(frow["depends_on"] or "[]")
+                except ValueError:
+                    deps = []
+                if not isinstance(deps, list):
+                    deps = []
+                scrubbed = [t for t in deps if t not in purged_task_ids]
+                if scrubbed != deps:
+                    _exec(self,
+                          "UPDATE tasks SET depends_on=? WHERE task_id=?",
+                          (json.dumps(scrubbed), foreign_task_id))
+
             removed["evidence"] = _exec(self,
                 "DELETE FROM evidence WHERE "
                 "(subject_type='project' AND subject_id=?) OR "
                 "(subject_type='task' AND subject_id IN "
                 "(SELECT task_id FROM tasks WHERE project_id=?))",
                 (project_id, project_id)).rowcount
+
+            # A7 fix (loop6 refuter findings): attribution rows are
+            # append-only and carry no foreign key back to alerts, so an
+            # evidence_ref is a pointer, not a proof of ownership. Before
+            # deleting an alert, confirm every alert.raised event naming
+            # its id points at THIS project and no other; an alert_id also
+            # claimed by another project's own alert.raised trail is
+            # ambiguous ownership and is skipped and reported rather than
+            # deleted on a single dangling pointer.
             alert_rows = _exec(self,
                 "SELECT DISTINCT evidence_ref FROM attribution WHERE "
                 "project_id=? AND event_type='alert.raised' AND "
                 "evidence_ref != ''", (project_id,)).fetchall()
             alerts_removed = 0
+            alerts_skipped = []
             for alert_row in alert_rows:
+                alert_id = alert_row["evidence_ref"]
+                owner_rows = _exec(self,
+                    "SELECT DISTINCT project_id FROM attribution WHERE "
+                    "event_type='alert.raised' AND evidence_ref=?",
+                    (alert_id,)).fetchall()
+                owners = set(r["project_id"] for r in owner_rows)
+                if owners != {project_id}:
+                    alerts_skipped.append(alert_id)
+                    continue
                 alerts_removed += _exec(
                     self, "DELETE FROM alerts WHERE alert_id=?",
-                    (alert_row["evidence_ref"],)).rowcount
+                    (alert_id,)).rowcount
             removed["alerts"] = alerts_removed
+            removed["alerts_skipped"] = alerts_skipped
+
             removed["forecasts"] = _exec(
                 self, "DELETE FROM forecasts WHERE project_id=?",
                 (project_id,)).rowcount

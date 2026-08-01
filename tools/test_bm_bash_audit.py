@@ -28,6 +28,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -149,6 +150,15 @@ class BashAuditBase(unittest.TestCase):
         with bs.Store(self.root, create=False) as store:
             return store.list_alerts(raw=raw)
 
+    def bash_audit_attribution(self, raw=True):
+        """Every attribution row filed under this hook's own project id
+        (ba.ALERT_PROJECT_ID), so a test can confirm WHO an alert was
+        attributed to (A5: the actor_name on the alert.raised event),
+        not merely that an alert row exists."""
+        with bs.Store(self.root, create=False) as store:
+            return store.list_attribution(ba.ALERT_PROJECT_ID, limit=1000,
+                                          raw=raw)
+
     def snapshot_path(self, session_id, tool_use_id):
         return ba.snapshot_path(self.root, bs, session_id, tool_use_id)
 
@@ -203,6 +213,17 @@ class TestD4Demonstration(BashAuditBase):
         self.assertNotIn(self.root, row["message"],
                          "the alert message leaked the absolute project "
                          "root; the path must be masked, not verbatim")
+
+        # A5 (loop6 refuter finding): the alert must be attributed to THIS
+        # hook by name, not merely exist. Without this check, an alert
+        # raised by any other actor would pass the assertions above too.
+        raised = [e for e in self.bash_audit_attribution()
+                  if e.get("event_type") == "alert.raised"]
+        self.assertEqual(len(raised), 1, raised)
+        self.assertEqual(raised[0]["actor_name"], "bm_bash_audit",
+                         "the alert.raised event must name bm_bash_audit "
+                         "as its actor, not be blank or attributed to "
+                         "something else")
 
         # A non-raw read must not crash and must still carry the structural
         # (non-founder-prose) columns the export policy always shows.
@@ -300,6 +321,80 @@ class TestD4Demonstration(BashAuditBase):
         self.assertIn("FAILING OPEN", r2.stderr)
         self.assertEqual(self.alerts(), [])
 
+    def test_f_store_missing_at_post_leaves_the_snapshot_for_a_retry(self):
+        """A3 (loop6 refuter finding): the snapshot used to be removed
+        BEFORE the comparison and before the store-existence check, so a
+        post phase that could not reach the store lost its baseline with no
+        way to retry. The removal must happen only after a comparison that
+        actually completes; any early-return or failure path, including
+        this one, must leave the snapshot exactly where it was."""
+        owner = self.label(self.OWNER)
+        self.claim("mine", ["src/mine.txt"], owner)
+
+        r1 = self.run_hook("pre", self.OTHER, tool_use_id="toolu_nostore")
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        spath = self.snapshot_path(self.OTHER, "toolu_nostore")
+        self.assertTrue(os.path.isfile(spath), "the pre phase wrote no snapshot")
+
+        self.write_file("src/mine.txt", "tampered while the store is gone\n")
+
+        # Renamed aside temporarily so the post phase cannot reach the
+        # store, then restored. This happens entirely inside self.root (a
+        # tempfile.TemporaryDirectory, never this checkout), so it is not
+        # the checkout-mutation hazard tools/test_bm.py's
+        # test_no_suite_renames_a_module_aside guards against.
+        store_path = os.path.join(self.root, ".brothermode", "store.sqlite3")
+        stashed = store_path + ".stashed-during-test"
+        os.rename(store_path, stashed)
+        try:
+            r2 = self.run_hook("post", self.OTHER, tool_use_id="toolu_nostore")
+        finally:
+            os.rename(stashed, store_path)
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        self.assertIn("FAILING OPEN", r2.stderr)
+        self.assertTrue(
+            os.path.isfile(spath),
+            "the snapshot was removed even though the store could not be "
+            "reached; a retry now has nothing to compare against")
+
+
+# ---------------------------------------------------------------------------
+# A4 (loop6 refuter finding): age-based reaping of orphaned snapshots.
+# ---------------------------------------------------------------------------
+
+class TestSnapshotReaper(BashAuditBase):
+
+    def test_pre_phase_reaps_snapshots_older_than_the_ttl(self):
+        """An orphaned snapshot (a Bash call that was denied, a hook
+        timeout, a session killed mid-call) never gets a matching
+        PostToolUse, so nothing ever cleaned it up before, and each one
+        holds paths plus digests of every fenced file, unbounded. The pre
+        phase now reaps anything older than the stated TTL at its own
+        start, best effort, and leaves a fresh snapshot from another
+        session alone."""
+        owner = self.label(self.OWNER)
+        self.claim("mine", ["src/mine.txt"], owner)
+
+        stale_path = self.snapshot_path("sess-stale-0000", "toolu_stale")
+        os.makedirs(os.path.dirname(stale_path), exist_ok=True)
+        with io.open(stale_path, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"schema": 1, "entries": []}))
+        old = time.time() - ba.SNAPSHOT_TTL_SECONDS - 3600
+        os.utime(stale_path, (old, old))
+
+        fresh_path = self.snapshot_path("sess-fresh-0000", "toolu_fresh")
+        with io.open(fresh_path, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"schema": 1, "entries": []}))
+
+        r = self.run_hook("pre", self.OTHER, tool_use_id="toolu_reap_trigger")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+        self.assertFalse(os.path.isfile(stale_path),
+                         "an aged, orphaned snapshot was not reaped")
+        self.assertTrue(os.path.isfile(fresh_path),
+                        "a fresh snapshot from another session was reaped "
+                        "too; the reaper must be age-based, not blanket")
+
 
 # ---------------------------------------------------------------------------
 # Supplementary coverage, cheap given the fixtures above, beyond the D-4
@@ -347,6 +442,62 @@ class TestSupplementary(BashAuditBase):
         self.assertIn("FAILING OPEN", r.stderr)
         self.assertIn("no active claims", r.stderr)
         self.assertEqual(self.tree_listing(), before)
+
+
+# ---------------------------------------------------------------------------
+# A2 (loop6 refuter finding): nothing tied this hook to its OWN wiring.
+# Every test above drives bm_bash_audit.py directly as a subprocess, so
+# deleting the PostToolUse block from hooks/hooks.json (or the Bash
+# PreToolUse group next to it) left every test in this file green while the
+# hook was never actually invoked by Claude Code. This reads the shipped
+# manifest itself and asserts both entrypoints are wired with the event and
+# matcher the plugin install path depends on, so a wiring deletion goes red
+# here even though nothing else in this file would ever notice.
+# ---------------------------------------------------------------------------
+
+HOOKS_JSON_PATH = os.path.join(os.path.dirname(HERE), "hooks", "hooks.json")
+
+
+class TestHooksJsonWiring(unittest.TestCase):
+
+    def _load(self):
+        with io.open(HOOKS_JSON_PATH, encoding="utf-8") as f:
+            return json.load(f)
+
+    def _bash_groups(self, manifest, event):
+        groups = manifest.get("hooks", {}).get(event, [])
+        return [g for g in groups if g.get("matcher") == "Bash"]
+
+    def test_pre_and_post_bash_audit_entrypoints_are_both_wired(self):
+        manifest = self._load()
+
+        pre_groups = self._bash_groups(manifest, "PreToolUse")
+        self.assertEqual(len(pre_groups), 1,
+                         "PreToolUse must carry exactly one Bash-matcher "
+                         "group for bm_bash_audit.py's pre entrypoint")
+        pre_cmd = pre_groups[0]["hooks"][0]["command"]
+        self.assertIn("bm_bash_audit.py", pre_cmd)
+        self.assertIn(" pre", pre_cmd,
+                      "the PreToolUse Bash group must invoke the pre "
+                      "subcommand")
+
+        post_groups = self._bash_groups(manifest, "PostToolUse")
+        self.assertEqual(len(post_groups), 1,
+                         "PostToolUse must carry exactly one Bash-matcher "
+                         "group for bm_bash_audit.py's post entrypoint")
+        post_cmd = post_groups[0]["hooks"][0]["command"]
+        self.assertIn("bm_bash_audit.py", post_cmd)
+        self.assertIn(" post", post_cmd,
+                      "the PostToolUse Bash group must invoke the post "
+                      "subcommand")
+
+        # The fence group must still be present and untouched by this
+        # addition: PreToolUse carries TWO independent groups, not one
+        # replaced by the other.
+        fence_groups = [g for g in manifest["hooks"]["PreToolUse"]
+                        if g.get("matcher") != "Bash"]
+        self.assertEqual(len(fence_groups), 1)
+        self.assertIn("Edit", fence_groups[0].get("matcher", ""))
 
 
 # ---------------------------------------------------------------------------

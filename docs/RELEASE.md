@@ -9,7 +9,7 @@ a machine must refuse to perform them.
 
 The install instruction in `README.md` and `docs/SETUP.md` clones a git
 branch into `~/.claude/skills/brothermode`, and the code in that directory
-then runs automatically on every Claude Code session through five hooks
+then runs automatically on every Claude Code session through six hooks
 (`SessionStart`, `SessionEnd`, `Stop`, `PreCompact`, `PreToolUse`; `python3
 tools/bm_project_facts.py --field hook_events` prints the live list). The
 original external audit of this project named that combination, a moving branch
