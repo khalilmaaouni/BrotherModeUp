@@ -13,7 +13,7 @@ repository rather than from GitHub, with the full add, install, verify,
 uninstall cycle recorded in docs/evidence/2026-07-31-first-plugin-install.md
 (all seven skills and six hooks registered). Nobody has installed it from
 GitHub or on any other machine yet. It
-also ships more than new packaging: the guided beginner layer (the six
+also ships more than new packaging: the guided beginner layer (the seven
 /brotherme commands and the guided skill) is new in this release and is
 designed to load through this path; on this project's own machine a clone
 carrying the plugin manifest also registered it in a live session, a single

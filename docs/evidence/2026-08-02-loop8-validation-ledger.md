@@ -80,8 +80,10 @@ Loops 1 and 2.
 
 State: PARTIAL. The raw measurements exist and are recorded where they
 happened: Loop 0's builder spent 261,882 subagent tokens against a
-25k-60k envelope (recorded in STATE.md's wave 14 close for exactly this
-purpose), and the machine's telemetry shows multi-million-token days
+25k-60k envelope (recorded in the wave 14 close block of the project's
+untracked STATE.md registry on the author's machine, and restated here so
+a stranger reading only the repository still has the number), and the
+machine's telemetry shows multi-million-token days
 (5.87M output tokens across 9 sessions in the 24h before this session,
 from the SessionStart spend line). What does NOT exist is the reforecast
 document itself: nobody has re-derived the program's remaining envelope
