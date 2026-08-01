@@ -568,6 +568,28 @@ class TestReleaseTruth(unittest.TestCase):
                 "docs/RELEASE.md does not mark %s as SUPERSEDED, NEVER "
                 "TAGGED near its mention" % candidate)
 
+    def test_changelog_headings_mark_rc10_and_rc11_superseded_never_tagged(self):
+        """Protects: the CHANGELOG section HEADINGS for rc.10 and rc.11 both
+        carry (SUPERSEDED, NEVER TAGGED). The sibling test above pins
+        docs/RELEASE.md only, and the CHANGELOG's rc.11 heading drifted
+        unprotected for a day: found by the 2026-08-02 Loop 9 preliminary
+        review (the second session's identity attacker, reproduced by hand
+        before this pin landed). A heading is what a scanning reader trusts;
+        prose lower down cannot repair a heading that presents a retired
+        candidate as a release."""
+        heading = re.compile(r"(?m)^## (2\.0\.0-rc\.1[01])\b(.*)$")
+        text = read("CHANGELOG.md")
+        matches = heading.findall(text)
+        self.assertTrue(
+            matches, "CHANGELOG.md has no rc.10 or rc.11 section headings")
+        offenders = ["rc heading lacks the marker: ## %s%s" % (v, rest)
+                     for v, rest in matches
+                     if "(SUPERSEDED, NEVER TAGGED)" not in rest]
+        self.assertEqual(
+            offenders, [],
+            "%s. Amendment A1: neither candidate was ever tagged and neither "
+            "ever will be; the heading itself must say so." % "; ".join(offenders))
+
     def test_all_release_manifests_describe_one_identity(self):
         """Protects: VERSION, pyproject.toml (PEP 440 normalized),
         plugin.json and marketplace.json (both its occurrences) all name

@@ -51,7 +51,7 @@ install-line depth, the cheat sheet and task index anchors) plus a fresh
 hostile red reader who must score any documentation artifact 3 of 5 or
 better before the founder is asked to look.
 
-## 2.0.0-rc.11, 2026-08-01: the explainer earns its excitement, help grows a deep tour, and updating becomes one command
+## 2.0.0-rc.11, 2026-08-01 (SUPERSEDED, NEVER TAGGED): the explainer earns its excitement, help grows a deep tour, and updating becomes one command
 
 SECOND LATE ADDITION, same day: the founder accepted both artifacts and named
 the missing organ: a big, visible statement of the philosophy and the laws.
@@ -63,7 +63,9 @@ law naming the chapters that enforce and demonstrate it, plus the three-shape
 honesty (machinery, handover, or discipline, and which is which). New test
 pins hold both sections in place.
 
-LATE ADDITION, same day, before the tag: the founder judged the explainer the
+LATE ADDITION, same day (no rc.11 tag was ever cut, or ever will be, per
+amendment A1; this addition landed while the tree still carried the rc.11
+name): the founder judged the explainer the
 summary and asked for the book behind it, and the July 30 adoption book at
 docs/book/ turned out to have been disconnected from every session since it was
 written. It gains part two, dummies to experts: chapter thirteen (the guided
