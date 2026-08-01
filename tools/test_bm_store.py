@@ -14718,7 +14718,9 @@ class TestPurgeProject(unittest.TestCase):
                     "proj1", _actor("purger"), "proj1")
                 self.assertEqual(
                     removed, {"dependencies": 1, "evidence": 2, "alerts": 1,
-                              "forecasts": 1, "tasks": 2, "projects": 1})
+                              "forecasts": 1, "tasks": 2, "projects": 1,
+                              "cross_project_edges_removed": [],
+                              "alerts_skipped": []})
                 # Every entity row this project owned is gone.
                 self.assertIsNone(store.get_project("proj1"))
                 self.assertEqual(store.list_tasks("proj1"), [])
@@ -14741,6 +14743,81 @@ class TestPurgeProject(unittest.TestCase):
                 self.assertEqual(len(purge_events), 1)
                 self.assertEqual(purge_events[0]["actor_name"], "purger")
                 self.assertIn("task", purge_events[0]["reason"])
+
+    def test_purge_scrubs_foreign_task_depends_on_json_and_reports_separately(
+            self):
+        """A6 (loop6 refuter finding): a task in ANOTHER project can depend
+        on a task in the project being purged. The dependencies row naming
+        that edge must still go (the FK requires the depended-on task to
+        exist), but it is not this project's own row to count, and the
+        foreign task's own tasks.depends_on JSON mirror must be scrubbed of
+        the purged task id in the SAME transaction, or the queryable
+        dependencies table and the JSON column disagree about what the
+        surviving task depends on."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _actor()
+                store.upsert_project(_project("proj1"), actor)
+                store.upsert_project(_project("proj2"), actor)
+                store.create_task(_task("task1", pid="proj1"), actor)
+                store.create_task(_task("task2", pid="proj1"), actor)
+                store.create_task(
+                    _task("task4", pid="proj2",
+                          depends_on=["task1", "task2"]), actor)
+
+                removed = store.purge_project(
+                    "proj1", _actor("purger"), "proj1")
+
+                # The cross-project edges are reported SEPARATELY, never
+                # folded into proj1's own "dependencies" count (which is 0
+                # here: task1 and task2 depend on nothing of their own).
+                self.assertEqual(removed["dependencies"], 0)
+                self.assertEqual(
+                    removed["cross_project_edges_removed"], ["task4"])
+
+                # The edges are gone from the queryable table.
+                self.assertEqual(store.list_dependencies("proj2"), [])
+
+                # And task4's own depends_on JSON mirror no longer names
+                # either purged task id: the queryable table and the JSON
+                # column must agree.
+                task4 = store.get_task("task4", raw=True)
+                self.assertEqual(task4["depends_on"], [])
+
+    def test_purge_skips_an_alert_id_claimed_by_more_than_one_project(self):
+        """A7 (loop6 refuter finding): purge_project's alerts DELETE used
+        to trust attribution.evidence_ref with no binding check. Attribution
+        rows are append-only and carry no foreign key back to alerts, so if
+        more than one project's own alert.raised trail names the same
+        alert_id, that id is ambiguous ownership and must be skipped and
+        reported rather than deleted on a single dangling pointer. The
+        normal API cannot produce this for a real alert twice (alerts.
+        alert_id is a PRIMARY KEY, so a second raise_alert with the same id
+        fails); this reproduces the ambiguity directly, which is exactly
+        the shape a binding-check guard exists to catch."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _actor()
+                store.upsert_project(_project("proj1"), actor)
+                store.upsert_project(_project("proj2"), actor)
+                alert_id = store.raise_alert(
+                    _alert("shared-alert"), "proj1", actor)
+                with store._transaction():
+                    store._write_attribution(
+                        "proj2", None, "alert.raised", actor,
+                        action="raise_alert", evidence_ref=alert_id)
+
+                removed = store.purge_project(
+                    "proj1", _actor("purger"), "proj1")
+
+                self.assertEqual(removed["alerts"], 0)
+                self.assertEqual(removed["alerts_skipped"], [alert_id])
+                # An ambiguous pointer is never deleted on trust: the alert
+                # row itself survives the purge.
+                rows = store.conn.execute(
+                    "SELECT alert_id FROM alerts WHERE alert_id=?",
+                    (alert_id,)).fetchall()
+                self.assertEqual(len(rows), 1)
 
 
 if __name__ == "__main__":

@@ -81,11 +81,15 @@ person was not sure about.
   the files it covers. `scripts/bm_shell.py` still mitigates only the writes a
   caller chooses to declare: it is a declaration channel, not a sandbox, and its
   `--declare-none` screen is a short list of obvious write forms, not a shell
-  parser. And the new hook is wired into the plugin manifest
-  (`hooks/hooks.json`) but NOT YET into `scripts/install.py`'s clone-install path
-  (see docs/HOOKS.md's "Installing the Bash audit hook"): a clone install gets the
-  fence hook only, until a follow-up loop updates the installer and its test suite
-  together.
+  parser. CORRECTED 2026-08-01 (loop6 refuter finding A1/A8c): this row used to say
+  the new hook was wired into the plugin manifest (`hooks/hooks.json`) but NOT YET
+  into `scripts/install.py`'s clone-install path, so a clone install got the fence
+  hook only. That gap is closed: `scripts/install.py` now wires both the
+  `PreToolUse` and `PostToolUse` halves of the Bash-audit pair too, on the same
+  terms as the plugin manifest, so both install paths carry Bash-write detection.
+  What is still true either way: the snapshot only covers a claimed path that
+  resolves to a REAL, EXISTING FILE at the moment the Bash call starts, not a
+  directory or glob-shaped claim expanded into the files it would cover.
 - **OBSERVED GREEN 2026-07-31, on all nine jobs.** This entry used to say no real
   Actions run had ever been observed. Run `30564943060` for commit `f751f9f`
   concluded success across the serial `gate` job, both `suite` legs, and all six

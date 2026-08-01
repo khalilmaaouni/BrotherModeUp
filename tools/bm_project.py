@@ -1469,6 +1469,23 @@ def cmd_purge(argv):
          "%d alert(s), %d evidence row(s), and the project record itself"
          % (removed["tasks"], removed["dependencies"], removed["forecasts"],
             removed["alerts"], removed["evidence"]))
+    # A6 fix (loop6 refuter findings): a task in another project can depend
+    # on a task this purge just removed. That fallout is real but it is not
+    # THIS project's own count, so it is named in its own plain sentence,
+    # never folded into the "removed:" line above.
+    cross = removed.get("cross_project_edges_removed") or []
+    if cross:
+        _out("%d prerequisite link(s) in other projects also had to go, "
+             "because the work they pointed at no longer exists: %s"
+             % (len(cross), ", ".join(cross)))
+    # A7 fix: an alert id that could not be safely attributed to this
+    # project alone was left untouched rather than deleted; say so plainly
+    # rather than silently dropping it from the removed count.
+    skipped = removed.get("alerts_skipped") or []
+    if skipped:
+        _out("%d alert id(s) could not be safely attributed to this "
+             "project alone and were left untouched rather than deleted: %s"
+             % (len(skipped), ", ".join(skipped)))
     _out("kept: the attribution trail (it now also carries one new entry "
          "naming this purge), the vault, and any generated file already "
          "on disk (CANVAS.md, DELIVERY-PACKET.md and the like); none of "

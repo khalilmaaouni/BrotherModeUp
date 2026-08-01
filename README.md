@@ -19,7 +19,7 @@ command is [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
 
 **The plugin way (two lines, inside Claude Code).** This repository is its
 own plugin marketplace: add it once, install from it, and the seven
-/brotherme commands, the guided skill, and the five hooks register on the
+/brotherme commands, the guided skill, and the six hooks register on the
 next start. Upgrading later is one `/plugin` update from the same source;
 uninstalling removes the plugin and leaves your project data and vault
 untouched.
@@ -62,7 +62,7 @@ install_target_tag`), the last tag actually cut and known to resolve, and
 development tree itself currently reads `2.0.0-rc.12.dev1`, a development
 identity rather than a tagged release; `docs/RELEASE.md` explains why the
 public install target and the tree's own identity can differ on purpose. Do not run both paths at once on one machine: the plugin wires the
-same five hooks the clone's installer wires, so a machine carrying both runs
+same six hooks the clone's installer wires, so a machine carrying both runs
 every hook twice (docs/KNOWN-LIMITS.md records this; pick one).
 `docs/QUICKSTART.md` describes both and labels their status honestly.
 
@@ -90,7 +90,8 @@ python3 tools/bm_project_facts.py
 
 It prints the current version and release tag, the storage schema version, the
 hook events the installer writes (`SessionStart`, `SessionEnd`, `Stop`,
-`PreCompact`, and `PreToolUse`, which is the fence that can refuse a write), the
+`PreCompact`, `PreToolUse`, which is the fence that can refuse a write, and
+`PostToolUse`, which reports a shell write that crossed a fence), the
 suite files the gate runs, and the Python floor. What it deliberately does not
 print is a test count, for the reason given under "Verify the safety claims
 yourself" below. This is a release CANDIDATE,
