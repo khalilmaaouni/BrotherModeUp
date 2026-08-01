@@ -14281,6 +14281,184 @@ class TestLoop1VerifyExtension(unittest.TestCase):
                           set(bs._TABLES_V12) - set(bs._TABLES_V11))
 
 
+class TestLoop1ReadAccessors(unittest.TestCase):
+    """D-2 (loop2 mechanical commands design, 2026-08-01): read accessors on
+    Store AND ReadOnlyStore for the five schema-12 shapes. Same TWO FAILURE
+    POLICIES split this module's own docstring names for dump/
+    render_state_md/render_digest -- these are advisory display, not a
+    mutation, so a missing id degrades (None or []) rather than raising --
+    and the SAME export_column redaction dump() applies, via the shared
+    _export_row helper. None of the eight LOOP 1 tables are on
+    _DUMP_SAFE_COLUMNS, so under the real, unpatched policy every non-empty
+    text column of every accessor's return value comes back WITHHELD,
+    exactly like dump()'s own output for these tables (verified directly
+    below). Tests that need to compare an actual id or check ordering patch
+    _DUMP_SAFE_COLUMNS open for the loop1 tables, the same technique
+    test_calibrated_round7_dump_name_reinject_old_safe_columns_would_leak
+    already uses elsewhere in this file to reason about the safe list."""
+
+    def _loop1_safe_columns(self, store):
+        tables = ("projects", "forecasts", "tasks", "attribution", "alerts",
+                  "evidence", "runtime_runs")
+        return frozenset(
+            (t, c) for t in tables for c in bs._text_columns(store.conn, t))
+
+    def _seeded_store(self, store):
+        actor = _actor()
+        store.upsert_project(_project(name="Acme Rescue"), actor)
+        store.add_forecast(_forecast("fc1", created_at="2026-08-01T00:00:00Z"),
+                            actor)
+        store.add_forecast(_forecast("fc2", created_at="2026-08-01T00:00:01Z"),
+                            actor)
+        store.create_task(_task("task1"), actor)
+        store.raise_alert(_alert("alert1"), "proj1", actor)
+        store.add_evidence(_evidence("ev1"), "proj1", actor)
+        return actor
+
+    def test_default_redaction_matches_dump_for_a_sensitive_field(self):
+        """Redaction verified on a sensitive field: get_project's `name`
+        must come back withheld, by the same policy and byte for byte the
+        same as dump()'s own projects row, with nothing patched."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(name="Confidential Codename"),
+                                      _actor())
+                project = store.get_project("proj1")
+                dumped = store.dump()["projects"][0]
+        self.assertNotIn("Confidential Codename", json.dumps(project))
+        self.assertTrue(project["name"].startswith("[WITHHELD"), project)
+        S = bs._schema()
+        for col in S.Project.FIELDS:
+            if col in S.Project.LIST_FIELDS:
+                continue  # dump() leaves these as JSON text; accessors decode them
+            self.assertEqual(project[col], dumped[col],
+                              "get_project must redact column %r exactly "
+                              "like dump()" % col)
+
+    def test_json_list_column_withheld_by_default_stays_a_string_marker(self):
+        """The decode-back-to-a-list step must never crash on a WITHHELD
+        marker (which is not valid JSON) and must never partially decode
+        one: with nothing patched, scope_in stays the marker string."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(
+                    _project(scope_in=["billing", "auth"]), _actor())
+                project = store.get_project("proj1")
+        self.assertIsInstance(project["scope_in"], str)
+        self.assertTrue(project["scope_in"].startswith("[WITHHELD"), project)
+
+    def test_missing_ids_degrade_to_none_or_empty_list(self):
+        """The advisory failure policy: a read accessor never raises for an
+        id that simply does not exist, it degrades."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                self.assertIsNone(store.get_project("nope"))
+                self.assertIsNone(store.get_task("nope"))
+                self.assertIsNone(store.latest_forecast("proj1"))
+                self.assertIsNone(store.latest_forecast("nope"))
+                self.assertEqual(store.list_tasks("nope"), [])
+                self.assertEqual(store.list_forecasts("nope"), [])
+                self.assertEqual(store.list_evidence("task", "nope"), [])
+                self.assertEqual(store.list_attribution("nope"), [])
+                self.assertEqual(store.list_alerts(), [])
+
+    def test_round_trip_through_service_methods_and_every_accessor(self):
+        """Every schema-12 service method, written once, read back through
+        every one of the nine D-2 accessors: identity, filtering,
+        ordering, the latest_forecast/list_forecasts split, the
+        list_alerts(resolved=...) three-way split, and JSON list columns
+        actually decoded into Python lists once redaction is not in the
+        way (patched open exactly like the existing round7 test does)."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = self._seeded_store(store)
+                safe = self._loop1_safe_columns(store)
+                with mock.patch.object(bs, "_DUMP_SAFE_COLUMNS", safe):
+                    project = store.get_project("proj1")
+                    self.assertEqual(project["project_id"], "proj1")
+                    self.assertEqual(project["name"], "Acme Rescue")
+                    self.assertIsInstance(project["scope_in"], list)
+                    self.assertEqual(store.list_projects(), [project])
+
+                    tasks = store.list_tasks("proj1")
+                    self.assertEqual([t["task_id"] for t in tasks], ["task1"])
+                    self.assertIsInstance(tasks[0]["depends_on"], list)
+                    self.assertEqual(
+                        store.list_tasks("proj1", status="planned"), tasks)
+                    self.assertEqual(
+                        store.list_tasks("proj1", status="ready"), [])
+                    task = store.get_task("task1")
+                    self.assertEqual(task["task_id"], "task1")
+
+                    forecasts = store.list_forecasts("proj1")
+                    self.assertEqual(
+                        [f["forecast_id"] for f in forecasts], ["fc1", "fc2"])
+                    self.assertIsInstance(forecasts[0]["assumptions"], list)
+                    latest = store.latest_forecast("proj1")
+                    self.assertEqual(latest["forecast_id"], "fc2")
+
+                    alerts = store.list_alerts()
+                    self.assertEqual([a["alert_id"] for a in alerts],
+                                      ["alert1"])
+                    self.assertEqual(
+                        [a["alert_id"] for a in store.list_alerts(resolved=False)],
+                        ["alert1"])
+                    self.assertEqual(store.list_alerts(resolved=True), [])
+                    store.resolve_alert("alert1", "proj1", actor)
+                    self.assertEqual(
+                        [a["alert_id"] for a in store.list_alerts(resolved=True)],
+                        ["alert1"])
+                    self.assertEqual(store.list_alerts(resolved=False), [])
+
+                    evidence = store.list_evidence("task", "task1")
+                    self.assertEqual(
+                        [e["evidence_id"] for e in evidence], ["ev1"])
+                    self.assertEqual(store.list_evidence("task", "nope"), [])
+
+                    attributions = store.list_attribution("proj1")
+                    self.assertGreater(len(attributions), 1)
+                    self.assertIsInstance(
+                        attributions[0]["input_artifacts"], list)
+                    self.assertEqual(
+                        len(store.list_attribution("proj1", limit=1)), 1)
+
+    def test_read_only_store_exposes_the_same_reads_and_refuses_writes(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._seeded_store(store)
+            with bs.ReadOnlyStore(d) as ro:
+                # Same reads: every accessor is callable and returns the
+                # same shape (row count, structural keys) a writable Store
+                # would, under the SAME default redaction.
+                self.assertEqual(ro.get_project("proj1"),
+                                  bs.Store.get_project(ro, "proj1"))
+                self.assertEqual(len(ro.list_projects()), 1)
+                self.assertEqual(len(ro.list_tasks("proj1")), 1)
+                self.assertIsNone(ro.get_task("nope"))
+                self.assertEqual(len(ro.list_forecasts("proj1")), 2)
+                self.assertIsNotNone(ro.latest_forecast("proj1"))
+                self.assertEqual(len(ro.list_alerts()), 1)
+                self.assertEqual(len(ro.list_evidence("task", "task1")), 1)
+                self.assertGreater(len(ro.list_attribution("proj1")), 1)
+                # Refuses writes: no write method exists on this class at
+                # all (the eight schema-12 service methods are Store-only),
+                # and the underlying connection itself refuses at the SQL
+                # level (GATE A, query_only=ON), now proven against one of
+                # the new tables rather than only against meta.
+                for name in ("upsert_project", "add_forecast", "create_task",
+                             "transition_task", "raise_alert",
+                             "resolve_alert", "add_evidence",
+                             "record_runtime_run"):
+                    self.assertFalse(
+                        hasattr(ro, name),
+                        "ReadOnlyStore must not expose write method %r" % name)
+                with self.assertRaises(sqlite3.OperationalError):
+                    ro.conn.execute(
+                        "INSERT INTO projects (project_id, name, created_at, "
+                        "updated_at) VALUES ('x','y','z','z')")
+
+
 if __name__ == "__main__":
     # The leak check lives in the runner, so it applies to every test without
     # each of the ~40 TestCase classes having to opt in. Running this file

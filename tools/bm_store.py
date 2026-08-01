@@ -3084,6 +3084,39 @@ def _text_columns(conn, table):
     return out
 
 
+def _export_row(conn, table, row_dict, list_fields=()):
+    """ONE row dict for `table`, redacted exactly as dump() redacts every
+    row of that table: the same policy_cols computation over export_column
+    (structural safe list first, digest-shape override on top), so a read
+    accessor and dump() cannot drift by carrying this policy in two places
+    (D-2, loop2 mechanical commands design 2026-08-01: "identical
+    export_column policy as dump(); no new disclosure surface"). Every
+    column named in `list_fields` (a shape's own LIST_FIELDS) is then
+    decoded from its stored JSON text back into a Python list, but ONLY
+    where redaction left it as literal JSON: a WITHHELD marker never
+    parses, so json.loads on one always raises, and that failure is the
+    signal a column was withheld, not an error to route around -- the
+    marker string is left exactly as export_column produced it. Pure:
+    returns a NEW dict, row_dict itself is untouched."""
+    text_cols = _text_columns(conn, table)
+    policy_cols = [c for c in text_cols
+                   if (table, c) not in _DUMP_SAFE_COLUMNS
+                   or c.endswith(_DUMP_DIGEST_SUFFIXES)]
+    out = dict(row_dict)
+    for col in policy_cols:
+        if not out.get(col):
+            continue
+        out[col] = export_column(table, col, out[col])
+    for col in list_fields:
+        val = out.get(col)
+        if isinstance(val, str):
+            try:
+                out[col] = json.loads(val)
+            except ValueError:
+                pass
+    return out
+
+
 def _ownership_guard_applies(current_state):
     """BLOCKER 2 (release-blockers spec, 2026-07-26): the not-owner guard
     in Store.transition() protects a record ONLY while it is CURRENTLY
@@ -10059,6 +10092,138 @@ class Store(object):
                 evidence_ref=run_dict.get("evidence_ref") or "")
         return run_dict["run_id"]
 
+    # -- read accessors (D-2, loop2 mechanical commands design, 2026-08-01)
+    # get_project, list_projects, list_tasks, get_task, list_forecasts,
+    # latest_forecast, list_alerts, list_evidence, list_attribution: the
+    # display-side reads a mechanical command needs instead of pulling the
+    # whole store through dump() or reaching past this module into raw SQL
+    # (which would skip redaction entirely). Same TWO FAILURE POLICIES split
+    # this module's own docstring names for dump/render_state_md/
+    # render_digest: these are advisory, not a mutation, so a missing id
+    # degrades to None (get_*) or an empty list (list_*) rather than raising
+    # OwnershipRefused. Redaction is IDENTICAL to dump()'s, via the shared
+    # _export_row helper above, so these add no new disclosure surface.
+
+    def get_project(self, project_id):
+        """ONE project row by id, or None if no such project."""
+        row = _exec(self, "SELECT * FROM projects WHERE project_id=?",
+                    (project_id,)).fetchone()
+        if row is None:
+            return None
+        S = _schema()
+        return _export_row(self.conn, "projects", dict(row),
+                            S.Project.LIST_FIELDS)
+
+    def list_projects(self):
+        """Every project, oldest first (created_at, project_id tie
+        break). Empty list if the store has none."""
+        rows = _exec(self,
+            "SELECT * FROM projects ORDER BY created_at ASC, "
+            "project_id ASC").fetchall()
+        S = _schema()
+        return [_export_row(self.conn, "projects", dict(r),
+                             S.Project.LIST_FIELDS) for r in rows]
+
+    def list_tasks(self, project_id, status=None):
+        """Every task in `project_id`, task_id order (tasks carries no
+        timestamp of its own to order by). `status` narrows to ONE of
+        schema.py's ten legal values when given; an unrecognised status
+        simply matches nothing, the same advisory degrade as a missing
+        project_id."""
+        S = _schema()
+        if status is None:
+            rows = _exec(self,
+                "SELECT * FROM tasks WHERE project_id=? ORDER BY task_id ASC",
+                (project_id,)).fetchall()
+        else:
+            rows = _exec(self,
+                "SELECT * FROM tasks WHERE project_id=? AND status=? "
+                "ORDER BY task_id ASC", (project_id, status)).fetchall()
+        return [_export_row(self.conn, "tasks", dict(r), S.Task.LIST_FIELDS)
+                for r in rows]
+
+    def get_task(self, task_id):
+        """ONE task row by id, or None if no such task."""
+        row = _exec(self, "SELECT * FROM tasks WHERE task_id=?",
+                    (task_id,)).fetchone()
+        if row is None:
+            return None
+        S = _schema()
+        return _export_row(self.conn, "tasks", dict(row), S.Task.LIST_FIELDS)
+
+    def list_forecasts(self, project_id):
+        """Every forecast ever added for `project_id`, oldest first: append
+        -only per Forecast's own contract (add_forecast never edits a prior
+        row), so oldest-first is that row's own history in the order it was
+        made."""
+        rows = _exec(self,
+            "SELECT * FROM forecasts WHERE project_id=? "
+            "ORDER BY created_at ASC, forecast_id ASC",
+            (project_id,)).fetchall()
+        S = _schema()
+        return [_export_row(self.conn, "forecasts", dict(r),
+                             S.Forecast.LIST_FIELDS) for r in rows]
+
+    def latest_forecast(self, project_id):
+        """The most recently added forecast for `project_id` (created_at
+        DESC, forecast_id as the deterministic tie break for two forecasts
+        added in the same second), or None if the project has never been
+        forecast."""
+        row = _exec(self,
+            "SELECT * FROM forecasts WHERE project_id=? "
+            "ORDER BY created_at DESC, forecast_id DESC LIMIT 1",
+            (project_id,)).fetchone()
+        if row is None:
+            return None
+        S = _schema()
+        return _export_row(self.conn, "forecasts", dict(row),
+                            S.Forecast.LIST_FIELDS)
+
+    def list_alerts(self, resolved=None):
+        """Every alert, newest first (created_at DESC, alert_id tie
+        break). `resolved` narrows the read: None (the default) for every
+        alert, True for only resolved ones (resolved_at IS NOT NULL),
+        False for only open ones. Alerts carry no project_id of their own
+        (see raise_alert's own docstring), so this reads the whole store
+        rather than one project."""
+        S = _schema()
+        if resolved is None:
+            rows = _exec(self,
+                "SELECT * FROM alerts ORDER BY created_at DESC, "
+                "alert_id DESC").fetchall()
+        elif resolved:
+            rows = _exec(self,
+                "SELECT * FROM alerts WHERE resolved_at IS NOT NULL "
+                "ORDER BY created_at DESC, alert_id DESC").fetchall()
+        else:
+            rows = _exec(self,
+                "SELECT * FROM alerts WHERE resolved_at IS NULL "
+                "ORDER BY created_at DESC, alert_id DESC").fetchall()
+        return [_export_row(self.conn, "alerts", dict(r), S.Alert.LIST_FIELDS)
+                for r in rows]
+
+    def list_evidence(self, subject_type, subject_id):
+        """Every evidence row for ONE (subject_type, subject_id) pair,
+        oldest first (created_at ASC, evidence_id tie break). Empty list
+        for a subject with no evidence."""
+        rows = _exec(self,
+            "SELECT * FROM evidence WHERE subject_type=? AND subject_id=? "
+            "ORDER BY created_at ASC, evidence_id ASC",
+            (subject_type, subject_id)).fetchall()
+        return [_export_row(self.conn, "evidence", dict(r)) for r in rows]
+
+    def list_attribution(self, project_id, limit=50):
+        """The most recent `limit` attribution events for `project_id`,
+        newest first (timestamp DESC, event_id tie break): the audit trail
+        a display command shows without pulling the whole store."""
+        rows = _exec(self,
+            "SELECT * FROM attribution WHERE project_id=? "
+            "ORDER BY timestamp DESC, event_id DESC LIMIT ?",
+            (project_id, limit)).fetchall()
+        S = _schema()
+        return [_export_row(self.conn, "attribution", dict(r),
+                             S.AttributionEvent.LIST_FIELDS) for r in rows]
+
     def dump(self, raw=False):
         """Full JSON-serializable export of every table.
 
@@ -10280,6 +10445,43 @@ class ReadOnlyStore(object):
         # as a writable one, since it is the diagnostic that has to explain
         # why a thread cannot be found.
         return Store.identity_by_name(self, name)
+
+    # -- read accessors (D-2) -------------------------------------------
+    # Same reuse, same reason as dump/identity_by_name above: each of these
+    # only ever SELECTs through _exec and redacts through _export_row, so
+    # Store's implementation works unchanged against a read-only connection.
+    # A read-only consumer of a project's status needs these at least as
+    # much as a writable one; ReadOnlyStore stays the diagnostic surface
+    # that has no path to any write method (query_only=ON on the plain
+    # connection, GATE A, is the enforcement; there is no upsert_project,
+    # create_task, or any other mutation defined anywhere on this class).
+
+    def get_project(self, project_id):
+        return Store.get_project(self, project_id)
+
+    def list_projects(self):
+        return Store.list_projects(self)
+
+    def list_tasks(self, project_id, status=None):
+        return Store.list_tasks(self, project_id, status=status)
+
+    def get_task(self, task_id):
+        return Store.get_task(self, task_id)
+
+    def list_forecasts(self, project_id):
+        return Store.list_forecasts(self, project_id)
+
+    def latest_forecast(self, project_id):
+        return Store.latest_forecast(self, project_id)
+
+    def list_alerts(self, resolved=None):
+        return Store.list_alerts(self, resolved=resolved)
+
+    def list_evidence(self, subject_type, subject_id):
+        return Store.list_evidence(self, subject_type, subject_id)
+
+    def list_attribution(self, project_id, limit=50):
+        return Store.list_attribution(self, project_id, limit=limit)
 
     def close(self):
         """Idempotent, same contract as Store.close()."""
