@@ -1,11 +1,22 @@
 # BrotherMode for Dummies
 
-Status: CURRENT for commit `471efdc` (BrotherMode 2.0.0-rc.4).
+Status: CURRENT. Part one (chapters one to twelve) was written 2026-07-30
+against commit `471efdc` (2.0.0-rc.4), with every transcript run against a real
+throwaway project at that commit. Part two (chapters thirteen to sixteen) plus
+the chapter two install rewrite and the corrected Windows-CI limit were added
+2026-08-01 at 2.0.0-rc.11, after a founder review asked for the expert half:
+the guided command layer, the vault and Obsidian in depth, and two composed
+persona walkthroughs (a multi-week product build; analytics under scrutiny).
 
 The adoption book, phase D of
 `docs/superpowers/specs/2026-07-30-documentation-and-gate-packs-design.md`
-section 7. Written for someone who has never heard the words agent, loop or hook
-and is not yet convinced BrotherMode is worth the trouble.
+section 7. Part one is written for someone who has never heard the words agent,
+loop or hook; part two takes the same reader to expert use.
+
+HONEST NOTE ON THE PDF: `brothermode-for-dummies.pdf` is the 2026-07-30 export
+of part one only (56 pages, twelve chapters). It has not been regenerated for
+part two; the HTML file is the current book. Regenerate the PDF by opening the
+HTML in a browser and printing to PDF, then update this note with the new date.
 
 ## The files
 
