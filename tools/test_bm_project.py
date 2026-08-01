@@ -29,6 +29,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -711,6 +712,463 @@ class TestLoop2RedactionPolicy(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             nxt_raw = json.loads(r.stdout)
             self.assertEqual(nxt_raw["picked"]["title"], "Fix the leaky pipe")
+
+
+class TestForecastAndAlerts(unittest.TestCase):
+    """D-1 (Loop 5 design, docs/superpowers/specs/2026-08-01-loop4-close-
+    and-loop5-design.md): forecast add/show, alert raise/resolve/list, and
+    the two grown status sections."""
+
+    def _started(self, root, project_id="proj1", name="Acme Rescue"):
+        _init(root)
+        r = _run(["start", "--project-id", project_id, "--name", name]
+                 + list(ACTOR), root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_forecast_add_requires_a_token_range(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            r = _run(["forecast", "add", "--project-id", "proj1",
+                      "--min-duration", "two hours",
+                      "--likely-duration", "three hours",
+                      "--max-duration", "four hours",
+                      "--confidence", "medium"] + list(ACTOR), root)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("token-range", r.stderr)
+            raw = _raw_dump(root)
+            self.assertEqual(raw["forecasts"], [])
+
+    def test_forecast_add_refuses_a_point_estimate_with_no_basis(self):
+        """D-1: a single point estimate (min = likely = max, no --basis)
+        is refused, quoting the forecasting rule in plain words."""
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            r = _run(["forecast", "add", "--project-id", "proj1",
+                      "--min-duration", "two hours",
+                      "--likely-duration", "two hours",
+                      "--max-duration", "two hours",
+                      "--input-token-range", "five k",
+                      "--confidence", "medium"] + list(ACTOR), root)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("ranges, never points", r.stderr)
+            self.assertIn("false promise", r.stderr)
+            raw = _raw_dump(root)
+            self.assertEqual(
+                raw["forecasts"], [],
+                "a refused point-estimate forecast must write no row")
+
+    def test_forecast_add_accepts_a_point_duration_with_a_stated_basis(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            r = _run(["forecast", "add", "--project-id", "proj1",
+                      "--min-duration", "two hours",
+                      "--likely-duration", "two hours",
+                      "--max-duration", "two hours",
+                      "--input-token-range", "five k",
+                      "--confidence", "high",
+                      "--basis", "fixed-fee contract with a set window"]
+                     + list(ACTOR) + ["--out-json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_forecast_add_never_edits_a_prior_forecast_row(self):
+        """D-4 through the CLI door: forecasts append, they are never
+        edited (already enforced at the store layer by test_bm_store.py's
+        test_add_forecast_never_edits_a_prior_forecast_row; this pins the
+        same contract through tools/bm_project.py itself)."""
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            for basis in ("first", "second"):
+                r = _run(["forecast", "add", "--project-id", "proj1",
+                          "--min-duration", "two hours",
+                          "--likely-duration", "three hours",
+                          "--max-duration", "four hours",
+                          "--input-token-range", "five k",
+                          "--confidence", "medium", "--basis", basis]
+                         + list(ACTOR), root)
+                self.assertEqual(r.returncode, 0, r.stderr)
+            raw = _raw_dump(root)
+            self.assertEqual(len(raw["forecasts"]), 2)
+
+    def test_forecast_show_reports_ranges_confidence_and_prior_count(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            r = _run(["forecast", "show", "--project-id", "proj1"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("no forecast recorded", r.stdout)
+            for basis in ("first", "second"):
+                r = _run(["forecast", "add", "--project-id", "proj1",
+                          "--min-duration", "two hours",
+                          "--likely-duration", "three hours",
+                          "--max-duration", "four hours",
+                          "--input-token-range", "five k",
+                          "--confidence", "medium", "--basis", basis]
+                         + list(ACTOR), root)
+                self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["forecast", "show", "--project-id", "proj1"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("two hours to four hours (likely three hours)",
+                          r.stdout)
+            self.assertIn("confidence: medium", r.stdout)
+            self.assertIn("prior forecasts: 1", r.stdout,
+                          "the second add's SHOW must count the first as "
+                          "one prior forecast")
+
+    def test_alert_raise_resolve_list_roundtrip(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            r = _run(["alert", "raise", "--project-id", "proj1",
+                      "--severity", "high", "--message", "queue backing up"]
+                     + list(ACTOR) + ["--out-json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            alert1 = json.loads(r.stdout)["alert_id"]
+            r = _run(["alert", "raise", "--project-id", "proj1",
+                      "--severity", "critical", "--message", "db offline",
+                      "--requires-human"]
+                     + list(ACTOR) + ["--out-json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            alert2 = json.loads(r.stdout)["alert_id"]
+
+            r = _run(["alert", "list"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn(alert1, r.stdout)
+            self.assertIn(alert2, r.stdout)
+            # severity-ordered: critical before high.
+            self.assertLess(r.stdout.index(alert2), r.stdout.index(alert1),
+                            "critical must sort before high")
+
+            r = _run(["alert", "resolve", alert1, "--project-id", "proj1",
+                      "--reason", "fixed the queue"]
+                     + list(ACTOR) + ["--out-json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("resolved_at", json.loads(r.stdout))
+
+            r = _run(["alert", "list"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertNotIn(alert1, r.stdout,
+                             "a resolved alert must not appear unresolved")
+            self.assertIn(alert2, r.stdout)
+
+            r = _run(["alert", "list", "--all"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn(alert1, r.stdout)
+            self.assertIn("RESOLVED", r.stdout)
+
+    def test_alert_resolve_refuses_an_unknown_alert(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            r = _run(["alert", "resolve", "nope", "--project-id", "proj1",
+                      "--reason", "trying"] + list(ACTOR), root)
+            self.assertEqual(r.returncode, 1)
+
+    def test_status_shows_unresolved_alerts_severity_ordered(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            for severity in ("info", "critical", "attention"):
+                r = _run(["alert", "raise", "--project-id", "proj1",
+                          "--severity", severity,
+                          "--message", "m-%s" % severity]
+                         + list(ACTOR), root)
+                self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["status", "--project-id", "proj1"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertLess(r.stdout.index("m-critical"),
+                            r.stdout.index("m-attention"))
+            self.assertLess(r.stdout.index("m-attention"),
+                            r.stdout.index("m-info"))
+
+    def test_status_next_reforecast_event_round_trips(self):
+        """D-4: forecast add records next_reforecast_event; status prints
+        it so the founder sees when the number is due to move."""
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            r = _run(["forecast", "add", "--project-id", "proj1",
+                      "--min-duration", "two hours",
+                      "--likely-duration", "three hours",
+                      "--max-duration", "four hours",
+                      "--input-token-range", "five k",
+                      "--confidence", "medium",
+                      "--next-reforecast-event",
+                      "the sandbox check succeeds"] + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["status", "--project-id", "proj1"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("the sandbox check succeeds", r.stdout)
+            r = _run(["forecast", "show", "--project-id", "proj1"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("the sandbox check succeeds", r.stdout)
+
+    def test_status_omits_the_forecast_section_note_when_none_exists(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            r = _run(["status", "--project-id", "proj1"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("latest forecast: (none yet)", r.stdout)
+
+    def test_status_history_prints_last_n_attribution_events(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            # now_iso() is second precision, documented in bm_store.py's own
+            # docstring as NOT microsecond-precise ("two rows written a
+            # millisecond apart cannot be compared as if they were"), and
+            # list_attribution's tie break for two rows in the SAME second
+            # is event_id (a random uuid4 hex), not insertion order. A real
+            # gap past the second boundary is what makes "the MOST RECENT
+            # event" an unambiguous claim this test can assert on, rather
+            # than a coin flip on two uuid hexes.
+            time.sleep(1.1)
+            r = _run(["task", "add", "--project-id", "proj1",
+                      "--task-id", "task-x", "--title", "Do a thing"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["status", "--project-id", "proj1", "--history", "1"],
+                     root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("attribution history (showing 1):", r.stdout)
+            self.assertIn("task.created", r.stdout)
+            self.assertNotIn("project.upserted", r.stdout,
+                             "--history 1 must show only the MOST RECENT "
+                             "event, task.created, not the older "
+                             "project.upserted")
+
+            r = _run(["status", "--project-id", "proj1"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertNotIn("attribution history", r.stdout,
+                             "omitting --history must omit the section "
+                             "entirely")
+
+
+class TestNumbersTraceToRows(unittest.TestCase):
+    """D-3, THE GATE TEST (Loop 5 design, docs/superpowers/specs/
+    2026-08-01-loop4-close-and-loop5-design.md): 'every displayed number
+    traces to a row and its evidence.' This test drives one full project
+    (start, three tasks through three different states, a forecast, two
+    alerts, a review, and a --partial deliver), captures the stdout of
+    status, next, forecast show, and alert list plus the DELIVERY-
+    PACKET.md file, extracts EVERY digit sequence from that text, and
+    asserts each one equals a value fetched INDEPENDENTLY through the D-2
+    accessors in THIS test (never read back out of the CLI's own --json,
+    which would only prove the CLI agrees with itself). A hardcoded or
+    derived-without-a-row number fails this test.
+
+    IDENTIFIERS AND TIMESTAMPS, DOCUMENTED (D-3 permits excluding these
+    'where infeasible'; this test does not skip them wholesale, it
+    resolves them exactly). Every project_id and task_id chosen below is
+    spelled with letters only ('proj-alpha', 'task-one', 'task-two',
+    'task-three'), and every forecast duration is spelled in words ('two
+    hours', not '2 hours'), so NONE of them can inject a spurious digit
+    token in the first place. The three values this project's shape
+    cannot avoid generating with digits -- forecast_id, the two alert_ids,
+    and the evidence_id (uuid4 hex) -- are captured exactly via --out-json
+    and stripped from the captured text by exact substring before the
+    digit scan, rather than declared unverifiable. Attribution timestamps
+    are handled the same way: every one is fetched via list_attribution
+    and stripped by its own exact string before the scan, because a clock
+    reading is not a row-derived FACT this test could recompute, but it
+    IS a value this test can read from the very row that produced it.
+
+    After that stripping, every remaining digit token must be either (a)
+    a COUNT this test recomputes independently via the accessors (task
+    state counts, the unresolved-alert count, next's ready-candidate
+    count, forecast show's prior-forecast count, --history's shown
+    count), or (b) literally contained in the forecast row's own token-
+    range fields (the one field in this project deliberately given digits,
+    'ten k' would have been just as valid but '10k-20k' proves the
+    mechanism catches CONTENT numbers, not only counts)."""
+
+    _DIGITS_RE = re.compile(r"\d+")
+
+    def test_every_displayed_number_traces_to_a_row(self):
+        with tempfile.TemporaryDirectory() as root:
+            _init(root)
+
+            # -- start ----------------------------------------------------
+            r = _run(["start", "--project-id", "proj-alpha",
+                      "--name", "Acme Rescue", "--goal", "Ship the thing"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+            # -- three tasks, walked to three DIFFERENT final states -------
+            for task_id, title in (("task-one", "Fix the leak"),
+                                   ("task-two", "Write the docs"),
+                                   ("task-three", "Talk to the customer")):
+                r = _run(["task", "add", "--project-id", "proj-alpha",
+                          "--task-id", task_id, "--title", title]
+                         + list(ACTOR), root)
+                self.assertEqual(r.returncode, 0, r.stderr)
+
+            # task-one: walked all the way to closed.
+            r = _run(["task", "transition", "--task-id", "task-one",
+                      "--to", "ready", "--reason", "deps clear"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["task", "start", "--task-id", "task-one",
+                      "--reason", "beginning"] + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["task", "transition", "--task-id", "task-one",
+                      "--to", "awaiting review", "--reason", "work done"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["review", "task-one", "--project-id", "proj-alpha",
+                      "--kind", "test", "--ref", "tools/test_all.py",
+                      "--reason", "checks passed"]
+                     + list(ACTOR) + ["--out-json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            evidence_id = json.loads(r.stdout)["evidence_id"]
+            for state, reason in (("accepted", "owner approved"),
+                                  ("delivered", "handed off"),
+                                  ("monitored", "watching"),
+                                  ("closed", "monitoring window over")):
+                r = _run(["task", "transition", "--task-id", "task-one",
+                          "--to", state, "--reason", reason]
+                         + list(ACTOR), root)
+                self.assertEqual(r.returncode, 0, r.stderr)
+
+            # task-two: planned -> ready, left there.
+            r = _run(["task", "transition", "--task-id", "task-two",
+                      "--to", "ready", "--reason", "deps clear"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+            # task-three: left in planned.
+
+            # -- forecast (durations in words; token ranges carry the
+            # deliberate digits this test proves trace to the row) -------
+            r = _run(["forecast", "add", "--project-id", "proj-alpha",
+                      "--min-duration", "two hours",
+                      "--likely-duration", "three hours",
+                      "--max-duration", "four hours",
+                      "--input-token-range", "10k-20k",
+                      "--output-token-range", "5k-15k",
+                      "--confidence", "medium",
+                      "--basis", "reused the existing module",
+                      "--next-reforecast-event",
+                      "the sandbox check succeeds"]
+                     + list(ACTOR) + ["--out-json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            forecast_id = json.loads(r.stdout)["forecast_id"]
+
+            # -- two alerts, left unresolved --------------------------------
+            r = _run(["alert", "raise", "--project-id", "proj-alpha",
+                      "--severity", "high", "--message", "queue backing up"]
+                     + list(ACTOR) + ["--out-json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            alert_id_1 = json.loads(r.stdout)["alert_id"]
+            r = _run(["alert", "raise", "--project-id", "proj-alpha",
+                      "--severity", "critical", "--message", "db offline",
+                      "--requires-human"]
+                     + list(ACTOR) + ["--out-json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            alert_id_2 = json.loads(r.stdout)["alert_id"]
+
+            # -- deliver, partial (task-two/task-three are not closed) -----
+            r = _run(["deliver", "--project-id", "proj-alpha", "--partial"],
+                     root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+            # -- capture every surface the gate covers ----------------------
+            r_status = _run(["status", "--project-id", "proj-alpha",
+                             "--history", "3"], root)
+            self.assertEqual(r_status.returncode, 0, r_status.stderr)
+            r_next = _run(["next", "--project-id", "proj-alpha"], root)
+            self.assertEqual(r_next.returncode, 0, r_next.stderr)
+            r_forecast = _run(["forecast", "show", "--project-id",
+                               "proj-alpha"], root)
+            self.assertEqual(r_forecast.returncode, 0, r_forecast.stderr)
+            r_alerts = _run(["alert", "list"], root)
+            self.assertEqual(r_alerts.returncode, 0, r_alerts.stderr)
+            packet_path = os.path.join(root, "DELIVERY-PACKET.md")
+            with io.open(packet_path, encoding="utf-8") as fh:
+                packet_text = fh.read()
+
+            # -- fetch every number INDEPENDENTLY, through the same D-2
+            # accessors bm_project.py itself uses, never through the CLI's
+            # own JSON ------------------------------------------------------
+            store = bs.Store(root, create=False)
+            try:
+                planned_count = len(store.list_tasks(
+                    "proj-alpha", status="planned", raw=True))
+                ready_count = len(store.list_tasks(
+                    "proj-alpha", status="ready", raw=True))
+                closed_count = len(store.list_tasks(
+                    "proj-alpha", status="closed", raw=True))
+                unresolved_alerts = store.list_alerts(resolved=False,
+                                                       raw=True)
+                all_forecasts = store.list_forecasts("proj-alpha", raw=True)
+                latest_forecast = store.latest_forecast("proj-alpha",
+                                                         raw=True)
+                all_attribution = store.list_attribution(
+                    "proj-alpha", limit=50, raw=True)
+                history_3 = store.list_attribution(
+                    "proj-alpha", limit=3, raw=True)
+            finally:
+                store.close()
+
+            self.assertEqual(planned_count, 1)
+            self.assertEqual(ready_count, 1)
+            self.assertEqual(closed_count, 1)
+            self.assertEqual(len(unresolved_alerts), 2)
+            self.assertEqual(len(all_forecasts), 1)
+            self.assertIsNotNone(latest_forecast)
+            self.assertEqual(len(history_3), 3)
+            prior_forecast_count = len(all_forecasts) - 1  # == 0
+
+            # -- structured checks: specific numbers against specific,
+            # independently-fetched expectations, not just "it appears
+            # somewhere" -----------------------------------------------------
+            self.assertIn("  planned: %d" % planned_count, r_status.stdout)
+            self.assertIn("  ready: %d" % ready_count, r_status.stdout)
+            self.assertIn("closed: %d" % closed_count, r_status.stdout)
+            self.assertIn(
+                "unresolved alerts (store-wide; alerts carry no "
+                "project_id): %d" % len(unresolved_alerts),
+                r_status.stdout)
+            self.assertIn("attribution history (showing %d):" % len(history_3),
+                          r_status.stdout)
+            self.assertIn(
+                "WHY: %d candidate(s)" % ready_count, r_next.stdout,
+                "next's candidate count must equal the independently "
+                "fetched ready-task count")
+            self.assertIn("prior forecasts: %d" % prior_forecast_count,
+                          r_forecast.stdout)
+
+            # -- the generic sweep: EVERY digit sequence left in the
+            # captured text, after stripping the known ids and timestamps
+            # this project generated, must trace to one of the counts
+            # above or to the forecast row's own token-range content -----
+            known_ids = [forecast_id, alert_id_1, alert_id_2, evidence_id]
+            known_timestamps = [a.get("timestamp") for a in all_attribution]
+            expected_counts = {
+                str(planned_count), str(ready_count), str(closed_count),
+                str(len(unresolved_alerts)), str(prior_forecast_count),
+                str(len(history_3)),
+            }
+            content_digits = set(self._DIGITS_RE.findall(
+                " ".join([
+                    latest_forecast.get("input_token_range") or "",
+                    latest_forecast.get("output_token_range") or "",
+                    latest_forecast.get("effective_total_token_range")
+                    or "",
+                ])))
+            allowed = expected_counts | content_digits
+
+            surfaces = {
+                "status": r_status.stdout,
+                "next": r_next.stdout,
+                "forecast show": r_forecast.stdout,
+                "alert list": r_alerts.stdout,
+                "DELIVERY-PACKET.md": packet_text,
+            }
+            for label, text in surfaces.items():
+                stripped = text
+                for token in known_ids + known_timestamps:
+                    if token:
+                        stripped = stripped.replace(token, "")
+                for digit_token in self._DIGITS_RE.findall(stripped):
+                    self.assertIn(
+                        digit_token, allowed,
+                        "%s displays the number %r with no row behind it "
+                        "(after stripping known ids/timestamps): full "
+                        "text was %r" % (label, digit_token, text))
 
 
 if __name__ == "__main__":
