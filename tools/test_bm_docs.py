@@ -254,6 +254,90 @@ class TestNoStaleCurrentNumbers(unittest.TestCase):
                           "the unlisted tools are ungated" % rel)
 
 
+class TestHandWiringBlocksMatchInstaller(unittest.TestCase):
+    """The copy-paste JSON blocks shipped five events for weeks while every
+    prose check nearby stayed green, because no test ever parsed them: the
+    fence test above looks for two substrings, the event test asks only that
+    each event NAME appear somewhere on the page. This class parses each
+    block with json.loads and compares it, group for group, against
+    scripts/install.py's hook_groups(): same events, same matchers, same
+    timeouts, same commands, modulo the documented `~` install target versus
+    the installer's absolute one. A block that drops an event, a matcher
+    group, or a timeout now fails by name instead of shipping a hand-wired
+    install with detection switched off."""
+
+    PAGES = (os.path.join("docs", "QUICKSTART.md"),
+             os.path.join("docs", "SETUP.md"))
+    DOC_TARGET = "~/.claude/skills/brothermode"
+    # Safe-character absolute stand-in, so shlex.quote adds no quoting and
+    # the only difference between the two shapes is the target string itself.
+    ABS_TARGET = "/opt/brothermode-hand-wiring-check"
+
+    @staticmethod
+    def _json_blocks(text):
+        return re.findall(r"```json\n(.*?)```", text, re.DOTALL)
+
+    @staticmethod
+    def _installer():
+        spec = importlib.util.spec_from_file_location(
+            "bm_install_for_docs_test",
+            os.path.join(ROOT, "scripts", "install.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    @staticmethod
+    def _normalized(groups):
+        """Reduce a hooks mapping to the facts that must agree: per event, an
+        ordered list of (matcher, [(command, timeout), ...]) with command
+        whitespace collapsed, so a wrapped line or a trailing space in the
+        documented block cannot manufacture a difference."""
+        out = {}
+        for event, entries in groups.items():
+            out[event] = [
+                {"matcher": g.get("matcher"),
+                 "hooks": [{"command": " ".join(h.get("command", "").split()),
+                            "timeout": h.get("timeout")}
+                           for h in g.get("hooks", [])]}
+                for g in entries]
+        return out
+
+    def test_each_hand_wiring_block_equals_the_installer_shape(self):
+        expected = self._normalized(self._installer().hook_groups(
+            self.ABS_TARGET))
+        for rel in self.PAGES:
+            wiring = None
+            for block in self._json_blocks(read(rel)):
+                try:
+                    parsed = json.loads(block)
+                except ValueError:
+                    continue
+                if isinstance(parsed, dict) and "SessionStart" in str(
+                        parsed.get("hooks", "")):
+                    wiring = parsed["hooks"]
+                    break
+            self.assertIsNotNone(
+                wiring,
+                "%s: no parseable ```json block with a top-level \"hooks\" "
+                "mapping that wires SessionStart; the hand-wiring block is "
+                "missing or is invalid JSON" % rel)
+            substituted = json.loads(
+                json.dumps(wiring).replace(self.DOC_TARGET, self.ABS_TARGET))
+            actual = self._normalized(substituted)
+            self.assertEqual(
+                sorted(actual), sorted(expected),
+                "%s: the hand-wiring block wires events %s but "
+                "scripts/install.py wires %s"
+                % (rel, sorted(actual), sorted(expected)))
+            for event in sorted(expected):
+                self.assertEqual(
+                    actual[event], expected[event],
+                    "%s: the %s groups in the hand-wiring block do not match "
+                    "scripts/install.py hook_groups(); the block is what a "
+                    "reader copies, so the block is what has to be true"
+                    % (rel, event))
+
+
 class TestOneInstall(unittest.TestCase):
     """The public default install target is an IMMUTABLE tag, generated from
     one release fact (bm_project_facts.py's install_target_tag), never hand
