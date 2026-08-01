@@ -31,11 +31,11 @@ Follow references/kickoff.md. In short: understand the goal, ask only questions 
 
 ## The project brief (canvas)
 
-The kickoff ends in one Project Canvas, filled from the template at project-template/CANVAS.md: the outcome, who it is for, the recommended direction and why, what is included and excluded, how success will be checked, the main risks, the decisions made and still open, and the initial forecast. Read it back to the user in plain language and get their yes before building. Once approved, save it as `CANVAS.md` at the top of the user's project folder: that file is the project's source of direction, and it is where the status and next-step flows read the current state from after a restart.
+The kickoff ends in one Project Canvas: the outcome, who it is for, the recommended direction and why, what is included and excluded, how success will be checked, the main risks, the decisions made and still open, and the initial forecast. Read it back to the user in plain language and get their yes before building. Once approved, run `python3 tools/bm_project.py start` with those details: it writes the project record into the store and regenerates `CANVAS.md` at the top of the user's project folder from those rows. The store is the project's source of truth; `CANVAS.md` is a generated view of it, never hand-edited and never itself where the status and next-step flows read the current state from after a restart.
 
 ## Next-step flow
 
-When the user asks what to do next, read the approved `CANVAS.md` at the top of their project folder plus whatever progress records sit beside it, and recommend exactly one next step, stated first, with a short reason and a time range per references/forecasting.md. If a decision from the user is what blocks progress, present that decision instead, with a recommended option first, using the decision card format in references/kickoff.md. When work is being handed to a helper, the split follows the guided loop in references/delegation.md: the coordinator plans and judges, a cheaper helper executes, and the user hears only "picking the right helper for the job" unless they ask for the advanced view.
+When the user asks what to do next, run `python3 tools/bm_project.py next` and read its recommendation straight from the store, never from CANVAS.md by hand; recommend exactly one next step, stated first, with a short reason and a time range per references/forecasting.md. If a decision from the user is what blocks progress, present that decision instead, with a recommended option first, using the decision card format in references/kickoff.md. When work is being handed to a helper, the split follows the guided loop in references/delegation.md: the coordinator plans and judges, a cheaper helper executes, and the user hears only "picking the right helper for the job" unless they ask for the advanced view.
 
 ## Deep tour flow
 
@@ -53,7 +53,7 @@ When the user asks for a review, apply every point of references/definition-of-d
 
 ## Deliver flow
 
-When the user asks to wrap up, fill every field of project-template/DELIVERY-PACKET.md. Delivery requires proof: a verifying check that ran after the last change and passed. Without it, say plainly what remains and do not call the work delivered.
+When the user asks to wrap up, run `python3 tools/bm_project.py deliver` to generate the delivery packet from the store's own rows; never fill DELIVERY-PACKET.md by hand. Delivery requires proof: a verifying check that ran after the last change and passed. Without it, say plainly what remains and do not call the work delivered.
 
 ## Honesty about this product
 
