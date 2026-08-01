@@ -208,8 +208,16 @@ def step1_clone(paths, result):
         result.failed("copy step wrote %d file(s) but SKILL.md or VERSION is "
                       "missing at %s" % (n, paths["target"]))
         return False
+    # The source path starts under the operator's real HOME; the evidence
+    # file this output lands in is committed, so the home prefix is masked
+    # here at the source, the same policy mask_absolute_paths applies to
+    # every exported store column.
+    masked_root = REPO_ROOT
+    real_home = os.path.expanduser("~")
+    if masked_root.startswith(real_home):
+        masked_root = "/Users/..." + masked_root[len(real_home):]
     result.passed(
-        "%d files copied from %s to %s" % (n, REPO_ROOT, paths["target"]))
+        "%d files copied from %s to %s" % (n, masked_root, paths["target"]))
     result.note("disclosed deviation: this is a plain recursive copy, not "
                "git clone. It excludes %s, the same list "
                "scripts/checksums.sh and scripts/verify-install.sh use."
