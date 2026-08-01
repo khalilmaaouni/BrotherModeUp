@@ -5795,5 +5795,28 @@ class TestFenceLintRecognizesStoreRenderedFences(unittest.TestCase):
         self.assertNotIn("myrec", out)
 
 
+class TestGitignoreCoversGeneratedProjectViews(unittest.TestCase):
+    """V2 (release-closure loop2 refuter fixes): tools/bm_project.py's
+    generated views (CANVAS.md, DELIVERY-PACKET.md, and their
+    multi-project, project-scoped forms from C5) must never be committed
+    to THIS repository, the same reason STATE.md and Documentation/
+    already are not: they render one machine's live project rows, not
+    shared repository content."""
+
+    ROOT = os.path.dirname(HERE)
+
+    def test_gitignore_lists_all_four_generated_view_patterns(self):
+        with io.open(os.path.join(self.ROOT, ".gitignore"),
+                     encoding="utf-8") as fh:
+            lines = {line.strip() for line in fh}
+        for pattern in ("/CANVAS.md", "/DELIVERY-PACKET.md",
+                        "/CANVAS-*.md", "/DELIVERY-PACKET-*.md"):
+            self.assertIn(
+                pattern, lines,
+                ".gitignore lost the generated-view pattern %r; a "
+                "founder's own project rows could land in a commit to "
+                "this repository" % pattern)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

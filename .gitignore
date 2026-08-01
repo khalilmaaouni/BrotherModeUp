@@ -22,3 +22,14 @@ dist/
 # not shared repository content. Regenerate it with
 # `python3 tools/bm_docs.py generate` in any project, including this one.
 Documentation/
+# V2 (release-closure loop2 refuter fixes): tools/bm_project.py's generated
+# views, same reason as STATE.md and Documentation/ above (real project
+# rows, not shared repository content). Root-anchored (a leading "/") so
+# only THIS repo's own top-level copies are ignored; project-template/'s
+# CANVAS.md and DELIVERY-PACKET.md are the shipped template a fresh project
+# starts from and stay tracked. The plain and the multi-project
+# (CANVAS-<project_id>.md, see C5) filenames are both covered.
+/CANVAS.md
+/DELIVERY-PACKET.md
+/CANVAS-*.md
+/DELIVERY-PACKET-*.md

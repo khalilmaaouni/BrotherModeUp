@@ -26,7 +26,9 @@ WHAT THIS IS NOT
 
 SUBCOMMANDS
   start                  create the project row, optional first tasks and
-                          first forecast, regenerate CANVAS.md
+                          first forecast, regenerate CANVAS.md; refuses a
+                          SECOND project in one root unless --allow-second
+                          (see ONE PROJECT PER FOLDER below)
   status                 project, open tasks by state, latest forecast,
                           unresolved alerts (read accessors only)
   next                   the single recommended next task, with why
@@ -35,9 +37,13 @@ SUBCOMMANDS
   task transition          general transition, --reason required; refuses
                           exactly in schema.transition's own words (the
                           state named 'done' is refused by name)
-  review <task_id>        records evidence via add_evidence, then
-                          transitions per the ten-state law
+  review <task_id>        records evidence and transitions the task, in
+                          ONE atomic Store.review_task call (C1, release-
+                          closure loop2 refuter fixes): a transition the
+                          ten-state law refuses leaves no evidence behind
+                          either
   deliver                 generate DELIVERY-PACKET.md from rows; refuses
+                          a project with zero tasks outright, and refuses
                           when any task is short of the terminal state
                           ('closed') unless --partial
 
@@ -46,6 +52,23 @@ WHY create=False EVERYWHERE
   command besides init): "only init creates a store" only means something
   if every other path refuses instead of quietly creating one. Run
   `python3 tools/bm_store.py init` first.
+
+ONE PROJECT PER FOLDER (the beginner model; C5, release-closure loop2
+refuter fixes)
+  A root holds ONE project's CANVAS.md and ONE DELIVERY-PACKET.md by
+  default: that is the beginner model this whole file is built around, and
+  it is also what keeps those two generated views unambiguous (start and
+  deliver regenerate them from "the project in this root", not from a
+  project_id a founder has to remember to keep straight). `start` refuses
+  to create a SECOND, different project_id in a root that already holds
+  one, naming the existing project id in its refusal, unless
+  --allow-second is passed on purpose. Re-running `start` on the SAME
+  project_id (an update) is never a "second project" and is never
+  refused. Once a root genuinely holds more than one project,
+  _canvas_filename/_packet_filename switch every further start/deliver in
+  that root to a project-scoped name (CANVAS-<project_id>.md,
+  DELIVERY-PACKET-<project_id>.md) so a second project's generated views
+  can never silently overwrite the first's.
 
 RAW LOCAL DISPLAY VERSUS REDACTED EXPORT (loop2 redaction-policy fix)
   The D-2 accessors redact through the SAME export_column policy dump()
@@ -327,6 +350,28 @@ DELIVERY_BEGIN = "<!-- BEGIN GENERATED BROTHERMODE DELIVERY PACKET (edit outside
 DELIVERY_END = "<!-- END GENERATED BROTHERMODE DELIVERY PACKET -->"
 
 
+def _canvas_filename(store, project_id):
+    """CANVAS.md, unless the store holds more than one project (C5,
+    release-closure loop2 refuter fixes). This file's own module
+    docstring documents the beginner model as ONE PROJECT PER FOLDER, so
+    the plain name is what every ordinary caller sees. The moment a
+    second project exists (only reachable through `start
+    --allow-second`), a shared, plain CANVAS.md would silently belong to
+    whichever project last ran a mutating command, so every project gets
+    its own file from that point on."""
+    if len(store.list_projects()) > 1:
+        return "CANVAS-%s.md" % project_id
+    return "CANVAS.md"
+
+
+def _packet_filename(store, project_id):
+    """DELIVERY-PACKET.md, or a per-project name once a second project
+    exists. Same reasoning as _canvas_filename above."""
+    if len(store.list_projects()) > 1:
+        return "DELIVERY-PACKET-%s.md" % project_id
+    return "DELIVERY-PACKET.md"
+
+
 def _fmt_list(value):
     """A LIST_FIELDS value as the accessor actually returned it: a real
     list once redaction allows it to decode, or (today, by default) the
@@ -484,7 +529,7 @@ _START_FLAGS = (
     "project-id", "name", "goal", "user-outcome", "project-type",
     "primary-persona", "experience-level", "status", "phase", "scope-in",
     "scope-out", "success-criteria", "assumptions", "unknowns", "risks",
-    "json", "out-json") + _ACTOR_FLAGS
+    "json", "out-json", "allow-second") + _ACTOR_FLAGS
 
 
 def _start_usage():
@@ -494,7 +539,7 @@ def _start_usage():
             "[--scope-in a,b] [--scope-out a,b] [--success-criteria a,b] "
             "[--assumptions a,b] [--unknowns a,b] [--risks a,b] "
             "[--json PATH] [--actor-type human|model] --actor-name NAME "
-            "[--session-id SID] [--out-json]")
+            "[--session-id SID] [--out-json] [--allow-second]")
 
 
 def cmd_start(argv):
@@ -540,6 +585,22 @@ def cmd_start(argv):
             project[field] = _csv(kv[flag])
     store = _store()
     try:
+        # C5 (release-closure loop2 refuter fixes): one project per root
+        # is the beginner model (see this file's own module docstring).
+        # Two DIFFERENT projects sharing a root would each regenerate the
+        # same CANVAS.md / DELIVERY-PACKET.md in turn, silently belonging
+        # to whichever project last ran a mutating command. Re-running
+        # start on the SAME project_id (an update) is not a second
+        # project and is never refused here.
+        others = [p for p in store.list_projects()
+                  if p.get("project_id") != project_id]
+        if others and not kv.get("allow-second"):
+            _err("cannot start project %r: this store already holds "
+                 "project %r; pass --allow-second to add a second "
+                 "project on purpose (the beginner model is one project "
+                 "per folder)."
+                 % (project_id, others[0].get("project_id")))
+            return 1
         store.upsert_project(project, actor)
         task_ids = []
         for task in payload.get("tasks") or []:
@@ -558,7 +619,7 @@ def cmd_start(argv):
             f.setdefault("created_at", now)
             store.add_forecast(f, actor)
             forecast_id = f["forecast_id"]
-        _write_generated(_root(), "CANVAS.md",
+        _write_generated(_root(), _canvas_filename(store, project_id),
                          render_canvas(store, project_id),
                          CANVAS_BEGIN, CANVAS_END)
     finally:
@@ -658,6 +719,14 @@ def cmd_next(argv):
         candidates = store.list_tasks(project_id, status="ready", raw=want_raw)
     finally:
         store.close()
+    # C6 (release-closure loop2 refuter fixes): tasks carry no created_at,
+    # so "earliest created" was never a real comparison this code could
+    # make -- it was task_id order, a random hex uuid with no relationship
+    # to when the task was added. list_tasks itself now orders by sqlite's
+    # own rowid (insertion order, see its docstring), and Python's sorted()
+    # is stable, so ties below keep that insertion order: the tie break
+    # actually performed is "priority, then whichever was added first",
+    # which is exactly what the WHY text below now says.
     ranked = sorted(candidates, key=lambda t: _priority_key(t.get("priority")))
     picked = ranked[0] if ranked else None
     if kv.get("json"):
@@ -670,7 +739,7 @@ def cmd_next(argv):
     _out("next: %s - %s" % (picked.get("task_id"), picked.get("title")))
     _out("WHY: %d candidate(s) in state 'ready' (dependency-satisfied per "
          "the protocol's own definition of that state); picked by highest "
-         "priority, earliest created (task_id order) as the tie break."
+         "priority, then whichever was added first, as the tie break."
          % len(candidates))
     return 0
 
@@ -849,8 +918,15 @@ def cmd_review(argv):
     }
     store = _store()
     try:
-        evidence_id = store.add_evidence(evidence, project_id, actor)
-        status = store.transition_task(task_id, new_status, reason, actor)
+        # ONE composite call (C1, release-closure loop2 refuter fixes):
+        # review_task files the evidence AND runs the transition in a
+        # SINGLE store transaction, so a transition schema.transition()
+        # refuses leaves no orphan evidence row behind. This used to be
+        # two separate calls (add_evidence, then transition_task), each
+        # its own transaction, so a refused transition still left the
+        # evidence from the first call sitting on disk.
+        evidence_id, status = store.review_task(
+            task_id, project_id, evidence, new_status, reason, actor)
     finally:
         store.close()
     if kv.get("out-json"):
@@ -878,6 +954,15 @@ def cmd_deliver(argv):
             _err("bm_project: no project %r" % project_id)
             return 1
         total = len(store.list_tasks(project_id))
+        if total == 0:
+            # C4 (release-closure loop2 refuter fixes): --partial means
+            # "some tasks are not yet closed", not "there is nothing to
+            # deliver at all". A project with zero tasks refuses either
+            # way, so an empty delivery packet can never pass as a real
+            # one just because --partial was on the command line.
+            _err("cannot deliver %s: the project has zero tasks; add at "
+                 "least one task before delivering." % project_id)
+            return 1
         closed = len(store.list_tasks(project_id, status=TERMINAL_STATE))
         non_terminal = total - closed
         if non_terminal > 0 and not kv.get("partial"):
@@ -887,7 +972,7 @@ def cmd_deliver(argv):
                  % (non_terminal, total, TERMINAL_STATE))
             return 1
         text = render_delivery_packet(store, project_id)
-        _write_generated(_root(), "DELIVERY-PACKET.md", text,
+        _write_generated(_root(), _packet_filename(store, project_id), text,
                          DELIVERY_BEGIN, DELIVERY_END)
     finally:
         store.close()
