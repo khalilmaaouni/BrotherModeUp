@@ -52,13 +52,16 @@ future session should come from a fixed, checkable snapshot; a moving branch
 feeding auto-run code was the weakest link the original external audit named.
 
 ```bash
-git clone --branch v2.0.0-rc.11 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.9 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 That tag is not typed by hand: it is generated from the same release fact
 every other page reads (`python3 tools/bm_project_facts.py --field
-release_tag`), and `tools/test_bm_docs.py` fails if this page ever disagrees
-with it. Do not run both paths at once on one machine: the plugin wires the
+install_target_tag`), the last tag actually cut and known to resolve, and
+`tools/test_bm_docs.py` fails if this page ever disagrees with it. The
+development tree itself currently reads `2.0.0-rc.12.dev1`, a development
+identity rather than a tagged release; `docs/RELEASE.md` explains why the
+public install target and the tree's own identity can differ on purpose. Do not run both paths at once on one machine: the plugin wires the
 same five hooks the clone's installer wires, so a machine carrying both runs
 every hook twice (docs/KNOWN-LIMITS.md records this; pick one).
 `docs/QUICKSTART.md` describes both and labels their status honestly.
