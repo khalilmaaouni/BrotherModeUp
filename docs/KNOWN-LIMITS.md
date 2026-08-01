@@ -629,7 +629,7 @@ QUICKSTART honesty label has a register entry behind it:
   defects that first install surfaced: a name collision (a development copy
   carrying the same manifest name is refused loading while the plugin is
   installed; the development copy is now named differently) and double
-  wiring (the plugin auto-wires the same five hook events scripts/install.py
+  wiring (the plugin auto-wires the same six hook events scripts/install.py
   wires into settings.json, so a machine carrying both runs every hook twice
   while the plugin is installed; pick one wiring, not both). UPDATED
   2026-08-01 (Loop 3 design D-3): this double-fire state is no longer
@@ -643,7 +643,7 @@ QUICKSTART honesty label has a register entry behind it:
 - The marketplace install command only works once these files exist on the
   branch or tag the marketplace add fetches. If your copy predates them, the
   command fails; that is a missing-files condition, not a broken machine.
-- `hooks/hooks.json` mirrors the same five hook events `scripts/install.py`
+- `hooks/hooks.json` mirrors the same six hook events `scripts/install.py`
   wires into `settings.json`, but the plugin-managed wiring has never been
   exercised end to end. The `scripts/install.py` path is the exercised one.
 - How the guided layer loads is only partly proven. On this project's own
