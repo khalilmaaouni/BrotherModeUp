@@ -11,5 +11,8 @@ Outcome to produce: tell the user their installed version, the newest available 
 5. If an update is available, give the exact steps for their own install path only:
    - Plugin install: `/plugin marketplace update brotherme-marketplace`, then `/plugin update brotherme`, then restart Claude Code.
    - Pinned clone: inside the skill folder, run `git fetch --tags`, then `git checkout <newest tag>` (the exact commands are in docs/RELEASE.md).
-6. Give one recommended next action, and state any time cost as a range, never a promise, in plain words a non-engineer would follow.
-7. Say plainly: updating never touches the user's project data or records; it only replaces the BrotherME files themselves.
+6. Pinned clone only, right after the checkout: run `python3 scripts/doctor.py`. Its CHECKSUMS.sha256 self-check is what catches a half-finished update, a checkout that stopped partway or a working tree with local edits left over from before, by naming the exact file that does not match what was released. A plugin install has no checkout step to verify this way; `/plugin update` verifies its own files.
+7. Then re-run `python3 scripts/doctor.py` once more, the same way you would right after a fresh install: every one of its ten checks should read PASS or SKIP (SKIP is not a failure, it means that check found nothing to look at). If any check reads FAIL, follow the one-sentence fix it prints before doing anything else.
+8. Rollback, if a FAIL will not clear: `git checkout <the tag you were on before>` inside the skill folder, then run `python3 scripts/doctor.py` again to confirm the rollback itself is healthy.
+9. Give one recommended next action, and state any time cost as a range, never a promise, in plain words a non-engineer would follow.
+10. Say plainly: updating never touches the user's project data or records; it only replaces the BrotherME files themselves.
