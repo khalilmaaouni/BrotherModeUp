@@ -98,13 +98,13 @@ What the code actually writes inside your project today:
   owner-only where the platform supports it (on Windows this is best-effort;
   rely on your user profile's access control).
 
-You can verify both claims yourself; the tools are about 54,732 lines of
-standard-library Python and shell (re-measured 2026-08-01 with the beginner
-layer, the correction-learning loops and the wave of drift tests landed: a
-test fails if it drifts more than 15 percent from what the command below
-returns, and it did, again, which is why this figure moved rather than being
-left to rot). Most of that growth is test code, which is the kind a reader of
-a security document should want.
+You can verify both claims yourself; the tools are about 61,668 lines of
+standard-library Python and shell (re-measured 2026-08-01 with Loop 6 WP-G,
+the Bash-write detection hook and its test suite, landed: a test fails if
+this figure drifts more than 15 percent from what the command below
+returns, so it is corrected here rather than left to rot even though the
+drift had not yet crossed that line). Most of that growth is test code,
+which is the kind a reader of a security document should want.
 
 It went UP by roughly 2,700 lines on 2026-07-27, and that direction deserves
 an explanation rather than a quiet edit. The external security audit of that
@@ -231,6 +231,92 @@ can mint one by asking, then spend it. The guarantee is "no rule changed without
 a fresh, specific, one-time human answer", not "the founder personally authorised
 this". Treat a leaked token as a short-lived capability: spendable by whoever
 holds it until used or expired.
+
+## Threat model (D-2, Loop 6 security closure)
+
+Added 2026-08-01. Everything above describes what the code does; this section
+states, in one place, what it is defending, from whom, and what it openly
+does not defend against. Plain words: an "asset" below just means "a file or
+value worth protecting", and a "trust boundary" means "the line past which
+this project stops being able to promise anything".
+
+**Assets** (the things worth protecting):
+
+- **The store** (`.brothermode/store.sqlite3`): your objectives, decisions,
+  digests, directives, alerts and (in the canonical protocol tables) your
+  projects, tasks and forecasts, in the clear. The single most sensitive file
+  this project writes.
+- **The vault** (`BROTHERMODE_VAULT`, default `~/BrotherModeVault`): session
+  telemetry and captured corrections, both described above.
+- **The consent config** (`~/.brotherme/config.json`): records that setup
+  ran and where your vault lives. Not secret by itself, but every
+  write-capable hook refuses to write anything until this file says you
+  said yes, so it is the switch that gates everything else on this list.
+- **Your Claude Code `settings.json`**: what `scripts/install.py` edits to
+  wire the hooks. If an attacker could rewrite it, they could point a hook
+  command anywhere.
+- **Generated views** (`STATE.md`, `digest.md`, `inbox.md`, `outbox.md`, and
+  every document `bm_docs.py` or `bm_project.py` renders): read-only
+  reflections of the store, scrubbed at the point they are written, so they
+  are lower sensitivity than the store itself but not zero.
+
+**Trust boundaries** (who is on which side of the line):
+
+- **Hooks run as you, the logged-in user, with your full filesystem
+  permissions.** They are not sandboxed and do not run as a separate,
+  lower-privileged account. Anything you could type at your own terminal, a
+  hook you installed could also do.
+- **Subagents and parallel Claude Code sessions share the same working
+  tree.** BrotherMode's fence is a coordination discipline between
+  cooperating sessions, not a permission boundary between a trusted and an
+  untrusted one: every session that can reach the project directory can, in
+  principle, reach every file in it.
+- **The MCP server this project can expose is read-only.** It answers
+  queries against the store; it has no path that writes, so a client
+  talking to it cannot use it to mutate your project even if it wanted to.
+
+**Attacks this design answers:**
+
+- **A second Edit, Write, MultiEdit or NotebookEdit crossing a fence.**
+  Blocked, in front of the write, by `tools/bm_fence_hook.py` (a PreToolUse
+  hook that can refuse the call before it happens; see docs/HOOKS.md).
+- **The same kind of cross-fence write, but through Bash.** The fence hook
+  cannot see inside a shell command, so this one cannot be blocked (see
+  "The Bash boundary" in docs/HOOKS.md for why gating Bash itself is not on
+  the table). It is instead DETECTED, after the fact, by
+  `tools/bm_bash_audit.py` (D-1, this loop): a PreToolUse/PostToolUse pair
+  that snapshots every fenced file before a Bash call and re-hashes it
+  after, raising a high-severity alert naming the path when a session that
+  does not own the fence changed it. Detection, not prevention: the write
+  already happened by the time the alert exists, and docs/HOOKS.md and
+  docs/KNOWN-LIMITS.md say so rather than implying otherwise.
+- **A secret leaking through an export.** `dump`, its JSON output, and the
+  MCP server responses all pass through ONE withholding policy
+  (`export_column` in `tools/bm_store.py`): founder-typed prose is withheld
+  outright by default, secret-shaped substrings are redacted wherever a
+  column is allowed to show text at all, and absolute filesystem paths are
+  masked. Described in full in "What this software does with your data"
+  above.
+- **A stale or hand-edited manifest going unnoticed.** `scripts/doctor.py`
+  check 9 self-checks the release against `CHECKSUMS.sha256`, so a file
+  that was quietly modified after the checksums were cut is reported rather
+  than trusted.
+
+**Attacks this design explicitly does NOT answer**, each with the one
+sentence that says why it is out of scope rather than merely unmentioned:
+
+- **A malicious process already running with your own user privileges.**
+  Nothing in this project can defend against that, because a hook, the
+  store, and every file this project owns are themselves just more files
+  that process could already read or overwrite; there is no privilege
+  boundary between "this tool" and "anything else you are running" to
+  defend across.
+- **A supply-chain compromise of Python or git themselves.** This project
+  is standard-library Python plus one documented, local-only use of the
+  `git` binary; if either of those two trusted programs were themselves
+  compromised, every promise in this document is made by code running
+  inside the compromised interpreter or shelling out to the compromised
+  binary, so no check this project runs on itself could catch it.
 
 ## Scope note
 

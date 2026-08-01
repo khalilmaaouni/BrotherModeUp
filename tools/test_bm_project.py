@@ -1171,5 +1171,227 @@ class TestNumbersTraceToRows(unittest.TestCase):
                         "text was %r" % (label, digit_token, text))
 
 
+class TestExportAndPurge(unittest.TestCase):
+    """WP-H (D-3, docs/superpowers/specs/2026-08-01-loop6-security-closure-
+    design.md): export and purge, driven as real subprocesses against a
+    fresh store, matching every other class in this file."""
+
+    def _seeded_project(self, root):
+        """proj1 with two tasks (task2 depends_on task1, so one
+        dependencies row), one forecast, one open alert, and two evidence
+        rows: one filed on task1 through `review` (the only CLI door onto
+        evidence), one filed on the PROJECT itself directly through the
+        store, because bm_project.py has no subcommand that can (review is
+        task-only by construction; see its own docstring). Returns the ids
+        a test needs to check export/purge against, independent of the
+        CLI's own JSON."""
+        _init(root)
+        r = _run(["start", "--project-id", "proj1", "--name", "Acme Rescue",
+                  "--goal", "Ship the thing"] + list(ACTOR)
+                 + ["--out-json"], root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = _run(["task", "add", "--project-id", "proj1", "--task-id",
+                  "task1", "--title", "Fix the leaky pipe"] + list(ACTOR)
+                 + ["--out-json"], root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = _run(["task", "add", "--project-id", "proj1", "--task-id",
+                  "task2", "--title", "Then paint the wall",
+                  "--depends-on", "task1"] + list(ACTOR)
+                 + ["--out-json"], root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = _run(["forecast", "add", "--project-id", "proj1",
+                  "--min-duration", "two hours",
+                  "--likely-duration", "three hours",
+                  "--max-duration", "four hours",
+                  "--input-token-range", "five k",
+                  "--confidence", "medium"] + list(ACTOR)
+                 + ["--out-json"], root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = _run(["alert", "raise", "--project-id", "proj1", "--severity",
+                  "high", "--message", "careful with the wiring"]
+                 + list(ACTOR) + ["--out-json"], root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        alert_id = json.loads(r.stdout)["alert_id"]
+        for args in (
+                ["task", "transition", "--task-id", "task1", "--to",
+                 "ready", "--reason", "deps clear"],
+                ["task", "start", "--task-id", "task1", "--reason",
+                 "beginning"],
+                ["task", "transition", "--task-id", "task1", "--to",
+                 "awaiting review", "--reason", "ready for review"]):
+            r = _run(args + list(ACTOR) + ["--out-json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+        r = _run(["review", "task1", "--project-id", "proj1", "--reason",
+                  "looks good", "--note", "checked the pipe"]
+                 + list(ACTOR) + ["--out-json"], root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        task_evidence_id = json.loads(r.stdout)["evidence_id"]
+        store = bs.Store(root, create=False)
+        try:
+            project_evidence_id = store.add_evidence(
+                {"evidence_id": "ev-proj", "subject_type": "project",
+                 "subject_id": "proj1", "kind": "note",
+                 "note": "founder sign-off", "created_at": bs.now_iso()},
+                "proj1", {"actor_type": "human", "actor_name": "khalil"})
+        finally:
+            store.close()
+        return {"alert_id": alert_id, "task_evidence_id": task_evidence_id,
+                "project_evidence_id": project_evidence_id}
+
+    def test_export_redacted_by_default_raw_reveals_round_trips_every_table(
+            self):
+        with tempfile.TemporaryDirectory() as root:
+            seeded = self._seeded_project(root)
+
+            redacted_path = os.path.join(root, "redacted-export.json")
+            r = _run(["export", "--project-id", "proj1", "--out",
+                      redacted_path], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn(redacted_path, r.stdout)
+            with io.open(redacted_path, encoding="utf-8") as fh:
+                redacted = json.load(fh)
+
+            # Every table the design names (D-3: "every row the store
+            # holds for that project") round-trips as its own section.
+            self.assertEqual(
+                set(redacted) - {"project_id", "exported_at", "raw"},
+                {"project", "tasks", "dependencies", "forecasts", "alerts",
+                 "evidence", "attribution"})
+            self.assertFalse(redacted["raw"])
+            blob = json.dumps(redacted)
+            self.assertNotIn("Acme Rescue", blob)
+            self.assertNotIn("Fix the leaky pipe", blob)
+            self.assertNotIn("founder sign-off", blob)
+            self.assertTrue(
+                redacted["project"]["name"].startswith("[WITHHELD"),
+                redacted["project"])
+            # Identifiers (never founder prose) survive redaction, which is
+            # what "round-trips every table" actually checks: the SHAPE and
+            # the row COUNT for each table are intact even though the
+            # prose inside each row is withheld.
+            self.assertEqual(redacted["project"]["project_id"], "proj1")
+            self.assertEqual(
+                sorted(t["task_id"] for t in redacted["tasks"]),
+                ["task1", "task2"])
+            self.assertEqual(
+                redacted["dependencies"],
+                [{"task_id": "task2", "depends_on_task_id": "task1"}])
+            self.assertEqual(len(redacted["forecasts"]), 1)
+            self.assertEqual(
+                [a["alert_id"] for a in redacted["alerts"]],
+                [seeded["alert_id"]])
+            self.assertEqual(
+                sorted(e["evidence_id"] for e in redacted["evidence"]),
+                sorted([seeded["task_evidence_id"],
+                        seeded["project_evidence_id"]]))
+            self.assertGreaterEqual(len(redacted["attribution"]), 8)
+
+            raw_path = os.path.join(root, "raw-export.json")
+            r = _run(["export", "--project-id", "proj1", "--raw", "--out",
+                      raw_path], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            with io.open(raw_path, encoding="utf-8") as fh:
+                raw = json.load(fh)
+            self.assertTrue(raw["raw"])
+            self.assertEqual(raw["project"]["name"], "Acme Rescue")
+            self.assertEqual(
+                sorted(t["title"] for t in raw["tasks"]),
+                ["Fix the leaky pipe", "Then paint the wall"])
+            self.assertIn(
+                "careful with the wiring",
+                [a["message"] for a in raw["alerts"]])
+            self.assertIn(
+                "founder sign-off",
+                [e.get("note") for e in raw["evidence"]])
+
+    def test_export_default_out_path_is_project_scoped_in_root(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._seeded_project(root)
+            r = _run(["export", "--project-id", "proj1"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            expected = os.path.join(root, "EXPORT-proj1.json")
+            self.assertIn(expected, r.stdout)
+            self.assertTrue(os.path.isfile(expected))
+
+    def test_export_refuses_unknown_project(self):
+        with tempfile.TemporaryDirectory() as root:
+            _init(root)
+            r = _run(["export", "--project-id", "nope"], root)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("no project", r.stderr)
+            self.assertEqual(
+                [f for f in os.listdir(root) if f.endswith(".json")], [],
+                "a refused export must write no file")
+
+    def test_purge_without_confirm_refuses_and_changes_nothing(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._seeded_project(root)
+            before = _raw_dump(root)
+            r = _run(["purge", "--project-id", "proj1"] + list(ACTOR), root)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("confirm", r.stderr)
+            self.assertEqual(_raw_dump(root), before)
+
+    def test_purge_wrong_confirm_refuses_and_changes_nothing(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._seeded_project(root)
+            before = _raw_dump(root)
+            r = _run(["purge", "--project-id", "proj1", "--confirm", "nope"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("refused", r.stderr)
+            self.assertEqual(_raw_dump(root), before,
+                              "a wrong --confirm must change nothing")
+
+    def test_purge_with_confirm_removes_rows_attribution_trail_survives(
+            self):
+        with tempfile.TemporaryDirectory() as root:
+            self._seeded_project(root)
+            before = _raw_dump(root)
+            prior_attribution = len(
+                [e for e in before["attribution"]
+                 if e["project_id"] == "proj1"])
+            r = _run(["purge", "--project-id", "proj1", "--confirm",
+                      "proj1"] + list(ACTOR) + ["--out-json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            removed = json.loads(r.stdout)["removed"]
+            self.assertEqual(
+                removed, {"dependencies": 1, "evidence": 2, "alerts": 1,
+                          "forecasts": 1, "tasks": 2, "projects": 1})
+
+            after = _raw_dump(root)
+            self.assertEqual(
+                [p for p in after["projects"] if p["project_id"] == "proj1"],
+                [])
+            self.assertEqual(
+                [t for t in after["tasks"] if t["project_id"] == "proj1"],
+                [])
+            self.assertEqual(after["dependencies"], [])
+            self.assertEqual(after["alerts"], [])
+            self.assertEqual(after["evidence"], [])
+            # The attribution trail SURVIVES: every prior event this
+            # project accumulated, plus exactly one new row naming the
+            # purge, never zero rows left behind claiming nothing happened.
+            proj_attribution = [
+                e for e in after["attribution"]
+                if e["project_id"] == "proj1"]
+            self.assertEqual(len(proj_attribution), prior_attribution + 1)
+            purge_events = [e for e in proj_attribution
+                            if e["event_type"] == "project.purged"]
+            self.assertEqual(len(purge_events), 1)
+
+    def test_purge_text_output_names_what_it_removed_and_kept(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._seeded_project(root)
+            r = _run(["purge", "--project-id", "proj1", "--confirm",
+                      "proj1"] + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("purged project proj1", r.stdout)
+            self.assertIn("removed:", r.stdout)
+            self.assertIn("kept:", r.stdout)
+            self.assertIn("attribution trail", r.stdout)
+            self.assertIn("vault", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

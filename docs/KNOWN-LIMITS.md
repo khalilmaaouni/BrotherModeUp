@@ -62,12 +62,30 @@ person was not sure about.
   open by design (missing, empty, or corrupt store, or any internal error),
   so a green doctor is a statement about the files and the code right now,
   not a promise about every future run.
-- **The fence covers Edit, Write, MultiEdit and NotebookEdit.** Bash writes
-  (redirection, `sed -i`, `tee`, `git checkout`, inline interpreter scripts, any
-  subprocess) reach the filesystem without passing a hook.
-  `scripts/bm_shell.py` mitigates only the writes a caller chooses to declare:
-  it is a declaration channel, not a sandbox, and its `--declare-none` screen is
-  a short list of obvious write forms, not a shell parser.
+- **The fence covers Edit, Write, MultiEdit and NotebookEdit for PREVENTION. Bash
+  writes are DETECTED, since 2026-08-01 (Loop 6, D-1), and still not prevented.**
+  Bash writes (redirection, `sed -i`, `tee`, `git checkout`, inline interpreter
+  scripts, any subprocess) still reach the filesystem without passing a hook that
+  can refuse them: `tools/bm_fence_hook.py`'s `PreToolUse` matcher still cannot
+  parse arbitrary shell, so nothing blocks a Bash write the way an Edit or Write
+  can be blocked. What changed is that a fenced file changed BY a Bash call FROM a
+  session that does not own that fence is no longer invisible: `tools/
+  bm_bash_audit.py` snapshots every fenced, existing file before a Bash call and
+  re-hashes it after, raising a high-severity fence-breach alert (through the
+  store, requiring a human) when the hash changed and the acting session is not
+  the owner. Detection, not prevention, stated in as many words in docs/HOOKS.md's
+  own "Bash-write detection hook" section, which also states what it cannot see: a
+  write that restores the original bytes before the check runs, a Bash call that
+  removes its own snapshot along with the evidence, a concurrent process racing
+  the same window, and a claim on a directory or glob that was never expanded into
+  the files it covers. `scripts/bm_shell.py` still mitigates only the writes a
+  caller chooses to declare: it is a declaration channel, not a sandbox, and its
+  `--declare-none` screen is a short list of obvious write forms, not a shell
+  parser. And the new hook is wired into the plugin manifest
+  (`hooks/hooks.json`) but NOT YET into `scripts/install.py`'s clone-install path
+  (see docs/HOOKS.md's "Installing the Bash audit hook"): a clone install gets the
+  fence hook only, until a follow-up loop updates the installer and its test suite
+  together.
 - **OBSERVED GREEN 2026-07-31, on all nine jobs.** This entry used to say no real
   Actions run had ever been observed. Run `30564943060` for commit `f751f9f`
   concluded success across the serial `gate` job, both `suite` legs, and all six

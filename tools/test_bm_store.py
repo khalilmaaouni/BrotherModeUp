@@ -14471,6 +14471,39 @@ class TestLoop1ReadAccessors(unittest.TestCase):
                 self.assertEqual(store.list_attribution("nope"), [])
                 self.assertEqual(store.list_alerts(), [])
 
+    def test_list_dependencies_scopes_to_project_both_sides(self):
+        """WP-H (D-3): list_dependencies returns every dependencies row
+        that names one of `project_id`'s own tasks on EITHER side, added so
+        bm_project.py's export can round-trip this table without SQL of
+        its own. A dependency belonging entirely to a different project
+        stays invisible; one where a FOREIGN task depends on one of THIS
+        project's tasks is still returned, the same both-sides scope
+        purge_project uses to avoid leaving a dangling reference behind."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _actor()
+                store.upsert_project(_project("proj1"), actor)
+                store.upsert_project(_project("proj2"), actor)
+                store.create_task(_task("task1", pid="proj1"), actor)
+                store.create_task(
+                    _task("task2", pid="proj1", depends_on=["task1"]), actor)
+                store.create_task(_task("task3", pid="proj2"), actor)
+                store.create_task(
+                    _task("task4", pid="proj2", depends_on=["task1"]), actor)
+                deps = store.list_dependencies("proj1")
+                pairs = sorted(
+                    (d["task_id"], d["depends_on_task_id"]) for d in deps)
+                self.assertEqual(
+                    pairs, [("task2", "task1"), ("task4", "task1")])
+                # proj2 sees the same row too: task4 is proj2's OWN task,
+                # matching on the task_id side even though what it depends
+                # on belongs to proj1.
+                self.assertEqual(
+                    [(d["task_id"], d["depends_on_task_id"])
+                     for d in store.list_dependencies("proj2")],
+                    [("task4", "task1")])
+                self.assertEqual(store.list_dependencies("nope"), [])
+
     def test_round_trip_through_service_methods_and_every_accessor(self):
         """Every schema-12 service method, written once, read back through
         every one of the nine D-2 accessors: identity, filtering,
@@ -14587,6 +14620,127 @@ class TestLoop1ReadAccessors(unittest.TestCase):
                     ro.conn.execute(
                         "INSERT INTO projects (project_id, name, created_at, "
                         "updated_at) VALUES ('x','y','z','z')")
+
+
+class TestPurgeProject(unittest.TestCase):
+    """WP-H (D-3, loop6 security-closure design): purge_project erases a
+    project's rows in ONE transaction and writes the attribution row that
+    documents the purge BEFORE the project row itself goes. Every OTHER
+    attribution row survives on purpose: the record that a deletion
+    happened is the one thing a deletion must not erase."""
+
+    def _seeded_project(self, store):
+        actor = _actor()
+        store.upsert_project(_project("proj1"), actor)
+        store.create_task(_task("task1"), actor)
+        store.create_task(_task("task2", depends_on=["task1"]), actor)
+        store.add_forecast(_forecast("fc1"), actor)
+        alert_id = store.raise_alert(_alert("alert1"), "proj1", actor)
+        store.resolve_alert(alert_id, "proj1", actor, reason="fixed")
+        store.add_evidence(
+            _evidence("ev-proj", subject_type="project", subject_id="proj1"),
+            "proj1", actor)
+        store.add_evidence(_evidence("ev-task", subject_id="task1"),
+                            "proj1", actor)
+        return actor
+
+    def _row_counts(self, store, project_id):
+        c = store.conn
+        return {
+            "projects": c.execute(
+                "SELECT COUNT(*) n FROM projects WHERE project_id=?",
+                (project_id,)).fetchone()["n"],
+            "tasks": c.execute(
+                "SELECT COUNT(*) n FROM tasks WHERE project_id=?",
+                (project_id,)).fetchone()["n"],
+            "dependencies": len(store.list_dependencies(project_id)),
+            "forecasts": c.execute(
+                "SELECT COUNT(*) n FROM forecasts WHERE project_id=?",
+                (project_id,)).fetchone()["n"],
+            "alerts": c.execute("SELECT COUNT(*) n FROM alerts").fetchone()["n"],
+            "evidence": c.execute(
+                "SELECT COUNT(*) n FROM evidence").fetchone()["n"],
+        }
+
+    def test_refuses_wrong_confirmation_token_nothing_removed(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._seeded_project(store)
+                before = self._row_counts(store, "proj1")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.purge_project("proj1", _actor(), "not-proj1")
+                self.assertEqual(ctx.exception.reason, "bad-confirmation")
+                self.assertEqual(self._row_counts(store, "proj1"), before,
+                                  "a wrong confirmation token must change "
+                                  "nothing")
+
+    def test_refuses_unknown_project(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.purge_project("nope", _actor(), "nope")
+                self.assertEqual(ctx.exception.reason, "not-found")
+
+    def test_forced_failure_mid_purge_leaves_everything(self):
+        """Forces the failure at the exact point purge_project writes its
+        own attribution row (the SAME technique TestLoop1Atomicity uses
+        above), which sits AFTER every entity delete and BEFORE the
+        project row is removed: the one point that proves the deletes
+        already issued in this transaction roll back too, not only the
+        write that failed."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._seeded_project(store)
+                before = self._row_counts(store, "proj1")
+                with mock.patch.object(
+                        bs.Store, "_write_attribution",
+                        side_effect=RuntimeError("boom")):
+                    with self.assertRaises(RuntimeError):
+                        store.purge_project("proj1", _actor(), "proj1")
+                self.assertEqual(
+                    self._row_counts(store, "proj1"), before,
+                    "a forced failure mid-purge must leave every row "
+                    "exactly where it was")
+                self.assertIsNotNone(store.get_project("proj1"))
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT * FROM attribution WHERE "
+                        "event_type='project.purged'").fetchall(), [])
+
+    def test_removes_rows_and_writes_attribution_naming_the_purge(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._seeded_project(store)
+                prior_attribution = len(store.conn.execute(
+                    "SELECT * FROM attribution WHERE project_id='proj1'"
+                    ).fetchall())
+                removed = store.purge_project(
+                    "proj1", _actor("purger"), "proj1")
+                self.assertEqual(
+                    removed, {"dependencies": 1, "evidence": 2, "alerts": 1,
+                              "forecasts": 1, "tasks": 2, "projects": 1})
+                # Every entity row this project owned is gone.
+                self.assertIsNone(store.get_project("proj1"))
+                self.assertEqual(store.list_tasks("proj1"), [])
+                self.assertEqual(store.list_dependencies("proj1"), [])
+                self.assertEqual(store.list_forecasts("proj1"), [])
+                self.assertEqual(store.conn.execute(
+                    "SELECT * FROM alerts WHERE alert_id='alert1'"
+                    ).fetchall(), [])
+                self.assertEqual(
+                    store.conn.execute("SELECT * FROM evidence").fetchall(),
+                    [])
+                # The attribution trail SURVIVES: every prior event plus
+                # exactly one new row naming this purge.
+                after = store.conn.execute(
+                    "SELECT * FROM attribution WHERE project_id='proj1'"
+                    ).fetchall()
+                self.assertEqual(len(after), prior_attribution + 1)
+                purge_events = [r for r in after
+                                 if r["event_type"] == "project.purged"]
+                self.assertEqual(len(purge_events), 1)
+                self.assertEqual(purge_events[0]["actor_name"], "purger")
+                self.assertIn("task", purge_events[0]["reason"])
 
 
 if __name__ == "__main__":
