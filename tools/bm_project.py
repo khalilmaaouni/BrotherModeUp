@@ -5,10 +5,10 @@ commands-design.md, decisions D-1 and D-4).
 
 WHAT THIS IS
   A THIN CLI over tools/bm_store.py's Store service methods (upsert_project,
-  create_task, transition_task, add_forecast, add_evidence) and its D-2 read
-  accessors (get_project, list_projects, list_tasks, get_task,
-  list_forecasts, latest_forecast, list_alerts, list_evidence,
-  list_attribution). This file never issues SQL of its own: the flip
+  create_task, transition_task, add_forecast, raise_alert, resolve_alert,
+  add_evidence) and its D-2 read accessors (get_project, list_projects,
+  list_tasks, get_task, list_forecasts, latest_forecast, list_alerts,
+  list_evidence, list_attribution). This file never issues SQL of its own: the flip
   condition in D-1 is exactly that, and the moment this file needs a query
   the store does not already offer, it has become a second writer and must
   be folded back into bm_store.py instead of growing one here. A structural
@@ -29,14 +29,31 @@ SUBCOMMANDS
                           first forecast, regenerate CANVAS.md; refuses a
                           SECOND project in one root unless --allow-second
                           (see ONE PROJECT PER FOLDER below)
-  status                 project, open tasks by state, latest forecast,
-                          unresolved alerts (read accessors only)
+  status                 project, open tasks by state, latest forecast
+                          (ranges, confidence, next reforecast event),
+                          unresolved alerts by severity, and, with
+                          --history N, the last N attribution events (read
+                          accessors only)
   next                   the single recommended next task, with why
   task add                thin wrapper over create_task
   task start               convenience: transition a task to 'active'
   task transition          general transition, --reason required; refuses
                           exactly in schema.transition's own words (the
                           state named 'done' is refused by name)
+  forecast add             thin wrapper over add_forecast; requires the
+                          three durations, at least one token-range flag,
+                          and --confidence; refuses a single point
+                          estimate (min = likely = max with no --basis)
+                          with the forecasting rule quoted (D-1, Loop 5
+                          design)
+  forecast show            the latest forecast as ranges, confidence, and
+                          next reforecast event, plus the count of prior
+                          forecasts (read accessors only)
+  alert raise               thin wrapper over raise_alert
+  alert resolve <id>        thin wrapper over resolve_alert, --reason
+                          required
+  alert list                unresolved alerts by default; --all for every
+                          alert ever raised (read accessors only)
   review <task_id>        records evidence and transitions the task, in
                           ONE atomic Store.review_task call (C1, release-
                           closure loop2 refuter fixes): a transition the
@@ -158,6 +175,23 @@ _PRIORITY_RANK = {"critical": 0, "high": 1, "medium": 2, "normal": 2, "low": 3}
 def _priority_key(value):
     v = (value or "").strip().lower()
     return (_PRIORITY_RANK.get(v, 99), v)
+
+
+# schema.py's Alert.ENUMS names the four legal severities; this ranks them
+# most-urgent-first for display (status's unresolved-alerts section, alert
+# list), the same judgment-call shape _PRIORITY_RANK above documents:
+# unknown or missing severities sort after every known one, alphabetically
+# among themselves, for a deterministic order rather than an accidental one.
+_SEVERITY_RANK = {"critical": 0, "high": 1, "attention": 2, "info": 3}
+
+
+def _severity_key(value):
+    v = (value or "").strip().lower()
+    return (_SEVERITY_RANK.get(v, 99), v)
+
+
+def _severity_sorted(alerts):
+    return sorted(alerts, key=lambda a: _severity_key(a.get("severity")))
 
 
 def _out(msg=""):
@@ -638,15 +672,52 @@ def cmd_start(argv):
 # status
 # ---------------------------------------------------------------------------
 
+def _forecast_lines(forecast, prior_count):
+    """The D-1 rendering every forecast display (status, forecast show)
+    shares: ranges plus confidence plus next-reforecast-event, NEVER a
+    point (references/forecasting.md's one law). `prior_count` is the
+    caller's own row-derived count (forecast show wants it; status does
+    not print it, so callers pass None to omit that line)."""
+    lines = [
+        "  duration: %s to %s (likely %s)"
+        % (forecast.get("minimum_duration") or "?",
+           forecast.get("maximum_duration") or "?",
+           forecast.get("likely_duration") or "?"),
+        "  token range: input %s, output %s, total %s"
+        % (forecast.get("input_token_range") or "?",
+           forecast.get("output_token_range") or "?",
+           forecast.get("effective_total_token_range") or "?"),
+        "  confidence: %s" % forecast.get("confidence"),
+        "  next reforecast: %s"
+        % (forecast.get("next_reforecast_event") or "(not stated)"),
+    ]
+    if prior_count is not None:
+        lines.append("  prior forecasts: %d" % prior_count)
+    return lines
+
+
 def cmd_status(argv):
-    _pos, kv = _parse(argv, ("project-id", "json", "raw"),
-                       wants_value=("project-id",))
-    usage = "usage: status --project-id ID [--json] [--raw]"
+    _pos, kv = _parse(argv, ("project-id", "json", "raw", "history"),
+                       wants_value=("project-id", "history"))
+    usage = "usage: status --project-id ID [--json] [--raw] [--history N]"
     project_id = _require(kv, "project-id", usage)
     # Text output is local display (raw=True, always: see the module
     # docstring). --json is the export surface and stays redacted unless
     # --raw is also given, exactly like bm_store.py's own dump --raw.
     want_raw = True if not kv.get("json") else bool(kv.get("raw"))
+    history_n = None
+    if kv.get("history"):
+        try:
+            history_n = int(kv["history"])
+        except ValueError:
+            _err(usage)
+            _err("bm_project: --history must be a whole number, got %r"
+                 % kv["history"])
+            return 2
+        if history_n < 0:
+            _err(usage)
+            _err("bm_project: --history must be zero or a positive number")
+            return 2
     store = _store()
     try:
         project = store.get_project(project_id, raw=want_raw)
@@ -655,16 +726,26 @@ def cmd_status(argv):
             return 1
         by_state = _tasks_by_state(store, project_id, raw=want_raw)
         forecast = store.latest_forecast(project_id, raw=want_raw)
-        alerts = store.list_alerts(resolved=False, raw=want_raw)
+        forecast_count = len(store.list_forecasts(project_id, raw=want_raw))
+        alerts = _severity_sorted(store.list_alerts(resolved=False,
+                                                     raw=want_raw))
+        history = (store.list_attribution(project_id, limit=history_n,
+                                          raw=want_raw)
+                  if history_n is not None else None)
     finally:
         store.close()
+    prior_forecasts = max(forecast_count - 1, 0)
     if kv.get("json"):
-        _print_json({
+        out = {
             "project": project,
             "tasks_by_state": by_state,
             "latest_forecast": forecast,
+            "prior_forecast_count": prior_forecasts,
             "unresolved_alerts": alerts,
-        })
+        }
+        if history is not None:
+            out["attribution_history"] = history
+        _print_json(out)
         return 0
     _out("project %s: %s" % (project.get("project_id"), project.get("name")))
     _out("status=%s phase=%s" % (project.get("status") or "(none)",
@@ -683,16 +764,31 @@ def cmd_status(argv):
     closed = len(by_state[TERMINAL_STATE])
     if closed:
         _out("closed: %d" % closed)
+    # D-1: ranges plus confidence plus next-reforecast-event, never a
+    # point; a one-line note when the project has never been forecast
+    # (the section is absent, not a lie dressed up as an empty table).
     if forecast is None:
-        _out("latest forecast: (none)")
+        _out("latest forecast: (none yet)")
     else:
-        _out("latest forecast: %s, confidence %s"
-             % (forecast.get("forecast_id"), forecast.get("confidence")))
+        _out("latest forecast: %s" % forecast.get("forecast_id"))
+        for line in _forecast_lines(forecast, None):
+            _out(line)
+    # D-1: unresolved alerts, severity-ordered (most urgent first).
     _out("unresolved alerts (store-wide; alerts carry no project_id): %d"
          % len(alerts))
     for a in alerts:
-        _out("  - %s [%s] %s" % (a.get("alert_id"), a.get("severity"),
-                                 a.get("message")))
+        _out("  - %s [%s] %s%s" % (
+            a.get("alert_id"), a.get("severity"), a.get("message"),
+            " (needs a person)" if a.get("requires_human") else ""))
+    # D-2: --history N prints the last N attribution events. Omitted
+    # entirely when --history was not passed, so a founder who never asked
+    # for the audit trail never sees it.
+    if history is not None:
+        _out("attribution history (showing %d):" % len(history))
+        for ev in history:
+            _out("  - %s: %s by %s/%s"
+                % (ev.get("timestamp"), ev.get("event_type"),
+                   ev.get("actor_type"), ev.get("actor_name")))
     return 0
 
 
@@ -884,6 +980,138 @@ def cmd_task(argv):
 
 
 # ---------------------------------------------------------------------------
+# forecast add / forecast show (D-1, Loop 5 design)
+# ---------------------------------------------------------------------------
+
+_FORECAST_ADD_FLAGS = (
+    "project-id", "forecast-id", "min-duration", "likely-duration",
+    "max-duration", "input-token-range", "output-token-range",
+    "effective-token-range", "confidence", "basis", "assumptions",
+    "unknowns", "next-reforecast-event", "out-json") + _ACTOR_FLAGS
+
+
+def _forecast_add_usage():
+    return ("usage: forecast add --project-id ID "
+            "--min-duration D --likely-duration D --max-duration D "
+            "(--input-token-range R | --output-token-range R | "
+            "--effective-token-range R, at least one) "
+            "--confidence low|medium|high [--basis TEXT] "
+            "[--assumptions a,b] [--unknowns a,b] "
+            "[--next-reforecast-event E] [--forecast-id ID] "
+            "[--actor-type human|model] --actor-name NAME "
+            "[--session-id SID] [--out-json]")
+
+
+def cmd_forecast_add(argv):
+    _pos, kv = _parse(argv, _FORECAST_ADD_FLAGS, wants_value=(
+        "project-id", "forecast-id", "min-duration", "likely-duration",
+        "max-duration", "input-token-range", "output-token-range",
+        "effective-token-range", "confidence", "basis", "assumptions",
+        "unknowns", "next-reforecast-event") + _ACTOR_FLAGS)
+    usage = _forecast_add_usage()
+    project_id = _require(kv, "project-id", usage)
+    min_d = _require(kv, "min-duration", usage)
+    likely_d = _require(kv, "likely-duration", usage)
+    max_d = _require(kv, "max-duration", usage)
+    confidence = _require(kv, "confidence", usage)
+    token_ranges = {
+        "input_token_range": kv.get("input-token-range") or "",
+        "output_token_range": kv.get("output-token-range") or "",
+        "effective_total_token_range": kv.get("effective-token-range") or "",
+    }
+    if not any(token_ranges.values()):
+        _err(usage)
+        _err("bm_project: at least one token-range flag is required "
+             "(--input-token-range, --output-token-range, or "
+             "--effective-token-range): a work budget with no stated "
+             "token range is not a forecast (references/forecasting.md).")
+        return 2
+    basis = kv.get("basis") or ""
+    # The forecasting rule, quoted in plain words (references/
+    # forecasting.md, "The one law: ranges, never points"): every estimate
+    # carries a minimum and likely duration, a token range, confidence,
+    # assumptions, known unknowns, and the next reforecast point; "a bare
+    # date or a bare number is a false promise and is never emitted." Three
+    # identical duration values with nothing said about why is exactly
+    # that bare number wearing a range's clothes, so it is refused unless
+    # --basis explains the certainty.
+    if min_d == likely_d == max_d and not basis:
+        _err("bm_project: refused: minimum, likely, and maximum duration "
+             "are all %r with no stated --basis. That is a single point "
+             "estimate, not a forecast: the forecasting rule is ranges, "
+             "never points, because a bare number is a false promise and "
+             "is never emitted (references/forecasting.md). Give three "
+             "different values for a real range, or pass --basis "
+             "explaining why this one duration is certain." % (min_d,))
+        return 1
+    actor = _actor(kv, usage)
+    forecast = {
+        "forecast_id": kv.get("forecast-id") or uuid.uuid4().hex,
+        "project_id": project_id,
+        "minimum_duration": min_d,
+        "likely_duration": likely_d,
+        "maximum_duration": max_d,
+        "confidence": confidence,
+        "calculation_basis": basis,
+        "next_reforecast_event": kv.get("next-reforecast-event") or "",
+        "assumptions": _csv(kv.get("assumptions")),
+        "unknowns": _csv(kv.get("unknowns")),
+        "created_at": bs.now_iso(),
+    }
+    forecast.update(token_ranges)
+    store = _store()
+    try:
+        forecast_id = store.add_forecast(forecast, actor)
+    finally:
+        store.close()
+    if kv.get("out-json"):
+        _print_json({"forecast_id": forecast_id})
+        return 0
+    _out("added forecast %s" % forecast_id)
+    return 0
+
+
+def cmd_forecast_show(argv):
+    _pos, kv = _parse(argv, ("project-id", "json", "raw"),
+                       wants_value=("project-id",))
+    usage = "usage: forecast show --project-id ID [--json] [--raw]"
+    project_id = _require(kv, "project-id", usage)
+    want_raw = True if not kv.get("json") else bool(kv.get("raw"))
+    store = _store()
+    try:
+        forecast = store.latest_forecast(project_id, raw=want_raw)
+        total = len(store.list_forecasts(project_id, raw=want_raw))
+    finally:
+        store.close()
+    prior = max(total - 1, 0)
+    if kv.get("json"):
+        _print_json({"latest_forecast": forecast,
+                     "prior_forecast_count": prior})
+        return 0
+    if forecast is None:
+        _out("no forecast recorded yet for project %s" % project_id)
+        return 0
+    _out("forecast %s" % forecast.get("forecast_id"))
+    for line in _forecast_lines(forecast, prior):
+        _out(line)
+    return 0
+
+
+FORECAST_COMMANDS = {
+    "add": cmd_forecast_add,
+    "show": cmd_forecast_show,
+}
+
+
+def cmd_forecast(argv):
+    if not argv or argv[0] not in FORECAST_COMMANDS:
+        _err("usage: forecast <add|show> ... "
+             "(known: %s)" % ", ".join(sorted(FORECAST_COMMANDS)))
+        return 2
+    return FORECAST_COMMANDS[argv[0]](argv[1:])
+
+
+# ---------------------------------------------------------------------------
 # review
 # ---------------------------------------------------------------------------
 
@@ -936,6 +1164,123 @@ def cmd_review(argv):
     _out("reviewed task %s: evidence %s recorded, task -> %s"
          % (task_id, evidence_id, status))
     return 0
+
+
+# ---------------------------------------------------------------------------
+# alert raise / alert resolve / alert list (D-1, Loop 5 design)
+# ---------------------------------------------------------------------------
+
+_ALERT_RAISE_FLAGS = (
+    "project-id", "alert-id", "severity", "category", "message", "why",
+    "recommended-action", "requires-human", "out-json") + _ACTOR_FLAGS
+
+
+def cmd_alert_raise(argv):
+    _pos, kv = _parse(argv, _ALERT_RAISE_FLAGS, wants_value=(
+        "project-id", "alert-id", "severity", "category", "message", "why",
+        "recommended-action") + _ACTOR_FLAGS)
+    usage = ("usage: alert raise --project-id ID "
+             "--severity info|attention|high|critical --message TEXT "
+             "[--category C] [--why TEXT] [--recommended-action TEXT] "
+             "[--requires-human] [--alert-id ID] "
+             "[--actor-type human|model] --actor-name NAME "
+             "[--session-id SID] [--out-json]")
+    project_id = _require(kv, "project-id", usage)
+    severity = _require(kv, "severity", usage)
+    message = _require(kv, "message", usage)
+    actor = _actor(kv, usage)
+    alert = {
+        "alert_id": kv.get("alert-id") or uuid.uuid4().hex,
+        "severity": severity,
+        "category": kv.get("category") or "",
+        "message": message,
+        "why_it_matters": kv.get("why") or "",
+        "recommended_action": kv.get("recommended-action") or "",
+        "requires_human": bool(kv.get("requires-human")),
+        "created_at": bs.now_iso(),
+        "resolved_at": None,
+    }
+    store = _store()
+    try:
+        alert_id = store.raise_alert(alert, project_id, actor)
+    finally:
+        store.close()
+    if kv.get("out-json"):
+        _print_json({"alert_id": alert_id})
+        return 0
+    _out("raised alert %s [%s]" % (alert_id, severity))
+    return 0
+
+
+_ALERT_RESOLVE_FLAGS = ("project-id", "reason", "out-json") + _ACTOR_FLAGS
+
+
+def cmd_alert_resolve(argv):
+    pos, kv = _parse(argv, _ALERT_RESOLVE_FLAGS, wants_value=(
+        "project-id", "reason") + _ACTOR_FLAGS)
+    usage = ("usage: alert resolve <alert_id> --project-id ID --reason R "
+             "[--actor-type human|model] --actor-name NAME "
+             "[--session-id SID] [--out-json]")
+    if not pos:
+        _err(usage)
+        _err("bm_project: alert resolve needs an alert id")
+        return 2
+    alert_id = pos[0]
+    project_id = _require(kv, "project-id", usage)
+    reason = _require(kv, "reason", usage)
+    actor = _actor(kv, usage)
+    store = _store()
+    try:
+        resolved_at = store.resolve_alert(alert_id, project_id, actor,
+                                          reason=reason)
+    finally:
+        store.close()
+    if kv.get("out-json"):
+        _print_json({"alert_id": alert_id, "resolved_at": resolved_at})
+        return 0
+    _out("resolved alert %s" % alert_id)
+    return 0
+
+
+def cmd_alert_list(argv):
+    _pos, kv = _parse(argv, ("all", "json", "raw"), wants_value=())
+    want_raw = True if not kv.get("json") else bool(kv.get("raw"))
+    store = _store()
+    try:
+        alerts = store.list_alerts(
+            resolved=(None if kv.get("all") else False), raw=want_raw)
+    finally:
+        store.close()
+    alerts = _severity_sorted(alerts)
+    if kv.get("json"):
+        _print_json({"alerts": alerts})
+        return 0
+    if not alerts:
+        _out("no alerts recorded" if kv.get("all") else
+             "no unresolved alerts")
+        return 0
+    for a in alerts:
+        _out("%s [%s]%s %s%s"
+             % (a.get("alert_id"), a.get("severity"),
+                " RESOLVED" if a.get("resolved_at") else "",
+                a.get("message"),
+                " (needs a person)" if a.get("requires_human") else ""))
+    return 0
+
+
+ALERT_COMMANDS = {
+    "raise": cmd_alert_raise,
+    "resolve": cmd_alert_resolve,
+    "list": cmd_alert_list,
+}
+
+
+def cmd_alert(argv):
+    if not argv or argv[0] not in ALERT_COMMANDS:
+        _err("usage: alert <raise|resolve|list> ... "
+             "(known: %s)" % ", ".join(sorted(ALERT_COMMANDS)))
+        return 2
+    return ALERT_COMMANDS[argv[0]](argv[1:])
 
 
 # ---------------------------------------------------------------------------
@@ -997,6 +1342,8 @@ COMMANDS = {
     "status": cmd_status,
     "next": cmd_next,
     "task": cmd_task,
+    "forecast": cmd_forecast,
+    "alert": cmd_alert,
     "review": cmd_review,
     "deliver": cmd_deliver,
 }
