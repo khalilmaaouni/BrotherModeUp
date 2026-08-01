@@ -47,25 +47,32 @@ WHY create=False EVERYWHERE
   if every other path refuses instead of quietly creating one. Run
   `python3 tools/bm_store.py init` first.
 
-A KNOWN LIMITATION OF WHAT THIS FILE CAN SHOW TODAY, STATED PLAINLY
+RAW LOCAL DISPLAY VERSUS REDACTED EXPORT (loop2 redaction-policy fix)
   The D-2 accessors redact through the SAME export_column policy dump()
-  uses (identical to every other table in this store), and as of this
-  writing _DUMP_SAFE_COLUMNS in bm_store.py carries no entries at all for
-  the schema-12 tables (projects, tasks, forecasts, alerts, evidence,
-  attribution). Every other table with an export path (records, notes,
-  handovers, the learning_* tables) lists its identifiers, its schema
-  enums, and its timestamps there, keeping the founder's own prose
-  withheld while structure stays visible. The schema-12 tables have not
-  received that treatment yet, so TODAY every text column of every one of
-  them, INCLUDING project_id, task_id and status themselves, comes back as
-  a "[WITHHELD: N chars of founder text]" marker through get_project,
-  list_tasks, get_task and the rest. This file is written to be correct
-  the moment that gap closes (it only ever reads whatever the accessor
-  returns and renders it), and it degrades without crashing today, but
-  `next`, `status` and CANVAS.md cannot NAME a task by id or title until
-  that gap closes. That fix belongs in tools/bm_store.py's
-  _DUMP_SAFE_COLUMNS, which is outside this file's allowed set; it is
-  reported, not patched around, here.
+  uses, and _DUMP_SAFE_COLUMNS in bm_store.py now lists identifiers,
+  schema enums, timestamps and other machine labels for the schema-12
+  tables (projects, tasks, forecasts, dependencies, attribution, alerts,
+  evidence, runtime_runs), the same discipline every other exported table
+  already had. Every founder-typed prose column (name, title, goal,
+  message, reason, note, and the rest) still stays withheld by default:
+  that part of the policy is unchanged and is not what this file works
+  around.
+
+  What this file adds is WHERE raw=True is used. Human-readable terminal
+  output (status, next, review, deliver) and the two generated documents
+  (CANVAS.md, DELIVERY-PACKET.md) all read through the accessors with
+  raw=True: local display and a locally generated document for the data's
+  own owner are not an export, so there is nothing to withhold from the
+  founder reading their own project on their own machine. --json output is
+  the actual export surface and stays REDACTED BY DEFAULT, exactly like
+  bm_store.py's own dump; pass --raw to see it unredacted, the same named,
+  explicit escape hatch dump --raw already uses. Generated documents still
+  pass through bs.write_generated_document before they touch disk, whose
+  redact_text funnel is the FINAL guard: raw=True decides what this file
+  is willing to try to show, redact_text decides what a secret-shaped
+  string is allowed to survive as, and the two are independent layers on
+  purpose (a task title that happens to contain something secret-shaped is
+  still caught there even though raw=True populated the content).
 
 Python 3.9, standard library only. No network. No subprocess.
 
@@ -330,28 +337,33 @@ def _fmt_list(value):
     return str(value) if value else "(none)"
 
 
-def _tasks_by_state(store, project_id):
+def _tasks_by_state(store, project_id, raw=False):
     """{state: [task, ...]} for every one of the ten lifecycle states, in
     schema.STATES order, using ONLY list_tasks(project_id, status=state):
     one call per known state name rather than reading the (possibly
     withheld) status column back out of a generic list_tasks(project_id)
     call. This is what lets state-based logic (open-task counts, the
     'ready' pool next draws from, deliver's terminal check) stay correct
-    even while task rows are otherwise unreadable, because the state being
-    grouped by is the query parameter this file already knows, never a
-    value read back from a redacted column."""
-    return {state: store.list_tasks(project_id, status=state)
+    regardless of redaction, because the state being grouped by is the
+    query parameter this file already knows, never a value read back from
+    a possibly-withheld column. `raw` passes straight through to
+    list_tasks: True for the local-display and generated-document callers,
+    False (the default) for anything building a redacted --json export."""
+    return {state: store.list_tasks(project_id, status=state, raw=raw)
             for state in S.STATES}
 
 
 def render_canvas(store, project_id):
     """The project canvas as a GENERATED view, built ONLY from rows read
-    through the D-2 accessors. Deliberately carries no timestamp of its
-    own render time: D-4 requires this to regenerate byte-stable from the
-    same rows, and a "generated at" line would make two back-to-back
-    regenerations of the identical project differ by nothing but the
-    clock."""
-    project = store.get_project(project_id)
+    through the D-2 accessors, read raw=True: CANVAS.md is a document
+    generated for the project's own owner, not an export (see this file's
+    module docstring), and still passes through bs.write_generated_document
+    before it touches disk, whose redact_text funnel is the final guard.
+    Deliberately carries no timestamp of its own render time: D-4 requires
+    this to regenerate byte-stable from the same rows, and a "generated at"
+    line would make two back-to-back regenerations of the identical
+    project differ by nothing but the clock."""
+    project = store.get_project(project_id, raw=True)
     lines = [CANVAS_BEGIN, ""]
     if project is None:
         lines.append("No project %r." % project_id)
@@ -383,7 +395,7 @@ def render_canvas(store, project_id):
     lines.append(_fmt_list(project.get("risks")))
     lines.append("")
     lines.append("## Tasks by state")
-    by_state = _tasks_by_state(store, project_id)
+    by_state = _tasks_by_state(store, project_id, raw=True)
     for state in S.STATES:
         tasks = by_state[state]
         if not tasks:
@@ -393,7 +405,7 @@ def render_canvas(store, project_id):
             lines.append("  - %s: %s" % (t.get("task_id"), t.get("title")))
     lines.append("")
     lines.append("## Latest forecast")
-    forecast = store.latest_forecast(project_id)
+    forecast = store.latest_forecast(project_id, raw=True)
     if forecast is None:
         lines.append("(none yet)")
     else:
@@ -410,8 +422,12 @@ def render_canvas(store, project_id):
 
 def render_delivery_packet(store, project_id):
     """The delivery packet as a GENERATED view: project, tasks with their
-    evidence, forecasts, attribution summary, all from rows only."""
-    project = store.get_project(project_id)
+    evidence, forecasts, attribution summary, all from rows only, read
+    raw=True for the same reason render_canvas above is: a document
+    generated for the project's own owner is not an export, and still
+    passes through bs.write_generated_document's redact_text funnel as the
+    final guard before it touches disk."""
+    project = store.get_project(project_id, raw=True)
     lines = [DELIVERY_BEGIN, ""]
     if project is None:
         lines.append("No project %r." % project_id)
@@ -423,12 +439,12 @@ def render_delivery_packet(store, project_id):
     lines.append("project_id: %s" % project.get("project_id"))
     lines.append("")
     lines.append("## Tasks")
-    by_state = _tasks_by_state(store, project_id)
+    by_state = _tasks_by_state(store, project_id, raw=True)
     for state in S.STATES:
         for t in by_state[state]:
             lines.append("### %s (%s)" % (t.get("task_id"), state))
             lines.append(t.get("title") or "(no title)")
-            evidence = store.list_evidence("task", t.get("task_id"))
+            evidence = store.list_evidence("task", t.get("task_id"), raw=True)
             if evidence:
                 for ev in evidence:
                     lines.append("  - evidence %s: kind=%s ref=%s"
@@ -438,7 +454,7 @@ def render_delivery_packet(store, project_id):
                 lines.append("  - (no evidence recorded)")
     lines.append("")
     lines.append("## Forecasts")
-    forecasts = store.list_forecasts(project_id)
+    forecasts = store.list_forecasts(project_id, raw=True)
     if not forecasts:
         lines.append("(none recorded)")
     for f in forecasts:
@@ -448,7 +464,7 @@ def render_delivery_packet(store, project_id):
                         f.get("maximum_duration") or "?"))
     lines.append("")
     lines.append("## Attribution summary")
-    attributions = store.list_attribution(project_id, limit=50)
+    attributions = store.list_attribution(project_id, limit=50, raw=True)
     if not attributions:
         lines.append("(none recorded)")
     for a in attributions:
@@ -562,19 +578,23 @@ def cmd_start(argv):
 # ---------------------------------------------------------------------------
 
 def cmd_status(argv):
-    _pos, kv = _parse(argv, ("project-id", "json"),
+    _pos, kv = _parse(argv, ("project-id", "json", "raw"),
                        wants_value=("project-id",))
-    usage = "usage: status --project-id ID [--json]"
+    usage = "usage: status --project-id ID [--json] [--raw]"
     project_id = _require(kv, "project-id", usage)
+    # Text output is local display (raw=True, always: see the module
+    # docstring). --json is the export surface and stays redacted unless
+    # --raw is also given, exactly like bm_store.py's own dump --raw.
+    want_raw = True if not kv.get("json") else bool(kv.get("raw"))
     store = _store()
     try:
-        project = store.get_project(project_id)
+        project = store.get_project(project_id, raw=want_raw)
         if project is None:
             _err("bm_project: no project %r" % project_id)
             return 1
-        by_state = _tasks_by_state(store, project_id)
-        forecast = store.latest_forecast(project_id)
-        alerts = store.list_alerts(resolved=False)
+        by_state = _tasks_by_state(store, project_id, raw=want_raw)
+        forecast = store.latest_forecast(project_id, raw=want_raw)
+        alerts = store.list_alerts(resolved=False, raw=want_raw)
     finally:
         store.close()
     if kv.get("json"):
@@ -620,19 +640,22 @@ def cmd_status(argv):
 # ---------------------------------------------------------------------------
 
 def cmd_next(argv):
-    _pos, kv = _parse(argv, ("project-id", "json"),
+    _pos, kv = _parse(argv, ("project-id", "json", "raw"),
                        wants_value=("project-id",))
-    usage = "usage: next --project-id ID [--json]"
+    usage = "usage: next --project-id ID [--json] [--raw]"
     project_id = _require(kv, "project-id", usage)
+    # Same raw/json split cmd_status uses: text output is local display
+    # (always raw=True); --json is the export surface and stays redacted
+    # unless --raw is also given. See this file's module docstring.
+    want_raw = True if not kv.get("json") else bool(kv.get("raw"))
     store = _store()
     try:
         # 'ready' means, in the canonical protocol's own words (section 1,
         # state 2), "everything the task depends on is satisfied; it can be
         # picked up." Filtering on that state via the query parameter (not
         # by reading depends_on or status back out of a row) is what keeps
-        # this correct even while those columns come back withheld by
-        # default; see this file's module docstring.
-        candidates = store.list_tasks(project_id, status="ready")
+        # this correct regardless of redaction.
+        candidates = store.list_tasks(project_id, status="ready", raw=want_raw)
     finally:
         store.close()
     ranked = sorted(candidates, key=lambda t: _priority_key(t.get("priority")))

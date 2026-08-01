@@ -4,14 +4,17 @@
 
 Every test drives tools/bm_project.py as a real SUBPROCESS against a fresh
 tempfile.TemporaryDirectory() root (BROTHERMODE_ROOT), never against this
-repo's own store. Row-level verification uses Store.dump(raw=True) -- the
-same escape hatch test_bm_store.py's own _dump() helper documents -- rather
-than either this test file's own SQL (bm_project.py's D-2 read accessors
-are not that hatch: they redact through the identical export_column policy
-dump() uses by default, and as of this writing carry no _DUMP_SAFE_COLUMNS
-entries for the schema-12 tables at all, so a mechanical command's own
-stdout cannot be used to assert an actual id or title landed correctly;
-see bm_project.py's own module docstring for the full account of that gap).
+repo's own store. Row-level verification of the STORED bytes uses
+Store.dump(raw=True) -- the same escape hatch test_bm_store.py's own
+_dump() helper documents -- rather than this test file's own SQL. That is
+a separate thing from what the CLI's own stdout can now assert: since the
+loop2 redaction-policy fix, human-readable text output (status, next) and
+--raw JSON read through the D-2 accessors with raw=True, so a task id and
+title landing correctly in a mechanical command's own words IS something
+TestLoop2RedactionPolicy below asserts directly against stdout, not only
+against the raw dump. See bm_project.py's own module docstring for the
+full account of what raw=True covers and what --json without --raw still
+withholds.
 
 Python 3.9, standard library only. Run: python3 tools/test_bm_project.py
 
@@ -373,6 +376,82 @@ class TestScriptedFirstProject(unittest.TestCase):
                 packet = fh.read()
             self.assertIn("BEGIN GENERATED BROTHERMODE DELIVERY PACKET",
                           packet)
+
+
+class TestLoop2RedactionPolicy(unittest.TestCase):
+    """The loop2 redaction-policy fix, asserted against the CLI's own
+    stdout rather than the raw dump escape hatch: _DUMP_SAFE_COLUMNS now
+    lists identifiers, enums and timestamps for the schema-12 tables, and
+    this file's human-readable text output (status, next) reads through
+    raw=True (local display is not an export; see bm_project.py's own
+    module docstring), so a task id and a title can finally be named in a
+    mechanical command's own words. --json without --raw stays on the
+    OTHER side of that line: it is the export surface, and prose still
+    comes back withheld there by default, exactly like bm_store.py's own
+    dump."""
+
+    def _seeded_project(self, root):
+        _init(root)
+        r = _run(["start", "--project-id", "proj1",
+                  "--name", "Acme Rescue", "--goal", "Ship the thing"]
+                 + list(ACTOR) + ["--out-json"], root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = _run(["task", "add", "--project-id", "proj1",
+                  "--task-id", "task1", "--title", "Fix the leaky pipe"]
+                 + list(ACTOR) + ["--out-json"], root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = _run(["task", "transition", "--task-id", "task1",
+                  "--to", "ready", "--reason", "deps clear"]
+                 + list(ACTOR) + ["--out-json"], root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_status_and_next_text_output_name_ids_and_titles_via_raw(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._seeded_project(root)
+
+            r = _run(["status", "--project-id", "proj1"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("proj1", r.stdout)
+            self.assertIn("Acme Rescue", r.stdout)
+
+            r = _run(["next", "--project-id", "proj1"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("task1", r.stdout)
+            self.assertIn("Fix the leaky pipe", r.stdout)
+
+    def test_json_without_raw_keeps_prose_withheld_raw_reveals_it(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._seeded_project(root)
+
+            r = _run(["status", "--project-id", "proj1", "--json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            status = json.loads(r.stdout)
+            self.assertEqual(status["project"]["project_id"], "proj1")
+            self.assertTrue(
+                status["project"]["name"].startswith("[WITHHELD"),
+                status["project"])
+            self.assertNotIn("Acme Rescue", r.stdout)
+
+            r = _run(["status", "--project-id", "proj1", "--json", "--raw"],
+                     root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            status_raw = json.loads(r.stdout)
+            self.assertEqual(status_raw["project"]["name"], "Acme Rescue")
+
+            r = _run(["next", "--project-id", "proj1", "--json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            nxt = json.loads(r.stdout)
+            self.assertEqual(nxt["picked"]["task_id"], "task1")
+            self.assertTrue(
+                nxt["picked"]["title"].startswith("[WITHHELD"),
+                nxt["picked"])
+            self.assertNotIn("Fix the leaky pipe", r.stdout)
+
+            r = _run(["next", "--project-id", "proj1", "--json", "--raw"],
+                     root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            nxt_raw = json.loads(r.stdout)
+            self.assertEqual(nxt_raw["picked"]["title"], "Fix the leaky pipe")
 
 
 if __name__ == "__main__":

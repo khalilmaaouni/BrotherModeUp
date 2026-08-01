@@ -3840,6 +3840,51 @@ class TestStateView(unittest.TestCase):
             self.assertEqual(on_disk2.count(bs._STATE_BEGIN), 1)
             self.assertIn("hand written prose stays here", on_disk2)
 
+    def test_write_state_view_regenerates_byte_stable_across_three_renders(self):
+        """LOOP 2 fix (WP-B reproduced): a two-render comparison alone
+        missed a real compounding bug -- each re-splice into an
+        already-marked file grew the file by one blank line, forever,
+        whenever the file had prose on either side of the generated block
+        -- until a THIRD render exposed it (mirrors how
+        tools/test_bm_project.py pins its own CANVAS.md fixed point the
+        same way, for the identical bug in _splice_generated there). Prose
+        both before AND after the markers, so every render after the first
+        exercises the splice path (begin_count == 1), never the from-empty
+        append path. now_iso is frozen so the timestamp render_state_md
+        stamps into its own header line cannot be the thing that changes
+        between renders; the fixed point under test is the marker splice,
+        not the clock."""
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "STATE.md")
+            with io.open(path, "w", encoding="utf-8") as f:
+                f.write("# Project notes\nprose written before the markers\n")
+            store = bs.Store(d)
+            try:
+                store.claim("payments", "persistent", "ship stripe", [])
+            finally:
+                store.close()
+            with mock.patch.object(bs, "now_iso", lambda: "2026-08-01T00:00:00Z"):
+                bs.write_state_view(d)
+                with io.open(path, "a", encoding="utf-8") as f:
+                    f.write("\nprose written after the markers, by hand\n")
+                with io.open(path, encoding="utf-8") as f:
+                    render1 = f.read()
+                bs.write_state_view(d)
+                with io.open(path, encoding="utf-8") as f:
+                    render2 = f.read()
+                self.assertEqual(
+                    render1, render2,
+                    "STATE.md must regenerate byte-stable from the same rows")
+                bs.write_state_view(d)
+                with io.open(path, encoding="utf-8") as f:
+                    render3 = f.read()
+                self.assertEqual(render2, render3)
+            self.assertIn("prose written before the markers", render3)
+            self.assertIn("prose written after the markers, by hand", render3)
+            self.assertEqual(
+                render3.count("prose written after the markers, by hand"), 1)
+
+
 class TestVerify(unittest.TestCase):
     def test_verify_healthy_store_is_empty(self):
         with tempfile.TemporaryDirectory() as d:
@@ -14288,20 +14333,20 @@ class TestLoop1ReadAccessors(unittest.TestCase):
     render_state_md/render_digest -- these are advisory display, not a
     mutation, so a missing id degrades (None or []) rather than raising --
     and the SAME export_column redaction dump() applies, via the shared
-    _export_row helper. None of the eight LOOP 1 tables are on
-    _DUMP_SAFE_COLUMNS, so under the real, unpatched policy every non-empty
-    text column of every accessor's return value comes back WITHHELD,
-    exactly like dump()'s own output for these tables (verified directly
-    below). Tests that need to compare an actual id or check ordering patch
-    _DUMP_SAFE_COLUMNS open for the loop1 tables, the same technique
-    test_calibrated_round7_dump_name_reinject_old_safe_columns_would_leak
-    already uses elsewhere in this file to reason about the safe list."""
+    _export_row helper.
 
-    def _loop1_safe_columns(self, store):
-        tables = ("projects", "forecasts", "tasks", "attribution", "alerts",
-                  "evidence", "runtime_runs")
-        return frozenset(
-            (t, c) for t in tables for c in bs._text_columns(store.conn, t))
+    LOOP 2 REDACTION FIX: the eight schema-12 tables now carry identifier,
+    enum and timestamp entries on _DUMP_SAFE_COLUMNS, the same discipline
+    every other exported table already had, so under the real, unpatched
+    policy an id, a status, a priority or a timestamp comes back visible
+    while every founder-typed prose column (name, title, goal, message and
+    the rest) still comes back WITHHELD, exactly like dump()'s own output
+    for these tables (verified directly below). A test that needs the
+    FULL row, prose included, to check ordering or that a list column
+    decoded correctly, reads through raw=True: the accessors' own named
+    escape hatch (mirrors dump(raw=True), see _export_row), the same one
+    tools/bm_project.py's own local display now uses, rather than
+    monkeypatching the module's redaction policy open."""
 
     def _seeded_store(self, store):
         actor = _actor()
@@ -14316,17 +14361,34 @@ class TestLoop1ReadAccessors(unittest.TestCase):
         return actor
 
     def test_default_redaction_matches_dump_for_a_sensitive_field(self):
-        """Redaction verified on a sensitive field: get_project's `name`
-        must come back withheld, by the same policy and byte for byte the
-        same as dump()'s own projects row, with nothing patched."""
+        """Redaction verified in both directions on get_project's default
+        (unpatched, raw=False) return: `name` and `goal` come back withheld,
+        byte for byte the same as dump()'s own projects row; project_id,
+        status, phase, project_type and experience_level -- the new
+        allowlist -- come back as the LITERAL value, not a marker, proving
+        the widened policy actually took effect rather than merely agreeing
+        with dump() by both withholding the same thing."""
         with tempfile.TemporaryDirectory() as d:
             with bs.Store(d) as store:
-                store.upsert_project(_project(name="Confidential Codename"),
-                                      _actor())
+                store.upsert_project(
+                    _project(name="Confidential Codename",
+                              goal="a founder objective nobody else should see",
+                              status="active", phase="build",
+                              project_type="script",
+                              experience_level="beginner"),
+                    _actor())
                 project = store.get_project("proj1")
                 dumped = store.dump()["projects"][0]
         self.assertNotIn("Confidential Codename", json.dumps(project))
         self.assertTrue(project["name"].startswith("[WITHHELD"), project)
+        self.assertTrue(project["goal"].startswith("[WITHHELD"), project)
+        self.assertEqual(project["project_id"], "proj1")
+        self.assertEqual(project["status"], "active")
+        self.assertEqual(project["phase"], "build")
+        self.assertEqual(project["project_type"], "script")
+        self.assertEqual(project["experience_level"], "beginner")
+        self.assertEqual(project["created_at"], "2026-08-01T00:00:00Z")
+        self.assertEqual(project["updated_at"], "2026-08-01T00:00:00Z")
         S = bs._schema()
         for col in S.Project.FIELDS:
             if col in S.Project.LIST_FIELDS:
@@ -14369,59 +14431,71 @@ class TestLoop1ReadAccessors(unittest.TestCase):
         ordering, the latest_forecast/list_forecasts split, the
         list_alerts(resolved=...) three-way split, and JSON list columns
         actually decoded into Python lists once redaction is not in the
-        way (patched open exactly like the existing round7 test does)."""
+        way. raw=True (the accessors' own named escape hatch, see this
+        class's own docstring) is what gets it out of the way now: the
+        widened _DUMP_SAFE_COLUMNS makes ids and enums visible even under
+        the DEFAULT policy, but name, title and every LIST_FIELDS column
+        (scope_in, depends_on, assumptions, input_artifacts) are
+        prose-shaped and stay withheld there on purpose, so this test still
+        needs the full, unredacted row and asks for it by name rather than
+        by widening the module's own policy out from under it."""
         with tempfile.TemporaryDirectory() as d:
             with bs.Store(d) as store:
                 actor = self._seeded_store(store)
-                safe = self._loop1_safe_columns(store)
-                with mock.patch.object(bs, "_DUMP_SAFE_COLUMNS", safe):
-                    project = store.get_project("proj1")
-                    self.assertEqual(project["project_id"], "proj1")
-                    self.assertEqual(project["name"], "Acme Rescue")
-                    self.assertIsInstance(project["scope_in"], list)
-                    self.assertEqual(store.list_projects(), [project])
+                project = store.get_project("proj1", raw=True)
+                self.assertEqual(project["project_id"], "proj1")
+                self.assertEqual(project["name"], "Acme Rescue")
+                self.assertIsInstance(project["scope_in"], list)
+                self.assertEqual(store.list_projects(raw=True), [project])
 
-                    tasks = store.list_tasks("proj1")
-                    self.assertEqual([t["task_id"] for t in tasks], ["task1"])
-                    self.assertIsInstance(tasks[0]["depends_on"], list)
-                    self.assertEqual(
-                        store.list_tasks("proj1", status="planned"), tasks)
-                    self.assertEqual(
-                        store.list_tasks("proj1", status="ready"), [])
-                    task = store.get_task("task1")
-                    self.assertEqual(task["task_id"], "task1")
+                tasks = store.list_tasks("proj1", raw=True)
+                self.assertEqual([t["task_id"] for t in tasks], ["task1"])
+                self.assertIsInstance(tasks[0]["depends_on"], list)
+                self.assertEqual(
+                    store.list_tasks("proj1", status="planned", raw=True),
+                    tasks)
+                self.assertEqual(
+                    store.list_tasks("proj1", status="ready", raw=True), [])
+                task = store.get_task("task1", raw=True)
+                self.assertEqual(task["task_id"], "task1")
 
-                    forecasts = store.list_forecasts("proj1")
-                    self.assertEqual(
-                        [f["forecast_id"] for f in forecasts], ["fc1", "fc2"])
-                    self.assertIsInstance(forecasts[0]["assumptions"], list)
-                    latest = store.latest_forecast("proj1")
-                    self.assertEqual(latest["forecast_id"], "fc2")
+                forecasts = store.list_forecasts("proj1", raw=True)
+                self.assertEqual(
+                    [f["forecast_id"] for f in forecasts], ["fc1", "fc2"])
+                self.assertIsInstance(forecasts[0]["assumptions"], list)
+                latest = store.latest_forecast("proj1", raw=True)
+                self.assertEqual(latest["forecast_id"], "fc2")
 
-                    alerts = store.list_alerts()
-                    self.assertEqual([a["alert_id"] for a in alerts],
-                                      ["alert1"])
-                    self.assertEqual(
-                        [a["alert_id"] for a in store.list_alerts(resolved=False)],
-                        ["alert1"])
-                    self.assertEqual(store.list_alerts(resolved=True), [])
-                    store.resolve_alert("alert1", "proj1", actor)
-                    self.assertEqual(
-                        [a["alert_id"] for a in store.list_alerts(resolved=True)],
-                        ["alert1"])
-                    self.assertEqual(store.list_alerts(resolved=False), [])
+                alerts = store.list_alerts(raw=True)
+                self.assertEqual([a["alert_id"] for a in alerts],
+                                  ["alert1"])
+                self.assertEqual(
+                    [a["alert_id"] for a in
+                     store.list_alerts(resolved=False, raw=True)],
+                    ["alert1"])
+                self.assertEqual(
+                    store.list_alerts(resolved=True, raw=True), [])
+                store.resolve_alert("alert1", "proj1", actor)
+                self.assertEqual(
+                    [a["alert_id"] for a in
+                     store.list_alerts(resolved=True, raw=True)],
+                    ["alert1"])
+                self.assertEqual(
+                    store.list_alerts(resolved=False, raw=True), [])
 
-                    evidence = store.list_evidence("task", "task1")
-                    self.assertEqual(
-                        [e["evidence_id"] for e in evidence], ["ev1"])
-                    self.assertEqual(store.list_evidence("task", "nope"), [])
+                evidence = store.list_evidence("task", "task1", raw=True)
+                self.assertEqual(
+                    [e["evidence_id"] for e in evidence], ["ev1"])
+                self.assertEqual(
+                    store.list_evidence("task", "nope", raw=True), [])
 
-                    attributions = store.list_attribution("proj1")
-                    self.assertGreater(len(attributions), 1)
-                    self.assertIsInstance(
-                        attributions[0]["input_artifacts"], list)
-                    self.assertEqual(
-                        len(store.list_attribution("proj1", limit=1)), 1)
+                attributions = store.list_attribution("proj1", raw=True)
+                self.assertGreater(len(attributions), 1)
+                self.assertIsInstance(
+                    attributions[0]["input_artifacts"], list)
+                self.assertEqual(
+                    len(store.list_attribution("proj1", limit=1, raw=True)),
+                    1)
 
     def test_read_only_store_exposes_the_same_reads_and_refuses_writes(self):
         with tempfile.TemporaryDirectory() as d:
@@ -14441,6 +14515,16 @@ class TestLoop1ReadAccessors(unittest.TestCase):
                 self.assertEqual(len(ro.list_alerts()), 1)
                 self.assertEqual(len(ro.list_evidence("task", "task1")), 1)
                 self.assertGreater(len(ro.list_attribution("proj1")), 1)
+                # raw=True delegates through too (D-2: "ReadOnlyStore
+                # delegates it"), proven on the one field default redaction
+                # withholds: name comes back withheld through the default
+                # call and back as the real value through the raw one.
+                self.assertTrue(
+                    ro.get_project("proj1")["name"].startswith("[WITHHELD"))
+                self.assertEqual(
+                    ro.get_project("proj1", raw=True)["name"], "Acme Rescue")
+                self.assertEqual(ro.get_project("proj1", raw=True),
+                                  bs.Store.get_project(ro, "proj1", raw=True))
                 # Refuses writes: no write method exists on this class at
                 # all (the eight schema-12 service methods are Store-only),
                 # and the underlying connection itself refuses at the SQL
