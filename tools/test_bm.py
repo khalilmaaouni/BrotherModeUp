@@ -5384,6 +5384,83 @@ class TestTheGuidedLoopLawIsWrittenAndWired(unittest.TestCase):
                           "guided loop routes by" % profile)
 
 
+class TestTheSeventhCommandAndTheDeepTourAreWired(unittest.TestCase):
+    """Wave 8, 2026-08-01. Three claims this release makes to a beginner,
+    each of which would fail silently without a pin: that /brotherme-update
+    exists and teaches the VERIFIED update lines rather than invented ones;
+    that the help command's deep tour enters a flow the conductor actually
+    defines (the rc.10 audit found a command entering a flow nobody
+    defined, and this suite is why that class of defect stays dead); and
+    that the explainer page still carries its honesty label after being
+    rebuilt for excitement. Excitement without the label is the overclaim
+    this project exists to refuse."""
+
+    ROOT = os.path.dirname(HERE)
+
+    def _text(self, *parts):
+        path = os.path.join(self.ROOT, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "%s is missing" % os.path.join(*parts))
+        return _read(path)
+
+    def test_exactly_seven_brotherme_commands_ship(self):
+        found = sorted(os.path.basename(p) for p in
+                       __import__("glob").glob(
+                           os.path.join(self.ROOT, "commands",
+                                        "brotherme-*.md")))
+        expected = ["brotherme-deliver.md", "brotherme-help.md",
+                    "brotherme-next.md", "brotherme-review.md",
+                    "brotherme-start.md", "brotherme-status.md",
+                    "brotherme-update.md"]
+        self.assertEqual(expected, found,
+                         "the shipped command set drifted from the seven "
+                         "this release documents: %r" % found)
+
+    def test_the_update_command_teaches_only_verified_lines(self):
+        text = self._text("commands", "brotherme-update.md")
+        for line in ("/plugin marketplace update brotherme-marketplace",
+                     "/plugin update brotherme",
+                     "git fetch --tags"):
+            self.assertIn(line, text,
+                          "brotherme-update.md lost the verified update "
+                          "line %r; a beginner following this command "
+                          "would be typing something nobody checked" % line)
+
+    def test_the_deep_tour_flow_exists_on_both_sides(self):
+        command = self._text("commands", "brotherme-help.md")
+        conductor = self._text("skills", "brotherme", "SKILL.md")
+        self.assertIn("deep tour", command,
+                      "the help command no longer offers the deep tour")
+        self.assertIn("## Deep tour flow", conductor,
+                      "the conductor lost the deep-tour flow the help "
+                      "command enters; a command entering an undefined "
+                      "flow is the exact rc.10 audit defect")
+        self.assertIn("bm_docs.py generate", conductor,
+                      "the deep tour no longer names the docs engine "
+                      "that builds its live view")
+
+    def test_the_explainer_keeps_its_honesty_label(self):
+        text = self._text("docs", "brotherme-explained.html")
+        self.assertIn("This conversation is an illustration", text,
+                      "the walkthrough's honesty label is gone; the page "
+                      "may not present composed bubbles as a recording")
+        self.assertIn("brotherme-update", text,
+                      "the explainer no longer teaches updating")
+
+    def test_the_explainer_features_section_declares_its_update_rule(self):
+        """Founder directive 2026-08-01: every release that changes a feature
+        updates the explainer's features section in the same change. The rule
+        only binds if the page still carries the section and still declares
+        the rule; a page that silently dropped either has already broken it."""
+        text = self._text("docs", "brotherme-explained.html")
+        self.assertIn("What makes it different", text,
+                      "the explainer lost its features section")
+        self.assertIn("kept current by rule", text,
+                      "the features section no longer declares the "
+                      "same-change update rule docs/RELEASE.md step 2 binds "
+                      "releases to")
+
+
 class TestP18FixApprovalReferenceIsTheFoundersOwn(unittest.TestCase):
     """LOOP P18-fix. The launch drafts say a correction becomes a rule only
     when you approve it by hand WITH A REASON RECORDED. The store enforced

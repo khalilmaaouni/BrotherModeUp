@@ -1,8 +1,8 @@
 # Help artifact, update command, and explainer v2
 
-Date: 2026-08-01. Status: founder-ratified (seven decisions through question
-windows, design gate approved the same day). Base: main at 8aa6dd1 (rc.10
-release-cut commit, pushed; tag pending founder).
+Status: CURRENT (founder-ratified 2026-08-01: seven decisions through question
+windows, design gate approved the same day; implemented the same day in the
+rc.11 cut). Base: main at 8aa6dd1, the rc.10 release-cut commit.
 
 ## 1. What the founder asked for, in their words compressed
 
