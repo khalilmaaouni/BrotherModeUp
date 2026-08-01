@@ -76,6 +76,10 @@ jobs:
       # filesystem only, same posture as the ledger suite above.
       - name: Run the canonical schema suite
         run: python3 tools/test_bm_schema.py
+      # The consent gate suite, landed 2026-08-01 (Loop 3): proves the hooks
+      # write nothing before setup consent exists.
+      - name: Run the consent gate suite
+        run: python3 tools/test_bm_consent.py
   # One serial job that runs the SAME command a loop close runs locally
   # (Loop 9 task 2, answered yes). The split jobs above exist for per-platform
   # evidence and cannot be replaced by this one; this one exists because the

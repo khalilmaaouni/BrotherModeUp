@@ -100,6 +100,12 @@ SUITES = (
     "test_bm_project.py",
     "test_bm_fence_hook.py",
     "test_install.py",
+    # Loop 3 WP-D (2026-08-01): the consent gate suite for scripts/setup.py,
+    # tools/bm_sessionstart.sh, and the SessionEnd path in tools/bm_telemetry.py.
+    # NO APOSTROPHE IN THIS COMMENT, ON PURPOSE (see the file-level note above):
+    # placed right after the installer suite; both drive real subprocesses
+    # against a fake HOME, and this one is fast.
+    "test_bm_consent.py",
     "test_bm_runtimes.py",
     "test_bm_autosave.py",
     # The loop estimate ledger, landed from the live install 2026-07-31. Early
