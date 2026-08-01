@@ -94,6 +94,7 @@ py-modules = [
     "bm_autosave",
     "bm_fence_hook",
     "bm_project_facts",
+    "bm_project",
     "bm_ledger",
 ]
 include-package-data = false
