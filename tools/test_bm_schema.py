@@ -1,23 +1,22 @@
 """The canonical protocol schema, each law calibrated by attempting the violation.
 
-Five laws under test, from docs/specs/canonical-project-protocol.md:
+Four laws under test, from docs/specs/canonical-project-protocol.md:
   1. Round trip: to_dict/from_dict carries every canonical field, exactly.
   2. validate() names every missing or ill-typed required field, all at once.
   3. transition() refuses an illegal move naming from-state, to-state and the
      legal moves, refuses `done` BY NAME, and refuses a silent backward move.
-  4. The event stream is append-only JSONL: a corrupt line raises with its
-     line number rather than being skipped, and an invalid event never
-     reaches the file.
-  5. DRIFT: the field lists, enums and state list in the CODE are parsed out
+  4. DRIFT: the field lists, enums and state list in the CODE are parsed out
      of the DOCUMENT's own YAML blocks and state list, so the two cannot
      disagree silently. When this test fails, the document wins.
+
+The event stream this module used to test (append_event, read_events,
+_iter_open_stream) is retired, Loop 1 delete-list D3: storage moved to
+tools/bm_store.py schema 12, and this module is shapes and legality only.
 """
 import io
 import os
 import re
-import shutil
 import sys
-import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -186,79 +185,6 @@ class TestTransitions(unittest.TestCase):
             schema.transition(task, "planned", reason="oops, reopen it")
         self.assertIn("finished for good", str(ctx.exception))
         self.assertEqual(task.status, "closed")
-
-
-class TestEventStream(unittest.TestCase):
-    def setUp(self):
-        self.dir = tempfile.mkdtemp(prefix="bm-schema-test-")
-        self.path = os.path.join(self.dir, "events.jsonl")
-
-    def tearDown(self):
-        shutil.rmtree(self.dir, ignore_errors=True)
-
-    def _event(self, event_id="ev1"):
-        obj = _valid(schema.AttributionEvent)
-        obj.event_id = event_id
-        return obj
-
-    def test_a_validated_but_unserializable_event_raises_schema_error(self):
-        """Regression: a set inside a list field passes validate() (the
-        list check does not inspect elements) and used to escape as a raw
-        TypeError from json.dumps, outside the module's SchemaError
-        contract. The file must also stay untouched."""
-        bad = self._event()
-        bad.input_artifacts = ["ok", {1, 2}]
-        with self.assertRaises(schema.SchemaError) as ctx:
-            schema.append_event(self.path, bad)
-        self.assertIn("does not serialize", str(ctx.exception))
-        self.assertFalse(os.path.exists(self.path),
-                         "a refused event must not create or grow the file")
-
-    def test_reading_an_absent_stream_fails_at_call_time(self):
-        """Regression: read_events was one big generator, so the open was
-        deferred and an unreadable path reported nothing until first
-        iteration. The open must fail at the call."""
-        absent = os.path.join(self.dir, "definitely-absent.jsonl")
-        with self.assertRaises(schema.SchemaError):
-            schema.read_events(absent)
-
-    def test_two_appends_read_back_in_order_and_equal(self):
-        first, second = self._event("ev1"), self._event("ev2")
-        schema.append_event(self.path, first)
-        schema.append_event(self.path, second)
-        back = list(schema.read_events(self.path))
-        self.assertEqual(back, [first, second])
-
-    def test_an_invalid_event_is_refused_before_the_file_grows(self):
-        bad = self._event()
-        bad.actor_type = "gremlin"
-        with self.assertRaises(schema.SchemaError) as ctx:
-            schema.append_event(self.path, bad)
-        self.assertIn("actor_type", str(ctx.exception))
-        self.assertFalse(os.path.exists(self.path),
-                         "a refusal must not append")
-
-    def test_a_corrupt_line_raises_with_its_line_number(self):
-        schema.append_event(self.path, self._event("ev1"))
-        schema.append_event(self.path, self._event("ev2"))
-        with io.open(self.path, "a", encoding="utf-8") as fh:
-            fh.write("{this is not json\n")
-        with self.assertRaises(schema.SchemaError) as ctx:
-            list(schema.read_events(self.path))
-        self.assertIn("line 3", str(ctx.exception))
-
-    def test_a_parseable_line_with_the_wrong_shape_also_names_its_line(self):
-        schema.append_event(self.path, self._event("ev1"))
-        with io.open(self.path, "a", encoding="utf-8") as fh:
-            fh.write('{"not": "an event"}\n')
-        with self.assertRaises(schema.SchemaError) as ctx:
-            list(schema.read_events(self.path))
-        self.assertIn("line 2", str(ctx.exception))
-
-    def test_a_missing_stream_is_an_error_not_an_empty_result(self):
-        with self.assertRaises(schema.SchemaError) as ctx:
-            list(schema.read_events(os.path.join(self.dir, "absent.jsonl")))
-        self.assertIn("absent.jsonl", str(ctx.exception))
 
 
 class TestDriftAgainstTheDocument(unittest.TestCase):
