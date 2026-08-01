@@ -432,21 +432,22 @@ call from a session that is not that fence's owner.
 
 ### Installing the Bash audit hook
 
-The Claude Code plugin manifest, `hooks/hooks.json`, wires both entrypoints today:
-`PreToolUse` gets a second matcher group (`"matcher": "Bash"`, alongside the existing
-`Edit|Write|MultiEdit|NotebookEdit` group), and a new `PostToolUse` key wires the
-`post` entrypoint the same way. `scripts/install.py`'s clone-install path (the one
-QUICKSTART documents, and the one `tools/test_install.py` exercises end to end) does
-**not** wire it yet: `tools/bm_bash_audit.py` was added to that script's `OWNED_TOOLS`
-list (so the smoke test's file-presence check and hook-ownership matching both cover
-it), but `HOOK_EVENTS`, `hook_groups()` and `hook_commands()` were deliberately left
-unchanged, because `tools/test_install.py` hard-asserts a fixed shape (one hook group
-per event, five wired events, five hook commands sharing one target-path prefix) that
-a second `PreToolUse` group or a new `PostToolUse` event would break, and that suite
-sits outside this change's fence. Until a follow-up loop updates both the installer
-and its test suite together, a clone install gets the fence hook but not the Bash
-audit hook; the plugin install path gets both. Recorded honestly in
-docs/KNOWN-LIMITS.md rather than left for someone to discover.
+Both install paths wire both entrypoints today. The Claude Code plugin manifest,
+`hooks/hooks.json`, and `scripts/install.py`'s clone-install path (the one
+QUICKSTART documents, and the one `tools/test_install.py` exercises end to end)
+carry the same shape: `PreToolUse` holds two matcher groups (the fence hook at
+`Edit|Write|MultiEdit|NotebookEdit`, and this audit's `pre` phase at `Bash`), and
+a `PostToolUse` key wires the `post` entrypoint. That is six wired events and
+seven hook commands, and `tools/test_install.py` hard-asserts exactly that shape,
+so removing either entrypoint turns the suite red.
+
+History, dated so the old claim cannot be read as current: when this hook first
+landed, the clone installer deliberately did NOT wire it, because
+`tools/test_install.py` then asserted a five-event shape and sat outside that
+change's fence; the gap was recorded in docs/KNOWN-LIMITS.md. The Loop 6 refuter
+pass (2026-08-01) closed it: the installer and its suite were updated together,
+and a test now reads `hooks/hooks.json`, so deleting the wiring fails a test
+instead of failing a user.
 
 ## What a follow-up change to bm_store.py would need to add
 
