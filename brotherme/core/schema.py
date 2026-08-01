@@ -13,22 +13,18 @@ WHAT LIVES HERE
      which refuses an illegal move by naming the from-state, the to-state,
      and the legal moves. `done` is not a state and is refused by name,
      because the document says so in as many words.
-  3. An append-only JSONL event stream: append_event() fsync-writes one
-     validated AttributionEvent per line, read_events() yields them back,
-     and a corrupt line raises with its line number rather than being
-     skipped. A skipped line is an attribution record that silently
-     stopped existing, which is the exact failure the stream exists to
-     prevent.
 
-Python 3.9, standard library only. No network. No subprocess. Writes no
-files except the event stream a caller explicitly passes to append_event.
+Storage lives in the store now, not here: tools/bm_store.py schema 12 holds
+the five shapes as tables and calls into this module for validation and
+legality before every write. This module used to also own an append-only
+JSONL event stream (append_event, read_events); that stream is retired
+(Loop 1 delete-list D3, replayed into the store with nothing left to
+replay), so this module is shapes and legality only.
+
+Python 3.9, standard library only. No network. No subprocess. No files.
 
 No em or en dashes anywhere in this file, its comments, or its output.
 """
-
-import io
-import json
-import os
 
 
 class SchemaError(ValueError):
@@ -334,76 +330,3 @@ class Alert(_Shape):
 
 
 SHAPES = (Project, Forecast, Task, AttributionEvent, Alert)
-
-
-# -- the append-only event stream --------------------------------------------
-
-def append_event(path, event):
-    """Append one validated AttributionEvent to the JSONL stream at `path`,
-    fsynced, one object per line. Refuses an invalid event BEFORE touching
-    the file: a stream that accepts junk is not a record."""
-    if not isinstance(event, AttributionEvent):
-        raise SchemaError(
-            "append_event wants an AttributionEvent, got %s"
-            % type(event).__name__)
-    event.validate()
-    try:
-        line = json.dumps(event.to_dict(), sort_keys=True)
-    except (TypeError, ValueError) as exc:
-        raise SchemaError(
-            "event %r validates but does not serialize: %s. A field holds "
-            "a value JSON cannot carry; every element of a list field must "
-            "be a plain JSON value." % (event.event_id, exc))
-    try:
-        parent = os.path.dirname(os.path.abspath(path))
-        if not os.path.isdir(parent):
-            os.makedirs(parent)
-        with io.open(path, "a", encoding="utf-8") as fh:
-            fh.write(line + "\n")
-            fh.flush()
-            os.fsync(fh.fileno())
-    except (IOError, OSError) as exc:
-        raise SchemaError(
-            "could not append event %r to %s: %s"
-            % (event.event_id, path, exc))
-
-
-def read_events(path):
-    """Yield every AttributionEvent from the stream at `path`, in order.
-
-    A line that does not parse, does not match the canonical shape, or
-    fails validation raises SchemaError NAMING THE LINE NUMBER, instead of
-    being skipped: a silently dropped line is an action that stopped having
-    happened, and hiding that is worse than stopping."""
-    try:
-        fh = io.open(path, encoding="utf-8")
-    except (IOError, OSError) as exc:
-        raise SchemaError("could not read event stream %s: %s" % (path, exc))
-    return _iter_open_stream(fh, path)
-
-
-def _iter_open_stream(fh, path):
-    """The lazy half of read_events, over an ALREADY-OPEN handle, so that
-    an unreadable path fails at call time rather than at first iteration
-    (a generator that has not started swallows the open)."""
-    with fh:
-        for lineno, raw in enumerate(fh, 1):
-            line = raw.strip()
-            if not line:
-                raise SchemaError(
-                    "corrupt event stream %s: line %d is blank. The stream "
-                    "is one event per line, append-only; a blank line means "
-                    "a write was torn or the file was edited by hand."
-                    % (path, lineno))
-            try:
-                data = json.loads(line)
-            except ValueError as exc:
-                raise SchemaError(
-                    "corrupt event stream %s: line %d does not parse as "
-                    "JSON (%s)" % (path, lineno, exc))
-            try:
-                yield AttributionEvent.from_dict(data).validate()
-            except SchemaError as exc:
-                raise SchemaError(
-                    "corrupt event stream %s: line %d is not a canonical "
-                    "AttributionEvent (%s)" % (path, lineno, exc))
