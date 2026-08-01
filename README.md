@@ -18,15 +18,21 @@ copy-pasteable, ten-minute walkthrough with the expected output of every
 command is [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
 
 **The plugin way (two lines, inside Claude Code).** This repository is its
-own plugin marketplace: add it once, install from it, and the six /brotherme
-commands, the guided skill, and the five hooks register on the next start.
-Upgrading later is one `/plugin` update from the same source; uninstalling
-removes the plugin and leaves your project data and vault untouched.
+own plugin marketplace: add it once, install from it, and the seven
+/brotherme commands, the guided skill, and the five hooks register on the
+next start. Upgrading later is one `/plugin` update from the same source;
+uninstalling removes the plugin and leaves your project data and vault
+untouched.
 
 ```
 /plugin marketplace add khalilmaaouni/BrotherModeUp
-/plugin install brotherme@brotherme-marketplace
+/plugin install brotherme
 ```
+
+The short install form works when one source offers the name; if Claude Code
+ever asks which source, or you carry several marketplaces, the fully
+qualified form is `brotherme@brotherme-marketplace`. Every page of this
+project teaches the short form so a beginner sees one command everywhere.
 
 Honest label: this path has been installed exactly once, on the author's
 machine, from a local copy of this repository (cycle recorded in
@@ -35,13 +41,18 @@ validate` passing). The GitHub form above is the same mechanism pointed at
 this repository; no install from GitHub or from another machine has been
 recorded yet, which is exactly what keeps this release a candidate.
 
+**Updating.** Type `/brotherme-update` and it walks you through it, or run
+the two lines it wraps yourself: `/plugin marketplace update
+brotherme-marketplace`, then `/plugin update brotherme`. Updating never
+touches your projects or your records.
+
 **The pinned clone (the most-proven path).** This clones an immutable, tagged
 release, not a moving branch, because code that runs automatically on every
 future session should come from a fixed, checkable snapshot; a moving branch
 feeding auto-run code was the weakest link the original external audit named.
 
 ```bash
-git clone --branch v2.0.0-rc.10 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.11 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 That tag is not typed by hand: it is generated from the same release fact

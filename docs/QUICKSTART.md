@@ -51,8 +51,13 @@ private project memory should live before writing anything there; if that
 question is ever skipped, the automatic session records fall back to a folder
 called `BrotherModeVault` in your home folder, and you can ask to move it.
 
-To remove it later: `/plugin uninstall brotherme`. That is the whole path. The
-rest of this page is Path 2 and applies only if you skipped Path 1.
+To remove it later: `/plugin uninstall brotherme`.
+
+To update later: type `/brotherme-update` and it walks you through it, or run
+the two lines it wraps yourself: `/plugin marketplace update
+brotherme-marketplace`, then `/plugin update brotherme`, then restart Claude
+Code. That is the whole path. The rest of this page is Path 2 and applies only
+if you skipped Path 1.
 
 ## Path 2: install by git clone (the verified way)
 
@@ -73,7 +78,7 @@ the tag is generated from the same release fact every other page reads
 hand, and `tools/test_bm_docs.py` fails this page if it ever disagrees.
 
 ```bash
-git clone --branch v2.0.0-rc.10 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.11 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 Expected: git prints a few lines ending in something like `Resolving deltas:

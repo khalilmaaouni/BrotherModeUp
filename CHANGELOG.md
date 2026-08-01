@@ -1,6 +1,58 @@
 # Changelog
 
-## 2.0.0-rc.10, 2026-08-01: the beginner layer lands in main, and the repository becomes its own store
+## 2.0.0-rc.11, 2026-08-01: the explainer earns its excitement, help grows a deep tour, and updating becomes one command
+
+Cut the same day as rc.10, which is SUPERSEDED WITHOUT EVER BEING TAGGED: its
+release-cut commit (8aa6dd1) landed and was pushed, but no tag had been cut
+when this work arrived, so none ever will be (docs/RELEASE.md records why a
+late tag would recreate the rc.8 two-commits-one-name ambiguity).
+
+The explainer (docs/brotherme-explained.html) was rebuilt after the founder
+judged it too thin to convey what the tool actually does. It now anchors on a
+complete worked example, a bakery website told as a conversation from idea to
+delivered, jumpable by stage, with the label that keeps it honest: an
+illustration with real command shapes, not a recording. Around it: practical
+advice on using the guided loops, a good-at column and a not-good-at column
+given equal design weight (the not-good-at list includes the unproven and the
+deliberately refused), six use-case cards each carrying a mini tutorial, and
+updating taught next to installing. A founder review the same day pushed it
+further: a small-ask-versus-big-build section arguing where the machinery
+actually pays for itself, a features section (seven mechanisms, each with
+what it does, how to use it, when it matters) that the page and
+docs/RELEASE.md now bind to a same-change update rule, and three personas
+taken deep, from first-time founder to seasoned builder, all labeled as
+designed-for stories rather than track records. Before any of that shipped,
+a three-lens adversarial panel (command truth, overclaim, register) was sent
+at the page and returned eighteen findings including three Critical
+overclaims in the walkthrough itself (a site claimed live, an invented
+delivery benchmark, a caption that retracted the illustration label); all
+eighteen were applied. The stage stepper is plain anchor links
+with CSS scrolling, chosen over a script after a script-stripped preview
+proved buttons can die where anchors cannot.
+
+/brotherme-help now offers a deep tour: the session runs the existing docs
+engine (tools/bm_docs.py generate) and builds one HTML view of where the
+project stands: state, process diagrams, data model, decisions, code map, and
+a co-build section showing developers the house conventions. Verified honest
+limit: a fresh project generates no technical pages at all, so every section
+whose source folder is absent says "not yet recorded", never invented.
+
+/brotherme-update is the seventh command: it reads the installed version,
+checks the newest release, and gives the exact lines for the user's own
+install path (the plugin lines verified against claude plugin --help on
+2026-08-01; the clone lines per docs/RELEASE.md). Updating never touches a
+user's projects or records, and now says so everywhere installing is taught.
+
+Process note, recorded because the method is the product: this cut ran as one
+wave of three fenced sonnet builders against a founder-ratified spec
+(docs/superpowers/specs/2026-08-01-help-artifact-and-explainer-v2-design.md),
+with the orchestrator writing the walkthrough copy, holding every test file,
+re-running every done-check, and sending three adversarial reviewers at the
+finished page before release. New drift suite pins the seven commands, the
+verified update lines, both sides of the deep-tour flow, and the explainer's
+honesty label.
+
+## 2.0.0-rc.10, 2026-08-01 (SUPERSEDED, NEVER TAGGED): the beginner layer lands in main, and the repository becomes its own store
 
 The layer that made this usable by a person with no technical background
 existed for two days on a local branch nobody could install from. This cut
