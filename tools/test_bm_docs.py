@@ -3227,6 +3227,27 @@ class TestTheAdoptionBook(unittest.TestCase):
                              "section 7 requires the page to render offline "
                              "with no external request, and %r is one" % pat)
 
+    def test_part_two_exists_and_teaches_the_current_surface(self):
+        """Added 2026-08-01 with part two. The book rotted once: it shipped
+        pinned to rc.4 while the product grew a guided layer, a marketplace
+        install and a seventh command it never mentioned, and a founder had
+        to notice. These pins make that rot loud instead of quiet."""
+        book = read(self.BOOK)
+        for anchor in ('id="ch13"', 'id="ch14"', 'id="ch15"', 'id="ch16"'):
+            self.assertIn(anchor, book,
+                          "part two lost its chapter %s" % anchor)
+        for cmd in ("/brotherme-start", "/brotherme-status", "/brotherme-next",
+                    "/brotherme-review", "/brotherme-deliver",
+                    "/brotherme-update", "/brotherme-help"):
+            self.assertIn(cmd, book,
+                          "the book no longer names %s; the guided layer "
+                          "chapter has drifted behind the shipped command "
+                          "set" % cmd)
+        self.assertIn("/plugin marketplace add khalilmaaouni/BrotherModeUp",
+                      book,
+                      "chapter two no longer teaches the marketplace "
+                      "install path")
+
 
 class TestNoDashes(unittest.TestCase):
     """The project's own copy rule, enforced on the files this suite governs."""
