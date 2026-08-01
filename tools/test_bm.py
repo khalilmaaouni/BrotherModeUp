@@ -2997,6 +2997,22 @@ class TestLoop4CorrectionDetection(unittest.TestCase):
         self.assertNotEqual(a, bl.inbox_identity("s2", "No, that is wrong"))
 
 
+def _consented_env(repo, vault):
+    """Env for driving bm_telemetry.py subprocesses now that the Loop 3
+    consent gate exists: without a consented config the hook rightly
+    writes nothing, which is its own tested behavior, not these tests'
+    subject. Writes a completed consent config into the test's own temp
+    repo and points BROTHERME_CONFIG at it."""
+    cfg_path = os.path.join(repo, "consent.json")
+    with io.open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump({"setup_complete": True, "vault_path": vault,
+                   "privacy_notice_version": "2026-08-01",
+                   "installation_mode": "clone",
+                   "security_mode": "standard"}, f)
+    return dict(os.environ, BROTHERMODE_VAULT=vault,
+                BROTHERME_CONFIG=cfg_path)
+
+
 class TestLoop4CaptureThroughTheRealHook(unittest.TestCase):
     """The SessionEnd path end to end, through the real CLI, because in this
     project every serious defect so far was found by driving the binary while
@@ -3018,7 +3034,7 @@ class TestLoop4CaptureThroughTheRealHook(unittest.TestCase):
                               "cwd": repo, "reason": "other"})
         subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
                         "outcomes-append"],
-                       input=payload, env=dict(os.environ, BROTHERMODE_VAULT=vault),
+                       input=payload, env=_consented_env(repo, vault),
                        cwd=repo, capture_output=True, text=True)
         p = os.path.join(vault, "99-System", "telemetry", "corrections.jsonl")
         rows = []
@@ -3093,7 +3109,7 @@ class TestLoop4PairingAndFileDedup(unittest.TestCase):
                               "cwd": repo, "reason": "other"})
         subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
                         "outcomes-append"],
-                       input=payload, env=dict(os.environ, BROTHERMODE_VAULT=vault),
+                       input=payload, env=_consented_env(repo, vault),
                        cwd=repo, capture_output=True, text=True)
         p = os.path.join(vault, "99-System", "telemetry", "corrections.jsonl")
         rows = []
@@ -3697,7 +3713,7 @@ class TestLoop12PairedArtifactsAreRedacted(unittest.TestCase):
                               "cwd": repo, "reason": "other"})
         subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
                         "outcomes-append"],
-                       input=payload, env=dict(os.environ, BROTHERMODE_VAULT=vault),
+                       input=payload, env=_consented_env(repo, vault),
                        cwd=repo, capture_output=True, text=True)
         return os.path.join(vault, "99-System", "telemetry", "corrections.jsonl")
 
