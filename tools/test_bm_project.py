@@ -20,6 +20,7 @@ Python 3.9, standard library only. Run: python3 tools/test_bm_project.py
 
 No em or en dashes anywhere in this file, its comments, or its output.
 """
+import ast
 import importlib.util
 import io
 import json
@@ -80,27 +81,128 @@ def _raw_dump(root):
         store.close()
 
 
+def _docstring_constant_ids(tree):
+    """id() of every ast.Constant node ast.get_docstring would return the
+    value of: the first statement of a Module/FunctionDef/
+    AsyncFunctionDef/ClassDef body, when it is a bare string expression.
+    Docstrings are prose a human reads, never an argument any code
+    executes, and this file's own module docstring legitimately uses
+    ordinary English words ('an update', 'select only the questions
+    that...') a blind scan cannot tell apart from SQL. Comments need no
+    equivalent exclusion: Python's own tokenizer discards them before the
+    AST exists, so they were never a node a walk could visit in the first
+    place."""
+    ids = set()
+    doc_holders = (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
+                   ast.ClassDef)
+    for node in ast.walk(tree):
+        if isinstance(node, doc_holders) and node.body:
+            first = node.body[0]
+            if (isinstance(first, ast.Expr)
+                    and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                ids.add(id(first.value))
+    return ids
+
+
 class TestNoSQLGuard(unittest.TestCase):
     """D-1's flip condition, made executable: the moment bm_project.py
     needs a query the store does not already offer, it has become a
-    second writer and must be folded back into bm_store.py."""
+    second writer and must be folded back into bm_store.py.
+
+    C7 (release-closure loop2 refuter fixes, from the PLAUSIBLE set,
+    fixed anyway): the original guard was `re.findall(r"\\b(SELECT|
+    INSERT|UPDATE|DELETE)\\b", source)` over the file's RAW TEXT,
+    uppercase only. Two trivial bypasses evaded it without anything
+    exotic: write the query in lowercase (`"select * from tasks"` is
+    legal SQL and never matches an uppercase-only pattern), or split one
+    keyword across two adjacent string literals (`"SEL" "ECT"` -- Python
+    joins those into a single string at parse time, but they are never
+    ONE contiguous word in the raw source a regex reads). Making the old
+    pattern merely case-insensitive reopens the false positive its own
+    comment already warned about (this file's legitimate lowercase
+    `dict.update()` and `project['updated_at']`), and, proven below,
+    trips on ordinary English prose in this file's own docstrings ("an
+    update", "select only the questions..."). The fix is a smaller
+    haystack, not a smarter pattern: parse the file with `ast` and check
+    only STRING LITERAL VALUES (ast.Constant, case insensitive) for the
+    keyword, excluding docstrings. Adjacent string-literal concatenation
+    is already ONE Constant node with the joined value by the time
+    ast.parse returns, which closes that bypass for free; a bare Python
+    identifier like `update` or `updated_at` is a Name/Attribute node,
+    never a string constant, so it is never even examined."""
+
+    _SQL_RE = re.compile(r"\b(SELECT|INSERT|UPDATE|DELETE|PRAGMA)\b",
+                         re.IGNORECASE)
 
     def test_bm_project_never_issues_its_own_sql(self):
-        # Case sensitive, matching how every real query in bm_store.py
-        # itself is written (SELECT/INSERT/UPDATE/DELETE, always upper
-        # case, inside a _exec(...) call). This file's own lower-case
-        # 'update' (dict.update, project['updated_at']) must never trip
-        # a case-INsensitive version of this same check.
         with io.open(os.path.join(HERE, "bm_project.py"),
                      encoding="utf-8") as fh:
             source = fh.read()
-        hits = re.findall(r"\b(SELECT|INSERT|UPDATE|DELETE)\b", source)
+        tree = ast.parse(source, filename="bm_project.py")
+        skip = _docstring_constant_ids(tree)
+        hits = []
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Constant)
+                    and isinstance(node.value, str)
+                    and id(node) not in skip
+                    and self._SQL_RE.search(node.value)):
+                hits.append((node.lineno, node.value))
         self.assertEqual(
             hits, [],
-            "bm_project.py must never contain SQL keywords of its own "
-            "(found %r); a query the store does not already offer means "
-            "this file has become a second writer and the query belongs "
-            "in bm_store.py instead (D-1's flip condition)." % hits)
+            "bm_project.py must never contain a string literal shaped "
+            "like SQL (found %r); a query the store does not already "
+            "offer means this file has become a second writer and the "
+            "query belongs in bm_store.py instead (D-1's flip "
+            "condition)." % hits)
+
+    def test_bm_project_never_imports_sqlite3(self):
+        """Even a keyword-free query needs something able to run it.
+        This file has no legitimate reason to import sqlite3 directly:
+        every query it needs already goes through bs, the loaded
+        bm_store module, and its Store service methods."""
+        with io.open(os.path.join(HERE, "bm_project.py"),
+                     encoding="utf-8") as fh:
+            source = fh.read()
+        tree = ast.parse(source, filename="bm_project.py")
+        offenders = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                offenders.extend(a.name for a in node.names
+                                 if a.name.split(".")[0] == "sqlite3")
+            elif isinstance(node, ast.ImportFrom):
+                if (node.module or "").split(".")[0] == "sqlite3":
+                    offenders.append(node.module)
+        self.assertEqual(
+            offenders, [],
+            "bm_project.py must never import sqlite3 directly (found "
+            "%r); every query it needs already goes through bs, the "
+            "loaded bm_store module." % offenders)
+
+    def test_calibrated_old_guard_missed_a_lowercase_or_split_bypass(self):
+        """CALIBRATION. Reproduces the pre-fix guard's own logic against a
+        synthetic snippet standing in for what a change to bm_project.py
+        could slip in, proving it would have said nothing was wrong, then
+        proves the current AST-based guard catches both bypasses in the
+        same snippet."""
+        bypass_snippet = (
+            'query = "sel" "ect * from tasks"\n'   # adjacent-literal split
+            'other = "update tasks set status=?"\n'  # lowercase, whole word
+        )
+        old_style_hits = re.findall(
+            r"\b(SELECT|INSERT|UPDATE|DELETE)\b", bypass_snippet)
+        self.assertEqual(
+            old_style_hits, [],
+            "calibration sanity: the OLD guard must find nothing in this "
+            "snippet, or it does not actually demonstrate the bypass")
+        tree = ast.parse(bypass_snippet)
+        hits = [n.value for n in ast.walk(tree)
+               if isinstance(n, ast.Constant) and isinstance(n.value, str)
+               and self._SQL_RE.search(n.value)]
+        self.assertEqual(
+            len(hits), 2,
+            "the AST-based guard must catch both the split literal and "
+            "the lowercase keyword the old regex missed (got %r)" % hits)
 
 
 class TestRefusals(unittest.TestCase):
@@ -376,6 +478,163 @@ class TestScriptedFirstProject(unittest.TestCase):
                 packet = fh.read()
             self.assertIn("BEGIN GENERATED BROTHERMODE DELIVERY PACKET",
                           packet)
+
+
+class TestReleaseClosureLoop2RefuterFixes(unittest.TestCase):
+    """Regression coverage for the twelve confirmed loop2-refuter
+    findings this file's own correctness fixes (C1-C6) touch. Each test
+    below fails against the pre-fix code and passes against the fix."""
+
+    def _started(self, root, project_id="proj1", name="Acme Rescue",
+                extra=()):
+        _init(root)
+        r = _run(["start", "--project-id", project_id, "--name", name]
+                 + list(extra) + list(ACTOR), root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_review_refused_transition_leaves_no_orphan_evidence(self):
+        """C1: review used to call add_evidence and transition_task as
+        two SEPARATE transactions, so a refused transition still left the
+        evidence from the first call sitting on disk. review_task now
+        runs both in ONE transaction."""
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            r = _run(["task", "add", "--project-id", "proj1",
+                      "--task-id", "task1", "--title", "Do the thing"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            # review defaults --to verified; legal moves from 'planned'
+            # are ('ready',) only, so this is refused.
+            r = _run(["review", "task1", "--project-id", "proj1",
+                      "--kind", "test", "--ref", "x", "--reason", "trying"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 1)
+            raw = _raw_dump(root)
+            self.assertEqual(
+                [e for e in raw["evidence"] if e["subject_id"] == "task1"],
+                [], "a refused review transition must write no evidence row")
+
+    def test_review_refuses_evidence_for_a_nonexistent_task(self):
+        """C2: add_evidence used to validate nothing about its subject.
+        Reviewing a task id that names nothing used to insert an evidence
+        row for it anyway (the transition call that came after was what
+        actually failed), leaving an orphan evidence row for a subject
+        that never existed."""
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            r = _run(["review", "nope", "--project-id", "proj1",
+                      "--reason", "trying"] + list(ACTOR), root)
+            self.assertEqual(r.returncode, 1)
+            raw = _raw_dump(root)
+            self.assertEqual(
+                [e for e in raw["evidence"] if e["subject_id"] == "nope"],
+                [], "evidence for a nonexistent subject must never be "
+                    "written")
+
+    def test_review_refuses_evidence_when_project_id_mismatches_the_tasks_own_project(self):
+        """C3: evidence carries no project_id column of its own; without
+        a cross-check, evidence for a task in one project could be filed
+        under a different project's id."""
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            self._started(root, project_id="proj2", name="Other",
+                          extra=("--allow-second",))
+            r = _run(["task", "add", "--project-id", "proj2",
+                      "--task-id", "task2", "--title", "Do the other thing"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            # task2 belongs to proj2; review claims proj1.
+            r = _run(["review", "task2", "--project-id", "proj1",
+                      "--reason", "trying"] + list(ACTOR), root)
+            self.assertEqual(r.returncode, 1)
+            raw = _raw_dump(root)
+            self.assertEqual(
+                [e for e in raw["evidence"] if e["subject_id"] == "task2"],
+                [], "a project-mismatched review must write no evidence "
+                    "row")
+
+    def test_deliver_refuses_a_project_with_zero_tasks_even_with_partial(self):
+        """C4: deliver used to succeed on a project with zero tasks
+        (0 non-terminal out of 0 total looks, wrongly, like nothing is
+        outstanding); --partial must not override this."""
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            r = _run(["deliver", "--project-id", "proj1"], root)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("zero tasks", r.stderr)
+            r = _run(["deliver", "--project-id", "proj1", "--partial"], root)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("zero tasks", r.stderr)
+
+    def test_start_refuses_a_second_project_without_allow_second(self):
+        """C5: two different project_ids sharing one root would clobber
+        CANVAS.md and the delivery packet in turn."""
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            r = _run(["start", "--project-id", "proj2", "--name", "Other"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("proj1", r.stderr)
+            # Re-running start on the SAME project_id is an update, never
+            # "a second project", and is never refused.
+            r = _run(["start", "--project-id", "proj1", "--name",
+                      "Acme Rescue"] + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_start_allow_second_switches_canvas_and_packet_to_project_scoped_names(self):
+        """C5: once a root genuinely holds more than one project,
+        CANVAS.md/DELIVERY-PACKET.md must not be shared filenames."""
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            self.assertTrue(os.path.isfile(os.path.join(root, "CANVAS.md")))
+            self._started(root, project_id="proj2", name="Other",
+                          extra=("--allow-second",))
+            self.assertTrue(
+                os.path.isfile(os.path.join(root, "CANVAS-proj2.md")),
+                "a second project's canvas must not clobber CANVAS.md")
+            r = _run(["task", "add", "--project-id", "proj2",
+                      "--task-id", "task2", "--title", "Do the other thing"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["deliver", "--project-id", "proj2", "--partial"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(
+                os.path.isfile(
+                    os.path.join(root, "DELIVERY-PACKET-proj2.md")),
+                "a second project's delivery packet must not clobber "
+                "DELIVERY-PACKET.md")
+
+    def test_next_ties_on_priority_by_insertion_order_not_task_id(self):
+        """C6: tasks carry no created_at; the tie break used to be
+        task_id order (a random hex uuid), which next's own WHY text
+        misdescribed as 'earliest created'. Task ids below are chosen so
+        alphabetical order would pick the WRONG one: 'zzz...' is added
+        FIRST but sorts LAST alphabetically."""
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            for task_id, title in (("zzz-added-first", "First in"),
+                                   ("aaa-added-second", "Second in")):
+                r = _run(["task", "add", "--project-id", "proj1",
+                          "--task-id", task_id, "--title", title]
+                         + list(ACTOR), root)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                r = _run(["task", "transition", "--task-id", task_id,
+                          "--to", "ready", "--reason", "deps clear"]
+                         + list(ACTOR), root)
+                self.assertEqual(r.returncode, 0, r.stderr)
+
+            r = _run(["next", "--project-id", "proj1", "--json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            nxt = json.loads(r.stdout)
+            self.assertEqual(
+                nxt["picked"]["task_id"], "zzz-added-first",
+                "same priority (both blank): the tie break must be "
+                "insertion order, not task_id order")
+
+            r = _run(["next", "--project-id", "proj1"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("added first", r.stdout)
+            self.assertNotIn("earliest created", r.stdout)
 
 
 class TestLoop2RedactionPolicy(unittest.TestCase):

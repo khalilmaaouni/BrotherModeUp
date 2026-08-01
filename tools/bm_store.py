@@ -2704,6 +2704,35 @@ _DUMP_SCRUB_ONLY_COLUMNS = frozenset((
     # caller who claims an ABSOLUTE path still gets it masked and a
     # secret-shaped one still gets it redacted.
     ("claims", "path"),
+    # V1 (release-closure loop2 refuter fixes, ratified amendment). These
+    # nine schema-12 columns were added to _DUMP_SAFE_COLUMNS (below) as
+    # part of the LOOP 2 redaction fix on the theory that they are short
+    # machine labels like every other entry there. They are not: none of
+    # them carries a schema.py ENUMS entry (checked directly against
+    # Project, Task, AttributionEvent and Alert's own ENUMS dicts; evidence
+    # and runtime_runs have no schema.py shape at all), which means every
+    # one is FREE TEXT a founder or a caller can type anything into
+    # (`start --phase`, `task add --priority`, and so on). A founder who
+    # typed a client codename into --phase or pasted a live key into
+    # --priority by mistake had it exported verbatim. They stay legible
+    # (withholding them would make status/next/deliver output unreadable,
+    # the same tradeoff records.name and records.tier already made) but
+    # move to scrub-only: secret-shaped text is redacted and an absolute
+    # path is masked, exactly like every other column in this set. The
+    # true enums this loop widened alongside them -- tasks.status,
+    # forecasts.confidence, tasks.confidence, attribution.actor_type,
+    # alerts.severity -- ARE schema-constrained (schema.transition() and
+    # _Shape.validate() refuse anything outside their ENUMS dict before a
+    # row is ever written) and stay in _DUMP_SAFE_COLUMNS, because there is
+    # nothing free-text about a value the store itself already restricted
+    # to a known list.
+    ("projects", "project_type"), ("projects", "phase"),
+    ("projects", "experience_level"),
+    ("tasks", "priority"),
+    ("attribution", "event_type"),
+    ("alerts", "category"),
+    ("evidence", "kind"), ("evidence", "subject_type"),
+    ("runtime_runs", "runtime"),
 ))
 
 # FIX-ROUND 11 (reported and reproduced): session ids were listed as
@@ -3082,21 +3111,29 @@ _DUMP_SAFE_COLUMNS = frozenset((
     # which is JSON-encoded founder prose the moment it holds a success
     # criterion or a risk) is DELIBERATELY absent and stays withheld through
     # the same default-deny path as every other table's prose.
+    #
+    # V1 (release-closure loop2 refuter fixes, ratified amendment): this
+    # loop's own first pass over-widened the allowlist. project_type, phase,
+    # experience_level, priority, event_type, category, evidence.kind,
+    # evidence.subject_type and runtime.runtime were listed here too, next
+    # to project_id and status, on the assumption that they are the same
+    # kind of machine label. They are not: none carries a schema.py ENUMS
+    # entry, so every one is free text a caller can type anything into. They
+    # moved to _DUMP_SCRUB_ONLY_COLUMNS instead (see the comment there for
+    # the full accounting); only genuine ids, schema-constrained enums and
+    # timestamps remain here.
     ("projects", "project_id"), ("projects", "status"),
-    ("projects", "phase"), ("projects", "project_type"),
-    ("projects", "experience_level"), ("projects", "created_at"),
-    ("projects", "updated_at"),
+    ("projects", "created_at"), ("projects", "updated_at"),
     ("forecasts", "forecast_id"), ("forecasts", "project_id"),
     ("forecasts", "confidence"), ("forecasts", "created_at"),
     ("tasks", "task_id"), ("tasks", "project_id"), ("tasks", "status"),
-    ("tasks", "priority"), ("tasks", "confidence"),
+    ("tasks", "confidence"),
     ("tasks", "started_at"), ("tasks", "completed_at"),
     ("dependencies", "task_id"), ("dependencies", "depends_on_task_id"),
     ("attribution", "event_id"), ("attribution", "project_id"),
-    ("attribution", "task_id"), ("attribution", "event_type"),
+    ("attribution", "task_id"),
     ("attribution", "actor_type"), ("attribution", "timestamp"),
     ("alerts", "alert_id"), ("alerts", "severity"),
-    ("alerts", "category"),
     # requires_human is INTEGER (a real bool column, never TEXT), so
     # _text_columns never surfaces it and this entry is a no-op against
     # _export_row/export_column; listed anyway so this comment block is a
@@ -3104,10 +3141,10 @@ _DUMP_SAFE_COLUMNS = frozenset((
     # named, not a subset silently narrowed for being redundant.
     ("alerts", "requires_human"),
     ("alerts", "created_at"), ("alerts", "resolved_at"),
-    ("evidence", "evidence_id"), ("evidence", "subject_type"),
-    ("evidence", "subject_id"), ("evidence", "kind"),
+    ("evidence", "evidence_id"),
+    ("evidence", "subject_id"),
     ("evidence", "created_at"),
-    ("runtime_runs", "run_id"), ("runtime_runs", "runtime"),
+    ("runtime_runs", "run_id"),
     ("runtime_runs", "result"), ("runtime_runs", "started_at"),
     ("runtime_runs", "finished_at"),
 ))
@@ -10000,6 +10037,35 @@ class Store(object):
                                      action="create_task")
         return task.task_id
 
+    def _transition_task_row(self, task_id, new_status, reason, actor):
+        """The body of transition_task, assuming a transaction is ALREADY
+        open. Split out (release-closure loop2 refuter fixes, C1) so
+        review_task below can run this AND _insert_evidence_row in ONE
+        transaction: sqlite refuses a nested BEGIN, so the composite
+        method cannot call the public, transaction-opening
+        transition_task and add_evidence and still get one atomic unit.
+        Legality comes entirely from schema.transition() (the ten states,
+        LEGAL_TRANSITIONS, 'done' refused by name), never restated here.
+        Returns the updated Task, not merely its status, so a caller that
+        needs task.project_id (review_task's own attribution row) never
+        has to re-read the row it just wrote."""
+        S = _schema()
+        row = _exec(self, "SELECT * FROM tasks WHERE task_id=?",
+                    (task_id,)).fetchone()
+        if row is None:
+            raise OwnershipRefused(
+                "not-found", "no task %r" % (task_id,))
+        task = S.Task.from_dict(
+            {k: (json.loads(row[k]) if k in S.Task.LIST_FIELDS
+                 else row[k]) for k in S.Task.FIELDS})
+        S.transition(task, new_status, reason=reason)
+        _exec(self, "UPDATE tasks SET status=? WHERE task_id=?",
+              (task.status, task.task_id))
+        self._write_attribution(
+            task.project_id, task.task_id, "task.transitioned", actor,
+            action="transition_task", reason=reason or "")
+        return task
+
     def transition_task(self, task_id, new_status, reason, actor):
         """Move a task to new_status, or refuse: legality comes entirely
         from schema.transition() (the ten states, LEGAL_TRANSITIONS,
@@ -10007,22 +10073,9 @@ class Store(object):
         update and the attribution event ('task.transitioned') land in ONE
         transaction; an illegal move raises schema.SchemaError before
         either is touched, so a refused transition writes nothing."""
-        S = _schema()
         with self._transaction():
-            row = _exec(self, "SELECT * FROM tasks WHERE task_id=?",
-                        (task_id,)).fetchone()
-            if row is None:
-                raise OwnershipRefused(
-                    "not-found", "no task %r" % (task_id,))
-            task = S.Task.from_dict(
-                {k: (json.loads(row[k]) if k in S.Task.LIST_FIELDS
-                     else row[k]) for k in S.Task.FIELDS})
-            S.transition(task, new_status, reason=reason)
-            _exec(self, "UPDATE tasks SET status=? WHERE task_id=?",
-                  (task.status, task.task_id))
-            self._write_attribution(
-                task.project_id, task.task_id, "task.transitioned", actor,
-                action="transition_task", reason=reason or "")
+            task = self._transition_task_row(task_id, new_status, reason,
+                                              actor)
         return task.status
 
     def raise_alert(self, alert_dict, project_id, actor):
@@ -10079,6 +10132,75 @@ class Store(object):
                 evidence_ref=alert_id)
         return ts
 
+    def _verify_evidence_subject(self, evidence_dict, project_id):
+        """C2/C3 (release-closure loop2 refuter fixes): before an evidence
+        row is written, confirm its subject actually exists, and when the
+        subject is a task, that the task belongs to the SAME project the
+        caller is filing evidence under. Evidence carries no project_id
+        column of its own (see add_evidence's docstring); without this
+        check a caller could attach evidence to a task that lives in a
+        different project than the one attribution records it against, or
+        to a subject id that names nothing at all. Called from inside the
+        caller's own transaction, so a refusal here rolls back whatever
+        else that transaction was about to write."""
+        subject_type = evidence_dict["subject_type"]
+        subject_id = evidence_dict["subject_id"]
+        if subject_type == "project":
+            row = _exec(self, "SELECT project_id FROM projects "
+                        "WHERE project_id=?", (subject_id,)).fetchone()
+            if row is None:
+                raise OwnershipRefused(
+                    "not-found",
+                    "no project %r to attach evidence to" % (subject_id,))
+        elif subject_type == "task":
+            row = _exec(self, "SELECT project_id FROM tasks "
+                        "WHERE task_id=?", (subject_id,)).fetchone()
+            if row is None:
+                raise OwnershipRefused(
+                    "not-found",
+                    "no task %r to attach evidence to" % (subject_id,))
+            if row["project_id"] != project_id:
+                raise OwnershipRefused(
+                    "project-mismatch",
+                    "task %r belongs to project %r, not %r; evidence must "
+                    "be filed under the task's own project"
+                    % (subject_id, row["project_id"], project_id))
+        else:
+            raise OwnershipRefused(
+                "not-found",
+                "evidence subject_type must be 'project' or 'task', got %r"
+                % (subject_type,))
+
+    def _insert_evidence_row(self, evidence_dict, project_id, actor):
+        """The body of add_evidence, assuming a transaction is ALREADY
+        open (see _transition_task_row's docstring: review_task below
+        runs this AND _transition_task_row in ONE transaction)."""
+        required = ("evidence_id", "subject_type", "subject_id", "created_at")
+        missing = [k for k in required if not evidence_dict.get(k)]
+        if missing:
+            raise OwnershipRefused(
+                "bad-evidence",
+                "evidence is missing required field(s): %s"
+                % ", ".join(missing))
+        self._verify_evidence_subject(evidence_dict, project_id)
+        _exec(self,
+              "INSERT INTO evidence (evidence_id, subject_type, "
+              "subject_id, kind, ref, note, created_at) "
+              "VALUES (?,?,?,?,?,?,?)",
+              (evidence_dict["evidence_id"], evidence_dict["subject_type"],
+               evidence_dict["subject_id"],
+               evidence_dict.get("kind") or "",
+               evidence_dict.get("ref") or "",
+               evidence_dict.get("note") or "",
+               evidence_dict["created_at"]))
+        task_id = (evidence_dict["subject_id"]
+                   if evidence_dict["subject_type"] == "task" else None)
+        self._write_attribution(
+            project_id, task_id, "evidence.added", actor,
+            action="add_evidence",
+            evidence_ref=evidence_dict["evidence_id"])
+        return evidence_dict["evidence_id"]
+
     def add_evidence(self, evidence_dict, project_id, actor):
         """Append ONE evidence row (task or delivery evidence, a row per
         artifact -- distinct from records.evidence, which is fence-close
@@ -10088,32 +10210,34 @@ class Store(object):
         for the same reason raise_alert takes it: evidence carries no
         project_id column of its own, but attribution's does. When
         evidence_dict['subject_type'] == 'task', its subject_id is also
-        threaded through as the attribution row's task_id."""
-        required = ("evidence_id", "subject_type", "subject_id", "created_at")
-        missing = [k for k in required if not evidence_dict.get(k)]
-        if missing:
-            raise OwnershipRefused(
-                "bad-evidence",
-                "evidence is missing required field(s): %s"
-                % ", ".join(missing))
+        threaded through as the attribution row's task_id. The subject
+        (project or task) must already exist, and a task subject must
+        belong to `project_id`; either failure refuses via
+        _verify_evidence_subject with nothing written (C2/C3)."""
         with self._transaction():
-            _exec(self,
-                  "INSERT INTO evidence (evidence_id, subject_type, "
-                  "subject_id, kind, ref, note, created_at) "
-                  "VALUES (?,?,?,?,?,?,?)",
-                  (evidence_dict["evidence_id"], evidence_dict["subject_type"],
-                   evidence_dict["subject_id"],
-                   evidence_dict.get("kind") or "",
-                   evidence_dict.get("ref") or "",
-                   evidence_dict.get("note") or "",
-                   evidence_dict["created_at"]))
-            task_id = (evidence_dict["subject_id"]
-                       if evidence_dict["subject_type"] == "task" else None)
-            self._write_attribution(
-                project_id, task_id, "evidence.added", actor,
-                action="add_evidence",
-                evidence_ref=evidence_dict["evidence_id"])
-        return evidence_dict["evidence_id"]
+            return self._insert_evidence_row(evidence_dict, project_id, actor)
+
+    def review_task(self, task_id, project_id, evidence_dict, new_status,
+                     reason, actor):
+        """Composite: file ONE evidence row for `task_id` and transition it
+        to `new_status`, with BOTH attribution events, in ONE transaction
+        (C1, release-closure loop2 refuter fixes). Before this,
+        tools/bm_project.py's `review` command called add_evidence and
+        transition_task as two SEPARATE transactions: when the transition
+        was legal this was harmless, but when schema.transition() refused,
+        the evidence row from the first call had already committed and
+        stayed on disk, attached to a task review that never actually
+        happened -- an orphan no later command could clean up. Refusing
+        here writes NOTHING: an illegal transition raises before the
+        tasks.status UPDATE, and that same exception unwinds the evidence
+        INSERT with it, exactly like every other multi-row mutation in
+        this file. Returns (evidence_id, new_status)."""
+        with self._transaction():
+            evidence_id = self._insert_evidence_row(
+                evidence_dict, project_id, actor)
+            task = self._transition_task_row(
+                task_id, new_status, reason, actor)
+        return evidence_id, task.status
 
     def record_runtime_run(self, run_dict, project_id, actor, task_id=None):
         """Insert ONE runtime_runs row with its attribution event
@@ -10187,20 +10311,27 @@ class Store(object):
                              S.Project.LIST_FIELDS, raw=raw) for r in rows]
 
     def list_tasks(self, project_id, status=None, raw=False):
-        """Every task in `project_id`, task_id order (tasks carries no
-        timestamp of its own to order by). `status` narrows to ONE of
-        schema.py's ten legal values when given; an unrecognised status
+        """Every task in `project_id`, INSERTION order: tasks carries no
+        timestamp of its own to order by, and task_id (a random hex uuid)
+        does not preserve the order tasks were added in either, which used
+        to make cmd_next's own "earliest created" claim false (C6,
+        release-closure loop2 refuter fixes). sqlite's own rowid is the
+        one column every ordinary table (task_id is TEXT, not INTEGER, so
+        it is never a rowid alias) already carries for free and that DOES
+        grow monotonically with each INSERT, so ordering by it is
+        insertion order without adding a column. `status` narrows to ONE
+        of schema.py's ten legal values when given; an unrecognised status
         simply matches nothing, the same advisory degrade as a missing
         project_id."""
         S = _schema()
         if status is None:
             rows = _exec(self,
-                "SELECT * FROM tasks WHERE project_id=? ORDER BY task_id ASC",
+                "SELECT * FROM tasks WHERE project_id=? ORDER BY rowid ASC",
                 (project_id,)).fetchall()
         else:
             rows = _exec(self,
                 "SELECT * FROM tasks WHERE project_id=? AND status=? "
-                "ORDER BY task_id ASC", (project_id, status)).fetchall()
+                "ORDER BY rowid ASC", (project_id, status)).fetchall()
         return [_export_row(self.conn, "tasks", dict(r), S.Task.LIST_FIELDS,
                              raw=raw) for r in rows]
 
@@ -11426,16 +11557,29 @@ def _redact_outside_human_blocks(text):
 
     Everything OUTSIDE the markers, which is every line assembled from store
     rows and repository text, is redacted exactly as before. A document with no
-    markers (STATE.md) takes the identical whole-text path it always did."""
+    markers (STATE.md) takes the identical whole-text path it always did.
+
+    V3 (release-closure loop2 refuter fixes): redact_text is a SECRET
+    scrubber, not a path scrubber (see mask_absolute_paths's own module
+    comment); an absolute path in generated prose ("see /Users/jane/
+    clients/acme/plan.md") sailed through it unchanged. Both branches
+    below now run mask_absolute_paths AFTER redact_text, exactly the
+    order export_column already uses for the scrub-only column lane, so
+    a generated document masks absolute paths the same way an ordinary
+    dump does. This is still never applied inside a human block: I10
+    protects that text byte for byte, and a path mask is exactly as
+    destructive to human prose as the secret scrubber it already stays
+    away from."""
     inside = _human_block_spans(text or "")
     if not inside:
-        return redact_text(text or "")
+        return mask_absolute_paths(redact_text(text or ""))
     out = []
     generated = []
 
     def _flush():
         if generated:
-            out.append(redact_text("\n".join(generated)))
+            out.append(mask_absolute_paths(
+                redact_text("\n".join(generated))))
             del generated[:]
 
     for i, line in enumerate((text or "").split("\n"), 1):
@@ -11480,7 +11624,12 @@ def _write_generated_file(path, text, protect_human_blocks=False):
     if protect_human_blocks:
         protected = _redact_outside_human_blocks(text or "")
     else:
-        protected = redact_text(text or "")
+        # V3 (release-closure loop2 refuter fixes): same mask_absolute_
+        # paths-after-redact_text order _redact_outside_human_blocks now
+        # applies to its own two branches, so STATE.md (this branch's
+        # only caller, via write_state_view) gets the same path masking
+        # every other generated document does.
+        protected = mask_absolute_paths(redact_text(text or ""))
     _atomic_write_text(path, protected)
     return protected
 
