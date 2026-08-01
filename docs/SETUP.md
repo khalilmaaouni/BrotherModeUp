@@ -62,12 +62,18 @@ python3 ~/.claude/skills/brothermode/scripts/install.py
 
 `--dry-run` writes nothing and prints every change it would make. Run it first.
 
-Five hooks, not the four earlier versions of this page listed, and not the
-three the version before that listed. The fifth is `PreToolUse`, the fence hook
+Six hooks, not the five earlier versions of this page listed, and not the four
+the version before that listed. The fifth is `PreToolUse`, the fence hook
 (`docs/HOOKS.md`): the only hook that can actually refuse a write across
 another session's claim. It was documented for weeks and was in no install
 instruction, which meant the project's headline promise, one writer per file,
-was off by default on every installation that followed this page.
+was off by default on every installation that followed this page. The sixth is
+`PostToolUse`, the second half of the `Bash` audit pair
+(`tools/bm_bash_audit.py`): `PreToolUse` also carries that pair's first half,
+which records the size, mtime and sha256 of every fenced file before a shell
+command runs, and `PostToolUse` re-hashes those same files afterwards and
+raises one alert when a shell write changed a file another session's fence
+covers. That pair detects, it never refuses.
 
 Useful flags:
 
@@ -93,9 +99,10 @@ What it guarantees, and these are tested rather than asserted
 - Re-running with `--upgrade` is idempotent: no duplicated hook entries.
 
 Windows: the installer refuses, with a message naming the reason. Two of the
-five hook commands are POSIX shell, so on cmd.exe or PowerShell they would be
-wired and silently dead. Install inside WSL, or wire the three python3-only
-hooks by hand and accept that `SessionStart` and `PreCompact` are off.
+seven hook commands are POSIX shell (seven commands across six events, because
+`PreToolUse` carries two), so on cmd.exe or PowerShell they would be wired and
+silently dead. Install inside WSL, or wire the five python3-only hook commands
+by hand and accept that `SessionStart` and `PreCompact` are off.
 
 An upgrade adds and overwrites files; it never deletes. A file removed upstream
 since your last install stays behind, and `scripts/verify-install.sh` reports
@@ -104,11 +111,12 @@ exactly those as `EXTRA`.
 ### Wiring by hand instead
 
 The installer writes the equivalent of the block below, with absolute and
-shell-quoted paths. All five entries are here, fence included: earlier versions
-of this page listed four and left the `PreToolUse` fence to a cross-reference,
-which in practice meant a hand-wired install ran with the one-writer-per-file
-promise switched off. Add to `~/.claude/settings.json` (create the file if it
-does not exist, or merge into your existing `hooks` block):
+shell-quoted paths. All six events are here, fence and `Bash` audit pair
+included: earlier versions of this page listed four and left the `PreToolUse`
+fence to a cross-reference, which in practice meant a hand-wired install ran
+with the one-writer-per-file promise switched off. Add to
+`~/.claude/settings.json` (create the file if it does not exist, or merge into
+your existing `hooks` block):
 
 ```json
 {
@@ -129,13 +137,23 @@ does not exist, or merge into your existing `hooks` block):
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_fence_hook.py", "timeout": 10 } ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_bash_audit.py pre", "timeout": 10 } ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_bash_audit.py post", "timeout": 15 } ]
       }
     ]
   }
 }
 ```
 
-What each hook does, and honestly, what a FAILED hook costs you. The five
+What each hook does, and honestly, what a FAILED hook costs you. The six
 hooks do not all cost the same thing when they break, and treating them as
 equivalent would be dishonest: losing a data point is not the same class of
 loss as losing your ability to recover from a crash.
@@ -172,6 +190,20 @@ loss as losing your ability to recover from a crash.
   lost, but the fence is back to being a ledger rather than a boundary for as
   long as it stays broken. The cost is not a lost data point, it is a
   guarantee quietly downgraded to a convention.
+- **PostToolUse** is the second half of the `Bash` audit pair
+  (`tools/bm_bash_audit.py`, described in `docs/HOOKS.md`). `PreToolUse` runs
+  the pair's `pre` phase on every `Bash` call and records the size, mtime and
+  sha256 of every file an active claim covers; `PostToolUse` runs the `post`
+  phase once the shell command finishes, re-hashes those same paths, and raises
+  one high-severity alert naming the path when a file another session's fence
+  covers came back changed or gone. It answers a narrower question than the
+  fence does, and it answers it late: a shell write cannot be refused, only
+  reported after the fact.
+  If this hook fails: nothing is blocked and nothing you wrote is lost, because
+  this hook never had a decision to make. What you lose is the audit trail. A
+  shell write across somebody else's fence goes back to being invisible, which
+  is the state every version before this one shipped in. Both entrypoints exit
+  0 whatever happens and print only to stderr.
 
 Every hook is built to fail silent and exit 0, so a broken hook never blocks
 a session from continuing. But "never blocks" is not the same claim as "never

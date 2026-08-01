@@ -168,9 +168,14 @@ exited 0`. That last line is the point. The installer re-reads what it wrote
 and actually executes the one hook that can refuse a write, so "installed"
 means checked rather than attempted.
 
-Five, not the four an earlier version of this page listed: `PreToolUse` is the
-fence hook (`docs/HOOKS.md`), which was documented but was in no install
-instruction, so the fence shipped off unless you wired it yourself.
+Six, not the five an earlier version of this page listed. `PreToolUse` is the
+fence hook (`docs/HOOKS.md`), the one hook that can refuse a write, and it now
+carries a second entry beside it, matched on `Bash`: `bm_bash_audit.py pre`
+records the size, mtime and sha256 of every fenced file before a shell command
+runs. `PostToolUse` is the other half of that pair, `bm_bash_audit.py post`,
+which re-hashes those same files afterwards and raises one alert when a shell
+write changed a file another session's fence covers. Detection, not prevention,
+on purpose: by the time the alert exists, the write already happened.
 
 What the installer will NOT do: overwrite an existing BrotherMode installation
 (it refuses and tells you to pass `--upgrade`), rewrite a `settings.json` that
@@ -229,10 +234,11 @@ pass `--remove-files`, and never touches your vault.
 
 ### If you would rather wire it by hand
 
-The installer writes the equivalent of the block below. All five entries are
-here, fence included: an earlier version of this page stopped at four, which
-meant anyone wiring by hand ended up with the one-writer-per-file promise
-switched off and nothing saying so. Merge it into any hooks you already have.
+The installer writes the equivalent of the block below. All six events are
+here, fence included, and so is the `Bash` audit pair: an earlier version of
+this page stopped at four, which meant anyone wiring by hand ended up with the
+one-writer-per-file promise switched off and nothing saying so. Merge it into
+any hooks you already have.
 Use the absolute path to your checkout rather than `~`: the installer writes
 absolute, shell-quoted paths precisely because a home directory containing a
 space breaks the unquoted form.
@@ -256,13 +262,23 @@ space breaks the unquoted form.
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_fence_hook.py", "timeout": 10 } ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_bash_audit.py pre", "timeout": 10 } ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_bash_audit.py post", "timeout": 15 } ]
       }
     ]
   }
 }
 ```
 
-The `matcher` on that last entry is the list of write tools the fence gates. Drop
+The `matcher` on the fence entry is the list of write tools the fence gates. Drop
 a tool from it and writes through that tool are ungated, which is one of the
 failure modes `scripts/doctor.py` looks for.
 
