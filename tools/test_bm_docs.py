@@ -3253,6 +3253,19 @@ class TestTheAdoptionBook(unittest.TestCase):
         self.assertEqual(book.count("<strong>%d. " % 10), 1,
                          "the ten-laws list no longer reaches law ten")
 
+    def test_the_book_serves_the_reader_before_the_product(self):
+        """The 2026-08-01 usefulness gate, book half. The red team measured
+        4,100 words before first success and the guided commands at
+        chapter thirteen, and the founder rated the result 1/5. These pins
+        hold the inversion: a cheat sheet up front and a task index a
+        reader can enter through."""
+        book = read(self.BOOK)
+        self.assertIn('id="cheatsheet"', book,
+                      "the cheat sheet left the front of the book")
+        self.assertIn("I want to", book,
+                      "the task index left the book; readers navigate by "
+                      "their question, not the product's structure")
+
 
 class TestNoDashes(unittest.TestCase):
     """The project's own copy rule, enforced on the files this suite governs."""

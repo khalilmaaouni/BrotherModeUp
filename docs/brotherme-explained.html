@@ -65,7 +65,7 @@
     font-size: 1.05rem;
   }
   main { max-width: 44rem; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
-  h1, h2 {
+  h1, h2, h3 {
     font-family: Georgia, "Times New Roman", serif;
     line-height: 1.2;
     text-wrap: balance;
@@ -73,6 +73,7 @@
   }
   h1 { font-size: 2.6rem; margin: 0 0 0.5rem; }
   h2 { font-size: 1.6rem; margin: 3rem 0 0.75rem; color: var(--accent); }
+  h3 { font-size: 1.2rem; margin: 2rem 0 0.5rem; color: var(--ink); }
   p { margin: 0 0 1rem; }
   .kicker {
     text-transform: uppercase;
@@ -82,7 +83,7 @@
     font-weight: 600;
     margin-bottom: 0.75rem;
   }
-  .lede { font-size: 1.2rem; color: var(--muted); margin-bottom: 0; }
+  .lede { font-size: 1.2rem; color: var(--muted); }
   .rule { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
   pre {
     background: var(--code-bg);
@@ -94,41 +95,22 @@
     font-size: 0.95rem;
     line-height: 1.7;
   }
-  code {
-    font-family: Menlo, Consolas, monospace;
-  }
+  code { font-family: Menlo, Consolas, monospace; }
   .steps { display: grid; gap: 0; margin: 1.5rem 0; border-left: 3px solid var(--accent); }
   .step { padding: 0.9rem 0 0.9rem 1.25rem; }
   .step + .step { border-top: 1px solid var(--line); }
   .step b { color: var(--accent); }
-  .cmds { display: grid; gap: 0.75rem; margin: 1.5rem 0; }
-  .cmd {
-    display: grid;
-    grid-template-columns: minmax(11rem, auto) 1fr;
-    gap: 0.25rem 1.25rem;
-    padding: 0.85rem 1rem;
-    background: var(--accent-soft);
-    border-radius: 8px;
-    align-items: baseline;
-  }
-  .cmd code {
-    font-family: Menlo, Consolas, monospace;
-    font-size: 0.92rem;
-    color: var(--accent);
-    font-weight: 700;
-    white-space: nowrap;
-  }
-  .cmd span { color: var(--ink); }
-  .limits {
+  .status {
     background: var(--amber-soft);
     border-left: 3px solid var(--amber);
     border-radius: 0 8px 8px 0;
     padding: 1.25rem 1.5rem;
     margin: 1.5rem 0;
   }
-  .limits h2 { color: var(--amber); margin-top: 0; font-size: 1.35rem; }
-  .limits ul { margin: 0; padding-left: 1.2rem; }
-  .limits li { margin-bottom: 0.5rem; }
+  .status h2 { color: var(--amber); margin-top: 0; font-size: 1.35rem; }
+  .status ul { margin: 0; padding-left: 1.2rem; }
+  .status li { margin-bottom: 0.5rem; }
+  .status b { color: var(--amber); }
   .honesty {
     background: var(--accent-soft);
     border-left: 3px solid var(--accent);
@@ -142,47 +124,7 @@
     font-size: 0.9rem;
     color: var(--muted);
     font-style: italic;
-    margin: 1.75rem 0 0;
-  }
-  .stepper {
-    position: sticky;
-    top: 0;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    background: var(--paper);
-    padding: 0.75rem 0;
-    margin-bottom: 1.5rem;
-    border-bottom: 1px solid var(--line);
-    z-index: 5;
-  }
-  .stepper a {
-    font-family: inherit;
-    font-size: 0.85rem;
-    font-weight: 600;
-    padding: 0.5rem 0.9rem;
-    border-radius: 999px;
-    border: 1px solid var(--line);
-    background: var(--accent-soft);
-    color: var(--accent);
-    cursor: pointer;
-    text-decoration: none;
-  }
-  .stepper a:hover,
-  .stepper a:focus-visible {
-    background: var(--accent);
-    color: var(--paper);
-  }
-  html { scroll-behavior: smooth; }
-  @media (prefers-reduced-motion: reduce) {
-    html { scroll-behavior: auto; }
-  }
-  .stage { margin: 1.75rem 0; }
-  .stage h3 {
-    font-family: Georgia, "Times New Roman", serif;
-    font-size: 1.2rem;
-    color: var(--ink);
-    margin: 0 0 0.75rem;
+    margin: 1rem 0 0;
   }
   .bubble-row { display: flex; margin: 0.6rem 0; }
   .bubble-row.founder { justify-content: flex-end; }
@@ -211,58 +153,7 @@
     color: var(--ink);
     border-bottom-left-radius: 3px;
   }
-  .bubble code {
-    font-size: 0.9em;
-  }
-  .duo {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1.25rem;
-    margin: 1.5rem 0;
-  }
-  .duo .card {
-    border-radius: 0 8px 8px 0;
-    padding: 1.1rem 1.4rem;
-  }
-  .duo .good { background: var(--accent-soft); border-left: 3px solid var(--accent); }
-  .duo .not-good { background: var(--amber-soft); border-left: 3px solid var(--amber); }
-  .duo h3 {
-    font-family: Georgia, "Times New Roman", serif;
-    font-size: 1.1rem;
-    margin: 0 0 0.6rem;
-  }
-  .duo .good h3 { color: var(--accent); }
-  .duo .not-good h3 { color: var(--amber); }
-  .duo ul { margin: 0; padding-left: 1.2rem; }
-  .duo li { margin-bottom: 0.5rem; }
-  .usecases { display: grid; gap: 1rem; margin: 1.5rem 0; }
-  .usecase {
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 1.1rem 1.3rem;
-  }
-  .usecase h3 {
-    font-family: Georgia, "Times New Roman", serif;
-    font-size: 1.2rem;
-    margin: 0 0 0.35rem;
-  }
-  .usecase > p { color: var(--muted); margin: 0 0 0.5rem; }
-  .usecase summary {
-    cursor: pointer;
-    font-weight: 600;
-    color: var(--accent);
-    margin-top: 0.25rem;
-  }
-  .usecase .tut { margin-top: 0.75rem; }
-  .usecase .tut-part { margin-top: 0.6rem; }
-  .usecase .tut-part b {
-    display: block;
-    color: var(--accent);
-    font-size: 0.85rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 0.2rem;
-  }
+  .bubble code { font-size: 0.9em; }
   footer {
     margin-top: 4rem;
     padding-top: 1.5rem;
@@ -273,8 +164,6 @@
   a { color: var(--accent); }
   @media (max-width: 540px) {
     h1 { font-size: 2rem; }
-    .cmd { grid-template-columns: 1fr; }
-    .duo { grid-template-columns: 1fr; }
     .bubble { max-width: 92%; }
   }
 </style>
@@ -282,365 +171,61 @@
 <body>
 <main>
   <p class="kicker">BrotherME for Claude Code</p>
-  <h1>A careful project partner, explained simply</h1>
-  <p class="lede">You describe what you want in plain words. BrotherME agrees a plan with you, does the work through the right helpers, and only calls something done when a real check has passed after the last change.</p>
+  <h1>The plugin that refuses to say done</h1>
+  <p class="lede">BrotherME blocks a second writer on a file another session already claimed, and it refuses the word done until a check runs after the last change and passes. On Claude Code both are machinery, not advice.</p>
+
+  <p>Install is two lines. You need Claude Code and Python 3.9 or newer, nothing else. Open Claude Code and type them one at a time.</p>
+  <pre>/plugin marketplace add khalilmaaouni/BrotherModeUp
+/plugin install brotherme</pre>
+  <p>Then type <code>/brotherme-help</code>. If it answers, you are installed.</p>
 
   <hr class="rule">
 
-  <h2>What it actually is</h2>
-  <p>Claude Code out of the box is a very capable worker that waits for instructions. BrotherME turns it into a careful colleague. Before building anything, it agrees the goal and direction with you. While working, it tells you what is happening in plain language, keeps a written record of decisions and progress that survives crashes and restarts, and brings you bad news first. And when it says something is done, that claim is supposed to come with proof: a check that ran after the last change and passed. On Claude Code that rule is backed by mechanical gates, and those gates fail open rather than lock you out, so it is a strong default, not a guarantee.</p>
-  <p>You never need to learn the machinery. If you can describe what you want and answer a few plain questions, you can use it.</p>
+  <h2>Watch the refusal happen</h2>
+  <p><b>Shown, not asserted:</b> a rule written in a prompt is not a control, so here is the control itself, running against a throwaway store and printing its own refusal.</p>
+  <pre>claimed 'website-pages' as lifecycle 01daa03d2b5245c9b13d9117abbc36b3 (version 1, session refusal-demo)
+refused (overlap): claim overlaps active record 'website-pages' (lifecycle 01daa03d2b5245c9b13d9117abbc36b3): 'src/pages.py' vs 'src/pages.py'</pre>
+  <p class="caption">Two sessions tried to write the same file; the second was refused by machinery, not by a promise. Captured 2026-08-01, real output.</p>
 
-  <h2>The philosophy, and the laws</h2>
-  <p>BrotherME is built on one uncomfortable belief: an AI's confidence is not evidence, and a rule written in a prompt is not a control. Anyone can tell a model to be careful; the telling changes little. What makes this product special is that its rules are laws in the working sense: each one is either enforced by machinery, or physically handed to you, and the pages describing them are themselves under test. This is the why behind everything else on this page.</p>
-  <div class="steps">
-    <div class="step"><b>1. Look before touching.</b> Every working session starts by mapping what is already true: what changed, what is mid-flight, who holds what. Work found in progress is coordinated with, never overwritten.</div>
-    <div class="step"><b>2. One writer per file.</b> A claim on files is written down before work starts, and a mechanical gate refuses a second writer while the claim lives. Parallel work dies by silent overwrites, not by bad code; this is the law that makes parallel safe.</div>
-    <div class="step"><b>3. Proof, or it is not done.</b> The word done requires a check that ran after the last change and passed. A confident summary is the cheapest thing an AI can produce; a passing check is the only currency accepted here.</div>
-    <div class="step"><b>4. The guided loop.</b> The strongest mind plans and judges; cheaper hands execute; a helper that fails its check twice is replaced by a stronger one, with the failure attached. Judgment and labor deserve different prices.</div>
-    <div class="step"><b>5. Ranges, never promises.</b> Every estimate carries its confidence and the assumption most likely to move it, and what actually happened corrects the next forecast. A single number is a lie about certainty.</div>
-    <div class="step"><b>6. Bad news first, labels on numbers.</b> A failing check leads the message instead of ending it, and a number that could not be verified carries its label right where you read it, never in a footnote.</div>
-    <div class="step"><b>7. You hold the keys.</b> Decisions arrive one card at a time with a recommendation first. Anything risky (credentials, payments, publishing, deleting) is prepared completely, then handed to you. It never types your passwords, anywhere, ever.</div>
-    <div class="step"><b>8. Memory lives on disk.</b> Decisions, progress, and mistakes are written to plain files that survive crashes, restarts, and the AI's own forgetting. The record is the truth; recollection is not.</div>
-    <div class="step"><b>9. Your corrections become law, with your yes.</b> Correct it once and the correction can become a standing rule, retrieved before similar work from then on. Only you can promote one, and no rule can ever weaken the laws above.</div>
-    <div class="step"><b>10. Wrong claims are corrected in daylight.</b> A sentence that turns out false gets a dated correction on top of it, never a silent rewrite. The sequence is the honest story, and this product keeps its own mistakes visible on principle.</div>
-  </div>
-  <p>Honest scope, as always: the mechanical enforcement behind laws two and three runs on Claude Code; on other tools these laws travel as written instructions, which is a weaker thing, and the product says so rather than pretending otherwise.</p>
-
-  <h2>An illustrated project, start to finish</h2>
-  <p>Here is one project, start to finish, so the paragraph above has something to point at. Use the buttons to jump to a stage, or just read straight through.</p>
-  <p class="honesty">This conversation is an illustration. The command shapes, the questions, the checks, and the register are real; these exact bubbles were composed for this page, not recorded from a session.</p>
-
-  <nav class="stepper" aria-label="Jump to a stage">
-    <a href="#stage-idea">Idea</a>
-    <a href="#stage-brief">Brief</a>
-    <a href="#stage-build">Build</a>
-    <a href="#stage-check">Check</a>
-    <a href="#stage-deliver">Deliver</a>
-  </nav>
-
-  <section class="stage" id="stage-idea">
-    <h3>Stage 1: Idea</h3>
-    <div class="bubble-row founder"><div class="bubble founder"><span class="speaker">You</span><code>/brotherme-start</code></div></div>
-    <div class="bubble-row founder"><div class="bubble founder"><span class="speaker">You</span>I run a small bakery. I want a website: our story, photos, opening hours, and a way for people to order birthday cakes ahead of time.</div></div>
-    <div class="bubble-row bot"><div class="bubble bot"><span class="speaker">BrotherME</span>A bakery site with a story page, photos, hours, and cake pre-orders is a clear goal, and the pre-orders part is the one decision that changes everything else. Question one of three: when someone orders a cake, what should actually happen? A) You get an email with the details (recommended: simplest, works day one), B) They pick a pickup slot in a calendar, C) They pay online now. B and C are real features I can build toward, but both add moving parts and days of work. Which fits how you actually take orders today?</div></div>
-    <div class="bubble-row founder"><div class="bubble founder"><span class="speaker">You</span>Email is fine honestly. We confirm by phone anyway.</div></div>
-    <div class="bubble-row bot"><div class="bubble bot"><span class="speaker">BrotherME</span>Email it is, and that keeps the whole build in the simple lane. Question two: do you already have photos and your story text, or is writing and choosing part of my job?</div></div>
-    <div class="bubble-row founder"><div class="bubble founder"><span class="speaker">You</span>I have photos on my phone. No text written.</div></div>
-    <div class="bubble-row bot"><div class="bubble bot"><span class="speaker">BrotherME</span>Then I draft the story and you approve it; photos come from you when we get there, and the site launches with placeholders if yours are late. Last question: any deadline?</div></div>
-    <div class="bubble-row founder"><div class="bubble founder"><span class="speaker">You</span>My niece's wedding expo is in three weeks.</div></div>
-  </section>
-
-  <section class="stage" id="stage-brief">
-    <h3>Stage 2: Brief</h3>
-    <div class="bubble-row bot"><div class="bubble bot"><span class="speaker">BrotherME</span>Here is the one-page brief I will build against. The outcome: a bakery website with four pages (home, our story, gallery, cake orders), where a cake order form sends you an email. Included: mobile-friendly, your colors once you share a photo of the shop, hours on every page. Excluded, on purpose: online payment, pickup calendars, user accounts. Success check: the site loads, every link works, and a test order lands in your inbox. Risks: photos arriving late (site launches with placeholders), and the three-week deadline, which this plan is scoped to fit. Forecast: 4 to 7 working sessions. That is a range, not a promise, and email delivery is the assumption most likely to move it. Shall I start?</div></div>
-    <div class="bubble-row founder"><div class="bubble founder"><span class="speaker">You</span>Yes. Go.</div></div>
-  </section>
-
-  <section class="stage" id="stage-build">
-    <h3>Stage 3: Build</h3>
-    <div class="bubble-row bot"><div class="bubble bot"><span class="speaker">BrotherME</span>The four pages are underway. A fast helper is laying them out from the approved brief while I hold the plan and check everything it produces. You decide nothing until something needs your taste.</div></div>
-    <div class="bubble-row bot"><div class="bubble bot"><span class="speaker">BrotherME</span>First decision for you, with my recommendation: two looks for the home page, warm cream with your bread photos leading (recommended, matches the shop photo you sent), or a cleaner white gallery look. Both open in the preview. One click and I continue.</div></div>
-    <div class="bubble-row founder"><div class="bubble founder"><span class="speaker">You</span>The warm one.</div></div>
-    <div class="bubble-row bot"><div class="bubble bot"><span class="speaker">BrotherME</span>Warm it is. The story draft is on the story page in the preview; mark anything that does not sound like you and I rewrite it.</div></div>
-  </section>
-
-  <section class="stage" id="stage-check">
-    <h3>Stage 4: Check</h3>
-    <div class="bubble-row bot"><div class="bubble bot"><span class="speaker">BrotherME</span>Bad news first: one check failed. The order form sent its test email and the pages load on a phone, but the checker found the gallery's third photo links to nothing when tapped. It was caught by a helper whose whole job is to try to break what was built. Fixing now; the fix re-runs the same check.</div></div>
-    <div class="bubble-row bot"><div class="bubble bot"><span class="speaker">BrotherME</span>The re-run passed. Every link works, the phone layout was checked at several widths, and the order form's test message was confirmed delivered. Nothing else failed.</div></div>
-  </section>
-
-  <section class="stage" id="stage-deliver">
-    <h3>Stage 5: Deliver</h3>
-    <div class="bubble-row bot"><div class="bubble bot"><span class="speaker">BrotherME</span>Delivered, with proof attached. The site is built and checked, and the last step is yours: publishing needs your hosting login, so the exact steps are ready and you press the button. The delivery packet lists what was built, every check that ran after the last change, the one defect found and its fix, and what I left out on purpose (payments, calendars) with what adding each later would take. One recommended next step: send yourself a real cake order from your phone, today, so the first real order in your inbox is one you sent.</div></div>
-  </section>
-
-  <p class="caption">Every stage above is a real command or a real gate in the product: the questions come from the kickoff flow, the brief is the Project Canvas, the build ran the guided loop (a cheap helper built, a separate checker tried to break it, the failure escalated a fix), and delivery required a check that ran after the last change. The project, the checks and their results are composed for this page. What is real is the commands, the gates and the shape of the questions.</p>
-
-  <h2>Using the loops well</h2>
-  <p>Under the surface, every piece of delegated work runs through the same loop you just watched: the strongest model plans and judges, cheaper and faster models do the labor. Three things make that work well for you.</p>
-  <div class="steps">
-    <div class="step"><b>Let the cheap helper do the labor, and judge the result by the check, not the prose.</b> A confident paragraph is not proof. A check that ran and passed is.</div>
-    <div class="step"><b>If a helper fails its check twice, the work moves up a grade on its own, with the failure attached.</b> You do not have to notice, and you do not have to ask.</div>
-    <div class="step"><b>Your job is decisions. Its job is proof.</b> When taste is needed, it comes to you with one recommendation. When a claim is made, it has to survive a check first.</div>
-  </div>
-
-  <h2>A small ask and a big build</h2>
-  <p>Ask for one small thing (rename a file, draft one email) and BrotherME takes the shortest path: no ceremony, no paperwork, the change and its check. It sizes up every task before touching anything, and a task that is one step, familiar, and cheap to undo gets treated exactly that lightly. The rules wake up only when the work gets heavy, and that is deliberate: the machinery scales with the ask.</p>
-  <div class="usecases">
-    <div class="usecase">
-      <h3>The small ask: minutes</h3>
-      <p>"Rename the product from Swift to Nimbus, everywhere."</p>
-      <div class="tut">
-        <div class="tut-part"><b>What wakes up</b>Almost nothing. It finds every mention, changes them in one pass, and runs one check: a search proving zero old names survive, run after the last change.</div>
-        <div class="tut-part"><b>What you see</b>One line before, one line after, done. No brief, no forecast, no decision cards. The machinery stays asleep because nothing here needs it.</div>
-      </div>
-    </div>
-    <div class="usecase">
-      <h3>The big build: three weeks</h3>
-      <p>"A booking product for my tour company: the app, the marketing site, the data behind both, in English, Japanese and Spanish."</p>
-      <div class="tut">
-        <div class="tut-part"><b>What wakes up</b>Everything, in order. A one-page brief you approve. Four lanes of work, each behind its own wall so nothing overwrites anything. Cheap helpers doing the labor, the strongest model judging it, failures escalating on their own. A forecast in ranges that gets corrected by what actually happened. Decision cards when your taste is needed, one at a time.</div>
-        <div class="tut-part"><b>What you see</b>One morning status instead of four scrollbacks. Bad news first when a check fails. At the end, a delivery packet: what was built, every check that ran after the last change, what was left out on purpose and what adding it would take.</div>
-      </div>
-    </div>
-  </div>
-  <p>The big build is where it earns its keep, because that shape is exactly where AI work usually falls apart: one session forgets what the last one decided, two parallel efforts overwrite each other, confident summaries hide failures, and by week three nobody can say what was actually verified. Each of those failure shapes has a named counter here: written state that survives any crash or restart, one writer per file enforced by a gate, parallel helpers behind separate walls, forecasts that are ranges and get corrected by actuals, and a delivery rule that refuses the word done without a passing check. On a one-hour task you barely notice these. Across a three-week build, they compound into the difference between shipping and starting over. The engineer personas further down show the same machinery carrying real technical weight.</p>
-
-  <h2>What makes it different</h2>
-  <p>Eight mechanisms. For each: what it does, how you use it, when it matters. This section is kept current by rule: any release that changes a feature updates this section in the same change.</p>
-  <div class="usecases">
-    <div class="usecase">
-      <h3>The guided loop</h3>
-      <p>The strongest model plans and judges; cheaper helpers execute; a helper that fails its check twice is replaced by a stronger one.</p>
-      <div class="tut"><div class="tut-part"><b>How to use it</b>Automatic on any delegated work. Ask for the advanced view if you want to see the routing.</div>
-      <div class="tut-part"><b>When it matters</b>Any project big enough to hand pieces away. It is why big builds get top-grade judgment without paying top-grade prices for routine labor.</div></div>
-    </div>
-    <div class="usecase">
-      <h3>One writer per file</h3>
-      <p>Before anything writes, its claim on those files is written down, and a mechanical gate refuses a second writer while the claim lives.</p>
-      <div class="tut"><div class="tut-part"><b>How to use it</b>Automatic. Ask who is working on what to see the live claims.</div>
-      <div class="tut-part"><b>When it matters</b>The moment two things are in flight at once. It is the reason parallel work is safe here and a free-for-all everywhere else.</div></div>
-    </div>
-    <div class="usecase">
-      <h3>Proof or it is not done</h3>
-      <p>Done requires a check that ran after the last change and passed; delivery fills a written packet with the evidence.</p>
-      <div class="tut"><div class="tut-part"><b>How to use it</b><code>/brotherme-review</code> checks work in progress; <code>/brotherme-deliver</code> refuses to close without proof.</div>
-      <div class="tut-part"><b>When it matters</b>Every handoff. It is the standing guard against confident nonsense.</div></div>
-    </div>
-    <div class="usecase">
-      <h3>Honest forecasting</h3>
-      <p>Every estimate is a range with a confidence level and the assumption most likely to move it; actuals feed the next forecast.</p>
-      <div class="tut"><div class="tut-part"><b>How to use it</b>It arrives inside every plan and status. Ask how long at any moment.</div>
-      <div class="tut-part"><b>When it matters</b>Deadlines, budgets, and the decision to start at all.</div></div>
-    </div>
-    <div class="usecase">
-      <h3>Memory that survives</h3>
-      <p>Decisions, progress, and open questions live on disk, in your project folder and a private records folder, and work is saved right before the AI's memory gets condensed.</p>
-      <div class="tut"><div class="tut-part"><b>How to use it</b>Automatic. After any crash or restart, <code>/brotherme-status</code> reads the thread back.</div>
-      <div class="tut-part"><b>When it matters</b>Any work longer than one sitting. It is why week three still knows what week one decided.</div></div>
-    </div>
-    <div class="usecase">
-      <h3>Rules that stick</h3>
-      <p>Correct it once in plain words and the correction can become a stored rule, retrieved before similar work; hard rules act as gates, and turning a correction into a rule always requires your explicit yes.</p>
-      <div class="tut"><div class="tut-part"><b>How to use it</b>Say the correction. It will offer to keep it; you approve or decline.</div>
-      <div class="tut-part"><b>When it matters</b>Anything you never want to explain twice, from never publish without my say-so to always show me two options.</div></div>
-    </div>
-    <div class="usecase">
-      <h3>Decisions through you, one at a time</h3>
-      <p>Choices arrive as one question with a recommended option first and the tradeoff stated, never a wall of text.</p>
-      <div class="tut"><div class="tut-part"><b>How to use it</b>Automatic register. Answer the card; work continues.</div>
-      <div class="tut-part"><b>When it matters</b>Always. It is how a non-technical owner keeps real control without reading logs.</div></div>
-    </div>
-    <div class="usecase">
-      <h3>Risky moments come back to you</h3>
-      <p>Sign-ins, payments, publishing, and anything destructive stay yours: it prepares the exact step with its undo, then hands you the button. It never types, stores, or logs your credentials.</p>
-      <div class="tut"><div class="tut-part"><b>How to use it</b>Automatic. When a step needs your accounts or could destroy something, it arrives prepared, with its rollback, and waits for you.</div>
-      <div class="tut-part"><b>When it matters</b>Production systems, money, anything public. It is why you can hand over the labor without handing over the keys.</div></div>
-    </div>
-  </div>
-
-  <h2>What it is good at, and what it is not</h2>
-  <div class="duo">
-    <div class="card good">
-      <h3>Good at</h3>
-      <ul>
-        <li>Turning a plain-words idea into a checked, delivered result</li>
-        <li>Scoped building: websites, reports, data cleanups, prototypes</li>
-        <li>Catching its own failures: separate checkers try to break the work</li>
-        <li>Surviving crashes: progress and decisions live on disk, not in memory</li>
-        <li>Saying no: it is built to refuse calling unproven work done, with that refusal enforced on Claude Code only</li>
-      </ul>
-    </div>
-    <div class="card not-good">
-      <h3>Not good at</h3>
-      <ul>
-        <li>Pure taste calls: it recommends, but your eye decides</li>
-        <li>Work with no possible check: if nothing can prove it, it says so</li>
-        <li>Anything needing your accounts: payments, sign-ins, publishing credentials stay with you, and it hands those moments back</li>
-        <li>Real work of any length: every result so far comes from test suites and simulated projects, not from a day of anyone's actual work. You may be the first.</li>
-        <li>Unattended runs: nobody has left it working alone for long, and it is not claimed to survive that</li>
-        <li>Being fast on tiny tasks: the checking adds minutes, for a one-line answer, ask plain Claude</li>
-      </ul>
-    </div>
-  </div>
-
-  <h2>Who it is built for, seven people deep</h2>
-  <p>Seven personas, from no technical background to plenty of it. Told with the same honesty as everything else on this page: these are designed-for stories, and none of these people exists as a customer yet.</p>
-  <div class="usecases">
-    <div class="usecase">
-      <h3>The first-time founder</h3>
-      <p>No technical background, runs on plain words and trust that has to be earned.</p>
-      <div class="tut">
-        <div class="tut-part"><b>Their deep case</b>The bakery story above is their story shape. They type <code>/brotherme-start</code>, describe the outcome, answer three questions, approve a one-page brief, then decide only when a decision card arrives, one at a time with a recommendation first. They never meet a technical term unless they ask. When they come back after a week away, <code>/brotherme-status</code> reads the whole thread back in eight plain lines.</div>
-        <div class="tut-part"><b>What carries them</b>Proof or it is not done, decisions through you, honest forecasting, memory that survives.</div>
-      </div>
-    </div>
-    <div class="usecase">
-      <h3>The solo founder with several irons in the fire</h3>
-      <p>Seasoned, impatient, delegating hard, running more than one project at once.</p>
-      <div class="tut">
-        <div class="tut-part"><b>Their deep case</b>A product rebuild in four lanes at once: the app, the site, the data work, the launch copy. Each lane runs behind its own wall, so four parallel efforts cannot overwrite each other; the guided loop sends bulk labor to cheap helpers while judgment stays on the strongest model; every morning starts with one <code>/brotherme-status</code> view instead of four scrollbacks. When they correct course once (never announce a launch before legal reads the copy), that correction is offered as a stored rule and resurfaces on every future launch as a gate. When a contractor joins in week two, the deep tour behind <code>/brotherme-help</code> generates the where-do-we-stand page that replaces a day of onboarding calls.</div>
-        <div class="tut-part"><b>What carries them</b>The guided loop, one writer per file, rules that stick, the deep tour.</div>
-      </div>
-    </div>
-    <div class="usecase">
-      <h3>The seasoned builder</h3>
-      <p>A developer or technical individual contributor who wants to write code alongside it, not watch from the passenger seat.</p>
-      <div class="tut">
-        <div class="tut-part"><b>Their deep case</b>They join mid-project and take the deep tour: the live code map, the data model, every decision with its reasoning. Then they claim the module they want to write by hand, and the same gate that keeps two helpers from colliding now keeps helpers out of THEIR files while they work in their own editor. Their code lands under the same law as everyone else's: tests beside the code, a check after the last change, review by a reader who did not write it. When they want to extend BrotherME itself, the co-build section shows the house conventions: mirror the closest sibling file, give every risky call an explicit failure path, keep the seam small.</div>
-        <div class="tut-part"><b>What carries them</b>One writer per file shared between humans and helpers, proof or it is not done, the deep tour.</div>
-      </div>
-    </div>
-    <div class="usecase">
-      <h3>The data engineer</h3>
-      <p>Owns the pipelines and the warehouse. Lives and dies by numbers being right.</p>
-      <div class="tut">
-        <div class="tut-part"><b>Their deep case</b>Rebuilding the orders mart that six dashboards sit on, fed by three source systems that disagree. The brief pins what correct means before any SQL is written: row counts reconcile against each source, revenue matches finance's monthly total, and the six dashboards keep working. Helpers draft the bulk transformations, and the house rule for all data work is that every headline number gets re-derived a second, independent way before anyone sees it, so the mart's totals are checked by a query that does not share the mart's own joins. A separate checker hunts fan-out: it plants duplicate keys on purpose and fails the build if a join multiplies them. The backfill script and the model rewrite run in parallel without colliding, because each file has one writer at a time. And in week three, the week-one decision about late-arriving orders is still on disk, quoted in the delivery packet next to the reconciliation runs that prove the cutover.</div>
-        <div class="tut-part"><b>What carries them</b>Proof or it is not done, second-way checks on every number, one writer per file, memory that survives.</div>
-      </div>
-    </div>
-    <div class="usecase">
-      <h3>The backend engineer</h3>
-      <p>Ships APIs other teams build against. A wrong error path at 2 a.m. is their phone ringing.</p>
-      <div class="tut">
-        <div class="tut-part"><b>Their deep case</b>Splitting one overloaded payments endpoint into a clean, versioned interface. The plan is contract first: the new interface and everyone who consumes it are written down and agreed before implementation starts. The schema migration is rehearsed in both directions against a restored copy, and the rollout plan carries a rollback beside every step, written before the step runs. Helpers draft handlers and tests, but the house law is that every call across a boundary (network, database, queue) shows its explicit failure path, and a separate checker attacks exactly those paths: timeouts, double-sends, malformed payloads, a queue that answers late. Done is refused until the suite runs green after the last edit. And the moment anything needs production access, the prepared command comes back with its undo and waits, because it holds no keys to production and never will.</div>
-        <div class="tut-part"><b>What carries them</b>Risky moments come back to you, checkers built to break error paths, proof or it is not done.</div>
-      </div>
-    </div>
-    <div class="usecase">
-      <h3>The infrastructure engineer</h3>
-      <p>Owns the clusters, the infrastructure code, and the pipeline everyone else's merges run through.</p>
-      <div class="tut">
-        <div class="tut-part"><b>Their deep case</b>A cluster upgrade that has to happen across several evenings. BrotherME drafts the runbook: every command in order, each with its rollback beside it and its dry-run output attached, reviewed before anything real runs. It holds no apply rights on production, as a law rather than a setting: plans and diffs are its work, the apply is the engineer's own hand, every time. Module work runs in parallel safely because each module has one writer at a time, and free disk is checked before heavy builds instead of failing halfway through one. When evening two starts, the runbook's exact position is read back from disk rather than reconstructed from memory. And when the upgrade is finally declared done, that claim carries the verification commands that ran after the last change, not a paragraph of confidence.</div>
-        <div class="tut-part"><b>What carries them</b>Risky moments come back to you, one writer per file, memory that survives, honest status.</div>
-      </div>
-    </div>
-    <div class="usecase">
-      <h3>The engineering lead</h3>
-      <p>Runs a small team plus AI helpers, and owns what quality means for both.</p>
-      <div class="tut">
-        <div class="tut-part"><b>Their deep case</b>Four workstreams at once: a feature, a refactor, a data fix, the release notes. Each runs behind its own wall, so the team's humans and the AI helpers stop overwriting each other, and the walls double as review boundaries, because who owns which files is written down instead of remembered. When the lead corrects course once, in plain words (no schema change ships without its migration plan), that correction is offered back as a standing rule, takes effect only with an explicit yes, and then resurfaces on every future schema task. A new joiner takes the deep tour behind <code>/brotherme-help</code> and gets the live map (state, decisions, code layout) instead of two days of onboarding calls. And the session records show, week by week, where forecasts drifted from actuals, so next month's plan argues from evidence.</div>
-        <div class="tut-part"><b>What carries them</b>Rules that stick, one writer per file, the deep tour, honest forecasting.</div>
-      </div>
-    </div>
-  </div>
-
-  <h2>Six kinds of work it is built for</h2>
-  <p>These are the shapes it is designed to handle. None of them has been through a real customer project yet.</p>
-  <div class="usecases">
-    <div class="usecase">
-      <h3>Small business website</h3>
-      <p>A site people can actually find, with real pages, not a placeholder.</p>
-      <details>
-        <summary>How it goes</summary>
-        <div class="tut">
-          <div class="tut-part"><b>You type</b>/brotherme-start, plus what the business does and what the site needs to do.</div>
-          <div class="tut-part"><b>It asks you</b>What happens when someone wants to buy or book, whether copy already exists, and any deadline.</div>
-          <div class="tut-part"><b>Delivered means</b>The site loads, every link works, and the one action that matters (an order, a booking, a message) is tested end to end before delivery.</div>
-        </div>
-      </details>
-    </div>
-    <div class="usecase">
-      <h3>Research report</h3>
-      <p>A written report with sources, not a pile of open browser tabs.</p>
-      <details>
-        <summary>How it goes</summary>
-        <div class="tut">
-          <div class="tut-part"><b>You type</b>The question you actually need answered, and who is going to read the report.</div>
-          <div class="tut-part"><b>It asks you</b>How deep to go, which competitors or markets matter most, and by when.</div>
-          <div class="tut-part"><b>Delivered means</b>A report with a source behind every claim, and a plain note on what it did not have time to check.</div>
-        </div>
-      </details>
-    </div>
-    <div class="usecase">
-      <h3>Data cleanup</h3>
-      <p>A messy spreadsheet made trustworthy, with every headline number checked a second, independent way.</p>
-      <details>
-        <summary>How it goes</summary>
-        <div class="tut">
-          <div class="tut-part"><b>You type</b>Where the spreadsheet lives, and what clean needs to mean for your use of it.</div>
-          <div class="tut-part"><b>It asks you</b>Which columns are load-bearing, how to handle duplicates or blanks, and what a wrong number would cost you.</div>
-          <div class="tut-part"><b>Delivered means</b>A cleaned file, plus a second, independent check on every headline number.</div>
-        </div>
-      </details>
-    </div>
-    <div class="usecase">
-      <h3>App prototype</h3>
-      <p>A clickable first version, honestly labeled not app-store-ready.</p>
-      <details>
-        <summary>How it goes</summary>
-        <div class="tut">
-          <div class="tut-part"><b>You type</b>What the app needs to do, and who is going to click through it first.</div>
-          <div class="tut-part"><b>It asks you</b>Which screens matter most, and whether this is for feedback or for a pitch.</div>
-          <div class="tut-part"><b>Delivered means</b>A working prototype you can click through, plus a plain list of what it would take to make it real.</div>
-        </div>
-      </details>
-    </div>
-    <div class="usecase">
-      <h3>Content and translations</h3>
-      <p>Every language updated together, none left behind.</p>
-      <details>
-        <summary>How it goes</summary>
-        <div class="tut">
-          <div class="tut-part"><b>You type</b>What changed, and which languages it needs to reach.</div>
-          <div class="tut-part"><b>It asks you</b>Which locale is the source of truth, and whether tone should shift by market.</div>
-          <div class="tut-part"><b>Delivered means</b>Every locale file updated in the same change, with each key confirmed to exist in every one of them.</div>
-        </div>
-      </details>
-    </div>
-    <div class="usecase">
-      <h3>Ops automation</h3>
-      <p>A repeating chore, scripted, with a dry run first.</p>
-      <details>
-        <summary>How it goes</summary>
-        <div class="tut">
-          <div class="tut-part"><b>You type</b>The chore, exactly as you do it by hand today.</div>
-          <div class="tut-part"><b>It asks you</b>How often it runs, what a mistake would cost, and who should see the result.</div>
-          <div class="tut-part"><b>Delivered means</b>A dry run you can inspect before anything real happens, then the automation, with a clear way to turn it off.</div>
-        </div>
-      </details>
-    </div>
-  </div>
-
-  <h2>Install it, and keep it updated</h2>
-  <p>Open Claude Code and type these two commands, one at a time:</p>
-  <pre>/plugin marketplace add khalilmaaouni/BrotherModeUp
-/plugin install brotherme</pre>
-  <p>If Claude Code asks which source to install from, pick the one you just added, and restart if it tells you to. That is the whole install. To check it worked, type <code>/brotherme-help</code>. To remove it later, type <code>/plugin uninstall brotherme</code>; your projects and records stay untouched.</p>
-  <p>To update, the path depends on how you installed it. If you used the plugin, type these two lines:</p>
-  <pre>/plugin marketplace update brotherme-marketplace
-/plugin update brotherme</pre>
-  <p>Then restart Claude Code. Or skip the two lines entirely: type <code>/brotherme-update</code>. It checks your version against the newest release and walks you through updating, in plain words.</p>
-  <p>If instead you cloned the repository, update it inside the skill folder:</p>
-  <pre>git fetch --tags
-git checkout &lt;newest tag&gt;</pre>
-
-  <h2>The seven commands</h2>
-  <div class="cmds">
-    <div class="cmd"><code>/brotherme-start</code><span>Begin a project. It asks what you want to accomplish and turns your answers into a one-page project brief you approve before anything is built.</span></div>
-    <div class="cmd"><code>/brotherme-status</code><span>Where things stand: goal, progress, time remaining, any decision waiting on you, and the evidence behind each claim.</span></div>
-    <div class="cmd"><code>/brotherme-next</code><span>The single best next step, with a reason and an honest time range.</span></div>
-    <div class="cmd"><code>/brotherme-review</code><span>Checks finished work against a written definition of done, point by point, and never softens a failing point.</span></div>
-    <div class="cmd"><code>/brotherme-deliver</code><span>Wraps up. Delivery requires proof; without a passing check it tells you plainly what remains instead.</span></div>
-    <div class="cmd"><code>/brotherme-help</code><span>Explains what you have and what to do next, in plain words.</span></div>
-    <div class="cmd"><code>/brotherme-update</code><span>Checks your version against the newest release and walks you through updating, in plain words.</span></div>
-  </div>
-
-  <div class="limits">
-    <h2>Honest limits, before you rely on it</h2>
+  <div class="status">
+    <h2>Status, 2026-08-01</h2>
     <ul>
-      <li>This is release candidate 2.0.0-rc.11, not a finished 2.0.0. No day of real founder work has yet gone through it: everything here rests on test suites and simulated projects. The remaining step is someone using it on live work, and that has not happened yet.</li>
-      <li>The two-line install above has been through its full cycle exactly once, on the author's machine. You may be the first person to run it from GitHub. If it misbehaves, the repository's issue page wants to hear about it.</li>
-      <li>It is verified on Claude Code only. Other AI coding tools get advisory files, not enforced guarantees.</li>
-      <li>Use one install path, not both. The plugin and the older clone-based install wire the same automation; a machine carrying both runs everything twice.</li>
+      <li><b>Verified:</b> the refusal above, and the test suite guarding it, run on Claude Code today.</li>
+      <li><b>Not verified:</b> no full day of real founder work has gone through this yet. You may be the first.</li>
+      <li><b>Claude Code only.</b> Other AI tools get advisory instruction files, not enforced gates, and the gates fail open rather than lock you out.</li>
+      <li><b>Release candidate 2.0.0-rc.11,</b> not a finished 2.0.0. The two-line install has run its full cycle once, on the author's machine. Type <code>/brotherme-update</code> to check whether a newer release has shipped.</li>
+      <li><b>Pick one install path.</b> The plugin or the older clone, never both; a machine carrying both runs everything twice.</li>
     </ul>
   </div>
 
-  <h2>Where to go deeper</h2>
-  <p>This page is the summary. The full book is "BrotherMode for Dummies", sixteen chapters from first install to expert use: the guided commands, the memory system and Obsidian in depth, working with a team, and two composed walkthroughs of ambitious work (a multi-week product build, and analytics that survive scrutiny). It ships in the repository at docs/book/brothermode-for-dummies.html, one self-contained file you open by double clicking it.</p>
-  <p>Everything lives in one repository: <a href="https://github.com/khalilmaaouni/BrotherModeUp">github.com/khalilmaaouni/BrotherModeUp</a>. Start with QUICKSTART for the walkthrough, KNOWN-LIMITS for the full honest list, and the README for how the whole thing is built and checked.</p>
+  <h2>What makes it different</h2>
+  <p>Eight mechanisms, one line each. The first two are machinery on Claude Code, gates that refuse; the other six are working discipline that the machinery records and the tests hold in place. This section is kept current by rule: any release that changes a feature updates it in the same change.</p>
+  <div class="steps">
+    <div class="step"><b>One writer per file.</b> A claim is recorded before work starts, and the gate you just watched refuses the second writer while that claim lives.</div>
+    <div class="step"><b>Proof or it is not done.</b> Done requires a check that ran after the last change and passed, and delivery writes that evidence into a packet.</div>
+    <div class="step"><b>The guided loop.</b> The strongest model plans and judges, cheaper helpers execute, and a helper failing its check twice is replaced by a stronger one.</div>
+    <div class="step"><b>Memory that survives.</b> Decisions, progress, and open questions live in plain files on disk, so a crash or a restart costs you nothing.</div>
+    <div class="step"><b>Honest forecasting.</b> Every estimate is a range with its confidence and the assumption most likely to move it, corrected by what actually happened.</div>
+    <div class="step"><b>Bad news first.</b> A failed check leads the message instead of ending it, and any number nobody could verify carries that label beside it.</div>
+    <div class="step"><b>Decisions come to you.</b> Choices arrive one at a time, recommended option first, with the tradeoff stated in plain words.</div>
+    <div class="step"><b>Risky moments stay yours.</b> Sign-ins, payments, publishing, and deletions are prepared with their undo and handed back. It never types your credentials.</div>
+  </div>
+
+  <h3>What that feels like in a conversation</h3>
+  <p class="honesty">This conversation is an illustration. The commands, the questions and the gates are real; these five bubbles were composed for this page, not recorded from a session. The full worked project is in the book.</p>
+  <div class="bubble-row founder"><div class="bubble founder"><span class="speaker">You</span><code>/brotherme-start</code> I run a bakery. I want a website: our story, photos, hours, and cake pre-orders.</div></div>
+  <div class="bubble-row bot"><div class="bubble bot"><span class="speaker">BrotherME</span>Pre-orders is the one decision that changes everything else. When someone orders a cake, what should happen? A) you get an email (recommended, works day one), B) they pick a pickup slot, C) they pay online.</div></div>
+  <div class="bubble-row founder"><div class="bubble founder"><span class="speaker">You</span>Email. We confirm by phone anyway.</div></div>
+  <div class="bubble-row bot"><div class="bubble bot"><span class="speaker">BrotherME</span>Bad news first: one check failed. The gallery's third photo links to nothing when tapped. Fixing now, and the fix re-runs the same check.</div></div>
+  <div class="bubble-row bot"><div class="bubble bot"><span class="speaker">BrotherME</span>The re-run passed, so this is delivered. The packet lists what was built, every check that ran after the last change, and what I left out on purpose.</div></div>
+
+  <h2>Get it, update it, go deeper</h2>
+  <div class="steps">
+    <div class="step"><b>Get it.</b> The two install lines at the top of this page, then <code>/brotherme-help</code> to confirm. To remove it, <code>/plugin uninstall brotherme</code> leaves your projects and records untouched.</div>
+    <div class="step"><b>Update it.</b> Type <code>/brotherme-update</code>. It compares your version against the newest release and walks you through the update in plain words, whichever way you installed.</div>
+    <div class="step"><b>Go deeper.</b> The book, sixteen chapters from install to expert use, is <a href="https://github.com/khalilmaaouni/BrotherModeUp/blob/main/docs/book/brothermode-for-dummies.html">docs/book/brothermode-for-dummies.html</a> in the repository (download it, then open it; it is one self-contained file). The philosophy, and the laws behind every mechanism above, live there in full.</div>
+    <div class="step"><b>Read the source.</b> Everything is in one repository: <a href="https://github.com/khalilmaaouni/BrotherModeUp">github.com/khalilmaaouni/BrotherModeUp</a>. QUICKSTART walks you through a first project, KNOWN-LIMITS is the long honest list.</div>
+  </div>
 
   <footer>
     BrotherME 2.0.0-rc.11, 2026-08-01. This page ships inside the repository at docs/brotherme-explained.html and is updated by hand at each release.

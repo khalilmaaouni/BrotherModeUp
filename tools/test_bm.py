@@ -5460,16 +5460,38 @@ class TestTheSeventhCommandAndTheDeepTourAreWired(unittest.TestCase):
                       "same-change update rule docs/RELEASE.md step 2 binds "
                       "releases to")
 
-    def test_the_explainer_states_the_philosophy_and_the_laws(self):
-        """Founder directive 2026-08-01: the philosophy and the laws that
-        make the product what it is must be big and visible on the summary
-        page, not implied by the features around them."""
+    def test_the_explainer_states_the_founding_belief(self):
+        """Rewritten 2026-08-01 after the founder's 1/5: the full ten-laws
+        list moved to the book (the summary was restating eight ideas
+        thirty-one times), but the founding belief stays on the page in one
+        sentence."""
         text = self._text("docs", "brotherme-explained.html")
-        self.assertIn("The philosophy, and the laws", text,
-                      "the explainer lost its philosophy section")
         self.assertIn("a rule written in a prompt is not a control", text,
                       "the founding belief sentence is gone from the "
-                      "explainer's philosophy section")
+                      "summary page")
+
+    def test_the_summary_stays_a_summary(self):
+        """The usefulness gate, mechanical half. Findings behind it, from
+        the 2026-08-01 red team: 4,942 words with the install command at 90
+        percent depth rated 1/5 by the founder. The caps are proxies: a
+        page under the cap can still be weak, but a page over it has
+        regrown the wall of prose."""
+        import re
+        raw = self._text("docs", "brotherme-explained.html")
+        body = re.sub(r"<style.*?</style>", "", raw, flags=re.S)
+        words = len(re.sub(r"<[^>]+>", " ", body).split())
+        self.assertLess(words, 1600,
+                        "the summary has regrown to %d body words; the "
+                        "rebuild spec caps it near 1,500" % words)
+        lines = raw.split("\n")
+        hit = next((i for i, ln in enumerate(lines, 1)
+                    if "plugin install brotherme" in ln), None)
+        self.assertIsNotNone(hit, "the install line left the summary")
+        body_start = next((i for i, ln in enumerate(lines, 1)
+                           if "</style>" in ln), 0)
+        self.assertLess(hit - body_start, 60,
+                        "the install line sits %d body lines down; the "
+                        "spec puts it above the fold" % (hit - body_start))
 
 
 class TestP18FixApprovalReferenceIsTheFoundersOwn(unittest.TestCase):
