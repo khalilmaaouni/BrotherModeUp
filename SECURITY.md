@@ -8,8 +8,14 @@ details and ask for a private channel first.
 
 ## What this software does with your data
 
-BrotherMode makes no network calls. It has no analytics, no account, and no
-server. Most of what it writes goes to your vault folder, which you choose with
+BrotherMode's hooks and tools make no network calls when running on their own.
+It has no analytics, no account, and no server. CORRECTED 2026-08-01: the
+sentence above used to say flatly "makes no network calls", and that stopped
+being fully precise the day /brotherme-update shipped: that command, and only
+that command, runs `git ls-remote` against the public repository to compare
+your installed version with the newest release tag, only when you invoke it,
+sending nothing but the standard git query. Nothing that runs automatically
+(hooks, gates, the store, the docs engine) reaches the network, ever. Most of what it writes goes to your vault folder, which you choose with
 `BROTHERMODE_VAULT` (default `~/BrotherModeVault`). The work registry is the
 exception: it writes inside your project directory, not the vault, so you can
 find it there too:
@@ -92,12 +98,13 @@ What the code actually writes inside your project today:
   owner-only where the platform supports it (on Windows this is best-effort;
   rely on your user profile's access control).
 
-You can verify both claims yourself; the tools are about 46,513 lines of
-standard-library Python and shell (re-measured 2026-07-30 with the gate deep
-dive packs and the documentation engine landed: a test fails if it drifts more
-than 15 percent from what the command below returns, and it did, which is why
-this figure moved rather than being left to rot). Most of that growth is test
-code, which is the kind a reader of a security document should want.
+You can verify both claims yourself; the tools are about 54,732 lines of
+standard-library Python and shell (re-measured 2026-08-01 with the beginner
+layer, the correction-learning loops and the wave of drift tests landed: a
+test fails if it drifts more than 15 percent from what the command below
+returns, and it did, again, which is why this figure moved rather than being
+left to rot). Most of that growth is test code, which is the kind a reader of
+a security document should want.
 
 It went UP by roughly 2,700 lines on 2026-07-27, and that direction deserves
 an explanation rather than a quiet edit. The external security audit of that
