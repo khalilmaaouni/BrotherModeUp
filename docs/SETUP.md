@@ -180,6 +180,38 @@ costs you anything": a broken `SessionEnd` costs a telemetry line; a broken
 it most. Treat the two claims separately, because they are not the same
 thing.
 
+## Doctor: check the whole install
+
+```bash
+python3 ~/.claude/skills/brothermode/scripts/doctor.py
+```
+
+Run this any time you are unsure whether an install, an update, or a hand
+edit to `settings.json` left something broken. It runs ten checks, each
+printing `PASS`, `FAIL` with a one-sentence fix a non-engineer can follow, or
+`SKIP` with the reason nothing could be checked yet (`SKIP` is not a
+failure). Exit code 0 only when every check is `PASS` or `SKIP`. Add
+`--json` instead of reading the plain text if a script needs to consume the
+result.
+
+| # | Check | A FAIL means, in plain words |
+|---|-------|-------------------------------|
+| 1 | Fence hook wired and live | A blocked-write simulation (builds a throwaway project, claims one file under one session, then asks the wired hook to approve an edit of that file from a different session; a healthy fence refuses, then allows the same write when the owner asks) found the fence dead: not wired, wired at a path that does not exist, a matcher that leaves a write tool ungated, or a hook that runs but refuses nothing. |
+| 2 | VERSION matches the plugin manifest | `VERSION` and `.claude-plugin/plugin.json` disagree about which release this install is. |
+| 3 | python3 3.9+ and git on PATH | One of those two is missing from this machine. |
+| 4 | Setup has been completed | Run `python3 scripts/setup.py`; nothing below this line can be checked before that. |
+| 5 | Vault path exists and is writable | Create it (`cp -R vault-template <your vault path>`, Step 3 below) or fix its permissions. |
+| 6 | Only one install method is wired | Both a plugin install and a clone install are wiring hooks into the same `settings.json`, so every hook fires twice. Remove one: `/plugin uninstall <name>` or `python3 scripts/uninstall.py`. |
+| 7 | Project store health | A `.brothermode/store.sqlite3` under the current directory failed its own `verify`; this is a SKIP, not a FAIL, when there is no store here yet. |
+| 8 | Hook wiring matches installation_mode | The consent config recorded by `scripts/setup.py` says `plugin` or `clone`, and the hooks actually wired in `settings.json` disagree with it. |
+| 9 | CHECKSUMS.sha256 self-check | A shipped file does not match the checked-in release manifest, the signature of an update that did not finish. |
+| 10 | settings.json is valid JSON | Claude Code silently ignores a broken settings file, so every hook, not only the fence, is off with nothing saying so. |
+
+Checks 4, 5 and 8 read `SKIP` until setup has run (`python3 scripts/setup.py`
+sets up the consent config those three checks read); that is the expected,
+honest state right after Step 2 below, before Step 3 has created a vault.
+Every other check applies from the moment the hooks are wired.
+
 ## Step 3: create the vault
 
 The vault is a plain folder of markdown notes, and the repo ships a ready-made
