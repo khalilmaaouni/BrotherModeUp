@@ -145,3 +145,23 @@ python3 tools/test_all.py exits 0 after the last edit; the artifact URL
 serves the new page; /brotherme-update exists with verified lines; the
 deep tour is reachable from /brotherme-help; every claim on the page
 survives the refute pass (each named command exists verbatim).
+
+## 9. Amendment, 2026-08-01, second founder review (session 4cf1d535)
+
+Ratified in-session through a question window after wave 8 closed at 54cb898.
+The founder's ask, compressed: the page must show ambitious work, a big
+project against the small one and why this product fits it; list the key
+features that make it unique with practical use cases; personas for the
+beginner and for the ambitious data engineer, backend engineer,
+infrastructure engineer, solo founder and other relevant people, each taken
+deep; and the features section permanently states what each does, how to use
+it, and when to use it (already bound by the same-change rule and its drift
+test, test_the_explainer_features_section_declares_its_update_rule).
+
+Delivered as: the small-versus-big section rebuilt around two concrete
+timelines plus the what-wakes-up contrast; an eighth mechanism card (risky
+moments come back to you); seven personas (first-time founder, solo founder,
+seasoned builder, data engineer, backend engineer, infrastructure engineer,
+engineering lead). One wave, orchestrator as sole inline writer, no
+builders. Done means: python3 tools/test_all.py exits 0 after the last edit,
+zero em or en dashes on the page, artifact republished at the same URL.
