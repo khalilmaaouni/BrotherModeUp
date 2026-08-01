@@ -3068,6 +3068,48 @@ _DUMP_SAFE_COLUMNS = frozenset((
     # text, so they belong on this list for the same reason those two do.
     ("learning_applications", "presentation"),
     ("learning_applications", "action_reached"),
+    # LOOP 2 REDACTION FIX (WP-A left this gap, closed by the release-closure
+    # orchestrator's own pinned policy): the eight schema-12 tables (Loop 1's
+    # projects/forecasts/tasks/dependencies/attribution/alerts/evidence/
+    # runtime_runs) carried NO entries here at all, so every one of the nine
+    # D-2 read accessors withheld even project_id, task_id and status --
+    # tools/bm_project.py's status/next/deliver output could not name a
+    # single row. Same discipline as every list above: identifiers, schema
+    # enums, timestamps and other machine labels only. Every founder-typed
+    # prose column (projects.name/goal/user_outcome, tasks.title/reason,
+    # alerts.message/why_it_matters/recommended_action, evidence.note,
+    # attribution.actor_name/action/reason, and every LIST_FIELDS column,
+    # which is JSON-encoded founder prose the moment it holds a success
+    # criterion or a risk) is DELIBERATELY absent and stays withheld through
+    # the same default-deny path as every other table's prose.
+    ("projects", "project_id"), ("projects", "status"),
+    ("projects", "phase"), ("projects", "project_type"),
+    ("projects", "experience_level"), ("projects", "created_at"),
+    ("projects", "updated_at"),
+    ("forecasts", "forecast_id"), ("forecasts", "project_id"),
+    ("forecasts", "confidence"), ("forecasts", "created_at"),
+    ("tasks", "task_id"), ("tasks", "project_id"), ("tasks", "status"),
+    ("tasks", "priority"), ("tasks", "confidence"),
+    ("tasks", "started_at"), ("tasks", "completed_at"),
+    ("dependencies", "task_id"), ("dependencies", "depends_on_task_id"),
+    ("attribution", "event_id"), ("attribution", "project_id"),
+    ("attribution", "task_id"), ("attribution", "event_type"),
+    ("attribution", "actor_type"), ("attribution", "timestamp"),
+    ("alerts", "alert_id"), ("alerts", "severity"),
+    ("alerts", "category"),
+    # requires_human is INTEGER (a real bool column, never TEXT), so
+    # _text_columns never surfaces it and this entry is a no-op against
+    # _export_row/export_column; listed anyway so this comment block is a
+    # complete, honest account of every column the orchestrator's policy
+    # named, not a subset silently narrowed for being redundant.
+    ("alerts", "requires_human"),
+    ("alerts", "created_at"), ("alerts", "resolved_at"),
+    ("evidence", "evidence_id"), ("evidence", "subject_type"),
+    ("evidence", "subject_id"), ("evidence", "kind"),
+    ("evidence", "created_at"),
+    ("runtime_runs", "run_id"), ("runtime_runs", "runtime"),
+    ("runtime_runs", "result"), ("runtime_runs", "started_at"),
+    ("runtime_runs", "finished_at"),
 ))
 
 
@@ -3084,7 +3126,7 @@ def _text_columns(conn, table):
     return out
 
 
-def _export_row(conn, table, row_dict, list_fields=()):
+def _export_row(conn, table, row_dict, list_fields=(), raw=False):
     """ONE row dict for `table`, redacted exactly as dump() redacts every
     row of that table: the same policy_cols computation over export_column
     (structural safe list first, digest-shape override on top), so a read
@@ -3097,16 +3139,27 @@ def _export_row(conn, table, row_dict, list_fields=()):
     parses, so json.loads on one always raises, and that failure is the
     signal a column was withheld, not an error to route around -- the
     marker string is left exactly as export_column produced it. Pure:
-    returns a NEW dict, row_dict itself is untouched."""
-    text_cols = _text_columns(conn, table)
-    policy_cols = [c for c in text_cols
-                   if (table, c) not in _DUMP_SAFE_COLUMNS
-                   or c.endswith(_DUMP_DIGEST_SUFFIXES)]
+    returns a NEW dict, row_dict itself is untouched.
+
+    raw mirrors dump(raw=True)'s own gate exactly: True skips the
+    export_column policy loop entirely, the identical "if raw: skip
+    redaction" branch dump() takes, so a caller asking for raw gets every
+    column exactly as the store holds it, no new disclosure surface beyond
+    what dump(raw=True) already grants. The list_fields JSON decode below
+    still runs either way: it is not a privacy decision (dump() has no
+    concept of it at all, raw or not), only a representation one, and
+    skipping it under raw would leave a caller-requested list as its own
+    literal JSON text for no privacy reason."""
     out = dict(row_dict)
-    for col in policy_cols:
-        if not out.get(col):
-            continue
-        out[col] = export_column(table, col, out[col])
+    if not raw:
+        text_cols = _text_columns(conn, table)
+        policy_cols = [c for c in text_cols
+                       if (table, c) not in _DUMP_SAFE_COLUMNS
+                       or c.endswith(_DUMP_DIGEST_SUFFIXES)]
+        for col in policy_cols:
+            if not out.get(col):
+                continue
+            out[col] = export_column(table, col, out[col])
     for col in list_fields:
         val = out.get(col)
         if isinstance(val, str):
@@ -10103,8 +10156,17 @@ class Store(object):
     # degrades to None (get_*) or an empty list (list_*) rather than raising
     # OwnershipRefused. Redaction is IDENTICAL to dump()'s, via the shared
     # _export_row helper above, so these add no new disclosure surface.
+    #
+    # LOOP 2 REDACTION FIX: every accessor below now also takes raw=False,
+    # mirroring dump(raw=True) exactly (same gate inside _export_row; dump()
+    # carries no warning of its own to mirror, the warning a founder sees on
+    # --raw is printed by cmd_dump at the CLI layer, not by Store.dump()).
+    # raw=True is for a caller that has already decided this read is not an
+    # export (tools/bm_project.py's local terminal display and generated
+    # documents); it is still an explicit, named, opt-in parameter, never
+    # the default, so nothing here disclosed more than dump() already could.
 
-    def get_project(self, project_id):
+    def get_project(self, project_id, raw=False):
         """ONE project row by id, or None if no such project."""
         row = _exec(self, "SELECT * FROM projects WHERE project_id=?",
                     (project_id,)).fetchone()
@@ -10112,9 +10174,9 @@ class Store(object):
             return None
         S = _schema()
         return _export_row(self.conn, "projects", dict(row),
-                            S.Project.LIST_FIELDS)
+                            S.Project.LIST_FIELDS, raw=raw)
 
-    def list_projects(self):
+    def list_projects(self, raw=False):
         """Every project, oldest first (created_at, project_id tie
         break). Empty list if the store has none."""
         rows = _exec(self,
@@ -10122,9 +10184,9 @@ class Store(object):
             "project_id ASC").fetchall()
         S = _schema()
         return [_export_row(self.conn, "projects", dict(r),
-                             S.Project.LIST_FIELDS) for r in rows]
+                             S.Project.LIST_FIELDS, raw=raw) for r in rows]
 
-    def list_tasks(self, project_id, status=None):
+    def list_tasks(self, project_id, status=None, raw=False):
         """Every task in `project_id`, task_id order (tasks carries no
         timestamp of its own to order by). `status` narrows to ONE of
         schema.py's ten legal values when given; an unrecognised status
@@ -10139,19 +10201,20 @@ class Store(object):
             rows = _exec(self,
                 "SELECT * FROM tasks WHERE project_id=? AND status=? "
                 "ORDER BY task_id ASC", (project_id, status)).fetchall()
-        return [_export_row(self.conn, "tasks", dict(r), S.Task.LIST_FIELDS)
-                for r in rows]
+        return [_export_row(self.conn, "tasks", dict(r), S.Task.LIST_FIELDS,
+                             raw=raw) for r in rows]
 
-    def get_task(self, task_id):
+    def get_task(self, task_id, raw=False):
         """ONE task row by id, or None if no such task."""
         row = _exec(self, "SELECT * FROM tasks WHERE task_id=?",
                     (task_id,)).fetchone()
         if row is None:
             return None
         S = _schema()
-        return _export_row(self.conn, "tasks", dict(row), S.Task.LIST_FIELDS)
+        return _export_row(self.conn, "tasks", dict(row), S.Task.LIST_FIELDS,
+                            raw=raw)
 
-    def list_forecasts(self, project_id):
+    def list_forecasts(self, project_id, raw=False):
         """Every forecast ever added for `project_id`, oldest first: append
         -only per Forecast's own contract (add_forecast never edits a prior
         row), so oldest-first is that row's own history in the order it was
@@ -10162,9 +10225,9 @@ class Store(object):
             (project_id,)).fetchall()
         S = _schema()
         return [_export_row(self.conn, "forecasts", dict(r),
-                             S.Forecast.LIST_FIELDS) for r in rows]
+                             S.Forecast.LIST_FIELDS, raw=raw) for r in rows]
 
-    def latest_forecast(self, project_id):
+    def latest_forecast(self, project_id, raw=False):
         """The most recently added forecast for `project_id` (created_at
         DESC, forecast_id as the deterministic tie break for two forecasts
         added in the same second), or None if the project has never been
@@ -10177,9 +10240,9 @@ class Store(object):
             return None
         S = _schema()
         return _export_row(self.conn, "forecasts", dict(row),
-                            S.Forecast.LIST_FIELDS)
+                            S.Forecast.LIST_FIELDS, raw=raw)
 
-    def list_alerts(self, resolved=None):
+    def list_alerts(self, resolved=None, raw=False):
         """Every alert, newest first (created_at DESC, alert_id tie
         break). `resolved` narrows the read: None (the default) for every
         alert, True for only resolved ones (resolved_at IS NOT NULL),
@@ -10199,10 +10262,10 @@ class Store(object):
             rows = _exec(self,
                 "SELECT * FROM alerts WHERE resolved_at IS NULL "
                 "ORDER BY created_at DESC, alert_id DESC").fetchall()
-        return [_export_row(self.conn, "alerts", dict(r), S.Alert.LIST_FIELDS)
-                for r in rows]
+        return [_export_row(self.conn, "alerts", dict(r), S.Alert.LIST_FIELDS,
+                             raw=raw) for r in rows]
 
-    def list_evidence(self, subject_type, subject_id):
+    def list_evidence(self, subject_type, subject_id, raw=False):
         """Every evidence row for ONE (subject_type, subject_id) pair,
         oldest first (created_at ASC, evidence_id tie break). Empty list
         for a subject with no evidence."""
@@ -10210,9 +10273,10 @@ class Store(object):
             "SELECT * FROM evidence WHERE subject_type=? AND subject_id=? "
             "ORDER BY created_at ASC, evidence_id ASC",
             (subject_type, subject_id)).fetchall()
-        return [_export_row(self.conn, "evidence", dict(r)) for r in rows]
+        return [_export_row(self.conn, "evidence", dict(r), raw=raw)
+                for r in rows]
 
-    def list_attribution(self, project_id, limit=50):
+    def list_attribution(self, project_id, limit=50, raw=False):
         """The most recent `limit` attribution events for `project_id`,
         newest first (timestamp DESC, event_id tie break): the audit trail
         a display command shows without pulling the whole store."""
@@ -10222,7 +10286,8 @@ class Store(object):
             (project_id, limit)).fetchall()
         S = _schema()
         return [_export_row(self.conn, "attribution", dict(r),
-                             S.AttributionEvent.LIST_FIELDS) for r in rows]
+                             S.AttributionEvent.LIST_FIELDS, raw=raw)
+                for r in rows]
 
     def dump(self, raw=False):
         """Full JSON-serializable export of every table.
@@ -10456,32 +10521,32 @@ class ReadOnlyStore(object):
     # connection, GATE A, is the enforcement; there is no upsert_project,
     # create_task, or any other mutation defined anywhere on this class).
 
-    def get_project(self, project_id):
-        return Store.get_project(self, project_id)
+    def get_project(self, project_id, raw=False):
+        return Store.get_project(self, project_id, raw=raw)
 
-    def list_projects(self):
-        return Store.list_projects(self)
+    def list_projects(self, raw=False):
+        return Store.list_projects(self, raw=raw)
 
-    def list_tasks(self, project_id, status=None):
-        return Store.list_tasks(self, project_id, status=status)
+    def list_tasks(self, project_id, status=None, raw=False):
+        return Store.list_tasks(self, project_id, status=status, raw=raw)
 
-    def get_task(self, task_id):
-        return Store.get_task(self, task_id)
+    def get_task(self, task_id, raw=False):
+        return Store.get_task(self, task_id, raw=raw)
 
-    def list_forecasts(self, project_id):
-        return Store.list_forecasts(self, project_id)
+    def list_forecasts(self, project_id, raw=False):
+        return Store.list_forecasts(self, project_id, raw=raw)
 
-    def latest_forecast(self, project_id):
-        return Store.latest_forecast(self, project_id)
+    def latest_forecast(self, project_id, raw=False):
+        return Store.latest_forecast(self, project_id, raw=raw)
 
-    def list_alerts(self, resolved=None):
-        return Store.list_alerts(self, resolved=resolved)
+    def list_alerts(self, resolved=None, raw=False):
+        return Store.list_alerts(self, resolved=resolved, raw=raw)
 
-    def list_evidence(self, subject_type, subject_id):
-        return Store.list_evidence(self, subject_type, subject_id)
+    def list_evidence(self, subject_type, subject_id, raw=False):
+        return Store.list_evidence(self, subject_type, subject_id, raw=raw)
 
-    def list_attribution(self, project_id, limit=50):
-        return Store.list_attribution(self, project_id, limit=limit)
+    def list_attribution(self, project_id, limit=50, raw=False):
+        return Store.list_attribution(self, project_id, limit=limit, raw=raw)
 
     def close(self):
         """Idempotent, same contract as Store.close()."""
@@ -10880,9 +10945,27 @@ def write_state_view(root):
     safe_project_path (THE PATH FUNNEL), computed BEFORE any work is done,
     so a symlinked STATE.md refuses 'path-escape' instead of having its
     target's bytes read and copied into an in-repo STATE.md.bak-<stamp>
-    that `git add -A` would then commit."""
+    that `git add -A` would then commit.
+
+    LOOP 2 FIX (WP-B reproduced): render_state_md() returns its block WITH
+    one trailing newline of its own (documented there; cmd_dashboard's own
+    call to the prerendered-output funnel, passing render_state_md(root)
+    with end="", relies on exactly that trailing newline and is untouched
+    here). Splicing that block
+    straight into pre + generated + post was not a fixed point: `post` is
+    whatever already followed the END marker on disk, which on every render
+    after the first already carries the PRIOR render's own trailing
+    newline, so each re-render stacked one more blank line onto whatever
+    followed the block, forever, whenever the file had anything (even just
+    a lone trailing newline) after END. generated_block below carries NO
+    trailing newline, the same convention tools/bm_project.py's own
+    _splice_generated already uses (see its docstring for the identical
+    bug, reproduced there first): the splice path leaves the file's true
+    trailing bytes entirely to `post`, and both append paths add exactly
+    one newline of their own instead of inheriting one from `generated`."""
     path = safe_project_path(root, "STATE.md")
     generated = render_state_md(root)
+    generated_block = generated[:-1] if generated.endswith("\n") else generated
     try:
         with open(path, encoding="utf-8", errors="replace") as f:
             existing = f.read()
@@ -10926,12 +11009,12 @@ def write_state_view(root):
     if begin_count == 1:
         pre, rest = existing.split(_STATE_BEGIN, 1)
         _mid, post = rest.split(_STATE_END, 1)
-        new_text = pre + generated + post
+        new_text = pre + generated_block + post
     elif existing:
         sep = "" if existing.endswith("\n\n") else ("\n" if existing.endswith("\n") else "\n\n")
-        new_text = existing + sep + generated
+        new_text = existing + sep + generated_block + "\n"
     else:
-        new_text = generated
+        new_text = generated_block + "\n"
     return _write_generated_file(path, new_text)
 
 
