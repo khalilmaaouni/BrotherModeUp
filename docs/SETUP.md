@@ -196,7 +196,7 @@ result.
 
 | # | Check | A FAIL means, in plain words |
 |---|-------|-------------------------------|
-| 1 | Fence hook wired and live | A blocked-write simulation (builds a throwaway project, claims one file under one session, then asks the wired hook to approve an edit of that file from a different session; a healthy fence refuses, then allows the same write when the owner asks) found the fence dead: not wired, wired at a path that does not exist, a matcher that leaves a write tool ungated, or a hook that runs but refuses nothing. |
+| 1 | The write-protection check (fence hook) wired and live | A blocked-write simulation (builds a throwaway project, claims one file under one session, then asks the wired hook to approve an edit of that file from a different session; a healthy fence refuses, then allows the same write when the owner asks) found the fence dead: not wired, wired at a path that does not exist, a matcher that leaves a write tool ungated, or a hook that runs but refuses nothing. |
 | 2 | VERSION matches the plugin manifest | `VERSION` and `.claude-plugin/plugin.json` disagree about which release this install is. |
 | 3 | python3 3.9+ and git on PATH | One of those two is missing from this machine. |
 | 4 | Setup has been completed | Run `python3 scripts/setup.py`; nothing below this line can be checked before that. |

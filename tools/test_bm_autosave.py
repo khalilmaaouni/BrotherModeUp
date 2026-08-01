@@ -67,14 +67,62 @@ def _read(path):
         return f.read()
 
 
-def _run_precompact(cwd, session_id="s1"):
+def _write_consented_config(path, vault_path=None):
+    """A completed consent config written directly onto disk, matching
+    scripts/setup.py's write_config() schema exactly (I1, external review
+    Loop 3/5: bm_autosave.py's write-capable entry points now gate on
+    consent the same way tools/bm_telemetry.py's already did). Mirrors
+    tools/test_bm.py's own _consented_env helper."""
+    with io.open(path, "w") as f:
+        json.dump({"setup_complete": True,
+                  "vault_path": vault_path or os.path.dirname(path),
+                  "privacy_notice_version": "2026-08-01",
+                  "installation_mode": "clone",
+                  "security_mode": "standard"}, f)
+
+
+@contextlib.contextmanager
+def _consented_env():
+    """Point BROTHERME_CONFIG (the real process env var scripts/setup.py's
+    config_path() reads, and the one bm_autosave.py's own _consented() now
+    reads by the same path) at a fresh, consented config for the duration of
+    one call, then restore whatever was there before. Every test in this
+    file that drives cmd_precompact/cmd_tick in-process, rather than
+    snapshot() directly, needs this now that I1 added a consent gate in
+    front of both, or the gate correctly refuses to write anything and the
+    test underneath stops testing what it claims to."""
+    with tempfile.TemporaryDirectory() as d:
+        cfg_path = os.path.join(d, "config.json")
+        _write_consented_config(cfg_path)
+        old = os.environ.get("BROTHERME_CONFIG")
+        os.environ["BROTHERME_CONFIG"] = cfg_path
+        try:
+            yield cfg_path
+        finally:
+            if old is None:
+                os.environ.pop("BROTHERME_CONFIG", None)
+            else:
+                os.environ["BROTHERME_CONFIG"] = old
+
+
+def _run_precompact(cwd, session_id="s1", consented=True):
     """Drive the real hook entrypoint (not just snapshot() directly), so
     calibration tests can monkeypatch resolve_toplevel and prove the SAME
-    entrypoint a hook actually calls is what breaks."""
+    entrypoint a hook actually calls is what breaks.
+
+    consented=True (the default, matching every call site that predates I1)
+    wraps the call in a throwaway, freshly-consented BROTHERME_CONFIG, since
+    I1 put a consent gate in front of cmd_precompact itself and every one of
+    those older calibration tests is exercising something downstream of that
+    gate, not the gate itself. Pass consented=False for a test that manages
+    its own (deliberately unconsented) environment on purpose."""
     payload = json.dumps({"cwd": cwd, "session_id": session_id})
     old_stdin = sys.stdin
     sys.stdin = io.StringIO(payload)
     try:
+        if consented:
+            with _consented_env():
+                return autosave.cmd_precompact()
         return autosave.cmd_precompact()
     finally:
         sys.stdin = old_stdin
@@ -532,8 +580,15 @@ class TestCalibratedFI(unittest.TestCase):
             _write(os.path.join(repo, "a.txt"), "v1")
             _git(repo, "add", "-A")
             _git(repo, "commit", "-qm", "init")
+            # I1: cmd_tick now gates on consent before the env-var parsing
+            # this test exercises even runs, so a real subprocess call needs
+            # a consented BROTHERME_CONFIG or the gate refuses first and the
+            # defensive parsing under test never executes at all.
+            cfg_path = os.path.join(repo, "consent.json")
+            _write_consented_config(cfg_path)
             for raw in (None, "0", "-5", "abc", "99999999999999999999"):
-                env = dict(os.environ, BROTHERMODE_AUTOSAVE="1")
+                env = dict(os.environ, BROTHERMODE_AUTOSAVE="1",
+                          BROTHERME_CONFIG=cfg_path)
                 if raw is None:
                     env.pop("BROTHERMODE_AUTOSAVE_EVERY", None)
                 else:
@@ -1531,16 +1586,205 @@ class TestNeverBlocksOnUnexpectedError(unittest.TestCase):
             original = autosave.snapshot
             autosave.snapshot = lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom"))
             try:
-                with self.assertRaises(SystemExit) as ctx:
-                    old_stdin = sys.stdin
-                    sys.stdin = io.StringIO(json.dumps({"cwd": repo, "session_id": "s1"}))
-                    try:
-                        autosave.main(["precompact"])
-                    finally:
-                        sys.stdin = old_stdin
-                self.assertEqual(ctx.exception.code, 0)
+                # I1: cmd_precompact now gates on consent before ever
+                # reaching snapshot(); without a consented BROTHERME_CONFIG
+                # this test's own patched snapshot() would never fire, and
+                # main() would exit 0 for the wrong reason (the gate
+                # refusing, not the backstop catching the patched raise).
+                with _consented_env():
+                    with self.assertRaises(SystemExit) as ctx:
+                        old_stdin = sys.stdin
+                        sys.stdin = io.StringIO(json.dumps({"cwd": repo, "session_id": "s1"}))
+                        try:
+                            autosave.main(["precompact"])
+                        finally:
+                            sys.stdin = old_stdin
+                    self.assertEqual(ctx.exception.code, 0)
             finally:
                 autosave.snapshot = original
+
+
+class TestCalibratedI1PreConsentNoWrite(unittest.TestCase):
+    """I1 (external review, Loop 3/5, MOST SERIOUS): reproduced by direct
+    execution, cmd_precompact wrote a namespaced git ref, a snapshot commit
+    (including untracked files), and a JSON event file with NO
+    ~/.brotherme/config.json present at all -- the one write-capable entry
+    point under tools/*.py with no consent gate, while
+    tools/bm_sessionstart.sh and tools/bm_telemetry.py already refused to
+    write a single byte pre-consent. Proven here the same way: a real, dirty
+    throwaway repo, no consent config anywhere BROTHERME_CONFIG could
+    resolve to, and a byte-for-byte compare of the repo (git refs AND a full
+    tree walk) before and after."""
+
+    def _dirty_repo(self, base):
+        repo = os.path.join(base, "repo")
+        os.makedirs(repo)
+        _init_repo(repo)
+        _write(os.path.join(repo, "tracked.txt"), "v1")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-qm", "init")
+        # Real, uncommitted work: exactly the shape a snapshot would capture
+        # if it were allowed to run at all.
+        _write(os.path.join(repo, "tracked.txt"), "v2 uncommitted, must never be touched")
+        _write(os.path.join(repo, "untracked.txt"), "untracked WIP, must never be touched")
+        return repo
+
+    def _refs(self, repo):
+        return _git(repo, "for-each-ref", "--format=%(refname) %(objectname)").stdout
+
+    def _tree(self, repo):
+        found = {}
+        for dirpath, _dirs, files in os.walk(repo):
+            for f in files:
+                full = os.path.join(dirpath, f)
+                found[os.path.relpath(full, repo)] = os.path.getsize(full)
+        return found
+
+    def _no_consent_config_env(self, base):
+        """Unset BROTHERME_CONFIG for the duration of one call and point it
+        at a path under `base` that provably does not exist, so no stray
+        real ~/.brotherme on the machine running this suite could ever make
+        the probe pass by accident."""
+        old = os.environ.get("BROTHERME_CONFIG")
+        os.environ["BROTHERME_CONFIG"] = os.path.join(base, "does-not-exist", "config.json")
+        return old
+
+    def _restore_env(self, old):
+        if old is None:
+            os.environ.pop("BROTHERME_CONFIG", None)
+        else:
+            os.environ["BROTHERME_CONFIG"] = old
+
+    def test_precompact_leaves_the_probe_repo_byte_identical(self):
+        with tempfile.TemporaryDirectory() as base:
+            repo = self._dirty_repo(base)
+            old_cfg = self._no_consent_config_env(base)
+            try:
+                self.assertFalse(
+                    os.path.exists(os.environ["BROTHERME_CONFIG"]),
+                    "test precondition broken: a config exists where none should")
+                before_refs, before_tree = self._refs(repo), self._tree(repo)
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    result = _run_precompact(repo, "s1", consented=False)
+                self.assertIsNone(
+                    result, "a pre-consent precompact must not even attempt a snapshot")
+                self.assertIn("python3 scripts/setup.py", out.getvalue())
+                after_refs, after_tree = self._refs(repo), self._tree(repo)
+                self.assertEqual(before_refs, after_refs,
+                                 "pre-consent precompact wrote a git ref (I1)")
+                self.assertEqual(before_tree, after_tree,
+                                 "pre-consent precompact wrote a file somewhere "
+                                 "under the repo (I1)")
+            finally:
+                self._restore_env(old_cfg)
+
+            # CALIBRATION: reinject the old, ungated behavior by forcing
+            # _consented() to True in the SAME pre-consent environment, and
+            # confirm the same dirty repo NOW produces a real snapshot (a
+            # ref and a commit). If this assertion fails, the checks above
+            # are not proving anything: they would pass even if the gate
+            # were never wired in front of cmd_precompact at all.
+            original = autosave._consented
+            autosave._consented = lambda: True
+            try:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    result2 = _run_precompact(repo, "s1", consented=False)
+                self.assertIsNotNone(result2)
+                self.assertTrue(
+                    result2["ok"],
+                    "REINJECTION CHECK: with consent forced True, a dirty repo "
+                    "must produce a real snapshot (this is I1's old, ungated "
+                    "behavior); if this assertion fails, the test above is not "
+                    "calibrated: %r" % (result2,))
+            finally:
+                autosave._consented = original
+
+    def test_tick_leaves_the_probe_repo_and_vault_byte_identical(self):
+        with tempfile.TemporaryDirectory() as base:
+            repo = self._dirty_repo(base)
+            old_cfg = self._no_consent_config_env(base)
+            old_auto = os.environ.get("BROTHERMODE_AUTOSAVE")
+            old_every = os.environ.get("BROTHERMODE_AUTOSAVE_EVERY")
+            os.environ["BROTHERMODE_AUTOSAVE"] = "1"
+            os.environ["BROTHERMODE_AUTOSAVE_EVERY"] = "1"  # every qualifying call would snapshot
+            # TEL_DIR is a plain module-level constant bound once from
+            # BROTHERMODE_VAULT at import time (not re-read per call), so a
+            # test cannot redirect it by setting an env var after import:
+            # the product symbol itself is monkeypatched instead, the same
+            # way other tests in this file patch product functions, and the
+            # real default vault is never at risk of a stray write from this
+            # suite.
+            old_tel_dir = autosave.TEL_DIR
+            autosave.TEL_DIR = os.path.join(base, "vault-telemetry")
+            try:
+                before_refs, before_tree = self._refs(repo), self._tree(repo)
+                payload = json.dumps({"cwd": repo, "session_id": "s1"})
+                old_stdin = sys.stdin
+                sys.stdin = io.StringIO(payload)
+                out = io.StringIO()
+                try:
+                    with contextlib.redirect_stdout(out):
+                        autosave.cmd_tick()
+                finally:
+                    sys.stdin = old_stdin
+                self.assertIn("python3 scripts/setup.py", out.getvalue())
+                after_refs, after_tree = self._refs(repo), self._tree(repo)
+                self.assertEqual(before_refs, after_refs,
+                                 "pre-consent tick wrote a git ref (I1)")
+                self.assertEqual(before_tree, after_tree,
+                                 "pre-consent tick wrote a file under the repo (I1)")
+                self.assertFalse(
+                    os.path.exists(autosave.TEL_DIR),
+                    "pre-consent tick created its own tick counter file under "
+                    "the vault's telemetry directory (I1)")
+            finally:
+                self._restore_env(old_cfg)
+                if old_auto is None:
+                    os.environ.pop("BROTHERMODE_AUTOSAVE", None)
+                else:
+                    os.environ["BROTHERMODE_AUTOSAVE"] = old_auto
+                if old_every is None:
+                    os.environ.pop("BROTHERMODE_AUTOSAVE_EVERY", None)
+                else:
+                    os.environ["BROTHERMODE_AUTOSAVE_EVERY"] = old_every
+                autosave.TEL_DIR = old_tel_dir
+
+            # CALIBRATION: reinject the old, ungated behavior and confirm
+            # the tick counter file NOW gets created in the same pre-consent
+            # environment.
+            old_tel_dir2 = autosave.TEL_DIR
+            autosave.TEL_DIR = os.path.join(base, "vault-telemetry-2")
+            os.environ["BROTHERMODE_AUTOSAVE"] = "1"
+            os.environ["BROTHERMODE_AUTOSAVE_EVERY"] = "1"
+            original = autosave._consented
+            autosave._consented = lambda: True
+            try:
+                payload = json.dumps({"cwd": repo, "session_id": "s1"})
+                old_stdin = sys.stdin
+                sys.stdin = io.StringIO(payload)
+                try:
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        autosave.cmd_tick()
+                finally:
+                    sys.stdin = old_stdin
+                self.assertTrue(
+                    os.path.exists(autosave.TEL_DIR),
+                    "REINJECTION CHECK: with consent forced True, the tick "
+                    "counter file must be created (this is I1's old, ungated "
+                    "behavior); if this assertion fails, the test above is not "
+                    "calibrated")
+            finally:
+                autosave._consented = original
+                autosave.TEL_DIR = old_tel_dir2
+                if old_auto is None:
+                    os.environ.pop("BROTHERMODE_AUTOSAVE", None)
+                else:
+                    os.environ["BROTHERMODE_AUTOSAVE"] = old_auto
+                if old_every is None:
+                    os.environ.pop("BROTHERMODE_AUTOSAVE_EVERY", None)
+                else:
+                    os.environ["BROTHERMODE_AUTOSAVE_EVERY"] = old_every
 
 
 if __name__ == "__main__":

@@ -1039,10 +1039,12 @@ def cmd_forecast_add(argv):
         _err("bm_project: refused: minimum, likely, and maximum duration "
              "are all %r with no stated --basis. That is a single point "
              "estimate, not a forecast: the forecasting rule is ranges, "
-             "never points, because a bare number is a false promise and "
-             "is never emitted (references/forecasting.md). Give three "
-             "different values for a real range, or pass --basis "
-             "explaining why this one duration is certain." % (min_d,))
+             "never points, because a bare number is a false promise "
+             "unless you can say why it is certain; a bare number is "
+             "emitted only when you record that reason with --basis "
+             "(references/forecasting.md). Give three different values "
+             "for a real range, or pass --basis explaining why this one "
+             "duration is certain." % (min_d,))
         return 1
     actor = _actor(kv, usage)
     forecast = {

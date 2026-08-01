@@ -78,6 +78,32 @@ STEP_TITLES = (
     "scripts/uninstall.py --remove-consent",
 )
 
+# I3 (external review, Loop 3/5): the step 2 gate skip used to be recorded
+# with .passed(), so a --skip-gate run's numbered line read "PASS" for a
+# step that proved nothing at all. A SKIP is now its own status, distinct
+# from PASS, so the seven-step ledger can never claim a proof it did not
+# run. Step 0, the permanent demonstration of I1's fix, is numbered
+# separately from the seven (it predates them chronologically: it must run
+# right after the clone and strictly before setup.py ever creates a
+# consent config), so TOTAL_STEPS stays 7 for the existing numbering.
+TOTAL_STEPS = len(STEP_TITLES)
+
+
+def _mask_home(path):
+    """Replace the operator's real home-directory prefix with a generic
+    /Users/... placeholder before this path is printed into the evidence
+    file this output lands in (a committed file). The same, simple
+    technique scripts/doctor.py's own _mask_home now uses for the same
+    reason; this file cannot import that one (doctor.py is a script, not a
+    library), so it is kept here too, deliberately duplicated rather than
+    imported, the way every script in this project stays self-contained."""
+    if not path:
+        return path
+    home = os.path.expanduser("~")
+    if home and path.startswith(home):
+        return "/Users/..." + path[len(home):]
+    return path
+
 
 def _out(text):
     sys.stdout.write(text + "\n")
@@ -85,12 +111,15 @@ def _out(text):
 
 
 class Result(object):
-    """One numbered step's outcome plus the detail lines printed under it."""
+    """One numbered step's outcome plus the detail lines printed under it.
+    status is one of "PASS", "FAIL", "SKIP" (never boolean-only: I3 needs a
+    disclosed skip to be visibly distinct from a real pass)."""
 
-    def __init__(self, n, title):
+    def __init__(self, n, title, total=TOTAL_STEPS):
         self.n = n
         self.title = title
-        self.ok = False
+        self.total = total
+        self.status = "FAIL"
         self.lines = []
 
     def note(self, text):
@@ -98,15 +127,29 @@ class Result(object):
             self.lines.append("    " + line)
 
     def passed(self, summary):
-        self.ok = True
+        self.status = "PASS"
         self.lines.insert(0, "    " + summary)
 
     def failed(self, summary):
-        self.ok = False
+        self.status = "FAIL"
         self.lines.insert(0, "    " + summary)
 
+    def skipped(self, summary):
+        self.status = "SKIP"
+        self.lines.insert(0, "    " + summary)
+
+    @property
+    def ok(self):
+        """Backward-compatible name for "did not fail": a disclosed SKIP
+        must never flip the overall rehearsal to NOT ALL GREEN, or
+        --skip-gate (which exists specifically to skip step 2 for time)
+        would defeat its own purpose. main() tracks skip_count separately
+        for the closing line, so a SKIP is never silently read as a PASS
+        there either."""
+        return self.status in ("PASS", "SKIP")
+
     def emit(self):
-        _out("[%d/7] %s: %s" % (self.n, self.title, "PASS" if self.ok else "FAIL"))
+        _out("[%d/%d] %s: %s" % (self.n, self.total, self.title, self.status))
         for line in self.lines:
             _out(line)
 
@@ -212,12 +255,8 @@ def step1_clone(paths, result):
     # file this output lands in is committed, so the home prefix is masked
     # here at the source, the same policy mask_absolute_paths applies to
     # every exported store column.
-    masked_root = REPO_ROOT
-    real_home = os.path.expanduser("~")
-    if masked_root.startswith(real_home):
-        masked_root = "/Users/..." + masked_root[len(real_home):]
     result.passed(
-        "%d files copied from %s to %s" % (n, masked_root, paths["target"]))
+        "%d files copied from %s to %s" % (n, _mask_home(REPO_ROOT), paths["target"]))
     result.note("disclosed deviation: this is a plain recursive copy, not "
                "git clone. It excludes %s, the same list "
                "scripts/checksums.sh and scripts/verify-install.sh use."
@@ -227,13 +266,162 @@ def step1_clone(paths, result):
 
 
 # ---------------------------------------------------------------------------
+# step 0: the I1 pre-consent no-write probe (external review, Loop 3/5)
+#
+# WHY THIS EXISTS
+#   I1 (the most serious finding of that review) reproduced tools/
+#   bm_autosave.py's cmd_precompact writing a namespaced git ref, a
+#   snapshot commit, and a JSON event file with NO ~/.brotherme/config.json
+#   present at all. tools/test_bm_autosave.py now carries the unit-level
+#   proof of the fix; this step is the PERMANENT, EXECUTED demonstration of
+#   the same fact against the real binaries, in the exact fresh-machine
+#   shape this whole rehearsal exists to reproduce: a throwaway git repo,
+#   no consent config anywhere BROTHERME_CONFIG could resolve to (this step
+#   runs right after the clone, step 1, and strictly before step 4, the
+#   only step that ever creates one), and the three real write-capable
+#   entry points driven with the payload shapes hooks/hooks.json pipes to
+#   them: tools/bm_sessionstart.sh (the SessionStart hook), tools/
+#   bm_telemetry.py outcomes-append (the SessionEnd hook), and tools/
+#   bm_autosave.py precompact (half of the PreCompact hook; I1's own
+#   subject).
+#
+#   Numbered "step 0", not inserted into the seven-step STEP_TITLES
+#   tuple: it predates step 2 (the test-suite gate) and every step after
+#   it, chronologically, and giving it its own number keeps every
+#   existing step's number exactly what evidence readers already know it
+#   to be, rather than renumbering seven historically-referenced steps for
+#   one addition.
+# ---------------------------------------------------------------------------
+
+def _brothermode_refs(repo, git_env):
+    r = run(["git", "for-each-ref", "refs/brothermode/"], cwd=repo, env=git_env, timeout=30)
+    return [line for line in (r.stdout or "").splitlines() if line.strip()]
+
+
+def step0_preconsent_probe(paths, base_env, result):
+    repo = os.path.join(paths["tmp_root"], "preconsent-probe-repo")
+    os.makedirs(repo)
+    git_env = dict(base_env)
+    git_env.update({"GIT_AUTHOR_NAME": "rehearsal",
+                    "GIT_AUTHOR_EMAIL": "rehearsal@example.invalid",
+                    "GIT_COMMITTER_NAME": "rehearsal",
+                    "GIT_COMMITTER_EMAIL": "rehearsal@example.invalid"})
+    for cmd in (["git", "init", "-q"],
+               ["git", "config", "user.email", "rehearsal@example.invalid"],
+               ["git", "config", "user.name", "rehearsal"],
+               ["git", "config", "commit.gpgsign", "false"]):
+        r = run(cmd, cwd=repo, env=git_env, timeout=30)
+        if r.returncode != 0:
+            result.failed("could not prepare the throwaway probe repo (%s): %s"
+                          % (shortcmd(cmd), r.stderr.strip()))
+            return False
+
+    tracked = os.path.join(repo, "tracked.txt")
+    with io.open(tracked, "w", encoding="utf-8") as fh:
+        fh.write("v1\n")
+    run(["git", "add", "-A"], cwd=repo, env=git_env, timeout=30)
+    run(["git", "commit", "-q", "-m", "init"], cwd=repo, env=git_env, timeout=30)
+    # Real, uncommitted work: exactly the shape a PreCompact snapshot would
+    # capture if I1's gate did not exist.
+    with io.open(tracked, "w", encoding="utf-8") as fh:
+        fh.write("v2 uncommitted work that must never be touched\n")
+    with io.open(os.path.join(repo, "untracked.txt"), "w", encoding="utf-8") as fh:
+        fh.write("untracked WIP that must never be touched\n")
+
+    env = dict(base_env)
+    cfg_path = env.get("BROTHERME_CONFIG")
+    if cfg_path and os.path.exists(cfg_path):
+        result.failed("the probe's own precondition is broken: a consent "
+                      "config already exists at %s before step 4 (the only "
+                      "step that creates one) has run" % _mask_home(cfg_path))
+        return False
+
+    before_refs = _brothermode_refs(repo, git_env)
+    before_tree = _vault_manifest(repo)
+
+    session_id = "preconsent-probe-session"
+    sessionstart_sh = os.path.join(paths["target"], "tools", "bm_sessionstart.sh")
+    telemetry_py = os.path.join(paths["target"], "tools", "bm_telemetry.py")
+    autosave_py = os.path.join(paths["target"], "tools", "bm_autosave.py")
+
+    # tools/bm_sessionstart.sh: the SessionStart payload shape.
+    r_ss = run(["sh", sessionstart_sh], cwd=repo, env=env,
+              input_text=json.dumps({"cwd": repo, "session_id": session_id,
+                                     "hook_event_name": "SessionStart"}),
+              timeout=60)
+    result.note("tools/bm_sessionstart.sh: exit %s" % r_ss.returncode)
+    result.note("  stdout: %r" % r_ss.stdout.strip()[:300])
+
+    # tools/bm_telemetry.py outcomes-append: the SessionEnd payload shape
+    # (a real, minimal transcript so the shape is genuine; I1's gate is the
+    # FIRST thing this command checks, before the transcript is even read).
+    transcript = os.path.join(paths["tmp_root"], "preconsent-probe-transcript.jsonl")
+    with io.open(transcript, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"type": "user", "timestamp": "2026-08-01T00:00:00Z",
+                             "message": {"content": "hello"}}) + "\n")
+    r_tel = run([sys.executable, telemetry_py, "outcomes-append"], cwd=repo, env=env,
+               input_text=json.dumps({"transcript_path": transcript,
+                                      "session_id": session_id, "cwd": repo,
+                                      "reason": "test",
+                                      "hook_event_name": "SessionEnd"}),
+               timeout=60)
+    result.note("tools/bm_telemetry.py outcomes-append: exit %s" % r_tel.returncode)
+    result.note("  stdout: %r" % r_tel.stdout.strip()[:300])
+
+    # tools/bm_autosave.py precompact: the PreCompact payload shape, I1's
+    # own subject.
+    r_as = run([sys.executable, autosave_py, "precompact"], cwd=repo, env=env,
+              input_text=json.dumps({"cwd": repo, "session_id": session_id,
+                                     "hook_event_name": "PreCompact",
+                                     "trigger": "auto"}),
+              timeout=60)
+    result.note("tools/bm_autosave.py precompact: exit %s" % r_as.returncode)
+    result.note("  stdout: %r" % r_as.stdout.strip()[:300])
+    if r_as.stderr.strip():
+        result.note("  stderr: %r" % r_as.stderr.strip()[:300])
+
+    after_refs = _brothermode_refs(repo, git_env)
+    after_tree = _vault_manifest(repo)
+
+    exits_ok = (r_ss.returncode == 0 and r_tel.returncode == 0 and r_as.returncode == 0)
+    refs_empty = (before_refs == [] and after_refs == [])
+    refs_untouched = (before_refs == after_refs)
+    tree_untouched = (before_tree == after_tree)
+    named_setup = all("python3 scripts/setup.py" in (out or "") for out in
+                      (r_ss.stdout, r_tel.stdout, r_as.stdout))
+
+    result.note("git for-each-ref refs/brothermode/ before: %r" % before_refs)
+    result.note("git for-each-ref refs/brothermode/ after:  %r" % after_refs)
+    result.note("full tree walk of the probe repo unchanged: %s (%d file(s))"
+               % (tree_untouched, len(after_tree)))
+
+    if exits_ok and refs_empty and refs_untouched and tree_untouched and named_setup:
+        result.passed(
+            "all three entry points exited 0, named python3 scripts/setup.py, "
+            "and wrote nothing at all: refs/brothermode/ stayed empty and the "
+            "probe repo's full tree walk (%d file(s)) is byte-for-byte "
+            "unchanged" % len(after_tree))
+        return True
+    result.failed(
+        "exits_ok=%s refs_empty=%s refs_untouched=%s tree_untouched=%s "
+        "named_setup=%s" % (exits_ok, refs_empty, refs_untouched,
+                            tree_untouched, named_setup))
+    return False
+
+
+# ---------------------------------------------------------------------------
 # step 2: the gate
 # ---------------------------------------------------------------------------
 
 def step2_gate(paths, env, skip_gate, result):
     if skip_gate:
-        result.passed("skipped with --skip-gate, a disclosed deviation from "
-                      "the default; the default runs this suite")
+        # I3: this used to call result.passed(), so the numbered line for a
+        # step that ran nothing at all read "PASS" exactly like a step that
+        # had proved something. It must never read PASS: skipped() records
+        # it as its own SKIP status while still letting the rehearsal as a
+        # whole finish (a disclosed skip is not a failure of the rehearsal
+        # itself; see Result.ok).
+        result.skipped("SKIPPED (gate not run, disclosed)")
         return True
     test_all = os.path.join(paths["target"], "tools", "test_all.py")
     cmd = [sys.executable, test_all]
@@ -618,6 +806,7 @@ def main(argv):
     results = []
     overall_ok = True
     vault_manifest_before = None
+    step0_ok = False
 
     try:
         r1 = Result(1, STEP_TITLES[0])
@@ -627,6 +816,18 @@ def main(argv):
         r1.emit()
         if not ok1:
             raise SystemExit  # nothing downstream can proceed without the copy
+
+        # I3: step 0, run here (right after the clone, strictly before step
+        # 4 ever creates a consent config) and reported separately from the
+        # seven numbered steps, so it never disturbs their established
+        # numbering. Its own failure does not abort the rehearsal, matching
+        # every other step here except step 1: a probe result is worth
+        # having even if something downstream also breaks.
+        r0 = Result(0, "I1 pre-consent no-write probe (permanent proof "
+                      "the consent gate holds)", total=TOTAL_STEPS)
+        step0_ok = step0_preconsent_probe(paths, env, r0)
+        r0.emit()
+        _out("")
 
         r2 = Result(2, STEP_TITLES[1])
         ok2 = step2_gate(paths, env, args.skip_gate, r2)
@@ -679,12 +880,20 @@ def main(argv):
             shutil.rmtree(tmp_root, ignore_errors=True)
 
     _out("")
-    passed = sum(1 for r in results if r.ok)
-    all_seven_pass = overall_ok and len(results) == len(STEP_TITLES)
-    _out("rehearse_fresh_install.py: %d/%d step(s) PASS. %s"
-        % (passed, len(STEP_TITLES),
-           "ALL GREEN" if all_seven_pass else "NOT ALL GREEN"))
-    return EXIT_OK if all_seven_pass else EXIT_FAILED
+    # I3/I2-style honesty: a SKIP is not a PASS, so the closing line counts
+    # them separately instead of folding a disclosed --skip-gate skip into
+    # the same bucket as a step that actually proved something.
+    pass_count = sum(1 for r in results if r.status == "PASS")
+    skip_count = sum(1 for r in results if r.status == "SKIP")
+    fail_count = sum(1 for r in results if r.status == "FAIL")
+    all_seven_accounted = overall_ok and len(results) == len(STEP_TITLES)
+    all_green = all_seven_accounted and step0_ok
+    _out("rehearse_fresh_install.py: step 0 (I1 pre-consent probe): %s. "
+        "%d/%d step(s) PASS, %d SKIP, %d FAIL. %s"
+        % ("PASS" if step0_ok else "FAIL", pass_count, len(STEP_TITLES),
+           skip_count, fail_count,
+           "ALL GREEN" if all_green else "NOT ALL GREEN"))
+    return EXIT_OK if all_green else EXIT_FAILED
 
 
 if __name__ == "__main__":

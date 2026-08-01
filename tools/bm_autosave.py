@@ -1423,8 +1423,106 @@ def _snapshot_locked(toplevel, worktree_id, session_id, reason, event):
 
 
 # ---------------------------------------------------------------------------
+# Consent gate (I1, external review, Loop 3/5). Reproduced by direct
+# execution: cmd_precompact wrote a namespaced git ref, a snapshot commit
+# (including untracked files), and a JSON event file with NO
+# ~/.brotherme/config.json present at all -- the one write-capable entry
+# point under tools/*.py that had no consent gate, while
+# tools/bm_sessionstart.sh and tools/bm_telemetry.py already refused to
+# write a single byte before the founder had run scripts/setup.py.
+#
+# scripts/setup.py is the ONE place that schema is read or written (its own
+# docstring says so); this loads it by path, the SAME technique
+# tools/bm_telemetry.py's own _load_bm_setup/_get_bm_setup/_consented use
+# (see tools/bm_telemetry.py:592), so this module can never carry a second,
+# drifting copy of what "consented" means. Loading a module that itself
+# imports subprocess (setup.py's own doctor invocation, never reached from
+# the pure read_config/is_consented path used here) does not add a
+# subprocess import to THIS file for the no-subprocess-in-tools/ audit's
+# purposes (tools/test_bm.py scans source LINES of tools/*.py; no `import
+# subprocess`-shaped line for setup.py is ever written here, only a load by
+# path, and this file's own documented subprocess use stays git-only).
+# ---------------------------------------------------------------------------
+def _load_bm_setup():
+    """Load scripts/setup.py by path. Never raises: an unloadable setup
+    module is a fail-CLOSED condition for _consented(), not a crash."""
+    try:
+        import importlib.util
+        root = os.path.dirname(HERE)
+        spec = importlib.util.spec_from_file_location(
+            "bm_setup_for_autosave", os.path.join(root, "scripts", "setup.py"))
+        if spec is None or spec.loader is None:
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+_bm_setup_cache = []
+
+
+def _get_bm_setup():
+    if not _bm_setup_cache:
+        _bm_setup_cache.append(_load_bm_setup())
+    return _bm_setup_cache[0]
+
+
+def _consented():
+    """True only when scripts/setup.py's own is_consented() says so. Fails
+    CLOSED (not consented) on any load error, missing config, or a corrupt
+    one, matching tools/bm_telemetry.py's own _consented exactly (same
+    schema, same reader, same failure direction), so the write-capable entry
+    points in this file and in bm_telemetry.py can never disagree about
+    whether the founder has said yes. config_path() (inside scripts/setup.py)
+    honors BROTHERME_CONFIG, so a test can point this at a throwaway file the
+    same way it already does for bm_telemetry.py."""
+    mod = _get_bm_setup()
+    if mod is None:
+        return False
+    try:
+        cfg, _err = mod.read_config()
+        return bool(mod.is_consented(cfg))
+    except Exception:
+        return False
+
+
+_CONSENT_REQUIRED_LINE = (
+    "bm_autosave: setup is not complete yet; run: python3 scripts/setup.py")
+
+
+# ---------------------------------------------------------------------------
 # Hook and CLI entrypoints. Every one of these exits 0 no matter what
 # (requirement 10): main() wraps the whole dispatch in a bare except.
+#
+# I1's gate applies to every entry point below that can WRITE, enumerated
+# here once so its scope is a decision, not an omission:
+#   cmd_precompact  WRITES (a namespaced git ref, a commit, the event file,
+#                   a receipt row). Fires AUTOMATICALLY from
+#                   hooks/hooks.json's PreCompact entry, with no founder
+#                   action in between. GATED on _consented(), first thing.
+#   cmd_tick        WRITES the same way as cmd_precompact, PLUS its own tick
+#                   counter file under the vault's telemetry directory, on
+#                   every qualifying tool call once BROTHERMODE_AUTOSAVE is
+#                   set. Also fires automatically (a PostToolUse hook, where
+#                   wired), and setting an opt-in shell variable is not the
+#                   same act as running scripts/setup.py. GATED on
+#                   _consented(), checked BEFORE the opt-in check itself, so
+#                   even the tick counter file never gets created
+#                   pre-consent.
+#   cmd_recover     Reads EXISTING snapshot refs and checks out a NEW git
+#                   worktree OUTSIDE this repository's working tree (never
+#                   touches the live tree; see BLOCKER 1 above); it creates
+#                   no new project content. NOT gated: it is explicit and
+#                   founder-invoked from a terminal, never fired by a hook.
+#                   With cmd_precompact and cmd_tick both gated, any
+#                   snapshot it could find either predates this fix or was
+#                   made by a session that had already consented. Refusing
+#                   to hand back a founder's own, already-saved work because
+#                   consent was later withdrawn would be a second, unrelated
+#                   defect: recovery is the one operation this module must
+#                   never block on anything (requirement 6's own promise).
 # ---------------------------------------------------------------------------
 def _read_hook_payload():
     """Best-effort JSON parse of stdin, matching bm_telemetry.py's own hook
@@ -1444,10 +1542,20 @@ def _read_hook_payload():
 
 
 def cmd_precompact():
-    """PreCompact hook target: snapshot once, unconditionally. Fired right
-    before the token-death moment. Returns the snapshot() result (or None
-    on a clean no-op) so a caller, including a test, can inspect what
-    happened; the hook itself ignores the return value."""
+    """PreCompact hook target: snapshot once, unconditionally once consent
+    is on record. Fired right before the token-death moment. Returns the
+    snapshot() result, or None on a clean no-op OR a pre-consent refusal, so
+    a caller, including a test, can inspect what happened; the hook itself
+    ignores the return value.
+
+    I1: pre-consent this prints one plain sentence naming
+    python3 scripts/setup.py and returns immediately, before
+    _read_hook_payload, before resolve_toplevel, before any git call:
+    nothing is written, not a ref, not a commit object, not the event
+    file."""
+    if not _consented():
+        print(_CONSENT_REQUIRED_LINE)
+        return None
     payload = _read_hook_payload()
     cwd = payload.get("cwd") or os.getcwd()
     session_id = payload.get("session_id") or "unknown"
@@ -1464,7 +1572,15 @@ def _tick_counter_path(session_id):
 
 def cmd_tick():
     """PostToolUse hook target, opt-in via BROTHERMODE_AUTOSAVE: snapshot
-    every N tool calls, and warn once on a runaway session."""
+    every N tool calls, and warn once on a runaway session.
+
+    I1: gated on consent FIRST, before even the BROTHERMODE_AUTOSAVE opt-in
+    check, so setting that shell variable without ever running
+    scripts/setup.py cannot write the tick counter file either (see
+    cmd_precompact's docstring above for the full finding)."""
+    if not _consented():
+        print(_CONSENT_REQUIRED_LINE)
+        return
     if not os.environ.get("BROTHERMODE_AUTOSAVE"):
         return
     payload = _read_hook_payload()

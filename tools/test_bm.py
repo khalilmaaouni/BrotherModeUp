@@ -411,7 +411,13 @@ class TestCompactHintHonesty(unittest.TestCase):
 
     def test_claims_safety_only_when_a_real_receipt_exists(self):
         with tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as v:
-            env = dict(os.environ, BROTHERMODE_VAULT=v)
+            # Consented, like the other hook-driving tests in this file:
+            # bm_autosave.py gained the same consent gate the telemetry
+            # writer already had (Loop 3 finding I1), so an unconsented
+            # precompact correctly writes no receipt at all, and a test
+            # about what the hint says WHEN a receipt exists must create
+            # one first.
+            env = _consented_env(repo, v)
             env.pop("BROTHERMODE_ROOT", None)
             self._git_repo(repo)
             self._init_store(repo, env)

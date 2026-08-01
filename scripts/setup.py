@@ -81,14 +81,15 @@ NOTICE_LINES = (
     "BrotherMode setup: what gets written, in plain words, before anything is written.",
     "",
     "1. Your private memory (project notes, decisions, session history) is",
-    "   written to one folder you choose below, called the vault. Nothing in",
-    "   it leaves your machine.",
+    "   written to one folder you choose below, called the vault (your",
+    "   project memory). Nothing in it leaves your machine.",
     "2. Inside each project you use BrotherMode in, a small local folder named",
-    "   .brothermode holds a database that tracks which files are being",
+    "   .brothermode holds your project's records: which files are being",
     "   worked on right now, so two sessions do not overwrite each other.",
-    "3. A telemetry ledger file inside your vault records basic usage numbers",
-    "   (tokens used, session length, how many tool calls) so you can see",
-    "   effort over time. It never records your file contents or your code.",
+    "3. Session records (written by the machine, not the model) inside your",
+    "   vault track basic usage numbers (tokens used, session length, how",
+    "   many tool calls) so you can see effort over time. They never record",
+    "   your file contents or your code.",
     "",
     "Nothing above is written until you say yes below.",
 )
@@ -255,11 +256,11 @@ def cmd_show():
         _out("run: python3 scripts/setup.py --reconfigure")
         return EXIT_OK
     _out("consent: %s" % ("SETUP COMPLETE" if is_consented(cfg) else "INCOMPLETE"))
-    _out("  config: %s" % path)
-    _out("  vault_path: %s" % cfg.get("vault_path", "(not set)"))
-    _out("  installation_mode: %s" % cfg.get("installation_mode", "(not set)"))
-    _out("  privacy_notice_version: %s" % cfg.get("privacy_notice_version", "(not set)"))
-    _out("  security_mode: %s" % cfg.get("security_mode", "(not set)"))
+    _out("  config file: %s" % path)
+    _out("  project memory (vault) location: %s" % cfg.get("vault_path", "(not set)"))
+    _out("  install type: %s" % cfg.get("installation_mode", "(not set)"))
+    _out("  privacy notice version: %s" % cfg.get("privacy_notice_version", "(not set)"))
+    _out("  security mode: %s" % cfg.get("security_mode", "(not set)"))
     return EXIT_OK
 
 
@@ -329,7 +330,8 @@ def run_interactive_mode(args):
     _out("")
 
     mode = detect_mode()
-    _out("Detected installation mode: %s" % mode)
+    mode_gloss = " (a copied folder install)" if mode == "clone" else ""
+    _out("Detected installation mode: %s%s" % (mode, mode_gloss))
 
     try:
         vault_in = input("Where should your private memory live? [%s]: "

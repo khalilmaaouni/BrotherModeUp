@@ -299,3 +299,93 @@ EXIT:0
   `--partial` since the task never reaches the terminal `closed` state.
   Deeper lifecycle paths (blocked, a full walk to closed, --allow-second
   for a genuine second project) are not exercised here.
+
+## Addendum, 2026-08-01: step 0, the I1 pre-consent no-write probe
+
+The two runs above are left exactly as they were recorded; nothing in this
+section edits or replaces them. This addendum does two things: adds the
+output of a new step, and corrects a reading the two runs above invite but
+do not earn.
+
+**What the two runs above did NOT cover, stated plainly.** Both runs
+started at step 1 (the copy) and moved straight to step 2 or step 3. Step 4
+is the ONLY step in either run that ever creates a consent config
+(`scripts/setup.py --accept-notice`), and every step after it runs with
+that config already on disk. Neither run at any point drove
+`tools/bm_sessionstart.sh`, `tools/bm_telemetry.py`, or
+`tools/bm_autosave.py` in a state where NO consent config existed at all.
+So neither run's "ALL GREEN" (Run 2) or "6 of 7 PASS" (Run 1) is evidence
+that this project writes nothing before consent; both runs are evidence
+about the POST-consent flow only. That gap is exactly what an external
+review (Loop 3/5) found and reproduced by direct execution as finding I1:
+`tools/bm_autosave.py`'s `cmd_precompact` wrote a namespaced git ref, a
+snapshot commit (including untracked files), and a JSON event file with no
+`~/.brotherme/config.json` present at all, the one write-capable entry
+point in `tools/*.py` that had no consent gate while
+`tools/bm_sessionstart.sh` and `tools/bm_telemetry.py` already refused to
+write a single byte pre-consent. `tools/test_bm_autosave.py` now carries a
+unit-level, calibrated proof of the fix
+(`TestCalibratedI1PreConsentNoWrite`); step 0 below is the same fact,
+demonstrated once against the real binaries, in this rehearsal's own
+fresh-machine shape, so the "clean bill" reading above is corrected by an
+executed check rather than only a promise.
+
+**What step 0 does.** Runs immediately after step 1 (the copy) and
+strictly before step 4 (the only step that ever creates a consent
+config), in its own throwaway git repo with real, uncommitted, and
+untracked work in it (exactly the shape a snapshot would capture if it
+were allowed to run) and no consent config anywhere `BROTHERME_CONFIG`
+could resolve to. It drives the three real write-capable entry points with
+the payload shapes `hooks/hooks.json` pipes to them: `tools/
+bm_sessionstart.sh` (the SessionStart hook), `tools/bm_telemetry.py
+outcomes-append` (the SessionEnd hook), and `tools/bm_autosave.py
+precompact` (half of the PreCompact hook, I1's own subject). It then
+asserts two things mechanically: `git for-each-ref refs/brothermode/` is
+empty before and after, and a full recursive tree walk of the probe repo
+(path plus byte size, every file) is identical before and after.
+
+Command (same invocation as Run 2 above; the addendum is the new step 0
+line this version of the script now prints, not a different command):
+
+    python3 scripts/rehearse_fresh_install.py --skip-gate
+
+Step 0's own output, pasted verbatim from a real run on this machine,
+2026-08-01, immediately after this fix landed:
+
+```
+[0/7] I1 pre-consent no-write probe (permanent proof the consent gate holds): PASS
+    all three entry points exited 0, named python3 scripts/setup.py, and wrote nothing at all: refs/brothermode/ stayed empty and the probe repo's full tree walk (28 file(s)) is byte-for-byte unchanged
+    tools/bm_sessionstart.sh: exit 0
+      stdout: 'BrotherMode setup is not complete yet; run: python3 scripts/setup.py'
+    tools/bm_telemetry.py outcomes-append: exit 0
+      stdout: 'bm_telemetry: setup is not complete yet; run: python3 scripts/setup.py'
+    tools/bm_autosave.py precompact: exit 0
+      stdout: 'bm_autosave: setup is not complete yet; run: python3 scripts/setup.py'
+    git for-each-ref refs/brothermode/ before: []
+    git for-each-ref refs/brothermode/ after:  []
+    full tree walk of the probe repo unchanged: True (28 file(s))
+```
+
+And the closing line of that same run, showing step 0 folded into the
+overall verdict alongside the seven numbered steps (step 2 correctly reads
+SKIP, never PASS, for `--skip-gate`; this is also new in this version, see
+below):
+
+```
+rehearse_fresh_install.py: step 0 (I1 pre-consent probe): PASS. 6/7 step(s) PASS, 1 SKIP, 0 FAIL. ALL GREEN
+EXIT:0
+```
+
+**A second, smaller correction in the same version: `--skip-gate` no
+longer claims PASS for a step it did not run.** Both runs recorded above
+show `[2/7] python3 tools/test_all.py from the copy: PASS` under
+`--skip-gate` (Run 2, line 207 above), with the detail line "skipped with
+--skip-gate...". That was itself a misreading built into the tool: a step
+that ran nothing at all reported the same status word, PASS, as a step
+that had actually proved something, so the seven-step ledger could not be
+told apart from one where every step genuinely ran. Step 2 now reports its
+own SKIP status, distinct from PASS, exactly as shown in this addendum's
+own closing line above (`1 SKIP`, not folded into `6/7 ... PASS`). This
+does not change any conclusion drawn from the two runs above: Run 1
+already ran the gate for real and is the record of what it found; this
+only fixes how a skipped gate is labeled going forward.
