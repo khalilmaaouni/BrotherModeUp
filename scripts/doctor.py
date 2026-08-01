@@ -765,12 +765,19 @@ def check_checksums(root):
         return _result("checksums", STATUS_SKIP,
                        "SKIP: no CHECKSUMS.sha256 at %s." % _mask_home(manifest_path))
     if _git_tree_state(root) == "dirty":
+        # A9 fix (loop6 refuter finding): say in one plain sentence that
+        # the integrity check did NOT run, so this SKIP can never be
+        # misread as a PASS (a plain doctor run, without --strict, exits 0
+        # on a SKIP exactly as it would on every check passing).
         return _result("checksums", STATUS_SKIP,
-                       "SKIP: %s is a live git working tree with uncommitted "
-                       "changes, so CHECKSUMS.sha256 (generated from a clean, "
-                       "checked-out release) cannot be compared honestly "
-                       "here. Commit your work or check out a clean tag, "
-                       "then re-run this check." % _mask_home(root))
+                       "SKIP: the file-integrity check did NOT run this "
+                       "time. %s is a live git working tree with "
+                       "uncommitted changes, so CHECKSUMS.sha256 (generated "
+                       "from a clean, checked-out release) cannot be "
+                       "compared honestly here, and this SKIP is not proof "
+                       "your files are untampered. Commit your work or "
+                       "check out a clean tag, then re-run this check."
+                       % _mask_home(root))
     try:
         text = io.open(manifest_path, encoding="utf-8").read()
     except (IOError, OSError) as exc:

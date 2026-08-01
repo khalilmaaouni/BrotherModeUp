@@ -11,7 +11,7 @@ Honesty label, read this first: this install path has been installed exactly
 once: on the author's machine on 2026-07-31, from a local copy of this
 repository rather than from GitHub, with the full add, install, verify,
 uninstall cycle recorded in docs/evidence/2026-07-31-first-plugin-install.md
-(all seven skills and five hooks registered). Nobody has installed it from
+(all seven skills and six hooks registered). Nobody has installed it from
 GitHub or on any other machine yet. It
 also ships more than new packaging: the guided beginner layer (the six
 /brotherme commands and the guided skill) is new in this release and is
@@ -161,8 +161,8 @@ python3 ~/.claude/skills/brothermode/scripts/install.py
 Run the `--dry-run` first. It prints every change and writes nothing, so you
 see what is about to happen to your `settings.json` before it happens.
 
-Expected from the real run: a list of five hooks (`SessionStart`, `SessionEnd`,
-`Stop`, `PreCompact`, `PreToolUse`), a line naming the backup of your previous
+Expected from the real run: a list of six hooks (`SessionStart`, `SessionEnd`,
+`Stop`, `PreCompact`, `PreToolUse`, `PostToolUse`), a line naming the backup of your previous
 settings, and a closing line reading `smoke: the fence hook ran end to end and
 exited 0`. That last line is the point. The installer re-reads what it wrote
 and actually executes the one hook that can refuse a write, so "installed"
@@ -349,7 +349,7 @@ already running when you edited `settings.json` will not have it).
 
 ## What you have now
 
-The five hooks running automatically, a vault of your own, and one proof that
+The six hooks running automatically, a vault of your own, and one proof that
 the telemetry mechanism works end to end. What you do NOT yet have from this
 alone: a history (that takes real weeks of use), a felt-outcome rating trend,
 or a weekly review (`tools/WEEKLY-REVIEW.md`, run it once your first week of

@@ -1357,7 +1357,9 @@ class TestExportAndPurge(unittest.TestCase):
             removed = json.loads(r.stdout)["removed"]
             self.assertEqual(
                 removed, {"dependencies": 1, "evidence": 2, "alerts": 1,
-                          "forecasts": 1, "tasks": 2, "projects": 1})
+                          "forecasts": 1, "tasks": 2, "projects": 1,
+                          "cross_project_edges_removed": [],
+                          "alerts_skipped": []})
 
             after = _raw_dump(root)
             self.assertEqual(
@@ -1391,6 +1393,49 @@ class TestExportAndPurge(unittest.TestCase):
             self.assertIn("kept:", r.stdout)
             self.assertIn("attribution trail", r.stdout)
             self.assertIn("vault", r.stdout)
+
+    def test_purge_names_cross_project_dependency_fallout_separately(self):
+        """A6 (loop6 refuter finding): a task in ANOTHER project depending
+        on a task in the purged one is real fallout, but it must be named
+        in its own plain sentence, never folded into the purged project's
+        own "removed:" counts."""
+        with tempfile.TemporaryDirectory() as root:
+            _init(root)
+            r = _run(["start", "--project-id", "proj1", "--name",
+                      "Acme Rescue", "--goal", "Ship the thing"]
+                     + list(ACTOR) + ["--out-json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["start", "--project-id", "proj2", "--name",
+                      "Beta Rescue", "--goal", "Ship the other thing",
+                      "--allow-second"] + list(ACTOR) + ["--out-json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["task", "add", "--project-id", "proj1", "--task-id",
+                      "task1", "--title", "Fix the leaky pipe"]
+                     + list(ACTOR) + ["--out-json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["task", "add", "--project-id", "proj2", "--task-id",
+                      "task4", "--title", "Depends on proj1's work",
+                      "--depends-on", "task1"] + list(ACTOR)
+                     + ["--out-json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+            r = _run(["purge", "--project-id", "proj1", "--confirm",
+                      "proj1"] + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn(
+                "prerequisite link(s) in other projects also had to go",
+                r.stdout)
+            self.assertIn("task4", r.stdout)
+            # proj1's own "removed:" line must not claim this edge as its
+            # own dependency count: proj1's task1 depended on nothing.
+            self.assertIn("0 dependency row(s)", r.stdout)
+
+            store = bs.Store(root, create=False)
+            try:
+                task4 = store.get_task("task4", raw=True)
+            finally:
+                store.close()
+            self.assertEqual(task4["depends_on"], [])
 
 
 if __name__ == "__main__":

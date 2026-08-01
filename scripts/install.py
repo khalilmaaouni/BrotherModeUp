@@ -64,14 +64,27 @@ EXIT_USAGE = 2
 EXIT_UNSUPPORTED = 3
 EXIT_REFUSED = 4
 
-# The five hook events this project installs. SessionStart, SessionEnd, Stop and
-# PreCompact are the four documented in docs/SETUP.md; PreToolUse is the fence
-# hook (docs/HOOKS.md), which was previously documented but never part of any
-# install instruction, so the fence shipped off by default.
-HOOK_EVENTS = ("SessionStart", "SessionEnd", "Stop", "PreCompact", "PreToolUse")
+# The six hook events this project installs. SessionStart, SessionEnd, Stop
+# and PreCompact are the four documented in docs/SETUP.md; PreToolUse is the
+# fence hook (docs/HOOKS.md); PostToolUse and a second PreToolUse group (below)
+# are the Bash-write DETECTION pair, tools/bm_bash_audit.py (Loop 6 D-1).
+#
+# A1 fix (loop6 refuter findings, 2026-08-01): this used to stop at
+# PreToolUse, five events, one group each. The Bash-audit pair was wired into
+# the Claude Code plugin manifest (hooks/hooks.json) the day it shipped, but
+# NOT into this clone-install path, so a founder who cloned the repo and ran
+# this installer got the fence hook but never got Bash-write detection, with
+# nothing telling them so. hook_groups() below now wires BOTH halves here
+# too: PreToolUse carries the fence group AND a second, independent Bash
+# group, and PostToolUse carries the Bash group's other half.
+HOOK_EVENTS = ("SessionStart", "SessionEnd", "Stop", "PreCompact",
+               "PreToolUse", "PostToolUse")
 
 FENCE_MATCHER = "Edit|Write|MultiEdit|NotebookEdit"
 FENCE_TIMEOUT = 10
+BASH_AUDIT_MATCHER = "Bash"
+BASH_AUDIT_PRE_TIMEOUT = 10
+BASH_AUDIT_POST_TIMEOUT = 15
 
 # Every tool basename a hook command of ours may name. Ownership of a hook entry
 # is decided by (this installation's path) plus (one of these names), so a hook
@@ -81,20 +94,9 @@ OWNED_TOOLS = (
     "bm_telemetry.py",
     "bm_autosave.py",
     "bm_fence_hook.py",
-    # Loop 6 WP-G (2026-08-01): tools/bm_bash_audit.py, the PreToolUse/
-    # PostToolUse Bash-write detection pair (hooks/hooks.json wires both
-    # events). Listed here so the smoke test's file-presence check covers
-    # it and so a hook command naming it is recognized as ours. NOT wired
-    # into hook_commands()/HOOK_EVENTS below: doing so would add a second
-    # PreToolUse group and a new PostToolUse event to every settings.json
-    # this installer writes, and tools/test_install.py (outside this
-    # change's fence) hard-asserts fixed hook counts (one group per event,
-    # five wired events, five hook commands sharing a target-path prefix)
-    # that a second group or a sixth event would break. The plugin
-    # manifest (hooks/hooks.json) wires the new hook today; the clone-
-    # install path (this file) does not yet. That asymmetry is reported,
-    # not hidden: see docs/HOOKS.md's "Installing the Bash audit hook" and
-    # docs/KNOWN-LIMITS.md.
+    # Loop 6 WP-G (2026-08-01), wired on THIS path since the A1 fix above:
+    # tools/bm_bash_audit.py, the PreToolUse/PostToolUse Bash-write
+    # detection pair.
     "bm_bash_audit.py",
 )
 
@@ -128,7 +130,11 @@ def _q(path):
 
 
 def hook_commands(target):
-    """The exact command string for each event, built from an absolute target.
+    """The exact command string for every hook entry this project wires,
+    built from an absolute target and keyed by a short label rather than by
+    event: since the A1 fix, PreToolUse carries TWO independent commands
+    (the fence hook and the Bash-audit pre phase), so "one command per
+    event" is no longer true and the key has to say which command.
 
     The PreCompact command runs two tools off one stdin payload, which needs a
     shell; it is assembled as an inner script and then quoted as a single
@@ -137,6 +143,7 @@ def hook_commands(target):
     tools = os.path.join(target, "tools")
     autosave = os.path.join(tools, "bm_autosave.py")
     telemetry = os.path.join(tools, "bm_telemetry.py")
+    bash_audit = os.path.join(tools, "bm_bash_audit.py")
     inner = (
         'p=$(cat); printf %s "$p" | python3 ' + _q(autosave) + ' precompact; '
         'printf %s "$p" | python3 ' + _q(telemetry) + ' precompact-brief'
@@ -147,21 +154,50 @@ def hook_commands(target):
         "Stop": "python3 " + _q(telemetry) + " stop-warn",
         "PreCompact": "sh -c " + _q(inner),
         "PreToolUse": "python3 " + _q(os.path.join(tools, "bm_fence_hook.py")),
+        "PreToolUse-bash-audit": "python3 " + _q(bash_audit) + " pre",
+        "PostToolUse-bash-audit": "python3 " + _q(bash_audit) + " post",
     }
 
 
 def hook_groups(target):
-    """One matcher-group per event, in the shape Claude Code reads."""
+    """Every matcher-group this project wires, keyed by event, each value a
+    LIST of groups (Claude Code's own shape for hooks.<event>).
+
+    A1 fix (loop6 refuter findings): every event but PreToolUse wires
+    exactly one group. PreToolUse wires TWO: the fence group, which can
+    refuse an Edit/Write/MultiEdit/NotebookEdit call before it happens, and
+    a second, independent Bash-matcher group for tools/bm_bash_audit.py's
+    pre phase, which cannot refuse anything (Bash is absent from the fence
+    hook's own WRITE_TOOLS by design; see that file's own docstring for
+    why) but snapshots every fenced file so a later Bash write across a
+    fence can be DETECTED. PostToolUse wires the Bash-audit pair's other
+    half, the post phase that does the detecting."""
     cmds = hook_commands(target)
-    groups = {}
-    for event in HOOK_EVENTS:
-        entry = {"type": "command", "command": cmds[event]}
+
+    def _group(matcher, command, timeout):
+        entry = {"type": "command", "command": command}
+        if timeout is not None:
+            entry["timeout"] = timeout
         group = {"hooks": [entry]}
-        if event == "PreToolUse":
-            entry["timeout"] = FENCE_TIMEOUT
-            group = {"matcher": FENCE_MATCHER, "hooks": [entry]}
-        groups[event] = group
-    return groups
+        if matcher is not None:
+            group["matcher"] = matcher
+        return group
+
+    return {
+        "SessionStart": [_group(None, cmds["SessionStart"], None)],
+        "SessionEnd": [_group(None, cmds["SessionEnd"], None)],
+        "Stop": [_group(None, cmds["Stop"], None)],
+        "PreCompact": [_group(None, cmds["PreCompact"], None)],
+        "PreToolUse": [
+            _group(FENCE_MATCHER, cmds["PreToolUse"], FENCE_TIMEOUT),
+            _group(BASH_AUDIT_MATCHER, cmds["PreToolUse-bash-audit"],
+                   BASH_AUDIT_PRE_TIMEOUT),
+        ],
+        "PostToolUse": [
+            _group(BASH_AUDIT_MATCHER, cmds["PostToolUse-bash-audit"],
+                   BASH_AUDIT_POST_TIMEOUT),
+        ],
+    }
 
 
 def command_path_tokens(command):
@@ -324,8 +360,12 @@ def merge_hooks(settings, target):
             raise ValueError(
                 "settings.json has hooks.%s set to a %s, not a list. Refusing "
                 "to replace it." % (event, type(existing).__name__))
-        hooks[event].append(groups_to_add[event])
-        added += 1
+        # A1 fix: groups_to_add[event] is now a LIST (PreToolUse carries
+        # two of our own groups, the rest carry one), so every group in it
+        # is appended, not the single dict a pre-fix caller would expect.
+        for group in groups_to_add[event]:
+            hooks[event].append(group)
+            added += 1
     return new, removed, added
 
 
@@ -548,11 +588,13 @@ def check_platform(argv_name):
             "hook commands this installer writes are POSIX shell. SessionStart "
             "runs `sh <path>/tools/bm_sessionstart.sh` and PreCompact runs "
             "`sh -c` with a pipeline, and neither cmd.exe nor PowerShell will "
-            "run them. Three of the five hooks would be wired and silently dead.\n"
+            "run them. Two of the six wired events (SessionStart, PreCompact) "
+            "would be wired and silently dead.\n"
             "Working paths on Windows: install inside WSL (a real POSIX shell, "
-            "and Claude Code runs there), or wire the two python3-only hooks "
-            "(SessionEnd, Stop) plus the PreToolUse fence hook by hand per "
-            "docs/HOOKS.md and accept that SessionStart and PreCompact are off.\n"
+            "and Claude Code runs there), or wire the python3-only hooks "
+            "(SessionEnd, Stop, the PreToolUse fence, and the Bash-audit "
+            "PreToolUse/PostToolUse pair) by hand per docs/HOOKS.md and accept "
+            "that SessionStart and PreCompact are off.\n"
             "Platform seen: %s." % (argv_name, platform.platform()))
         return EXIT_UNSUPPORTED
     if sys.version_info < (3, 9):
@@ -736,9 +778,14 @@ def main(argv):
     _out("")
     _out("%sInstalled:" % prefix)
     if not args.no_hooks:
-        cmds = hook_commands(target)
+        # A1 fix: PreToolUse now carries two groups and needs its matcher
+        # named to tell them apart, so this prints one line per GROUP
+        # rather than assuming one command per event.
         for event in HOOK_EVENTS:
-            _out("  %-13s %s" % (event, cmds[event]))
+            for group in hook_groups(target)[event]:
+                matcher = group.get("matcher")
+                label = "%s[%s]" % (event, matcher) if matcher else event
+                _out("  %-28s %s" % (label, group["hooks"][0]["command"]))
     _out("")
     _out("Still manual, on purpose:")
     _out("  1. Your vault. cp -R %s ~/BrotherModeVault, then export "
