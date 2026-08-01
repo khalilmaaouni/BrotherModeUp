@@ -75,6 +75,16 @@ dd{margin:.15rem 0 0 0;padding-left:0}
 .svgbox-good{fill:#eef7f0;stroke:var(--good);stroke-width:1.5}
 .svgline{stroke:var(--ink);stroke-width:1.5;fill:none}
 .svgline-bad{stroke:var(--bad);stroke-width:1.5;fill:none}
+.part{border-top:3px double var(--accent);margin:4.5rem 0 0;padding-top:1.5rem}
+.part h2{border:none;padding-top:0;margin:0 0 .5rem;font-size:1.02rem;
+  text-transform:uppercase;letter-spacing:.2em;color:var(--accent)}
+.part p{margin:0;color:var(--ink-soft);font-size:.98rem}
+.try .tryline{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;font-size:.85rem;
+  color:var(--ink-soft);margin:.1rem 0 .9rem}
+.toc .why{color:var(--ink-soft);font-size:.86rem}
+.cmdtable td:first-child{white-space:nowrap}
+.toc p{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;font-size:.95rem;margin:1.2rem 0 .4rem}
+.toc p:first-of-type{margin-top:.2rem}
 @media (prefers-color-scheme:dark){
   :root{--ink:#e8e6e1;--ink-soft:#a6a29a;--paper:#16161a;--rule:#33333c;
         --accent:#e0a06a;--accent-soft:#2a2118;--code-bg:#1f1f26;--code-ink:#e2e0db;
@@ -93,7 +103,8 @@ dd{margin:.15rem 0 0 0;padding-left:0}
   body{background:#fff;color:#000;font-size:11pt}
   .wrap{max-width:none;padding:0}
   h2{page-break-before:always;break-before:page}
-  h2#ch1{page-break-before:avoid;break-before:avoid}
+  h2#cheatsheet{page-break-before:avoid;break-before:avoid}
+  .part{page-break-before:always;break-before:page}
   pre,figure,.try,.note,.honest,table{page-break-inside:avoid;break-inside:avoid}
   /* On paper there is nothing to scroll, so a long command must wrap rather
      than be cut off at the page edge with no sign that it was. */
@@ -111,8 +122,9 @@ dd{margin:.15rem 0 0 0;padding-left:0}
 agent, loop or hook, and is not yet convinced any of this is worth the trouble.</p>
 
 <div class="meta">
-<p style="margin:0">Written against BrotherMode <strong>2.0.0-rc.4</strong>, commit
-<code>471efdc</code> on branch <code>main</code>.
+<p style="margin:0">Part one written against BrotherMode <strong>2.0.0-rc.4</strong>
+(commit <code>471efdc</code>); part two, the tutorials, and this task-first
+organization added and re-verified at <strong>2.0.0-rc.11</strong> on 2026-08-01.
 Every command in this book was executed by the author against a throwaway project
 before the book was published, and every block marked <em>what it printed</em> is
 pasted output, not a reconstruction. Where a capability is unproven, the book says
@@ -123,273 +135,445 @@ one. BrotherMode has never been run through a real working day by anyone
 inventing one would be the exact failure this whole system exists to prevent.</p>
 </div>
 
-<nav class="toc">
-<h2>Contents</h2>
-<ol>
-<li><a href="#ch1">Monday, and what actually goes wrong</a></li>
-<li><a href="#ch2">Install it in ten minutes</a></li>
-<li><a href="#ch3">Your first loop</a></li>
-<li><a href="#ch4">The five questions, kept apart</a></li>
-<li><a href="#ch5">How to correct it, and where the correction goes</a></li>
-<li><a href="#ch6">Gates and deep dives: reviewing a machine's decision</a></li>
-<li><a href="#ch7">The Documentation folder, toured</a></li>
-<li><a href="#ch8">Working with a team</a></li>
-<li><a href="#ch9">What to hand over, and what to keep</a></li>
-<li><a href="#ch10">Other runtimes: what works, what is unverified</a></li>
-<li><a href="#ch11">When it goes wrong</a></li>
-<li><a href="#ch12">Glossary</a></li>
-</ol>
-<p><strong>Part two: going deep.</strong> Added 2026-08-01 at 2.0.0-rc.11, after
-a founder review asked for the expert half: the guided command layer, the
-memory system in full, and two composed walkthroughs of ambitious work.</p>
-<ol start="13">
-<li><a href="#ch13">The guided layer: seven commands and the deep tour</a></li>
-<li><a href="#ch14">The vault and Obsidian: how it remembers</a></li>
-<li><a href="#ch15">Building something big</a></li>
-<li><a href="#ch16">Numbers that survive scrutiny</a></li>
-</ol>
-<p>Before any of them: <a href="#philosophy">the philosophy, and the ten laws</a>,
-which is the shortest honest answer to why this project exists at all.</p>
-</nav>
+<h2 id="cheatsheet">Cheat sheet</h2>
 
-<h2 id="philosophy">The philosophy, before the chapters</h2>
+<p class="lede">One screen. Everything after it is detail behind these lines.</p>
 
-<p>Every chapter in this book is an application of one uncomfortable belief, so
-the belief deserves its own page: <strong>an AI's confidence is not evidence,
-and a rule written in a prompt is not a control.</strong> Anyone can tell a
-model to be careful, to double-check, to never overwrite work. The telling
-costs nothing and changes little, because the model that forgets your file
-also forgets your instruction. Every mechanism in this project exists because
-somebody took that belief seriously and asked: what would this rule look like
-if it did not depend on being remembered?</p>
+<h4>Install: two lines, typed inside Claude Code</h4>
 
-<p>The answer, each time, is one of two shapes. Either the rule becomes
-machinery (a gate that refuses, a test that fails, a hook that records), or
-the rule becomes a handover (the risky step is prepared completely and given
-to a human hand). A rule that is neither machinery nor a handover is listed
-honestly as discipline, which is the weakest of the three and says so. That
-three-way honesty about its own rules, more than any single feature, is what
-makes this project itself.</p>
+<pre><code>/plugin marketplace add khalilmaaouni/BrotherModeUp
+/plugin install brotherme</code></pre>
 
-<h3>The ten laws</h3>
-
-<p>Stated once, plainly, each with the failure it exists to kill. The chapters
-that enforce and demonstrate each are named in parentheses.</p>
-
-<ul>
-<li><strong>1. Look before touching.</strong> A session maps what is already
-true (what changed, what is claimed, what is mid-flight) before writing
-anything, and coordinates with work it finds rather than overwriting it.
-Kills: the confident session that flattens another's work. (Chapters three,
-eight, fifteen.)</li>
-<li><strong>2. One writer per file.</strong> The claim is written before the
-work starts; a mechanical gate refuses the second writer; the refusal names
-the holder. Kills: silent overwrites, the way parallel work actually dies.
-(Chapters three, eight, fifteen.)</li>
-<li><strong>3. Proof, or it is not done.</strong> Done requires a check that
-ran after the last change and passed, quoted, and delivery packets carry the
-evidence. Kills: the confident summary, the cheapest thing a model produces.
-(Chapters four, six, thirteen.)</li>
-<li><strong>4. The guided loop.</strong> The strongest model plans and judges;
-cheaper helpers execute; two failed checks escalate upward with the failure
-attached. Kills: paying judgment prices for labor, and trusting labor with
-judgment. (Chapters thirteen, fifteen, sixteen.)</li>
-<li><strong>5. Ranges, never promises.</strong> Estimates carry a range, a
-confidence, and the assumption most likely to move them; actuals feed the
-next forecast. Kills: the point estimate, a lie about certainty. (Chapters
-four, thirteen.)</li>
-<li><strong>6. Bad news first, labels on numbers.</strong> A failing check
-leads the message; a number that could not be independently verified carries
-its label at the number. Kills: the buried caveat. (Chapters five,
-sixteen.)</li>
-<li><strong>7. The human holds the keys.</strong> Decisions arrive one at a
-time with a recommendation first; anything touching credentials, money,
-publishing, production, or deletion is prepared fully and handed over.
-Kills: the automation that quietly outgrew its permission. (Chapters eight,
-fifteen.)</li>
-<li><strong>8. Memory lives on disk.</strong> Decisions, progress, failures,
-and open work are written to plain files (the vault, the state records) that
-survive crashes, restarts, and compaction. Kills: the project that resets
-every morning. (Chapters seven, nine, fourteen.)</li>
-<li><strong>9. Corrections become law only by consent.</strong> A correction
-can become a standing rule retrieved before similar work, promoted only with
-the human's explicit receipt, and no learned rule may ever weaken the laws
-above it. Kills: repeating the same correction forever, and also the tool
-that rewrites its own constitution. (Chapter five.)</li>
-<li><strong>10. Wrong claims are corrected in daylight.</strong> A sentence
-that turns out false gets a dated correction on top, never a silent rewrite;
-this book and the release pages practice it visibly. Kills: the document
-that is always right in hindsight. (Chapters ten, eleven, and the release
-history.)</li>
-</ul>
-
-<p>One more honest sentence, because the laws demand it of the page that
-states them: the mechanical half of laws two and three is enforced on Claude
-Code; on every other tool these laws travel as written instruction, which is
-the discipline shape, not the machinery shape, and chapter ten is the honest
-map of that difference.</p>
-
-<h2 id="ch1"><span class="chnum">Chapter one</span>Monday, and what actually goes wrong</h2>
-
-<p>Forget the product for a moment. Here is a Monday.</p>
-
-<p>You run a small tea company. The order totals are wrong by a penny sometimes,
-and a customer noticed. You open your AI coding assistant and say: <em>add VAT to
-the order total, and please do not break the rounding again, we refunded someone
-last month over this.</em></p>
-
-<p>It does a good job. It writes the code, it explains the fix, you ship it. Good
-Monday.</p>
-
-<p>Now here is what happens over the next three weeks, and every item in this list
-is a mechanical property of how these tools work, not a complaint about how clever
-they are.</p>
-
-<h3>Tuesday: the sentence is gone</h3>
-
-<p>You open a fresh conversation, because the old one got long and slow. You ask for
-a discount feature. The assistant writes <code>price * 0.9</code> using decimal
-numbers, because the sentence <em>we refunded someone last month over rounding</em>
-was in a conversation that no longer exists. You say it again. It apologises
-sincerely. It will not remember on Wednesday either.</p>
-
-<p>That is not forgetfulness in the human sense. The assistant has no place to put
-that sentence. The conversation IS the memory, and the conversation ends.</p>
-
-<h3>Wednesday: two of them, one file</h3>
-
-<p>You get ambitious and run two assistants at once, one on VAT and one on
-discounts. Both decide the cleanest place to work is <code>pricing.py</code>. The
-second one saves over the first one's work. Nothing errors. You find out on
-Thursday when a test you were sure passed does not.</p>
-
-<h3>Thursday: it says it is done</h3>
-
-<p>You ask whether the VAT work is finished. It says yes, and it means it. It has
-no way to distinguish <em>I wrote code that should work</em> from <em>I ran the
-test and watched it pass</em>, because both feel the same from the inside of a
-sentence. You run the test yourself. It fails.</p>
-
-<h3>Friday: nobody can review anything</h3>
-
-<p>Your one actual engineer, Priya, asks why order totals are now recomputed at
-read time instead of stored. The answer is in a transcript. The transcript is
-four thousand lines long, it is on your laptop, and it is not organised by
-decision. She shrugs and rewrites it her way, which is a fourth different
-behaviour for the same field.</p>
-
-<h3>Three weeks later: the handover</h3>
-
-<p>You hire someone. They ask what the project is, what state it is in, and what
-decisions were already made and why. You have a repository and a memory. That is
-the whole handover pack.</p>
-
-<h3>What all five of those have in common</h3>
-
-<p>None of them is about the model being stupid. Every one of them is about
-something that <strong>was never written down anywhere a machine could check
-it.</strong></p>
-
-<figure>
-<svg viewBox="0 0 620 196" role="img" aria-label="Five failures on the left, each pointing at the same cause in the middle: nothing was written down. On the right, the BrotherMode answer: write it to disk, then check the disk.">
-<text class="svgtxt-s" x="0" y="12">The Monday to Friday list</text>
-<rect class="svgbox-bad" x="0" y="24" width="170" height="26" rx="3"/>
-<text class="svgtxt" x="10" y="41">the rule is forgotten</text>
-<rect class="svgbox-bad" x="0" y="58" width="170" height="26" rx="3"/>
-<text class="svgtxt" x="10" y="75">two writers, one file</text>
-<rect class="svgbox-bad" x="0" y="92" width="170" height="26" rx="3"/>
-<text class="svgtxt" x="10" y="109">"done" with no proof</text>
-<rect class="svgbox-bad" x="0" y="126" width="170" height="26" rx="3"/>
-<text class="svgtxt" x="10" y="143">decision unreviewable</text>
-<rect class="svgbox-bad" x="0" y="160" width="170" height="26" rx="3"/>
-<text class="svgtxt" x="10" y="177">handover is a memory</text>
-<path class="svgline-bad" d="M170 37 L232 100"/>
-<path class="svgline-bad" d="M170 71 L232 103"/>
-<path class="svgline-bad" d="M170 105 L232 105"/>
-<path class="svgline-bad" d="M170 139 L232 107"/>
-<path class="svgline-bad" d="M170 173 L232 110"/>
-<rect class="svgbox" x="232" y="80" width="150" height="50" rx="3"/>
-<text class="svgtxt" x="242" y="100">one cause: it was</text>
-<text class="svgtxt" x="242" y="118">never written down</text>
-<path class="svgline" d="M382 105 L442 105"/>
-<path class="svgline" d="M434 100 L442 105 L434 110"/>
-<rect class="svgbox-good" x="442" y="62" width="178" height="86" rx="3"/>
-<text class="svgtxt" x="452" y="82">write it to a file</text>
-<text class="svgtxt" x="452" y="100">the moment it exists,</text>
-<text class="svgtxt" x="452" y="118">then let a program</text>
-<text class="svgtxt" x="452" y="136">check the file</text>
-</svg>
-<figcaption>The whole design in one picture. Models drift; disks do not.</figcaption>
-</figure>
-
-<h3>What BrotherMode actually is</h3>
-
-<p>It is a small pile of Python scripts and one database file that sits in your
-project folder. It does five things, and each one is the direct answer to a day
-above.</p>
+<h4>The seven commands</h4>
 
 <div class="scroll">
-<table>
-<tr><th>The day</th><th>What BrotherMode does instead</th></tr>
-<tr><td>Tuesday: the rule is gone</td><td>Your correction becomes a stored rule with an
-approval receipt. Before work starts, matching rules are looked up and the lookup
-is recorded.</td></tr>
-<tr><td>Wednesday: two writers</td><td>One writer per file, enforced by a program
-that runs before every edit and refuses the second one.</td></tr>
-<tr><td>Thursday: unproven "done"</td><td>Work cannot be marked complete without
-evidence. The command refuses.</td></tr>
-<tr><td>Friday: unreviewable decision</td><td>One command writes a review pack with
-the live code, the callers, the tests, the rollback and a place for Priya's verdict.
-Her critical objection can refuse the decision outright.</td></tr>
-<tr><td>The handover</td><td>One command writes a <code>Documentation/</code> folder,
-including a handover page written for a human who will never talk to an
-assistant.</td></tr>
+<table class="cmdtable">
+<tr><th>Type this</th><th>And you get</th></tr>
+<tr><td><code>/brotherme-start</code></td><td>a guided kickoff ending in a one-page brief
+you approve, saved as <code>CANVAS.md</code></td></tr>
+<tr><td><code>/brotherme-status</code></td><td>eight plain lines: goal, direction, progress,
+time remaining, decision needed, risk, evidence, next step</td></tr>
+<tr><td><code>/brotherme-next</code></td><td>exactly one recommended next step, with a
+reason and a time range</td></tr>
+<tr><td><code>/brotherme-review</code></td><td>the work checked point by point against a
+written definition of done, evidence beside each point</td></tr>
+<tr><td><code>/brotherme-deliver</code></td><td>a delivery packet, refused unless a check
+ran after the last change and passed</td></tr>
+<tr><td><code>/brotherme-update</code></td><td>your version, the newest version, and the
+exact update lines for your install path</td></tr>
+<tr><td><code>/brotherme-help</code></td><td>what you have, in plain words, and the offer
+of a deep tour of your project</td></tr>
 </table>
 </div>
 
-<p>Two properties are worth naming now, because they explain most of the design
-decisions you will meet later.</p>
+<h4>Parallel safety, the essentials</h4>
 
-<p><strong>The programs, not the model, write the record.</strong> When a session
-ends, a hook (a small program the tool runs automatically at a fixed moment) writes
-what happened. The model does not get to narrate its own numbers. This is why the
-numbers can be trusted, and it is also why there are no numbers in this book: the
-honest ledger for real use is currently empty.</p>
+<pre><code>BM=~/.claude/skills/brothermode
 
-<p><strong>Refusal over guessing.</strong> Almost everything in this system prefers
-to stop and print a reason. You will see the word <code>refused</code> more in this
-book than the word <code>ok</code>. That is deliberate. A tool that guesses when it
-is unsure produces work you then have to audit; a tool that refuses produces one
-line you have to read.</p>
+# 1. get a session label. Never type one by hand.
+ME=$(python3 $BM/tools/bm_fence_hook.py session-label --session-id my-session)
 
-<div class="honest">
-<p><strong>Before you go further.</strong> BrotherMode is a release candidate.
-Its own limits page opens with the sentence "Everything here rests on tests,
-adversarial execution, and simulated lifecycles. No day of real founder work has
-yet been done through the V2 store." Its continuous integration has failed on
-Windows. If you want a finished product with case studies, this is not it. If you
-want a system whose honesty you can check, read on.</p>
+# 2. claim the work AND the exact files it may write. The second half is the fence.
+python3 $BM/tools/bm_store.py claim NAME --lifetime ephemeral \
+  --objective "..." --files path/one.py --session "$ME" --tier T1 --check "..."
+
+# 3. see who holds what, any time
+python3 $BM/tools/bm_store.py dashboard
+
+# 4. get a lost working tree back
+python3 $BM/tools/bm_autosave.py recover</code></pre>
+
+<ul>
+<li><strong>One writer per file.</strong> A second claim on a held path is
+<code>refused (overlap)</code>. A write from the wrong session is denied by the hook,
+and the refusal names the holder.</li>
+<li><strong>Adopting is not claiming.</strong> Taking a record over transfers the
+record, not the fence. Re-claim the paths afterwards or you are working unfenced.</li>
+<li><strong>Bash is not gated.</strong> The fence stands in front of the structured
+edit tools. It does not stand in front of <code>sed -i</code>, a shell redirect,
+<code>tee</code> or <code>python -c</code>.</li>
+<li><strong>Read the FAILING OPEN line.</strong> When the fence cannot check, it allows
+the write and says so. That line is the difference between "the fence allowed it" and
+"there was no fence".</li>
+</ul>
+
+<h4>Where things live on disk</h4>
+
+<div class="scroll">
+<table class="cmdtable">
+<tr><th>Path</th><th>What it is</th></tr>
+<tr><td><code>~/.claude/skills/brothermode/</code></td><td>the installed files themselves.
+Nothing here is per project.</td></tr>
+<tr><td><code>&lt;project&gt;/.brothermode/store.sqlite3</code></td><td>this project's
+records. One database, per project, next to the code.</td></tr>
+<tr><td><code>&lt;project&gt;/STATE.md</code></td><td>the same records rendered for humans.
+Regenerated between its markers; anything you write outside them survives.</td></tr>
+<tr><td><code>&lt;project&gt;/CANVAS.md</code></td><td>the approved one-page brief, written
+by <code>/brotherme-start</code>.</td></tr>
+<tr><td><code>&lt;project&gt;/Documentation/</code></td><td>the generated folder a stranger
+can read. Numbered, so the reading order is not a matter of taste.</td></tr>
+<tr><td><code>~/BrotherModeVault/</code></td><td>your memory across projects: session logs,
+open items, recorded failures. Move it with <code>BROTHERMODE_VAULT</code>.</td></tr>
+</table>
 </div>
+
+<nav class="toc">
+<h2>Contents</h2>
+<p>One reading note: chapter numbers are the chapters' original names, kept
+stable so links and cross-references never break. Read by PART order, top to
+bottom; the numbers are anchors, not a sequence.</p>
+
+<p><strong><a href="#cheatsheet">Cheat sheet</a></strong><br>
+<span class="why">install, the seven commands, parallel safety, where things live</span></p>
+
+<p><strong>Part one: DO.</strong> Three tutorials. Type, look, move on.</p>
+<ol>
+<li><a href="#t1">Install it and see it answer</a></li>
+<li><a href="#t2">Take one project from idea to delivered</a></li>
+<li><a href="#t3">Run two workers at once, and get your work back after a crash</a></li>
+</ol>
+
+<p><strong>Part two: SOLVE.</strong> One recipe per problem you already have.</p>
+<ol>
+<li><a href="#ch2">Install it in ten minutes</a><br>
+<span class="why">when you want the clone path, the five hooks wired by hand, or a team setup</span></li>
+<li><a href="#ch3">Your first loop</a><br>
+<span class="why">when you want to drive the machine yourself, from a shell</span></li>
+<li><a href="#ch5">How to correct it, and where the correction goes</a><br>
+<span class="why">when you are tired of repeating the same correction</span></li>
+<li><a href="#ch6">Gates and deep dives: reviewing a machine's decision</a><br>
+<span class="why">when a real engineer has to approve something, with enough to decide on</span></li>
+<li><a href="#ch7">The Documentation folder, toured</a><br>
+<span class="why">when somebody needs a folder they can read without asking you anything</span></li>
+<li><a href="#ch8">Working with a team</a><br>
+<span class="why">when two people, two machines or two repositories are involved</span></li>
+<li><a href="#ch9">What to hand over, and what to keep</a><br>
+<span class="why">when you are not sure this is worth the ceremony. Often it is not.</span></li>
+<li><a href="#ch13">The guided layer: seven commands and the deep tour</a><br>
+<span class="why">when you want the whole tour of where your project stands, or an update</span></li>
+</ol>
+
+<p><strong>Part three: UNDERSTAND.</strong> Why any of this exists. Nothing here is
+needed to use the product.</p>
+<ol>
+<li><a href="#ch1">Monday, and what actually goes wrong</a></li>
+<li><a href="#philosophy">The philosophy, and the ten laws</a></li>
+<li><a href="#ch4">The five questions, kept apart</a></li>
+<li><a href="#ch14">The vault and Obsidian: how it remembers</a></li>
+<li><a href="#ch15">Building something big</a></li>
+<li><a href="#ch16">Numbers that survive scrutiny</a></li>
+<li><a href="#ch10">Other runtimes: what works, what is unverified</a></li>
+<li><a href="#ch11">When it goes wrong</a></li>
+</ol>
+
+<p><strong>Part four: LOOK UP.</strong> Reference. Nobody reads this part in order.</p>
+<ol>
+<li><a href="#ref-commands">The seven commands, in full</a></li>
+<li><a href="#ref-tools">The tool commands, by task</a></li>
+<li><a href="#ch12">Glossary</a></li>
+<li><a href="#taskindex">The task index: I want to...</a></li>
+</ol>
+</nav>
+
+<div class="part" id="part1">
+<h2>Part one: DO</h2>
+<p>Three tutorials, in order. Type what is printed, look at what comes back, move on.
+There is no explanation in this part on purpose. Every why is in part three, and you do
+not need one yet.</p>
+</div>
+
+<h2 id="t1"><span class="chnum">Tutorial one</span>Install it and see it answer</h2>
+
+<p><strong>You will finish this page with BrotherMode installed and answering you.</strong>
+About ten minutes. You need Claude Code, and Python 3.9 or newer. Nothing else: no
+account, no packages, no configuration file to edit.</p>
+
+<h3>Step 1: add the marketplace</h3>
+
+<p>Type this inside Claude Code and press return:</p>
+
+<pre><code>/plugin marketplace add khalilmaaouni/BrotherModeUp</code></pre>
+
+<p><strong>You should see:</strong> a confirmation that the marketplace was added.
+Nothing is installed yet.</p>
+
+<h3>Step 2: install the plugin</h3>
+
+<pre><code>/plugin install brotherme</code></pre>
+
+<p><strong>You should see:</strong> a confirmation that <code>brotherme</code> is
+installed, and possibly a line asking you to restart. If it asks, restart Claude Code
+now. Hook configuration is read when the tool starts, so a session already running does
+not have it.</p>
+
+<h3>Step 3: ask it to introduce itself</h3>
+
+<pre><code>/brotherme-help</code></pre>
+
+<p><strong>You should see:</strong> a short plain-language answer. What BrotherMode
+does, the commands you can type, one honest paragraph naming what is verified and what
+is not, and the offer of a deep tour of your project. It ends by asking what you would
+like to accomplish.</p>
+
+<p><strong>That answer is the install proving itself.</strong> You are done. Tutorial
+two takes a real project from a sentence to a delivered result.</p>
+
+<div class="note">
+<p><strong>If the plugin path fails.</strong> The plugin path is new: it has been
+through its full cycle once, on the author's machine, from a local copy of the
+repository. The clone is the far more proven path. In a terminal, replacing
+<code>TAG</code> with the current release tag from the repository's README:</p>
+<pre><code>git clone --branch TAG --depth 1 \
+  https://github.com/khalilmaaouni/BrotherModeUp.git \
+  ~/.claude/skills/brothermode
+python3 ~/.claude/skills/brothermode/scripts/install.py</code></pre>
+<p>Then restart Claude Code and type <code>/brotherme-help</code> again. Chapter two
+walks that path one step at a time, with a dry run first that writes nothing. Do not
+run both paths on one machine: they wire the same hooks, and a machine carrying both
+runs everything twice.</p>
+</div>
+
+<h2 id="t2"><span class="chnum">Tutorial two</span>Take one project from idea to delivered</h2>
+
+<p><strong>You will finish this page with one real project carried from a sentence to a
+delivered result, using nothing but the seven commands.</strong> About forty minutes for
+something small. You need tutorial one finished.</p>
+
+<p>Pick something real and small. "A script that emails me my week's calendar every
+Sunday" is the right size. Work down this page one command at a time, and stop to read
+each result before typing the next one.</p>
+
+<h3>Step 1: say what you want</h3>
+
+<pre><code>/brotherme-start a script that emails me my week's calendar every Sunday</code></pre>
+
+<p><strong>You should see:</strong> a short conversation, one question at a time, asking
+only the things whose answers change the scope. It ends in a one-page brief, the Project
+Canvas, plus one recommended first decision carrying a time and cost range rather than a
+promise. Nothing gets built until you approve the brief.</p>
+
+<h3>Step 2: check the brief landed on disk</h3>
+
+<p>This one is a look, not a command. In a terminal, in your project folder:</p>
+
+<pre><code>ls CANVAS.md</code></pre>
+
+<pre class="out"><code>CANVAS.md</code></pre>
+
+<p><strong>You should see:</strong> the file name and nothing else. That is the
+project's direction from here on, in plain markdown. Open it and read it.</p>
+
+<h3>Step 3: ask what to do next</h3>
+
+<pre><code>/brotherme-next</code></pre>
+
+<p><strong>You should see:</strong> exactly one recommended next action, stated first,
+with a short reason and a realistic time range. If a decision of yours is what blocks
+progress, you get that decision instead, recommended option first.</p>
+
+<h3>Step 4: do that step, then ask where you are</h3>
+
+<pre><code>/brotherme-status</code></pre>
+
+<p><strong>You should see:</strong> eight plain lines and nothing else: goal, direction,
+progress, time remaining, decision needed, risk, evidence, next step. Repeat steps three
+and four until the work looks finished to you.</p>
+
+<h3>Step 5: have it checked before you believe it</h3>
+
+<pre><code>/brotherme-review</code></pre>
+
+<p><strong>You should see:</strong> every point of the definition of done marked pass or
+not-yet, each one carrying the evidence that proves it: a command that ran, a file that
+exists, a check that passed. Bad news comes first and a failing point is never softened.</p>
+
+<h3>Step 6: close it out</h3>
+
+<pre><code>/brotherme-deliver</code></pre>
+
+<p><strong>You should see:</strong> a filled delivery packet saying what was built and
+how it was checked. Or, if no verifying check ran after your last change and passed, a
+plain refusal to call it delivered plus a list of what remains. <strong>That refusal is
+the product working, not the product failing.</strong></p>
+
+<h3>Step 7: keep it current</h3>
+
+<pre><code>/brotherme-update</code></pre>
+
+<p><strong>You should see:</strong> your installed version, the newest released version,
+whether they match, and if they do not, the exact update lines for the path you installed
+through. Updating replaces the BrotherMode files only; it never touches your project or
+your records.</p>
 
 <div class="try">
 <h4>Try this now</h4>
-<p>No install needed, and nothing here writes to your project. Open a terminal in
-any project you have and ask git the question the handover chapter will ask
-later:</p>
-<pre><code>git log --oneline -20</code></pre>
-<p>Now try to answer, from that output alone: which of those commits was a decision
-somebody made on purpose, and what was the reason? You will not be able to. That
-gap, between what the repository records and what you actually need to hand over, is
-the gap this book is about.</p>
+<p class="tryline">About 1 minute. Needs: a network connection. You should see: the
+newest published release tags, newest last.</p>
+<p>The version check behind <code>/brotherme-update</code> is one line of shell, and you
+can run it yourself:</p>
+<pre><code>git ls-remote --tags https://github.com/khalilmaaouni/BrotherModeUp.git | tail -3</code></pre>
+<pre class="out"><code>284d786d9d8345efdfd4ee5e353d68fef33585c4	refs/tags/v2.0.0-rc.8^{}
+9527c1c4c161cc819b9bd0b67fde0343691217e1	refs/tags/v2.0.0-rc.9
+340d046714f2e50c8c829b3999d2be0bd07d7daa	refs/tags/v2.0.0-rc.9^{}</code></pre>
+<p>That reach is the one deliberate network call in the whole product, and it happens
+only when you ask for it. The hooks and the tools that run on their own make none.</p>
+</div>
+
+<h2 id="t3"><span class="chnum">Tutorial three</span>Run two workers at once, and get your work back after a crash</h2>
+
+<p><strong>You will finish this page having watched the fence refuse a second writer,
+and having pulled a deleted file back out of a snapshot.</strong> About fifteen minutes.
+You need git, Python 3.9 or newer, and BrotherMode installed at
+<code>~/.claude/skills/brothermode</code>.</p>
+
+<p>Everything below was run in a throwaway directory before it was printed here. Your
+identifiers will differ from these; that is correct.</p>
+
+<h3>Build the throwaway project</h3>
+
+<pre><code>mkdir -p /tmp/bmscratch/parallel/src &amp;&amp; cd /tmp/bmscratch/parallel
+git init -q .
+echo "/.brothermode" &gt;&gt; .git/info/exclude
+echo "print('a')" &gt; src/app.py
+echo "print('s')" &gt; src/site.py
+git add -A &amp;&amp; git commit -qm start
+
+BM=~/.claude/skills/brothermode
+python3 $BM/tools/bm_store.py init</code></pre>
+
+<pre class="out"><code>bm_store: initialized /private/tmp/bmscratch/parallel/.brothermode/store.sqlite3 (root resolved via git)</code></pre>
+
+<h3>Recipe one: run parallel work without losing anything</h3>
+
+<p><strong>The problem.</strong> Two workers pick the same file. The second one saves
+over the first. Nothing errors, and you find out days later when a test you were sure
+passed does not.</p>
+
+<p><strong>The solution.</strong> Give each worker a session label, then claim the exact
+files each one may write.</p>
+
+<pre><code>A=$(python3 $BM/tools/bm_fence_hook.py session-label --session-id lane-a)
+B=$(python3 $BM/tools/bm_fence_hook.py session-label --session-id lane-b)
+
+python3 $BM/tools/bm_store.py claim lane-a --lifetime ephemeral \
+  --objective "own src/app.py" --files src/app.py --session "$A" --tier T1 \
+  --check "python3 src/app.py"
+python3 $BM/tools/bm_store.py claim lane-b --lifetime ephemeral \
+  --objective "own src/site.py" --files src/site.py --session "$B" --tier T1 \
+  --check "python3 src/site.py"</code></pre>
+
+<pre class="out"><code>claimed 'lane-a' as lifecycle 207b55e897a04693a5fa44ec764ddc91 (version 1, session bm1-d6f12da9f8c8dcf60d147e35)
+claimed 'lane-b' as lifecycle 1280ac3f7a30442d804605b688bcea57 (version 1, session bm1-da26bb59138d779efb96e02c)</code></pre>
+
+<p>Two disjoint lanes, claimed clean. Now a third worker reaches for a file lane A
+already holds:</p>
+
+<pre><code>C=$(python3 $BM/tools/bm_fence_hook.py session-label --session-id lane-c)
+python3 $BM/tools/bm_store.py claim lane-c --lifetime ephemeral \
+  --objective "also touch src/app.py" --files src/app.py --session "$C" --tier T1 \
+  --check "python3 src/app.py"</code></pre>
+
+<pre class="out"><code>refused (overlap): claim overlaps active record 'lane-a' (lifecycle 207b55e897a04693a5fa44ec764ddc91): 'src/app.py' vs 'src/app.py'</code></pre>
+
+<p>That is the claim-time gate. The write-time gate catches the worker who never claimed
+anything at all and just edits:</p>
+
+<pre><code>printf '{"session_id":"lane-b","cwd":"%s","tool_name":"Edit",
+"tool_input":{"file_path":"src/app.py"}}' "$PWD" | python3 $BM/tools/bm_fence_hook.py</code></pre>
+
+<pre class="out"><code>{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+"permissionDecisionReason": "BrotherMode fence: src/app.py is inside the fence of the
+active record lane-a (lifecycle 207b55e897a04693a5fa44ec764ddc91, version 1), which is
+owned by session bm1-d6f12da9f8c8dcf60d147e35. This session is
+bm1-da26bb59138d779efb96e02c, so it is not the writer for that path. Claimed as:
+src/app.py.
+One writer per file is structural, not advisory: do not edit across the fence.
+Report the needed change to the owner instead. To take the fence over
+deliberately, run:
+  python3 tools/bm_store.py adopt 207b55e897a04693a5fa44ec764ddc91 --version 1
+    --session bm1-da26bb59138d779efb96e02c --adopt-from-live-session
+then re-claim the paths you need with `bm_store.py claim ...`."}}</code></pre>
+
+<p>Send the same payload with <code>lane-a</code> instead and you get silence and exit
+zero. That is what allowed looks like.</p>
+
+<p><strong>Discussion.</strong> Claim narrowly and claim late: a fence over
+<code>src/</code> blocks four people, a fence over <code>src/vat.py</code> blocks nobody.
+The refusal names the record, the owner and the exact takeover command, so a deliberate
+takeover is one paste and an accidental one is impossible. Two traps are worth knowing
+before you rely on this. Taking a record over with <code>adopt</code> does not hand you
+the fence, so re-claim the paths afterwards. And the fence stands in front of the
+structured edit tools only: <code>sed -i</code>, a shell redirect and <code>python -c</code>
+write files without passing any hook. Chapter eight is the full recipe for a team;
+chapter fifteen runs the same mechanism across four lanes.</p>
+
+<h3>Recipe two: get everything back after a crash</h3>
+
+<p><strong>The problem.</strong> The session died, or the tool discarded old context to
+make room, and the file you were halfway through is gone.</p>
+
+<p><strong>The solution.</strong> A snapshot is taken for you before a compaction. You
+can also take one by hand, which is what makes this exercise runnable. Add an unsaved
+change first, so there is something to lose:</p>
+
+<pre><code>echo "print('work in progress')" &gt;&gt; src/app.py
+python3 $BM/tools/bm_autosave.py precompact</code></pre>
+
+<pre class="out"><code>bm_autosave: WARNING: this snapshot captures 1 untracked file(s) that no commit has ever reviewed: STATE.md.bak-20260801T025108834152. Anything secret in that list belongs in .gitignore or in BROTHERMODE_AUTOSAVE_EXCLUDE.</code></pre>
+
+<p>Now lose the file the way a crash would, and ask for it back:</p>
+
+<pre><code>rm -f src/app.py
+python3 $BM/tools/bm_autosave.py recover</code></pre>
+
+<pre class="out"><code>bm_autosave: recovered snapshot d331a93ce532628fdca3b5fa344f9af62622ab20 into a NEW worktree at:
+  /var/folders/.../T/bm-autosave-recover-dfpvn_kh
+  permissions: 0700 (owner-only; best-effort only on platforms, e.g. Windows, that do not fully enforce a POSIX mode)
+  Your live working tree at /private/tmp/bmscratch/parallel was never touched. Inspect the folder above, copy back what you need, then run
+  `git -C /private/tmp/bmscratch/parallel worktree remove /var/folders/.../T/bm-autosave-recover-dfpvn_kh` when you are done with it.</code></pre>
+
+<p>The work is sitting in that folder. Look at it:</p>
+
+<pre><code>cat /var/folders/.../T/bm-autosave-recover-dfpvn_kh/src/app.py</code></pre>
+
+<pre class="out"><code>print('a')
+print('work in progress')</code></pre>
+
+<p><strong>Discussion.</strong> Recovery never overwrites your live tree. It opens a
+separate folder and tells you to copy back what you want, then how to remove the folder
+afterwards. Read the warning line: the snapshot captures untracked files, so anything
+secret sitting loose belongs in <code>.gitignore</code> or in
+<code>BROTHERMODE_AUTOSAVE_EXCLUDE</code>. The owner-only folder mode is a POSIX
+guarantee; on Windows, treat a recovered worktree as readable by anyone with an account
+on the machine. And when nothing was ever saved, the tool says exactly that instead of
+pretending:</p>
+
+<pre class="out"><code>bm_autosave: no autosave found for /private/tmp/bmscratch/fresh (the latest pointer is empty and no snapshot ref is newer than the last clean check).
+  No snapshot refs exist for this worktree at all.</code></pre>
+
+<div class="try">
+<h4>Try this now</h4>
+<p class="tryline">About 3 minutes. Needs: the throwaway project you just built. You
+should see: a second <code>refused (overlap)</code>, this time on a path you choose.</p>
+<p>Claim a third lane over <code>src/site.py</code>, which lane B already holds, and
+watch the same refusal name a different owner. Then release nothing, close nothing, and
+notice that the two clean lanes are still working: a fence blocks the overlap, not the
+project.</p>
+</div>
+
+<div class="part" id="part2">
+<h2>Part two: SOLVE</h2>
+<p>Recipes. Each chapter is one problem you already have, its solution run end to end,
+and a discussion of what it does not cover. Read the one you need and skip the rest.</p>
 </div>
 
 <h2 id="ch2"><span class="chnum">Chapter two</span>Install it in ten minutes</h2>
 
-<p>Three paths now, and this section was rewritten on 2026-08-01 because the
-easiest one did not exist when this book was first written. The plugin path is
-two lines typed inside Claude Code. The pinned clone is the most-proven path and
-what the rest of this chapter walks. The team path adds one decision about where
-the shared memory lives.</p>
+<p>Tutorial one already installed BrotherMode the easy way. This chapter is the
+rest of the story: the plugin path stated once more for completeness, then the
+pinned clone, which is the most-proven path and what the rest of this chapter
+walks step by step with a dry run that writes nothing, and finally the team path,
+which adds one decision about where the shared memory lives.</p>
 
 <h3>The plugin path, two lines</h3>
 
@@ -570,15 +754,34 @@ configure.</p>
 
 <div class="try">
 <h4>Try this now</h4>
-<p>Do the whole thing into a sandbox, so you can look at the result before it
-touches your real configuration. This is exactly what the author did to produce the
-output above:</p>
-<pre><code>export HOME=/tmp/bmtry ; mkdir -p $HOME/.claude
-python3 ~/.claude/skills/brothermode/scripts/install.py --dry-run</code></pre>
-<p>Read the list of five hooks and the "Still manual, on purpose" section at the
-bottom. Then open a fresh terminal, so you get your real <code>HOME</code> back,
-before you install for real.</p>
+<p class="tryline">About 5 minutes. Needs: the files from step 1, and Python 3.9 or
+newer. You should see: a <code>[dry-run]</code> listing naming the five hooks, and
+nothing written anywhere.</p>
+<p>Do the whole thing into a sandbox, so you can look at the result before it touches
+your real configuration. The order of these four lines is the whole trick. Resolve the
+real install path FIRST, into a variable, and only then hand the command a different
+home. A <code>~</code> typed after <code>HOME</code> has moved points at the sandbox,
+and the script is not in there.</p>
+<pre><code>BM=~/.claude/skills/brothermode      # resolved now, against your real home
+SANDBOX=/tmp/bmtry
+mkdir -p "$SANDBOX/.claude"
+HOME="$SANDBOX" python3 "$BM/scripts/install.py" --dry-run</code></pre>
+<p>What it printed, run exactly as above (the home directory is elided):</p>
+<pre class="out"><code>[dry-run] BrotherMode 2.0.0-rc.9
+[dry-run]   source:   /Users/.../.claude/skills/brothermode
+[dry-run]   target:   /tmp/bmtry/.claude/skills/brothermode
+[dry-run]   settings: /tmp/bmtry/.claude/settings.json
+[dry-run] files: 201 file(s) would be copied to /tmp/bmtry/.claude/skills/brothermode
+[dry-run] hooks: 0 BrotherMode entry(ies) replaced, 5 installed: SessionStart, SessionEnd, Stop, PreCompact, PreToolUse
+[dry-run] hooks: every hook entry not owned by BrotherMode was left in place, in order.
+[dry-run] record: /tmp/bmtry/.claude/brothermode-install.json
+[dry-run] smoke: skipped; nothing was written to test.</code></pre>
+<p>The <code>HOME=</code> prefix applies to that one command only, so your shell keeps
+its real home and there is no fresh terminal to open afterwards. Read the list of five
+hooks and the "Still manual, on purpose" section at the bottom before you install for
+real.</p>
 </div>
+
 <h2 id="ch3"><span class="chnum">Chapter three</span>Your first loop</h2>
 
 <p>A <strong>loop</strong> is one unit of work with a beginning, a middle and a
@@ -589,6 +792,12 @@ at its beginning.</p>
 <p>Four commands. Everything below was run in a throwaway project called
 <code>tealeaf</code>: a git repository with one module, <code>src/pricing.py</code>,
 and one test.</p>
+
+<p>Every command here starts from one shell variable, so the paths resolve from
+inside your own project rather than only from inside the installed folder. Set it
+once per terminal:</p>
+
+<pre><code>BM=~/.claude/skills/brothermode</code></pre>
 
 <figure>
 <svg viewBox="0 0 620 190" role="img" aria-label="The loop: claim, then decide and checkpoint in the middle, then complete which requires evidence. Evidence feeds back into the next claim.">
@@ -623,7 +832,7 @@ and one test.</p>
 <p>Two ideas in one command. You are naming a unit of work, and you are declaring
 which files it is allowed to write. That second half is the fence.</p>
 
-<pre><code>python3 tools/bm_store.py claim vat-rounding \
+<pre><code>python3 $BM/tools/bm_store.py claim vat-rounding \
   --lifetime persistent \
   --objective "Add VAT to the order total without floating point rounding drift" \
   --files src/pricing.py \
@@ -660,7 +869,7 @@ You will see that refusal in chapter eleven, and you will be glad of it.</p>
 <div class="note">
 <p><strong>Where <code>$ME</code> comes from.</strong> Do not invent a session
 label. Ask for it:</p>
-<pre><code>ME=$(python3 tools/bm_fence_hook.py session-label --session-id sess-mon-morning)
+<pre><code>ME=$(python3 $BM/tools/bm_fence_hook.py session-label --session-id sess-mon-morning)
 echo $ME</code></pre>
 <pre class="out"><code>bm1-c03e7b279b1cfe4b835074f8</code></pre>
 <p>The label is derived from a secret token stored inside your project, so it is
@@ -675,7 +884,7 @@ correct.</p>
 <p>When you make a choice that a future person would ask about, spend one line on
 it.</p>
 
-<pre><code>python3 tools/bm_store.py decide f1a2f8b4... --version 1 \
+<pre><code>python3 $BM/tools/bm_store.py decide f1a2f8b4... --version 1 \
   --topic "money representation" \
   --text "Keep every amount in integer pence and round VAT half-up at the order level, not per line."</code></pre>
 
@@ -690,7 +899,7 @@ failed against a number you had never been told.</p>
 <p>A checkpoint says where you got to and what comes next. Write it before anything
 risky, not after.</p>
 
-<pre><code>python3 tools/bm_store.py checkpoint f1a2f8b4... --version 2 \
+<pre><code>python3 $BM/tools/bm_store.py checkpoint f1a2f8b4... --version 2 \
   --next "write the failing test for a 5 percent VAT on 900 pence" \
   --blockers "none"</code></pre>
 
@@ -704,7 +913,7 @@ step</em>, which is the part that actually hurts to lose.</p>
 
 <p>Here is the interesting one. Try to close the work without proof:</p>
 
-<pre><code>python3 tools/bm_store.py complete f1a2f8b4... --version 3</code></pre>
+<pre><code>python3 $BM/tools/bm_store.py complete f1a2f8b4... --version 3</code></pre>
 
 <pre class="out"><code>refused (missing-evidence): active -> complete requires non-empty evidence
   (the check_cmd result)</code></pre>
@@ -719,7 +928,7 @@ OK</code></pre>
 
 <p>Then close it, pasting what you actually saw:</p>
 
-<pre><code>python3 tools/bm_store.py complete f1a2f8b4... --version 3 \
+<pre><code>python3 $BM/tools/bm_store.py complete f1a2f8b4... --version 3 \
   --session "$ME" \
   --evidence "python3 -m unittest discover -s tests -q => Ran 1 test, OK"</code></pre>
 
@@ -734,7 +943,7 @@ a very different act from saying "done" in a chat.</p>
 
 <p>Ask the store to render itself:</p>
 
-<pre><code>python3 tools/bm_store.py dashboard</code></pre>
+<pre><code>python3 $BM/tools/bm_store.py dashboard</code></pre>
 
 <pre class="out"><code>&lt;!-- BEGIN GENERATED BROTHERMODE STATE (edit outside these markers only) --&gt;
 _Generated by bm_store.py, 2026-07-30T01:49:17Z._
@@ -754,6 +963,7 @@ destroys human text) runs through the whole system and has tests behind it.</p>
 
 <div class="try">
 <h4>Try this now</h4>
+<p class="tryline">About 5 minutes. Needs: git, Python 3.9 or newer, and BrotherMode installed. You should see: <code>claimed 'greeting' as lifecycle ...</code>, then <code>refused (missing-evidence)</code> when you try to close it with nothing.</p>
 <p>Build a throwaway project and run the whole loop. It takes two minutes and
 touches nothing you care about.</p>
 <pre><code>mkdir -p /tmp/firstloop &amp;&amp; cd /tmp/firstloop
@@ -770,227 +980,6 @@ python3 $BM/tools/bm_store.py claim greeting --lifetime ephemeral \
   --check "python3 app.py"</code></pre>
 <p>Copy the lifecycle it prints, then try to complete it with no evidence and watch
 it refuse. That refusal is the moment the system stops being an idea.</p>
-</div>
-
-<h2 id="ch4"><span class="chnum">Chapter four</span>The five questions, kept apart</h2>
-
-<p>Most tools that claim to learn from you collapse five different questions into
-one. Then you cannot tell a good idea from a bad habit, because the record of both
-looks the same.</p>
-
-<p>Here they are, separated:</p>
-
-<figure>
-<svg viewBox="0 0 620 300" role="img" aria-label="Five stages in a column: capture what was said, interpret it into a rule, get a human approval receipt, apply it and record the application, then grade the outcome. Each stage names what it does not do.">
-<rect class="svgbox" x="0" y="6" width="180" height="46" rx="4"/>
-<text class="svgtxt" x="12" y="26">1. CAPTURE</text>
-<text class="svgtxt-s" x="12" y="43">what was actually said</text>
-<path class="svgline" d="M90 52 L90 66"/><path class="svgline" d="M85 58 L90 66 L95 58"/>
-<rect class="svgbox" x="0" y="66" width="180" height="46" rx="4"/>
-<text class="svgtxt" x="12" y="86">2. INTERPRETATION</text>
-<text class="svgtxt-s" x="12" y="103">trigger, action, reason</text>
-<path class="svgline" d="M90 112 L90 126"/><path class="svgline" d="M85 118 L90 126 L95 118"/>
-<rect class="svgbox-a" x="0" y="126" width="180" height="46" rx="4"/>
-<text class="svgtxt" x="12" y="146">3. APPROVAL</text>
-<text class="svgtxt-s" x="12" y="163">a receipt from a real answer</text>
-<path class="svgline" d="M90 172 L90 186"/><path class="svgline" d="M85 178 L90 186 L95 178"/>
-<rect class="svgbox" x="0" y="186" width="180" height="46" rx="4"/>
-<text class="svgtxt" x="12" y="206">4. APPLICATION</text>
-<text class="svgtxt-s" x="12" y="223">surfaced, and recorded</text>
-<path class="svgline" d="M90 232 L90 246"/><path class="svgline" d="M85 238 L90 246 L95 238"/>
-<rect class="svgbox-good" x="0" y="246" width="180" height="46" rx="4"/>
-<text class="svgtxt" x="12" y="266">5. OUTCOME</text>
-<text class="svgtxt-s" x="12" y="283">did following it help</text>
-<text class="svgtxt-s" x="206" y="34">a candidate. Inert. Changes nothing.</text>
-<text class="svgtxt-s" x="206" y="94">still inert. A guess about meaning,</text>
-<text class="svgtxt-s" x="206" y="108">kept separate from the words.</text>
-<text class="svgtxt-s" x="206" y="154">the ONLY step that makes it real.</text>
-<text class="svgtxt-s" x="206" y="168">No receipt, no rule. No override.</text>
-<text class="svgtxt-s" x="206" y="214">so a rule nobody ever uses is visible</text>
-<text class="svgtxt-s" x="206" y="274">so a rule that hurts is visible too</text>
-</svg>
-<figcaption>Five questions, five records. Collapse any two and you lose the ability
-to answer either.</figcaption>
-</figure>
-
-<h3>Why the separation earns its keep</h3>
-
-<p>Suppose a rule turns out to be wrong. With the five kept apart you can ask which
-one broke:</p>
-
-<ul>
-<li><strong>Capture</strong> was wrong: you never said that. The raw text settles
-it.</li>
-<li><strong>Interpretation</strong> was wrong: you said it, but the rule written down
-means something wider than you meant.</li>
-<li><strong>Approval</strong> was wrong: the rule was right for that moment and
-should not have been made standing.</li>
-<li><strong>Application</strong> was wrong: the rule is fine, it was retrieved for
-work it does not apply to.</li>
-<li><strong>Outcome</strong> was wrong: everything worked as designed and the rule is
-simply a bad rule.</li>
-</ul>
-
-<p>Those are five different fixes. A single "learned preferences" list cannot tell
-you which one you have.</p>
-
-<h3>Stage 1 and 2: capture</h3>
-
-<p>Capturing is one command, and it changes nothing:</p>
-
-<pre><code>python3 tools/bm_learn.py capture \
-  --trigger "when I touch money in this project" \
-  --action "keep every amount in integer pence and never use a float" \
-  --because "a float rounded a customer invoice wrong last month" \
-  --scope project</code></pre>
-
-<pre class="out"><code>captured fd93a141 (pending, nothing changes until you approve it)
-  heads up, this looks like more than one rule: contains 'and never', which
-  usually joins two rules
-  approval will refuse it unless you split it or pass --override-reason</code></pre>
-
-<p>It caught something real. "Keep amounts in pence" and "never use a float" are two
-rules, and a rule that is secretly two rules cannot be graded, because you never know
-which half was followed. Split it:</p>
-
-<pre><code>python3 tools/bm_learn.py capture \
-  --trigger "when I touch money in this project" \
-  --action "keep every amount in integer pence" \
-  --because "a float rounded a customer invoice wrong last month" \
-  --scope project</code></pre>
-
-<pre class="out"><code>captured 9b832875 (pending, nothing changes until you approve it)</code></pre>
-
-<p><code>--scope</code> is how wide the rule reaches: <code>global</code>,
-<code>project</code>, <code>domain</code>, <code>artifact</code>,
-<code>relationship</code> or <code>tool</code>. A preference about this codebase is
-not a law about all your work, and the scope is where you say so.</p>
-
-<h3>Stage 3: approval, in two halves</h3>
-
-<p>This is the part of the design worth understanding, because it is unusual.
-Approving a rule takes two commands, not one.</p>
-
-<pre><code>python3 tools/bm_learn.py grant-approval 9b832875 \
-  --answer "yes, integer pence everywhere, that bug cost us a refund"</code></pre>
-
-<pre class="out"><code>approval receipt b4440dc0 for candidate 9b832875
-  expires 2026-07-30T02:05:50Z (900 seconds), one candidate, one use
-  it dies if the candidate or the rule text changes before you approve
-
-  RECEIPT TOKEN, shown once and stored nowhere:
-  a913dee38dd443a97726095e1c92875492d9f400263dc1ac
-
-  spend it: bm_learn.py approve 9b832875 --receipt &lt;token&gt;
-  or put it in BM_APPROVAL_RECEIPT so it stays out of your shell history
-  do not paste it into a log, a transcript or a commit message</code></pre>
-
-<pre><code>python3 tools/bm_learn.py approve 9b832875 \
-  --receipt a913dee38dd443a97726095e1c92875492d9f400263dc1ac \
-  --ref "founder said yes in the Monday session; the refund is in the ledger"</code></pre>
-
-<pre class="out"><code>approved as rule 4873a92d
-  4873a92d  [project:tealeaf, approved] v1
-     When: when I touch money in this project
-     Do  : keep every amount in integer pence</code></pre>
-
-<p>Why the token? Because before it existed, any process that could run the tool
-could manufacture an approved rule, and the reference it recorded said "run by the
-founder" whether or not anyone was there. The token is minted only when someone
-records what the human actually answered, it is bound to that exact rule text, it
-expires in fifteen minutes, and it works once. Change a word of the rule after the
-question was asked and the token dies. There is no override and no break-glass.</p>
-
-<p>Try to spend it twice:</p>
-
-<pre class="out"><code>refused (not-pending): candidate 9b832875 is 'approved', only a pending candidate
-  can be approved</code></pre>
-
-<div class="note">
-<p><strong>What the receipt does not claim.</strong> It does not prove <em>which</em>
-human answered. It proves an answer was given about this exact thing and has not
-been spent. No wording anywhere in the product says otherwise, and that restraint is
-the reason the mechanism is worth anything.</p>
-</div>
-
-<h3>Stage 4: application, and the honest surprise</h3>
-
-<p>Before substantial work, ask what rules apply. This both retrieves and records
-the retrieval:</p>
-
-<pre><code>python3 tools/bm_learn.py apply \
-  --query "add VAT to the order total" --session sess-mon-morning</code></pre>
-
-<pre class="out"><code>no founder rules apply here (0 in scope, none matched; mode=lexical)
-Gates: 0 of 0 applicable returned. A result limit cannot hide one.
-Soft rules: 0 shown, none omitted.</code></pre>
-
-<p>Nothing matched, and that is the truth rather than a bug. The default matching is
-<strong>lexical</strong>: it compares the words in your query against the words in
-the rule. The rule says "when I touch <em>money</em>"; the query said "VAT" and
-"order total". No shared word, no match. Say it in words that overlap:</p>
-
-<pre><code>python3 tools/bm_learn.py apply \
-  --query "change how money is added up in the order total" --session sess-mon-morning</code></pre>
-
-<pre class="out"><code>RELEVANT FOUNDER RULES (mode=lexical)
-
-  4873a92d  rank=1
-  Scope: project:tealeaf     State: approved
-  When : when I touch money in this project
-  Do   : keep every amount in integer pence
-  Why  : a float rounded a customer invoice wrong last month
-  Match: terms ['money'], relevance 0.143
-
-recorded 1 application(s), 0 already recorded for this task
-  retrieval run e63adbfb recorded (1 eligible, 1 returned, limit 5)</code></pre>
-
-<p>Two practical lessons, and this is the sort of thing a marketing page would hide.
-First, <strong>write triggers in the words you will actually use</strong>: say "money"
-and "rounding" and "price", not a formal category name. Second, the tool told you
-which mode answered and which terms matched, so you can debug a miss instead of
-guessing. An optional stemmed index exists behind an environment variable, and every
-retrieval prints the mode it really used, so no output ever claims a smarter match
-than it performed.</p>
-
-<p>The line <code>Gates: 0 of 0 applicable returned. A result limit cannot hide
-one</code> is there because of a real defect: a result limit could once drop a
-blocking rule off the end of the list. Now gates are counted separately from the
-limit.</p>
-
-<h3>Stage 5: outcome</h3>
-
-<p>Retrieval is not the end. Say what you did with the rule:</p>
-
-<pre><code>python3 tools/bm_learn.py disposition 9efa5994 followed</code></pre>
-
-<pre class="out"><code>application 9efa5994: followed (outcome pending)
-  not_decidable: followed, but no outcome has been recorded against it yet</code></pre>
-
-<p>And when you look at the aggregate:</p>
-
-<pre class="out"><code>capture metrics (descriptive counts, not accuracy)
-  candidates by status: {'approved': 1, 'pending': 2}
-  approved rules: 1
-
-There is no labelled review set, so none of these is a precision or a
-recall number, and none of them should be read as one.</code></pre>
-
-<p>Read that last paragraph again. The tool has counts and refuses to dress them up
-as accuracy. If you ever want to know whether a system is being straight with you,
-look at what it says about its own metrics.</p>
-
-<div class="try">
-<h4>Try this now</h4>
-<p>In your throwaway project from chapter three, capture a rule that is secretly two
-rules and watch it warn you:</p>
-<pre><code>BM=~/.claude/skills/brothermode
-python3 $BM/tools/bm_learn.py capture \
-  --trigger "when writing tests" \
-  --action "use plain asserts and always name the test after the behaviour" \
-  --because "clever helpers made a failure unreadable" --scope project</code></pre>
-<p>Then split it into two captures. You have just done the interpretation step by
-hand, which is the step every "it learns your preferences" product does silently.</p>
 </div>
 
 <h2 id="ch5"><span class="chnum">Chapter five</span>How to correct it, and where the correction goes</h2>
@@ -1020,7 +1009,7 @@ promoted to a global law will fire on unrelated work for months.</p>
 
 <h3>What happens to a correction, mechanically</h3>
 
-<p>Two paths in. The first you saw in chapter four: you capture it deliberately.</p>
+<p>Two paths in. The first is chapter four's: you capture it deliberately.</p>
 
 <p>The second is automatic, and it is worth understanding because it is deliberately
 weak. At the end of a session, a hook scans your short messages against a pattern
@@ -1104,6 +1093,7 @@ type on a bad afternoon.</p>
 
 <div class="try">
 <h4>Try this now</h4>
+<p class="tryline">About 6 minutes. Needs: the throwaway project from chapter three. You should see: <code>approved as rule &lt;id&gt;</code>, then <code>refused (not-pending)</code> when you spend the same receipt twice.</p>
 <p>Approve a rule, then walk it through its whole life without deleting anything:</p>
 <pre><code>BM=~/.claude/skills/brothermode
 python3 $BM/tools/bm_learn.py capture --trigger "when naming a file" \
@@ -1621,6 +1611,7 @@ under a name that claims a format.</p>
 
 <div class="try">
 <h4>Try this now</h4>
+<p class="tryline">About 4 minutes. Needs: a project with at least one record in it. You should see: your own sentence still sitting between the two <code>bm-human</code> markers after a second generate.</p>
 <p>Prove the human-block promise on your own machine, because it is the promise you
 will rely on most:</p>
 <pre><code>BM=~/.claude/skills/brothermode
@@ -1632,6 +1623,7 @@ grep -A2 "bm-human:begin" Documentation/00-START-HERE.md</code></pre>
 <p>Your sentence is still there. Now run <code>bm_docs.py tier</code> and read the
 signals: that is the tool telling you what it thinks your project is.</p>
 </div>
+
 <h2 id="ch8"><span class="chnum">Chapter eight</span>Working with a team</h2>
 
 <p>Everything so far worked with one person and one session. A team adds four
@@ -1906,6 +1898,7 @@ blocking the team forever.</p>
 
 <div class="try">
 <h4>Try this now</h4>
+<p class="tryline">About 3 minutes. Needs: the throwaway project from chapter three. You should see: a <code>deny</code> payload naming the holder of <code>app.py</code>, then silence when the same payload comes from <code>person-a</code>.</p>
 <p>Play both people yourself. It takes three minutes and it is the fastest way to
 believe the fence:</p>
 <pre><code>BM=~/.claude/skills/brothermode
@@ -2024,6 +2017,7 @@ is what keeps the right branch worth doing.</figcaption>
 
 <div class="try">
 <h4>Try this now</h4>
+<p class="tryline">About 3 minutes. Needs: BrotherMode installed. Nothing is recorded by this exercise. You should see: <code>retrieval advised: no</code> with no flags, and <code>retrieval advised: yes</code> with them.</p>
 <p>Take the last three things you asked an assistant to do. For each, run:</p>
 <pre><code>BM=~/.claude/skills/brothermode
 python3 $BM/tools/bm_learn.py should-retrieve            # nothing declared
@@ -2033,507 +2027,13 @@ have learned something real: start with the fence and the evidence gate, and lea
 the rules until you have been bitten twice.</p>
 </div>
 
-<h2 id="ch10"><span class="chnum">Chapter ten</span>Other runtimes: what works, what is unverified</h2>
-
-<p>Nothing in BrotherMode's engine is specific to any one AI tool. It is standard
-library Python driven from a shell. But <em>wiring</em> is specific, and this chapter
-exists to keep one distinction from being blurred, because blurring it would be
-dangerous rather than merely sloppy.</p>
-
-<h3>Two different questions</h3>
-
-<figure>
-<svg viewBox="0 0 620 180" role="img" aria-label="Two columns. Left: does the runtime run a program at lifecycle events, verified per runtime. Right: do BrotherMode's own hooks work there, which requires the payload shape and is unverified everywhere except Claude Code.">
-<rect class="svgbox" x="0" y="6" width="298" height="130" rx="4"/>
-<text class="svgtxt" x="12" y="28">Question 1: HOOK POINTS</text>
-<text class="svgtxt-s" x="12" y="48">Does this tool run an external program</text>
-<text class="svgtxt-s" x="12" y="64">at lifecycle events at all?</text>
-<text class="svgtxt-s" x="12" y="88">Answered per runtime from the vendor's</text>
-<text class="svgtxt-s" x="12" y="104">own page, with the date it was read.</text>
-<text class="svgtxt-s" x="12" y="126" fill="#1f6b3a">VERIFIABLE, and verified.</text>
-<rect class="svgbox-bad" x="322" y="6" width="298" height="130" rx="4"/>
-<text class="svgtxt" x="334" y="28">Question 2: BROTHERMODE'S HOOKS</text>
-<text class="svgtxt-s" x="334" y="48">Do BrotherMode's own hook programs</text>
-<text class="svgtxt-s" x="334" y="64">work there?</text>
-<text class="svgtxt-s" x="334" y="88">They parse Claude Code's payload format.</text>
-<text class="svgtxt-s" x="334" y="104">A same-named event is not a same payload.</text>
-<text class="svgtxt-s" x="334" y="126" fill="#9a2020">UNVERIFIED outside Claude Code.</text>
-<rect class="svgbox-a" x="0" y="148" width="620" height="28" rx="4"/>
-<text class="svgtxt" x="12" y="167">UNVERIFIED means do not wire it. A fence that fails open while looking installed is worse than no fence.</text>
-</svg>
-<figcaption>Every honest cross-runtime claim lives in one of these two columns, and
-most marketing puts them in the same sentence.</figcaption>
-</figure>
-
-<p>Ask the project itself:</p>
-
-<pre><code>python3 tools/bm_runtimes.py list</code></pre>
-
-<pre class="out"><code>BrotherMode runtime adapters (conventions read 2026-07-29)
-
-  generic        Generic AGENTS.md
-      file: generic.AGENTS.md
-      hook points: none found. Fence is advisory here.
-  codex          OpenAI Codex CLI
-      file: codex.AGENTS.md
-      hook points: yes (11 events). BrotherMode hook compatibility UNVERIFIED.
-  copilot        GitHub Copilot
-      file: copilot.copilot-instructions.md
-      hook points: none found. Fence is advisory here.
-  antigravity    Google Antigravity
-      file: antigravity.brothermode.md
-      hook points: yes (5 events). BrotherMode hook compatibility UNVERIFIED.
-  qwen           Qwen Code
-      file: qwen.QWEN.md
-      hook points: yes (16 events). BrotherMode hook compatibility UNVERIFIED.
-  iflow          iFlow CLI
-      file: iflow.IFLOW.md
-      hook points: none found. Fence is advisory here.
-
-Store and retrieval commands work in ALL of these: they are ordinary local
-processes.</code></pre>
-
-<h3>What that table actually means for you</h3>
-
-<div class="scroll">
-<table>
-<tr><th>Runtime</th><th>Reads the law from</th><th>Store and packs and docs</th><th>Automatic hooks</th></tr>
-<tr><td>Claude Code</td><td><code>CLAUDE.md</code> and <code>SKILL.md</code></td>
-<td>yes</td><td><strong>yes, the one verified runtime</strong></td></tr>
-<tr><td>Generic <code>AGENTS.md</code></td><td><code>AGENTS.md</code></td><td>yes</td>
-<td>no hook points found at all</td></tr>
-<tr><td>OpenAI Codex CLI</td><td><code>AGENTS.md</code></td><td>yes</td>
-<td>has hook points; payload shape never captured, so unverified</td></tr>
-<tr><td>GitHub Copilot</td><td><code>.github/copilot-instructions.md</code></td>
-<td>yes</td><td>no hook points found at all</td></tr>
-<tr><td>Google Antigravity</td><td><code>.agents/rules/brothermode.md</code></td>
-<td>yes</td><td>has hook points; unverified</td></tr>
-<tr><td>Qwen Code</td><td><code>QWEN.md</code></td><td>yes</td>
-<td>closest event list to Claude Code's; still unverified</td></tr>
-<tr><td>iFlow CLI</td><td><code>IFLOW.md</code></td><td>yes</td>
-<td>no hook points found at all</td></tr>
-</table>
-</div>
-
-<p>So the practical shape of using another tool is this. <strong>Everything you do by
-typing a command works.</strong> The store, the fence claims and their refusals, the
-rules, the packs, the documentation folder: all of it is an ordinary local program
-reading standard input and writing standard output. It needs no verification per
-runtime, and the project says so.</p>
-
-<p><strong>Everything automatic is Claude Code only, today.</strong> The five hooks
-parse Claude Code's payload format. Nobody has captured a real payload from any other
-runtime, which is why every non-Claude answer in that column says UNVERIFIED rather
-than "probably fine". Qwen Code names <code>SessionStart</code> and
-<code>SessionEnd</code>, the two events the telemetry actually targets, which makes
-it the most promising target and still not a verified one.</p>
-
-<h3>Why the distinction is a safety matter, not pedantry</h3>
-
-<p>Consider wiring the fence hook into a runtime whose payload does not carry a
-session identifier where BrotherMode expects one. The hook cannot tell who is
-writing, so it fails open, and failing open is silent by design. You would have a
-project with a <code>PreToolUse</code> entry in its configuration, a team who believe
-one writer per file is enforced, and no enforcement whatsoever. That is strictly worse
-than knowing you have no fence, because a team that knows will be careful.</p>
-
-<p>Two further honest notes the project makes about itself. In a runtime with no hook
-points, the fence is <strong>advisory</strong>: BrotherMode can tell the tool the law
-and the tool can run the store commands, but no gate stands in front of a write, so
-one writer per file is a coordination ledger rather than a boundary. And there is no
-automatic installation of adapter files, because <code>AGENTS.md</code> at a
-repository root usually already has content in it, and a generator that overwrote it
-would be a data loss bug wearing a convenience feature's clothes.</p>
-
-<div class="try">
-<h4>Try this now</h4>
-<p>Generate the adapter file for whatever tool you actually use, and read it. It goes
-into a staging directory and prints where each file belongs; it installs nothing:</p>
-<pre><code>BM=~/.claude/skills/brothermode
-python3 $BM/tools/bm_runtimes.py list
-python3 $BM/tools/bm_runtimes.py emit --runtime generic</code></pre>
-<p>Then open the generated file and check one thing: does it promise your tool
-anything the table above says is unverified? It should not. If it does, that is a bug
-worth reporting.</p>
-</div>
-
-<h2 id="ch11"><span class="chnum">Chapter eleven</span>When it goes wrong</h2>
-
-<p>Sorted by how likely you are to hit it. Every message quoted here was produced by
-the author on purpose.</p>
-
-<h3>"refused (stale-identity)"</h3>
-
-<pre class="out"><code>refused (stale-identity): expected version 3 in a state that allows -&gt; active;
-  found version 3 state 'adopted'</code></pre>
-
-<p><strong>What happened.</strong> Every mutating command takes
-<code>--version N</code>, the version you last saw. If the record has moved since,
-the command refuses rather than overwriting whatever happened in between. In the case
-above, the version was right but the state was wrong: the record had been adopted, and
-adopted does not move straight back to active.</p>
-
-<p><strong>What to do.</strong> Look at the record, then use what you see:</p>
-
-<pre><code>python3 tools/bm_store.py dashboard</code></pre>
-
-<p>This is not an error to work around. It is the thing standing between you and a
-lost afternoon on Wednesday.</p>
-
-<h3>"FAILING OPEN, the write is allowed and the fence was NOT checked"</h3>
-
-<pre class="out"><code>bm_fence_hook: FAILING OPEN, the write is allowed and the fence was NOT checked.
-  Reason: the store at .../.brothermode/store.sqlite3 holds no active claims, so
-  there is no fence to enforce</code></pre>
-
-<p><strong>What happened.</strong> The most common cause is the one the author hit
-while writing chapter eight: a record was adopted but its paths were never re-claimed,
-so no active claim existed and there was nothing to enforce.</p>
-
-<p><strong>What to do.</strong> Re-claim the paths, then confirm they are there:</p>
-
-<pre><code>python3 tools/bm_store.py claim &lt;name&gt; --files &lt;paths&gt; --session "$ME"
-python3 tools/bm_store.py dashboard</code></pre>
-
-<p>Never treat this line as noise. It is the exact wording that separates "the fence
-allowed it" from "there was no fence".</p>
-
-<h3>The rule you approved never fires</h3>
-
-<p><strong>What happened.</strong> Almost always word overlap. Matching is lexical by
-default, as chapter four showed: a rule triggered on "money" does not match a query
-about "VAT".</p>
-
-<p><strong>What to do.</strong> Run the retrieval and read the diagnostics it prints
-for free, including the mode and the matched terms:</p>
-
-<pre><code>python3 tools/bm_learn.py lookup --query "&lt;the words you would really use&gt;"</code></pre>
-
-<p><code>lookup</code> reads and records nothing, so it is the safe verb for
-debugging. Then rewrite the trigger in the vocabulary you actually type. There is an
-optional stemmed index behind <code>BROTHERMODE_FTS5=1</code>, and
-<code>index-status</code> reports whether it is really answering, but fixing the
-words is usually the better fix.</p>
-
-<h3>The hooks are wired and nothing happens</h3>
-
-<p><strong>Three causes, in order of likelihood.</strong> The settings file is not
-valid JSON, in which case the whole hooks block is ignored and nothing says so. Or
-the tool has not restarted, and hook configuration is read at startup. Or the session
-was too short: the telemetry has a deliberate activity floor and does not record a
-trivial session, so the ledger cannot be padded.</p>
-
-<pre><code>python3 -m json.tool ~/.claude/settings.json
-python3 ~/.claude/skills/brothermode/scripts/doctor.py</code></pre>
-
-<h3>A pack refuses to regenerate</h3>
-
-<pre class="out"><code>refused (citation-changed): src/pricing.py lines 7-12 still start with the cited
-  anchor but their content changed since this pack was written. Read the new text
-  and re-cite with --recite src/pricing.py:7-12@return unit_pence * quantity to
-  record that you did.</code></pre>
-
-<p>Working as designed. Read the new code, then pass the <code>--recite</code>
-argument it handed you. Note what that does: it records that a human looked. Passing
-<code>--cite</code> again will not clear it, and that is deliberate.</p>
-
-<h3>Health check, when something feels off but nothing has errored</h3>
-
-<pre><code>python3 tools/bm_store.py verify</code></pre>
-
-<pre class="out"><code>verify: healthy, 0 problem(s)</code></pre>
-
-<h3>Getting your work back</h3>
-
-<pre><code>python3 tools/bm_autosave.py recover</code></pre>
-
-<p>If nothing was ever saved it says exactly that, rather than pretending:</p>
-
-<pre class="out"><code>bm_autosave: no autosave found for /private/tmp/bmbook/tealeaf (the latest pointer
-  is empty and no snapshot ref is newer than the last clean check).
-  No snapshot refs exist for this worktree at all.</code></pre>
-
-<h3>Two things that will annoy you and are not broken</h3>
-
-<p><strong>A pile of <code>STATE.md.bak-...</code> files.</strong> Every render backs
-up the previous file first. The author's throwaway project accumulated seven of them
-in about fifteen minutes of normal use. They are safe to delete and the tool will not
-delete them for you, because a tool that decides on its own which of your files are
-disposable is a tool you cannot leave alone with a project. Add
-<code>STATE.md.bak-*</code> to your <code>.gitignore</code>.</p>
-
-<p><strong><code>--help</code> is not always <code>--help</code>.</strong> Several
-commands print their usage only when you give them no arguments at all, and treat a
-flag as data otherwise. Running <code>bm_store.py claim --help</code> creates a work
-record actually named <code>--help</code>, which the author did while researching this
-book and had to clean up. Run the bare verb (<code>bm_store.py claim</code>) to see
-usage. For the learning tool, an unrecognised flag is properly refused and it lists
-the flags it does know, which is the behaviour you want:</p>
-
-<pre class="out"><code>bm_learn: unrecognized flag --query (recognized: --architecture, --communication,
-  --json, --multi-file, --prior-correction, --risky)</code></pre>
-
-<h3>The limits worth knowing before you rely on this</h3>
-
-<p>These are from the project's own <code>docs/KNOWN-LIMITS.md</code>, not from a
-critic:</p>
-
-<ul>
-<li><strong>It has never been run through a real working day.</strong> Everything
-rests on tests, adversarial execution and simulated lifecycles.</li>
-<li><strong>Continuous integration failed on Windows for the first releases, and
-went green on 2026-07-31.</strong> The line above was true when written; a real
-quoting defect was then found and fixed, and the first fully green run across all
-nine jobs is recorded in the release evidence. Kept in this corrected form
-because the sequence is the honest story.</li>
-<li><strong>Recovered work is owner-only on POSIX only.</strong> Not on
-Windows.</li>
-<li><strong>No independent audit has been run.</strong> Every finding in the project
-was found by the same family of model that wrote the code.</li>
-<li><strong>Treat any test count in the repository as a claim to re-verify.</strong>
-A mutation audit found fifteen tests described as calibrated that were exercising a
-local copy of old code and could never have failed. They were deleted and the honest
-count reported. That paragraph is in the project's own limits page, which tells you
-most of what you need to know about whether to trust it.</li>
-</ul>
-
-<div class="try">
-<h4>Try this now</h4>
-<p>Cause a refusal deliberately, so the first one you see is not in real work:</p>
-<pre><code>BM=~/.claude/skills/brothermode
-cd /tmp/firstloop
-python3 $BM/tools/bm_store.py dashboard          # note a lifecycle and its version
-python3 $BM/tools/bm_store.py complete &lt;uuid&gt; --version 99</code></pre>
-<p>You get a stale-identity refusal naming the version it actually found. Now run it
-with the right version and no <code>--evidence</code>, and get the missing-evidence
-refusal. Two refusals, two minutes, and the system stops being mysterious.</p>
-</div>
-
-<h2 id="ch12"><span class="chnum">Chapter twelve</span>Glossary</h2>
-
-<p>Part two's four additions first (added at 2.0.0-rc.11), then part one's
-entries, alphabetical. Every entry describes what the thing is, not what it
-might become; part one's entries are as of commit <code>471efdc</code>.</p>
-
-<dl>
-
-<dt>deep tour</dt>
-<dd>The generated where-does-my-project-stand page behind /brotherme-help:
-state, diagrams, data model, decisions, code map, and a co-build section for
-developers. Chapter thirteen. Sections whose source folders do not exist yet
-say "not yet recorded" instead of inventing content.</dd>
-
-<dt>guided layer</dt>
-<dd>The seven /brotherme commands and the conductor behind them: the plain-words
-surface over the machinery in part one. Chapter thirteen.</dd>
-
-<dt>guided loop</dt>
-<dd>The routing law for delegated work: the strongest model plans and judges,
-cheaper helpers execute, and a helper that fails its check twice is replaced by
-a stronger one. Written law in the delegation reference, pinned by tests.</dd>
-
-<dt>marketplace (plugin)</dt>
-<dd>The repository doubles as a Claude Code plugin source: add it once, install
-brotherme from it, and the guided layer registers on next start. Chapter two,
-the plugin path.</dd>
-
-<dt>agent</dt>
-<dd>A model working on a task with tools, in its own conversation. When you ask an
-assistant to spawn helpers, each helper is an agent. In BrotherMode each one is
-expected to hold a fence and to declare a tier, so its spend can be judged against a
-declared intent.</dd>
-
-<dt>alert</dt>
-<dd>A kind of note carrying a severity. An unresolved alert at severity
-<code>critical</code>, anchored to a decision or to a file that decision would
-change, refuses the approval. Chapter six shows the refusal.</dd>
-
-<dt>anchor</dt>
-<dd>Where a note is attached: a file and optionally a line, a decision, a gate, or a
-work record. Notes render at their anchors in the generated pages. A note whose
-anchored line has moved is reported rather than silently dropped.</dd>
-
-<dt>candidate</dt>
-<dd>A captured correction that has not been approved. Completely inert: it changes
-nothing at all until a human approves it, and it can be rejected with a reason so the
-same suggestion stops coming back.</dd>
-
-<dt>change set</dt>
-<dd>The files an approval would affect, discovered from the store rather than
-asserted: the claimed paths of the work record the correction came from, plus the
-scope key when the scope is a single file.</dd>
-
-<dt>check</dt>
-<dd>The command that proves a piece of work. Declared at claim time with
-<code>--check</code>, before you know how the work will go, because afterwards you
-will accept anything as proof.</dd>
-
-<dt>claim</dt>
-<dd>Registering a unit of work and the exact set of files it may write. The second
-half is the fence.</dd>
-
-<dt>compaction</dt>
-<dd>The moment your tool discards older conversation to make room for new. Useful and
-necessary, and the moment work most often disappears, which is why a hook snapshots
-your files and your next intent just before it happens.</dd>
-
-<dt>deep dive pack</dt>
-<dd>A generated markdown document for one decision, in eight fixed sections, complete
-enough for an engineer to review the choice without reading a transcript. Generated on
-demand and never before.</dd>
-
-<dt>evidence</dt>
-<dd>The pasted result of running the check. Required, in a non-empty form, to move
-work to complete. There is no flag to skip it.</dd>
-
-<dt>fail open</dt>
-<dd>When something goes wrong, allow the action rather than block it. The fence hook
-fails open on purpose: a broken hook that blocked every edit would be worse than an
-unenforced fence. It always says so out loud, and that line is the one you must never
-ignore.</dd>
-
-<dt>fence</dt>
-<dd>The set of files one worker may write. Enforced twice: the store refuses an
-overlapping claim, and a hook refuses the actual edit. It does not cover writes made
-through shell commands.</dd>
-
-<dt>gate</dt>
-<dd>A moment where a decision needs a human before becoming standing behaviour. Also
-used for a check severe enough to block work landing, as opposed to a soft check that
-is only scored.</dd>
-
-<dt>handover</dt>
-<dd>Two related things. A heading written when work is parked, stored in the same
-transaction so the explanation cannot be lost, and listed until someone acknowledges
-it. And a generated page, <code>40-handover/HANDOVER.md</code>, written for a human
-who will never talk to an assistant.</dd>
-
-<dt>hook</dt>
-<dd>A small program your tool runs automatically at a fixed moment: session start,
-session end, before an edit, before a compaction. The point is that it does not depend
-on the model remembering. BrotherMode wires five. Verified in Claude Code only, per
-chapter ten.</dd>
-
-<dt>human block</dt>
-<dd>Text between a pair of markers in a generated file. Preserved byte for byte
-through every regeneration, including through a refused one. It is the mechanism that
-makes a generated document safe to write in.</dd>
-
-<dt>lifecycle</dt>
-<dd>The permanent identity of one unit of work, a long hex string that nothing else
-ever reuses. Two things that look like the same task are two lifecycles.</dd>
-
-<dt>loop</dt>
-<dd>One unit of work with a beginning, a middle and a provable end. Called a loop
-because the evidence closing one is what the next one reads.</dd>
-
-<dt>note</dt>
-<dd>An authored row attached to an anchor, of kind <code>insight</code>,
-<code>alert</code>, <code>question</code>, <code>review</code>, <code>todo</code> or
-<code>risk</code>, carrying who wrote it and when. Resolved notes stay, marked
-resolved. No generator deletes one.</dd>
-
-<dt>park</dt>
-<dd>Putting work down without finishing it. With <code>--handover</code> it also
-writes the document for whoever picks it up.</dd>
-
-<dt>receipt</dt>
-<dd>A single-use, fifteen-minute token minted when someone records what a human
-actually answered about a specific rule. No receipt, no rule. It dies if the rule text
-changes, and there is no override. It proves an answer was given about this exact
-thing; it does not prove who gave it, and nothing in the product claims
-otherwise.</dd>
-
-<dt>rule</dt>
-<dd>An approved standing preference with a trigger, an action, a reason and a scope.
-Versioned, explainable through <code>why</code>, and retrievable. Retired by
-deprecating or superseding it, never by erasing its history.</dd>
-
-<dt>scope</dt>
-<dd>How wide a rule reaches: <code>global</code>, <code>project</code>,
-<code>domain</code>, <code>artifact</code>, <code>relationship</code> or
-<code>tool</code>. The most common mistake in the whole system is making a project
-preference global.</dd>
-
-<dt>session label</dt>
-<dd>The public name for one working session, derived from a secret token stored in
-your project. Get it from <code>bm_fence_hook.py session-label</code>; never type one
-by hand, because an invented label mints a token nobody can reproduce and locks you
-out of your own records.</dd>
-
-<dt>store</dt>
-<dd>The one database file, per project, under <code>.brothermode/</code>. One program
-is the only writer of it. Everything else asks that program.</dd>
-
-<dt>tier (documentation)</dt>
-<dd>How deep the generated <code>Documentation/</code> folder goes: 1 lean, 2
-standard, 3 full. Chosen from measured signals, with the reason printed. Rises on its
-own, never falls on its own.</dd>
-
-<dt>tier (effort)</dt>
-<dd>How much work you are budgeting: T1 one session, T2 a few helpers, T3 a fleet with
-divided scopes. Declared on the claim so that spend is judged against an intent rather
-than a feeling.</dd>
-
-<dt>unverified</dt>
-<dd>Used in this project as a technical term, not a hedge. It means nobody has
-captured the evidence, so acting as though the capability exists would be guessing at
-a safety boundary. Every non-Claude entry in the hooks column of chapter ten is
-unverified, and unverified means do not wire it.</dd>
-
-<dt>vault</dt>
-<dd>A plain folder of markdown and text files holding your session logs, the
-machine-written ledger and optionally a model of how you like to work. One per person.
-Nothing in it talks to a server. Movable with the <code>BROTHERMODE_VAULT</code>
-variable.</dd>
-
-<dt>version (of a record)</dt>
-<dd>A counter every mutating command must state. If the record moved since you last
-looked, the command refuses instead of overwriting. This is the mechanism behind most
-of the refusals in this book, and it is the reason two workers cannot silently
-clobber each other's state.</dd>
-
-</dl>
-
-<div class="try">
-<h4>Try this now, one last time</h4>
-<p>Pick the three entries above you would not have been able to explain before reading
-this book. Then run the command that makes each one concrete: <code>dashboard</code>
-for the store and versions, <code>bm_docs.py tier</code> for tiers,
-<code>bm_learn.py why &lt;rule&gt;</code> for rules and receipts. A definition you have
-seen a command produce is a definition you keep.</p>
-</div>
-
-<hr style="margin:4rem 0 2rem;border:none;border-top:1px solid var(--rule)">
-
-<h3>About this book</h3>
-
-<p>Written against BrotherMode 2.0.0-rc.4 at commit <code>471efdc</code>. Every
-command shown was executed by the author in a throwaway git repository built for the
-purpose, and every block labelled as output is pasted from that run. Session labels,
-lifecycle identifiers and receipt tokens will differ on your machine; that is
-correct.</p>
-
-<p>Four things the author found while writing it, which are reported to the project
-rather than smoothed over here: <code>bm_store.py claim --help</code> creates a work
-record named <code>--help</code>; <code>--handover</code> is absent from the
-<code>park</code> usage line although it is the whole person-to-person handover
-mechanism; <code>bm_telemetry.py fence-lint</code> finds no fences in a
-store-generated <code>STATE.md</code>; and every render leaves another
-<code>STATE.md.bak-...</code> file behind.</p>
-
-<p>There are no productivity figures in this book because there is no honest source
-for one. When BrotherMode has been through real working days and the ledger has real
-rows in it, that will be a different book, and it will cite the command that produced
-each number.</p>
-
 <h2 id="ch13"><span class="chnum">Chapter thirteen</span>The guided layer: seven commands and the deep tour</h2>
 
-<p>Everything in part one you could drive from a shell. This chapter is the layer
-that means you never have to: seven slash commands inside Claude Code that wrap the
-whole machine in plain words. It arrived with 2.0.0-rc.10 and rc.11, after this
-book's first twelve chapters were written, which is why it gets its own chapter
-instead of being woven through them.</p>
+<p>Part one's tutorials typed these commands without explaining them. This is the
+explanation, plus the two things those tutorials did not reach: the deep tour, and
+updating. Seven slash commands inside Claude Code wrap the whole machine in plain
+words, so everything the other chapters drive from a shell you can also simply ask
+for.</p>
 
 <p>The design rule behind the layer, stated once so the rest of this chapter makes
 sense: the machinery never leaks upward. Underneath, the commands enter flows in a
@@ -2548,8 +2048,8 @@ for the advanced view; you are never handed them by default.</p>
 <li><strong>/brotherme-start</strong> begins a project. It asks what you want to
 accomplish, asks only the questions whose answers change the scope, and ends in a
 one-page brief you approve before anything is built. That brief is the Project
-Canvas, saved as <code>CANVAS.md</code> at the top of your project folder; part
-one's chapter four is the law it follows.</li>
+Canvas, saved as <code>CANVAS.md</code> at the top of your project folder;
+chapter four is the law it follows.</li>
 <li><strong>/brotherme-status</strong> answers where things stand in exactly eight
 plain lines: goal, direction, progress, time remaining, decision needed, risk,
 evidence, next step. After a crash, a restart, or a week away, this is the command
@@ -2576,8 +2076,8 @@ offers the deep tour described next.</li>
 
 <h3>The deep tour</h3>
 
-<p>Say yes to the tour and the session runs the documentation engine from part
-one's chapter seven (<code>python3 tools/bm_docs.py generate</code>), reads the
+<p>Say yes to the tour and the session runs the documentation engine from
+chapter seven (<code>python3 tools/bm_docs.py generate</code>), reads the
 folder it writes, and builds one page showing where your project actually stands:
 current state, process diagrams, the data model, every decision with its
 reasoning, and the code map. The last section is for developers who want to build
@@ -2592,20 +2092,497 @@ folders: a fresh one produces no technical pages at all (verified 2026-08-01), s
 every section whose source folder is absent says "not yet recorded for this
 project" rather than inventing content or silently vanishing.</p>
 
-<h3>Try this now</h3>
-
+<div class="try">
+<h4>Try this now</h4>
+<p class="tryline">About 4 minutes. Needs: git and Python 3.9 or newer. You should see:
+<code>wrote 4 file(s) under Documentation at tier 1 (lean)</code>, and a start-here page
+you can read.</p>
 <p>Inside Claude Code with the plugin installed, type <code>/brotherme-help</code>
 and say yes to the tour. Without Claude Code, run the engine directly in a
 throwaway folder and read what it writes:</p>
-
 <pre><code>mkdir /tmp/tour-demo &amp;&amp; cd /tmp/tour-demo &amp;&amp; git init -q .
 python3 ~/.claude/skills/brothermode/tools/bm_store.py init
 python3 ~/.claude/skills/brothermode/tools/bm_docs.py generate
 cat Documentation/00-START-HERE.md</code></pre>
+<p>What the generate step printed:</p>
+<pre class="out"><code>wrote 4 file(s) under Documentation at tier 1 (lean), chosen automatic
+  tier 1 because no signal reached the tier 2 threshold: 0 tracked files, 0 work records, 0 gates, 0 recorded decisions
+  Documentation/00-START-HERE.md
+  Documentation/30-decisions/INDEX.md
+  Documentation/40-handover/HANDOVER.md
+  Documentation/90-generated/facts.json
+  0 human block(s) preserved verbatim
+  0 note(s), 0 line anchor(s) checked against the files on disk
+  narrative: 0 block(s) reused against unchanged facts, 1 regenerated</code></pre>
+<p>A brand new project gets tier 1 and four files. That is the correct answer rather
+than a thin one: the technical pages arrive when the project has recorded enough to
+fill them, which is the rule chapter seven states.</p>
+</div>
+
+<div class="part" id="part3">
+<h2>Part three: UNDERSTAND</h2>
+<p><strong>Nothing past this line is needed to use the product.</strong> Everything here
+is why: the failures the design answers, the laws it enforces, the memory it keeps, and
+two long walkthroughs of ambitious work. Stop here and you have lost nothing you need
+today.</p>
+</div>
+
+<h2 id="ch1"><span class="chnum">Chapter one</span>Monday, and what actually goes wrong</h2>
+
+<p>Forget the product for a moment. Here is a Monday.</p>
+
+<p>You run a small tea company. The order totals are wrong by a penny sometimes,
+and a customer noticed. You open your AI coding assistant and say: <em>add VAT to
+the order total, and please do not break the rounding again, we refunded someone
+last month over this.</em></p>
+
+<p>It does a good job. It writes the code, it explains the fix, you ship it. Good
+Monday.</p>
+
+<p>Now here is what happens over the next three weeks, and every item in this list
+is a mechanical property of how these tools work, not a complaint about how clever
+they are.</p>
+
+<h3>Tuesday: the sentence is gone</h3>
+
+<p>You open a fresh conversation, because the old one got long and slow. You ask for
+a discount feature. The assistant writes <code>price * 0.9</code> using decimal
+numbers, because the sentence <em>we refunded someone last month over rounding</em>
+was in a conversation that no longer exists. You say it again. It apologises
+sincerely. It will not remember on Wednesday either.</p>
+
+<p>That is not forgetfulness in the human sense. The assistant has no place to put
+that sentence. The conversation IS the memory, and the conversation ends.</p>
+
+<h3>Wednesday: two of them, one file</h3>
+
+<p>You get ambitious and run two assistants at once, one on VAT and one on
+discounts. Both decide the cleanest place to work is <code>pricing.py</code>. The
+second one saves over the first one's work. Nothing errors. You find out on
+Thursday when a test you were sure passed does not.</p>
+
+<h3>Thursday: it says it is done</h3>
+
+<p>You ask whether the VAT work is finished. It says yes, and it means it. It has
+no way to distinguish <em>I wrote code that should work</em> from <em>I ran the
+test and watched it pass</em>, because both feel the same from the inside of a
+sentence. You run the test yourself. It fails.</p>
+
+<h3>Friday: nobody can review anything</h3>
+
+<p>Your one actual engineer, Priya, asks why order totals are now recomputed at
+read time instead of stored. The answer is in a transcript. The transcript is
+four thousand lines long, it is on your laptop, and it is not organised by
+decision. She shrugs and rewrites it her way, which is a fourth different
+behaviour for the same field.</p>
+
+<h3>Three weeks later: the handover</h3>
+
+<p>You hire someone. They ask what the project is, what state it is in, and what
+decisions were already made and why. You have a repository and a memory. That is
+the whole handover pack.</p>
+
+<h3>What all five of those have in common</h3>
+
+<p>None of them is about the model being stupid. Every one of them is about
+something that <strong>was never written down anywhere a machine could check
+it.</strong></p>
+
+<figure>
+<svg viewBox="0 0 620 196" role="img" aria-label="Five failures on the left, each pointing at the same cause in the middle: nothing was written down. On the right, the BrotherMode answer: write it to disk, then check the disk.">
+<text class="svgtxt-s" x="0" y="12">The Monday to Friday list</text>
+<rect class="svgbox-bad" x="0" y="24" width="170" height="26" rx="3"/>
+<text class="svgtxt" x="10" y="41">the rule is forgotten</text>
+<rect class="svgbox-bad" x="0" y="58" width="170" height="26" rx="3"/>
+<text class="svgtxt" x="10" y="75">two writers, one file</text>
+<rect class="svgbox-bad" x="0" y="92" width="170" height="26" rx="3"/>
+<text class="svgtxt" x="10" y="109">"done" with no proof</text>
+<rect class="svgbox-bad" x="0" y="126" width="170" height="26" rx="3"/>
+<text class="svgtxt" x="10" y="143">decision unreviewable</text>
+<rect class="svgbox-bad" x="0" y="160" width="170" height="26" rx="3"/>
+<text class="svgtxt" x="10" y="177">handover is a memory</text>
+<path class="svgline-bad" d="M170 37 L232 100"/>
+<path class="svgline-bad" d="M170 71 L232 103"/>
+<path class="svgline-bad" d="M170 105 L232 105"/>
+<path class="svgline-bad" d="M170 139 L232 107"/>
+<path class="svgline-bad" d="M170 173 L232 110"/>
+<rect class="svgbox" x="232" y="80" width="150" height="50" rx="3"/>
+<text class="svgtxt" x="242" y="100">one cause: it was</text>
+<text class="svgtxt" x="242" y="118">never written down</text>
+<path class="svgline" d="M382 105 L442 105"/>
+<path class="svgline" d="M434 100 L442 105 L434 110"/>
+<rect class="svgbox-good" x="442" y="62" width="178" height="86" rx="3"/>
+<text class="svgtxt" x="452" y="82">write it to a file</text>
+<text class="svgtxt" x="452" y="100">the moment it exists,</text>
+<text class="svgtxt" x="452" y="118">then let a program</text>
+<text class="svgtxt" x="452" y="136">check the file</text>
+</svg>
+<figcaption>The whole design in one picture. Models drift; disks do not.</figcaption>
+</figure>
+
+<h3>What BrotherMode actually is</h3>
+
+<p>It is a small pile of Python scripts and one database file that sits in your
+project folder. It does five things, and each one is the direct answer to a day
+above.</p>
+
+<div class="scroll">
+<table>
+<tr><th>The day</th><th>What BrotherMode does instead</th></tr>
+<tr><td>Tuesday: the rule is gone</td><td>Your correction becomes a stored rule with an
+approval receipt. Before work starts, matching rules are looked up and the lookup
+is recorded.</td></tr>
+<tr><td>Wednesday: two writers</td><td>One writer per file, enforced by a program
+that runs before every edit and refuses the second one.</td></tr>
+<tr><td>Thursday: unproven "done"</td><td>Work cannot be marked complete without
+evidence. The command refuses.</td></tr>
+<tr><td>Friday: unreviewable decision</td><td>One command writes a review pack with
+the live code, the callers, the tests, the rollback and a place for Priya's verdict.
+Her critical objection can refuse the decision outright.</td></tr>
+<tr><td>The handover</td><td>One command writes a <code>Documentation/</code> folder,
+including a handover page written for a human who will never talk to an
+assistant.</td></tr>
+</table>
+</div>
+
+<p>Two properties are worth naming now, because they explain most of the design
+decisions you will meet later.</p>
+
+<p><strong>The programs, not the model, write the record.</strong> When a session
+ends, a hook (a small program the tool runs automatically at a fixed moment) writes
+what happened. The model does not get to narrate its own numbers. This is why the
+numbers can be trusted, and it is also why there are no numbers in this book: the
+honest ledger for real use is currently empty.</p>
+
+<p><strong>Refusal over guessing.</strong> Almost everything in this system prefers
+to stop and print a reason. You will see the word <code>refused</code> more in this
+book than the word <code>ok</code>. That is deliberate. A tool that guesses when it
+is unsure produces work you then have to audit; a tool that refuses produces one
+line you have to read.</p>
+
+<div class="honest">
+<p><strong>Before you go further.</strong> BrotherMode is a release candidate.
+Its own limits page opens with the sentence "Everything here rests on tests,
+adversarial execution, and simulated lifecycles. No day of real founder work has
+yet been done through the V2 store." Its continuous integration has failed on
+Windows. If you want a finished product with case studies, this is not it. If you
+want a system whose honesty you can check, read on.</p>
+</div>
+
+<div class="try">
+<h4>Try this now</h4>
+<p class="tryline">About 2 minutes. Needs: any git repository, nothing installed. You should see: twenty commit subject lines, and not one recorded reason behind any of them.</p>
+<p>No install needed, and nothing here writes to your project. Open a terminal in
+any project you have and ask git the question the handover chapter asks:</p>
+<pre><code>git log --oneline -20</code></pre>
+<p>Now try to answer, from that output alone: which of those commits was a decision
+somebody made on purpose, and what was the reason? You will not be able to. That
+gap, between what the repository records and what you actually need to hand over, is
+the gap this book is about.</p>
+</div>
+
+<h2 id="philosophy">The philosophy, and the ten laws</h2>
+
+<p>Every chapter in this book is an application of one uncomfortable belief, so
+the belief deserves its own page: <strong>an AI's confidence is not evidence,
+and a rule written in a prompt is not a control.</strong> Anyone can tell a
+model to be careful, to double-check, to never overwrite work. The telling
+costs nothing and changes little, because the model that forgets your file
+also forgets your instruction. Every mechanism in this project exists because
+somebody took that belief seriously and asked: what would this rule look like
+if it did not depend on being remembered?</p>
+
+<p>The answer, each time, is one of two shapes. Either the rule becomes
+machinery (a gate that refuses, a test that fails, a hook that records), or
+the rule becomes a handover (the risky step is prepared completely and given
+to a human hand). A rule that is neither machinery nor a handover is listed
+honestly as discipline, which is the weakest of the three and says so. That
+three-way honesty about its own rules, more than any single feature, is what
+makes this project itself.</p>
+
+<h3>The ten laws</h3>
+
+<p>Stated once, plainly, each with the failure it exists to kill. The chapters
+that enforce and demonstrate each are named in parentheses.</p>
+
+<ul>
+<li><strong>1. Look before touching.</strong> A session maps what is already
+true (what changed, what is claimed, what is mid-flight) before writing
+anything, and coordinates with work it finds rather than overwriting it.
+Kills: the confident session that flattens another's work. (Chapters three,
+eight, fifteen.)</li>
+<li><strong>2. One writer per file.</strong> The claim is written before the
+work starts; a mechanical gate refuses the second writer; the refusal names
+the holder. Kills: silent overwrites, the way parallel work actually dies.
+(Chapters three, eight, fifteen.)</li>
+<li><strong>3. Proof, or it is not done.</strong> Done requires a check that
+ran after the last change and passed, quoted, and delivery packets carry the
+evidence. Kills: the confident summary, the cheapest thing a model produces.
+(Chapters four, six, thirteen.)</li>
+<li><strong>4. The guided loop.</strong> The strongest model plans and judges;
+cheaper helpers execute; two failed checks escalate upward with the failure
+attached. Kills: paying judgment prices for labor, and trusting labor with
+judgment. (Chapters thirteen, fifteen, sixteen.)</li>
+<li><strong>5. Ranges, never promises.</strong> Estimates carry a range, a
+confidence, and the assumption most likely to move them; actuals feed the
+next forecast. Kills: the point estimate, a lie about certainty. (Chapters
+four, thirteen.)</li>
+<li><strong>6. Bad news first, labels on numbers.</strong> A failing check
+leads the message; a number that could not be independently verified carries
+its label at the number. Kills: the buried caveat. (Chapters five,
+sixteen.)</li>
+<li><strong>7. The human holds the keys.</strong> Decisions arrive one at a
+time with a recommendation first; anything touching credentials, money,
+publishing, production, or deletion is prepared fully and handed over.
+Kills: the automation that quietly outgrew its permission. (Chapters eight,
+fifteen.)</li>
+<li><strong>8. Memory lives on disk.</strong> Decisions, progress, failures,
+and open work are written to plain files (the vault, the state records) that
+survive crashes, restarts, and compaction. Kills: the project that resets
+every morning. (Chapters seven, nine, fourteen.)</li>
+<li><strong>9. Corrections become law only by consent.</strong> A correction
+can become a standing rule retrieved before similar work, promoted only with
+the human's explicit receipt, and no learned rule may ever weaken the laws
+above it. Kills: repeating the same correction forever, and also the tool
+that rewrites its own constitution. (Chapter five.)</li>
+<li><strong>10. Wrong claims are corrected in daylight.</strong> A sentence
+that turns out false gets a dated correction on top, never a silent rewrite;
+this book and the release pages practice it visibly. Kills: the document
+that is always right in hindsight. (Chapters ten, eleven, and the release
+history.)</li>
+</ul>
+
+<p>One more honest sentence, because the laws demand it of the page that
+states them: the mechanical half of laws two and three is enforced on Claude
+Code; on every other tool these laws travel as written instruction, which is
+the discipline shape, not the machinery shape, and chapter ten is the honest
+map of that difference.</p>
+
+<h2 id="ch4"><span class="chnum">Chapter four</span>The five questions, kept apart</h2>
+
+<p>Most tools that claim to learn from you collapse five different questions into
+one. Then you cannot tell a good idea from a bad habit, because the record of both
+looks the same.</p>
+
+<p>Here they are, separated:</p>
+
+<figure>
+<svg viewBox="0 0 620 300" role="img" aria-label="Five stages in a column: capture what was said, interpret it into a rule, get a human approval receipt, apply it and record the application, then grade the outcome. Each stage names what it does not do.">
+<rect class="svgbox" x="0" y="6" width="180" height="46" rx="4"/>
+<text class="svgtxt" x="12" y="26">1. CAPTURE</text>
+<text class="svgtxt-s" x="12" y="43">what was actually said</text>
+<path class="svgline" d="M90 52 L90 66"/><path class="svgline" d="M85 58 L90 66 L95 58"/>
+<rect class="svgbox" x="0" y="66" width="180" height="46" rx="4"/>
+<text class="svgtxt" x="12" y="86">2. INTERPRETATION</text>
+<text class="svgtxt-s" x="12" y="103">trigger, action, reason</text>
+<path class="svgline" d="M90 112 L90 126"/><path class="svgline" d="M85 118 L90 126 L95 118"/>
+<rect class="svgbox-a" x="0" y="126" width="180" height="46" rx="4"/>
+<text class="svgtxt" x="12" y="146">3. APPROVAL</text>
+<text class="svgtxt-s" x="12" y="163">a receipt from a real answer</text>
+<path class="svgline" d="M90 172 L90 186"/><path class="svgline" d="M85 178 L90 186 L95 178"/>
+<rect class="svgbox" x="0" y="186" width="180" height="46" rx="4"/>
+<text class="svgtxt" x="12" y="206">4. APPLICATION</text>
+<text class="svgtxt-s" x="12" y="223">surfaced, and recorded</text>
+<path class="svgline" d="M90 232 L90 246"/><path class="svgline" d="M85 238 L90 246 L95 238"/>
+<rect class="svgbox-good" x="0" y="246" width="180" height="46" rx="4"/>
+<text class="svgtxt" x="12" y="266">5. OUTCOME</text>
+<text class="svgtxt-s" x="12" y="283">did following it help</text>
+<text class="svgtxt-s" x="206" y="34">a candidate. Inert. Changes nothing.</text>
+<text class="svgtxt-s" x="206" y="94">still inert. A guess about meaning,</text>
+<text class="svgtxt-s" x="206" y="108">kept separate from the words.</text>
+<text class="svgtxt-s" x="206" y="154">the ONLY step that makes it real.</text>
+<text class="svgtxt-s" x="206" y="168">No receipt, no rule. No override.</text>
+<text class="svgtxt-s" x="206" y="214">so a rule nobody ever uses is visible</text>
+<text class="svgtxt-s" x="206" y="274">so a rule that hurts is visible too</text>
+</svg>
+<figcaption>Five questions, five records. Collapse any two and you lose the ability
+to answer either.</figcaption>
+</figure>
+
+<h3>Why the separation earns its keep</h3>
+
+<p>Suppose a rule turns out to be wrong. With the five kept apart you can ask which
+one broke:</p>
+
+<ul>
+<li><strong>Capture</strong> was wrong: you never said that. The raw text settles
+it.</li>
+<li><strong>Interpretation</strong> was wrong: you said it, but the rule written down
+means something wider than you meant.</li>
+<li><strong>Approval</strong> was wrong: the rule was right for that moment and
+should not have been made standing.</li>
+<li><strong>Application</strong> was wrong: the rule is fine, it was retrieved for
+work it does not apply to.</li>
+<li><strong>Outcome</strong> was wrong: everything worked as designed and the rule is
+simply a bad rule.</li>
+</ul>
+
+<p>Those are five different fixes. A single "learned preferences" list cannot tell
+you which one you have.</p>
+
+<h3>Stage 1 and 2: capture</h3>
+
+<p>Capturing is one command, and it changes nothing:</p>
+
+<pre><code>python3 tools/bm_learn.py capture \
+  --trigger "when I touch money in this project" \
+  --action "keep every amount in integer pence and never use a float" \
+  --because "a float rounded a customer invoice wrong last month" \
+  --scope project</code></pre>
+
+<pre class="out"><code>captured fd93a141 (pending, nothing changes until you approve it)
+  heads up, this looks like more than one rule: contains 'and never', which
+  usually joins two rules
+  approval will refuse it unless you split it or pass --override-reason</code></pre>
+
+<p>It caught something real. "Keep amounts in pence" and "never use a float" are two
+rules, and a rule that is secretly two rules cannot be graded, because you never know
+which half was followed. Split it:</p>
+
+<pre><code>python3 tools/bm_learn.py capture \
+  --trigger "when I touch money in this project" \
+  --action "keep every amount in integer pence" \
+  --because "a float rounded a customer invoice wrong last month" \
+  --scope project</code></pre>
+
+<pre class="out"><code>captured 9b832875 (pending, nothing changes until you approve it)</code></pre>
+
+<p><code>--scope</code> is how wide the rule reaches: <code>global</code>,
+<code>project</code>, <code>domain</code>, <code>artifact</code>,
+<code>relationship</code> or <code>tool</code>. A preference about this codebase is
+not a law about all your work, and the scope is where you say so.</p>
+
+<h3>Stage 3: approval, in two halves</h3>
+
+<p>This is the part of the design worth understanding, because it is unusual.
+Approving a rule takes two commands, not one.</p>
+
+<pre><code>python3 tools/bm_learn.py grant-approval 9b832875 \
+  --answer "yes, integer pence everywhere, that bug cost us a refund"</code></pre>
+
+<pre class="out"><code>approval receipt b4440dc0 for candidate 9b832875
+  expires 2026-07-30T02:05:50Z (900 seconds), one candidate, one use
+  it dies if the candidate or the rule text changes before you approve
+
+  RECEIPT TOKEN, shown once and stored nowhere:
+  a913dee38dd443a97726095e1c92875492d9f400263dc1ac
+
+  spend it: bm_learn.py approve 9b832875 --receipt &lt;token&gt;
+  or put it in BM_APPROVAL_RECEIPT so it stays out of your shell history
+  do not paste it into a log, a transcript or a commit message</code></pre>
+
+<pre><code>python3 tools/bm_learn.py approve 9b832875 \
+  --receipt a913dee38dd443a97726095e1c92875492d9f400263dc1ac \
+  --ref "founder said yes in the Monday session; the refund is in the ledger"</code></pre>
+
+<pre class="out"><code>approved as rule 4873a92d
+  4873a92d  [project:tealeaf, approved] v1
+     When: when I touch money in this project
+     Do  : keep every amount in integer pence</code></pre>
+
+<p>Why the token? Because before it existed, any process that could run the tool
+could manufacture an approved rule, and the reference it recorded said "run by the
+founder" whether or not anyone was there. The token is minted only when someone
+records what the human actually answered, it is bound to that exact rule text, it
+expires in fifteen minutes, and it works once. Change a word of the rule after the
+question was asked and the token dies. There is no override and no break-glass.</p>
+
+<p>Try to spend it twice:</p>
+
+<pre class="out"><code>refused (not-pending): candidate 9b832875 is 'approved', only a pending candidate
+  can be approved</code></pre>
+
+<div class="note">
+<p><strong>What the receipt does not claim.</strong> It does not prove <em>which</em>
+human answered. It proves an answer was given about this exact thing and has not
+been spent. No wording anywhere in the product says otherwise, and that restraint is
+the reason the mechanism is worth anything.</p>
+</div>
+
+<h3>Stage 4: application, and the honest surprise</h3>
+
+<p>Before substantial work, ask what rules apply. This both retrieves and records
+the retrieval:</p>
+
+<pre><code>python3 tools/bm_learn.py apply \
+  --query "add VAT to the order total" --session sess-mon-morning</code></pre>
+
+<pre class="out"><code>no founder rules apply here (0 in scope, none matched; mode=lexical)
+Gates: 0 of 0 applicable returned. A result limit cannot hide one.
+Soft rules: 0 shown, none omitted.</code></pre>
+
+<p>Nothing matched, and that is the truth rather than a bug. The default matching is
+<strong>lexical</strong>: it compares the words in your query against the words in
+the rule. The rule says "when I touch <em>money</em>"; the query said "VAT" and
+"order total". No shared word, no match. Say it in words that overlap:</p>
+
+<pre><code>python3 tools/bm_learn.py apply \
+  --query "change how money is added up in the order total" --session sess-mon-morning</code></pre>
+
+<pre class="out"><code>RELEVANT FOUNDER RULES (mode=lexical)
+
+  4873a92d  rank=1
+  Scope: project:tealeaf     State: approved
+  When : when I touch money in this project
+  Do   : keep every amount in integer pence
+  Why  : a float rounded a customer invoice wrong last month
+  Match: terms ['money'], relevance 0.143
+
+recorded 1 application(s), 0 already recorded for this task
+  retrieval run e63adbfb recorded (1 eligible, 1 returned, limit 5)</code></pre>
+
+<p>Two practical lessons, and this is the sort of thing a marketing page would hide.
+First, <strong>write triggers in the words you will actually use</strong>: say "money"
+and "rounding" and "price", not a formal category name. Second, the tool told you
+which mode answered and which terms matched, so you can debug a miss instead of
+guessing. An optional stemmed index exists behind an environment variable, and every
+retrieval prints the mode it really used, so no output ever claims a smarter match
+than it performed.</p>
+
+<p>The line <code>Gates: 0 of 0 applicable returned. A result limit cannot hide
+one</code> is there because of a real defect: a result limit could once drop a
+blocking rule off the end of the list. Now gates are counted separately from the
+limit.</p>
+
+<h3>Stage 5: outcome</h3>
+
+<p>Retrieval is not the end. Say what you did with the rule:</p>
+
+<pre><code>python3 tools/bm_learn.py disposition 9efa5994 followed</code></pre>
+
+<pre class="out"><code>application 9efa5994: followed (outcome pending)
+  not_decidable: followed, but no outcome has been recorded against it yet</code></pre>
+
+<p>And when you look at the aggregate:</p>
+
+<pre class="out"><code>capture metrics (descriptive counts, not accuracy)
+  candidates by status: {'approved': 1, 'pending': 2}
+  approved rules: 1
+
+There is no labelled review set, so none of these is a precision or a
+recall number, and none of them should be read as one.</code></pre>
+
+<p>Read that last paragraph again. The tool has counts and refuses to dress them up
+as accuracy. If you ever want to know whether a system is being straight with you,
+look at what it says about its own metrics.</p>
+
+<div class="try">
+<h4>Try this now</h4>
+<p class="tryline">About 3 minutes. Needs: the throwaway project from chapter three. You should see: <code>captured &lt;id&gt; (pending ...)</code> followed by a heads-up that the action contains 'and always', which usually joins two rules.</p>
+<p>In your throwaway project from chapter three, capture a rule that is secretly two
+rules and watch it warn you:</p>
+<pre><code>BM=~/.claude/skills/brothermode
+python3 $BM/tools/bm_learn.py capture \
+  --trigger "when writing tests" \
+  --action "use plain asserts and always name the test after the behaviour" \
+  --because "clever helpers made a failure unreadable" --scope project</code></pre>
+<p>Then split it into two captures. You have just done the interpretation step by
+hand, which is the step every "it learns your preferences" product does silently.</p>
+</div>
 
 <h2 id="ch14"><span class="chnum">Chapter fourteen</span>The vault and Obsidian: how it remembers</h2>
 
-<p>Part one mentioned the vault whenever memory mattered and moved on. This
+<p>Earlier chapters mentioned the vault whenever memory mattered and moved on. This
 chapter stays. If you use BrotherMode for more than one afternoon, the vault is
 the part you will end up caring about most, because it is the difference between
 a tool that starts over every morning and a colleague who remembers.</p>
@@ -2696,15 +2673,16 @@ SECURITY.md (nothing that runs on its own makes a network call; the one
 deliberate exception is the user-invoked version check in chapter thirteen).
 The vault on your own disk is the memory.</p>
 
-<h3>Try this now</h3>
-
+<div class="try">
+<h4>Try this now</h4>
+<p class="tryline">About 3 minutes. Needs: BrotherMode installed. Nothing here touches
+your real vault. You should see: a Home page and a constitution, both plain markdown.</p>
 <pre><code>cp -R ~/.claude/skills/brothermode/vault-template /tmp/vault-demo
 cat /tmp/vault-demo/Home.md
 cat /tmp/vault-demo/AGENTS.md | head -40</code></pre>
-
 <p>Read the worked example project under <code>10-Projects/</code>, then delete
 the folder or keep it as the seed of your real vault; it is yours either way.</p>
-
+</div>
 
 <h2 id="ch15"><span class="chnum">Chapter fifteen</span>Building something big</h2>
 
@@ -3117,6 +3095,7 @@ the honest count of what has and has not been run for real, it is in the project
 
 <div class="try">
 <h4>Try this now</h4>
+<p class="tryline">About 5 minutes. Needs: git and Python 3.9 or newer. You should see: two clean claims, then <code>refused (overlap)</code> naming <code>lane-a</code> and the exact path both wanted.</p>
 <p>The whole shape of this chapter, the part that makes big builds different from a
 single loop, is one fence stopping one overlap. Five minutes proves it, in a directory
 you throw away after:</p>
@@ -3451,6 +3430,7 @@ confirm it was never really checked.</p>
 
 <div class="try">
 <h4>Try this now</h4>
+<p class="tryline">About 5 minutes. Needs: Python 3.9 or newer. No install, nothing written. You should see: <code>agree: True</code> in round one and <code>agree: False</code> in round two.</p>
 <p>Five minutes, stdlib only, no install. This is the same disagreement from the
 churn centerpiece, shrunk down to four rows and one duplicate:</p>
 <pre><code>import csv
@@ -3504,6 +3484,709 @@ written to detect the duplicate specifically. That is what an independent second
 route buys you: it does not need to know what can go wrong, only to be a genuinely
 different way of getting to the same number.</p>
 </div>
+
+<h2 id="ch10"><span class="chnum">Chapter ten</span>Other runtimes: what works, what is unverified</h2>
+
+<p>Nothing in BrotherMode's engine is specific to any one AI tool. It is standard
+library Python driven from a shell. But <em>wiring</em> is specific, and this chapter
+exists to keep one distinction from being blurred, because blurring it would be
+dangerous rather than merely sloppy.</p>
+
+<h3>Two different questions</h3>
+
+<figure>
+<svg viewBox="0 0 620 180" role="img" aria-label="Two columns. Left: does the runtime run a program at lifecycle events, verified per runtime. Right: do BrotherMode's own hooks work there, which requires the payload shape and is unverified everywhere except Claude Code.">
+<rect class="svgbox" x="0" y="6" width="298" height="130" rx="4"/>
+<text class="svgtxt" x="12" y="28">Question 1: HOOK POINTS</text>
+<text class="svgtxt-s" x="12" y="48">Does this tool run an external program</text>
+<text class="svgtxt-s" x="12" y="64">at lifecycle events at all?</text>
+<text class="svgtxt-s" x="12" y="88">Answered per runtime from the vendor's</text>
+<text class="svgtxt-s" x="12" y="104">own page, with the date it was read.</text>
+<text class="svgtxt-s" x="12" y="126" fill="#1f6b3a">VERIFIABLE, and verified.</text>
+<rect class="svgbox-bad" x="322" y="6" width="298" height="130" rx="4"/>
+<text class="svgtxt" x="334" y="28">Question 2: BROTHERMODE'S HOOKS</text>
+<text class="svgtxt-s" x="334" y="48">Do BrotherMode's own hook programs</text>
+<text class="svgtxt-s" x="334" y="64">work there?</text>
+<text class="svgtxt-s" x="334" y="88">They parse Claude Code's payload format.</text>
+<text class="svgtxt-s" x="334" y="104">A same-named event is not a same payload.</text>
+<text class="svgtxt-s" x="334" y="126" fill="#9a2020">UNVERIFIED outside Claude Code.</text>
+<rect class="svgbox-a" x="0" y="148" width="620" height="28" rx="4"/>
+<text class="svgtxt" x="12" y="167">UNVERIFIED means do not wire it. A fence that fails open while looking installed is worse than no fence.</text>
+</svg>
+<figcaption>Every honest cross-runtime claim lives in one of these two columns, and
+most marketing puts them in the same sentence.</figcaption>
+</figure>
+
+<p>Ask the project itself:</p>
+
+<pre><code>python3 tools/bm_runtimes.py list</code></pre>
+
+<pre class="out"><code>BrotherMode runtime adapters (conventions read 2026-07-29)
+
+  generic        Generic AGENTS.md
+      file: generic.AGENTS.md
+      hook points: none found. Fence is advisory here.
+  codex          OpenAI Codex CLI
+      file: codex.AGENTS.md
+      hook points: yes (11 events). BrotherMode hook compatibility UNVERIFIED.
+  copilot        GitHub Copilot
+      file: copilot.copilot-instructions.md
+      hook points: none found. Fence is advisory here.
+  antigravity    Google Antigravity
+      file: antigravity.brothermode.md
+      hook points: yes (5 events). BrotherMode hook compatibility UNVERIFIED.
+  qwen           Qwen Code
+      file: qwen.QWEN.md
+      hook points: yes (16 events). BrotherMode hook compatibility UNVERIFIED.
+  iflow          iFlow CLI
+      file: iflow.IFLOW.md
+      hook points: none found. Fence is advisory here.
+
+Store and retrieval commands work in ALL of these: they are ordinary local
+processes.</code></pre>
+
+<h3>What that table actually means for you</h3>
+
+<div class="scroll">
+<table>
+<tr><th>Runtime</th><th>Reads the law from</th><th>Store and packs and docs</th><th>Automatic hooks</th></tr>
+<tr><td>Claude Code</td><td><code>CLAUDE.md</code> and <code>SKILL.md</code></td>
+<td>yes</td><td><strong>yes, the one verified runtime</strong></td></tr>
+<tr><td>Generic <code>AGENTS.md</code></td><td><code>AGENTS.md</code></td><td>yes</td>
+<td>no hook points found at all</td></tr>
+<tr><td>OpenAI Codex CLI</td><td><code>AGENTS.md</code></td><td>yes</td>
+<td>has hook points; payload shape never captured, so unverified</td></tr>
+<tr><td>GitHub Copilot</td><td><code>.github/copilot-instructions.md</code></td>
+<td>yes</td><td>no hook points found at all</td></tr>
+<tr><td>Google Antigravity</td><td><code>.agents/rules/brothermode.md</code></td>
+<td>yes</td><td>has hook points; unverified</td></tr>
+<tr><td>Qwen Code</td><td><code>QWEN.md</code></td><td>yes</td>
+<td>closest event list to Claude Code's; still unverified</td></tr>
+<tr><td>iFlow CLI</td><td><code>IFLOW.md</code></td><td>yes</td>
+<td>no hook points found at all</td></tr>
+</table>
+</div>
+
+<p>So the practical shape of using another tool is this. <strong>Everything you do by
+typing a command works.</strong> The store, the fence claims and their refusals, the
+rules, the packs, the documentation folder: all of it is an ordinary local program
+reading standard input and writing standard output. It needs no verification per
+runtime, and the project says so.</p>
+
+<p><strong>Everything automatic is Claude Code only, today.</strong> The five hooks
+parse Claude Code's payload format. Nobody has captured a real payload from any other
+runtime, which is why every non-Claude answer in that column says UNVERIFIED rather
+than "probably fine". Qwen Code names <code>SessionStart</code> and
+<code>SessionEnd</code>, the two events the telemetry actually targets, which makes
+it the most promising target and still not a verified one.</p>
+
+<h3>Why the distinction is a safety matter, not pedantry</h3>
+
+<p>Consider wiring the fence hook into a runtime whose payload does not carry a
+session identifier where BrotherMode expects one. The hook cannot tell who is
+writing, so it fails open, and failing open is silent by design. You would have a
+project with a <code>PreToolUse</code> entry in its configuration, a team who believe
+one writer per file is enforced, and no enforcement whatsoever. That is strictly worse
+than knowing you have no fence, because a team that knows will be careful.</p>
+
+<p>Two further honest notes the project makes about itself. In a runtime with no hook
+points, the fence is <strong>advisory</strong>: BrotherMode can tell the tool the law
+and the tool can run the store commands, but no gate stands in front of a write, so
+one writer per file is a coordination ledger rather than a boundary. And there is no
+automatic installation of adapter files, because <code>AGENTS.md</code> at a
+repository root usually already has content in it, and a generator that overwrote it
+would be a data loss bug wearing a convenience feature's clothes.</p>
+
+<div class="try">
+<h4>Try this now</h4>
+<p class="tryline">About 3 minutes. Needs: BrotherMode installed. You should see: the runtime table, then an install map that stages files and copies nothing over your existing instruction files.</p>
+<p>Generate the adapter file for whatever tool you actually use, and read it. It goes
+into a staging directory and prints where each file belongs; it installs nothing:</p>
+<pre><code>BM=~/.claude/skills/brothermode
+python3 $BM/tools/bm_runtimes.py list
+python3 $BM/tools/bm_runtimes.py emit --runtime generic</code></pre>
+<p>Then open the generated file and check one thing: does it promise your tool
+anything the table above says is unverified? It should not. If it does, that is a bug
+worth reporting.</p>
+</div>
+
+<h2 id="ch11"><span class="chnum">Chapter eleven</span>When it goes wrong</h2>
+
+<p>Sorted by how likely you are to hit it. Every message quoted here was produced by
+the author on purpose.</p>
+
+<h3>"refused (stale-identity)"</h3>
+
+<pre class="out"><code>refused (stale-identity): expected version 3 in a state that allows -&gt; active;
+  found version 3 state 'adopted'</code></pre>
+
+<p><strong>What happened.</strong> Every mutating command takes
+<code>--version N</code>, the version you last saw. If the record has moved since,
+the command refuses rather than overwriting whatever happened in between. In the case
+above, the version was right but the state was wrong: the record had been adopted, and
+adopted does not move straight back to active.</p>
+
+<p><strong>What to do.</strong> Look at the record, then use what you see:</p>
+
+<pre><code>python3 tools/bm_store.py dashboard</code></pre>
+
+<p>This is not an error to work around. It is the thing standing between you and a
+lost afternoon on Wednesday.</p>
+
+<h3>"FAILING OPEN, the write is allowed and the fence was NOT checked"</h3>
+
+<pre class="out"><code>bm_fence_hook: FAILING OPEN, the write is allowed and the fence was NOT checked.
+  Reason: the store at .../.brothermode/store.sqlite3 holds no active claims, so
+  there is no fence to enforce</code></pre>
+
+<p><strong>What happened.</strong> The most common cause is the one the author hit
+while writing chapter eight: a record was adopted but its paths were never re-claimed,
+so no active claim existed and there was nothing to enforce.</p>
+
+<p><strong>What to do.</strong> Re-claim the paths, then confirm they are there:</p>
+
+<pre><code>python3 tools/bm_store.py claim &lt;name&gt; --files &lt;paths&gt; --session "$ME"
+python3 tools/bm_store.py dashboard</code></pre>
+
+<p>Never treat this line as noise. It is the exact wording that separates "the fence
+allowed it" from "there was no fence".</p>
+
+<h3>The rule you approved never fires</h3>
+
+<p><strong>What happened.</strong> Almost always word overlap. Matching is lexical by
+default, as chapter four showed: a rule triggered on "money" does not match a query
+about "VAT".</p>
+
+<p><strong>What to do.</strong> Run the retrieval and read the diagnostics it prints
+for free, including the mode and the matched terms:</p>
+
+<pre><code>python3 tools/bm_learn.py lookup --query "&lt;the words you would really use&gt;"</code></pre>
+
+<p><code>lookup</code> reads and records nothing, so it is the safe verb for
+debugging. Then rewrite the trigger in the vocabulary you actually type. There is an
+optional stemmed index behind <code>BROTHERMODE_FTS5=1</code>, and
+<code>index-status</code> reports whether it is really answering, but fixing the
+words is usually the better fix.</p>
+
+<h3>The hooks are wired and nothing happens</h3>
+
+<p><strong>Three causes, in order of likelihood.</strong> The settings file is not
+valid JSON, in which case the whole hooks block is ignored and nothing says so. Or
+the tool has not restarted, and hook configuration is read at startup. Or the session
+was too short: the telemetry has a deliberate activity floor and does not record a
+trivial session, so the ledger cannot be padded.</p>
+
+<pre><code>python3 -m json.tool ~/.claude/settings.json
+python3 ~/.claude/skills/brothermode/scripts/doctor.py</code></pre>
+
+<h3>A pack refuses to regenerate</h3>
+
+<pre class="out"><code>refused (citation-changed): src/pricing.py lines 7-12 still start with the cited
+  anchor but their content changed since this pack was written. Read the new text
+  and re-cite with --recite src/pricing.py:7-12@return unit_pence * quantity to
+  record that you did.</code></pre>
+
+<p>Working as designed. Read the new code, then pass the <code>--recite</code>
+argument it handed you. Note what that does: it records that a human looked. Passing
+<code>--cite</code> again will not clear it, and that is deliberate.</p>
+
+<h3>Health check, when something feels off but nothing has errored</h3>
+
+<pre><code>python3 tools/bm_store.py verify</code></pre>
+
+<pre class="out"><code>verify: healthy, 0 problem(s)</code></pre>
+
+<h3>Getting your work back</h3>
+
+<pre><code>python3 tools/bm_autosave.py recover</code></pre>
+
+<p>If nothing was ever saved it says exactly that, rather than pretending:</p>
+
+<pre class="out"><code>bm_autosave: no autosave found for /private/tmp/bmbook/tealeaf (the latest pointer
+  is empty and no snapshot ref is newer than the last clean check).
+  No snapshot refs exist for this worktree at all.</code></pre>
+
+<h3>Two things that will annoy you and are not broken</h3>
+
+<p><strong>A pile of <code>STATE.md.bak-...</code> files.</strong> Every render backs
+up the previous file first. The author's throwaway project accumulated seven of them
+in about fifteen minutes of normal use. They are safe to delete and the tool will not
+delete them for you, because a tool that decides on its own which of your files are
+disposable is a tool you cannot leave alone with a project. Add
+<code>STATE.md.bak-*</code> to your <code>.gitignore</code>.</p>
+
+<p><strong><code>--help</code> is not always <code>--help</code>.</strong> Several
+commands print their usage only when you give them no arguments at all, and treat a
+flag as data otherwise. Running <code>bm_store.py claim --help</code> creates a work
+record actually named <code>--help</code>, which the author did while researching this
+book and had to clean up. Run the bare verb (<code>bm_store.py claim</code>) to see
+usage. For the learning tool, an unrecognised flag is properly refused and it lists
+the flags it does know, which is the behaviour you want:</p>
+
+<pre class="out"><code>bm_learn: unrecognized flag --query (recognized: --architecture, --communication,
+  --json, --multi-file, --prior-correction, --risky)</code></pre>
+
+<h3>The limits worth knowing before you rely on this</h3>
+
+<p>These are from the project's own <code>docs/KNOWN-LIMITS.md</code>, not from a
+critic:</p>
+
+<ul>
+<li><strong>It has never been run through a real working day.</strong> Everything
+rests on tests, adversarial execution and simulated lifecycles.</li>
+<li><strong>Continuous integration failed on Windows for the first releases, and
+went green on 2026-07-31.</strong> The line above was true when written; a real
+quoting defect was then found and fixed, and the first fully green run across all
+nine jobs is recorded in the release evidence. Kept in this corrected form
+because the sequence is the honest story.</li>
+<li><strong>Recovered work is owner-only on POSIX only.</strong> Not on
+Windows.</li>
+<li><strong>No independent audit has been run.</strong> Every finding in the project
+was found by the same family of model that wrote the code.</li>
+<li><strong>Treat any test count in the repository as a claim to re-verify.</strong>
+A mutation audit found fifteen tests described as calibrated that were exercising a
+local copy of old code and could never have failed. They were deleted and the honest
+count reported. That paragraph is in the project's own limits page, which tells you
+most of what you need to know about whether to trust it.</li>
+</ul>
+
+<div class="try">
+<h4>Try this now</h4>
+<p class="tryline">About 2 minutes. Needs: the throwaway project from chapter three, with one active record. You should see: <code>refused (stale-identity)</code> naming the version it actually found, then <code>refused (missing-evidence)</code>.</p>
+<p>Cause a refusal deliberately, so the first one you see is not in real work:</p>
+<pre><code>BM=~/.claude/skills/brothermode
+cd /tmp/firstloop
+python3 $BM/tools/bm_store.py dashboard          # note a lifecycle and its version
+python3 $BM/tools/bm_store.py complete &lt;uuid&gt; --version 99</code></pre>
+<p>You get a stale-identity refusal naming the version it actually found. Now run it
+with the right version and no <code>--evidence</code>, and get the missing-evidence
+refusal. Two refusals, two minutes, and the system stops being mysterious.</p>
+</div>
+
+<div class="part" id="part4">
+<h2>Part four: LOOK UP</h2>
+<p>Reference. Nobody reads this part in order. The task index at the end maps a question
+you might actually have to the page that answers it.</p>
+</div>
+
+<h2 id="ref-commands">The seven commands, in full</h2>
+
+<p>Typed inside Claude Code. Each entry says what it produces, what it reads, and what
+it refuses. Normal use rarely needs any command after <code>/brotherme-start</code>:
+plain conversation works.</p>
+
+<h3>/brotherme-start</h3>
+<p><strong>Produces:</strong> one clear project brief, the Project Canvas, saved as
+<code>CANVAS.md</code> at the top of your project folder, plus one recommended first
+decision with a time and cost range.<br>
+<strong>Reads:</strong> your goal in your own words. If you give it none, it asks for it
+in one sentence before anything else.<br>
+<strong>Behaviour:</strong> asks only the questions whose answers change the scope, one
+decision at a time, recommended option first. Nothing is built until you approve the
+brief. Chapter four is the law it follows.</p>
+
+<h3>/brotherme-status</h3>
+<p><strong>Produces:</strong> exactly eight lines: goal, direction, progress, time
+remaining, decision needed, risk, evidence, next step.<br>
+<strong>Behaviour:</strong> leads with what has been achieved, not with process. Deeper
+detail only if you explicitly ask for the advanced view. After a crash, a restart or a
+week away, this is the command that reads the thread back.</p>
+
+<h3>/brotherme-next</h3>
+<p><strong>Produces:</strong> exactly one recommended next action, stated first, with a
+short reason and a realistic time range.<br>
+<strong>Reads:</strong> the approved <code>CANVAS.md</code> and whatever progress records
+exist beside it.<br>
+<strong>Behaviour:</strong> if a decision of yours is what blocks progress, you get the
+decision card instead, recommended option first. Estimates are always ranges with a
+confidence, never single numbers.</p>
+
+<h3>/brotherme-review</h3>
+<p><strong>Produces:</strong> every point of the definition of done marked pass or
+not-yet, each with the evidence that proves it: a command that ran, a file that exists, a
+check that passed.<br>
+<strong>Behaviour:</strong> never softens a failing point. Bad news comes first.</p>
+
+<h3>/brotherme-deliver</h3>
+<p><strong>Produces:</strong> a filled delivery packet, every field, saying what was
+built and how it was checked.<br>
+<strong>Refuses:</strong> to say the work is ready to deliver unless a verifying check
+ran <em>after</em> the last change and passed. If a check is missing or failing it says
+so plainly and lists what remains.</p>
+
+<h3>/brotherme-update</h3>
+<p><strong>Produces:</strong> your installed version, the newest released version,
+whether they match, and the exact update steps for your own install path only.<br>
+<strong>Behaviour:</strong> reads the <code>VERSION</code> file in the installed folder,
+then asks the repository for its newest release tag. If the network refuses, it says the
+check could not run and does not guess. Updating replaces the BrotherMode files only; it
+never touches your projects or your records. This version check is the single deliberate
+network reach in the product.</p>
+
+<h3>/brotherme-help</h3>
+<p><strong>Produces:</strong> a short plain-language orientation: what BrotherMode does,
+the commands you can say, and an honest paragraph on what is verified and what is not,
+pointing at <code>docs/KNOWN-LIMITS.md</code> inside your own installed folder.<br>
+<strong>Then offers:</strong> the deep tour, one page laying out project progress,
+decisions taken, process diagrams, the data model and the code map, with a section for
+developers who want to help build. A project with no BrotherMode record yet gets a static
+tour of the product instead of the live view, and the page says which one it is showing.
+Chapter thirteen walks the tour.</p>
+
+<h2 id="ref-tools">The tool commands, by task</h2>
+
+<p>These are ordinary local programs. They work in any tool, in any shell, with no
+runtime verification needed, because they read standard input and write standard output.
+Every line below assumes <code>BM=~/.claude/skills/brothermode</code>.</p>
+
+<h4>Work, fences and evidence: bm_store.py</h4>
+<div class="scroll">
+<table>
+<tr><th>I want to</th><th>Run</th></tr>
+<tr><td>set the project up once</td><td><code>bm_store.py init</code></td></tr>
+<tr><td>take a unit of work and its files</td><td><code>bm_store.py claim NAME --lifetime
+ephemeral|persistent --objective "..." --files a.py b.py --session "$ME" --tier T1
+--check "..."</code></td></tr>
+<tr><td>record a decision</td><td><code>bm_store.py decide &lt;lifecycle&gt; --version N
+--topic "..." --text "..."</code></td></tr>
+<tr><td>say where I got to</td><td><code>bm_store.py checkpoint &lt;lifecycle&gt; --version N
+--next "..." --blockers "..."</code></td></tr>
+<tr><td>close work with proof</td><td><code>bm_store.py complete &lt;lifecycle&gt; --version N
+--session "$ME" --evidence "..."</code></td></tr>
+<tr><td>put work down for someone else</td><td><code>bm_store.py park &lt;lifecycle&gt;
+--version N --session "$ME" --handover "..."</code></td></tr>
+<tr><td>see what is waiting for me</td><td><code>bm_store.py handovers</code>, then
+<code>bm_store.py handover-ack --handover &lt;id&gt;</code></td></tr>
+<tr><td>pick work back up</td><td><code>bm_store.py resume &lt;lifecycle&gt; --version N
+--session "$ME" --note "..."</code></td></tr>
+<tr><td>take a record over</td><td><code>bm_store.py adopt &lt;lifecycle&gt; --version N
+--session "$ME" --adopt-from-live-session</code>, then re-claim the paths</td></tr>
+<tr><td>see who holds what</td><td><code>bm_store.py dashboard</code></td></tr>
+<tr><td>check the store is healthy</td><td><code>bm_store.py verify</code></td></tr>
+</table>
+</div>
+<p>The full verb list is <code>adopt, checkpoint, claim, complete, dashboard, decide,
+dump, handover-ack, handovers, init, park, resume, verify</code>. Run the bare verb to
+see its usage: several commands treat <code>--help</code> as data rather than a request.</p>
+
+<h4>Corrections and rules: bm_learn.py</h4>
+<div class="scroll">
+<table>
+<tr><th>I want to</th><th>Run</th></tr>
+<tr><td>record a correction, changing nothing</td><td><code>bm_learn.py capture --trigger
+"..." --action "..." --because "..." --scope project</code></td></tr>
+<tr><td>ask a human and mint the receipt</td><td><code>bm_learn.py grant-approval &lt;id&gt;
+--answer "..."</code></td></tr>
+<tr><td>spend the receipt and create the rule</td><td><code>bm_learn.py approve &lt;id&gt;
+--receipt &lt;token&gt; --ref "..."</code></td></tr>
+<tr><td>find the rules that apply, and record it</td><td><code>bm_learn.py apply --query
+"..." --session &lt;sid&gt;</code></td></tr>
+<tr><td>look without recording anything</td><td><code>bm_learn.py lookup --query
+"..."</code></td></tr>
+<tr><td>ask whether retrieval is even worth it</td><td><code>bm_learn.py should-retrieve
+--multi-file --risky --prior-correction</code></td></tr>
+<tr><td>see a rule's whole history</td><td><code>bm_learn.py why &lt;rule&gt;</code></td></tr>
+<tr><td>retire a rule without erasing it</td><td><code>bm_learn.py deprecate</code>,
+<code>supersede</code>, or <code>reject &lt;id&gt; --because "..."</code></td></tr>
+<tr><td>say a rule hurt me</td><td><code>bm_learn.py outcome &lt;record&gt; --kind
+rework|escaped_defect --note "..."</code></td></tr>
+<tr><td>file an objection with teeth</td><td><code>bm_learn.py note --kind alert
+--severity critical --anchor file:path --author "Name" --author-kind human --body
+"..."</code></td></tr>
+<tr><td>clear one</td><td><code>bm_learn.py resolve-note &lt;id&gt; --because
+"..."</code></td></tr>
+<tr><td>settle two rules that fight</td><td><code>bm_learn.py conflicts</code>, then
+<code>resolve-conflict</code></td></tr>
+</table>
+</div>
+
+<h4>Decisions, documents and the rest</h4>
+<div class="scroll">
+<table>
+<tr><th>I want to</th><th>Run</th></tr>
+<tr><td>price a review before paying for it</td><td><code>bm_packs.py stakes
+&lt;candidate&gt;</code></td></tr>
+<tr><td>write the deep dive pack</td><td><code>bm_packs.py pack &lt;candidate&gt; --cite
+path:7-12</code></td></tr>
+<tr><td>re-cite code that moved</td><td><code>bm_packs.py pack &lt;candidate&gt; --recite
+"path:7-12@the anchor line"</code></td></tr>
+<tr><td>record a verdict</td><td><code>bm_packs.py review &lt;candidate&gt; --by "Name"
+--verdict approve --notes "..." --residual "..."</code></td></tr>
+<tr><td>see how deep my docs should go</td><td><code>bm_docs.py tier</code></td></tr>
+<tr><td>write the folder</td><td><code>bm_docs.py generate</code></td></tr>
+<tr><td>ask what exports this machine can do</td><td><code>bm_docs_export.py
+report</code></td></tr>
+<tr><td>get a session label</td><td><code>bm_fence_hook.py session-label --session-id
+&lt;yours&gt;</code></td></tr>
+<tr><td>take or recover a snapshot</td><td><code>bm_autosave.py precompact</code>,
+<code>bm_autosave.py recover</code></td></tr>
+<tr><td>see the cross-runtime honesty table</td><td><code>bm_runtimes.py list</code>,
+<code>bm_runtimes.py emit --runtime generic</code></td></tr>
+<tr><td>check the install is really wired</td><td><code>scripts/doctor.py</code></td></tr>
+<tr><td>run every test suite</td><td><code>tools/test_all.py</code></td></tr>
+</table>
+</div>
+
+<h2 id="ch12"><span class="chnum">Chapter twelve</span>Glossary</h2>
+
+<p>The four guided-layer entries first, then the rest, alphabetical. Every
+entry describes what the thing is, not what it might become.</p>
+
+<dl>
+
+<dt>deep tour</dt>
+<dd>The generated where-does-my-project-stand page behind /brotherme-help:
+state, diagrams, data model, decisions, code map, and a co-build section for
+developers. Chapter thirteen. Sections whose source folders do not exist yet
+say "not yet recorded" instead of inventing content.</dd>
+
+<dt>guided layer</dt>
+<dd>The seven /brotherme commands and the conductor behind them: the plain-words
+surface over the machinery in part one. Chapter thirteen.</dd>
+
+<dt>guided loop</dt>
+<dd>The routing law for delegated work: the strongest model plans and judges,
+cheaper helpers execute, and a helper that fails its check twice is replaced by
+a stronger one. Written law in the delegation reference, pinned by tests.</dd>
+
+<dt>marketplace (plugin)</dt>
+<dd>The repository doubles as a Claude Code plugin source: add it once, install
+brotherme from it, and the guided layer registers on next start. Chapter two,
+the plugin path.</dd>
+
+<dt>agent</dt>
+<dd>A model working on a task with tools, in its own conversation. When you ask an
+assistant to spawn helpers, each helper is an agent. In BrotherMode each one is
+expected to hold a fence and to declare a tier, so its spend can be judged against a
+declared intent.</dd>
+
+<dt>alert</dt>
+<dd>A kind of note carrying a severity. An unresolved alert at severity
+<code>critical</code>, anchored to a decision or to a file that decision would
+change, refuses the approval. Chapter six shows the refusal.</dd>
+
+<dt>anchor</dt>
+<dd>Where a note is attached: a file and optionally a line, a decision, a gate, or a
+work record. Notes render at their anchors in the generated pages. A note whose
+anchored line has moved is reported rather than silently dropped.</dd>
+
+<dt>candidate</dt>
+<dd>A captured correction that has not been approved. Completely inert: it changes
+nothing at all until a human approves it, and it can be rejected with a reason so the
+same suggestion stops coming back.</dd>
+
+<dt>change set</dt>
+<dd>The files an approval would affect, discovered from the store rather than
+asserted: the claimed paths of the work record the correction came from, plus the
+scope key when the scope is a single file.</dd>
+
+<dt>check</dt>
+<dd>The command that proves a piece of work. Declared at claim time with
+<code>--check</code>, before you know how the work will go, because afterwards you
+will accept anything as proof.</dd>
+
+<dt>claim</dt>
+<dd>Registering a unit of work and the exact set of files it may write. The second
+half is the fence.</dd>
+
+<dt>compaction</dt>
+<dd>The moment your tool discards older conversation to make room for new. Useful and
+necessary, and the moment work most often disappears, which is why a hook snapshots
+your files and your next intent just before it happens.</dd>
+
+<dt>deep dive pack</dt>
+<dd>A generated markdown document for one decision, in eight fixed sections, complete
+enough for an engineer to review the choice without reading a transcript. Generated on
+demand and never before.</dd>
+
+<dt>evidence</dt>
+<dd>The pasted result of running the check. Required, in a non-empty form, to move
+work to complete. There is no flag to skip it.</dd>
+
+<dt>fail open</dt>
+<dd>When something goes wrong, allow the action rather than block it. The fence hook
+fails open on purpose: a broken hook that blocked every edit would be worse than an
+unenforced fence. It always says so out loud, and that line is the one you must never
+ignore.</dd>
+
+<dt>fence</dt>
+<dd>The set of files one worker may write. Enforced twice: the store refuses an
+overlapping claim, and a hook refuses the actual edit. It does not cover writes made
+through shell commands.</dd>
+
+<dt>gate</dt>
+<dd>A moment where a decision needs a human before becoming standing behaviour. Also
+used for a check severe enough to block work landing, as opposed to a soft check that
+is only scored.</dd>
+
+<dt>handover</dt>
+<dd>Two related things. A heading written when work is parked, stored in the same
+transaction so the explanation cannot be lost, and listed until someone acknowledges
+it. And a generated page, <code>40-handover/HANDOVER.md</code>, written for a human
+who will never talk to an assistant.</dd>
+
+<dt>hook</dt>
+<dd>A small program your tool runs automatically at a fixed moment: session start,
+session end, before an edit, before a compaction. The point is that it does not depend
+on the model remembering. BrotherMode wires five. Verified in Claude Code only, per
+chapter ten.</dd>
+
+<dt>human block</dt>
+<dd>Text between a pair of markers in a generated file. Preserved byte for byte
+through every regeneration, including through a refused one. It is the mechanism that
+makes a generated document safe to write in.</dd>
+
+<dt>lifecycle</dt>
+<dd>The permanent identity of one unit of work, a long hex string that nothing else
+ever reuses. Two things that look like the same task are two lifecycles.</dd>
+
+<dt>loop</dt>
+<dd>One unit of work with a beginning, a middle and a provable end. Called a loop
+because the evidence closing one is what the next one reads.</dd>
+
+<dt>note</dt>
+<dd>An authored row attached to an anchor, of kind <code>insight</code>,
+<code>alert</code>, <code>question</code>, <code>review</code>, <code>todo</code> or
+<code>risk</code>, carrying who wrote it and when. Resolved notes stay, marked
+resolved. No generator deletes one.</dd>
+
+<dt>park</dt>
+<dd>Putting work down without finishing it. With <code>--handover</code> it also
+writes the document for whoever picks it up.</dd>
+
+<dt>receipt</dt>
+<dd>A single-use, fifteen-minute token minted when someone records what a human
+actually answered about a specific rule. No receipt, no rule. It dies if the rule text
+changes, and there is no override. It proves an answer was given about this exact
+thing; it does not prove who gave it, and nothing in the product claims
+otherwise.</dd>
+
+<dt>rule</dt>
+<dd>An approved standing preference with a trigger, an action, a reason and a scope.
+Versioned, explainable through <code>why</code>, and retrievable. Retired by
+deprecating or superseding it, never by erasing its history.</dd>
+
+<dt>scope</dt>
+<dd>How wide a rule reaches: <code>global</code>, <code>project</code>,
+<code>domain</code>, <code>artifact</code>, <code>relationship</code> or
+<code>tool</code>. The most common mistake in the whole system is making a project
+preference global.</dd>
+
+<dt>session label</dt>
+<dd>The public name for one working session, derived from a secret token stored in
+your project. Get it from <code>bm_fence_hook.py session-label</code>; never type one
+by hand, because an invented label mints a token nobody can reproduce and locks you
+out of your own records.</dd>
+
+<dt>store</dt>
+<dd>The one database file, per project, under <code>.brothermode/</code>. One program
+is the only writer of it. Everything else asks that program.</dd>
+
+<dt>tier (documentation)</dt>
+<dd>How deep the generated <code>Documentation/</code> folder goes: 1 lean, 2
+standard, 3 full. Chosen from measured signals, with the reason printed. Rises on its
+own, never falls on its own.</dd>
+
+<dt>tier (effort)</dt>
+<dd>How much work you are budgeting: T1 one session, T2 a few helpers, T3 a fleet with
+divided scopes. Declared on the claim so that spend is judged against an intent rather
+than a feeling.</dd>
+
+<dt>unverified</dt>
+<dd>Used in this project as a technical term, not a hedge. It means nobody has
+captured the evidence, so acting as though the capability exists would be guessing at
+a safety boundary. Every non-Claude entry in the hooks column of chapter ten is
+unverified, and unverified means do not wire it.</dd>
+
+<dt>vault</dt>
+<dd>A plain folder of markdown and text files holding your session logs, the
+machine-written ledger and optionally a model of how you like to work. One per person.
+Nothing in it talks to a server. Movable with the <code>BROTHERMODE_VAULT</code>
+variable.</dd>
+
+<dt>version (of a record)</dt>
+<dd>A counter every mutating command must state. If the record moved since you last
+looked, the command refuses instead of overwriting. This is the mechanism behind most
+of the refusals in this book, and it is the reason two workers cannot silently
+clobber each other's state.</dd>
+
+</dl>
+
+<div class="try">
+<h4>Try this now, one last time</h4>
+<p class="tryline">About 5 minutes. Needs: the throwaway project from chapter three. You should see: three definitions turn into three command outputs you can point at.</p>
+<p>Pick the three entries above you would not have been able to explain before reading
+this book. Then run the command that makes each one concrete: <code>dashboard</code>
+for the store and versions, <code>bm_docs.py tier</code> for tiers,
+<code>bm_learn.py why &lt;rule&gt;</code> for rules and receipts. A definition you have
+seen a command produce is a definition you keep.</p>
+</div>
+
+<h2 id="taskindex">The task index: I want to...</h2>
+
+<p>Your question, not the product's structure. Every entry points at the page that
+answers it.</p>
+
+<div class="scroll">
+<table>
+<tr><th>I want to...</th><th>Go to</th></tr>
+<tr><td>install it and see that it works</td><td><a href="#t1">Tutorial one</a></td></tr>
+<tr><td>take one project from an idea to something delivered</td><td><a href="#t2">Tutorial
+two</a></td></tr>
+<tr><td>run two workers at once without them overwriting each other</td><td><a href="#t3">Tutorial
+three, recipe one</a>, then <a href="#ch8">chapter eight</a></td></tr>
+<tr><td>get my work back after a crash</td><td><a href="#t3">Tutorial three, recipe
+two</a></td></tr>
+<tr><td>stop it repeating a mistake I have already corrected</td><td><a href="#ch5">Chapter
+five</a></td></tr>
+<tr><td>give a real engineer enough to approve a decision</td><td><a href="#ch6">Chapter
+six</a></td></tr>
+<tr><td>hand this project to another person, or to my future self</td><td><a href="#ch7">Chapter
+seven</a> and <a href="#ch8">chapter eight</a></td></tr>
+<tr><td>know when this is NOT worth the ceremony</td><td><a href="#ch9">Chapter
+nine</a></td></tr>
+<tr><td>see where my project actually stands, in one page</td><td><a href="#ch13">Chapter
+thirteen, the deep tour</a></td></tr>
+<tr><td>update to the newest version</td><td><a href="#ch13">Chapter thirteen</a>, or
+<code>/brotherme-update</code> in <a href="#ref-commands">the command reference</a></td></tr>
+<tr><td>understand a refusal I just got</td><td><a href="#ch11">Chapter eleven</a></td></tr>
+<tr><td>use it in something other than Claude Code</td><td><a href="#ch10">Chapter
+ten</a></td></tr>
+<tr><td>know what it remembers, and where</td><td><a href="#ch14">Chapter
+fourteen</a></td></tr>
+<tr><td>look up a word this book keeps using</td><td><a href="#ch12">The
+glossary</a></td></tr>
+<tr><td>find the exact flags for a command</td><td><a href="#ref-tools">The tool
+commands, by task</a></td></tr>
+<tr><td>decide whether to trust any of this</td><td><a href="#philosophy">The philosophy
+and the ten laws</a>, then <a href="#ch11">chapter eleven's limits</a></td></tr>
+</table>
+</div>
+
+<hr style="margin:4rem 0 2rem;border:none;border-top:1px solid var(--rule)">
+
+<h3>About this book</h3>
+
+<p>Part one written against BrotherMode 2.0.0-rc.4 at commit <code>471efdc</code>;
+the task-first reorganization, the tutorials, and part two were added and
+re-verified at 2.0.0-rc.11 on 2026-08-01. Every
+command shown was executed by the author in a throwaway git repository built for the
+purpose, and every block labelled as output is pasted from that run. Session labels,
+lifecycle identifiers and receipt tokens will differ on your machine; that is
+correct.</p>
+
+<p>Four things the author found while writing it, which are reported to the project
+rather than smoothed over here: <code>bm_store.py claim --help</code> creates a work
+record named <code>--help</code>; <code>--handover</code> is absent from the
+<code>park</code> usage line although it is the whole person-to-person handover
+mechanism; <code>bm_telemetry.py fence-lint</code> finds no fences in a
+store-generated <code>STATE.md</code>; and every render leaves another
+<code>STATE.md.bak-...</code> file behind.</p>
+
+<p>There are no productivity figures in this book because there is no honest source
+for one. When BrotherMode has been through real working days and the ledger has real
+rows in it, that will be a different book, and it will cite the command that produced
+each number.</p>
 
 </div>
 </body>
