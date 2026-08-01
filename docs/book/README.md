@@ -25,8 +25,16 @@ HTML in a browser and printing to PDF, then update this note with the new date.
 | `brothermode-for-dummies.html` | the book. One self-contained file, inline CSS, diagrams as inline SVG, no external reference of any kind. Open it by double clicking it. |
 | `brothermode-for-dummies.pdf` | the PDF export, 56 pages, produced from the HTML on 2026-07-30. See the note below on how, and on what that means for regenerating it. |
 
-Twelve chapters, in the order section 7 of the spec lists them, each ending in a
-"try this now" the reader can actually run.
+REORGANIZED 2026-08-01 after the founder rated the tour-shaped book 1 of 5:
+the book is now task-first, per the ratified rebuild spec
+(docs/superpowers/specs/2026-08-01-docs-rebuild-after-1of5-design.md). It
+opens with a one-screen cheat sheet, then four parts: DO (three short
+tutorials, 217 words to first proven success), SOLVE (the how-to chapters),
+UNDERSTAND (philosophy and architecture, behind a divider no first-time
+reader must cross), and LOOK UP (references, glossary, and a task index that
+maps "I want to..." questions to anchors). All sixteen original chapters
+survive inside the parts with their numbers and anchors unchanged, each still
+ending in a "try this now" the reader can actually run.
 
 ## How to read it offline
 
