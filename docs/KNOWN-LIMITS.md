@@ -46,12 +46,22 @@ person was not sure about.
   rewrite nobody read is how the stale command got there in the first place. It does
   mean a release cut is a two-step act, and the second step is enforced only by the
   gate.
-- **`scripts/doctor.py` checks the settings FILE and the hook CODE.** It cannot
-  tell whether Claude Code has loaded that file: hooks are read at session
-  start, so a mid-session correction is live at the next session. The fence hook
-  still fails open by design (missing, empty, or corrupt store, or any internal
-  error), so a green doctor is a statement about a healthy store, not about
-  every future run.
+- **`scripts/doctor.py` now runs TEN checks, not one, since 2026-08-01 (Loop
+  3 design D-3, docs/superpowers/specs/2026-08-01-loop3-consent-install-
+  design.md): fence liveness (check 1, unchanged), VERSION-vs-manifest
+  version identity, python3 and git availability, consent config presence,
+  vault path writability, plugin-vs-clone duplicate-hook detection, project
+  store health (`bm_store.py verify`), hook wiring matched to the consented
+  installation_mode, a CHECKSUMS.sha256 self-check, and settings.json
+  validity.** Each prints PASS, FAIL with a one-sentence fix, or SKIP with
+  the reason nothing could be checked yet; `--json` for machines. What was
+  already true of check 1 alone still holds for the whole surface: it checks
+  the settings FILE and the CODE, not whether Claude Code has actually
+  LOADED any of it (hooks are read at session start, so a mid-session
+  correction is live at the next session), and the fence hook still fails
+  open by design (missing, empty, or corrupt store, or any internal error),
+  so a green doctor is a statement about the files and the code right now,
+  not a promise about every future run.
 - **The fence covers Edit, Write, MultiEdit and NotebookEdit.** Bash writes
   (redirection, `sed -i`, `tee`, `git checkout`, inline interpreter scripts, any
   subprocess) reach the filesystem without passing a hook.
@@ -599,7 +609,15 @@ QUICKSTART honesty label has a register entry behind it:
   installed; the development copy is now named differently) and double
   wiring (the plugin auto-wires the same five hook events scripts/install.py
   wires into settings.json, so a machine carrying both runs every hook twice
-  while the plugin is installed; pick one wiring, not both).
+  while the plugin is installed; pick one wiring, not both). UPDATED
+  2026-08-01 (Loop 3 design D-3): this double-fire state is no longer
+  silent. `scripts/doctor.py` check 6 detects it mechanically, both a
+  plugin named in settings.json's `enabledPlugins` and a clone-managed
+  `PreToolUse` entry wired at the same time, and FAILs naming which one to
+  remove (`/plugin uninstall <name>` or `python3 scripts/uninstall.py`).
+  What is still NOT true: nothing prevents the double install from
+  happening in the first place, only from staying unnoticed once doctor is
+  run.
 - The marketplace install command only works once these files exist on the
   branch or tag the marketplace add fetches. If your copy predates them, the
   command fails; that is a missing-files condition, not a broken machine.
@@ -613,10 +631,25 @@ QUICKSTART honesty label has a register entry behind it:
   2026-07-31 (one observation, one machine, one Claude Code version). No
   fresh-machine install of either path has demonstrated the guided layer yet;
   treat reachability as promising, not verified.
-- There is no first-run wizard. The guided skill is instructed to ask where
-  private project memory should live before writing there, but the automatic
-  session records (hooks) default to `~/BrotherModeVault` on their own the
-  first time they fire, without asking. Moving that means setting the
-  `BROTHERMODE_VAULT` environment variable, which is exactly the kind of step
-  the beginner path exists to remove. A real first-run setup is designed
-  (`docs/specs/canonical-project-protocol.md` is the direction) but not built.
+- UPDATED 2026-08-01 (Loop 3 design D-1/D-2, docs/superpowers/specs/
+  2026-08-01-loop3-consent-install-design.md): what this entry used to say
+  is now false and would mislead a reader who trusted it. There IS a
+  first-run setup now, `python3 scripts/setup.py`, runnable interactively
+  (question by question, plain words) or flag-driven
+  (`--vault PATH --mode plugin|clone --accept-notice`) for scripted runs and
+  tests, and it is the ONLY code path in the project allowed to create
+  `~/.brotherme/config.json`. Every write-capable hook entry point
+  (`bm_sessionstart.sh`, and the SessionEnd writer in `bm_telemetry.py`)
+  checks that config BEFORE writing anything and, when setup has not run,
+  writes NOTHING and prints one sentence naming `scripts/setup.py`: proven
+  directly by walking both the HOME tree and the project tree before and
+  after, a fresh HOME stays at zero files after `bm_sessionstart.sh` runs
+  pre-consent (`tools/test_bm_consent.py`, the suite this loop added). The
+  automatic session hooks no longer default the vault to
+  `~/BrotherModeVault` on their own the first time they fire; they simply do
+  not write until `scripts/setup.py` has recorded a vault path, and setup
+  itself never creates the vault directory, only records the path a founder
+  chose. What is still NOT true: the guided `/brotherme-start` skill flow
+  and this CLI-based setup are two separate entry points that have not been
+  unified into one first-run experience, and `docs/specs/canonical-project-
+  protocol.md` remains the longer-term direction, not what shipped here.

@@ -16,6 +16,24 @@ WHAT IT NEVER TOUCHES
   your own notes and an uninstaller is the last place that decision should be
   made. It prints the vault path so you can delete it yourself if you want to.
 
+  Plugin-managed hooks (Loop 3 design D-5, docs/superpowers/specs/2026-08-01-
+  loop3-consent-install-design.md). This script's ownership rule is about
+  scripts/install.py's own hook entries; a BrotherMode plugin enabled through
+  Claude Code wires its hooks a different way entirely, and this file has no
+  bookkeeping for that path at all. If BrotherMode was also installed as a
+  plugin, run `/plugin uninstall <name>` for that half; this script only
+  ever prints the honest caveat, it never guesses at removing what it cannot
+  see.
+
+WHAT IT OFFERS, ASKED, NEVER SILENT
+  ~/.brotherme/config.json (or BROTHERME_CONFIG), the one consent file
+  scripts/setup.py writes. After the hook removal above, if that file
+  exists, this script asks whether to remove it too: interactively when
+  there is a real terminal, or via the explicit --remove-consent flag in a
+  scripted run. Neither given, the file is left in place and the exact
+  command to remove it later is printed. It is never deleted without one of
+  those two, and it is never silently left unmentioned either.
+
   It also does not touch what BrotherMode wrote inside your projects: the
   per-project .brothermode/ store, thread files, STATE.md and its backups, the
   local autosave git refs, or the lines in .git/info/exclude. Those are listed
@@ -41,6 +59,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import install as _install  # noqa: E402  (same directory, deliberate)
+import setup as _bm_setup  # noqa: E402  (same directory, deliberate)
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -53,6 +72,65 @@ def _out(text):
 
 def _err(text):
     sys.stderr.write(text + "\n")
+
+
+def _plugin_name(target):
+    """The name this installation's own plugin manifest claims, so the
+    caveat sentence names the real plugin rather than a hardcoded guess.
+    Falls back to the shipped name when the manifest cannot be read (a
+    hand-wired or partial install may not have one)."""
+    manifest_path = os.path.join(target, ".claude-plugin", "plugin.json")
+    try:
+        manifest = json.loads(io.open(manifest_path, encoding="utf-8").read())
+    except (IOError, OSError, ValueError):
+        return "brotherme"
+    name = manifest.get("name") if isinstance(manifest, dict) else None
+    return name if isinstance(name, str) and name else "brotherme"
+
+
+def maybe_remove_consent_config(remove_consent_flag, dry):
+    """D-5: offer to remove the consent config too, after the hook removal
+    is settled. ASKED, never silent: interactive when there is a real
+    terminal, the explicit --remove-consent flag otherwise. Neither one and
+    the file survives, with the exact command to remove it later printed
+    rather than the question being skipped without a word. Does nothing at
+    all, prints nothing at all, when there is no config to begin with:
+    honors BROTHERME_CONFIG and HOME the same way scripts/setup.py does,
+    since this reads config_path() from that same module."""
+    cfg_path = _bm_setup.config_path()
+    if not os.path.isfile(cfg_path):
+        return
+    _out("")
+    _out("consent: a setup config exists at %s." % cfg_path)
+    if remove_consent_flag:
+        do_remove = True
+        _out("consent: --remove-consent was given; removing it.")
+    elif sys.stdin.isatty():
+        try:
+            answer = input("Remove it too? [y/N]: ")
+        except EOFError:
+            answer = ""
+        do_remove = answer.strip().lower() in ("y", "yes")
+        if not do_remove:
+            _out("consent: keeping it. Remove it yourself later with: "
+                 "rm %s" % cfg_path)
+    else:
+        _out("consent: no terminal to ask on, and --remove-consent was not "
+             "given, so it is being left in place. Pass --remove-consent to "
+             "delete it non-interactively, or remove it yourself: rm %s"
+             % cfg_path)
+        do_remove = False
+    if not do_remove:
+        return
+    if dry:
+        _out("[dry-run] consent: would remove %s" % cfg_path)
+        return
+    try:
+        os.remove(cfg_path)
+    except OSError as exc:
+        _err("uninstall.py: could not remove %s: %s" % (cfg_path, exc))
+        return
+    _out("consent: removed %s" % cfg_path)
 
 
 def strip_hooks(settings, target):
@@ -127,6 +205,9 @@ def build_parser():
                    help="also delete the installed skill directory")
     p.add_argument("--dry-run", action="store_true",
                    help="print what would be removed and change nothing")
+    p.add_argument("--remove-consent", action="store_true",
+                   help="also remove ~/.brotherme/config.json (the setup.py "
+                        "consent file) non-interactively, if it exists")
     return p
 
 
@@ -241,6 +322,8 @@ def main(argv):
         _out("%sfiles: left in place at %s. Pass --remove-files to delete them."
              % (prefix, target))
 
+    maybe_remove_consent_config(args.remove_consent, dry)
+
     vault = os.environ.get("BROTHERMODE_VAULT")
     _out("")
     _out("Untouched, deliberately:")
@@ -255,6 +338,9 @@ def main(argv):
          "the /.brothermode line in .git/info/exclude. See README.md's Uninstall "
          "section for the exact removal commands.")
     _out("  - Any BROTHERMODE_* export you added to your shell profile.")
+    _out("  - Plugin-managed hooks. If BrotherMode was also installed as a "
+         "Claude Code plugin, that wiring is not this script's bookkeeping "
+         "at all: run '/plugin uninstall %s' to remove it." % _plugin_name(target))
     if dry:
         _out("")
         _out("[dry-run] Nothing above was changed.")

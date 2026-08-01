@@ -75,8 +75,15 @@ However you install it, check it with:
 python3 scripts/doctor.py            # add --settings PATH for a non-default file
 ```
 
-Doctor answers a narrower question than the installer's smoke test, and the narrow
-question is the one that matters. The smoke test runs the hook from an empty directory,
+Since 2026-08-01 (Loop 3) doctor runs ten checks, not one: the fence simulation
+below, version identity, python3 and git availability, setup consent, vault
+writability, duplicate-install detection, project store health, hook wiring
+against the installation mode, the release checksum self-check, and settings
+validity. The table lives in docs/SETUP.md. The fence simulation stays the
+deepest of the ten and is described here in full.
+
+Doctor's fence check answers a narrower question than the installer's smoke test,
+and the narrow question is the one that matters. The smoke test runs the hook from an empty directory,
 where it takes its fail-open path, so it proves the hook executes. Doctor runs a
 **blocked-write simulation**: a throwaway project under a temporary directory, its own
 store, one file claimed under one session's label, then a write to that file requested

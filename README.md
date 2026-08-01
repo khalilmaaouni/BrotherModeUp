@@ -354,7 +354,7 @@ per project or entirely.
 | `tools/test_all.py` | Runs every suite serially, one process each, with one exit code. The actual gate; read this before running any single suite by hand |
 | `tools/WEEKLY-REVIEW.md` | The weekly self-review procedure |
 | `scripts/install.py`, `scripts/uninstall.py` | Wire and unwire the hooks in `~/.claude/settings.json`, backing it up first, touching no hook entry they did not write |
-| `scripts/doctor.py` | Proves the wired fence is LIVE: builds a throwaway project, has one session claim a file, then checks the hook refuses a foreign write and allows the owner's own |
+| `scripts/doctor.py` | Ten environment checks with plain-language remediation (table in docs/SETUP.md); the deepest proves the wired fence is LIVE by simulating a blocked foreign write and an allowed owner write in a throwaway project |
 | `docs/QUICKSTART.md` | The literal ten-minute path, with expected output at every step |
 | `docs/SETUP.md` | The fuller installation and hooks reference |
 | `docs/HOOKS.md` | What each hook receives, what the fence can refuse, and the exact contract it implements |
