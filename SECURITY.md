@@ -279,17 +279,29 @@ this project stops being able to promise anything".
 
 - **A second Edit, Write, MultiEdit or NotebookEdit crossing a fence.**
   Blocked, in front of the write, by `tools/bm_fence_hook.py` (a PreToolUse
-  hook that can refuse the call before it happens; see docs/HOOKS.md).
+  hook that can refuse the call before it happens; see docs/HOOKS.md) --
+  CORRECTED 2026-08-01 (loop6 refuter finding A8a): that "Blocked" is not
+  unconditional. The hook FAILS OPEN (lets the write through unchecked) on
+  a missing, empty or corrupt store, or on any internal error, exactly as
+  docs/KNOWN-LIMITS.md already states; treat this line as "blocked when the
+  store is readable", not as an unqualified guarantee.
 - **The same kind of cross-fence write, but through Bash.** The fence hook
   cannot see inside a shell command, so this one cannot be blocked (see
   "The Bash boundary" in docs/HOOKS.md for why gating Bash itself is not on
   the table). It is instead DETECTED, after the fact, by
   `tools/bm_bash_audit.py` (D-1, this loop): a PreToolUse/PostToolUse pair
-  that snapshots every fenced file before a Bash call and re-hashes it
-  after, raising a high-severity alert naming the path when a session that
-  does not own the fence changed it. Detection, not prevention: the write
-  already happened by the time the alert exists, and docs/HOOKS.md and
-  docs/KNOWN-LIMITS.md say so rather than implying otherwise.
+  that snapshots every fenced path that resolves to a REAL, EXISTING FILE
+  at the moment the Bash call starts (a claim on a directory or a
+  glob-shaped path is not expanded into the files it would cover, so a new
+  file created inside a claimed directory during the call is invisible to
+  it; see docs/HOOKS.md's "What it cannot see") before a Bash call and
+  re-hashes it after, raising a high-severity alert naming the path when a
+  session that does not own the fence changed it. Detection, not
+  prevention: the write already happened by the time the alert exists, and
+  docs/HOOKS.md and docs/KNOWN-LIMITS.md say so rather than implying
+  otherwise. Wired on BOTH install paths since 2026-08-01 (the Claude Code
+  plugin manifest and `scripts/install.py`'s clone-install path alike; see
+  docs/HOOKS.md's "Installing the Bash audit hook").
 - **A secret leaking through an export.** `dump`, its JSON output, and the
   MCP server responses all pass through ONE withholding policy
   (`export_column` in `tools/bm_store.py`): founder-typed prose is withheld
@@ -300,7 +312,13 @@ this project stops being able to promise anything".
 - **A stale or hand-edited manifest going unnoticed.** `scripts/doctor.py`
   check 9 self-checks the release against `CHECKSUMS.sha256`, so a file
   that was quietly modified after the checksums were cut is reported rather
-  than trusted.
+  than trusted -- CORRECTED 2026-08-01 (loop6 refuter finding A8b): on a
+  DIRTY working tree (ordinary uncommitted edits, not a checked-out
+  release) this check SKIPs and reports nothing, because a checked-in
+  manifest was never generated to describe a tree mid-edit; a SKIP is not a
+  PASS, and the whole run still exits 0 on a SKIP unless `--strict` is
+  passed, so check 9 catches tampering only against a clean, checked-out
+  release, not against your own working copy while you edit it.
 
 **Attacks this design explicitly does NOT answer**, each with the one
 sentence that says why it is out of scope rather than merely unmentioned:

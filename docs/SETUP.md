@@ -50,7 +50,7 @@ When the user types /brothermode (any casing), read and follow
 ~/.claude/skills/brothermode/SKILL.md before doing anything else.
 ```
 
-## Step 2: wire the five hooks
+## Step 2: wire the six hooks
 
 Hooks make the learning loop mechanical: the model cannot forget to write
 telemetry, because the model is not the one writing it. Run the installer:
@@ -287,7 +287,7 @@ python3 ~/.claude/skills/brothermode/scripts/uninstall.py --dry-run
 python3 ~/.claude/skills/brothermode/scripts/uninstall.py
 ```
 
-It removes the five hook entries it installed and the install record, and
+It removes the six hook entries it installed and the install record, and
 nothing else. Every other hook and every other key in `settings.json` stays
 where it was, in order. Add `--remove-files` to also delete the skill
 directory, which it refuses to do unless the directory really looks like a
@@ -297,7 +297,7 @@ Your vault is never deleted, with or without a flag. There is no code path in
 the uninstaller that removes one; it prints the path and leaves the decision to
 you.
 
-Doing it by hand instead: remove the five hook entries from
+Doing it by hand instead: remove the six hook entries from
 `~/.claude/settings.json` and delete
 `~/.claude/skills/brothermode`. Either way, that removes the skill but not what it wrote
 inside each project you used it in: a per-project sqlite store, thread
