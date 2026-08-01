@@ -139,6 +139,15 @@ inventing one would be the exact failure this whole system exists to prevent.</p
 <li><a href="#ch11">When it goes wrong</a></li>
 <li><a href="#ch12">Glossary</a></li>
 </ol>
+<p><strong>Part two: going deep.</strong> Added 2026-08-01 at 2.0.0-rc.11, after
+a founder review asked for the expert half: the guided command layer, the
+memory system in full, and two composed walkthroughs of ambitious work.</p>
+<ol start="13">
+<li><a href="#ch13">The guided layer: seven commands and the deep tour</a></li>
+<li><a href="#ch14">The vault and Obsidian: how it remembers</a></li>
+<li><a href="#ch15">Building something big</a></li>
+<li><a href="#ch16">Numbers that survive scrutiny</a></li>
+</ol>
 </nav>
 
 <h2 id="ch1"><span class="chnum">Chapter one</span>Monday, and what actually goes wrong</h2>
@@ -297,8 +306,27 @@ the gap this book is about.</p>
 
 <h2 id="ch2"><span class="chnum">Chapter two</span>Install it in ten minutes</h2>
 
-<p>Two paths. The individual path is one command plus one check. The team path adds
-one decision about where the shared memory lives.</p>
+<p>Three paths now, and this section was rewritten on 2026-08-01 because the
+easiest one did not exist when this book was first written. The plugin path is
+two lines typed inside Claude Code. The pinned clone is the most-proven path and
+what the rest of this chapter walks. The team path adds one decision about where
+the shared memory lives.</p>
+
+<h3>The plugin path, two lines</h3>
+
+<pre><code>/plugin marketplace add khalilmaaouni/BrotherModeUp
+/plugin install brotherme</code></pre>
+
+<p>Typed inside Claude Code, one at a time. Restart if it tells you to, then type
+<code>/brotherme-help</code> to confirm. That install brings the seven guided
+commands of chapter thirteen, the guided skill, and the automatic hooks, with no
+cloning and no file editing. Honest label, in the same register as everything
+else here: this path has been through its full cycle exactly once, on the
+author's machine, from a local copy of the repository. If it misbehaves for you,
+the repository's issue page wants to hear about it, and the clone path below is
+the fallback that has been proven far more times. Do not run both paths on one
+machine: they wire the same hooks, and a machine carrying both runs everything
+twice.</p>
 
 <h3>What you need first</h3>
 
@@ -311,12 +339,19 @@ plain shell in any tool. Chapter ten is honest about which is which.</li>
 
 <h3>Step 1: get the files</h3>
 
-<pre><code>git clone https://github.com/khalilmaaouni/BrotherModeUp.git \
+<pre><code>git clone --branch TAG --depth 1 \
+  https://github.com/khalilmaaouni/BrotherModeUp.git \
   ~/.claude/skills/brothermode</code></pre>
 
-<p>The path is the installation. Claude Code looks for skills under
-<code>~/.claude/skills/</code>, and the scripts work out their own location from
-there.</p>
+<p>Replace <code>TAG</code> with the current release tag, which you read from the
+repository's README rather than from this book, because the book would rot and
+the README is tested against the release facts on every run. When this chapter
+was rewritten the tag was <code>v2.0.0-rc.11</code>. Pinning a tag instead of
+cloning a moving branch matters here more than in most projects: this code runs
+automatically on every future session through hooks, and code that auto-runs
+should come from a fixed, checkable snapshot. The path is the installation:
+Claude Code looks for skills under <code>~/.claude/skills/</code>, and the
+scripts work out their own location from there.</p>
 
 <h3>Step 2: prove it works on your machine before you wire it in</h3>
 
@@ -2167,9 +2202,11 @@ critic:</p>
 <ul>
 <li><strong>It has never been run through a real working day.</strong> Everything
 rests on tests, adversarial execution and simulated lifecycles.</li>
-<li><strong>Continuous integration has failed on Windows.</strong> On the tagged
-release commit the Windows job exited 1, and two other legs were cancelled rather
-than passing, so their result is unknown rather than green.</li>
+<li><strong>Continuous integration failed on Windows for the first releases, and
+went green on 2026-07-31.</strong> The line above was true when written; a real
+quoting defect was then found and fixed, and the first fully green run across all
+nine jobs is recorded in the release evidence. Kept in this corrected form
+because the sequence is the honest story.</li>
 <li><strong>Recovered work is owner-only on POSIX only.</strong> Not on
 Windows.</li>
 <li><strong>No independent audit has been run.</strong> Every finding in the project
@@ -2195,10 +2232,31 @@ refusal. Two refusals, two minutes, and the system stops being mysterious.</p>
 
 <h2 id="ch12"><span class="chnum">Chapter twelve</span>Glossary</h2>
 
-<p>Alphabetical. Every entry describes what the thing is at commit
-<code>471efdc</code>, not what it might become.</p>
+<p>Part two's four additions first (added at 2.0.0-rc.11), then part one's
+entries, alphabetical. Every entry describes what the thing is, not what it
+might become; part one's entries are as of commit <code>471efdc</code>.</p>
 
 <dl>
+
+<dt>deep tour</dt>
+<dd>The generated where-does-my-project-stand page behind /brotherme-help:
+state, diagrams, data model, decisions, code map, and a co-build section for
+developers. Chapter thirteen. Sections whose source folders do not exist yet
+say "not yet recorded" instead of inventing content.</dd>
+
+<dt>guided layer</dt>
+<dd>The seven /brotherme commands and the conductor behind them: the plain-words
+surface over the machinery in part one. Chapter thirteen.</dd>
+
+<dt>guided loop</dt>
+<dd>The routing law for delegated work: the strongest model plans and judges,
+cheaper helpers execute, and a helper that fails its check twice is replaced by
+a stronger one. Written law in the delegation reference, pinned by tests.</dd>
+
+<dt>marketplace (plugin)</dt>
+<dd>The repository doubles as a Claude Code plugin source: add it once, install
+brotherme from it, and the guided layer registers on next start. Chapter two,
+the plugin path.</dd>
 
 <dt>agent</dt>
 <dd>A model working on a task with tools, in its own conversation. When you ask an
@@ -2389,6 +2447,984 @@ store-generated <code>STATE.md</code>; and every render leaves another
 for one. When BrotherMode has been through real working days and the ledger has real
 rows in it, that will be a different book, and it will cite the command that produced
 each number.</p>
+
+<h2 id="ch13"><span class="chnum">Chapter thirteen</span>The guided layer: seven commands and the deep tour</h2>
+
+<p>Everything in part one you could drive from a shell. This chapter is the layer
+that means you never have to: seven slash commands inside Claude Code that wrap the
+whole machine in plain words. It arrived with 2.0.0-rc.10 and rc.11, after this
+book's first twelve chapters were written, which is why it gets its own chapter
+instead of being woven through them.</p>
+
+<p>The design rule behind the layer, stated once so the rest of this chapter makes
+sense: the machinery never leaks upward. Underneath, the commands enter flows in a
+conductor file, which reads the same law files every expert session reads. On the
+surface, you type plain words and get plain words back: outcome first, one
+recommended next action, estimates as ranges. If you want the internals, you ask
+for the advanced view; you are never handed them by default.</p>
+
+<h3>The seven, and when to reach for each</h3>
+
+<ul>
+<li><strong>/brotherme-start</strong> begins a project. It asks what you want to
+accomplish, asks only the questions whose answers change the scope, and ends in a
+one-page brief you approve before anything is built. That brief is the Project
+Canvas, saved as <code>CANVAS.md</code> at the top of your project folder; part
+one's chapter four is the law it follows.</li>
+<li><strong>/brotherme-status</strong> answers where things stand in exactly eight
+plain lines: goal, direction, progress, time remaining, decision needed, risk,
+evidence, next step. After a crash, a restart, or a week away, this is the command
+that reads the thread back.</li>
+<li><strong>/brotherme-next</strong> recommends exactly one next step, with a
+reason and a time range. If a decision of yours is what blocks progress, you get
+the decision card instead, recommended option first.</li>
+<li><strong>/brotherme-review</strong> checks work in progress against a written
+definition of done, point by point, pass or not-yet with evidence, and never
+softens a failing point.</li>
+<li><strong>/brotherme-deliver</strong> closes work out. It fills a delivery
+packet, and it refuses to call the work delivered without a check that ran after
+the last change and passed. No proof, no done, said plainly.</li>
+<li><strong>/brotherme-update</strong> reads your installed version, checks the
+newest release, and gives you the exact update lines for your install path. It
+says plainly when the network refused the check instead of guessing, and updating
+never touches your projects or records. Worth naming precisely: that version
+check is the one deliberate network reach in the whole product, made only when
+you ask for it; the hooks and tools that run on their own still make no network
+call, which is the posture SECURITY.md states.</li>
+<li><strong>/brotherme-help</strong> explains what you have in plain words, and
+offers the deep tour described next.</li>
+</ul>
+
+<h3>The deep tour</h3>
+
+<p>Say yes to the tour and the session runs the documentation engine from part
+one's chapter seven (<code>python3 tools/bm_docs.py generate</code>), reads the
+folder it writes, and builds one page showing where your project actually stands:
+current state, process diagrams, the data model, every decision with its
+reasoning, and the code map. The last section is for developers who want to build
+alongside: the house conventions (mirror the closest sibling file, give every
+risky call an explicit failure path, keep tests beside the code they check, one
+writer per file at a time) and how to add an element cleanly.</p>
+
+<p>Two honest limits, verified rather than assumed. A project with no BrotherMode
+record gets a static tour of the product instead of the live view, and the page
+says which one it is showing. And a young project generates only some of the
+folders: a fresh one produces no technical pages at all (verified 2026-08-01), so
+every section whose source folder is absent says "not yet recorded for this
+project" rather than inventing content or silently vanishing.</p>
+
+<h3>Try this now</h3>
+
+<p>Inside Claude Code with the plugin installed, type <code>/brotherme-help</code>
+and say yes to the tour. Without Claude Code, run the engine directly in a
+throwaway folder and read what it writes:</p>
+
+<pre><code>mkdir /tmp/tour-demo &amp;&amp; cd /tmp/tour-demo &amp;&amp; git init -q .
+python3 ~/.claude/skills/brothermode/tools/bm_store.py init
+python3 ~/.claude/skills/brothermode/tools/bm_docs.py generate
+cat Documentation/00-START-HERE.md</code></pre>
+
+<h2 id="ch14"><span class="chnum">Chapter fourteen</span>The vault and Obsidian: how it remembers</h2>
+
+<p>Part one mentioned the vault whenever memory mattered and moved on. This
+chapter stays. If you use BrotherMode for more than one afternoon, the vault is
+the part you will end up caring about most, because it is the difference between
+a tool that starts over every morning and a colleague who remembers.</p>
+
+<h3>What the vault is, and why it is deliberately boring</h3>
+
+<p>The vault is a plain folder of markdown files on your own disk, default
+<code>~/BrotherModeVault</code>, movable with the <code>BROTHERMODE_VAULT</code>
+environment variable. It holds the durable record: what each project is, what
+work is open, what decisions were made, and what mistakes already cost something
+once. A session reads it at the start of work and writes to it at milestones and
+at the end, so a crash, a restart, or a context compaction has something to
+recover from besides a model's fading memory of the conversation.</p>
+
+<p>It is markdown on purpose, three reasons in order of how much ignoring them
+would hurt. It survives every tool change: if the editor, the AI tooling, or
+Obsidian itself disappeared tomorrow, every note still opens anywhere. It diffs
+and greps like code, so the instincts you already have work on your own memory.
+And it stays legible to a tired human at two in the morning, which is exactly
+who reads it.</p>
+
+<h3>The folder map</h3>
+
+<ul>
+<li><strong>Home.md</strong> is the front door: a project table and links out to
+everything below. Sessions update its lists at close.</li>
+<li><strong>AGENTS.md</strong> is the vault's constitution: what a session reads
+at start, when it checkpoints, what it writes at close, how linking and
+forgetting work. Read it once yourself; every session is bound by it.</li>
+<li><strong>10-Projects/</strong> holds one folder per project: an Overview, an
+Open-Items list (dated, newest first, closed the session they resolve), and a
+Sessions folder of dated logs. A session log is written at every close, so the
+next session, or the next person, starts from a page instead of a guess.</li>
+<li><strong>40-Failures/</strong> is the do-not-step-in-the-same-hole-twice
+folder: an index read before starting work in any area, one line per costly or
+repeatable mistake, each linking to the full note.</li>
+<li><strong>50-Reference/</strong> holds standing material that is neither a
+project nor a failure, including the append-only log of observed weaknesses that
+feeds the weekly review.</li>
+<li><strong>90-Archive/</strong> is deliberate forgetting: superseded notes move
+here, each leaving a one-line pointer at the old location so a stale link still
+says where the truth went. A vault that only grows becomes noise.</li>
+<li><strong>99-System/telemetry/</strong> is machine-written only. Hooks append
+outcome and correction records here; humans and sessions read them but never
+hand-edit them, the way you would not hand-edit a live log file.</li>
+</ul>
+
+<h3>The rhythm a session follows</h3>
+
+<p>At start: Home, the project's Overview and Open-Items, the Failures-Index,
+and the last session logs. At milestones (a plan approved, a build green, a
+fact confirmed): checkpoint findings into the vault immediately, not only at
+the end, because the session that waits for the end sometimes never reaches
+it. At close: one dated session log, Open-Items updated, qualifying failures
+recorded, Home refreshed. One more rule that matters in practice: a missing or
+broken vault is stated plainly and worked around, never a reason to stop.
+Memory problems never block work.</p>
+
+<h3>Obsidian: a nicer window, never a dependency</h3>
+
+<p>Obsidian is a free desktop and mobile app built around exactly this shape of
+data: a folder of linked markdown files it calls a vault. Install it from
+<code>obsidian.md/download</code>, choose "Open folder as vault", and point it
+at your vault folder. The bracketed <code>[[wiki-links]]</code> in every note
+become clickable, and the graph view draws how your projects, decisions, and
+failures connect, which is a genuinely useful way to see the shape of your own
+memory. Personal use is free by Obsidian's own pricing page; no plugin is
+needed.</p>
+
+<p>And none of it is required. Outside Obsidian a wiki-link is plain readable
+text, every note opens in any editor, and nothing in the hooks or tools checks
+whether Obsidian exists. The vault is the memory; Obsidian is a window.</p>
+
+<h3>What this does for collaboration</h3>
+
+<p>The vault is also the quiet answer to "how do I bring someone in". A new
+person, or a fresh session on a new machine, reads Home, the project Overview,
+the Open-Items, and the last two session logs, and knows where things stand
+without a single handover call. Chapter nine's handover discipline and the
+deep tour from chapter thirteen both lean on this: the record is already
+written, because writing it was never optional.</p>
+
+<p>One honesty note to close: you may see Mem0, a hosted semantic-memory
+service, mentioned in the design documents as a possible future. This project
+ships no Mem0 integration, on purpose: it would send your data to a third
+party's servers on every use, which conflicts with the posture stated in
+SECURITY.md (nothing that runs on its own makes a network call; the one
+deliberate exception is the user-invoked version check in chapter thirteen).
+The vault on your own disk is the memory.</p>
+
+<h3>Try this now</h3>
+
+<pre><code>cp -R ~/.claude/skills/brothermode/vault-template /tmp/vault-demo
+cat /tmp/vault-demo/Home.md
+cat /tmp/vault-demo/AGENTS.md | head -40</code></pre>
+
+<p>Read the worked example project under <code>10-Projects/</code>, then delete
+the folder or keep it as the seed of your real vault; it is yours either way.</p>
+
+
+<h2 id="ch15"><span class="chnum">Chapter fifteen</span>Building something big</h2>
+
+<p>Here is the honesty the earlier chapters trained you to expect. This walkthrough
+is composed: the project, the company, and the three people in it do not exist. What
+is real is every command shape, every refusal, and every line of output, each copied
+from a throwaway run on the same tools this book has used since chapter one. Where a
+command shape does not exist yet (a "brief" record, a "packet" file), the text says so
+plainly instead of inventing a flag to fill the gap.</p>
+
+<h3>The project</h3>
+
+<p>A booking product for a tour company: a mobile app, a marketing site, the data
+behind both, shipped in English, Japanese, and Spanish. Three weeks, on paper. Three
+people carry it. You are the engineering lead. Priya, the same one from chapter one
+who used to inherit undocumented decisions on Fridays, owns the backend: the booking
+API and the concurrency inside it. Sam owns infrastructure: the staging cluster, the
+deploy pipeline, and the one production apply nobody but Sam's own hand will ever
+run.</p>
+
+<p>The rest of the labor, the marketing site and the three-language copy, does not
+need a senior engineer sitting on it. It needs a cheap helper, a claim, and a check.
+That distinction is the whole chapter.</p>
+
+<h3>The brief, ratified before anything is claimed</h3>
+
+<p>Nothing below gets dispatched from a blank page. Before the first claim, you read
+a one-page brief: the four lanes, what each one is allowed to touch, what proves each
+one done, and where the one genuinely risky step sits. This is discipline, not
+mechanism; there is no <code>bm_store.py</code> record called a brief. What the store
+does hold, the moment the brief turns into work, is the fence for each lane and the
+decisions each lane makes along the way, both of which you will see below. The line
+between the two matters: a brief you can revise in conversation, a fence you cannot
+talk your way past.</p>
+
+<h3>Four fenced lanes</h3>
+
+<p>Each person and each helper gets a session label first, the way chapter three's
+<code>$ME</code> box showed: nobody types one by hand, everybody asks for one.</p>
+
+<pre><code>PRIYA=$(python3 tools/bm_fence_hook.py session-label --session-id backend-priya)
+SAM=$(python3 tools/bm_fence_hook.py session-label --session-id infra-sam)
+SITE_HELPER=$(python3 tools/bm_fence_hook.py session-label --session-id site-helper)
+LOCALE_HELPER=$(python3 tools/bm_fence_hook.py session-label --session-id locale-helper)</code></pre>
+
+<pre class="out"><code>PRIYA=bm1-e31e80e8e9bdd815614b0531
+SAM=bm1-77cf2bcfe8addb3d5c664d67
+SITE_HELPER=bm1-890c77f9d238d3eabd9e1b33
+LOCALE_HELPER=bm1-8d2ec1ac6029b994c7dc59f2</code></pre>
+
+<p>Then you claim two lanes yourself, on behalf of Priya and Sam, the way a lead does
+when the morning's first job is getting everyone fenced before anyone types code:</p>
+
+<pre><code>python3 tools/bm_store.py claim booking-api --lifetime persistent \
+  --objective "Split the booking endpoint into a versioned interface the app and site both call" \
+  --files app/main.py --session "$PRIYA" --tier T2 \
+  --check "python3 -m unittest discover -s tests -q"</code></pre>
+
+<pre class="out"><code>claimed 'booking-api' as lifecycle c2436669ddfb4614aa4c571d5b3eedbe
+  (version 1, session bm1-e31e80e8e9bdd815614b0531)</code></pre>
+
+<pre><code>python3 tools/bm_store.py claim staging-cluster --lifetime persistent \
+  --objective "Stand up the staging cluster and the deploy pipeline the booking service ships through" \
+  --files deploy/runbook.md --session "$SAM" --tier T2 \
+  --check "python3 -m unittest discover -s tests -q"</code></pre>
+
+<pre class="out"><code>claimed 'staging-cluster' as lifecycle 88bda18204de4d3abb7811d83ed2f7d0
+  (version 1, session bm1-77cf2bcfe8addb3d5c664d67)</code></pre>
+
+<p>Then the two helper lanes, tier <code>T1</code> because each is one focused
+session with a narrow objective, not a fleet:</p>
+
+<pre><code>python3 tools/bm_store.py claim marketing-site --lifetime persistent \
+  --objective "Build the marketing site against the new booking API" \
+  --files web/main.py --session "$SITE_HELPER" --tier T1 \
+  --check "python3 -m unittest discover -s tests -q"</code></pre>
+
+<pre class="out"><code>claimed 'marketing-site' as lifecycle e045168a813845b5a346810dc136a15b
+  (version 1, session bm1-890c77f9d238d3eabd9e1b33)</code></pre>
+
+<p>The fourth claim did not go the way the plan assumed:</p>
+
+<pre><code>python3 tools/bm_store.py claim three-languages --lifetime persistent \
+  --objective "Translate app and site copy into English, Japanese, and Spanish" \
+  --files locales/en.json --session "$LOCALE_HELPER" --tier T1 \
+  --check "python3 -m unittest discover -s tests -q"</code></pre>
+
+<pre class="out"><code>refused (cap): 3 active persistent records already exist (limit 3);
+  park or complete one before claiming another</code></pre>
+
+<div class="note">
+<p><strong>A limit the plan had not accounted for.</strong> The store caps active
+<code>persistent</code> records at three, and this book found that the plain way: by
+hitting it. Nothing in the chapters before this one needed a fourth persistent record
+at once. Translation work is not going to outlive the release the way an API contract
+does, so the honest fix is the right one anyway: claim it <code>ephemeral</code>
+instead of arguing with the cap.</p>
+</div>
+
+<pre><code>python3 tools/bm_store.py claim three-languages --lifetime ephemeral \
+  --objective "Translate app and site copy into English, Japanese, and Spanish" \
+  --files locales/en.json --session "$LOCALE_HELPER" --tier T1 \
+  --check "python3 -m unittest discover -s tests -q"</code></pre>
+
+<pre class="out"><code>claimed 'three-languages' as lifecycle 36e5c032780f4aa1b9236619cb9f4705
+  (version 1, session bm1-8d2ec1ac6029b994c7dc59f2)</code></pre>
+
+<figure>
+<svg viewBox="0 0 620 210" role="img" aria-label="One lead dispatching four fenced lanes: booking API to Priya, staging cluster to Sam, marketing site to a site helper, three languages to a locale helper. Each lane owns disjoint files.">
+<rect class="svgbox-a" x="0" y="82" width="120" height="46" rx="4"/>
+<text class="svgtxt" x="12" y="102">the lead</text>
+<text class="svgtxt-s" x="12" y="118">dispatches four</text>
+<path class="svgline" d="M120 92 L206 30"/><path class="svgline" d="M198 28 L206 30 L200 36"/>
+<path class="svgline" d="M120 100 L206 78"/><path class="svgline" d="M198 74 L206 78 L200 82"/>
+<path class="svgline" d="M120 116 L206 138"/><path class="svgline" d="M198 134 L206 138 L200 142"/>
+<path class="svgline" d="M120 124 L206 186"/><path class="svgline" d="M198 180 L206 186 L200 190"/>
+<rect class="svgbox-good" x="206" y="8" width="200" height="44" rx="4"/>
+<text class="svgtxt" x="216" y="26">booking-api, T2</text>
+<text class="svgtxt-s" x="216" y="42">Priya, app/main.py</text>
+<rect class="svgbox-good" x="206" y="56" width="200" height="44" rx="4"/>
+<text class="svgtxt" x="216" y="74">staging-cluster, T2</text>
+<text class="svgtxt-s" x="216" y="90">Sam, deploy/runbook.md</text>
+<rect class="svgbox" x="206" y="116" width="200" height="44" rx="4"/>
+<text class="svgtxt" x="216" y="134">marketing-site, T1</text>
+<text class="svgtxt-s" x="216" y="150">helper, web/main.py</text>
+<rect class="svgbox" x="206" y="164" width="200" height="44" rx="4"/>
+<text class="svgtxt" x="216" y="182">three-languages, T1</text>
+<text class="svgtxt-s" x="216" y="198">helper, locales/en.json</text>
+</svg>
+<figcaption>Four disjoint fences, two held by senior engineers, two by cheap helpers.
+Nothing here overlaps, so nothing here waits.</figcaption>
+</figure>
+
+<h3>The guided loop: bulk work routes down, judgment stays up</h3>
+
+<p>Guided loop is a defined term in this system, not a slogan: <em>the strongest
+model plans and judges, cheaper helpers execute, and a helper that fails its check
+twice is replaced by a stronger one.</em> The four lanes above are that law with
+names attached. The marketing site and the three languages are bulk, well-specified,
+and cheap to check, so a helper runs them. The booking API's concurrency and the
+cluster's production apply are exactly the two places a wrong guess costs a customer
+a double-booked seat or an outage, so Priya and Sam hold those fences themselves and
+nobody hands them to a helper. Nothing here decided that split for you: it is a
+judgment call the brief made, and the fences are what make the call stick once
+made.</p>
+
+<h3>Priya writes the concurrency fix by hand, and a helper is fenced out</h3>
+
+<p>A second helper, dispatched to spread the booking work faster, asks for its own
+label and tries to claim the same file Priya already holds:</p>
+
+<pre><code>BOOKING_HELPER=$(python3 tools/bm_fence_hook.py session-label --session-id booking-helper)
+python3 tools/bm_store.py claim booking-api-helper --lifetime ephemeral \
+  --objective "add a helper to the booking endpoint work" \
+  --files app/main.py --session "$BOOKING_HELPER" --tier T1 \
+  --check "python3 -m unittest discover -s tests -q"</code></pre>
+
+<pre class="out"><code>refused (overlap): claim overlaps active record 'booking-api'
+  (lifecycle c2436669ddfb4614aa4c571d5b3eedbe): 'app/main.py' vs 'app/main.py'</code></pre>
+
+<p>That refusal is the claim-time gate. The write-time gate catches the same mistake
+a different way, if a helper skips claiming altogether and just tries to edit. Priya's
+own write to her own file is silent, which is what allowed looks like:</p>
+
+<pre><code>echo '{"session_id":"backend-priya", ...,
+       "tool_input":{"file_path":"app/main.py"}}' | python3 tools/bm_fence_hook.py</code></pre>
+
+<pre class="out"><code>(no output, exit 0: allowed)</code></pre>
+
+<p>The helper's write to the same file is not:</p>
+
+<pre><code>echo '{"session_id":"booking-helper", ...,
+       "tool_input":{"file_path":"app/main.py"}}' | python3 tools/bm_fence_hook.py</code></pre>
+
+<pre class="out"><code>{"hookSpecificOutput": {"permissionDecision": "deny", "permissionDecisionReason":
+"BrotherMode fence: app/main.py is inside the fence of the active record
+booking-api (lifecycle c2436669..., version 1), which is owned by session
+bm1-e31e80e8e9bdd815614b0531. This session is bm1-3c5dd75f8eacd44f245abfa2, so
+it is not the writer for that path. Claimed as: app/main.py.
+One writer per file is structural, not advisory: do not edit across the fence.
+Report the needed change to the owner instead. To take the fence over
+deliberately, run:
+  python3 tools/bm_store.py adopt c2436669... --version 1
+    --session bm1-3c5dd75f8eacd44f245abfa2 --adopt-from-live-session
+then re-claim the paths you need with `bm_store.py claim ...`."}}</code></pre>
+
+<p>Priya writes the slot-hold lock herself, four lines, and records why in one
+line rather than leaving it for whoever reads the diff next:</p>
+
+<pre><code>python3 tools/bm_store.py decide c2436669... --version 1 \
+  --topic "concurrency on slot holds" \
+  --text "Hand-writing the slot lock myself: this is the one place a race condition costs a customer a double-booked seat, no helper touches this function."</code></pre>
+
+<pre class="out"><code>decision 1 recorded for c2436669ddfb4614aa4c571d5b3eedbe (version 2)</code></pre>
+
+<h3>The lead's morning status</h3>
+
+<p>One command, not four scrollbacks:</p>
+
+<pre><code>python3 tools/bm_store.py dashboard</code></pre>
+
+<pre class="out"><code>&lt;!-- BEGIN GENERATED BROTHERMODE STATE (edit outside these markers only) --&gt;
+_Generated by bm_store.py, 2026-08-01T01:48:42Z._
+
+## active
+- booking-api (c2436669ddfb4614aa4c571d5b3eedbe, version 1, persistent) [T2] owner-session: bm1-e31e80e8e9bdd815614b0531
+  objective: Split the booking endpoint into a versioned interface the app and site both call
+  files: app/main.py
+- marketing-site (e045168a813845b5a346810dc136a15b, version 1, persistent) [T1] owner-session: bm1-890c77f9d238d3eabd9e1b33
+  objective: Build the marketing site against the new booking API
+  files: web/main.py
+- staging-cluster (88bda18204de4d3abb7811d83ed2f7d0, version 1, persistent) [T2] owner-session: bm1-77cf2bcfe8addb3d5c664d67
+  objective: Stand up the staging cluster and the deploy pipeline the booking service ships through
+  files: deploy/runbook.md
+- three-languages (36e5c032780f4aa1b9236619cb9f4705, version 1, ephemeral) [T1] owner-session: bm1-8d2ec1ac6029b994c7dc59f2
+  objective: Translate app and site copy into English, Japanese, and Spanish
+  files: locales/en.json
+
+&lt;!-- END GENERATED BROTHERMODE STATE --&gt;</code></pre>
+
+<p>Four lanes, four owners, and not one sentence of it came from asking anybody how
+things were going.</p>
+
+<h3>A failed check, escalating</h3>
+
+<p>A helper takes a small ephemeral claim: format the price string on the checkout
+confirmation page.</p>
+
+<pre><code>CHECKOUT_HELPER=$(python3 tools/bm_fence_hook.py session-label --session-id checkout-helper)
+python3 tools/bm_store.py claim checkout-copy --lifetime ephemeral \
+  --objective "format the checkout price string for the booking confirmation page" \
+  --files checkout/copy.py --session "$CHECKOUT_HELPER" --tier T1 \
+  --check "python3 -m unittest discover -s tests -q"</code></pre>
+
+<pre class="out"><code>claimed 'checkout-copy' as lifecycle 1d302ee91ff648efacf38c51af771add
+  (version 1, session bm1-5a74c1dce493cbb3e34cfa26)</code></pre>
+
+<p>First attempt, run against the test the brief specified:</p>
+
+<pre class="out"><code>FAIL: test_format (test_checkout.T)
+AssertionError: '$1999' != '$19.99'
+- $1999
++ $19.99
+?    +
+
+FAILED (failures=1)</code></pre>
+
+<p>Second attempt, a different bug:</p>
+
+<pre class="out"><code>FAIL: test_format (test_checkout.T)
+AssertionError: '$1.999' != '$19.99'
+- $1.999
+?      -
++ $19.99
+?   +
+
+FAILED (failures=1)</code></pre>
+
+<p>The law is not a suggestion: an executor that fails its done-check twice is not
+looped a third time, the work moves one grade up with the failure evidence attached.
+Priya adopts the fence:</p>
+
+<pre><code>python3 tools/bm_store.py adopt 1d302ee91ff648efacf38c51af771add --version 1 \
+  --session "$PRIYA" --adopt-from-live-session \
+  --note "checkout-copy failed its check twice; taking it over by hand"</code></pre>
+
+<pre class="out"><code>adopted: displaced live session 'bm1-5a74c1dce493cbb3e34cfa26' from 'checkout-copy'
+  (lifecycle 1d302ee91ff648efacf38c51af771add)
+adopted: 'checkout-copy' (lifecycle 1d302ee91ff648efacf38c51af771add) is now adopted at version 2</code></pre>
+
+<p>Adopting the record does not hand her the fence, chapter eight already warned
+about that. She re-claims the path before touching it:</p>
+
+<pre><code>python3 tools/bm_store.py claim checkout-copy --lifetime ephemeral \
+  --files checkout/copy.py --session "$PRIYA" --tier T1</code></pre>
+
+<pre class="out"><code>claimed 'checkout-copy' as lifecycle 320b38c6c6ad4cb8910ed96843a797fe
+  (version 1, session bm1-e31e80e8e9bdd815614b0531)</code></pre>
+
+<p>Then writes it in one pass, integer cents divided properly, and the check goes
+green:</p>
+
+<pre class="out"><code>Ran 3 tests in 0.000s
+
+OK</code></pre>
+
+<p>Two honest failures, one escalation, no drama, and a record of exactly what was
+tried before the fix landed. That is what "escalates on its own" means in practice: it
+is a paste and a decision, not an alarm going off.</p>
+
+<h3>Sam hands the risky apply back to a human</h3>
+
+<p>The cluster plan is drafted and dry-run clean. Sam checkpoints before the one step
+that is not safe to automate:</p>
+
+<pre><code>python3 tools/bm_store.py checkpoint 88bda18204de4d3abb7811d83ed2f7d0 --version 1 \
+  --next "apply the staging cluster terraform plan, then cut the booking service over to it" \
+  --blockers "apply touches production DNS; needs a human hand on the button"</code></pre>
+
+<pre class="out"><code>checkpoint 1 recorded for 88bda18204de4d3abb7811d83ed2f7d0 (version 2)</code></pre>
+
+<p>Then parks the record with the exact command and the rollback prepared beside it,
+because a handover that says "be careful" is not a handover:</p>
+
+<pre><code>python3 tools/bm_store.py park 88bda18204de4d3abb7811d83ed2f7d0 --version 2 --session "$SAM" \
+  --handover "Staging cluster plan is drafted and dry-run clean (terraform plan: 4 to add, 0 to change, 0 to destroy). The apply is NOT run. It needs a human hand because it flips production DNS. Run: terraform apply -auto-approve=false tfplan.staging. Rollback if it goes wrong: terraform apply -auto-approve=false tfplan.rollback-to-prev-dns, prepared and tested against the same plan file."</code></pre>
+
+<pre class="out"><code>parked: 'staging-cluster' (lifecycle 88bda18204de4d3abb7811d83ed2f7d0) is now parked
+  at version 3</code></pre>
+
+<p>It renders where you would actually see it, first thing, without knowing any
+command:</p>
+
+<pre><code>python3 tools/bm_store.py handovers</code></pre>
+
+<pre class="out"><code>handovers: 1 undelivered
+- 5e21e3d29cd940ecb28ec8dfa64a2315  lifecycle 88bda18204de4d3abb7811d83ed2f7d0
+  2026-08-01T01:49:14Z
+  Staging cluster plan is drafted and dry-run clean (terraform plan: 4 to add, 0
+  to change, 0 to destroy). The apply is NOT run. It needs a human hand because
+  it flips production DNS. Run: terraform apply -auto-approve=false
+  tfplan.staging. Rollback if it goes wrong: terraform apply
+  -auto-approve=false tfplan.rollback-to-prev-dns, prepared and tested against
+  the same plan file.</code></pre>
+
+<div class="honest">
+<p><strong>This is the whole story on production access, stated plainly.</strong> No
+command shipped in this project applies a Terraform plan, runs a database migration
+against a live database, or touches a production credential. One honest edge from
+the project's own limits page belongs right here: a raw shell command typed in a
+session lives outside the fence hook, so this discipline is backed by the tooling
+and finished by the human rule, not guaranteed by a sandbox. Sam's fence covers
+<code>deploy/runbook.md</code>, the plan and the rollback,
+not the cluster. The apply is Sam's own hand, on Sam's own keyboard, every time.</p>
+</div>
+
+<h3>Delivery: four lane packets, not four scrollbacks</h3>
+
+<p>Marketing site and the checkout fix are already complete, evidence pasted at
+close the way chapter three insists on:</p>
+
+<pre><code>python3 tools/bm_store.py complete e045168a813845b5a346810dc136a15b --version 1 \
+  --session "$SITE_HELPER" \
+  --evidence "python3 -m unittest discover -s tests -q =&gt; Ran 2 tests, OK (first run failed: 160 != 1500, addition bug in price_in_local, fixed to multiplication)"</code></pre>
+
+<pre class="out"><code>complete: 'marketing-site' (lifecycle e045168a813845b5a346810dc136a15b) is now
+  complete at version 2</code></pre>
+
+<p>Booking API and the three languages close the same way, each against the check the
+brief specified before anyone wrote a line:</p>
+
+<pre class="out"><code>complete: 'booking-api' (lifecycle c2436669ddfb4614aa4c571d5b3eedbe) is now
+  complete at version 3
+complete: 'three-languages' (lifecycle 36e5c032780f4aa1b9236619cb9f4705) is now
+  complete at version 2</code></pre>
+
+<p>The dashboard at the end of the day is the delivery packet. Three lanes closed
+with their evidence, one parked with its handover waiting on a human hand, and
+nothing in between that had to be asked for out loud:</p>
+
+<pre><code>python3 tools/bm_store.py dashboard</code></pre>
+
+<pre class="out"><code>&lt;!-- BEGIN GENERATED BROTHERMODE STATE (edit outside these markers only) --&gt;
+
+## parked
+- staging-cluster (88bda18204de4d3abb7811d83ed2f7d0, version 3, persistent) [T2] owner-session: bm1-77cf2bcfe8addb3d5c664d67
+  objective: Stand up the staging cluster and the deploy pipeline the booking service ships through
+  files: deploy/runbook.md
+  next intent: apply the staging cluster terraform plan, then cut the booking service over to it
+
+## complete
+- booking-api (c2436669ddfb4614aa4c571d5b3eedbe, version 3, persistent) [T2] owner-session: bm1-e31e80e8e9bdd815614b0531
+  objective: Split the booking endpoint into a versioned interface the app and site both call
+  files: app/main.py
+- marketing-site (e045168a813845b5a346810dc136a15b, version 2, persistent) [T1] owner-session: bm1-890c77f9d238d3eabd9e1b33
+  objective: Build the marketing site against the new booking API
+  files: web/main.py
+- three-languages (36e5c032780f4aa1b9236619cb9f4705, version 2, ephemeral) [T1] owner-session: bm1-8d2ec1ac6029b994c7dc59f2
+  objective: Translate app and site copy into English, Japanese, and Spanish
+  files: locales/en.json
+
+## Handovers (undelivered: 1)
+### Staging cluster plan is drafted and dry-run clean (terraform plan: 4 to add, 0 to change, 0 to destroy). The apply is NOT run. It needs a human hand because it flips production DNS. Run: terraform apply -auto-approve=false tfplan.staging. Rollback if it goes wrong: terraform apply -auto-approve=false tfplan.rollback-to-prev-dns, prepared and tested against the same plan file.
+handover 5e21e3d29cd940ecb28ec8dfa64a2315 (lifecycle 88bda18204de4d3abb7811d83ed2f7d0, 2026-08-01T01:49:14Z)
+
+&lt;!-- END GENERATED BROTHERMODE STATE --&gt;</code></pre>
+
+<h3>What the lead never had to do</h3>
+
+<ul>
+<li>Re-explain the concurrency decision, the currency rounding, or the DNS rollback
+to a fresh session that had forgotten them. Each one is a line on disk, read by the
+next command that needs it, not a paragraph you retype.</li>
+<li>Referee two writers on the same file. The fence made the second claim refuse
+itself before it became a merge conflict three days later.</li>
+<li>Trust a summary instead of a check. Marketing site's first paragraph would have
+said "done." Its check said 160 != 1500, and the check is the one that got
+believed.</li>
+</ul>
+
+<div class="honest">
+<p><strong>What this chapter does not claim.</strong> No project this size has
+actually shipped through this system. Everything above ran on a throwaway project
+built for this book, the same way chapter three's <code>tealeaf</code> and chapter
+eight's team examples did. The mechanism is real and reproducible, three weeks of
+real customer load on it is not, and this book will not round that up. If you want
+the honest count of what has and has not been run for real, it is in the project's own
+<code>docs/KNOWN-LIMITS.md</code>, quoted in chapter one.</p>
+</div>
+
+<div class="try">
+<h4>Try this now</h4>
+<p>The whole shape of this chapter, the part that makes big builds different from a
+single loop, is one fence stopping one overlap. Five minutes proves it, in a directory
+you throw away after:</p>
+<pre><code>mkdir -p /tmp/biglane &amp;&amp; cd /tmp/biglane
+git init -q .
+echo "/.brothermode" &gt;&gt; .git/info/exclude
+mkdir -p src
+echo "print('hello')" &gt; src/app.py
+echo "print('hello')" &gt; src/site.py
+git add -A &amp;&amp; git commit -qm start
+
+BM=~/.claude/skills/brothermode
+python3 $BM/tools/bm_store.py init
+A=$(python3 $BM/tools/bm_fence_hook.py session-label --session-id lane-a)
+B=$(python3 $BM/tools/bm_fence_hook.py session-label --session-id lane-b)
+C=$(python3 $BM/tools/bm_fence_hook.py session-label --session-id lane-c)
+
+python3 $BM/tools/bm_store.py claim lane-a --lifetime ephemeral \
+  --objective "own src/app.py" --files src/app.py --session "$A" --tier T1 \
+  --check "python3 src/app.py"
+python3 $BM/tools/bm_store.py claim lane-b --lifetime ephemeral \
+  --objective "own src/site.py" --files src/site.py --session "$B" --tier T1 \
+  --check "python3 src/site.py"</code></pre>
+<p>Two disjoint lanes, claimed clean. Now try to add a third that reaches into the
+first one:</p>
+<pre><code>python3 $BM/tools/bm_store.py claim lane-c --lifetime ephemeral \
+  --objective "also touch src/app.py" --files src/app.py --session "$C" --tier T1 \
+  --check "python3 src/app.py"</code></pre>
+<pre class="out"><code>refused (overlap): claim overlaps active record 'lane-a' (lifecycle
+  1094806fe4224a1fa54fa6eed36f362b): 'src/app.py' vs 'src/app.py'</code></pre>
+<p>That is the entire mechanism this chapter ran at three-week scale. Everything else,
+the guided loop, the escalation, the handover, is what you build on top of a fence
+that actually holds.</p>
+</div>
+
+<h2 id="ch16"><span class="chnum">Chapter sixteen</span>Numbers that survive scrutiny</h2>
+
+<div class="honest">
+<p><strong>A note on this walkthrough.</strong> python3 and sqlite3, both from the
+standard library, actually ran every command below against a spreadsheet built for
+this chapter. Tealeaf, its customers, its subscription tiers and its dollar figures
+are invented for the walkthrough, not pulled from a real founder's books. What is
+real is the command shapes, the queries, and the output pasted under each one, run
+once and not touched afterward.</p>
+</div>
+
+<p>Tealeaf, the tea company from chapter one, is bigger now: a subscription box,
+sold two ways. Most customers buy direct through Shopify. A smaller, older slice
+came in through a UK reseller relationship nobody has touched in two years, feeding
+a system everyone calls <code>legacy_uk</code>. The board's question for Friday is
+four words long: <em>what is our churn.</em> Dana, the data engineer who inherited
+this, gets a CSV export from finance and nothing else.</p>
+
+<h3>Profile before you believe</h3>
+
+<p>The law for this kind of work, from the project's own data doctrine, is blunt:
+DESCRIBE plus LIMIT 5 before an unfamiliar table, and the columns you write queries
+against are <strong>never the columns you expected, only the columns you actually
+saw.</strong> Dana has not written a single aggregate yet. First, look:</p>
+
+<pre><code>import csv
+
+with open("revenue_export.csv", newline="") as f:
+    rows = list(csv.reader(f))
+
+print("header:", rows[0])
+print("first 5 rows:")
+for row in rows[1:6]:
+    print(" ", row)
+print("total data rows:", len(rows) - 1)</code></pre>
+
+<pre class="out"><code>header: ['order_id', 'customer_id', 'period', 'amount', 'currency', 'source_system']
+first 5 rows:
+  ['1001', 'C001', '2026-06', '42.00', 'USD', 'shopify']
+  ['1002', 'C002', '2026-06', '42.00', 'USD', 'shopify']
+  ['1003', 'C003', '2026-06', '84.00', 'USD', 'shopify']
+  ['1004', 'C004', '2026-06', '42.00', 'USD', 'shopify']
+  ['1004', 'C004', '2026-06', '42.00', 'USD', 'shopify']
+total data rows: 21</code></pre>
+
+<p>Row four and row five are the same order. Nobody had to go looking for that; it
+was sitting in the first five rows, before a single <code>SUM</code> was typed. That
+is the entire argument for the law: profiling is cheap and catches things that a
+query, written from memory of what the columns are supposed to contain, would have
+summed straight through.</p>
+
+<h3>The messy reality</h3>
+
+<p>Two problems, and they hide in different places. The first is duplicates, and a
+full pass over <code>order_id</code> finds more of them than the first five rows
+showed:</p>
+
+<pre><code>from collections import Counter
+
+with open("revenue_export.csv", newline="") as f:
+    rows = list(csv.DictReader(f))
+
+ids = Counter(r["order_id"] for r in rows)
+print("duplicate order_id counts:", {k: v for k, v in ids.items() if v > 1})</code></pre>
+
+<pre class="out"><code>duplicate order_id counts: {'1004': 2, '1011': 2}</code></pre>
+
+<p>The second problem does not show up as a duplicate count. It shows up as a
+question about a column that looks perfectly fine: <code>currency</code>. Group the
+raw amounts by <code>source_system</code>:</p>
+
+<pre class="out"><code>shopify: n=15 amounts=[42.0, 84.0]
+legacy_uk: n=6 amounts=[29.0, 58.0]
+
+catalogue price list (Classic box): $42.00 USD direct, GBP 29.00 through
+the UK reseller. legacy_uk rows above are stored as amount=29.00,
+currency=USD -- that is the GBP price with the wrong currency label.</code></pre>
+
+<p>Every row in the export says <code>currency=USD</code>. That column is not
+missing, not null, not obviously wrong; it is confidently, consistently lying for
+one entire source system. The reseller integration was built years before anyone
+added the currency field, and whoever backfilled it typed the one value everyone
+else had. A query that trusts the column name over the values behind it ships a
+revenue number that is quietly wrong for six rows out of twenty one.</p>
+
+<h3>Building the cleaned view</h3>
+
+<p>The fix is two operations: dedupe on <code>order_id</code>, and convert the
+<code>legacy_uk</code> rows out of the currency the column claims and into the
+currency the values actually are.</p>
+
+<pre><code>FX_GBP_USD = 1.27  # fixed rate for this walkthrough
+
+seen = set()
+cleaned = []
+for r in rows:
+    if r["order_id"] in seen:
+        continue
+    seen.add(r["order_id"])
+    amount = float(r["amount"])
+    if r["source_system"] == "legacy_uk":
+        amount = round(amount * FX_GBP_USD, 2)
+    cleaned.append({**r, "amount_usd": amount})
+
+naive_june = sum(float(r["amount"]) for r in rows if r["period"] == "2026-06")
+clean_june = sum(c["amount_usd"] for c in cleaned if c["period"] == "2026-06")</code></pre>
+
+<pre class="out"><code>naive June revenue (no cleanup): $636.00
+cleaned June revenue (deduped, fx-converted): $604.15</code></pre>
+
+<p>The naive and cleaned totals differ by $31.85, which looks small enough to shrug
+off, and that is the trap. Broken into its two causes it is not small at all:
+removing the two duplicate rows takes $71.00 out of the naive total, and converting
+the legacy_uk rows out of their mislabeled currency adds $39.15 back in, because
+29 GBP is worth more than 29 USD, not less. The net gap is small only because the
+two errors partly cancel. A fix that caught just one of them, the more visible one,
+would still ship a wrong number with a deceptively small distance to the truth.
+Before this number goes anywhere, the law says it needs one independent derivation,
+not a re-read of the same code. Dana hand-checks a single row:</p>
+
+<pre class="out"><code>hand-check on order 1005 (customer C005, legacy_uk):
+  stored amount=29.00 currency=USD (mislabelled, actually GBP 29.00)
+  29.00 * 1.27 = 36.83
+  cleaned pipeline produced amount_usd=36.83
+  match: True</code></pre>
+
+<p>One row, worked by hand, on a calculator rather than in the pipeline's own code
+path. That is the cheapest form of second check there is. Honest scope on what it
+covered: the hand-check verifies the currency conversion half of the cleaning, and
+the dedupe half of $604.15 was not independently rechecked by it; a stricter second
+route would recompute the total without reusing the pipeline's dedupe. The number
+releases with that scope stated, not hidden.</p>
+
+<h3>The centerpiece: two routes to churn, and they do not agree</h3>
+
+<p>Revenue was the easy headline number, because a hand-check on one row is a real
+independent route. Churn is harder, because the dashboard's actual query does not
+touch <code>revenue</code> alone: it joins to a <code>customers</code> table to
+break the number out by segment, retail against wholesale. Route A is that real
+query, the one the dashboard will run every week from here on:</p>
+
+<pre><code>SELECT count(*) FROM (
+  SELECT DISTINCT r.customer_id FROM revenue r
+  WHERE r.period = '2026-06'
+  AND r.customer_id NOT IN (
+    SELECT customer_id FROM revenue WHERE period = '2026-07'
+  )
+) churned
+JOIN customers c ON c.customer_id = churned.customer_id</code></pre>
+
+<pre class="out"><code>churned customers (route A, joined to customers): 8
+churn rate (route A): 8/12 = 66.7%</code></pre>
+
+<p>Note the grain mix already visible in that line, in the chapter about catching
+grain bugs: the 8 comes from fanned-out joined rows while the 12 in the
+denominator counted distinct customers and did not fan out, which is part of why
+the number is wrong and not merely inflated evenly.</p>
+
+<p>Before that number goes in front of the board, the law requires a second,
+independent derivation, and the word independent is doing real work: it has to be a
+route that does not share the first route's joins, because a bug living in a shared
+join would pass a check that only re-reads the same join. So route B never touches
+<code>customers</code> at all. It works off <code>revenue</code> alone, as two
+plain sets:</p>
+
+<pre><code>june_active = {r["customer_id"] for r in rows if r["period"] == "2026-06"}
+july_active = {r["customer_id"] for r in rows if r["period"] == "2026-07"}
+churned_set = june_active - july_active</code></pre>
+
+<pre class="out"><code>churned (route B, set difference): ['C004', 'C006', 'C007', 'C009', 'C011']
+churned customers (route B): 5
+churn rate (route B): 5/12 = 41.7%
+
+DISAGREEMENT: route A says 8, route B says 5.
+Do not ship either number. Find out why before anyone sees it.</code></pre>
+
+<p>Eight against five is not a rounding difference; it is a different fact about
+the business, and the law is explicit about what happens next: neither number ships
+until the disagreement is explained. This is the whole point of doing the second
+derivation <em>before</em> anyone sees the first one. A number shown first and
+checked only if someone happens to ask does not count as checked at all.</p>
+
+<p>Dana goes looking for what route A's join could be doing that route B's set
+difference cannot:</p>
+
+<pre class="out"><code>duplicate customer_id rows: {'C001': 2, 'C004': 2, 'C007': 2, 'C011': 2}
+cause: an address update re-inserted the customer instead of
+updating the existing row, so the join fans out one-to-many</code></pre>
+
+<p>There it is: a join fan-out, the exact failure mode the project's data doctrine
+names by name. Four customers have two rows apiece in the <code>customers</code>
+table, because an address change wrote a new row instead of updating the old one.
+Three of those four (C004, C007, C011) are among the five customers who actually
+churned, so the join counts each of them twice, and route A's <code>count(*)</code>
+inflates 5 real churned customers into 8 counted rows. Fix the dimension, not the
+metric:</p>
+
+<pre><code>CREATE TABLE customers_dedup AS
+SELECT customer_id, segment, updated_at FROM customers c1
+WHERE updated_at = (
+    SELECT max(updated_at) FROM customers c2
+    WHERE c2.customer_id = c1.customer_id
+)</code></pre>
+
+<pre class="out"><code>customers rows before dedupe: 16
+customers rows after dedupe: 12
+
+route A, rerun against customers_dedup:
+  churned customers (route A, fixed): 5
+  route B (independent, unchanged): 5
+  agreement: True</code></pre>
+
+<p>Now both routes land on five, forty one point seven percent, and the number is
+worth showing to a board precisely because it survived a route that could have
+disagreed with it and did not.</p>
+
+<h3>The number that could not be checked in time</h3>
+
+<p>One more figure came up in the same review: <code>legacy_uk</code> revenue,
+converted to USD at today's spot rate rather than the fixed rate used for the
+cleaned June total. Its second check would be the bank's own settled conversion on
+the actual wire, and finance had not closed the month yet, so that figure did not
+exist to check against before Friday.</p>
+
+<pre class="out"><code>legacy_uk revenue, GBP: 174.00
+legacy_uk revenue, USD at today's spot rate: $224.46 [unverified]</code></pre>
+
+<p>The number still ships, because the board asked for it and refusing to answer is
+not always the honest move either. What ships with it is the label, sitting on the
+number itself: <code>[unverified]</code>. Not a footnote at the bottom of the deck
+that a reader has to go find. Labeled at the number, because that is the only place
+a reader will actually see it at the moment they are about to rely on it.</p>
+
+<h3>Delivery: the manifest, re-run and diffed</h3>
+
+<p>A deliverable is not one number, it is several, and the law asks for a
+numbers-manifest: one file, one entry per headline number, each entry carrying its
+value, how it was derived, and what the independent second check was. Dana's for
+this report:</p>
+
+<pre class="out"><code>{
+  "june_2026_revenue_usd": {
+    "derivation": "dedupe on order_id, convert legacy_uk at fixed fx 1.27, sum",
+    "second_check": "hand-check on order 1005 (29.00 GBP * 1.27 = 36.83) -- matches",
+    "value": 604.15
+  },
+  "june_to_july_churned_customers": {
+    "derivation": "set difference of distinct customer_id, june minus july, no join",
+    "second_check": "same set difference computed independently of the customers table",
+    "value": 5,
+    "who": [
+      "C004",
+      "C006",
+      "C007",
+      "C009",
+      "C011"
+    ]
+  }
+}</code></pre>
+
+<p>The manifest is not filed away once. The law says re-run it and diff it against
+the last version right before delivery, because the gap between "correct when I
+checked it" and "correct right now" is exactly where a late-arriving row lives. One
+did land: order 1108, a July order for C009 that the export had simply not caught
+yet when Dana first ran the numbers.</p>
+
+<pre class="out"><code>10c10
+&lt;     "value": 5,
+---
+&gt;     "value": 4,
+15d14
+&lt;       "C009",</code></pre>
+
+<p>C009 did not churn after all; the export was stale by one order, not the
+analysis wrong. The diff is what caught it, one line before delivery instead of
+one comment on the board deck after it. A clean diff would have meant ship as
+planned. This diff meant one more look before anyone saw the deck.</p>
+
+<h3>Where the guided loop sits in data work</h3>
+
+<p>None of the mechanical steps above needed a strong model. Reading a header,
+counting duplicates, writing the dedupe query, formatting the manifest as JSON: a
+cheap helper drafts every one of those, the same way chapter three's fast worker
+drafts a page layout. What a cheap helper does not get handed is the definition of
+churned, or which join is safe to trust, or whether an eight-versus-five
+disagreement is a rounding matter or a real bug. That judgment stays with Dana, the
+senior data engineer at the table, because it is exactly the kind of call a helper
+cannot verify against anything, only produce a confident guess about.</p>
+
+<p>The refute posture from chapter six shows up here as the data reviewer: a
+checker whose only job is to try to break a headline number, the same way that
+chapter's gate let a critical objection refuse a decision outright. Route B was not
+a nice-to-have double check invented after the fact; a data reviewer's whole
+function is to plant a fan-out on purpose, or reach for a join-free route, and fail
+the number rather than the build. A number that only ever meets a checker built to
+confirm it was never really checked.</p>
+
+<div class="try">
+<h4>Try this now</h4>
+<p>Five minutes, stdlib only, no install. This is the same disagreement from the
+churn centerpiece, shrunk down to four rows and one duplicate:</p>
+<pre><code>import csv
+import io
+
+raw = """order_id,customer,amount
+1,alice,10.00
+2,bob,15.00
+3,carol,20.00
+4,dave,25.00
+"""
+
+def totals(text):
+    rows = list(csv.DictReader(io.StringIO(text)))
+    naive = sum(float(r["amount"]) for r in rows)
+    seen, deduped = set(), 0.0
+    for r in rows:
+        if r["order_id"] in seen:
+            continue
+        seen.add(r["order_id"])
+        deduped += float(r["amount"])
+    return naive, deduped, len(rows)
+
+naive, deduped, n = totals(raw)
+print("round 1: no duplicate")
+print(f"  rows={n}  naive sum=${naive:.2f}  dedup-then-sum=${deduped:.2f}")
+print(f"  agree: {naive == deduped}")
+
+raw_with_dupe = raw + "3,carol,20.00\n"
+naive2, deduped2, n2 = totals(raw_with_dupe)
+print()
+print("round 2: order 3 landed twice (simulated webhook retry)")
+print(f"  rows={n2}  naive sum=${naive2:.2f}  dedup-then-sum=${deduped2:.2f}")
+print(f"  agree: {naive2 == deduped2}")
+if naive2 != deduped2:
+    print(f"  DISAGREE by ${naive2 - deduped2:.2f} -- that gap is order 3,")
+    print("  counted twice. Ship the deduped number, not the naive one.")</code></pre>
+<p>What it actually printed, run once, unedited:</p>
+<pre class="out"><code>round 1: no duplicate
+  rows=4  naive sum=$70.00  dedup-then-sum=$70.00
+  agree: True
+
+round 2: order 3 landed twice (simulated webhook retry)
+  rows=5  naive sum=$90.00  dedup-then-sum=$70.00
+  agree: False
+  DISAGREE by $20.00 -- that gap is order 3,
+  counted twice. Ship the deduped number, not the naive one.</code></pre>
+<p>Two ways of computing the same total agreed right up until a real-shaped defect
+landed in the input, and then they stopped agreeing, on their own, with no code
+written to detect the duplicate specifically. That is what an independent second
+route buys you: it does not need to know what can go wrong, only to be a genuinely
+different way of getting to the same number.</p>
+</div>
 
 </div>
 </body>

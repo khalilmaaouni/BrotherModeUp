@@ -2,6 +2,21 @@
 
 ## 2.0.0-rc.11, 2026-08-01: the explainer earns its excitement, help grows a deep tour, and updating becomes one command
 
+LATE ADDITION, same day, before the tag: the founder judged the explainer the
+summary and asked for the book behind it, and the July 30 adoption book at
+docs/book/ turned out to have been disconnected from every session since it was
+written. It gains part two, dummies to experts: chapter thirteen (the guided
+layer and the deep tour), fourteen (the vault and Obsidian in depth), fifteen
+(a composed multi-week product build with real fence transcripts run against a
+throwaway store), and sixteen (analytics under scrutiny, every code block run
+for real). Chapter two now teaches the two-line store install first, the stale
+Windows-CI limit carries its dated correction, and an opus refuter that ran the
+chapters' own code returned seven findings (one disqualifying: an output block
+labeled unedited containing lines its code could not print), all fixed, one
+cascading into SECURITY.md, whose no-network-calls sentence is now precise
+about the single user-invoked version check. The explainer links the book; new
+pins in the book's test class make this rot loud if it ever happens again.
+
 Cut the same day as rc.10, which is SUPERSEDED WITHOUT EVER BEING TAGGED: its
 release-cut commit (8aa6dd1) landed and was pushed, but no tag had been cut
 when this work arrived, so none ever will be (docs/RELEASE.md records why a
