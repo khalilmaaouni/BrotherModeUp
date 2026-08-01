@@ -73,7 +73,7 @@ import sys
 import unicodedata
 import uuid
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
@@ -1341,10 +1341,25 @@ _TABLES_LOOP4 = ("learning_retrieval_membership", "provisional_records")
 
 _TABLES_V11 = _TABLES_V10 + _TABLES_LOOP4
 
+# Schema 12 (LOOP 1 of the release-closure program, 2026-08-01) gives tables
+# to the five canonical shapes from brotherme/core/schema.py (Project,
+# Forecast, Task, AttributionEvent, Alert), plus two supporting tables that
+# have no shape of their own. Eight tables total, its own tuple for the same
+# reason every schema above got one: a healthy schema-11 store must be
+# checked against schema 11's table list, or the version check never runs
+# and a store whose only fault is predating this upgrade gets quarantined.
+# The DDL text itself (_LOOP1_DDL) is defined further down, after
+# _split_ddl exists; this tuple only needs the table NAMES, which cost
+# nothing to name this early.
+_TABLES_LOOP1 = ("projects", "forecasts", "tasks", "dependencies",
+                 "attribution", "alerts", "evidence", "runtime_runs")
+
+_TABLES_V12 = _TABLES_V11 + _TABLES_LOOP1
+
 _TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3,
                       4: _TABLES_V4, 5: _TABLES_V5, 6: _TABLES_V6,
                       7: _TABLES_V7, 8: _TABLES_V8, 9: _TABLES_V9,
-                      10: _TABLES_V10, 11: _TABLES_V11}
+                      10: _TABLES_V10, 11: _TABLES_V11, 12: _TABLES_V12}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -1941,6 +1956,178 @@ CREATE INDEX IF NOT EXISTS learning_retrieval_membership_rule_idx
 _LOOP4_DDL_STATEMENTS = _split_ddl(_LOOP4_DDL)
 _LOOP4_INDEX_STATEMENTS = _split_ddl(_LOOP4_INDEX_DDL)
 
+# Schema 12 (LOOP 1 of the release-closure program, 2026-08-01, migration
+# brief docs/superpowers/specs/2026-08-01-loop1-migration-brief.md). Eight
+# tables, ADDITIVE ONLY (CREATE TABLE IF NOT EXISTS, no ALTER on any
+# existing table), for the same reason schema 9, 10 and 11 each hit the
+# same wall: SQLite cannot alter a CHECK constraint without a full table
+# rebuild. That is why NONE of the eight carries a CHECK on an enum-like
+# column (status, severity, confidence, actor_type): validation of those
+# lives at the service layer, in the schema.py shapes that already own the
+# enums and the ten lifecycle states. This is the lesson of schemas 9
+# through 11, applied in advance rather than learned again the hard way.
+#
+# projects, forecasts, tasks: one column per the matching shape's FIELDS in
+# brotherme/core/schema.py, in the shape's own order. A LIST_FIELDS column
+# (scope_in, assumptions, depends_on, evidence, ...) is stored as a JSON
+# array in TEXT, default '[]': the shape owns the list, this column is only
+# its wire form on disk. tasks.depends_on stays a JSON list column AND is
+# mirrored into the dependencies table below by the service layer -- the
+# table is the queryable truth, the column is the shape's own field.
+#
+# dependencies: the queryable mirror of Task.depends_on. Empty at birth;
+# populated by create_task alongside the tasks row it describes.
+#
+# attribution: one row per AttributionEvent. project_id and task_id carry
+# NO REFERENCES clause on purpose, unlike forecasts.project_id and
+# tasks.project_id below: verify() is the thing that catches an
+# attribution row whose project or task has gone missing (an explicit
+# LEFT JOIN check, run and reported same as every other verify()
+# invariant), not a foreign key silently refusing the write. Append-only:
+# no UPDATE or DELETE path exists anywhere in the service layer.
+#
+# alerts: per Alert.FIELDS. requires_human is Alert.BOOL_FIELDS' one
+# member, stored as INTEGER 0/1 (SQLite has no native boolean); the
+# service layer converts at the boundary the same way sqlite3 already
+# does for every other typed value this store passes through Python.
+#
+# evidence: task and delivery evidence, a row per artifact. Distinct from
+# records.evidence (fence-close evidence, UNTOUCHED by this loop, per the
+# state mapping document section 2): this table is the five shapes'
+# evidence, that column is the ownership ledger's own.
+#
+# runtime_runs: empty at birth. Loop 7 writes into it; created now so that
+# loop adds no schema of its own.
+_LOOP1_DDL = """
+CREATE TABLE IF NOT EXISTS projects (
+  project_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  goal TEXT NOT NULL DEFAULT '',
+  user_outcome TEXT NOT NULL DEFAULT '',
+  project_type TEXT NOT NULL DEFAULT '',
+  primary_persona TEXT NOT NULL DEFAULT '',
+  experience_level TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT '',
+  phase TEXT NOT NULL DEFAULT '',
+  scope_in TEXT NOT NULL DEFAULT '[]',
+  scope_out TEXT NOT NULL DEFAULT '[]',
+  success_criteria TEXT NOT NULL DEFAULT '[]',
+  assumptions TEXT NOT NULL DEFAULT '[]',
+  unknowns TEXT NOT NULL DEFAULT '[]',
+  risks TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS forecasts (
+  forecast_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(project_id),
+  minimum_duration TEXT NOT NULL DEFAULT '',
+  likely_duration TEXT NOT NULL DEFAULT '',
+  maximum_duration TEXT NOT NULL DEFAULT '',
+  input_token_range TEXT NOT NULL DEFAULT '',
+  output_token_range TEXT NOT NULL DEFAULT '',
+  effective_total_token_range TEXT NOT NULL DEFAULT '',
+  confidence TEXT NOT NULL DEFAULT '',
+  assumptions TEXT NOT NULL DEFAULT '[]',
+  unknowns TEXT NOT NULL DEFAULT '[]',
+  calculation_basis TEXT NOT NULL DEFAULT '',
+  next_reforecast_event TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tasks (
+  task_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(project_id),
+  title TEXT NOT NULL,
+  user_value TEXT NOT NULL DEFAULT '',
+  reason TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT '',
+  priority TEXT NOT NULL DEFAULT '',
+  depends_on TEXT NOT NULL DEFAULT '[]',
+  assigned_human TEXT NOT NULL DEFAULT '',
+  assigned_runtime TEXT NOT NULL DEFAULT '',
+  assigned_model_profile TEXT NOT NULL DEFAULT '',
+  assignment_reason TEXT NOT NULL DEFAULT '',
+  reviewer_runtime TEXT NOT NULL DEFAULT '',
+  reviewer_model_profile TEXT NOT NULL DEFAULT '',
+  read_scope TEXT NOT NULL DEFAULT '[]',
+  write_scope TEXT NOT NULL DEFAULT '[]',
+  expected_outputs TEXT NOT NULL DEFAULT '[]',
+  acceptance_checks TEXT NOT NULL DEFAULT '[]',
+  time_forecast TEXT NOT NULL DEFAULT '',
+  token_forecast TEXT NOT NULL DEFAULT '',
+  confidence TEXT NOT NULL DEFAULT '',
+  actual_time TEXT NOT NULL DEFAULT '',
+  actual_tokens TEXT NOT NULL DEFAULT '',
+  evidence TEXT NOT NULL DEFAULT '[]',
+  blockers TEXT NOT NULL DEFAULT '[]',
+  started_at TEXT,
+  completed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS dependencies (
+  task_id TEXT NOT NULL REFERENCES tasks(task_id),
+  depends_on_task_id TEXT NOT NULL REFERENCES tasks(task_id),
+  PRIMARY KEY(task_id, depends_on_task_id)
+);
+CREATE TABLE IF NOT EXISTS attribution (
+  event_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  task_id TEXT,
+  event_type TEXT NOT NULL,
+  actor_type TEXT NOT NULL DEFAULT '',
+  actor_name TEXT NOT NULL DEFAULT '',
+  runtime TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL DEFAULT '',
+  session_id TEXT NOT NULL DEFAULT '',
+  action TEXT NOT NULL DEFAULT '',
+  reason TEXT NOT NULL DEFAULT '',
+  input_artifacts TEXT NOT NULL DEFAULT '[]',
+  output_artifacts TEXT NOT NULL DEFAULT '[]',
+  evidence_ref TEXT NOT NULL DEFAULT '',
+  timestamp TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS alerts (
+  alert_id TEXT PRIMARY KEY,
+  severity TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT '',
+  message TEXT NOT NULL DEFAULT '',
+  why_it_matters TEXT NOT NULL DEFAULT '',
+  recommended_action TEXT NOT NULL DEFAULT '',
+  requires_human INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  resolved_at TEXT
+);
+CREATE TABLE IF NOT EXISTS evidence (
+  evidence_id TEXT PRIMARY KEY,
+  subject_type TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT '',
+  ref TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS runtime_runs (
+  run_id TEXT PRIMARY KEY,
+  runtime TEXT NOT NULL,
+  suite TEXT NOT NULL DEFAULT '',
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  result TEXT NOT NULL DEFAULT '',
+  evidence_ref TEXT NOT NULL DEFAULT ''
+);
+"""
+
+_LOOP1_INDEX_DDL = """
+CREATE INDEX IF NOT EXISTS attribution_project_idx
+  ON attribution(project_id, timestamp);
+CREATE INDEX IF NOT EXISTS attribution_task_idx
+  ON attribution(task_id, timestamp);
+CREATE INDEX IF NOT EXISTS evidence_subject_idx
+  ON evidence(subject_type, subject_id);
+"""
+
+_LOOP1_DDL_STATEMENTS = _split_ddl(_LOOP1_DDL)
+_LOOP1_INDEX_STATEMENTS = _split_ddl(_LOOP1_INDEX_DDL)
+
 NOTE_KINDS = ("insight", "alert", "question", "review", "todo", "risk")
 NOTE_SEVERITIES = ("", "info", "warning", "critical")
 NOTE_AUTHOR_KINDS = ("founder", "assistant", "human")
@@ -2310,6 +2497,32 @@ def _migrate_10_to_11(conn):
         conn.execute(statement)
 
 
+def _migrate_11_to_12(conn):
+    """Schema 11 to 12 (LOOP 1 of the release-closure program): give tables
+    to the five canonical shapes (projects, forecasts, tasks, attribution,
+    alerts) plus dependencies, evidence, and runtime_runs. ADDITIVE ONLY.
+
+    Same contract as _migrate_10_to_11 (the last table-only migration):
+    eight CREATE TABLE IF NOT EXISTS statements plus three indexes, safe
+    whether this runs against a genuinely old schema-11 store or, via
+    _ensure_schema, against a brand new one that already has all eight
+    tables. Runs inside the caller's BEGIN EXCLUSIVE, so it must never
+    commit, roll back, or open a transaction of its own.
+
+    What this deliberately does NOT do: it does not replay any prior
+    schema.py JSONL event stream into these tables. The migration brief
+    records the grounds: a grep across the tree found zero callers of
+    schema.append_event/read_events outside schema.py itself, and a find
+    located zero .jsonl shape-event files anywhere, so there is nothing to
+    replay. The tables are created empty and stay that way until the new
+    Store methods (upsert_project, add_forecast, create_task, ...) write
+    into them going forward."""
+    for statement in _LOOP1_DDL_STATEMENTS:
+        conn.execute(statement)
+    for statement in _LOOP1_INDEX_STATEMENTS:
+        conn.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_1_to_2,
     2: _migrate_2_to_3,
@@ -2321,6 +2534,7 @@ _MIGRATIONS = {
     8: _migrate_8_to_9,
     9: _migrate_9_to_10,
     10: _migrate_10_to_11,
+    11: _migrate_11_to_12,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -2370,6 +2584,32 @@ def _learning():
         spec.loader.exec_module(mod)
         _LEARNING_MOD = mod
     return _LEARNING_MOD
+
+
+_SCHEMA_MOD = None
+
+
+def _schema():
+    """Load brotherme/core/schema.py by path, the same technique _learning()
+    uses to load bm_learning.py, and for the same reason: this module is
+    loaded by path from several places, so a plain `from brotherme.core
+    import schema` would depend on whichever sys.path the caller happened
+    to have. schema.py owns the five canonical shapes, the ten lifecycle
+    states, and transition(); the Store methods below call into it for
+    validation and legality rather than restating any of that here. Cached
+    after the first load."""
+    global _SCHEMA_MOD
+    if _SCHEMA_MOD is None:
+        import importlib.util
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "brotherme", "core", "schema.py")
+        spec = importlib.util.spec_from_file_location(
+            "brotherme_core_schema", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _SCHEMA_MOD = mod
+    return _SCHEMA_MOD
 
 
 def _one_or_refuse(rows, kind, prefix):
@@ -3938,6 +4178,11 @@ class Store(object):
             # CREATE TABLE IF NOT EXISTS, so this call is safe on a store
             # that was just created with both tables already present.
             _migrate_10_to_11(self.conn)
+        if SCHEMA_VERSION >= 12:
+            # Same rule again. Every statement in _migrate_11_to_12 is
+            # CREATE TABLE IF NOT EXISTS, so this call is safe on a store
+            # that was just created with all eight tables already present.
+            _migrate_11_to_12(self.conn)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -9480,6 +9725,340 @@ class Store(object):
             sections.append(older_block if older_block else "(none)")
         return "\n\n".join(sections) + "\n"
 
+    # ------------------------------------------------------------------
+    # LOOP 1 of the release-closure program (2026-08-01, migration brief
+    # docs/superpowers/specs/2026-08-01-loop1-migration-brief.md): the five
+    # canonical shapes from brotherme/core/schema.py get tables here.
+    # `actor` is a small dict (actor_type, actor_name, session_id, runtime,
+    # model); every key but actor_type and actor_name is optional and
+    # defaults to '' when absent, matching AttributionEvent.REQUIRED.
+    #
+    # Every method below writes the entity row and its attribution row in
+    # ONE self._transaction(): both land or neither does. This is the
+    # program ADR restated in code: state change and attribution are
+    # inseparable, so there is no code path where one exists without the
+    # other.
+    # ------------------------------------------------------------------
+
+    def _write_attribution(self, project_id, task_id, event_type, actor,
+                            action, reason="", input_artifacts=None,
+                            output_artifacts=None, evidence_ref=""):
+        """Validate and insert ONE attribution row. Called ONLY from inside
+        an already-open self._transaction() block by every method below, so
+        the row it writes always lands in the same transaction as the
+        entity row it describes: an exception raised here (a missing
+        actor_type, an out-of-enum actor_type) rolls the whole caller's
+        transaction back, leaving neither row written."""
+        S = _schema()
+        actor = actor or {}
+        event = S.AttributionEvent(
+            event_id=uuid.uuid4().hex,
+            project_id=project_id,
+            task_id=task_id,
+            event_type=event_type,
+            actor_type=actor.get("actor_type", ""),
+            actor_name=actor.get("actor_name", ""),
+            runtime=actor.get("runtime", ""),
+            model=actor.get("model", ""),
+            session_id=actor.get("session_id", ""),
+            action=action,
+            reason=reason,
+            input_artifacts=input_artifacts or [],
+            output_artifacts=output_artifacts or [],
+            evidence_ref=evidence_ref,
+            timestamp=now_iso())
+        event.validate()
+        _exec(self,
+              "INSERT INTO attribution (event_id, project_id, task_id, "
+              "event_type, actor_type, actor_name, runtime, model, "
+              "session_id, action, reason, input_artifacts, "
+              "output_artifacts, evidence_ref, timestamp) "
+              "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+              (event.event_id, event.project_id, event.task_id,
+               event.event_type, event.actor_type, event.actor_name,
+               event.runtime, event.model, event.session_id, event.action,
+               event.reason, json.dumps(event.input_artifacts),
+               json.dumps(event.output_artifacts), event.evidence_ref,
+               event.timestamp))
+        return event.event_id
+
+    def upsert_project(self, project_dict, actor):
+        """Create or fully overwrite ONE project row, with its attribution
+        event ('project.upserted'), in ONE transaction: both land or
+        neither does. project_dict is validated through schema.Project
+        BEFORE anything is written, so an invalid project never reaches the
+        table, not even a partial one.
+
+        An existing project (same project_id) is overwritten by every
+        column project_dict names, never merged field-by-field: a caller
+        that sends a partial payload gets a row that visibly reflects only
+        what it actually sent, not a stale mix of two calls pretending to
+        be one."""
+        S = _schema()
+        project = S.Project(**project_dict).validate()
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO projects (project_id, name, goal, "
+                  "user_outcome, project_type, primary_persona, "
+                  "experience_level, status, phase, scope_in, scope_out, "
+                  "success_criteria, assumptions, unknowns, risks, "
+                  "created_at, updated_at) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                  "ON CONFLICT(project_id) DO UPDATE SET "
+                  "name=excluded.name, goal=excluded.goal, "
+                  "user_outcome=excluded.user_outcome, "
+                  "project_type=excluded.project_type, "
+                  "primary_persona=excluded.primary_persona, "
+                  "experience_level=excluded.experience_level, "
+                  "status=excluded.status, phase=excluded.phase, "
+                  "scope_in=excluded.scope_in, scope_out=excluded.scope_out, "
+                  "success_criteria=excluded.success_criteria, "
+                  "assumptions=excluded.assumptions, "
+                  "unknowns=excluded.unknowns, risks=excluded.risks, "
+                  "updated_at=excluded.updated_at",
+                  (project.project_id, project.name, project.goal or "",
+                   project.user_outcome or "", project.project_type or "",
+                   project.primary_persona or "",
+                   project.experience_level or "", project.status or "",
+                   project.phase or "",
+                   json.dumps(project.scope_in or []),
+                   json.dumps(project.scope_out or []),
+                   json.dumps(project.success_criteria or []),
+                   json.dumps(project.assumptions or []),
+                   json.dumps(project.unknowns or []),
+                   json.dumps(project.risks or []),
+                   project.created_at, project.updated_at))
+            self._write_attribution(project.project_id, None,
+                                     "project.upserted", actor,
+                                     action="upsert_project")
+        return project.project_id
+
+    def add_forecast(self, forecast_dict, actor):
+        """Append ONE new forecast, with its attribution event
+        ('forecast.added'), in ONE transaction. Append-only: this never
+        edits an existing forecasts row, matching Forecast's own contract
+        in schema.py ("append a new Forecast at each reforecast; never
+        edit an old one")."""
+        S = _schema()
+        forecast = S.Forecast(**forecast_dict).validate()
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO forecasts (forecast_id, project_id, "
+                  "minimum_duration, likely_duration, maximum_duration, "
+                  "input_token_range, output_token_range, "
+                  "effective_total_token_range, confidence, assumptions, "
+                  "unknowns, calculation_basis, next_reforecast_event, "
+                  "created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (forecast.forecast_id, forecast.project_id,
+                   forecast.minimum_duration or "",
+                   forecast.likely_duration or "",
+                   forecast.maximum_duration or "",
+                   forecast.input_token_range or "",
+                   forecast.output_token_range or "",
+                   forecast.effective_total_token_range or "",
+                   forecast.confidence,
+                   json.dumps(forecast.assumptions or []),
+                   json.dumps(forecast.unknowns or []),
+                   forecast.calculation_basis or "",
+                   forecast.next_reforecast_event or "",
+                   forecast.created_at))
+            self._write_attribution(forecast.project_id, None,
+                                     "forecast.added", actor,
+                                     action="add_forecast")
+        return forecast.forecast_id
+
+    def create_task(self, task_dict, actor):
+        """Create ONE task, mirror its depends_on list into the
+        dependencies table (the queryable truth; the tasks.depends_on
+        column stays the shape's own wire form), and write its
+        attribution event ('task.created'), all in ONE transaction."""
+        S = _schema()
+        task = S.Task(**task_dict).validate()
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO tasks (task_id, project_id, title, "
+                  "user_value, reason, status, priority, depends_on, "
+                  "assigned_human, assigned_runtime, "
+                  "assigned_model_profile, assignment_reason, "
+                  "reviewer_runtime, reviewer_model_profile, read_scope, "
+                  "write_scope, expected_outputs, acceptance_checks, "
+                  "time_forecast, token_forecast, confidence, actual_time, "
+                  "actual_tokens, evidence, blockers, started_at, "
+                  "completed_at) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (task.task_id, task.project_id, task.title,
+                   task.user_value or "", task.reason or "", task.status,
+                   task.priority or "",
+                   json.dumps(task.depends_on or []),
+                   task.assigned_human or "", task.assigned_runtime or "",
+                   task.assigned_model_profile or "",
+                   task.assignment_reason or "", task.reviewer_runtime or "",
+                   task.reviewer_model_profile or "",
+                   json.dumps(task.read_scope or []),
+                   json.dumps(task.write_scope or []),
+                   json.dumps(task.expected_outputs or []),
+                   json.dumps(task.acceptance_checks or []),
+                   task.time_forecast or "", task.token_forecast or "",
+                   task.confidence or "", task.actual_time or "",
+                   task.actual_tokens or "",
+                   json.dumps(task.evidence or []),
+                   json.dumps(task.blockers or []),
+                   task.started_at, task.completed_at))
+            for dep in task.depends_on or []:
+                _exec(self,
+                      "INSERT OR IGNORE INTO dependencies "
+                      "(task_id, depends_on_task_id) VALUES (?,?)",
+                      (task.task_id, dep))
+            self._write_attribution(task.project_id, task.task_id,
+                                     "task.created", actor,
+                                     action="create_task")
+        return task.task_id
+
+    def transition_task(self, task_id, new_status, reason, actor):
+        """Move a task to new_status, or refuse: legality comes entirely
+        from schema.transition() (the ten states, LEGAL_TRANSITIONS,
+        'done' refused by name), never restated here. The tasks.status
+        update and the attribution event ('task.transitioned') land in ONE
+        transaction; an illegal move raises schema.SchemaError before
+        either is touched, so a refused transition writes nothing."""
+        S = _schema()
+        with self._transaction():
+            row = _exec(self, "SELECT * FROM tasks WHERE task_id=?",
+                        (task_id,)).fetchone()
+            if row is None:
+                raise OwnershipRefused(
+                    "not-found", "no task %r" % (task_id,))
+            task = S.Task.from_dict(
+                {k: (json.loads(row[k]) if k in S.Task.LIST_FIELDS
+                     else row[k]) for k in S.Task.FIELDS})
+            S.transition(task, new_status, reason=reason)
+            _exec(self, "UPDATE tasks SET status=? WHERE task_id=?",
+                  (task.status, task.task_id))
+            self._write_attribution(
+                task.project_id, task.task_id, "task.transitioned", actor,
+                action="transition_task", reason=reason or "")
+        return task.status
+
+    def raise_alert(self, alert_dict, project_id, actor):
+        """Create ONE alert, with its attribution event ('alert.raised'),
+        in ONE transaction. `project_id` names which project this alert
+        concerns, for the attribution row ONLY: Alert.FIELDS carries no
+        project_id column of its own (an alert is not intrinsically
+        project-scoped in the canonical protocol), but
+        AttributionEvent.project_id is a required non-empty field, so the
+        caller supplies it here rather than it being invented or left
+        blank. The alert's own id is carried in the attribution row's
+        evidence_ref, since attribution has no generic subject-id column."""
+        S = _schema()
+        alert = S.Alert(**alert_dict).validate()
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO alerts (alert_id, severity, category, "
+                  "message, why_it_matters, recommended_action, "
+                  "requires_human, created_at, resolved_at) "
+                  "VALUES (?,?,?,?,?,?,?,?,?)",
+                  (alert.alert_id, alert.severity, alert.category or "",
+                   alert.message, alert.why_it_matters or "",
+                   alert.recommended_action or "",
+                   1 if alert.requires_human else 0,
+                   alert.created_at, alert.resolved_at))
+            self._write_attribution(
+                project_id, None, "alert.raised", actor,
+                action="raise_alert", evidence_ref=alert.alert_id)
+        return alert.alert_id
+
+    def resolve_alert(self, alert_id, project_id, actor, reason=""):
+        """Mark ONE alert resolved (resolved_at set to now) and write its
+        attribution event ('alert.resolved'), in ONE transaction. Refuses,
+        with nothing written, if the alert does not exist or was already
+        resolved. `project_id` is required for the same reason
+        raise_alert takes it: alerts carries no project_id of its own."""
+        with self._transaction():
+            row = _exec(self, "SELECT * FROM alerts WHERE alert_id=?",
+                        (alert_id,)).fetchone()
+            if row is None:
+                raise OwnershipRefused(
+                    "not-found", "no alert %r" % (alert_id,))
+            if row["resolved_at"]:
+                raise OwnershipRefused(
+                    "already-resolved",
+                    "alert %r was already resolved at %s"
+                    % (alert_id, row["resolved_at"]))
+            ts = now_iso()
+            _exec(self, "UPDATE alerts SET resolved_at=? WHERE alert_id=?",
+                  (ts, alert_id))
+            self._write_attribution(
+                project_id, None, "alert.resolved", actor,
+                action="resolve_alert", reason=reason or "",
+                evidence_ref=alert_id)
+        return ts
+
+    def add_evidence(self, evidence_dict, project_id, actor):
+        """Append ONE evidence row (task or delivery evidence, a row per
+        artifact -- distinct from records.evidence, which is fence-close
+        evidence and stays untouched by this loop, per the state mapping
+        document section 2) with its attribution event
+        ('evidence.added'), in ONE transaction. `project_id` is required
+        for the same reason raise_alert takes it: evidence carries no
+        project_id column of its own, but attribution's does. When
+        evidence_dict['subject_type'] == 'task', its subject_id is also
+        threaded through as the attribution row's task_id."""
+        required = ("evidence_id", "subject_type", "subject_id", "created_at")
+        missing = [k for k in required if not evidence_dict.get(k)]
+        if missing:
+            raise OwnershipRefused(
+                "bad-evidence",
+                "evidence is missing required field(s): %s"
+                % ", ".join(missing))
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO evidence (evidence_id, subject_type, "
+                  "subject_id, kind, ref, note, created_at) "
+                  "VALUES (?,?,?,?,?,?,?)",
+                  (evidence_dict["evidence_id"], evidence_dict["subject_type"],
+                   evidence_dict["subject_id"],
+                   evidence_dict.get("kind") or "",
+                   evidence_dict.get("ref") or "",
+                   evidence_dict.get("note") or "",
+                   evidence_dict["created_at"]))
+            task_id = (evidence_dict["subject_id"]
+                       if evidence_dict["subject_type"] == "task" else None)
+            self._write_attribution(
+                project_id, task_id, "evidence.added", actor,
+                action="add_evidence",
+                evidence_ref=evidence_dict["evidence_id"])
+        return evidence_dict["evidence_id"]
+
+    def record_runtime_run(self, run_dict, project_id, actor, task_id=None):
+        """Insert ONE runtime_runs row with its attribution event
+        ('runtime_run.recorded'), in ONE transaction. Empty at birth per
+        the migration brief; Loop 7 writes into it going forward.
+        `project_id` is required for the same reason raise_alert and
+        add_evidence take it: runtime_runs carries no project_id column of
+        its own (run_id, runtime, suite, started_at, finished_at, result,
+        evidence_ref only), but attribution's does."""
+        required = ("run_id", "runtime", "started_at")
+        missing = [k for k in required if not run_dict.get(k)]
+        if missing:
+            raise OwnershipRefused(
+                "bad-runtime-run",
+                "runtime run is missing required field(s): %s"
+                % ", ".join(missing))
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO runtime_runs (run_id, runtime, suite, "
+                  "started_at, finished_at, result, evidence_ref) "
+                  "VALUES (?,?,?,?,?,?,?)",
+                  (run_dict["run_id"], run_dict["runtime"],
+                   run_dict.get("suite") or "", run_dict["started_at"],
+                   run_dict.get("finished_at"), run_dict.get("result") or "",
+                   run_dict.get("evidence_ref") or ""))
+            self._write_attribution(
+                project_id, task_id, "runtime_run.recorded", actor,
+                action="record_runtime_run",
+                evidence_ref=run_dict.get("evidence_ref") or "")
+        return run_dict["run_id"]
+
     def dump(self, raw=False):
         """Full JSON-serializable export of every table.
 
@@ -10328,6 +10907,27 @@ def verify(root):
                     "record %r (%s) is in state %r but its latest transition "
                     "recorded '%s'" % (_scrub(r["name"]), r["lifecycle_uuid"][:8],
                                        r["state"], last["to_state"]))
+        # LOOP 1 (release-closure program): attribution.project_id and
+        # .task_id carry NO REFERENCES clause (see _LOOP1_DDL's own
+        # comment), by design -- the check lives HERE instead, so a
+        # dangling reference is reported as a problem rather than silently
+        # refused at write time or silently ignored forever.
+        for r in _exec(store,
+                "SELECT a.event_id AS event_id, a.project_id AS project_id "
+                "FROM attribution a LEFT JOIN projects p "
+                "ON p.project_id = a.project_id "
+                "WHERE p.project_id IS NULL").fetchall():
+            problems.append(
+                "attribution event %s references missing project %r"
+                % (r["event_id"], _scrub(r["project_id"])))
+        for r in _exec(store,
+                "SELECT a.event_id AS event_id, a.task_id AS task_id "
+                "FROM attribution a LEFT JOIN tasks t "
+                "ON t.task_id = a.task_id "
+                "WHERE a.task_id IS NOT NULL AND t.task_id IS NULL").fetchall():
+            problems.append(
+                "attribution event %s references missing task %r"
+                % (r["event_id"], _scrub(r["task_id"])))
         return problems
     finally:
         store.close()

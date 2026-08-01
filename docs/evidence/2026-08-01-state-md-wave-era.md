@@ -1,5 +1,7 @@
 # STATE.md wave-era prose, archived verbatim 2026-08-01 (Loop 1 delete-list D1)
 
+HISTORICAL. Superseded by the store at .brothermode/store.sqlite3 and its generated STATE.md view; nothing here is live.
+
 Everything below is the hand-written fence bookkeeping that lived above the generated block in STATE.md from 2026-07-26 to 2026-08-01. The store superseded it; kept verbatim for history.
 
 # BrotherMode V2 build, project state (dogfood registry, local only)
