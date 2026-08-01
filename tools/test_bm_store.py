@@ -10716,10 +10716,27 @@ class TestLoop11ExportWithholdingPolicy(unittest.TestCase):
 
     def test_export_policy_scrub_only_set_stays_closed(self):
         """Growing the scrub-only set is a privacy decision, so it fails here
-        rather than passing quietly. Update this list deliberately."""
+        rather than passing quietly. Update this list deliberately.
+
+        V1 (release-closure loop2 refuter fixes) added nine schema-12
+        columns: none of the nine carries a schema.py ENUMS entry, so
+        every one is free text a caller can type anything into, unlike
+        the true enums (tasks.status, forecasts/tasks.confidence,
+        attribution.actor_type, alerts.severity) that stayed on the
+        full-safe list because the store itself already restricts them
+        to a known set of values."""
         self.assertEqual(sorted(bs._DUMP_SCRUB_ONLY_COLUMNS),
-                          [("claims", "path"),
-                           ("records", "name"), ("records", "tier")])
+                          [("alerts", "category"),
+                           ("attribution", "event_type"),
+                           ("claims", "path"),
+                           ("evidence", "kind"),
+                           ("evidence", "subject_type"),
+                           ("projects", "experience_level"),
+                           ("projects", "phase"),
+                           ("projects", "project_type"),
+                           ("records", "name"), ("records", "tier"),
+                           ("runtime_runs", "runtime"),
+                           ("tasks", "priority")])
 
     def test_export_policy_id_shaped_set_stays_closed(self):
         """Same rule for the shape-gated set: adding a column here is a
@@ -14362,12 +14379,18 @@ class TestLoop1ReadAccessors(unittest.TestCase):
 
     def test_default_redaction_matches_dump_for_a_sensitive_field(self):
         """Redaction verified in both directions on get_project's default
-        (unpatched, raw=False) return: `name` and `goal` come back withheld,
-        byte for byte the same as dump()'s own projects row; project_id,
-        status, phase, project_type and experience_level -- the new
-        allowlist -- come back as the LITERAL value, not a marker, proving
-        the widened policy actually took effect rather than merely agreeing
-        with dump() by both withholding the same thing."""
+        (unpatched, raw=False) return: `name` and `goal` come back
+        withheld, byte for byte the same as dump()'s own projects row;
+        project_id, status, created_at and updated_at (genuine ids, a
+        schema-constrained enum, and timestamps -- the FULL-SAFE lane)
+        come back as the literal value. phase, project_type and
+        experience_level come back literal here too, but for a DIFFERENT
+        reason (V1, release-closure loop2 refuter fixes): they are
+        SCRUB-ONLY, not safe, and an ordinary word has nothing for the
+        scrubber to change -- this test alone cannot tell the two lanes
+        apart. test_scrub_only_schema12_column_redacts_a_secret_shaped_
+        phase below is the test that actually proves the lane, by putting
+        a value in `phase` the scrubber DOES change."""
         with tempfile.TemporaryDirectory() as d:
             with bs.Store(d) as store:
                 store.upsert_project(
@@ -14396,6 +14419,29 @@ class TestLoop1ReadAccessors(unittest.TestCase):
             self.assertEqual(project[col], dumped[col],
                               "get_project must redact column %r exactly "
                               "like dump()" % col)
+
+    def test_scrub_only_schema12_column_redacts_a_secret_shaped_phase(self):
+        """V1 (release-closure loop2 refuter fixes): the test above proves
+        phase/project_type/experience_level stay LEGIBLE for an ordinary
+        word, which is true under EITHER the old full-safe lane or the new
+        scrub-only one and therefore proves nothing about which lane is
+        actually in force. A value that looks like a live secret is the
+        proof: full-safe would have exported it unchanged (the leak V1
+        exists to close), scrub-only redacts it. `phase` is what
+        tools/bm_project.py's own `start --phase` flag writes straight
+        into this column, so this is also the "typed into --phase" case
+        the fix's own writeup names."""
+        secret = "sk-test1234567890abcdef"
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(phase=secret), _actor())
+                project = store.get_project("proj1")
+                dumped = json.dumps(store.dump())
+        self.assertNotEqual(project["phase"], secret)
+        self.assertIn("REDACTED", project["phase"], project)
+        self.assertNotIn(secret, dumped,
+                          "a secret-shaped --phase value must never "
+                          "survive a redacted dump")
 
     def test_json_list_column_withheld_by_default_stays_a_string_marker(self):
         """The decode-back-to-a-list step must never crash on a WITHHELD
