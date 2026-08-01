@@ -1,6 +1,6 @@
 {
   "name": "brotherme",
-  "version": "2.0.0-rc.10",
+  "version": "2.0.0-rc.11",
   "description": "Turn an idea into a verified result with a guided start, honest forecasts, clear status, and a checked delivery. Verified on Claude Code; plugin packaging is a release candidate, the git-clone install remains the verified path.",
   "author": {
     "name": "Khalil Maaouni"
