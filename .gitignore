@@ -33,3 +33,7 @@ Documentation/
 /DELIVERY-PACKET.md
 /CANVAS-*.md
 /DELIVERY-PACKET-*.md
+# An export is every row the store holds for one project, and with --raw it
+# is the unredacted prose. It is written for its owner, never for a shared
+# repository, so the generated name is ignored the same way.
+/EXPORT-*.json

@@ -81,6 +81,21 @@ OWNED_TOOLS = (
     "bm_telemetry.py",
     "bm_autosave.py",
     "bm_fence_hook.py",
+    # Loop 6 WP-G (2026-08-01): tools/bm_bash_audit.py, the PreToolUse/
+    # PostToolUse Bash-write detection pair (hooks/hooks.json wires both
+    # events). Listed here so the smoke test's file-presence check covers
+    # it and so a hook command naming it is recognized as ours. NOT wired
+    # into hook_commands()/HOOK_EVENTS below: doing so would add a second
+    # PreToolUse group and a new PostToolUse event to every settings.json
+    # this installer writes, and tools/test_install.py (outside this
+    # change's fence) hard-asserts fixed hook counts (one group per event,
+    # five wired events, five hook commands sharing a target-path prefix)
+    # that a second group or a sixth event would break. The plugin
+    # manifest (hooks/hooks.json) wires the new hook today; the clone-
+    # install path (this file) does not yet. That asymmetry is reported,
+    # not hidden: see docs/HOOKS.md's "Installing the Bash audit hook" and
+    # docs/KNOWN-LIMITS.md.
+    "bm_bash_audit.py",
 )
 
 # Mirrors the fallback exclusion list in scripts/checksums.sh and

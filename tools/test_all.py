@@ -99,6 +99,11 @@ SUITES = (
     # dot py, the test named test every named suite file exists.
     "test_bm_project.py",
     "test_bm_fence_hook.py",
+    # Loop 6 WP-G (2026-08-01): the Bash-write detection suite for
+    # tools/bm_bash_audit.py. Placed right after the fence hook suite it
+    # extends: both drive real subprocesses against a throwaway project and
+    # share the same session-identity module.
+    "test_bm_bash_audit.py",
     "test_install.py",
     # Loop 3 WP-D (2026-08-01): the consent gate suite for scripts/setup.py,
     # tools/bm_sessionstart.sh, and the SessionEnd path in tools/bm_telemetry.py.
