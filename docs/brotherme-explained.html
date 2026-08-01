@@ -291,6 +291,22 @@
   <p>Claude Code out of the box is a very capable worker that waits for instructions. BrotherME turns it into a careful colleague. Before building anything, it agrees the goal and direction with you. While working, it tells you what is happening in plain language, keeps a written record of decisions and progress that survives crashes and restarts, and brings you bad news first. And when it says something is done, that claim is supposed to come with proof: a check that ran after the last change and passed. On Claude Code that rule is backed by mechanical gates, and those gates fail open rather than lock you out, so it is a strong default, not a guarantee.</p>
   <p>You never need to learn the machinery. If you can describe what you want and answer a few plain questions, you can use it.</p>
 
+  <h2>The philosophy, and the laws</h2>
+  <p>BrotherME is built on one uncomfortable belief: an AI's confidence is not evidence, and a rule written in a prompt is not a control. Anyone can tell a model to be careful; the telling changes little. What makes this product special is that its rules are laws in the working sense: each one is either enforced by machinery, or physically handed to you, and the pages describing them are themselves under test. This is the why behind everything else on this page.</p>
+  <div class="steps">
+    <div class="step"><b>1. Look before touching.</b> Every working session starts by mapping what is already true: what changed, what is mid-flight, who holds what. Work found in progress is coordinated with, never overwritten.</div>
+    <div class="step"><b>2. One writer per file.</b> A claim on files is written down before work starts, and a mechanical gate refuses a second writer while the claim lives. Parallel work dies by silent overwrites, not by bad code; this is the law that makes parallel safe.</div>
+    <div class="step"><b>3. Proof, or it is not done.</b> The word done requires a check that ran after the last change and passed. A confident summary is the cheapest thing an AI can produce; a passing check is the only currency accepted here.</div>
+    <div class="step"><b>4. The guided loop.</b> The strongest mind plans and judges; cheaper hands execute; a helper that fails its check twice is replaced by a stronger one, with the failure attached. Judgment and labor deserve different prices.</div>
+    <div class="step"><b>5. Ranges, never promises.</b> Every estimate carries its confidence and the assumption most likely to move it, and what actually happened corrects the next forecast. A single number is a lie about certainty.</div>
+    <div class="step"><b>6. Bad news first, labels on numbers.</b> A failing check leads the message instead of ending it, and a number that could not be verified carries its label right where you read it, never in a footnote.</div>
+    <div class="step"><b>7. You hold the keys.</b> Decisions arrive one card at a time with a recommendation first. Anything risky (credentials, payments, publishing, deleting) is prepared completely, then handed to you. It never types your passwords, anywhere, ever.</div>
+    <div class="step"><b>8. Memory lives on disk.</b> Decisions, progress, and mistakes are written to plain files that survive crashes, restarts, and the AI's own forgetting. The record is the truth; recollection is not.</div>
+    <div class="step"><b>9. Your corrections become law, with your yes.</b> Correct it once and the correction can become a standing rule, retrieved before similar work from then on. Only you can promote one, and no rule can ever weaken the laws above.</div>
+    <div class="step"><b>10. Wrong claims are corrected in daylight.</b> A sentence that turns out false gets a dated correction on top of it, never a silent rewrite. The sequence is the honest story, and this product keeps its own mistakes visible on principle.</div>
+  </div>
+  <p>Honest scope, as always: the mechanical enforcement behind laws two and three runs on Claude Code; on other tools these laws travel as written instructions, which is a weaker thing, and the product says so rather than pretending otherwise.</p>
+
   <h2>An illustrated project, start to finish</h2>
   <p>Here is one project, start to finish, so the paragraph above has something to point at. Use the buttons to jump to a stage, or just read straight through.</p>
   <p class="honesty">This conversation is an illustration. The command shapes, the questions, the checks, and the register are real; these exact bubbles were composed for this page, not recorded from a session.</p>
