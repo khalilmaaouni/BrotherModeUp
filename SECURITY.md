@@ -250,14 +250,27 @@ this project stops being able to promise anything".
   telemetry and captured corrections, both described above.
 - **The consent config** (`~/.brotherme/config.json`): records that setup
   ran and where your vault lives. Not secret by itself, but every hook
-  that writes YOUR CONTENT (telemetry, autosave, the Bash audit) refuses
-  to write anything until this file says you said yes, so it is the
-  switch that gates your data leaving a session. One narrow exception,
-  named so this sentence stays true: the fence hook does not check
-  consent, and on first use it mints its own session token file (a
-  machine-generated 64-hex value, no founder data) under
+  PROGRAM that writes YOUR CONTENT refuses to write anything until this
+  file says you said yes, so it is the switch that gates your data leaving
+  a session. Read "program" strictly: one hook line can run more than one
+  program (PreCompact runs two), and each one carries its own check. The
+  gated set is `bm_sessionstart.sh`, `bm_autosave.py`, the Bash audit's
+  two phases, and all three hook-wired `bm_telemetry.py` commands
+  (`outcomes-append`, `precompact-brief`, `stop-warn`). A test reads
+  `hooks/hooks.json` and fails if a wired command lacks the check.
+  One narrow exception, named so this claim stays true: the fence hook
+  does not check consent, and on first use it mints its own session token
+  file (a machine-generated 64-hex value, no founder data) under
   `.brothermode/fence/`, because ownership proof has to exist before the
   hook can refuse anyone. It writes nothing else.
+  HISTORY, dated because the claim above was FALSE until 2026-08-02: two
+  of those `bm_telemetry.py` commands were ungated. `precompact-brief`
+  wrote your last message verbatim into the vault, and `stop-warn` created
+  the vault tree, both before anyone had said yes. Found by an independent
+  adversarial review, reproduced in a throwaway home directory, fixed, and
+  pinned by tests in `tools/test_bm_consent.py`. The sentence was wrong for
+  the same reason it was easy to believe: the earlier fix gated the first
+  program on a hook line and nobody checked the second.
 - **Your Claude Code `settings.json`**: what `scripts/install.py` edits to
   wire the hooks. If an attacker could rewrite it, they could point a hook
   command anywhere.
