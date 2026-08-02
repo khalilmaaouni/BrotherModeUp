@@ -330,19 +330,34 @@ demonstrated once against the real binaries, in this rehearsal's own
 fresh-machine shape, so the "clean bill" reading above is corrected by an
 executed check rather than only a promise.
 
-**What step 0 does.** Runs immediately after step 1 (the copy) and
-strictly before step 4 (the only step that ever creates a consent
-config), in its own throwaway git repo with real, uncommitted, and
-untracked work in it (exactly the shape a snapshot would capture if it
-were allowed to run) and no consent config anywhere `BROTHERME_CONFIG`
-could resolve to. It drives the three real write-capable entry points with
-the payload shapes `hooks/hooks.json` pipes to them: `tools/
-bm_sessionstart.sh` (the SessionStart hook), `tools/bm_telemetry.py
-outcomes-append` (the SessionEnd hook), and `tools/bm_autosave.py
-precompact` (half of the PreCompact hook, I1's own subject). It then
-asserts two things mechanically: `git for-each-ref refs/brothermode/` is
-empty before and after, and a full recursive tree walk of the probe repo
-(path plus byte size, every file) is identical before and after.
+**What step 0 does, as of 2026-08-02 (corrected; see the addendum below
+this one for why the original description was wrong).** Runs immediately
+after step 1 (the copy) and strictly before step 4 (the only step that
+ever creates a consent config), in its own throwaway git repo with real,
+uncommitted, and untracked work in it (exactly the shape a snapshot would
+capture if it were allowed to run) and no consent config anywhere
+`BROTHERME_CONFIG` could resolve to. It parses `hooks/hooks.json` itself
+(`parse_hook_programs` in `scripts/rehearse_fresh_install.py`) and drives
+EVERY program named on EVERY hook line, not a hand-picked subset: `tools/
+bm_sessionstart.sh` (SessionStart), `tools/bm_telemetry.py outcomes-append`
+(SessionEnd), `tools/bm_telemetry.py stop-warn` (Stop), `tools/
+bm_autosave.py precompact` and `tools/bm_telemetry.py precompact-brief`
+(both halves of the PreCompact line), `tools/bm_fence_hook.py`
+(PreToolUse, the Edit/Write/MultiEdit/NotebookEdit matcher), and `tools/
+bm_bash_audit.py pre` / `tools/bm_bash_audit.py post` (PreToolUse/
+PostToolUse, the Bash matcher): eight invocations in total from seven hook
+lines. The Stop payload's transcript is sized comfortably over
+`tools/bm_telemetry.py`'s own `STOPWARN_MIN_BYTES` floor (read from that
+file, not retyped), and the PreCompact payload for `precompact-brief`
+carries a recognizable canary sentence as the transcript's last message.
+It then asserts three things mechanically: `git for-each-ref
+refs/brothermode/` is empty before and after; a full recursive tree walk
+of the probe repo (path plus byte size, every file) is identical before
+and after; and a full recursive tree walk of the fake HOME itself (every
+file BrotherMode could have written into it, ignoring only the
+interpreter's own bytecode cache under `Library/Caches`) is identical
+before and after, with the canary sentence confirmed absent by a direct
+grep of that same tree.
 
 Command (same invocation as Run 2 above; the addendum is the new step 0
 line this version of the script now prints, not a different command):
@@ -389,3 +404,132 @@ own closing line above (`1 SKIP`, not folded into `6/7 ... PASS`). This
 does not change any conclusion drawn from the two runs above: Run 1
 already ran the gate for real and is the record of what it found; this
 only fixes how a skipped gate is labeled going forward.
+
+## Addendum, 2026-08-02: the "three entry points" sentence was false, and two Criticals escaped through the gap it left
+
+Bad news first, stated plainly rather than softened. The 2026-08-01
+addendum above claimed, in its "What step 0 does" paragraph: "It drives
+the three real write-capable entry points with the payload shapes
+`hooks/hooks.json` pipes to them." That sentence was false, and it was
+false in a way that let two real defects ship past this rehearsal.
+
+**What the old sentence actually was.** A hand-picked list of three
+programs (`bm_sessionstart.sh`, `bm_telemetry.py outcomes-append`,
+`bm_autosave.py precompact`), written beside `hooks/hooks.json` rather
+than read from it, and worded as if it were a complete inventory ("the
+three... entry points") rather than what it actually was: the three
+programs someone remembered to add when step 0 was first written.
+
+**What it missed.** `hooks/hooks.json`'s PreCompact line runs TWO programs
+off one stdin payload (`sh -c 'p=$(cat); ... | python3 bm_autosave.py
+precompact; ... | python3 bm_telemetry.py precompact-brief'`), and the old
+step 0 drove only the first half. The Stop hook (`python3
+bm_telemetry.py stop-warn`) was not driven at all; step 0 covered
+SessionStart, SessionEnd and half of PreCompact, and silently skipped
+Stop entirely. Both omitted programs wrote before consent existed
+(Loop 9 Criticals 1 and 2, reproduced by direct execution in a fresh
+HOME, fixed in `tools/bm_telemetry.py` by the orchestrator, not touched by
+this change): `precompact-brief` wrote the founder's last message,
+verbatim, to `~/BrotherModeVault/99-System/telemetry/last-resume-
+<identity>.md`, and `stop-warn` created the `~/BrotherModeVault` directory
+tree itself to hold a marker file. Both writes happened in exactly the
+fresh-HOME, no-consent-config shape this rehearsal exists to guard, and
+this rehearsal's own "ALL GREEN" said nothing was wrong, because it never
+drove either program in that state.
+
+**Why an inventory sentence that is merely incomplete reads as a
+guarantee.** "The three real write-capable entry points" does two things
+at once: it names three programs, and it implicitly claims those three are
+ALL of them ("the... entry points", definite article, not "three of the
+entry points"). The first half was true and tested. The second half was
+never tested at all: nothing in step 0's code checked that its list of
+three matched what `hooks/hooks.json` actually contained, so the list
+could drift from the file it was supposed to describe with no signal
+anywhere that it had. A reader of this evidence file had no way to tell
+the difference between "we drove every write-capable program and found
+nothing" and "we drove three specific programs and found nothing about
+those three"; the sentence reads as the former, and was actually the
+latter. That gap is the same shape of failure the document itself
+diagnoses elsewhere (the checksums drift, the Run 1 gate failures): a
+claim that was accurate when written and was never re-checked against the
+thing it claimed to describe.
+
+**The fix.** `scripts/rehearse_fresh_install.py`'s `parse_hook_programs`
+now reads `hooks/hooks.json` directly and regex-scans every hook's own
+command string for every `CLAUDE_PLUGIN_ROOT`-rooted program invocation,
+rather than maintaining a list beside it. An invocation this probe has no
+payload for is now a hard failure of the step, not a silent gap, so a
+future hook line this file does not yet know how to drive stops the
+rehearsal instead of passing quietly. The assertion also changed from "the
+programs I knew about wrote nothing" to "the fresh HOME holds zero files
+BrotherMode wrote, full stop" (a full recursive tree comparison of the
+fake HOME before and after, ignoring only the interpreter's own bytecode
+cache under `Library/Caches`), plus a direct grep for a canary sentence
+planted in the PreCompact transcript, so a future leak of founder content
+is visible by grep rather than only by a manifest diff.
+
+**Current, true coverage, named in full.** Eight program invocations,
+parsed from seven hook lines in `hooks/hooks.json`: `tools/
+bm_sessionstart.sh` (SessionStart), `tools/bm_telemetry.py
+outcomes-append` (SessionEnd), `tools/bm_telemetry.py stop-warn` (Stop),
+`tools/bm_autosave.py precompact` and `tools/bm_telemetry.py
+precompact-brief` (both halves of PreCompact), `tools/bm_fence_hook.py`
+(PreToolUse, Edit/Write/MultiEdit/NotebookEdit matcher), and `tools/
+bm_bash_audit.py pre` / `tools/bm_bash_audit.py post` (PreToolUse/
+PostToolUse, Bash matcher). This is every program named on every hook
+line in the file as it exists today; it is not asserted to be every
+program that will ever exist there, which is exactly why the parser
+fails loudly on a shape it does not recognize instead of claiming
+completeness again.
+
+Command (same invocation as the two runs above and the 2026-08-01
+addendum; no new flag was added):
+
+    python3 scripts/rehearse_fresh_install.py --skip-gate
+
+Step 0's own output, pasted verbatim from a real run on this machine,
+2026-08-02, against the extended probe:
+
+```
+[0/7] I1 pre-consent no-write probe (permanent proof the consent gate holds): PASS
+    all 8 program invocation(s) parsed from hooks/hooks.json (every program on every hook line, not one per event) exited 0 and wrote nothing at all: refs/brothermode/ stayed empty, the probe repo's tree (28 file(s)) is byte-for-byte unchanged, the fresh HOME (631 file(s)) is unchanged, and the canary sentence never landed anywhere in it
+    Stop payload transcript: 250823 bytes (floor read from tools/bm_telemetry.py STOPWARN_MIN_BYTES=200000, +50000 margin)
+    sh /var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/bm-rehearsal-mldicig8/fakehome/.claude/skills/brothermode/tools/bm_sessionstart.sh (SessionStart hook): exit 0
+      stdout: 'BrotherMode setup is not complete yet; run: python3 scripts/setup.py'
+    /Applications/Xcode.app/Contents/Developer/usr/bin/python3 /var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/bm-rehearsal-mldicig8/fakehome/.claude/skills/brothermode/tools/bm_telemetry.py outcomes-append (SessionEnd hook): exit 0
+      stdout: 'bm_telemetry: setup is not complete yet; run: python3 scripts/setup.py'
+    /Applications/Xcode.app/Contents/Developer/usr/bin/python3 /var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/bm-rehearsal-mldicig8/fakehome/.claude/skills/brothermode/tools/bm_telemetry.py stop-warn (Stop hook): exit 0
+    /Applications/Xcode.app/Contents/Developer/usr/bin/python3 /var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/bm-rehearsal-mldicig8/fakehome/.claude/skills/brothermode/tools/bm_autosave.py precompact (PreCompact hook): exit 0
+      stdout: 'bm_autosave: setup is not complete yet; run: python3 scripts/setup.py'
+    /Applications/Xcode.app/Contents/Developer/usr/bin/python3 /var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/bm-rehearsal-mldicig8/fakehome/.claude/skills/brothermode/tools/bm_telemetry.py precompact-brief (PreCompact hook): exit 0
+    /Applications/Xcode.app/Contents/Developer/usr/bin/python3 /var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/bm-rehearsal-mldicig8/fakehome/.claude/skills/brothermode/tools/bm_fence_hook.py (PreToolUse hook, matcher=Edit|Write|MultiEdit|NotebookEdit): exit 0
+      stderr: 'bm_fence_hook: FAILING OPEN, the write is allowed and the fence was NOT checked. Reason: no store at /private/var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/bm-rehearsal-mldicig8/preconsent-probe-repo/.brothermode/store.sqlite3 (run `python3 tools/bm_store.py init`)'
+    /Applications/Xcode.app/Contents/Developer/usr/bin/python3 /var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/bm-rehearsal-mldicig8/fakehome/.claude/skills/brothermode/tools/bm_bash_audit.py pre (PreToolUse hook, matcher=Bash): exit 0
+      stderr: 'bm_bash_audit: setup is not complete yet; run: python3 scripts/setup.py'
+    /Applications/Xcode.app/Contents/Developer/usr/bin/python3 /var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/bm-rehearsal-mldicig8/fakehome/.claude/skills/brothermode/tools/bm_bash_audit.py post (PostToolUse hook, matcher=Bash): exit 0
+      stderr: 'bm_bash_audit: setup is not complete yet; run: python3 scripts/setup.py'
+    git for-each-ref refs/brothermode/ before: []
+    git for-each-ref refs/brothermode/ after:  []
+    probe repo's full tree walk unchanged: True (28 file(s))
+    fresh HOME unchanged, ignoring Library/Caches: True (631 file(s) before, 631 after)
+    canary sentence found under the fresh HOME: []
+```
+
+And the closing line of that same run:
+
+```
+rehearse_fresh_install.py: step 0 (I1 pre-consent probe): PASS. 6/7 step(s) PASS, 1 SKIP, 0 FAIL. ALL GREEN
+```
+
+**What this addendum does not claim.** The `bm_fence_hook.py` and
+`bm_bash_audit.py` invocations above wrote nothing because the throwaway
+probe repo has no BrotherMode project (no store, no active claims) for
+either hook to act on, which is a real and honest precondition, but it
+means those two invocations prove less than the consent-gated ones: they
+would also write nothing in a repo where a founder had already set up a
+project, consented or not, so this run does not by itself rule out a
+future write path in either file that fires without an active claim. The
+five consent-gated invocations (`bm_sessionstart.sh`, and every
+`bm_telemetry.py` and `bm_autosave.py` subcommand above) are the ones this
+addendum's fix is actually about, and those are the ones Loop 9's
+Criticals were found in.

@@ -745,7 +745,18 @@ def _git_tree_state(root):
     answer."""
     if shutil.which("git") is None:
         return None
-    if not os.path.isdir(os.path.join(root, ".git")):
+    # A LINKED worktree (git worktree add) and a submodule both keep a .git
+    # FILE holding a gitdir: pointer where an ordinary checkout keeps a .git
+    # DIRECTORY. Both are real working trees whose state git reports
+    # perfectly well, so both must be accepted here; accepting only the
+    # directory returned 'cannot tell' for a tree that could be told, the
+    # SKIP guard below never fired, and check_checksums compared a live
+    # edited worktree against a release manifest as though it were clean.
+    # Requiring .git AT root (rather than letting git walk upwards) is still
+    # deliberate: a plain unpacked release sitting inside somebody else's
+    # repository must not be judged by that repository's tree state.
+    dot_git = os.path.join(root, ".git")
+    if not (os.path.isdir(dot_git) or os.path.isfile(dot_git)):
         return None
     try:
         r = subprocess.run(
