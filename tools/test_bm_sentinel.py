@@ -993,8 +993,33 @@ class TestCommandLine(unittest.TestCase):
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
         self.root = self._tmpdir.name
-        with bs.Store(self.root):
-            pass
+        with bs.Store(self.root) as store:
+            # The project row is REQUIRED, and these tests used to pass
+            # without it only because the command line did not check.
+            # The adversarial review of 2026-08-02 found that a sentinel
+            # write against a project with no projects row leaves
+            # `bm_store.py verify` reporting a dangling attribution event,
+            # so a typo'd project name silently damaged the store. The
+            # commands refuse that now, and this setUp reflects real use.
+            now = bs.now_iso()
+            store.upsert_project(
+                {"project_id": "p1", "name": "command line test project",
+                 "created_at": now, "updated_at": now},
+                _actor())
+
+    def test_an_unknown_project_is_refused_rather_than_written(self):
+        """Spec section 5 lists unknown project as an exit-1 refusal, and
+        nothing enforced it until this review. Calibrated by removing the
+        _require_project guard, where this returns 0 and writes the row."""
+        code, text = self.run_sentinel(
+            "remember-knowledge", "--project", "no-such-project",
+            "--kind", "fact", "--content", "x", "--source", "y")
+        self.assertEqual(code, 1, text)
+        self.assertIn("no project", text)
+        with bs.Store(self.root, create=False) as store:
+            self.assertEqual(
+                store.active_knowledge(project_id="no-such-project"), [],
+                "the refusal must also mean nothing was written")
 
     def tearDown(self):
         self._tmpdir.cleanup()
