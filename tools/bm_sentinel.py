@@ -124,6 +124,35 @@ def _pick_requirement(candidates):
     return ordered[0]
 
 
+def _silent_reason(pool_before_cooldown, cooldown_ids, default_reason):
+    """The honest reason a branch found nothing.
+
+    Spec section 4 AMENDMENT 3, 2026-08-02, from the adversarial review. Branch
+    2 tests cooldown against the WHOLE memory pool, so a round where the only
+    trigger-relevant memory is in cooldown, but some unrelated memory is not,
+    falls through branch 2 and lands on a trigger branch that finds no
+    candidate. It then recorded "no prior attempt matches this failure", which
+    is false: the matching attempt existed and cooldown suppressed it.
+
+    That reason is not cosmetic. It is written to sentinel_interventions and
+    is the ONLY evidence Phase 4 has when it decides whether the policy is too
+    strict. A round suppressed by cooldown, filed as "nothing matched", argues
+    for loosening the matcher when the cooldown was the cause. The ledger would
+    teach the opposite of the truth.
+
+    So a branch that finds nothing asks this: did MY candidate set have members
+    before cooldown removed them? If yes, cooldown is the reason. If no, the
+    branch's own default reason is the reason."""
+    suppressed = [m for m in pool_before_cooldown
+                  if m.get("id") in cooldown_ids]
+    if suppressed and len(suppressed) == len(pool_before_cooldown):
+        return "every candidate for this trigger is in cooldown"
+    if suppressed:
+        return ("%s (%d further candidate(s) were in cooldown)"
+                % (default_reason, len(suppressed)))
+    return default_reason
+
+
 def select(trigger, context, knowledge, procedural, recent_interventions):
     """Section 4's pure selection policy. Returns (decision, memories,
     reason) where decision is "inject" or "silent" and memories is a list
@@ -149,22 +178,29 @@ def select(trigger, context, knowledge, procedural, recent_interventions):
 
     # Branch 3: post_failure.
     if trigger == "post_failure":
+        unfiltered = [p for p in procedural
+                      if p.get("outcome") in ("failed", "ruled_out")]
         candidates = [p for p in filtered_procedural
                       if p.get("outcome") in ("failed", "ruled_out")]
         match = _best_overlap_match(candidates, context)
         if match is None:
-            return ("silent", [], "no prior attempt matches this failure")
+            return ("silent", [], _silent_reason(
+                unfiltered, cooldown_ids,
+                "no prior attempt matches this failure"))
         return ("inject", [match],
                 "prior %s attempt overlaps this failure by token match"
                 % match.get("outcome"))
 
     # Branch 4: pre_risky.
     if trigger == "pre_risky":
+        unfiltered = [p for p in procedural if p.get("outcome") == "failed"]
         candidates = [p for p in filtered_procedural
                       if p.get("outcome") == "failed"]
         match = _best_overlap_match(candidates, context)
         if match is None:
-            return ("silent", [], "no prior failure matches this action")
+            return ("silent", [], _silent_reason(
+                unfiltered, cooldown_ids,
+                "no prior failure matches this action"))
         return ("inject", [match],
                 "prior failed attempt overlaps this action by token match")
 
@@ -172,9 +208,13 @@ def select(trigger, context, knowledge, procedural, recent_interventions):
     if trigger == "resume":
         candidates = [k for k in filtered_knowledge
                       if k.get("kind") in ("requirement", "constraint")]
+        unfiltered = [k for k in knowledge
+                      if k.get("kind") in ("requirement", "constraint")]
         match = _pick_requirement(candidates)
         if match is None:
-            return ("silent", [], "no requirements or constraints recorded")
+            return ("silent", [], _silent_reason(
+                unfiltered, cooldown_ids,
+                "no requirements or constraints recorded"))
         return ("inject", [match],
                 "resume surfaces the least-recently-surfaced requirement "
                 "or constraint")
@@ -185,10 +225,14 @@ def select(trigger, context, knowledge, procedural, recent_interventions):
         candidates = [k for k in filtered_knowledge
                       if k.get("kind") in ("requirement", "constraint")
                       and k.get("surface_count", 0) == 0]
+        unfiltered = [k for k in knowledge
+                      if k.get("kind") in ("requirement", "constraint")
+                      and k.get("surface_count", 0) == 0]
         match = _pick_requirement(candidates)
         if match is None:
-            return ("silent", [], "every requirement has already been "
-                     "surfaced")
+            return ("silent", [], _silent_reason(
+                unfiltered, cooldown_ids,
+                "every requirement has already been surfaced"))
         return ("inject", [match],
                 "unsurfaced requirement or constraint at a phase boundary")
 
@@ -198,9 +242,14 @@ def select(trigger, context, knowledge, procedural, recent_interventions):
         candidates = [k for k in filtered_knowledge
                       if k.get("kind") in ("requirement", "constraint")
                       and k.get("surface_count", 0) == 0]
+        unfiltered = [k for k in knowledge
+                      if k.get("kind") in ("requirement", "constraint")
+                      and k.get("surface_count", 0) == 0]
         match = _pick_requirement(candidates)
         if match is None:
-            return ("silent", [], "nothing new since the last check")
+            return ("silent", [], _silent_reason(
+                unfiltered, cooldown_ids,
+                "nothing new since the last check"))
         return ("inject", [match],
                 "unsurfaced requirement or constraint found on a routine "
                 "check")

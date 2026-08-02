@@ -231,6 +231,28 @@ Order of evaluation, first match wins:
    `surface_count == 0`. Otherwise silent, reason `"nothing new since the last
    check"`.
 
+AMENDMENT 3, 2026-08-02, from the adversarial review. Branch 2 as written
+tests cooldown against the WHOLE memory pool, and every trigger branch then
+narrows to its own kind. A round where the only trigger-relevant memory is in
+cooldown, but some unrelated memory is not, therefore falls past branch 2 and
+lands on a trigger branch that finds no candidate, which recorded a reason like
+"no prior attempt matches this failure". That is false, and it is the reason
+written into `sentinel_interventions`.
+
+Why it is not cosmetic: that reason is the ONLY evidence Phase 4 has when it
+decides whether the policy is too strict. A round suppressed by cooldown, filed
+as "nothing matched", argues for loosening the matcher when the cooldown was
+the cause, so the ledger would teach the opposite of the truth.
+
+RESOLUTION: the decision is unchanged (still silent), and the branch order is
+unchanged. Only the recorded reason changes. Every branch that finds no
+candidate asks whether ITS OWN candidate set had members before cooldown
+removed them. All suppressed gives "every candidate for this trigger is in
+cooldown"; some suppressed appends the count to the branch's own reason; none
+suppressed keeps the branch's reason as written. The suite must prove both
+directions: that a cooldown-suppressed round is not filed as a no-match, and
+that a genuine no-match is not blamed on cooldown.
+
 Hard invariants the suite must prove, not assume:
 
 - `select` NEVER returns more than one memory. One reminder, one moment.
