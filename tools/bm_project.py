@@ -240,6 +240,21 @@ def _parse(argv, known, wants_value=()):
     positional, kv, i = [], {}, 0
     while i < len(argv):
         tok = argv[i]
+        if tok in ("--help", "-h") and "help" not in known:
+            # Every generated adapter under docs/runtimes/ tells the reader
+            # "run the command with --help and read the real flags off the
+            # tool", precisely so an instruction file never teaches a flag
+            # that was renamed. That promise was false at the SUBCOMMAND
+            # level: --help fell through to the refusal below and exited 2
+            # with "unrecognized flag --help", so the one discovery path the
+            # docs point at was the one path that did not work. Printing the
+            # recognized flags is exactly what the reader was promised.
+            print("recognized flags: %s"
+                  % ", ".join("--" + k for k in sorted(known)))
+            if wants_value:
+                print("flags taking a value: %s"
+                      % ", ".join("--" + k for k in sorted(wants_value)))
+            sys.exit(0)
         if tok.startswith("--"):
             name = tok[2:]
             if name not in known:
