@@ -567,10 +567,31 @@ def cmd_check(argv):
         table = _table_for_memory(memory, knowledge, procedural)
         updated = store.mark_surfaced(table, [memory.get("id")])
         if not updated:
-            _err("bm_sentinel: refused. mark_surfaced found no active row "
-                 "for %s in %s; the surfaced count would silently drift "
-                 "from reality otherwise." % (memory.get("id"), table))
-            return EXIT_REFUSED
+            # The row we selected is gone. Nothing is injected.
+            #
+            # This used to return here, BEFORE record_intervention, which
+            # meant the ledger lost the event completely: the sentinel woke,
+            # chose a memory, rendered it, and left no trace. That ledger is
+            # the only evidence Phase 4 has, so an event it never sees is
+            # worse than an event it records as odd. Downgrade to a silence
+            # and record it with a reason naming the cause, rather than
+            # vanishing. Exit stays 0 because nothing the caller did was
+            # wrong and silence is a successful outcome of this command.
+            #
+            # REACHABILITY, stated rather than implied: this branch is
+            # defensive and is NOT reachable through the command line today.
+            # mark_surfaced matches on id alone, so it returns 1 even for a
+            # row that was retired between the read and the write (measured:
+            # retire the row, then mark_surfaced returns 1). Only a row
+            # DELETED outright would return 0, and nothing in this project
+            # deletes sentinel rows. It is kept because the alternative to a
+            # defensive branch here is losing a ledger event, and it is
+            # labelled because an untested branch that looks tested is the
+            # thing this file spends most of its comments arguing against.
+            decision, memory_ids, reminder = "silent", [], None
+            reason = ("selected memory %s in %s was retired between the read "
+                      "and the write, so nothing was surfaced"
+                      % (memory.get("id"), table))
 
     store.record_intervention(project_id, trigger, decision, memory_ids,
                                reminder, reason, session_id, actor)
@@ -590,6 +611,18 @@ def cmd_judge(argv):
         _err(usage)
         return EXIT_USAGE
     intervention_id, judged = positional[0], positional[1]
+    if judged == "unjudged":
+        # The Store's enum includes "unjudged" because that is the DEFAULT
+        # state of a fresh row, not because a human may set it. The command
+        # line accepted it anyway, so `judge <id> unjudged` silently rewound a
+        # verdict while the usage line said useful|noise. The calibration
+        # ledger is the only record of whether a reminder helped, and an
+        # erasure that reports success is the wrong shape of tool entirely.
+        _err("bm_sentinel: refused. 'unjudged' is the state a new "
+             "intervention starts in, not a verdict you can set. A judgement "
+             "is useful or noise; use one of those, and see the ledger rather "
+             "than rewinding it.")
+        return EXIT_REFUSED
     by = kv.get("by")
     store = _get_store()
     try:
