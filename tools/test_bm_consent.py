@@ -414,6 +414,158 @@ class TelemetryEveryHookProgramPreConsentCase(unittest.TestCase):
                    if os.path.isdir(self.teldir) else [])
         self.assertEqual(len(markers), 1, r.stdout + r.stderr)
 
+    # -- every wired command, any module (from the review session) ---------
+
+    # Two different counts, kept apart on purpose, because conflating them is
+    # how the count in the docs went wrong twice already: hooks/hooks.json
+    # holds SEVEN command strings and those strings invoke EIGHT programs,
+    # since the PreCompact line is one `sh -c` script running two.
+    MIN_WIRED_COMMAND_STRINGS = 7
+    MIN_WIRED_PROGRAMS = 8
+    _PROGRAM_RE = re.compile(
+        r"(?:python3|sh)\s+\S*?(?:tools|scripts)/\S+\.(?:py|sh)")
+
+    def _wired_commands(self):
+        """Every command string in hooks/hooks.json, in file order.
+
+        Contributed by the independent review session, 2026-08-02, and it is
+        strictly better than the telemetry-scoped inventory below: it stands
+        in front of bm_autosave.py, bm_bash_audit.py and bm_sessionstart.sh
+        too. Their argument, which is correct: the NEXT program to write
+        before consent probably will not live in bm_telemetry.py, and a
+        module-scoped check cannot see it."""
+        manifest = json.loads(_read_text(HOOKS_JSON))
+        cmds = []
+        for event, groups in sorted(manifest.get("hooks", {}).items()):
+            for group in groups:
+                for hook in group.get("hooks", []):
+                    cmd = hook.get("command")
+                    if cmd:
+                        cmds.append((event, cmd))
+        self.assertTrue(cmds, "hooks/hooks.json wired no commands at all")
+        return cmds
+
+    def _canary_in_any_file(self, root):
+        """Every file under root whose bytes contain the canary. Asserting on
+        CONTENT rather than on a predicted path is the point: a future leak to
+        a filename nobody guessed still fails."""
+        hits = []
+        for dirpath, _dirs, files in os.walk(root):
+            # macOS caches .pyc under ~/Library/Caches keyed off HOME. Those
+            # are the interpreter's, not ours, and the probe sets
+            # PYTHONDONTWRITEBYTECODE anyway; skipping keeps the failure
+            # message about our own files.
+            if "Library/Caches" in dirpath:
+                continue
+            for name in files:
+                path = os.path.join(dirpath, name)
+                try:
+                    with io.open(path, encoding="utf-8", errors="replace") as fh:
+                        body = fh.read()
+                except OSError:
+                    continue
+                if self.CANARY in body:
+                    hits.append(os.path.relpath(path, root))
+        return hits
+
+    def test_no_wired_command_of_any_module_writes_before_consent(self):
+        """Drives EVERY command hooks/hooks.json wires, whatever module it
+        belongs to, and asserts three separate things after each one:
+
+        - no file appeared anywhere under HOME or the project,
+        - the vault DIRECTORY does not exist (a file-only walk is blind to an
+          empty mkdir, and 'the vault folder appeared in a stranger's home'
+          was half of Critical 2),
+        - the founder's own sentence is in no file, in either tree.
+
+        Contributed by the review session that found the two Criticals, with
+        two defects of their version fixed on the way in: the canary walk
+        covers the project root as well as HOME, and the floor is 8 rather
+        than 7 because hooks.json wires eight programs across seven lines."""
+        env = dict(self.env)
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        transcript = os.path.join(self.tmp, "wired.jsonl")
+        floor = _telemetry_constant("STOPWARN_MIN_BYTES")
+        row = json.dumps({"type": "assistant",
+                          "message": {"role": "assistant",
+                                      "content": [{"type": "text",
+                                                   "text": "padding " * 40}]}})
+        with io.open(transcript, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "user", "message": {"role": "user",
+                     "content": [{"type": "text", "text": self.CANARY}]}}) + "\n")
+            written = 0
+            while written <= floor + 50000:
+                fh.write(row + "\n")
+                written += len(row) + 1
+        payload = json.dumps({"session_id": "sess-wired",
+                              "transcript_path": transcript,
+                              "cwd": self.project})
+
+        ran = 0
+        for event, command in self._wired_commands():
+            concrete = command.replace("${CLAUDE_PLUGIN_ROOT}", ROOT)
+            concrete = concrete.replace("$CLAUDE_PLUGIN_ROOT", ROOT)
+            # shell=True is REQUIRED and is the point of this test, not a
+            # shortcut: the strings being run are the exact command lines
+            # Claude Code hands to a shell, and one of them (PreCompact) is a
+            # `sh -c '...'` script running two programs off one stdin. Running
+            # them any other way would test something the hook system never
+            # does. The input is hooks/hooks.json, a tracked file in this
+            # repository, not user or network data; if that file is hostile
+            # the attacker already has commit rights and does not need this
+            # test. The only interpolation is ROOT, computed from __file__.
+            r = subprocess.run(concrete, shell=True, cwd=self.project, env=env,
+                               input=payload, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, universal_newlines=True,
+                               timeout=180)
+            ran += 1
+            self.assertEqual(r.returncode, 0,
+                             "%s: %s exited %d\n%s%s"
+                             % (event, concrete, r.returncode, r.stdout, r.stderr))
+            self.assertFalse(
+                os.path.exists(self.vault),
+                "%s: a hook created the vault directory before consent" % event)
+            for root, label in ((self.home, "HOME"), (self.project, "project")):
+                leaked = self._canary_in_any_file(root)
+                self.assertEqual(
+                    leaked, [],
+                    "%s: the founder's own message reached %s in the %s tree "
+                    "before consent" % (event, ", ".join(leaked), label))
+        self.assertGreaterEqual(
+            ran, self.MIN_WIRED_COMMAND_STRINGS,
+            "only %d wired command string(s) were driven; hooks/hooks.json is "
+            "expected to hold at least %d, and a manifest that parsed to "
+            "fewer must not read as a pass"
+            % (ran, self.MIN_WIRED_COMMAND_STRINGS))
+        programs = sum(len(self._PROGRAM_RE.findall(cmd))
+                       for _event, cmd in self._wired_commands())
+        self.assertGreaterEqual(
+            programs, self.MIN_WIRED_PROGRAMS,
+            "the %d wired command string(s) name only %d program "
+            "invocation(s); at least %d are expected, because the PreCompact "
+            "line runs TWO programs off one payload and counting strings "
+            "instead of programs is exactly how the second one shipped "
+            "ungated" % (ran, programs, self.MIN_WIRED_PROGRAMS))
+
+    def test_calibrated_a_wired_command_that_never_ran_is_not_a_pass(self):
+        """The vacuous-pass guard the review session asked for. Silence from a
+        program that does not exist looks identical to silence from a program
+        that refused, so the harness must be able to tell them apart: a
+        command that cannot run has a nonzero exit, and the test above asserts
+        exit 0 on every command precisely so that case goes red rather than
+        quietly green."""
+        env = dict(self.env)
+        r = subprocess.run("python3 %s/tools/bm_does_not_exist.py pre"
+                           % ROOT, shell=True, cwd=self.project, env=env,
+                           input="{}", stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, universal_newlines=True,
+                           timeout=60)
+        self.assertNotEqual(
+            r.returncode, 0,
+            "a nonexistent hook program exited 0, so the exit-code assertion "
+            "in the wired-command test cannot distinguish 'refused to write' "
+            "from 'never ran'")
+
     def test_every_hook_wired_telemetry_command_checks_consent(self):
         """The durable half: an inventory test rather than one test per
         command. Every bm_telemetry.py subcommand named in hooks/hooks.json
