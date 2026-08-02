@@ -296,6 +296,24 @@ class TestResumeBrief(unittest.TestCase):
     def test_brief_redacts_and_is_owner_only(self):
         with tempfile.TemporaryDirectory() as d:
             os.environ["BROTHERMODE_VAULT"] = os.path.join(d, "vault")
+            # A CONSENTED config is now a precondition of writing a brief at
+            # all (2026-08-02): cmd_precompact_brief checks consent as its
+            # first statement, because it was found writing the founder's
+            # last message verbatim into a vault on machines where setup had
+            # never run. This test is about REDACTION and FILE MODE, so it
+            # supplies consent and keeps testing exactly what it always did;
+            # the pre-consent behavior has its own tests in
+            # tools/test_bm_consent.py. BROTHERME_CONFIG is the documented
+            # override for the config path (scripts/setup.py config_path).
+            cfg = os.path.join(d, "brotherme-config.json")
+            with io.open(cfg, "w", encoding="utf-8") as fh:
+                json.dump({"setup_complete": True,
+                           "vault_path": os.environ["BROTHERMODE_VAULT"],
+                           "privacy_notice_version": "2026-08-01",
+                           "installation_mode": "clone",
+                           "security_mode": "standard"}, fh)
+            os.environ["BROTHERME_CONFIG"] = cfg
+            self.addCleanup(os.environ.pop, "BROTHERME_CONFIG", None)
             # rebuild the module's paths against the temp vault
             import importlib
             importlib.reload(bm)

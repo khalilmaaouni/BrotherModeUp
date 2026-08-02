@@ -55,6 +55,7 @@ import argparse
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -266,7 +267,8 @@ def step1_clone(paths, result):
 
 
 # ---------------------------------------------------------------------------
-# step 0: the I1 pre-consent no-write probe (external review, Loop 3/5)
+# step 0: the I1/I2 pre-consent no-write probe (external review, Loop 3/5,
+# extended 2026-08-02 after Loop 9 Criticals 1 and 2)
 #
 # WHY THIS EXISTS
 #   I1 (the most serious finding of that review) reproduced tools/
@@ -278,12 +280,31 @@ def step1_clone(paths, result):
 #   shape this whole rehearsal exists to reproduce: a throwaway git repo,
 #   no consent config anywhere BROTHERME_CONFIG could resolve to (this step
 #   runs right after the clone, step 1, and strictly before step 4, the
-#   only step that ever creates one), and the three real write-capable
-#   entry points driven with the payload shapes hooks/hooks.json pipes to
-#   them: tools/bm_sessionstart.sh (the SessionStart hook), tools/
-#   bm_telemetry.py outcomes-append (the SessionEnd hook), and tools/
-#   bm_autosave.py precompact (half of the PreCompact hook; I1's own
-#   subject).
+#   only step that ever creates one).
+#
+#   THIS STEP USED TO HARDCODE A LIST OF "the three real write-capable
+#   entry points" and drive one program per hook EVENT. That list itself
+#   was the bug: hooks/hooks.json's PreCompact line runs TWO programs off
+#   one stdin payload (tools/bm_autosave.py precompact and tools/
+#   bm_telemetry.py precompact-brief), and the Stop hook (tools/
+#   bm_telemetry.py stop-warn) was not driven at all. Both wrote the
+#   founder's own words into a fresh ~/BrotherModeVault before consent
+#   existed (Loop 9 Criticals 1 and 2), and this probe's own hand-
+#   maintained list never noticed, because a list beside hooks.json can
+#   drift from hooks.json silently while a probe that reads hooks.json
+#   cannot. See the 2026-08-02 addendum in
+#   docs/evidence/2026-08-01-fresh-home-rehearsal.md for the full account.
+#
+#   This step now PARSES hooks/hooks.json (parse_hook_programs) and drives
+#   EVERY program named on EVERY hook line, however many programs one line
+#   runs, with a payload shaped for that program's own hook contract
+#   (_payload_for_invocation). An invocation this file has no payload for
+#   is a hard FAIL, not a silent skip, because silently skipping an
+#   unrecognized program is exactly how the old list went stale. The
+#   assertion is no longer "the three programs I already knew about wrote
+#   nothing": it is that the fresh HOME holds ZERO files BrotherMode wrote,
+#   full stop (Python's own bytecode cache under Library/Caches excepted;
+#   see IGNORED_HOME_PREFIXES).
 #
 #   Numbered "step 0", not inserted into the seven-step STEP_TITLES
 #   tuple: it predates step 2 (the test-suite gate) and every step after
@@ -293,12 +314,287 @@ def step1_clone(paths, result):
 #   one addition.
 # ---------------------------------------------------------------------------
 
+HOOKS_JSON_PATH = os.path.join(REPO_ROOT, "hooks", "hooks.json")
+
+# A leak of this exact sentence anywhere under the fresh HOME is, by
+# construction, a BrotherMode write of the founder's own words before
+# consent: it is planted as the tail of the PreCompact transcript
+# (precompact-brief's own subject, Loop 9 Critical 1) and grepped for
+# afterward, so a leak is visible by grep rather than only by a manifest
+# diff.
+CANARY_SENTENCE = ("CANARY-9f3c2a-DO-NOT-PERSIST: if this sentence exists "
+                   "anywhere under the fresh HOME, a pre-consent write "
+                   "leaked the founder's own words, which is the exact "
+                   "defect this probe exists to catch.")
+
+# Python's own bytecode cache, not a BrotherMode write. Excluded by relative
+# path prefix (POSIX separators) from every fresh-HOME manifest and grep
+# below, so this probe's result depends only on what BrotherMode's own code
+# does, not on how the local interpreter happens to be configured.
+IGNORED_HOME_PREFIXES = ("Library/Caches",)
+
+# The command-string shape every hook line in hooks/hooks.json uses: an
+# interpreter (python3 or sh) followed by a CLAUDE_PLUGIN_ROOT-rooted,
+# double-quoted script path, optionally followed by bare-word arguments
+# (a subcommand such as "outcomes-append" or "pre"). This is scanned
+# against the RAW command string, not tokenized with shlex, so it finds
+# every invocation inside a `sh -c '...'` wrapper (the PreCompact line)
+# exactly as readily as a bare top-level command.
+_PROGRAM_RE = re.compile(
+    r'(?P<interp>python3|sh)\s+"\$\{CLAUDE_PLUGIN_ROOT\}'
+    r'(?P<relpath>/[^"]+)"(?P<args>(?:\s+[A-Za-z0-9_-]+)*)')
+
+
+def parse_hook_programs(hooks_json_path, result):
+    """Every BrotherMode program invocation named in hooks/hooks.json,
+    found by regex-scanning each hook's own command string rather than by
+    a hand-maintained list beside it (see the block comment above for why
+    a hand-maintained list is the exact bug this replaces). A hook whose
+    command does not match the expected shape, or a hooks.json with no
+    "hooks" object at all, fails this step loudly (result.failed already
+    called) rather than silently contributing zero invocations: a probe
+    that can go quiet on a hook it does not understand is no safer than
+    the list it replaces.
+
+    Returns a list of dicts with keys event, matcher (may be None), interp,
+    rel_path, args (a list), command_raw; or None on any parse failure."""
+    try:
+        with io.open(hooks_json_path, encoding="utf-8") as fh:
+            spec = json.load(fh)
+    except (IOError, OSError, ValueError) as exc:
+        result.failed("could not read or parse %s: %s" % (hooks_json_path, exc))
+        return None
+    hooks_by_event = spec.get("hooks") if isinstance(spec, dict) else None
+    if not isinstance(hooks_by_event, dict):
+        result.failed("%s has no top-level \"hooks\" object" % hooks_json_path)
+        return None
+    invocations = []
+    for event, groups in hooks_by_event.items():
+        for group in groups or []:
+            matcher = group.get("matcher") if isinstance(group, dict) else None
+            for hook in (group.get("hooks") or []) if isinstance(group, dict) else []:
+                command = hook.get("command") or "" if isinstance(hook, dict) else ""
+                matches = list(_PROGRAM_RE.finditer(command))
+                if not matches:
+                    result.failed(
+                        "hooks.json event %s has a command with no "
+                        "recognizable CLAUDE_PLUGIN_ROOT program invocation "
+                        "(add a case to _PROGRAM_RE or _payload_for_invocation "
+                        "before trusting this probe again): %r"
+                        % (event, command))
+                    return None
+                for m in matches:
+                    invocations.append({
+                        "event": event,
+                        "matcher": matcher,
+                        "interp": m.group("interp"),
+                        "rel_path": m.group("relpath"),
+                        "args": m.group("args").split(),
+                        "command_raw": command,
+                    })
+    if not invocations:
+        result.failed("%s named no program invocations at all" % hooks_json_path)
+        return None
+    return invocations
+
+
+def _load_stopwarn_floor(paths, result):
+    """STOPWARN_MIN_BYTES read directly from the copied tools/bm_telemetry.py
+    rather than retyped as a literal here: a constant this probe
+    reimplements by hand is exactly the class of drift that let the old
+    three-entry-point list go stale. Returns the int, or None on any import
+    or shape failure (result.failed already called)."""
+    telemetry_py = os.path.join(paths["target"], "tools", "bm_telemetry.py")
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "bm_telemetry_for_rehearsal", telemetry_py)
+        if spec is None or spec.loader is None:
+            result.failed("could not build an import spec for %s" % telemetry_py)
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except (ImportError, OSError, SyntaxError, AttributeError) as exc:
+        result.failed("could not import %s to read STOPWARN_MIN_BYTES: %s"
+                      % (telemetry_py, exc))
+        return None
+    floor = getattr(mod, "STOPWARN_MIN_BYTES", None)
+    if not isinstance(floor, int) or floor <= 0:
+        result.failed("tools/bm_telemetry.py has no usable STOPWARN_MIN_BYTES "
+                      "constant (got %r)" % (floor,))
+        return None
+    return floor
+
+
+def _build_probe_transcripts(tmp_root, stopwarn_floor, result):
+    """Three throwaway transcripts, one per payload shape this step's
+    invocations need: a small one (SessionEnd/outcomes-append does not care
+    about size), one comfortably OVER stopwarn_floor (Stop/stop-warn's own
+    trivial-size short-circuit, tools/bm_telemetry.py's STOPWARN_MIN_BYTES,
+    read by _load_stopwarn_floor rather than retyped), and one whose last
+    message is the CANARY_SENTENCE (PreCompact/precompact-brief writes the
+    founder's last message verbatim; a leak of it is then visible by
+    grepping the fresh HOME for that exact text).
+
+    Returns (small_path, big_path, big_bytes, canary_path), or None on any
+    write failure (result.failed already called)."""
+    try:
+        small = os.path.join(tmp_root, "probe-transcript-small.jsonl")
+        with io.open(small, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "user",
+                                 "timestamp": "2026-08-01T00:00:00Z",
+                                 "message": {"content": "hello"}}) + "\n")
+
+        header = json.dumps({"type": "user", "timestamp": "2026-08-01T00:00:00Z",
+                             "message": {"content":
+                                        "hello, this is a substantial session"}})
+        filler = json.dumps({"type": "assistant",
+                             "timestamp": "2026-08-01T00:00:01Z",
+                             "message": {"content": [
+                                 {"type": "text", "text": "x" * 900}]}})
+        # Comfortably over the floor (+50000 bytes), not merely past it, so a
+        # future rounding change in either number cannot flip this silently.
+        target_bytes = stopwarn_floor + 50000
+        lines = [header]
+        while sum(len(l) + 1 for l in lines) < target_bytes:
+            lines.append(filler)
+        big = os.path.join(tmp_root, "probe-transcript-big.jsonl")
+        with io.open(big, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        big_bytes = os.path.getsize(big)
+
+        canary = os.path.join(tmp_root, "probe-transcript-canary.jsonl")
+        with io.open(canary, "w", encoding="utf-8") as fh:
+            for rec in (
+                {"type": "user", "timestamp": "2026-08-01T00:00:00Z",
+                 "message": {"content": "hello"}},
+                {"type": "assistant", "timestamp": "2026-08-01T00:00:01Z",
+                 "message": {"content": [{"type": "text",
+                                          "text": "sure, one moment"}]}},
+                {"type": "user", "timestamp": "2026-08-01T00:00:02Z",
+                 "message": {"content": CANARY_SENTENCE}}):
+                fh.write(json.dumps(rec) + "\n")
+    except OSError as exc:
+        result.failed("could not write throwaway probe transcript(s): %s" % exc)
+        return None
+    return small, big, big_bytes, canary
+
+
+def _command_for_invocation(paths, inv):
+    full = os.path.join(paths["target"], *inv["rel_path"].lstrip("/").split("/"))
+    if inv["interp"] == "sh":
+        return ["sh", full] + inv["args"]
+    return [sys.executable, full] + inv["args"]
+
+
+def _payload_for_invocation(inv, repo, session_id, transcripts):
+    """The stdin JSON body for one parsed hook invocation, shaped the way
+    hooks/hooks.json actually pipes to it. Returns None for an invocation
+    this function does not recognize; the caller treats that as a hard
+    failure (see parse_hook_programs's own docstring), never a silent
+    skip."""
+    small_tp, big_tp, canary_tp = transcripts
+    key = (os.path.basename(inv["rel_path"]), tuple(inv["args"]))
+    if key == ("bm_sessionstart.sh", ()):
+        return json.dumps({"cwd": repo, "session_id": session_id,
+                           "hook_event_name": "SessionStart"})
+    if key == ("bm_telemetry.py", ("outcomes-append",)):
+        return json.dumps({"transcript_path": small_tp, "session_id": session_id,
+                           "cwd": repo, "reason": "test",
+                           "hook_event_name": "SessionEnd"})
+    if key == ("bm_telemetry.py", ("stop-warn",)):
+        # Over STOPWARN_MIN_BYTES, the one thing this payload must get right
+        # for the probe to be meaningful: a transcript UNDER the floor would
+        # short-circuit before the write path is even reached, and a probe
+        # that never reaches the write path proves nothing about it.
+        return json.dumps({"session_id": session_id, "transcript_path": big_tp,
+                           "cwd": repo, "hook_event_name": "Stop"})
+    if key == ("bm_autosave.py", ("precompact",)):
+        return json.dumps({"cwd": repo, "session_id": session_id,
+                           "hook_event_name": "PreCompact", "trigger": "auto"})
+    if key == ("bm_telemetry.py", ("precompact-brief",)):
+        return json.dumps({"transcript_path": canary_tp, "session_id": session_id,
+                           "cwd": repo, "hook_event_name": "PreCompact",
+                           "trigger": "auto"})
+    if key == ("bm_fence_hook.py", ()):
+        return json.dumps({"session_id": session_id, "cwd": repo,
+                           "tool_name": "Edit",
+                           "tool_use_id": "probe-tool-use-edit",
+                           "tool_input": {
+                               "file_path": os.path.join(repo, "would-be-edited.txt"),
+                               "old_string": "v1", "new_string": "v2"},
+                           "hook_event_name": "PreToolUse"})
+    if key == ("bm_bash_audit.py", ("pre",)):
+        return json.dumps({"session_id": session_id, "cwd": repo,
+                           "tool_name": "Bash",
+                           "tool_use_id": "probe-tool-use-bash",
+                           "tool_input": {"command": "echo probe"},
+                           "hook_event_name": "PreToolUse"})
+    if key == ("bm_bash_audit.py", ("post",)):
+        return json.dumps({"session_id": session_id, "cwd": repo,
+                           "tool_name": "Bash",
+                           "tool_use_id": "probe-tool-use-bash",
+                           "tool_input": {"command": "echo probe"},
+                           "hook_event_name": "PostToolUse"})
+    return None
+
+
 def _brothermode_refs(repo, git_env):
     r = run(["git", "for-each-ref", "refs/brothermode/"], cwd=repo, env=git_env, timeout=30)
     return [line for line in (r.stdout or "").splitlines() if line.strip()]
 
 
+def _home_manifest(fake_home):
+    """Every file under the fake HOME as {relpath: size}, skipping
+    IGNORED_HOME_PREFIXES (the interpreter's own bytecode cache, not a
+    BrotherMode write). Compared before and after this step drives every
+    hook program: any new key is a file BrotherMode wrote before consent
+    existed."""
+    out = {}
+    for root, _dirs, files in os.walk(fake_home):
+        for f in files:
+            full = os.path.join(root, f)
+            rel = os.path.relpath(full, fake_home).replace(os.sep, "/")
+            if any(rel == p or rel.startswith(p + "/") for p in IGNORED_HOME_PREFIXES):
+                continue
+            try:
+                out[rel] = os.path.getsize(full)
+            except OSError:
+                out[rel] = None
+    return out
+
+
+def _grep_tree_for_text(root_dir, needle):
+    """Every relpath under root_dir whose bytes contain needle, skipping
+    IGNORED_HOME_PREFIXES. Read as raw bytes so a stray non-UTF-8 file
+    cannot raise past this check; these are small throwaway files, so a
+    per-file whole read is fine."""
+    hits = []
+    needle_bytes = needle.encode("utf-8")
+    for root, _dirs, files in os.walk(root_dir):
+        for f in files:
+            full = os.path.join(root, f)
+            rel = os.path.relpath(full, root_dir).replace(os.sep, "/")
+            if any(rel == p or rel.startswith(p + "/") for p in IGNORED_HOME_PREFIXES):
+                continue
+            try:
+                with io.open(full, "rb") as fh:
+                    data = fh.read()
+            except OSError:
+                continue
+            if needle_bytes in data:
+                hits.append(rel)
+    return hits
+
+
 def step0_preconsent_probe(paths, base_env, result):
+    invocations = parse_hook_programs(HOOKS_JSON_PATH, result)
+    if invocations is None:
+        return False
+    stopwarn_floor = _load_stopwarn_floor(paths, result)
+    if stopwarn_floor is None:
+        return False
+
     repo = os.path.join(paths["tmp_root"], "preconsent-probe-repo")
     os.makedirs(repo)
     git_env = dict(base_env)
@@ -336,76 +632,83 @@ def step0_preconsent_probe(paths, base_env, result):
                       "step that creates one) has run" % _mask_home(cfg_path))
         return False
 
+    transcripts = _build_probe_transcripts(paths["tmp_root"], stopwarn_floor, result)
+    if transcripts is None:
+        return False
+    small_tp, big_tp, big_bytes, canary_tp = transcripts
+    result.note("Stop payload transcript: %d bytes (floor read from "
+               "tools/bm_telemetry.py STOPWARN_MIN_BYTES=%d, +50000 margin)"
+               % (big_bytes, stopwarn_floor))
+
     before_refs = _brothermode_refs(repo, git_env)
     before_tree = _vault_manifest(repo)
+    before_home = _home_manifest(paths["fake_home"])
 
     session_id = "preconsent-probe-session"
-    sessionstart_sh = os.path.join(paths["target"], "tools", "bm_sessionstart.sh")
-    telemetry_py = os.path.join(paths["target"], "tools", "bm_telemetry.py")
-    autosave_py = os.path.join(paths["target"], "tools", "bm_autosave.py")
-
-    # tools/bm_sessionstart.sh: the SessionStart payload shape.
-    r_ss = run(["sh", sessionstart_sh], cwd=repo, env=env,
-              input_text=json.dumps({"cwd": repo, "session_id": session_id,
-                                     "hook_event_name": "SessionStart"}),
-              timeout=60)
-    result.note("tools/bm_sessionstart.sh: exit %s" % r_ss.returncode)
-    result.note("  stdout: %r" % r_ss.stdout.strip()[:300])
-
-    # tools/bm_telemetry.py outcomes-append: the SessionEnd payload shape
-    # (a real, minimal transcript so the shape is genuine; I1's gate is the
-    # FIRST thing this command checks, before the transcript is even read).
-    transcript = os.path.join(paths["tmp_root"], "preconsent-probe-transcript.jsonl")
-    with io.open(transcript, "w", encoding="utf-8") as fh:
-        fh.write(json.dumps({"type": "user", "timestamp": "2026-08-01T00:00:00Z",
-                             "message": {"content": "hello"}}) + "\n")
-    r_tel = run([sys.executable, telemetry_py, "outcomes-append"], cwd=repo, env=env,
-               input_text=json.dumps({"transcript_path": transcript,
-                                      "session_id": session_id, "cwd": repo,
-                                      "reason": "test",
-                                      "hook_event_name": "SessionEnd"}),
-               timeout=60)
-    result.note("tools/bm_telemetry.py outcomes-append: exit %s" % r_tel.returncode)
-    result.note("  stdout: %r" % r_tel.stdout.strip()[:300])
-
-    # tools/bm_autosave.py precompact: the PreCompact payload shape, I1's
-    # own subject.
-    r_as = run([sys.executable, autosave_py, "precompact"], cwd=repo, env=env,
-              input_text=json.dumps({"cwd": repo, "session_id": session_id,
-                                     "hook_event_name": "PreCompact",
-                                     "trigger": "auto"}),
-              timeout=60)
-    result.note("tools/bm_autosave.py precompact: exit %s" % r_as.returncode)
-    result.note("  stdout: %r" % r_as.stdout.strip()[:300])
-    if r_as.stderr.strip():
-        result.note("  stderr: %r" % r_as.stderr.strip()[:300])
+    exits_ok = True
+    for inv in invocations:
+        payload = _payload_for_invocation(
+            inv, repo, session_id, (small_tp, big_tp, canary_tp))
+        if payload is None:
+            result.failed(
+                "hooks.json names a program this probe has no payload for: "
+                "%s %s %s (event %s, command: %r). Add a case to "
+                "_payload_for_invocation before trusting this probe again."
+                % (inv["interp"], inv["rel_path"], " ".join(inv["args"]),
+                   inv["event"], inv["command_raw"]))
+            return False
+        cmd = _command_for_invocation(paths, inv)
+        r = run(cmd, cwd=repo, env=env, input_text=payload, timeout=60)
+        matcher_suffix = (", matcher=%s" % inv["matcher"]) if inv["matcher"] else ""
+        label = "%s (%s hook%s)" % (shortcmd(cmd), inv["event"], matcher_suffix)
+        result.note("%s: exit %s" % (label, r.returncode))
+        if r.stdout.strip():
+            result.note("  stdout: %r" % r.stdout.strip()[:300])
+        if r.stderr.strip():
+            result.note("  stderr: %r" % r.stderr.strip()[:300])
+        if r.returncode != 0:
+            exits_ok = False
 
     after_refs = _brothermode_refs(repo, git_env)
     after_tree = _vault_manifest(repo)
+    after_home = _home_manifest(paths["fake_home"])
+    canary_hits = _grep_tree_for_text(paths["fake_home"], CANARY_SENTENCE)
 
-    exits_ok = (r_ss.returncode == 0 and r_tel.returncode == 0 and r_as.returncode == 0)
     refs_empty = (before_refs == [] and after_refs == [])
     refs_untouched = (before_refs == after_refs)
     tree_untouched = (before_tree == after_tree)
-    named_setup = all("python3 scripts/setup.py" in (out or "") for out in
-                      (r_ss.stdout, r_tel.stdout, r_as.stdout))
+    home_untouched = (before_home == after_home)
+    canary_absent = (canary_hits == [])
+    new_home_files = sorted(set(after_home) - set(before_home))
 
     result.note("git for-each-ref refs/brothermode/ before: %r" % before_refs)
     result.note("git for-each-ref refs/brothermode/ after:  %r" % after_refs)
-    result.note("full tree walk of the probe repo unchanged: %s (%d file(s))"
+    result.note("probe repo's full tree walk unchanged: %s (%d file(s))"
                % (tree_untouched, len(after_tree)))
+    result.note("fresh HOME unchanged, ignoring %s: %s (%d file(s) before, "
+               "%d after)" % (", ".join(IGNORED_HOME_PREFIXES), home_untouched,
+                              len(before_home), len(after_home)))
+    if new_home_files:
+        result.note("new file(s) written under the fresh HOME: %s"
+                   % ", ".join(new_home_files[:20]))
+    result.note("canary sentence found under the fresh HOME: %r" % canary_hits)
 
-    if exits_ok and refs_empty and refs_untouched and tree_untouched and named_setup:
+    if (exits_ok and refs_empty and refs_untouched and tree_untouched
+            and home_untouched and canary_absent):
         result.passed(
-            "all three entry points exited 0, named python3 scripts/setup.py, "
-            "and wrote nothing at all: refs/brothermode/ stayed empty and the "
-            "probe repo's full tree walk (%d file(s)) is byte-for-byte "
-            "unchanged" % len(after_tree))
+            "all %d program invocation(s) parsed from hooks/hooks.json "
+            "(every program on every hook line, not one per event) exited "
+            "0 and wrote nothing at all: refs/brothermode/ stayed empty, "
+            "the probe repo's tree (%d file(s)) is byte-for-byte unchanged, "
+            "the fresh HOME (%d file(s)) is unchanged, and the canary "
+            "sentence never landed anywhere in it"
+            % (len(invocations), len(after_tree), len(after_home)))
         return True
     result.failed(
         "exits_ok=%s refs_empty=%s refs_untouched=%s tree_untouched=%s "
-        "named_setup=%s" % (exits_ok, refs_empty, refs_untouched,
-                            tree_untouched, named_setup))
+        "home_untouched=%s canary_absent=%s"
+        % (exits_ok, refs_empty, refs_untouched, tree_untouched,
+           home_untouched, canary_absent))
     return False
 
 

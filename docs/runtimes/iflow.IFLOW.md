@@ -42,7 +42,7 @@ These work in any runtime that can run a shell command, which is why they carry 
 
 `python3 tools/bm_learn.py <command>` : correction learning: capture, approval, and retrieval of founder rules
 
-    commands: relevant, rules, candidates, approve, why, verify
+    commands: lookup, apply, rules, candidates, approve, why, verify
 
 `python3 tools/bm_telemetry.py <command>` : session telemetry and the nine metric scorecard
 
@@ -50,7 +50,7 @@ These work in any runtime that can run a shell command, which is why they carry 
 
 FLAGS ARE NOT LISTED HERE ON PURPOSE. Run the command with `--help` and read the real flags off the tool. An instruction file that lists flags is an instruction file that teaches a flag that got renamed six months ago.
 
-Start of session, every runtime: run the store's `dashboard` and `verify` to see what is owned and whether the store is healthy. Before acting on anything the founder has corrected you on before, run bm_learn.py `relevant`.
+Start of session, every runtime: run the store's `dashboard` and `verify` to see what is owned and whether the store is healthy. Before acting on anything the founder has corrected you on before, run bm_learn.py `lookup` to read the rules without recording anything, or `apply` when the work is substantial enough that the retrieval itself should be recorded (it needs a work identity; run it with `--help` for the exact form).
 
 ## Hooks in this runtime
 
