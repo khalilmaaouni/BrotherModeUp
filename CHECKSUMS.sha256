@@ -78,6 +78,7 @@ e7f67bb7db6dc495003098bbbdfeef799ccb5b9a83614802a9f3f4b08971e090  docs/knowledge
 910a9f119d3428e1d4147bed3eb97efc9fe925ea94a1f7e6f98956e7bbd8db33  docs/launch/HN-DRAFT.md
 6cd7b0d78a7b4ebd598846ec2f663735b1d7f169d160de00be0784253c07e420  docs/launch/PRODUCT-HUNT-DRAFT.md
 7242532d66710c59782cd3ba9c26331adf06950d3ae496569b1d217e5d7270dd  docs/one-pager.src.html
+7111161fa87e22c380be25bb47873966309fad2d8277aaec92a45f9c7824501d  docs/proposals/2026-08-02-full-auto-and-codex-execution-modes.md
 21fc10d69a1f453c0c593f3cfafe9122ef403404332c409f30116e7f7d9695d1  docs/runtimes/antigravity.brothermode.md
 16cbb1f6b7244d3a1d49e5c4d95939cc33a0ccfc0997310105107c4cf7082d37  docs/runtimes/codex.AGENTS.md
 bdd0c31833fd3483b8ec09b04baaf73f2c3164594c19c34ab8607be4e2fb323a  docs/runtimes/copilot.copilot-instructions.md
@@ -123,6 +124,7 @@ f8cb48a3136b4f92d6f54672c6dd5d8ea86f2175151f3774612e36bbfea41244  docs/superpowe
 28bc8f4ed9ef66cdc6058855f391ad4a88c4f78c61d05dd209a8e7b4213fbc0c  docs/superpowers/specs/2026-08-01-loop6-security-closure-design.md
 8a4ea945d0fd4b7b6e654406278089d9038de2d180264584b1b1e8a9f82a406d  docs/superpowers/specs/2026-08-01-release-closure-program-ratified.md
 934ef234319cfb35d61b7d25dba6e87711f6e7a1f65bca78613543e47de1fb2d  docs/superpowers/specs/2026-08-02-founder-report-5-loop7.md
+2e9ff021c3b006fb1e13612d9519c9fa61ed3bdb2304cff021f45e286e7f8f16  docs/superpowers/specs/2026-08-02-full-auto-phase2-design.md
 deb8b4605b08d95124646bfe9bc676bae1e20ba5cf5a19df97004a1c8aecc983  docs/superpowers/specs/2026-08-02-loop7-runtime-closure.md
 76c7dc45c21e9db138f56454e29971aa56ebd3d3c6eaf1b628c851e186f5e327  docs/superpowers/specs/2026-08-02-memory-sentinel-phase1-design.md
 67586ef08a09bd029ceccc1610592a7788508519a69a7c6cb13fb99d85f8dad9  hooks/hooks.json
