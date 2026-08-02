@@ -1152,7 +1152,17 @@ def cmd_startup_nags():
 def cmd_stop_warn():
     """Stop hook, fires EVERY assistant turn machine-wide: must be near-free.
     Short-circuits in order; NEVER parses the transcript; warn at most once per
-    session via a marker file; warn-only (exit 0 cannot block)."""
+    session via a marker file; warn-only (exit 0 cannot block).
+
+    Consent is the FIRST short-circuit, before stdin is even read (2026-08-02,
+    Loop 9 Critical 2, reproduced in a fresh HOME): this command creates the
+    vault telemetry directory to hold its marker file, which materializes
+    ~/BrotherModeVault in a stranger's home before they have said yes. The
+    marker carries no founder content, so this is a footprint defect rather
+    than a disclosure one, and it still falsifies the shipped sentence that a
+    fresh install writes nothing before consent."""
+    if not _consented():
+        return
     try:
         payload = json.load(sys.stdin)
     except Exception:
@@ -1566,7 +1576,18 @@ def cmd_precompact_brief():
     Mechanical extraction, not synthesis: it hands the next session the raw recent
     history so the model reconstructs the thread from complete material instead of
     a stale note. Pure python: reads the transcript file, writes one markdown file;
-    no subprocess, no network."""
+    no subprocess, no network.
+
+    Consent is checked FIRST (2026-08-02, Loop 9 Critical 1, reproduced in a
+    fresh HOME). This is the most sensitive write in this file: the brief
+    contains the founder's last message VERBATIM plus reasoning excerpts, and
+    it was landing in ~/BrotherModeVault before setup had ever run. The
+    PreCompact hook line runs TWO programs off one payload, bm_autosave.py and
+    this one; the earlier consent work gated the first and left this one open,
+    which is precisely why the gate belongs on the command rather than on the
+    hook line."""
+    if not _consented():
+        return
     try:
         payload = json.load(sys.stdin)
     except Exception:

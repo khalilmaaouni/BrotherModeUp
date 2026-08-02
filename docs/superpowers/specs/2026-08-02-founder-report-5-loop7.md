@@ -88,6 +88,49 @@ Start dogfood; accept or hold the recovered-interruption evidence; the
 PR #2 merge on 2026-08-08; upgrading the live rc.9 install after merge;
 outside installs and the non-technical user when you have the humans.
 
+## ADDENDUM, same night: an independent review found two Criticals, and they were real
+
+Written after the sections above. A SECOND session, which wrote none of the
+code it reviewed (the program's separation-of-duties law: the writer and the
+final reviewer are never the same execution context), ran its own Loop 9
+review with seven attackers and fourteen refuters against commit 225ada5. Its
+verdict: REFUSE THE TAG, ten findings upheld, two of them Critical. That
+verdict outranks the preliminary pass reported above, which this session ran
+against its own work and which is therefore evidence, not a verdict.
+
+Both Criticals were reproduced from scratch here before anything was changed,
+by driving the exact hook command lines in a throwaway home directory with no
+consent config:
+
+1. `bm_telemetry.py precompact-brief` wrote
+   `~/BrotherModeVault/99-System/telemetry/last-resume-*.md` containing the
+   founder's last message VERBATIM, before consent. The probe planted a
+   canary sentence and found it in that file.
+2. `bm_telemetry.py stop-warn` created the vault directory tree to hold its
+   once-per-session marker, before consent. No founder content, but it
+   materializes a vault in a stranger's home.
+
+Both falsified a sentence this project had been shipping in SECURITY.md and
+repeating in its reports. Both are now gated, the probe re-run shows a fresh
+home with zero files, and the fix is pinned three ways: a pre-consent test
+and a post-consent calibration test per command (so silence proves the gate
+rather than a dud payload), plus an inventory test that reads
+`hooks/hooks.json` and fails if ANY hook-wired telemetry command lacks a
+consent check.
+
+The root cause is worth more than the two bugs. The PreCompact hook line runs
+two programs off one payload. An earlier loop gated the first. Every check in
+the project drove hook EVENTS, one program per event, so no test, no
+rehearsal and no review could see the second program at all. A gate placed
+per event cannot protect a line that runs two programs; the gate belongs on
+the command, and the coverage belongs per program.
+
+Honest note on sequencing, because it reflects on this report: the branch had
+already been pushed when the review's hold arrived. The push carries the
+branch, not the release, and the second session's own verdict is that pushing
+was acceptable while tagging is not. Nothing was tagged, and the tag remains
+the founder's alone.
+
 ## Gate evidence
 
 The full serial gate ran green after the last content edit of this commit
