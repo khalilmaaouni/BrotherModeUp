@@ -28,6 +28,7 @@ No em or en dashes anywhere in this file, its comments, or its output.
 
 import hashlib
 import io
+import re
 import json
 import os
 import shutil
@@ -46,6 +47,7 @@ DOCTOR = os.path.join(ROOT, "scripts", "doctor.py")
 UNINSTALL = os.path.join(ROOT, "scripts", "uninstall.py")
 UPDATE_MD = os.path.join(ROOT, "commands", "brotherme-update.md")
 DIGEST = os.path.join(ROOT, "DIGEST.md")
+HOOKS_JSON = os.path.join(ROOT, "hooks", "hooks.json")
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -53,6 +55,23 @@ EXIT_USAGE = 2
 EXIT_REFUSED = 4
 
 SETUP_SENTENCE = "python3 scripts/setup.py"
+
+
+def _telemetry_constant(name):
+    """Read a module-level int constant out of bm_telemetry.py by parsing the
+    source, so a test can size a fixture against the REAL threshold without
+    importing the module (these suites drive it as a subprocess on purpose).
+
+    Deliberately has no default: a renamed constant raises here instead of
+    quietly substituting a number, because a fixture sized against a guessed
+    threshold is how a gate test becomes a test of nothing."""
+    with io.open(os.path.join(HERE, "bm_telemetry.py"), encoding="utf-8") as fh:
+        match = re.search(r"(?m)^%s\s*=\s*([0-9_]+)" % re.escape(name), fh.read())
+    if match is None:
+        raise AssertionError(
+            "bm_telemetry.py no longer defines %s; this fixture cannot size "
+            "itself against the real threshold, so it must not run" % name)
+    return int(match.group(1).replace("_", ""))
 
 
 def _clean_env(home):
@@ -264,6 +283,174 @@ class TelemetrySessionEndCase(unittest.TestCase):
                 if ln.strip()]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["session_id"], "sess-post-consent")
+
+
+class TelemetryEveryHookProgramPreConsentCase(unittest.TestCase):
+    """(b2) The OTHER two telemetry entrypoints wired into hooks.
+
+    Loop 9, 2026-08-02: the earlier consent work gated bm_autosave.py and
+    bm_telemetry.py outcomes-append, and missed the two commands beside them.
+    Both were reproduced writing into a fresh HOME with no consent config:
+
+      - precompact-brief wrote last-resume-<identity>.md containing the
+        founder's last message VERBATIM. A disclosure defect, the most
+        sensitive in this file.
+      - stop-warn created the vault telemetry directory to hold its
+        once-per-session marker. Content-free, but it materializes a vault in
+        a stranger's home before they say yes.
+
+    The escape route is the lesson this class encodes: the PreCompact hook
+    line runs TWO programs off one payload, and a suite that drives hook
+    EVENTS rather than every PROGRAM on each line cannot see the second one.
+    Each test below drives the program directly, and each has a post-consent
+    twin so a silent pre-consent run is proof of the gate rather than of a
+    payload that never qualified."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="bm-consent-hookprograms-")
+        self.home = os.path.join(self.tmp, "home")
+        self.project = os.path.join(self.tmp, "project")
+        os.makedirs(self.home)
+        os.makedirs(self.project)
+        self.vault = os.path.join(self.home, "BrotherModeVault")
+        self.env = _clean_env(self.home)
+        self.env["BROTHERMODE_VAULT"] = self.vault
+        self.teldir = os.path.join(self.vault, "99-System", "telemetry")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _consent(self):
+        _write_consented_config(
+            os.path.join(self.home, ".brotherme", "config.json"), self.vault)
+
+    def _run(self, command, payload):
+        return subprocess.run(
+            [sys.executable, TELEMETRY, command], cwd=self.project,
+            env=self.env, input=json.dumps(payload), stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, universal_newlines=True, timeout=120)
+
+    # -- precompact-brief -------------------------------------------------
+
+    CANARY = "CANARY-FOUNDER-SENTENCE-rotate-the-staging-key"
+
+    def _precompact_payload(self):
+        path = os.path.join(self.tmp, "transcript.jsonl")
+        rows = [
+            {"type": "user",
+             "message": {"role": "user",
+                         "content": [{"type": "text", "text": self.CANARY}]}},
+            {"type": "assistant",
+             "message": {"role": "assistant",
+                         "content": [{"type": "text",
+                                      "text": "working on the rotation"}]}},
+        ]
+        with io.open(path, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(json.dumps(r) for r in rows) + "\n")
+        return {"session_id": "sess-precompact", "transcript_path": path,
+                "cwd": self.project, "hook_event_name": "PreCompact"}
+
+    def _briefs(self):
+        if not os.path.isdir(self.teldir):
+            return []
+        return [n for n in os.listdir(self.teldir) if n.startswith("last-resume-")]
+
+    def test_pre_consent_precompact_brief_writes_no_resume_file(self):
+        r = self._run("precompact-brief", self._precompact_payload())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(
+            self._briefs(), [],
+            "precompact-brief wrote a resume brief before consent")
+        self.assertFalse(
+            os.path.exists(self.vault),
+            "precompact-brief created the vault before consent")
+
+    def test_post_consent_precompact_brief_still_writes_the_brief(self):
+        """Calibration: the payload really does produce a brief once
+        consented, so the silence above is the gate and not a dud payload.
+        Also pins WHY the gate matters: the brief carries founder prose."""
+        self._consent()
+        r = self._run("precompact-brief", self._precompact_payload())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        briefs = self._briefs()
+        self.assertEqual(len(briefs), 1, r.stdout + r.stderr)
+        body = _read_text(os.path.join(self.teldir, briefs[0]))
+        self.assertIn(self.CANARY, body)
+
+    # -- stop-warn --------------------------------------------------------
+
+    def _stopwarn_payload(self, session_id="sess-stopwarn"):
+        """A transcript comfortably OVER bm_telemetry's STOPWARN_MIN_BYTES
+        floor, read from the module rather than retyped, so a future change
+        to the floor cannot silently turn this test into a no-op."""
+        floor = _telemetry_constant("STOPWARN_MIN_BYTES")
+        path = os.path.join(self.tmp, "%s.jsonl" % session_id)
+        row = json.dumps({"type": "assistant",
+                          "message": {"role": "assistant",
+                                      "content": [{"type": "text",
+                                                   "text": "padding " * 40}]}})
+        with io.open(path, "w", encoding="utf-8") as fh:
+            written = 0
+            while written <= floor + 50000:
+                fh.write(row + "\n")
+                written += len(row) + 1
+        return {"session_id": session_id, "transcript_path": path,
+                "cwd": self.project, "hook_event_name": "Stop"}
+
+    def test_pre_consent_stop_warn_creates_no_vault_and_no_marker(self):
+        r = self._run("stop-warn", self._stopwarn_payload())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(
+            os.path.exists(self.vault),
+            "stop-warn materialized the vault before consent")
+
+    def test_post_consent_stop_warn_still_warns_once(self):
+        """Calibration: the same oversized transcript does produce the marker
+        once consented, so the pre-consent silence is the gate."""
+        self._consent()
+        r = self._run("stop-warn", self._stopwarn_payload())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        markers = ([n for n in os.listdir(self.teldir) if n.startswith(".stopwarn-")]
+                   if os.path.isdir(self.teldir) else [])
+        self.assertEqual(len(markers), 1, r.stdout + r.stderr)
+
+    def test_every_hook_wired_telemetry_command_checks_consent(self):
+        """The durable half: an inventory test rather than one test per
+        command. Every bm_telemetry.py subcommand named in hooks/hooks.json
+        must call _consented() somewhere in its function body. A future hook
+        that wires an ungated command fails here instead of in someone's home
+        directory."""
+        source = _read_text(TELEMETRY)
+        wiring = json.loads(_read_text(HOOKS_JSON))
+        # EVERY occurrence per command string, not the first: the PreCompact
+        # entry is an `sh -c` script that names two programs, and reading only
+        # the first is the exact blind spot that let precompact-brief ship
+        # ungated. Quotes are part of that script, so the subcommand is
+        # matched rather than split out of it.
+        pattern = re.compile(r"bm_telemetry\.py['\"]?\s+([a-z][a-z0-9-]*)")
+        wired = set()
+        for groups in wiring.get("hooks", {}).values():
+            for group in groups:
+                for entry in group.get("hooks", []):
+                    wired.update(pattern.findall(entry.get("command", "")))
+        self.assertTrue(wired, "no bm_telemetry.py command found in hooks.json")
+        ungated = []
+        for command in sorted(wired):
+            func = "def cmd_%s(" % command.replace("-", "_")
+            idx = source.find(func)
+            if idx == -1:
+                ungated.append("%s: no cmd_ function found" % command)
+                continue
+            nxt = source.find("\ndef ", idx + 1)
+            body = source[idx:nxt if nxt != -1 else len(source)]
+            if "_consented()" not in body:
+                ungated.append("%s: never calls _consented()" % command)
+        self.assertEqual(
+            ungated, [],
+            "a hook-wired bm_telemetry.py command writes before consent is "
+            "checked (%s). Every program on a hook line needs its own gate; "
+            "gating the line's first program does not gate the second."
+            % "; ".join(ungated))
 
 
 class SetupShowCase(unittest.TestCase):
