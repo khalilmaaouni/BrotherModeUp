@@ -51,6 +51,11 @@ ALLOWED_TRIGGERS = ("phase_boundary", "pre_risky", "post_failure",
 COOLDOWN_N = 5          # section 4, branch 2: last N interventions
 MIN_TOKEN_OVERLAP = 2   # section 4, branches 3 and 4
 
+# Per-field cap for a rendered reminder. Generous on purpose: a requirement is
+# a sentence, and a cap that truncates mid-clause produces a reminder that
+# misleads rather than one that is merely long. See render_reminder.
+REMINDER_FIELD_LIMIT = 600
+
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 
@@ -212,13 +217,33 @@ def render_reminder(memory, reason):
     plain statement when a procedural row has no diagnosis, since that
     column is nullable). WHY NOW reuses select()'s own reason string: it is
     already a trigger-specific one-liner and section 4 does not define a
-    second phrase for the same fact."""
+    second phrase for the same fact.
+
+    EVERY interpolated field passes through bm_learning.safe_display first,
+    and that is a security property rather than tidiness. This reminder is
+    injected into a working agent's context BY DESIGN, and the memories it
+    renders are written by agents that read web pages, files and command
+    output. A stored memory carrying a newline could otherwise forge extra
+    MEMORY, WHY NOW or SOURCE lines inside a block the reading agent has
+    every reason to treat as system-authored, which turns the sentinel into
+    an amplifier for whatever text an agent happened to store. safe_display
+    strips control characters and caps length, the same defence and the same
+    reason as bm_learn.py, where a newline inside a rule could forge a second
+    rule block. Three lines out, always, no matter what went in.
+
+    The cap is generous rather than the module default: a requirement is a
+    sentence, and truncating it mid-clause would produce a reminder that
+    misleads instead of one that is merely long."""
     content = memory.get("content")
     if content is None:
         content = memory.get("attempt", "")
     source = memory.get("source")
     if source is None:
         source = memory.get("diagnosis") or "no diagnosis recorded"
+    learning = _load_learning()
+    content = learning.safe_display(content or "", REMINDER_FIELD_LIMIT)
+    reason = learning.safe_display(reason or "", REMINDER_FIELD_LIMIT)
+    source = learning.safe_display(source or "", REMINDER_FIELD_LIMIT)
     return "MEMORY: %s\nWHY NOW: %s\nSOURCE: %s" % (content, reason, source)
 
 
@@ -250,6 +275,29 @@ def _out(msg=""):
 
 def _err(msg):
     sys.stderr.write("%s\n" % msg)
+
+
+def _load_learning():
+    """Lazy, by-path load of tools/bm_learning.py for safe_display, the same
+    technique bm_learn.py and bm_ledger.py use, and for the same reason: this
+    file stays a standalone script with no import-time dependency.
+
+    A failed load REFUSES rather than falling back to rendering raw text. That
+    is the rule bm_ledger.py's own review arrived at when it found a tool
+    writing founder prose unscrubbed: an unavailable scrubber must stop the
+    operation, because the alternative is a security control that silently
+    disappears exactly when something is wrong with the installation."""
+    import os
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import bm_learning
+    if not hasattr(bm_learning, "safe_display"):
+        raise RuntimeError(
+            "bm_learning.safe_display is missing, so a reminder cannot be "
+            "rendered safely. Refusing to render raw memory text into an "
+            "agent's context.")
+    return bm_learning
 
 
 def _get_store():
