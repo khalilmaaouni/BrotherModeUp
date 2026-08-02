@@ -76,6 +76,12 @@ jobs:
       # filesystem only, same posture as the ledger suite above.
       - name: Run the canonical schema suite
         run: python3 tools/test_bm_schema.py
+      # The Memory Sentinel suite, landed 2026-08-02 (Full-Auto Phase 1): the
+      # schema 13 tables, the Store methods over them, and the deterministic
+      # silence-biased selector. Stdlib only and filesystem only, same posture
+      # as the two suites above.
+      - name: Run the memory sentinel suite
+        run: python3 tools/test_bm_sentinel.py
       # The consent gate suite, landed 2026-08-01 (Loop 3): proves the hooks
       # write nothing before setup consent exists.
       - name: Run the consent gate suite

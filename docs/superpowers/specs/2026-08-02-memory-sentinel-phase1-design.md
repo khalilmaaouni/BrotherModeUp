@@ -173,6 +173,19 @@ recent_interventions(self, project_id, limit) -> list of dict
 table name is never interpolated from caller input into SQL without passing that
 whitelist first.
 
+AMENDMENT 1, 2026-08-02, raised by implementer STORE and ratified by the
+orchestrator. As first written, this section gave `retire_memory` a
+`superseded_by` argument for BOTH whitelisted tables, while section 2.2 gives
+that column only to `sentinel_knowledge`. The spec contradicted itself, and the
+implementer stopped and reported it instead of inventing a column or silently
+dropping the value. Both of those would have been worse than the contradiction.
+RESOLUTION: `superseded_by` is written only for `sentinel_knowledge`. A
+`superseded_by` supplied for `sentinel_procedural` is REFUSED BY NAME, not
+ignored, because a caller who passes it believes supersession is being recorded
+and silence would let that belief stand. `sentinel_procedural` does not gain the
+column: a procedural memory records what happened, and what happened is not
+superseded by a later attempt, it is joined by one.
+
 Validation is refusal, not coercion: an unknown `kind`, `outcome`, `trigger`,
 `decision`, or `judged` value raises `ValueError` naming the field and the
 allowed set. A value silently coerced is a value nobody can audit.
@@ -238,6 +251,20 @@ SOURCE: <source, or the diagnosis for a procedural memory>
 Three lines, never more. Meta's own instruction to their memory agent is the
 rule copied here: no strategic advice, no restating what is already visible, no
 taking over planning.
+
+AMENDMENT 2, 2026-08-02, found by the orchestrator's write-site review and
+fixed in the same pass. "Three lines, never more" is a SECURITY property, not a
+formatting preference, and the first implementation could not hold it. The
+reminder is injected into a working agent's context by design, and the memories
+it renders are written by agents that read web pages, files and command output.
+A stored memory containing a newline could therefore forge extra MEMORY, WHY
+NOW or SOURCE lines inside a block the reading agent has every reason to treat
+as system authored. Every interpolated field passes through
+`bm_learning.safe_display`, which strips control characters and caps length, the
+same defence and the same reason as `bm_learn.py`. A failed load of that helper
+REFUSES to render rather than falling back to raw text. The suite must prove
+this with a memory carrying an embedded newline and a forged MEMORY line, and
+assert the output is exactly three lines.
 
 ## 5. Command line: `tools/bm_sentinel.py`
 
