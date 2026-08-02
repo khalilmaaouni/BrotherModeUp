@@ -936,6 +936,44 @@ class TestHardInvariants(unittest.TestCase):
                 "the knowledge path" % trigger)
             self.assertTrue(reason.strip())
 
+    def test_a_cooldown_suppressed_round_is_not_filed_as_no_match(self):
+        """Spec section 4 AMENDMENT 3, from the adversarial review.
+
+        Branch 2 tests cooldown against the WHOLE pool, so when the only
+        trigger-relevant memory is in cooldown but an unrelated memory is not,
+        the round falls through to a trigger branch that finds nothing and
+        used to record "no prior attempt matches this failure". That is false,
+        and it is the reason Phase 4 reads when deciding whether the matcher is
+        too strict, so the ledger would have argued for loosening the matcher
+        when cooldown was the actual cause.
+
+        Calibrated by reinjection: replacing the _silent_reason call in the
+        post_failure branch with its bare default string fails this test."""
+        knowledge = [_k("k1", kind="requirement", surface_count=0,
+                        created_at="2026-01-01T00:00:00Z")]
+        procedural = [_p("p1", outcome="failed",
+                         attempt="ran codex exec against the workspace",
+                         surface_count=0, created_at="2026-01-01T00:00:00Z")]
+        context = "codex exec workspace failed again"
+
+        decision, _memories, reason = sn.select(
+            "post_failure", context, knowledge, procedural,
+            [{"memory_ids": "p1"}])
+        self.assertEqual(decision, "silent")
+        self.assertIn(
+            "cooldown", reason,
+            "the matching memory was suppressed by cooldown, so the recorded "
+            "reason must say so rather than claim nothing matched. Got: %r"
+            % reason)
+
+        decision, _memories, reason = sn.select(
+            "post_failure", "something entirely unrelated", knowledge,
+            procedural, [])
+        self.assertNotIn(
+            "cooldown", reason,
+            "a genuine no-match must NOT be blamed on cooldown either; the "
+            "reason has to distinguish the two. Got: %r" % reason)
+
     def test_invariant_has_no_parameter_for_sentinel_status(self):
         sig = inspect.signature(sn.select)
         self.assertEqual(
