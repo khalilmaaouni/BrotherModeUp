@@ -1422,6 +1422,24 @@ class TestCommandLine(unittest.TestCase):
                          "once something is judged, the ratio is real and "
                          "must stop reading NO-DATA")
 
+    def test_judge_refuses_to_rewind_a_verdict_to_unjudged(self):
+        """The review found the CLI accepting a third value its own usage line
+        does not offer. 'unjudged' is the state a new row starts in, and
+        letting a caller set it means the calibration ledger, the only record
+        of whether a reminder helped, can be silently erased by a command that
+        reports success. Calibrated by removing the guard, where this returns
+        0 and prints 'judged ... as unjudged'."""
+        self.run_sentinel("check", "--project", "p1", "--trigger", "resume")
+        with bs.Store(self.root, create=False) as store:
+            rows = store.recent_interventions(project_id="p1", limit=1)
+        code, text = self.run_sentinel("judge", rows[0]["id"], "unjudged")
+        self.assertEqual(code, 1, text)
+        self.assertIn("not a verdict", text)
+        with bs.Store(self.root, create=False) as store:
+            after = store.recent_interventions(project_id="p1", limit=1)
+        self.assertEqual(after[0]["judged"], "unjudged",
+                         "the refusal must leave the row untouched")
+
     def test_retire_removes_a_memory_from_the_active_list(self):
         code, text = self.run_sentinel(
             "remember-knowledge", "--project", "p1", "--kind", "fact",
