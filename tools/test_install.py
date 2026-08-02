@@ -1048,6 +1048,78 @@ class TestChecksumsDirtyTreeSkip(unittest.TestCase):
         # has other, unrelated FAILs of its own, so asserting the overall
         # exit code here would test the wrong thing.
 
+    def test_a_dirty_linked_worktree_skips_exactly_like_a_normal_checkout(self):
+        """The same dirty-tree SKIP, but in a LINKED worktree (created by
+        git worktree add), where .git is a FILE holding a gitdir: pointer
+        instead of a directory. doctor's tree-state helper used to accept
+        only a .git DIRECTORY, so it reported 'cannot tell' for a worktree
+        whose state git reports perfectly well, the SKIP guard never fired,
+        and check 9 compared a live edited tree against a release manifest
+        anyway. Every agent worktree on this project is a linked worktree,
+        so that made the guard dead code exactly where it is used most."""
+        fake_root = os.path.join(self.tmp, "wt-origin")
+        fake_scripts = os.path.join(fake_root, "scripts")
+        os.makedirs(fake_scripts)
+        for name in ("doctor.py", "setup.py"):
+            shutil.copy2(os.path.join(ROOT, "scripts", name),
+                        os.path.join(fake_scripts, name))
+        payload = os.path.join(fake_root, "payload.txt")
+        with io.open(payload, "w", encoding="utf-8") as fh:
+            fh.write("committed content\n")
+        with io.open(payload, "rb") as fh:
+            digest = hashlib.sha256(fh.read()).hexdigest()
+        with io.open(os.path.join(fake_root, "CHECKSUMS.sha256"), "w",
+                    encoding="utf-8") as fh:
+            fh.write("%s  payload.txt\n" % digest)
+
+        git_env = dict(os.environ)
+        git_env.update({"GIT_AUTHOR_NAME": "t",
+                        "GIT_AUTHOR_EMAIL": "t@example.com",
+                        "GIT_COMMITTER_NAME": "t",
+                        "GIT_COMMITTER_EMAIL": "t@example.com"})
+        linked = os.path.join(self.tmp, "wt-linked")
+        for cmd in (["git", "init"], ["git", "add", "-A"],
+                    ["git", "commit", "-m", "initial"],
+                    ["git", "worktree", "add", linked, "HEAD", "--detach"]):
+            r = subprocess.run(cmd, cwd=fake_root, env=git_env,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               universal_newlines=True, timeout=60)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(
+            os.path.isfile(os.path.join(linked, ".git")),
+            "the fixture is only meaningful if .git here is a FILE, which "
+            "is what git worktree add creates")
+
+        # Dirty the LINKED worktree the way a founder does: edit a tracked
+        # file and do not commit it.
+        with io.open(os.path.join(linked, "payload.txt"), "a",
+                    encoding="utf-8") as fh:
+            fh.write("an uncommitted local edit\n")
+
+        run_env = dict(os.environ)
+        run_env.pop("BROTHERMODE_ROOT", None)
+        run_env.pop("BM_FENCE_STRICT", None)
+        run_env["BROTHERME_CONFIG"] = self.consent_cfg
+        run_env["HOME"] = self.home
+        r = subprocess.run(
+            [sys.executable, os.path.join(linked, "scripts", "doctor.py"),
+             "--json"],
+            cwd=linked, env=run_env, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, universal_newlines=True, timeout=300)
+        report = json.loads(r.stdout)
+        checksums = [c for c in report["checks"] if c["key"] == "checksums"]
+        self.assertEqual(len(checksums), 1, r.stdout)
+        self.assertEqual(
+            checksums[0]["status"], "SKIP",
+            "a dirty LINKED worktree must SKIP the integrity check exactly "
+            "as a dirty ordinary checkout does, not compare against the "
+            "manifest and report the founder's own uncommitted edit as a "
+            "tampered file: %s" % checksums[0]["message"])
+        self.assertIn(
+            "did NOT run", checksums[0]["message"],
+            "the SKIP message must say plainly that the integrity check "
+            "did not run, so it cannot be misread as a pass")
+
 
 # ---------------------------------------------------------------------------
 # scripts/bm_shell.py: the declared-path wrapper for unavoidable shell writes.

@@ -51,17 +51,45 @@ was exercised by hand for this document.
        Do  : use the GitHub Desktop app, never a bare git push
   ```
 
-- **Retrieval, with the reason shown.** Claude (or you) can ask what rules
-  apply to a piece of work and see why each one matched, not just a bare list.
+- **Retrieval, with the reason shown.** Two separate verbs, on purpose. `lookup`
+  reads what rules apply to a piece of work and shows why each one matched; it
+  writes nothing. `apply` does the same retrieval AND records that the rules
+  were surfaced, so it needs a work identity (a session plus a claimed or
+  provisional work record) and always attempts to record. Use `lookup` for
+  exploration or to check whether a task even warrants the recorded path; use
+  `apply` for substantial work. The old `relevant` still runs, kept as a
+  deprecated alias that prints this on every call:
 
   ```
-  $ python3 tools/bm_learn.py relevant --query "I want to push this branch to github"
-    f9464c03  rank=1
+  $ python3 tools/bm_learn.py relevant --query "test"
+  bm_learn: `relevant` is DEPRECATED and will be removed in the next major
+  version. It is now an alias: use `lookup` to read without recording, or
+  `apply --session ID` to do substantial work, which always records.
+  ```
+
+  ```
+  $ python3 tools/bm_learn.py lookup --query "I want to push this branch to github"
+  MANDATORY FOUNDER GATES - 1 ACTIVE
+
+  Gc316d907  use the GitHub Desktop app, never a bare git push
+
+  Full gate text available by id (--expand <id>).
+  Manifest hash: 4128605122ba0aaaa8f7386aaf90afab92acc8e9af7c7d410e80df4b25c379f7
+
+  RELEVANT FOUNDER RULES (mode=lexical)
+
+    c316d907  rank=1
     Scope: global     State: approved     GATE
     When : pushing commits or publishing a branch to GitHub
     Do   : use the GitHub Desktop app, never a bare git push
     Why  : the founder wants every push visible on screen
     Match: terms ['branch', 'github', 'push'], relevance 0.6
+    Expanded: trigger-matched
+
+  Constitution overrides learned rules.
+  Gates: 1 of 1 applicable returned. A result limit cannot hide one.
+    of those: 1 shown in full (bounded per call), 0 in the compact manifest only. Pull one by id with --expand.
+  Soft rules: 0 shown, none omitted.
   ```
 
   Retrieval is honestly labelled `mode=lexical`: it matches on shared words,
@@ -185,17 +213,19 @@ was exercised by hand for this document.
   guarantee, soft omission is a tuning knob.
 
   ```
-  $ python3 tools/bm_learn.py relevant --query "deploying the website to production" --limit 0
-  RELEVANT FOUNDER RULES (mode=lexical)
+  $ python3 tools/bm_learn.py lookup --query "deploying the website to production" --limit 0
+  MANDATORY FOUNDER GATES - 1 ACTIVE
 
-    47ff18cb  rank=1
-    Scope: global     State: approved     GATE
-    When : when about to force push
-    Do   : never force push
-    Match: terms (none, shown because it is a gate), relevance 0.0
+  Gf325ea12  never force push
+
+  Full gate text available by id (--expand <id>).
+  Manifest hash: c729bb531d5530d5184d13b8d82db0d70ac73e6a7ed68e3f843ea2162b980658
+
+  RELEVANT FOUNDER RULES (mode=lexical)
 
   Constitution overrides learned rules.
   Gates: 1 of 1 applicable returned. A result limit cannot hide one.
+    of those: 0 shown in full (bounded per call), 1 in the compact manifest only. Pull one by id with --expand.
   Soft rules: 0 shown, 1 omitted by --limit 0. Raise the limit to see them.
   ```
 
@@ -213,14 +243,16 @@ was exercised by hand for this document.
   the soft sentence are printed on every path out of the command.
 
   ```
-  $ python3 tools/bm_learn.py relevant --query "deploying the website to production" --limit 0
+  $ python3 tools/bm_learn.py lookup --query "deploying the website to production" --limit 0
   no founder rules SHOWN here (1 in scope; mode=lexical). Rules matched. The result limit cut every one of them.
   Gates: 0 of 0 applicable returned. A result limit cannot hide one.
+    of those: 0 shown in full (bounded per call), 0 in the compact manifest only. Pull one by id with --expand.
   Soft rules: 0 shown, 1 omitted by --limit 0. Raise the limit to see them.
 
-  $ python3 tools/bm_learn.py relevant --query "zebra xylophone quarantine"
+  $ python3 tools/bm_learn.py lookup --query "zebra xylophone quarantine"
   no founder rules apply here (0 in scope, none matched; mode=lexical)
   Gates: 0 of 0 applicable returned. A result limit cannot hide one.
+    of those: 0 shown in full (bounded per call), 0 in the compact manifest only. Pull one by id with --expand.
   Soft rules: 0 shown, none omitted.
   ```
 
