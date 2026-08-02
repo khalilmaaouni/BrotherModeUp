@@ -314,6 +314,193 @@ class SentinelStoreCase(unittest.TestCase):
             "SELECT COUNT(*) FROM %s" % table).fetchone()[0]
 
 
+class TestAmendmentsAreImplementedNotJustStated(SentinelStoreCase):
+    """The adversarial review's finding: AMENDMENT 1 was written into the spec
+    and implemented in the Store, and NOTHING tested it. A spec amendment with
+    no test is a claim, and this project's whole posture is that a claim is not
+    evidence. These prove the amendments behave as written."""
+
+    def test_amendment_1_superseded_by_is_refused_for_a_procedural_row(self):
+        """Only sentinel_knowledge has the superseded_by column. Passing it for
+        a procedural row must be refused BY NAME rather than silently dropped:
+        a caller who passes it believes supersession is being recorded, and
+        silence would let that belief stand."""
+        pid = self.store.add_procedural(
+            project_id="p1", attempt="an attempt", outcome="failed",
+            diagnosis=None, session_id=None, actor=_actor())
+        kid = self.store.add_knowledge(
+            project_id="p1", kind="fact", content="replacement",
+            source="s", session_id=None, actor=_actor())
+        with self.assertRaises(ValueError) as caught:
+            self.store.retire_memory("sentinel_procedural", pid,
+                                     superseded_by=kid, actor=_actor())
+        self.assertIn("superseded_by", str(caught.exception).lower())
+
+    def test_amendment_1_a_procedural_row_still_retires_without_that_argument(self):
+        pid = self.store.add_procedural(
+            project_id="p1", attempt="an attempt", outcome="failed",
+            diagnosis=None, session_id=None, actor=_actor())
+        self.assertTrue(self.store.retire_memory(
+            "sentinel_procedural", pid, superseded_by=None, actor=_actor()))
+        self.assertEqual(self.store.active_procedural(project_id="p1"), [])
+
+
+class TestMigrationCreatedItsIndexes(SentinelStoreCase):
+    """The review found no test asserting any of the five indexes exist, so
+    the migration could have created the tables and silently skipped every
+    index with the suite green. Every read this design makes is filtered by
+    project_id, so a missing index is a slow scan that nothing would notice
+    until a store got large."""
+
+    EXPECTED = (
+        "sentinel_knowledge", "sentinel_procedural",
+        "sentinel_status", "sentinel_interventions",
+    )
+
+    def test_every_sentinel_table_carries_an_explicitly_created_index(self):
+        """Only origin 'c' counts, meaning an index this project's own CREATE
+        INDEX made. Written that way because the first version of this test
+        passed for the wrong reason: with every sentinel index deleted from
+        the migration it stayed green, since SQLite auto-creates an index for
+        the PRIMARY KEY and PRAGMA index_list reports it. A test that cannot
+        fail for the reason it exists is not coverage."""
+        path = os.path.join(self._tmpdir.name, ".brothermode", "store.sqlite3")
+        conn = sqlite3.connect(path)
+        try:
+            missing = []
+            for table in self.EXPECTED:
+                explicit = [row for row in
+                            conn.execute("PRAGMA index_list(%s)" % table)
+                            if row[3] == "c"]
+                if not explicit:
+                    missing.append(table)
+        finally:
+            conn.close()
+        self.assertEqual(
+            missing, [],
+            "spec section 2 gives every sentinel table its own index; these "
+            "carry only SQLite's automatic primary-key index, so the "
+            "migration created the table and skipped the index: %s" % missing)
+
+    def test_the_indexes_lead_with_project_id(self):
+        path = os.path.join(self._tmpdir.name, ".brothermode", "store.sqlite3")
+        conn = sqlite3.connect(path)
+        try:
+            offenders = []
+            for table in self.EXPECTED:
+                leads = set()
+                for idx in conn.execute("PRAGMA index_list(%s)" % table):
+                    cols = [r[2] for r in
+                            conn.execute("PRAGMA index_info(%s)" % idx[1])]
+                    if cols:
+                        leads.add(cols[0])
+                if "project_id" not in leads:
+                    offenders.append("%s leads with %s" % (table, sorted(leads)))
+        finally:
+            conn.close()
+        self.assertEqual(
+            offenders, [],
+            "every sentinel read filters by project_id first, so an index "
+            "that does not lead with it cannot serve those reads: %s"
+            % offenders)
+
+
+class TestWritesAreAttributed(SentinelStoreCase):
+    """The review found no test asserting that any sentinel write produced its
+    attribution row. Attribution is how this store answers who did what, and
+    an actor argument that is accepted and then dropped is worse than one that
+    was never required."""
+
+    def test_each_sentinel_write_leaves_an_attribution_trail(self):
+        self.store.add_knowledge(
+            project_id="p1", kind="fact", content="c", source="s",
+            session_id=None, actor=_actor("writer-one"))
+        self.store.add_procedural(
+            project_id="p1", attempt="a", outcome="failed", diagnosis=None,
+            session_id=None, actor=_actor("writer-one"))
+        self.store.set_status(
+            project_id="p1", summary="s", open_risks=None, session_id=None,
+            actor=_actor("writer-one"))
+        self.store.record_intervention(
+            project_id="p1", trigger="resume", decision="silent",
+            memory_ids="", reminder=None, reason="r", session_id=None,
+            actor=_actor("writer-one"))
+        rows = self.store.list_attribution(project_id="p1", raw=True)
+        self.assertTrue(
+            rows,
+            "four sentinel writes produced no attribution rows at all")
+        names = {r.get("actor_name") for r in rows}
+        self.assertIn("writer-one", names,
+                      "the actor passed to the write must reach the "
+                      "attribution row, not be dropped on the way")
+
+    def test_the_default_attribution_read_withholds_the_actor_name(self):
+        """Written after the first version of the test above failed and the
+        TEST was the thing that was wrong, not the code: the default read
+        returned '[WITHHELD: 10 chars of founder text]'. That is redact on
+        read working exactly as this store intends, so it is worth an
+        assertion of its own rather than a lesson somebody has to relearn."""
+        self.store.add_knowledge(
+            project_id="p1", kind="fact", content="c", source="s",
+            session_id=None, actor=_actor("writer-one"))
+        redacted = self.store.list_attribution(project_id="p1")
+        self.assertTrue(redacted)
+        self.assertNotIn(
+            "writer-one", {r.get("actor_name") for r in redacted},
+            "the default accessor must not hand back founder text in clear")
+
+
+class TestReadFiltersRefuseATypo(SentinelStoreCase):
+    """The review found the enum whitelist on the READ filters untested. A
+    typo'd filter that simply returned an empty list is indistinguishable from
+    a project that recorded nothing, which is the exact shape of silent
+    wrongness this design refuses."""
+
+    def test_active_knowledge_refuses_an_unknown_kind_filter(self):
+        with self.assertRaises(ValueError) as caught:
+            self.store.active_knowledge(project_id="p1", kinds=["requirment"])
+        self.assertIn("kind", str(caught.exception).lower())
+
+    def test_active_procedural_refuses_an_unknown_outcome_filter(self):
+        with self.assertRaises(ValueError) as caught:
+            self.store.active_procedural(project_id="p1", outcomes=["faild"])
+        self.assertIn("outcome", str(caught.exception).lower())
+
+
+class TestNothingChangedIsReportedHonestly(SentinelStoreCase):
+    """The review found the "did a row actually change" return values tested
+    only on the success path. A caller has to be able to tell "I retired it"
+    from "there was nothing to retire"."""
+
+    def test_retiring_a_missing_id_returns_false_rather_than_claiming_success(self):
+        self.assertFalse(self.store.retire_memory(
+            "sentinel_knowledge", "no-such-id", superseded_by=None,
+            actor=_actor()))
+
+    def test_retiring_twice_reports_false_the_second_time(self):
+        kid = self.store.add_knowledge(
+            project_id="p1", kind="fact", content="c", source="s",
+            session_id=None, actor=_actor())
+        self.assertTrue(self.store.retire_memory(
+            "sentinel_knowledge", kid, superseded_by=None, actor=_actor()))
+        self.assertFalse(self.store.retire_memory(
+            "sentinel_knowledge", kid, superseded_by=None, actor=_actor()))
+
+    def test_judging_a_missing_intervention_returns_false(self):
+        self.assertFalse(self.store.judge_intervention(
+            "no-such-id", "useful", "tester"))
+
+    def test_mark_surfaced_reports_how_many_rows_it_actually_touched(self):
+        kid = self.store.add_knowledge(
+            project_id="p1", kind="fact", content="c", source="s",
+            session_id=None, actor=_actor())
+        self.assertEqual(
+            self.store.mark_surfaced("sentinel_knowledge", [kid]), 1)
+        self.assertEqual(
+            self.store.mark_surfaced("sentinel_knowledge", ["no-such-id"]), 0,
+            "a mark that touched nothing must report 0, not 1")
+
+
 class TestProjectIsolation(SentinelStoreCase):
     """The adversarial review's CRITICAL finding, 2026-08-02: the mutation
     lens removed the project_id filter from every sentinel read and the suite
