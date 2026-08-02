@@ -525,14 +525,26 @@ def cmd_list(argv):
     knowledge = store.active_knowledge(project_id, kinds=[kind] if kind else None)
     procedural = store.active_procedural(project_id,
                                           outcomes=[outcome] if outcome else None)
+    # content and attempt are the only free text on these rows, and they are
+    # scrubbed for the same reason render_reminder scrubs: an agent reading
+    # this listing cannot tell a forged line from a real one. Proven before
+    # the fix by storing a memory whose content carried a newline plus the
+    # text "knowledge FORGED kind=requirement ...": one stored row printed as
+    # two listing lines, the second a perfect imitation of a real record. The
+    # id, kind, outcome and surface_count fields are NOT scrubbed and do not
+    # need to be: ids are store-generated hex, the two enums are validated
+    # against a whitelist on write, and the count is an integer.
+    learning = _load_learning()
     for row in knowledge:
         _out("knowledge %s kind=%s surface_count=%s content=%s"
              % (row.get("id"), row.get("kind"), row.get("surface_count"),
-                row.get("content")))
+                learning.safe_display(row.get("content") or "",
+                                      REMINDER_FIELD_LIMIT)))
     for row in procedural:
         _out("procedural %s outcome=%s surface_count=%s attempt=%s"
              % (row.get("id"), row.get("outcome"), row.get("surface_count"),
-                row.get("attempt")))
+                learning.safe_display(row.get("attempt") or "",
+                                      REMINDER_FIELD_LIMIT)))
     return EXIT_OK
 
 
