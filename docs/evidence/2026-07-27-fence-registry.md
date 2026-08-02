@@ -1,5 +1,14 @@
 # Fence registry, session 2026-07-27 (Loop 1, audit blockers)
 
+HISTORICAL. Do not read it as current state. This was a hand-written fence registry from one session,
+kept because its orchestrator note records a real law violation
+(fences written after dispatch rather than before) and deleting a
+self-critical record is how a lesson stops being learned. Superseded by:
+the generated registry in STATE.md, which is rendered from the store.
+Moved out of the repository root on 2026-08-02: a dated one-off session
+artifact at top level is the first thing a stranger sees, and it is not
+what this project wants to introduce itself with.
+
 ORCHESTRATOR NOTE, recorded rather than hidden: these three fences were written
 AFTER dispatch, not before. The law is fence-then-dispatch and I inverted it.
 No collision resulted (the write sets are disjoint and were chosen deliberately),
