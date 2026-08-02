@@ -881,6 +881,61 @@ class TestHardInvariants(unittest.TestCase):
         if decision == "inject":
             self.assertEqual(len(memories), 1)
 
+    def test_invariant_never_returns_more_than_one_memory_on_ANY_trigger(self):
+        """The adversarial review's finding, 2026-08-02: Law 1 was proven for
+        phase_boundary alone, so the other four branches could each have
+        returned two memories with the suite still green. Every trigger is
+        driven here, each with five eligible candidates of its own kind, so a
+        branch that ever returns a list rather than a single match fails.
+
+        Calibrated by reinjection: changing any branch's `return ("inject",
+        [match], ...)` to return the whole candidate list fails this test for
+        that trigger."""
+        knowledge = [_k("k%d" % i, kind="requirement", surface_count=0,
+                        created_at="2026-01-0%dT00:00:00Z" % (i + 1))
+                     for i in range(5)]
+        procedural = [_p("p%d" % i, outcome="failed",
+                         attempt="deploy migration rollback attempt %d" % i,
+                         surface_count=0,
+                         created_at="2026-01-0%dT00:00:00Z" % (i + 1))
+                      for i in range(5)]
+        context = "deploy migration rollback attempt"
+        for trigger in sn.ALLOWED_TRIGGERS:
+            decision, memories, reason = sn.select(
+                trigger, context, knowledge, procedural, [])
+            self.assertLessEqual(
+                len(memories), 1,
+                "trigger %r returned %d memories; Law 1 is one reminder, one "
+                "moment" % (trigger, len(memories)))
+            if decision == "inject":
+                self.assertEqual(len(memories), 1, trigger)
+            else:
+                self.assertEqual(memories, [], trigger)
+
+    def test_cooldown_applies_to_the_procedural_path_too(self):
+        """The review found the cooldown rule tested only on the knowledge
+        path, so a cooldown that silently ignored procedural memories would
+        have passed. post_failure and pre_risky both select procedural rows,
+        so both are driven here."""
+        procedural = [_p("p1", outcome="failed",
+                         attempt="ran codex exec against the workspace",
+                         surface_count=0, created_at="2026-01-01T00:00:00Z")]
+        context = "codex exec workspace failed again"
+        for trigger in ("post_failure", "pre_risky"):
+            decision, memories, _reason = sn.select(
+                trigger, context, [], procedural, [])
+            self.assertEqual(decision, "inject",
+                             "%s should surface the matching failure when "
+                             "nothing is in cooldown" % trigger)
+            decision, memories, reason = sn.select(
+                trigger, context, [], procedural,
+                [{"memory_ids": "p1"}])
+            self.assertEqual(
+                decision, "silent",
+                "%s must respect cooldown on the procedural path, not only "
+                "the knowledge path" % trigger)
+            self.assertTrue(reason.strip())
+
     def test_invariant_has_no_parameter_for_sentinel_status(self):
         sig = inspect.signature(sn.select)
         self.assertEqual(
