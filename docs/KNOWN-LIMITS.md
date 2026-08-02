@@ -661,12 +661,26 @@ QUICKSTART honesty label has a register entry behind it:
   (`--vault PATH --mode plugin|clone --accept-notice`) for scripted runs and
   tests, and it is the ONLY code path in the project allowed to create
   `~/.brotherme/config.json`. Every write-capable hook entry point
-  (`bm_sessionstart.sh`, and the SessionEnd writer in `bm_telemetry.py`)
-  checks that config BEFORE writing anything and, when setup has not run,
-  writes NOTHING and prints one sentence naming `scripts/setup.py`: proven
-  directly by walking both the HOME tree and the project tree before and
-  after, a fresh HOME stays at zero files after `bm_sessionstart.sh` runs
-  pre-consent (`tools/test_bm_consent.py`, the suite this loop added). The
+  (`bm_sessionstart.sh`, `bm_autosave.py`, and all three hook-wired commands
+  in `bm_telemetry.py`: `outcomes-append`, `precompact-brief` and
+  `stop-warn`) checks that config BEFORE writing anything and, when setup has
+  not run, writes NOTHING and prints one sentence naming `scripts/setup.py`:
+  proven directly by walking both the HOME tree and the project tree before
+  and after, a fresh HOME stays at zero files (`tools/test_bm_consent.py`,
+  the suite this loop added).
+  CORRECTED 2026-08-02, and the correction is the useful part: this sentence
+  named only two entry points because only two had been gated, and the two it
+  omitted were writing. `precompact-brief` wrote the founder's last message
+  VERBATIM into `~/BrotherModeVault/99-System/telemetry/last-resume-*.md`
+  pre-consent, and `stop-warn` created the vault tree to hold a marker file.
+  Both were found by an independent Loop 9 review and reproduced from scratch
+  in a throwaway HOME before being fixed. The escape route matters more than
+  either bug: the PreCompact hook line runs TWO programs off one payload, the
+  earlier fix gated the first, and every check that existed drove hook EVENTS
+  rather than every PROGRAM on each line, so nothing could see the second.
+  The gate now sits on each command, and an inventory test reads
+  `hooks/hooks.json` and fails if any hook-wired `bm_telemetry.py` command
+  lacks a consent check, so the next hook cannot reopen the class. The
   automatic session hooks no longer default the vault to
   `~/BrotherModeVault` on their own the first time they fire; they simply do
   not write until `scripts/setup.py` has recorded a vault path, and setup
