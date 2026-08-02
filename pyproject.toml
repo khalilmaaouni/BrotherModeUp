@@ -97,5 +97,6 @@ py-modules = [
     "bm_project_facts",
     "bm_project",
     "bm_ledger",
+    "bm_sentinel",
 ]
 include-package-data = false
