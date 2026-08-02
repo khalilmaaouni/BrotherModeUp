@@ -1309,7 +1309,14 @@ class TestExportAndPurge(unittest.TestCase):
             self._seeded_project(root)
             r = _run(["export", "--project-id", "proj1"], root)
             self.assertEqual(r.returncode, 0, r.stderr)
-            expected = os.path.join(root, "EXPORT-proj1.json")
+            # realpath on the expected side, because the CLI prints the path its
+            # own root resolver produced and that resolver canonicalizes. On
+            # Windows the two spellings of one directory differ visibly:
+            # tempfile hands back the 8.3 short form (C:\Users\RUNNER~1\...)
+            # while the resolver returns the long form (C:\Users\runneradmin\...),
+            # so the unresolved comparison failed on both Windows legs of CI
+            # while passing everywhere else. Same directory, two names.
+            expected = os.path.join(os.path.realpath(root), "EXPORT-proj1.json")
             self.assertIn(expected, r.stdout)
             self.assertTrue(os.path.isfile(expected))
 
