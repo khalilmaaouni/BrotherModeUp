@@ -300,6 +300,44 @@ def _load_learning():
     return bm_learning
 
 
+class Refused(Exception):
+    """A refusal the command line turns into EXIT_REFUSED with one readable
+    line. Raised rather than printed at the raise site so every command
+    refuses in the same shape."""
+
+
+def _require_project(store, project_id):
+    """Spec section 5 lists "unknown project" as an exit-1 refusal, and the
+    adversarial review of 2026-08-02 found no command enforcing it.
+
+    This is not bookkeeping. Every sentinel write also writes an attribution
+    row, and an attribution row against a project that has no projects record
+    leaves the store's OWN integrity check reporting a problem. Reproduced
+    before this function existed:
+
+        $ bm_sentinel.py remember-knowledge --project does-not-exist ...
+        exit=0
+        $ bm_store.py verify
+        verify: 1 problem(s) found:
+          - attribution event ... references missing project 'does-not-exist'
+
+    So a typo'd project name did not fail, it silently damaged the store.
+    Create the project first with bm_project.py start."""
+    if store.get_project(project_id) is None:
+        import os
+        bm_store = sys.modules.get("bm_store")
+        start_cmd = bm_store.invocation(
+            "bm_project",
+            os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "bm_project.py"))
+        raise Refused(
+            "no project %r in this store. Sentinel memories attach to a "
+            "project, and writing against one that does not exist leaves "
+            "the store's own verify reporting a dangling attribution row. "
+            "Create it first: %s start --project-id %s --name ... "
+            "--actor-name ..." % (project_id, start_cmd, project_id))
+
+
 def _get_store():
     """Lazy, inside-the-function import of tools/bm_store.py, so this
     module never depends on the Store at load time. bm_store.py is owned
@@ -384,6 +422,7 @@ def cmd_remember_knowledge(argv):
     session_id = kv.get("session")
     actor = _actor(kv)
     store = _get_store()
+    _require_project(store, project_id)
     try:
         memory_id = store.add_knowledge(project_id, kind, content, source,
                                          session_id, actor)
@@ -407,6 +446,7 @@ def cmd_remember_procedural(argv):
     session_id = kv.get("session")
     actor = _actor(kv)
     store = _get_store()
+    _require_project(store, project_id)
     try:
         memory_id = store.add_procedural(project_id, attempt, outcome,
                                           diagnosis, session_id, actor)
@@ -429,6 +469,7 @@ def cmd_status_set(argv):
     session_id = kv.get("session")
     actor = _actor(kv)
     store = _get_store()
+    _require_project(store, project_id)
     try:
         status_id = store.set_status(project_id, summary, open_risks,
                                       session_id, actor)
@@ -457,6 +498,7 @@ def cmd_check(argv):
         return EXIT_REFUSED
 
     store = _get_store()
+    _require_project(store, project_id)
     knowledge = store.active_knowledge(project_id)
     procedural = store.active_procedural(project_id)
     recent = store.recent_interventions(project_id, COOLDOWN_N)
@@ -522,6 +564,7 @@ def cmd_list(argv):
     kind = kv.get("kind")
     outcome = kv.get("outcome")
     store = _get_store()
+    _require_project(store, project_id)
     knowledge = store.active_knowledge(project_id, kinds=[kind] if kind else None)
     procedural = store.active_procedural(project_id,
                                           outcomes=[outcome] if outcome else None)
@@ -554,6 +597,7 @@ def cmd_stats(argv):
     _positional, kv = _parse(argv, known, known)
     project_id = _require(kv, "project", usage)
     store = _get_store()
+    _require_project(store, project_id)
     stats = store.intervention_stats(project_id)
     ratio = stats.get("useful_ratio")
     ratio_str = "NO-DATA" if ratio is None else ("%.2f" % ratio)
@@ -575,6 +619,7 @@ def cmd_retire(argv):
     superseded_by = kv.get("superseded-by")
     actor = _actor(kv)
     store = _get_store()
+    _require_project(store, project_id)
 
     # retire_memory (section 3) takes a table name, not documented anywhere
     # in section 5's command table as a CLI flag. Determined here by
@@ -644,7 +689,21 @@ def main(argv=None):
         _err("bm_sentinel: unknown command %r" % cmd)
         _err(_USAGE)
         return EXIT_USAGE
-    return handler(argv[1:])
+    try:
+        return handler(argv[1:])
+    except Refused as exc:
+        # One refusal shape for every command. The founder this tool is for
+        # is not an engineer, and a Python traceback is not a message: it is
+        # a failure to write one.
+        _err("bm_sentinel: refused. %s" % exc)
+        return EXIT_REFUSED
+    except ValueError as exc:
+        # The Store raises ValueError by name for every invalid enum, and the
+        # adversarial review found paths where that reached the terminal as a
+        # raw traceback. The message is already precise; it just needed a
+        # door to come out of.
+        _err("bm_sentinel: refused. %s" % exc)
+        return EXIT_REFUSED
 
 
 if __name__ == "__main__":
