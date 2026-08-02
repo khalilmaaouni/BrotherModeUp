@@ -314,6 +314,70 @@ class SentinelStoreCase(unittest.TestCase):
             "SELECT COUNT(*) FROM %s" % table).fetchone()[0]
 
 
+class TestProjectIsolation(SentinelStoreCase):
+    """The adversarial review's CRITICAL finding, 2026-08-02: the mutation
+    lens removed the project_id filter from every sentinel read and the suite
+    stayed green, which means nothing here was proving that one project cannot
+    see another project's memories. These tests exist so that mutation fails.
+
+    Calibrated by reinjection: with the project_id condition removed from
+    active_knowledge, active_procedural, latest_status and
+    recent_interventions, each test below fails."""
+
+    def _seed_two_projects(self):
+        self.store.add_knowledge(
+            project_id="p1", kind="fact", content="belongs to p1",
+            source="s", session_id=None, actor=_actor())
+        self.store.add_knowledge(
+            project_id="p2", kind="fact", content="belongs to p2",
+            source="s", session_id=None, actor=_actor())
+        self.store.add_procedural(
+            project_id="p1", attempt="p1 attempt", outcome="failed",
+            diagnosis=None, session_id=None, actor=_actor())
+        self.store.add_procedural(
+            project_id="p2", attempt="p2 attempt", outcome="failed",
+            diagnosis=None, session_id=None, actor=_actor())
+
+    def test_active_knowledge_never_returns_another_projects_rows(self):
+        self._seed_two_projects()
+        rows = self.store.active_knowledge(project_id="p1")
+        self.assertEqual([r["content"] for r in rows], ["belongs to p1"])
+
+    def test_active_procedural_never_returns_another_projects_rows(self):
+        self._seed_two_projects()
+        rows = self.store.active_procedural(project_id="p2")
+        self.assertEqual([r["attempt"] for r in rows], ["p2 attempt"])
+
+    def test_latest_status_never_reads_another_projects_status(self):
+        self.store.set_status(project_id="p1", summary="p1 summary",
+                              open_risks=None, session_id=None,
+                              actor=_actor())
+        self.assertIsNone(
+            self.store.latest_status(project_id="p2"),
+            "p2 has no status of its own, so reading one means the "
+            "project filter is gone")
+        self.assertEqual(
+            self.store.latest_status(project_id="p1")["summary"],
+            "p1 summary")
+
+    def test_recent_interventions_never_returns_another_projects_rows(self):
+        self.store.record_intervention(
+            project_id="p1", trigger="resume", decision="silent",
+            memory_ids="", reminder=None, reason="nothing to say",
+            session_id=None, actor=_actor())
+        self.assertEqual(
+            self.store.recent_interventions(project_id="p2", limit=5), [],
+            "p2 recorded no interventions, so any row here is p1's")
+
+    def test_intervention_stats_counts_only_its_own_project(self):
+        self.store.record_intervention(
+            project_id="p1", trigger="resume", decision="silent",
+            memory_ids="", reminder=None, reason="r",
+            session_id=None, actor=_actor())
+        self.assertEqual(self.store.intervention_stats("p2")["total"], 0)
+        self.assertEqual(self.store.intervention_stats("p1")["total"], 1)
+
+
 class TestKnowledgeMethods(SentinelStoreCase):
     def test_add_knowledge_happy_path_appears_in_active_knowledge(self):
         kid = self.store.add_knowledge(
@@ -906,6 +970,16 @@ class TestReminderCannotBeForged(unittest.TestCase):
         self.assertNotIn("\r", out,
                          "carriage returns can rewrite a rendered line in a "
                          "terminal, so they must not reach the output")
+
+    def test_the_reminder_carries_the_content_it_was_given(self):
+        """Scrubbing must not be so aggressive that the reminder stops saying
+        anything. The adversarial review's point: the line-count tests would
+        all still pass if render_reminder returned three empty labels."""
+        memory = {"id": "k1", "content": "python 3.9 only", "source": "founder"}
+        out = sn.render_reminder(memory, "a reason")
+        self.assertIn("python 3.9 only", out)
+        self.assertIn("founder", out)
+        self.assertIn("a reason", out)
 
 
 # ---------------------------------------------------------------------------
