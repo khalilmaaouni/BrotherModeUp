@@ -236,12 +236,17 @@ rather than expecting silence:
 grep -rnE "urllib|requests|socket|http|curl|wget" tools/*.py tools/*.sh | grep -v "^tools/test_"
 ```
 
-Expected today: two lines, both in `tools/bm_fence_hook.py` (around lines 19 and
-427), both comments citing the URL of the Claude Code hooks documentation that
-the hook implements. A documentation URL inside a comment is not a call, and
-pretending the sweep comes back empty would have been the easier sentence to
-write and a false one. The `test_` files are excluded because they deliberately
-contain these words in fixture data and in the test that enforces the ban above.
+Expect a handful of hits, and expect every one of them to be a URL written
+down rather than a URL fetched: vendor documentation links in comments and in
+the runtime registry's source table, which records where each runtime fact was
+read and on what date. Read the hits by KIND, not by count: what would matter
+is an import of `urllib` or `requests`, or a `socket`, `curl` or `wget`
+invocation, and the sweep shows none. Counting them here instead was a
+mistake, corrected on 2026-08-02: this paragraph claimed two lines while the
+sweep returned fifteen, which is the worst place in the document to be wrong,
+because it sits in the section inviting you to distrust us and check. The
+`test_` files are excluded because they deliberately contain these words in
+fixture data and in the test that enforces the ban above.
 The one thing that shells out at all is the autosave mechanism, and it only ever
 calls local `git`, never a network command; `grep -rn subprocess tools/*.py
 tools/*.sh | grep -v test_` shows exactly where.
