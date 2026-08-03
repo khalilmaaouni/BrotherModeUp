@@ -259,6 +259,32 @@ active record covers, turning "do not cross a fence" into "claim before you edit
 default because it changes the working rhythm for everyone in the repo. It can only ever
 tighten: it cannot override the fail-open rule below.
 
+One consequence of that last sentence is worth stating outright, because a reader can
+easily assume the opposite (C-01, 2026-08-03). Strict mode is read AFTER every fail-open
+path, so on a store with **no active claims at all** it does nothing whatsoever: the
+"no active claims" fail-open fires first and the write is allowed. That is the state a
+fresh project sits in, which is exactly where "claim before you edit" would matter most.
+Strict tightens which PATHS are covered while the fence is working; it has never had
+anything to say about what happens when the fence CANNOT work.
+
+### Enforced mode (opt in, and the one that fails closed)
+
+`BM_FENCE_MODE=enforced` is the answer to that gap. It changes one thing: every condition
+that would otherwise allow a write **without having checked ownership** now refuses it
+instead. An adversarial probe drove nine of them, and before this every single one allowed
+a write straight through another session's active fence with exit 0: store missing, store
+corrupt, store zero bytes, store present with zero active claims, five shapes of malformed
+payload, an unrecognized path key, an internal exception mid-decision, `bm_store.py`
+unimportable, and an underivable session identity.
+
+Enforced mode does not touch the happy path: the session holding a claim still writes
+freely, and a genuine cross-fence write is refused with the same message as before. It is
+opt-in and stays that way, because a hook that starts refusing edits on a machine whose
+owner never asked for it is a worse failure than an unenforced fence.
+
+What it still cannot do is gate Bash. A shell command that writes across a fence is
+detected afterwards by the `Bash` audit pair, never refused, in either mode.
+
 ## Fail open, loudly
 
 This hook sits in front of every edit the founder makes. A hook that failed closed on its

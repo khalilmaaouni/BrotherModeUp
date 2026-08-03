@@ -31,7 +31,15 @@ today: no outside human, no paid credits, no calendar time.
 - Adversarial test: the same nine conditions, plus a tenth that removes the hook
   mid-session, asserted to deny rather than allow.
 - machine-closable: **yes**
-- Status: OPEN
+- Status: **CLOSED 2026-08-03.** `BM_FENCE_MODE=enforced` added to
+  `tools/bm_fence_hook.py`. Both exception handlers in `decide()` now return a
+  deny in enforced mode, which covers all nine conditions at once because every
+  one of them funnels through `_FailOpen` or the blanket catch. Default
+  behaviour is byte-for-byte unchanged, which was the founder's decision.
+  `EnforcedModeFailsClosed` in `tools/test_bm_fence_hook.py` carries nine tests,
+  and each asserts BOTH directions on its condition: deny under enforced, allow
+  under the default, so a later change cannot quietly make fail-closed the
+  default. Fence suite 50 tests to 59, all green.
 
 ## C-02 One ungated shell command disables enforcement
 
@@ -75,7 +83,13 @@ today: no outside human, no paid credits, no calendar time.
 - Adversarial test: a docs test that fails if a security claim names a guarantee
   no test proves.
 - machine-closable: **yes**
-- Status: OPEN
+- Status: **CLOSED 2026-08-03.** All three corrected. `SKILL.md` now says the
+  hook refuses a write to a file ANOTHER active claim covers, states that an
+  unclaimed path is allowed by default, names both opt-in switches, and says
+  plainly that a shell write crosses a fence unrefused. `docs/HOOKS.md` gains a
+  paragraph saying outright that strict mode is a no-op on a zero-claims store,
+  plus an enforced-mode section. The Loop 6 design spec no longer calls
+  `BM_FENCE_STRICT` a fail-closed option, and says why that was wrong.
 
 ## C-04 The write-site manifest is partial but presented as complete
 
@@ -105,7 +119,14 @@ today: no outside human, no paid credits, no calendar time.
 - Adversarial test: introduce a syntax construct unavailable on the floor and
   assert CI fails.
 - machine-closable: **yes**
-- Status: OPEN
+- Status: **CLOSED 2026-08-03.** The `suite` job gains the same two-value python
+  axis the `store` job already used, so all twelve real suites now run on the
+  declared 3.9 floor as well as on current Python. The `gate` job stays on `3.x`
+  deliberately: it runs `test_all.py`, the orchestrator, which has no test
+  methods of its own, and the twelve suites it spawns are already covered on
+  3.9 by the other two jobs. Verified first by running all ten affected suites
+  locally under 3.9.6; every one passed, so this was a CI wiring gap, not a
+  compatibility one.
 
 ## C-06 Pip-installed copies are missing most of the CLI
 
@@ -129,7 +150,11 @@ today: no outside human, no paid credits, no calendar time.
 - Required change: one generator, or a test asserting the two agree field by field.
 - Acceptance: a test compares both and fails on any divergence.
 - machine-closable: **yes**
-- Status: OPEN
+- Status: **CLOSED 2026-08-03.** `scripts/install.py` now carries the same
+  timeout and statusMessage as `hooks/hooks.json` on every group, and
+  `TestHooksJsonAgreesWithInstaller` in `tools/test_install.py` compares them
+  field by field. Proven red first: it named all eleven mismatches before the
+  fix. Installer suite 70 tests to 71, all green.
 
 ## C-08 STATE.md is not byte-stable
 
@@ -140,7 +165,13 @@ today: no outside human, no paid credits, no calendar time.
   it from the stability contract explicitly.
 - Acceptance: two renders with unchanged state are byte-identical.
 - machine-closable: **yes**
-- Status: OPEN
+- Status: **CLOSED 2026-08-03.** `render_state_md` no longer stamps a render
+  time. The existing stability test had been FREEZING the clock to work around
+  this, so it could never have caught it; the freeze is gone and it now runs
+  live. A second test guards the property directly and earned its place: with
+  the timestamp reintroduced to calibrate, the stability test still passed
+  because three renders landed inside one second, and only the direct test
+  failed.
 
 ## C-09 Quarantine directory permissions
 
@@ -148,7 +179,9 @@ today: no outside human, no paid credits, no calendar time.
 - Reproduction: quarantine files are 0600, the directory containing them is never
   `chmod`'d, unlike `.brothermode/` at 0700.
 - machine-closable: **yes**
-- Status: OPEN
+- Status: **CLOSED 2026-08-03.** The quarantine directory now gets 0700 through
+  the same `_chmod_best_effort` helper the store directory uses, asserted in
+  `test_calibrated_8_corrupt_db_quarantines_and_recovers` on POSIX.
 
 ## C-10 CI push trigger names a branch that does not exist
 
@@ -156,9 +189,9 @@ today: no outside human, no paid credits, no calendar time.
 - Reproduction: `tests.yml` triggers on `[main, v2]`; `v2` exists nowhere, so
   release branches get no push-triggered run.
 - machine-closable: **yes**
-- Status: OPEN
-
----
+- Status: **CLOSED 2026-08-03.** The push trigger is now `[ main, "release/**" ]`,
+  so release branches get push-triggered runs instead of relying on pull
+  requests alone.
 
 ## Not machine-closable, and therefore not scoreable today
 
