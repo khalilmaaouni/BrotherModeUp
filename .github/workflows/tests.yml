@@ -23,7 +23,12 @@ permissions:
   contents: read
 on:
   push:
-    branches: [ main, v2 ]
+    # `release/**` rather than a bare branch name (2026-08-03): the list used to
+    # name `v2`, which matches no branch here and has not for a long time, so
+    # release branches got no push-triggered run at all and were covered only by
+    # the pull-request trigger. That is how three red runs sat unnoticed on a
+    # release branch while local gates read green.
+    branches: [ main, "release/**" ]
   pull_request:
 jobs:
   suite:
@@ -36,6 +41,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        # Both ends of the supported range, not just the newest (2026-08-03).
+        # pyproject declares >=3.9 and scripts/install.py refuses below (3, 9),
+        # but only three of the twelve suites had ever executed under 3.9: this
+        # job pinned "3.x" and ran the other nine there alone. A floor nothing
+        # tests is a claim, not a guarantee. The store job below already proved
+        # this exact two-value pattern works here.
+        python: ["3.9", "3.x"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -43,7 +55,7 @@ jobs:
           fetch-depth: 0 # tags must exist here; see the header note
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: "3.x"
+          python-version: ${{ matrix.python }}
       - name: Configure git (autosave test needs an identity)
         run: |
           git config --global user.email ci@example.com
@@ -51,7 +63,10 @@ jobs:
       - name: Run tests
         run: python3 tools/test_bm.py
       - name: Score checks (strict)
-        if: matrix.os == 'ubuntu-latest'
+        # Pinned to one leg of the new python axis as well as one OS: this is a
+        # telemetry scorecard, not a suite, and it is not version sensitive, so
+        # without the second clause it would run twice per push for no gain.
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.x'
         run: python3 tools/bm_score.py --strict
       # Audit finding 14 (2026-07-27): the recovery suite was NOT in CI, even though
       # autosave makes the strongest claim this project makes ("your work is safe").

@@ -174,28 +174,46 @@ def hook_groups(target):
     half, the post phase that does the detecting."""
     cmds = hook_commands(target)
 
-    def _group(matcher, command, timeout):
+    def _group(matcher, command, timeout, status_message):
         entry = {"type": "command", "command": command}
         if timeout is not None:
             entry["timeout"] = timeout
+        if status_message is not None:
+            entry["statusMessage"] = status_message
         group = {"hooks": [entry]}
         if matcher is not None:
             group["matcher"] = matcher
         return group
 
+    # C-07 (2026-08-03): every timeout and statusMessage below must match
+    # hooks/hooks.json exactly, because those two files are the two documented
+    # install paths and a reader following either one is entitled to the same
+    # installation. They had drifted: this helper set no statusMessage at all
+    # and no timeout on the first four events, so a plugin install and a clone
+    # install produced measurably different configurations and nothing
+    # compared them. tools/test_install.py's TestHooksJsonAgreesWithInstaller
+    # now fails on any divergence, field by field.
     return {
-        "SessionStart": [_group(None, cmds["SessionStart"], None)],
-        "SessionEnd": [_group(None, cmds["SessionEnd"], None)],
-        "Stop": [_group(None, cmds["Stop"], None)],
-        "PreCompact": [_group(None, cmds["PreCompact"], None)],
+        "SessionStart": [_group(None, cmds["SessionStart"], 30,
+                                "Loading your project memory")],
+        "SessionEnd": [_group(None, cmds["SessionEnd"], 30,
+                              "Saving the session record")],
+        "Stop": [_group(None, cmds["Stop"], 15,
+                        "Checking for unfinished work")],
+        "PreCompact": [_group(
+            None, cmds["PreCompact"], 60,
+            "Saving your work before the context is condensed")],
         "PreToolUse": [
-            _group(FENCE_MATCHER, cmds["PreToolUse"], FENCE_TIMEOUT),
+            _group(FENCE_MATCHER, cmds["PreToolUse"], FENCE_TIMEOUT,
+                   "Checking that only one worker edits this file"),
             _group(BASH_AUDIT_MATCHER, cmds["PreToolUse-bash-audit"],
-                   BASH_AUDIT_PRE_TIMEOUT),
+                   BASH_AUDIT_PRE_TIMEOUT,
+                   "Noting the fenced files before this shell command runs"),
         ],
         "PostToolUse": [
             _group(BASH_AUDIT_MATCHER, cmds["PostToolUse-bash-audit"],
-                   BASH_AUDIT_POST_TIMEOUT),
+                   BASH_AUDIT_POST_TIMEOUT,
+                   "Checking whether that shell command crossed a fence"),
         ],
     }
 

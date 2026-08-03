@@ -463,6 +463,17 @@ class TestCalibratedReinjections(unittest.TestCase):
             self.assertTrue(qpath and os.path.exists(qpath),
                              "the damaged file must survive at the quarantine path")
             self.assertFalse(os.path.exists(path), "the corrupt path must be vacated by the rename")
+            # C-09 (2026-08-03): the quarantine DIRECTORY was never chmod'd,
+            # only the files moved into it. A quarantined database holds the
+            # same rows the live one did, so the directory gets the same 0700
+            # the store directory gets. Skipped where the platform has no
+            # POSIX modes, matching how the suite treats mode checks elsewhere.
+            if os.name == "posix":
+                qdir = os.path.dirname(qpath)
+                self.assertEqual(
+                    stat.S_IMODE(os.stat(qdir).st_mode), 0o700,
+                    "the quarantine directory must be owner-only, like the "
+                    "store directory it came from")
             store = bs.Store(d)
             try:
                 rec = store.claim("thing", "ephemeral", "test", [])
@@ -3850,10 +3861,16 @@ class TestStateView(unittest.TestCase):
         same way, for the identical bug in _splice_generated there). Prose
         both before AND after the markers, so every render after the first
         exercises the splice path (begin_count == 1), never the from-empty
-        append path. now_iso is frozen so the timestamp render_state_md
-        stamps into its own header line cannot be the thing that changes
-        between renders; the fixed point under test is the marker splice,
-        not the clock."""
+        append path.
+
+        The clock is NO LONGER frozen here (C-08, 2026-08-03). It used to be,
+        with a docstring explaining that the timestamp render_state_md stamped
+        into its own header could not then be the thing that changed between
+        renders. That freeze was the suite tolerating a real defect rather than
+        proving its absence: STATE.md genuinely was not byte-stable, and this
+        test could not have caught it. render_state_md now carries no render
+        time at all, so the assertion below runs against a live clock and means
+        what it says."""
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "STATE.md")
             with io.open(path, "w", encoding="utf-8") as f:
@@ -3863,26 +3880,52 @@ class TestStateView(unittest.TestCase):
                 store.claim("payments", "persistent", "ship stripe", [])
             finally:
                 store.close()
-            with mock.patch.object(bs, "now_iso", lambda: "2026-08-01T00:00:00Z"):
-                bs.write_state_view(d)
-                with io.open(path, "a", encoding="utf-8") as f:
-                    f.write("\nprose written after the markers, by hand\n")
-                with io.open(path, encoding="utf-8") as f:
-                    render1 = f.read()
-                bs.write_state_view(d)
-                with io.open(path, encoding="utf-8") as f:
-                    render2 = f.read()
-                self.assertEqual(
-                    render1, render2,
-                    "STATE.md must regenerate byte-stable from the same rows")
-                bs.write_state_view(d)
-                with io.open(path, encoding="utf-8") as f:
-                    render3 = f.read()
-                self.assertEqual(render2, render3)
+            bs.write_state_view(d)
+            with io.open(path, "a", encoding="utf-8") as f:
+                f.write("\nprose written after the markers, by hand\n")
+            with io.open(path, encoding="utf-8") as f:
+                render1 = f.read()
+            bs.write_state_view(d)
+            with io.open(path, encoding="utf-8") as f:
+                render2 = f.read()
+            self.assertEqual(
+                render1, render2,
+                "STATE.md must regenerate byte-stable from the same rows")
+            bs.write_state_view(d)
+            with io.open(path, encoding="utf-8") as f:
+                render3 = f.read()
+            self.assertEqual(render2, render3)
             self.assertIn("prose written before the markers", render3)
             self.assertIn("prose written after the markers, by hand", render3)
             self.assertEqual(
                 render3.count("prose written after the markers, by hand"), 1)
+
+    def test_state_md_header_carries_no_render_timestamp(self):
+        """C-08 (2026-08-03): the generated header must not stamp its own
+        render time. Guarding the property directly, not only through the
+        byte-stability test above, because a future edit could reintroduce a
+        timestamp in a form that happens to survive three renders inside one
+        fast test run and still break stability in the field."""
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("payments", "persistent", "ship stripe", [])
+            finally:
+                store.close()
+            bs.write_state_view(d)
+            with io.open(os.path.join(d, "STATE.md"), encoding="utf-8") as f:
+                rendered = f.read()
+            header = [ln for ln in rendered.split("\n")
+                      if ln.startswith("_Generated by bm_store.py")]
+            self.assertEqual(
+                len(header), 1,
+                "expected exactly one generated-by header line, got %r"
+                % (header,))
+            self.assertNotRegex(
+                header[0], r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}",
+                "the generated header must carry no render timestamp: it is "
+                "what made STATE.md the one view that could never regenerate "
+                "byte-stable")
 
 
 class TestVerify(unittest.TestCase):
