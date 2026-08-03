@@ -121,6 +121,12 @@ SUITES = (
     # tests, and its drift test fails on a spec/code mismatch rather than on
     # timing, so it runs with the other cheap early suites.
     "test_bm_schema.py",
+    # The Memory Sentinel (Phase 1 of the Full-Auto program, 2026-08-02): the
+    # schema 13 tables, the Store methods over them, and the deterministic
+    # selector. Placed with the cheap early suites because most of it drives a
+    # pure function with plain data and the rest uses a throwaway store, so it
+    # fails on a policy branch rather than on timing.
+    "test_bm_sentinel.py",
     "test_bm.py",
 )
 
