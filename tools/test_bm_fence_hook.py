@@ -394,6 +394,194 @@ class CalibratedFailOpen(FenceHookBase):
 # Path canonicalization: a comparison on unresolved strings is no fence.
 # ---------------------------------------------------------------------------
 
+class EnforcedModeFailsClosed(FenceHookBase):
+    """C-01 (2026-08-03). An adversarial probe found that EVERY failure path in
+    this hook produced an allow: nine conditions each let a write through
+    another session's active fence with exit 0, and BM_FENCE_STRICT could not
+    help because it is read after all of them and is a no-op on a zero-claims
+    store. BM_FENCE_MODE=enforced makes those same conditions refuse.
+
+    Every test here asserts BOTH directions on the same condition: deny under
+    enforced, allow under the default. The second half is the important one.
+    It is what stops a later change from quietly making fail-closed the
+    default for people who never asked for it, which this project decided
+    against on purpose."""
+
+    def _both_ways(self, break_it, fragment=None):
+        """Apply break_it(), then assert deny in enforced and allow by default."""
+        break_it()
+        p = payload(self.OTHER, self.root)
+        with mock.patch.dict(os.environ, {"BM_FENCE_MODE": "enforced"}):
+            decision, notes = self.decide(p)
+        reason = self.assertDenied(decision)
+        self.assertIn("enforced mode", reason)
+        self.assertTrue(any("FAILING CLOSED" in n for n in notes), notes)
+        if fragment is not None:
+            self.assertIn(fragment, " ".join(notes))
+        with mock.patch.dict(os.environ, {"BM_FENCE_MODE": ""}):
+            decision2, notes2 = self.decide(p)
+        self.assertAllowed(decision2)
+        self.assertTrue(any("FAILING OPEN" in n for n in notes2), notes2)
+
+    def _remove_store(self):
+        for suffix in ("", "-wal", "-shm"):
+            p = bs.store_path(self.root) + suffix
+            if os.path.exists(p):
+                os.remove(p)
+
+    def test_store_missing_denies_when_enforced(self):
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        self._both_ways(self._remove_store, "no store at")
+
+    def test_store_zero_bytes_denies_when_enforced(self):
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+
+        def blank():
+            with io.open(bs.store_path(self.root), "w", encoding="utf-8") as f:
+                f.write("")
+        self._both_ways(blank)
+
+    def test_store_corrupt_denies_when_enforced(self):
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+
+        def garbage():
+            with io.open(bs.store_path(self.root), "w", encoding="utf-8") as f:
+                f.write("this is not a sqlite database, not even a little bit")
+        self._both_ways(garbage)
+
+    def test_zero_active_claims_denies_when_enforced(self):
+        """The state a FRESH project sits in, and the one the probe called the
+        worst of the nine: with no active claims the fence allowed everything,
+        and BM_FENCE_STRICT short-circuited before it could tighten anything."""
+        self._both_ways(lambda: None, "no active claims")
+
+    def test_no_project_root_allows_even_when_enforced(self):
+        """The ONE condition that still allows under enforcement, and it has to
+        be. A directory with no BrotherMode project has no fence to enforce, so
+        denying here would stop editing in every unrelated directory on the
+        machine the moment somebody exported the variable. That is the brick
+        this hook exists to avoid, and an earlier draft of this very feature
+        got it wrong and asserted the deny."""
+        outside = os.path.realpath(tempfile.mkdtemp())
+        try:
+            p = payload(self.OTHER, outside)
+            with mock.patch.dict(os.environ, {"BM_FENCE_MODE": "enforced"}):
+                decision, notes = self.decide(p)
+            self.assertAllowed(decision)
+            self.assertTrue(any("FAILING OPEN" in n for n in notes), notes)
+            with mock.patch.dict(os.environ, {"BM_FENCE_MODE": ""}):
+                decision2, _ = self.decide(p)
+            self.assertAllowed(decision2)
+        finally:
+            shutil.rmtree(outside, ignore_errors=True)
+
+    def test_deny_reason_never_leaks_a_path_or_payload_content(self):
+        """The stderr note may name paths; the deny REASON may not. It is read
+        by the model and lands in a transcript, and at the moment it is
+        produced nothing has been verified, so no verified context justifies
+        quoting a path. Every enforced-mode reason is drawn from a literal
+        table for exactly this reason."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        for suffix in ("", "-wal", "-shm"):
+            q = bs.store_path(self.root) + suffix
+            if os.path.exists(q):
+                os.remove(q)
+        p = payload(self.OTHER, self.root)
+        with mock.patch.dict(os.environ, {"BM_FENCE_MODE": "enforced"}):
+            decision, notes = self.decide(p)
+        reason = self.assertDenied(decision)
+        self.assertNotIn(self.root, reason)
+        self.assertNotIn("src/app.py", reason)
+        self.assertNotIn(os.path.expanduser("~"), reason)
+        # The operator's channel is allowed to be specific, and must be, or
+        # the refusal is not actionable at the terminal.
+        self.assertTrue(any(self.root in n for n in notes),
+                        "stderr must still name the path for the operator")
+
+    def test_an_unrecognized_mode_value_runs_advisory_and_warns(self):
+        """Denying on a typo would brick editing over a missing letter;
+        silently accepting one would let somebody who asked for enforcement
+        quietly not get it. So: advisory, plus a warning that prints every
+        time rather than once."""
+        mode, warning = fh.fence_mode({"BM_FENCE_MODE": "enfoced"})
+        self.assertEqual(mode, fh.MODE_ADVISORY)
+        self.assertIsNotNone(warning)
+        self.assertIn("not a recognized mode", warning)
+        self.assertEqual(fh.fence_mode({"BM_FENCE_MODE": "enforced"}),
+                         (fh.MODE_ENFORCED, None))
+        self.assertEqual(fh.fence_mode({}), (fh.MODE_ADVISORY, None))
+
+    def test_a_raise_without_a_code_still_denies_when_enforced(self):
+        """The default code is 'unknown' and 'unknown' DENIES, so a raise added
+        later that forgets to pass a code refuses rather than quietly
+        reopening the hole this class was audited for."""
+        self.assertEqual(fh._FailOpen("something").code, "unknown")
+        self.assertEqual(fh._FailOpen("x", "not-a-real-code").code, "unknown")
+        self.assertNotIn("unknown", fh._ALLOW_EVEN_WHEN_ENFORCED)
+
+    def test_malformed_payloads_deny_when_enforced(self):
+        """The five shapes the probe drove, each its own allow before this."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        good = payload(self.OTHER, self.root)
+        shapes = [
+            ("not an object", []),
+            ("tool_input not an object",
+             dict(good, tool_input="nope")),
+            ("no session_id",
+             {k: v for k, v in good.items() if k != "session_id"}),
+            ("no target path",
+             dict(good, tool_input={})),
+            ("unrecognized path key",
+             dict(good, tool_input={"some_future_key": "src/app.py"})),
+        ]
+        for name, shape in shapes:
+            with mock.patch.dict(os.environ, {"BM_FENCE_MODE": "enforced"}):
+                decision, _ = self.decide(shape)
+            self.assertIsNotNone(
+                decision,
+                "enforced mode allowed a malformed payload (%s)" % name)
+            with mock.patch.dict(os.environ, {"BM_FENCE_MODE": ""}):
+                decision2, _ = self.decide(shape)
+            self.assertIsNone(
+                decision2,
+                "default mode must still allow a malformed payload (%s)" % name)
+
+    def test_internal_exception_denies_when_enforced(self):
+        """The blanket catch: in advisory it turns any bug in this file into an
+        allow, which is deliberate. Somebody who asked for fail-closed has said
+        they would rather be stopped by that bug than wave a write through."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        p = payload(self.OTHER, self.root)
+        boom = mock.patch.object(
+            fh, "session_label", side_effect=RuntimeError("seeded"))
+        with mock.patch.dict(os.environ, {"BM_FENCE_MODE": "enforced"}), boom:
+            decision, notes = self.decide(p)
+        self.assertIn("enforced mode", self.assertDenied(decision))
+        self.assertTrue(any("FAILING CLOSED" in n for n in notes), notes)
+        with mock.patch.dict(os.environ, {"BM_FENCE_MODE": ""}), mock.patch.object(
+                fh, "session_label", side_effect=RuntimeError("seeded")):
+            decision2, _ = self.decide(p)
+        self.assertAllowed(decision2)
+
+    def test_owner_is_still_allowed_when_enforced(self):
+        """Enforcement must not break the happy path: the session that HOLDS
+        the claim still writes freely."""
+        owner = self.label(self.VICTIM)
+        self.claim("api", ["src/app.py"], owner)
+        p = payload(self.VICTIM, self.root)
+        with mock.patch.dict(os.environ, {"BM_FENCE_MODE": "enforced"}):
+            decision, _ = self.decide(p)
+        self.assertAllowed(decision)
+
+    def test_mode_value_is_exact_and_case_insensitive(self):
+        self.assertTrue(fh.enforced_mode({"BM_FENCE_MODE": "enforced"}))
+        self.assertTrue(fh.enforced_mode({"BM_FENCE_MODE": " ENFORCED "}))
+        self.assertFalse(fh.enforced_mode({"BM_FENCE_MODE": "advisory"}))
+        self.assertFalse(fh.enforced_mode({"BM_FENCE_MODE": "1"}))
+        self.assertFalse(fh.enforced_mode({"BM_FENCE_MODE": ""}))
+        self.assertFalse(fh.enforced_mode({}))
+
+
 class Canonicalization(FenceHookBase):
 
     def setUp(self):

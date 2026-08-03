@@ -17,11 +17,14 @@ checklist that QUICKSTART.md points back to.
 
 The public default clones an immutable, tagged release, not a moving branch:
 the tag is generated from the same release fact every other page reads
-(`python3 tools/bm_project_facts.py --field release_tag`), never typed by
-hand, and `tools/test_bm_docs.py` fails this page if it ever disagrees.
+(`python3 tools/bm_project_facts.py --field install_target_tag`), the last
+tag actually cut and known to resolve, never typed by hand, and
+`tools/test_bm_docs.py` fails this page if it ever disagrees. The
+development tree itself currently reads `2.0.0-rc.12.dev1`, a development
+identity rather than a tagged release; `docs/RELEASE.md` explains why.
 
 ```bash
-git clone --branch v2.0.0-rc.11 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.9 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 The path matters: Claude Code discovers skills under `~/.claude/skills/`, and the session-start script resolves its own location, so the clone is the installation. Verify:
@@ -47,7 +50,7 @@ When the user types /brothermode (any casing), read and follow
 ~/.claude/skills/brothermode/SKILL.md before doing anything else.
 ```
 
-## Step 2: wire the five hooks
+## Step 2: wire the six hooks
 
 Hooks make the learning loop mechanical: the model cannot forget to write
 telemetry, because the model is not the one writing it. Run the installer:
@@ -59,12 +62,18 @@ python3 ~/.claude/skills/brothermode/scripts/install.py
 
 `--dry-run` writes nothing and prints every change it would make. Run it first.
 
-Five hooks, not the four earlier versions of this page listed, and not the
-three the version before that listed. The fifth is `PreToolUse`, the fence hook
+Six hooks, not the five earlier versions of this page listed, and not the four
+the version before that listed. The fifth is `PreToolUse`, the fence hook
 (`docs/HOOKS.md`): the only hook that can actually refuse a write across
 another session's claim. It was documented for weeks and was in no install
 instruction, which meant the project's headline promise, one writer per file,
-was off by default on every installation that followed this page.
+was off by default on every installation that followed this page. The sixth is
+`PostToolUse`, the second half of the `Bash` audit pair
+(`tools/bm_bash_audit.py`): `PreToolUse` also carries that pair's first half,
+which records the size, mtime and sha256 of every fenced file before a shell
+command runs, and `PostToolUse` re-hashes those same files afterwards and
+raises one alert when a shell write changed a file another session's fence
+covers. That pair detects, it never refuses.
 
 Useful flags:
 
@@ -90,9 +99,10 @@ What it guarantees, and these are tested rather than asserted
 - Re-running with `--upgrade` is idempotent: no duplicated hook entries.
 
 Windows: the installer refuses, with a message naming the reason. Two of the
-five hook commands are POSIX shell, so on cmd.exe or PowerShell they would be
-wired and silently dead. Install inside WSL, or wire the three python3-only
-hooks by hand and accept that `SessionStart` and `PreCompact` are off.
+seven hook commands are POSIX shell (seven commands across six events, because
+`PreToolUse` carries two), so on cmd.exe or PowerShell they would be wired and
+silently dead. Install inside WSL, or wire the five python3-only hook commands
+by hand and accept that `SessionStart` and `PreCompact` are off.
 
 An upgrade adds and overwrites files; it never deletes. A file removed upstream
 since your last install stays behind, and `scripts/verify-install.sh` reports
@@ -101,38 +111,49 @@ exactly those as `EXTRA`.
 ### Wiring by hand instead
 
 The installer writes the equivalent of the block below, with absolute and
-shell-quoted paths. All five entries are here, fence included: earlier versions
-of this page listed four and left the `PreToolUse` fence to a cross-reference,
-which in practice meant a hand-wired install ran with the one-writer-per-file
-promise switched off. Add to `~/.claude/settings.json` (create the file if it
-does not exist, or merge into your existing `hooks` block):
+shell-quoted paths. All six events are here, fence and `Bash` audit pair
+included: earlier versions of this page listed four and left the `PreToolUse`
+fence to a cross-reference, which in practice meant a hand-wired install ran
+with the one-writer-per-file promise switched off. Add to
+`~/.claude/settings.json` (create the file if it does not exist, or merge into
+your existing `hooks` block):
 
 ```json
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "sh ~/.claude/skills/brothermode/tools/bm_sessionstart.sh" } ] }
+      { "hooks": [ { "type": "command", "command": "sh ~/.claude/skills/brothermode/tools/bm_sessionstart.sh", "timeout": 30 } ] }
     ],
     "SessionEnd": [
-      { "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py outcomes-append" } ] }
+      { "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py outcomes-append", "timeout": 30 } ] }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py stop-warn" } ] }
+      { "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py stop-warn", "timeout": 15 } ] }
     ],
     "PreCompact": [
-      { "hooks": [ { "type": "command", "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_autosave.py precompact; printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py precompact-brief' " } ] }
+      { "hooks": [ { "type": "command", "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_autosave.py precompact; printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py precompact-brief' ", "timeout": 60 } ] }
     ],
     "PreToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_fence_hook.py", "timeout": 10 } ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_bash_audit.py pre", "timeout": 10 } ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_bash_audit.py post", "timeout": 15 } ]
       }
     ]
   }
 }
 ```
 
-What each hook does, and honestly, what a FAILED hook costs you. The five
+What each hook does, and honestly, what a FAILED hook costs you. The six
 hooks do not all cost the same thing when they break, and treating them as
 equivalent would be dishonest: losing a data point is not the same class of
 loss as losing your ability to recover from a crash.
@@ -169,6 +190,20 @@ loss as losing your ability to recover from a crash.
   lost, but the fence is back to being a ledger rather than a boundary for as
   long as it stays broken. The cost is not a lost data point, it is a
   guarantee quietly downgraded to a convention.
+- **PostToolUse** is the second half of the `Bash` audit pair
+  (`tools/bm_bash_audit.py`, described in `docs/HOOKS.md`). `PreToolUse` runs
+  the pair's `pre` phase on every `Bash` call and records the size, mtime and
+  sha256 of every file an active claim covers; `PostToolUse` runs the `post`
+  phase once the shell command finishes, re-hashes those same paths, and raises
+  one high-severity alert naming the path when a file another session's fence
+  covers came back changed or gone. It answers a narrower question than the
+  fence does, and it answers it late: a shell write cannot be refused, only
+  reported after the fact.
+  If this hook fails: nothing is blocked and nothing you wrote is lost, because
+  this hook never had a decision to make. What you lose is the audit trail. A
+  shell write across somebody else's fence goes back to being invisible, which
+  is the state every version before this one shipped in. Both entrypoints exit
+  0 whatever happens and print only to stderr.
 
 Every hook is built to fail silent and exit 0, so a broken hook never blocks
 a session from continuing. But "never blocks" is not the same claim as "never
@@ -176,6 +211,38 @@ costs you anything": a broken `SessionEnd` costs a telemetry line; a broken
 `PreCompact` can cost you recovery information at the one moment you needed
 it most. Treat the two claims separately, because they are not the same
 thing.
+
+## Doctor: check the whole install
+
+```bash
+python3 ~/.claude/skills/brothermode/scripts/doctor.py
+```
+
+Run this any time you are unsure whether an install, an update, or a hand
+edit to `settings.json` left something broken. It runs ten checks, each
+printing `PASS`, `FAIL` with a one-sentence fix a non-engineer can follow, or
+`SKIP` with the reason nothing could be checked yet (`SKIP` is not a
+failure). Exit code 0 only when every check is `PASS` or `SKIP`. Add
+`--json` instead of reading the plain text if a script needs to consume the
+result.
+
+| # | Check | A FAIL means, in plain words |
+|---|-------|-------------------------------|
+| 1 | The write-protection check (fence hook) wired and live | A blocked-write simulation (builds a throwaway project, claims one file under one session, then asks the wired hook to approve an edit of that file from a different session; a healthy fence refuses, then allows the same write when the owner asks) found the fence dead: not wired, wired at a path that does not exist, a matcher that leaves a write tool ungated, or a hook that runs but refuses nothing. |
+| 2 | VERSION matches the plugin manifest | `VERSION` and `.claude-plugin/plugin.json` disagree about which release this install is. |
+| 3 | python3 3.9+ and git on PATH | One of those two is missing from this machine. |
+| 4 | Setup has been completed | Run `python3 scripts/setup.py`; nothing below this line can be checked before that. |
+| 5 | Vault path exists and is writable | Create it (`cp -R vault-template <your vault path>`, Step 3 below) or fix its permissions. |
+| 6 | Only one install method is wired | Both a plugin install and a clone install are wiring hooks into the same `settings.json`, so every hook fires twice. Remove one: `/plugin uninstall <name>` or `python3 scripts/uninstall.py`. |
+| 7 | Project store health | A `.brothermode/store.sqlite3` under the current directory failed its own `verify`; this is a SKIP, not a FAIL, when there is no store here yet. |
+| 8 | Hook wiring matches installation_mode | The consent config recorded by `scripts/setup.py` says `plugin` or `clone`, and the hooks actually wired in `settings.json` disagree with it. |
+| 9 | CHECKSUMS.sha256 self-check | A shipped file does not match the checked-in release manifest, the signature of an update that did not finish. |
+| 10 | settings.json is valid JSON | Claude Code silently ignores a broken settings file, so every hook, not only the fence, is off with nothing saying so. |
+
+Checks 4, 5 and 8 read `SKIP` until setup has run (`python3 scripts/setup.py`
+sets up the consent config those three checks read); that is the expected,
+honest state right after Step 2 below, before Step 3 has created a vault.
+Every other check applies from the moment the hooks are wired.
 
 ## Step 3: create the vault
 
@@ -252,7 +319,7 @@ python3 ~/.claude/skills/brothermode/scripts/uninstall.py --dry-run
 python3 ~/.claude/skills/brothermode/scripts/uninstall.py
 ```
 
-It removes the five hook entries it installed and the install record, and
+It removes the six hook entries it installed and the install record, and
 nothing else. Every other hook and every other key in `settings.json` stays
 where it was, in order. Add `--remove-files` to also delete the skill
 directory, which it refuses to do unless the directory really looks like a
@@ -262,7 +329,7 @@ Your vault is never deleted, with or without a flag. There is no code path in
 the uninstaller that removes one; it prints the path and leaves the decision to
 you.
 
-Doing it by hand instead: remove the five hook entries from
+Doing it by hand instead: remove the six hook entries from
 `~/.claude/settings.json` and delete
 `~/.claude/skills/brothermode`. Either way, that removes the skill but not what it wrote
 inside each project you used it in: a per-project sqlite store, thread

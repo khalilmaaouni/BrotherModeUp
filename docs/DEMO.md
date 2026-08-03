@@ -81,26 +81,46 @@ when your words share nothing with it, and a result limit cannot silence it.
 
 ## 3. Ask what applies before you work (30 seconds)
 
+Two separate commands, on purpose: `lookup` reads and records nothing, for
+exploring what applies or for checking whether a task even needs the recorded
+path. `apply --session <id>` does the same retrieval AND records that the
+rules were surfaced, so it needs a work identity, and is what substantial work
+should use. The old `relevant` still runs, kept only as a deprecated alias
+that prints a warning on every call and tells you which of the two it means.
+
 ```bash
-python3 $BM/tools/bm_learn.py relevant --query "I want to push this branch to github"
+python3 $BM/tools/bm_learn.py lookup --query "I want to push this branch to github"
 ```
 
 ```
+MANDATORY FOUNDER GATES - 1 ACTIVE
+
+Gc316d907  use the GitHub Desktop app, never a bare git push
+
+Full gate text available by id (--expand <id>).
+Manifest hash: 4128605122ba0aaaa8f7386aaf90afab92acc8e9af7c7d410e80df4b25c379f7
+
 RELEVANT FOUNDER RULES (mode=lexical)
 
-  6f385e1f  rank=1
+  c316d907  rank=1
   Scope: global     State: approved     GATE
   When : pushing commits or publishing a branch to GitHub
   Do   : use the GitHub Desktop app, never a bare git push
   Why  : the founder wants every push visible on screen
   Match: terms ['branch', 'github', 'push'], relevance 0.6
+  Expanded: trigger-matched
 
-Constitution overrides learned rules. 0 omitted.
+Constitution overrides learned rules.
+Gates: 1 of 1 applicable returned. A result limit cannot hide one.
+  of those: 1 shown in full (bounded per call), 0 in the compact manifest only. Pull one by id with --expand.
+Soft rules: 0 shown, none omitted.
 ```
 
 `mode=lexical` is the tool telling you how it matched: shared words, the way a
 search box works. Not an AI judging relevance, and it says so rather than
-letting you assume.
+letting you assume. The rule id above (`c316d907`) is from a separate run than
+steps 1 and 2's `6f385e1f`; per the note at the top, ids differ run to run and
+the shape is what stays constant.
 
 ## 4. Take a fence over a file (45 seconds)
 

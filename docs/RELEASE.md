@@ -9,7 +9,7 @@ a machine must refuse to perform them.
 
 The install instruction in `README.md` and `docs/SETUP.md` clones a git
 branch into `~/.claude/skills/brothermode`, and the code in that directory
-then runs automatically on every Claude Code session through five hooks
+then runs automatically on every Claude Code session through six hooks
 (`SessionStart`, `SessionEnd`, `Stop`, `PreCompact`, `PreToolUse`; `python3
 tools/bm_project_facts.py --field hook_events` prints the live list). The
 original external audit of this project named that combination, a moving branch
@@ -38,31 +38,37 @@ evidence over one that asks to be preserved.
 
 ## The version scheme
 
-`VERSION`, one line, holds the current semantic version. Read it rather than
+`VERSION`, one line, holds the current identity. Read it rather than
 trusting a number typed into this paragraph:
 
 ```bash
 cat VERSION
 python3 tools/bm_project_facts.py --field release_tag
+python3 tools/bm_project_facts.py --field install_target_tag
 ```
 
-The current candidate is `2.0.0-rc.11`, cut 2026-08-01, the same day as rc.10.
-It adds the seventh command (`/brotherme-update`, wrapping the verified plugin
-update lines), the deep tour behind `/brotherme-help` (an HTML view of where a
-project stands, built from the docs engine), and the rebuilt explainer
-(`docs/brotherme-explained.html`: a full worked example told as a conversation,
-loop advice, equal-weight good-at and not-good-at columns, six tutorial cards).
+RECONCILED 2026-08-01, opening the release-closure program (Loop 0): the tree
+now reads `2.0.0-rc.12.dev1`, a DEVELOPMENT identity, not a release candidate.
+`release_tag` is `None` for it on purpose: a development identity claims no
+tag at all. The public install target stays pinned at the last tag actually
+known to resolve, `install_target_tag`, currently `v2.0.0-rc.9`, independent
+of whatever VERSION says. See "The version law" below for the rule this
+follows.
 
-`2.0.0-rc.10` is SUPERSEDED WITHOUT EVER BEING TAGGED, a first for this
-project and worth recording plainly: its release-cut commit (`8aa6dd1`) landed
-on main and was pushed, but the founder had not yet cut its tag when the rc.11
-work landed the same day, so no `v2.0.0-rc.10` tag exists and none should ever
-be created (a tag cut now would point at a commit the CHANGELOG has already
-moved past, recreating the rc.8 ambiguity). Its pinned clone command never
-resolved during its short life, which the pages honestly stated the whole
-time. `v2.0.0-rc.9`, cut 2026-07-31 so that the tagged bytes and the first
-fully green CI run (`30564943060`) were the same bytes, is SUPERSEDED
-normally. This project creates release tags through
+`2.0.0-rc.11` and `2.0.0-rc.10` are both **SUPERSEDED, NEVER TAGGED**. Both
+were cut the same day, 2026-08-01: rc.11's release-cut commit is `54cb898`,
+rc.10's is `8aa6dd1`. Both landed on `main` and were pushed, but the founder
+had not yet cut either tag before the next commit moved past it, so neither
+`v2.0.0-rc.10` nor `v2.0.0-rc.11` exists, and by ratified decision
+(amendment A1, the external review of the release-closure plan) neither ever
+will: cutting either tag now would point it at a commit the tree has already
+moved past, recreating the exact two-trees ambiguity `rc.1` reproduced once
+already. Their pinned clone commands never resolved during their short life,
+which the pages honestly stated the whole time. `v2.0.0-rc.9`, cut
+2026-07-31 so that the tagged bytes and the first fully green CI run
+(`30564943060`) were the same bytes, is SUPERSEDED normally, and remains the
+public install target until a future tag replaces it. This project creates
+release tags through
 the GitHub Desktop app (a command-line tag does not push from Desktop,
 confirmed empirically), so the tag is cut by the founder immediately after the
 release-cut commit lands, and the release-truth suite holds this page honest in
@@ -155,12 +161,15 @@ Until it closes, do not describe this project as `2.0.0` anywhere.
 Tags exist now, so this is the install instruction, not a future one:
 
 ```bash
-git clone --branch v2.0.0-rc.11 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.9 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
-`--branch v2.0.0-rc.11` checks out that exact tag, not a moving branch head. It
-is the current candidate; `python3 tools/bm_project_facts.py --field
-release_tag` prints the tag matching whatever tree you are reading.
+`--branch v2.0.0-rc.9` checks out that exact tag, not a moving branch head. It
+is the public install target, not necessarily the identity the tree on `main`
+currently carries: `python3 tools/bm_project_facts.py --field
+install_target_tag` prints the tag every onboarding page pins, and `python3
+tools/bm_project_facts.py --field release_tag` prints the tag this tree's own
+VERSION claims, which is `None` while a development identity is checked out.
 `--depth 1` is optional (a shallow clone of just that tag), included because
 most users have no reason to carry this project's full history into their
 skills directory.
@@ -284,18 +293,23 @@ through preparing it.
 
 ## What has and has not happened, stated honestly
 
-CURRENT STATE, 2026-08-01 (second cut of the day), first, because the dated
-entries under it are a LOG and several of them were true only on the day they
-were written. `VERSION`
-reads `2.0.0-rc.11` and its tag is cut by the founder through GitHub Desktop
-immediately after the release-cut commit; until that moment the pinned clone
-command above does not resolve, the release-truth tests SKIP with a stated
-reason, and this sentence is the honest record of that window. Nine earlier
-tags exist (`v2.0.0-rc.1` withdrawn, `v2.0.0-rc.2` superseded, `v2.0.0-rc.3`
-superseded, `v2.0.0-rc.4` superseded, `v2.0.0-rc.6` superseded, `v2.0.0-rc.7`
-superseded, `v2.0.0-rc.8` superseded, `v2.0.0-rc.9` superseded,
-`2.0.0-rc.10` superseded without ever being tagged (see the version scheme),
-`v2.0.0-rc.5` WITHDRAWN the same day it was cut, for a checksum manifest that did not describe its own tree; see the
+CURRENT STATE, 2026-08-01 (third cut of the day, opening the release-closure
+program), first, because the dated entries under it are a LOG and several of
+them were true only on the day they were written. `VERSION` reads
+`2.0.0-rc.12.dev1`, a DEVELOPMENT identity: `release_tag` is `None` for it,
+no tag named `v2.0.0-rc.12.dev1` exists, and by the version law below none
+ever will for a development identity. The public install target is
+`v2.0.0-rc.9` (`install_target_tag`), the last tag actually cut and known to
+resolve; the release-truth tests that check it now RUN for real, not SKIP,
+because that tag exists. `2.0.0-rc.10` and `2.0.0-rc.11` are both
+SUPERSEDED, NEVER TAGGED (see the version scheme above): both release-cut
+commits landed on `main` and were pushed, neither tag was cut before the next
+commit moved past it, and by ratified decision neither ever will be. Nine
+earlier tags exist and remain unaffected by any of this (`v2.0.0-rc.1`
+withdrawn, `v2.0.0-rc.2` superseded, `v2.0.0-rc.3` superseded, `v2.0.0-rc.4`
+superseded, `v2.0.0-rc.6` superseded, `v2.0.0-rc.7` superseded, `v2.0.0-rc.8`
+superseded, `v2.0.0-rc.9` superseded, `v2.0.0-rc.5` WITHDRAWN the same day it
+was cut, for a checksum manifest that did not describe its own tree; see the
 version-scheme section above for the full account). CORRECTED 2026-07-30: the 2026-07-29
 entry directly below said no tag had been cut for `rc.4` and that its pinned
 clone would not resolve; both were true that day and stopped being true when
@@ -356,3 +370,42 @@ Until this loop, that placement was recorded only as a code comment inside
 this document's fence, so its own comment still needs to change to point here
 rather than re-deriving the reasoning; that edit belongs to whoever owns that
 file next.
+
+## The version law (release-closure program, 2026-08-01)
+
+Ratified as amendment A1 of the external review of the release-closure plan,
+opening Loop 0. Written down here because rc.10 and rc.11 are the reason it
+exists: both were release-cut on the same day, neither was tagged before the
+tree moved past it, and by the time anyone checked, two different commits
+were both claiming to be "the current release" with no tag pinning either
+one down. The law that closes that gap, stated plainly so it can be checked
+rather than trusted:
+
+1. **The next release version name appears exactly once**, on the release
+   branch, on the release commit. Not on a commit before it, not on a commit
+   after it: one commit is the release, and `VERSION` names it there and
+   nowhere else.
+2. **Tags are cut immediately from that commit, and pushed, before any
+   further commit lands.** A release-cut commit that sits untagged while
+   work continues on top of it is exactly how rc.10 and rc.11 happened.
+3. **After a tag is pushed, `main` bumps immediately to a development
+   identity.** A development identity always contains `.dev`, always has
+   `release_tag` equal to `None`, and never names a tag of its own; that is
+   what `tools/bm_project_facts.py`'s `is_development` fact and
+   `tools/test_bm_docs.py`'s `TestReleaseTruth` suite exist to hold true.
+4. **No late tagging, ever.** A release-cut commit that was not tagged
+   before the tree moved past it is retired as SUPERSEDED, NEVER TAGGED, and
+   stays that way permanently. Cutting a tag for it later would point a
+   citable, public identity at a commit the project has already moved past,
+   which is the exact ambiguity this law exists to make impossible.
+5. **Public install instructions pin the last tag known to actually
+   resolve**, `install_target_tag` (`PUBLIC_INSTALL_TAG` in
+   `tools/bm_project_facts.py`), never `release_tag`. This is a fact
+   independent of whatever identity `VERSION` currently carries, so an
+   onboarding page never goes stale just because the tree moved into
+   development between releases.
+6. **Feature freeze is in effect for the release-closure program.** Nothing
+   lands unless it closes a blocker named in
+   `docs/evidence/2026-08-01-source-BrotherME_Final_Release_Closure_Plan_Fable_Governed.md`.
+   A change that is not closing one of those named blockers waits until the
+   program ends.

@@ -5,13 +5,14 @@ vocabulary (lifecycle states and object shapes) that every BrotherMode
 surface, chat summaries, status views, templates, and future tooling, is
 expected to speak.
 
-Stated plainly, so nobody is misled: the Python implementation of this
-protocol does not exist yet. No module in this repository parses, stores, or
-enforces these objects today. What exists today is this document and the
-markdown templates that mirror it (`project-template/CANVAS.md`,
-`project-template/DELIVERY-PACKET.md`). Building the implementation is
-planned, separate work. Until it lands, this spec governs wording and
-structure in documents and instructions, nothing more.
+Implementation status, updated 2026-08-01 (Loop 2 of the release-closure
+program): the five objects and the ten states are enforced in code.
+brotherme/core/schema.py holds the shapes and the legality rules;
+tools/bm_store.py stores them (schema 12) with an attribution row written
+in the same transaction as every mutation; tools/bm_project.py is the
+command surface. `project-template/CANVAS.md` and
+`project-template/DELIVERY-PACKET.md` remain as the layout the generated
+views follow; the generated files are views of the store, never the truth.
 
 Source: the BrotherME roadmap, sections 4.5 (lifecycle) and 7 (canonical
 project objects). This document restates them as the normative reference so
