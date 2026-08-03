@@ -707,13 +707,14 @@ cutting the next release tag at program end:
   is cut and the three doc pins move to it.
 - **rc.9 cannot read a store this branch has touched.** rc.9 code
   understands store schema 11; the program's Loop 1 migrated the schema
-  to 12. An rc.9 install pointed at a schema-12 store refuses loudly at
-  session start ("store schema_version is 12 but this BrotherMode
+  to 12, and the Memory Sentinel (Full-Auto Phase 1, 2026-08-02) moved it
+  again to 13. An rc.9 install pointed at that store refuses loudly at
+  session start ("store schema_version is 13 but this BrotherMode
   understands at most 11. Upgrade BrotherMode; do not downgrade the
   store.") and touches nothing, so the mismatch is safe but noisy. The
   founder's own machine shows this warning every session for exactly
   this reason. It ends when the live install is upgraded past the
-  schema-12 migration.
+  schema-13 migration.
 - **doctor's wiring check reads 1 of 7 hook groups.** Check 8's healthy
   verdict confirms the PreToolUse fence entry and nothing else: an
   install missing SessionEnd, Stop, PreCompact, PostToolUse and both
