@@ -296,6 +296,24 @@ class TestResumeBrief(unittest.TestCase):
     def test_brief_redacts_and_is_owner_only(self):
         with tempfile.TemporaryDirectory() as d:
             os.environ["BROTHERMODE_VAULT"] = os.path.join(d, "vault")
+            # A CONSENTED config is now a precondition of writing a brief at
+            # all (2026-08-02): cmd_precompact_brief checks consent as its
+            # first statement, because it was found writing the founder's
+            # last message verbatim into a vault on machines where setup had
+            # never run. This test is about REDACTION and FILE MODE, so it
+            # supplies consent and keeps testing exactly what it always did;
+            # the pre-consent behavior has its own tests in
+            # tools/test_bm_consent.py. BROTHERME_CONFIG is the documented
+            # override for the config path (scripts/setup.py config_path).
+            cfg = os.path.join(d, "brotherme-config.json")
+            with io.open(cfg, "w", encoding="utf-8") as fh:
+                json.dump({"setup_complete": True,
+                           "vault_path": os.environ["BROTHERMODE_VAULT"],
+                           "privacy_notice_version": "2026-08-01",
+                           "installation_mode": "clone",
+                           "security_mode": "standard"}, fh)
+            os.environ["BROTHERME_CONFIG"] = cfg
+            self.addCleanup(os.environ.pop, "BROTHERME_CONFIG", None)
             # rebuild the module's paths against the temp vault
             import importlib
             importlib.reload(bm)
@@ -411,7 +429,13 @@ class TestCompactHintHonesty(unittest.TestCase):
 
     def test_claims_safety_only_when_a_real_receipt_exists(self):
         with tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as v:
-            env = dict(os.environ, BROTHERMODE_VAULT=v)
+            # Consented, like the other hook-driving tests in this file:
+            # bm_autosave.py gained the same consent gate the telemetry
+            # writer already had (Loop 3 finding I1), so an unconsented
+            # precompact correctly writes no receipt at all, and a test
+            # about what the hint says WHEN a receipt exists must create
+            # one first.
+            env = _consented_env(repo, v)
             env.pop("BROTHERMODE_ROOT", None)
             self._git_repo(repo)
             self._init_store(repo, env)
@@ -2997,6 +3021,22 @@ class TestLoop4CorrectionDetection(unittest.TestCase):
         self.assertNotEqual(a, bl.inbox_identity("s2", "No, that is wrong"))
 
 
+def _consented_env(repo, vault):
+    """Env for driving bm_telemetry.py subprocesses now that the Loop 3
+    consent gate exists: without a consented config the hook rightly
+    writes nothing, which is its own tested behavior, not these tests'
+    subject. Writes a completed consent config into the test's own temp
+    repo and points BROTHERME_CONFIG at it."""
+    cfg_path = os.path.join(repo, "consent.json")
+    with io.open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump({"setup_complete": True, "vault_path": vault,
+                   "privacy_notice_version": "2026-08-01",
+                   "installation_mode": "clone",
+                   "security_mode": "standard"}, f)
+    return dict(os.environ, BROTHERMODE_VAULT=vault,
+                BROTHERME_CONFIG=cfg_path)
+
+
 class TestLoop4CaptureThroughTheRealHook(unittest.TestCase):
     """The SessionEnd path end to end, through the real CLI, because in this
     project every serious defect so far was found by driving the binary while
@@ -3018,7 +3058,7 @@ class TestLoop4CaptureThroughTheRealHook(unittest.TestCase):
                               "cwd": repo, "reason": "other"})
         subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
                         "outcomes-append"],
-                       input=payload, env=dict(os.environ, BROTHERMODE_VAULT=vault),
+                       input=payload, env=_consented_env(repo, vault),
                        cwd=repo, capture_output=True, text=True)
         p = os.path.join(vault, "99-System", "telemetry", "corrections.jsonl")
         rows = []
@@ -3093,7 +3133,7 @@ class TestLoop4PairingAndFileDedup(unittest.TestCase):
                               "cwd": repo, "reason": "other"})
         subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
                         "outcomes-append"],
-                       input=payload, env=dict(os.environ, BROTHERMODE_VAULT=vault),
+                       input=payload, env=_consented_env(repo, vault),
                        cwd=repo, capture_output=True, text=True)
         p = os.path.join(vault, "99-System", "telemetry", "corrections.jsonl")
         rows = []
@@ -3697,7 +3737,7 @@ class TestLoop12PairedArtifactsAreRedacted(unittest.TestCase):
                               "cwd": repo, "reason": "other"})
         subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
                         "outcomes-append"],
-                       input=payload, env=dict(os.environ, BROTHERMODE_VAULT=vault),
+                       input=payload, env=_consented_env(repo, vault),
                        cwd=repo, capture_output=True, text=True)
         return os.path.join(vault, "99-System", "telemetry", "corrections.jsonl")
 
@@ -5416,6 +5456,29 @@ class TestTheSeventhCommandAndTheDeepTourAreWired(unittest.TestCase):
                          "the shipped command set drifted from the seven "
                          "this release documents: %r" % found)
 
+    def test_the_five_store_backed_commands_name_the_mechanical_command(self):
+        """Loop 2 WP-C, decision D-3 (docs/superpowers/specs/2026-08-01-
+        loop2-mechanical-commands-design.md): the five store-backed command
+        files must literally name their tools/bm_project.py invocation, not
+        just describe a flow in prose. A command file that never names the
+        mechanical command leaves the model free to answer from memory of
+        the conversation instead of running the one thing that actually
+        knows the project's state."""
+        expected = {
+            "brotherme-start.md": "python3 tools/bm_project.py start",
+            "brotherme-status.md": "python3 tools/bm_project.py status",
+            "brotherme-next.md": "python3 tools/bm_project.py next",
+            "brotherme-review.md": "python3 tools/bm_project.py review",
+            "brotherme-deliver.md": "python3 tools/bm_project.py deliver",
+        }
+        for filename, invocation in expected.items():
+            text = self._text("commands", filename)
+            self.assertIn(invocation, text,
+                          "%s lost its mechanical command %r; a beginner "
+                          "command file that does not name the real "
+                          "command it runs leaves the model free to "
+                          "answer from memory instead" % (filename, invocation))
+
     def test_the_update_command_teaches_only_verified_lines(self):
         text = self._text("commands", "brotherme-update.md")
         for line in ("/plugin marketplace update brotherme-marketplace",
@@ -5770,6 +5833,29 @@ class TestFenceLintRecognizesStoreRenderedFences(unittest.TestCase):
             "store-rendered claim, proving the section/regex recognition "
             "added by the real fix is what finds it")
         self.assertNotIn("myrec", out)
+
+
+class TestGitignoreCoversGeneratedProjectViews(unittest.TestCase):
+    """V2 (release-closure loop2 refuter fixes): tools/bm_project.py's
+    generated views (CANVAS.md, DELIVERY-PACKET.md, and their
+    multi-project, project-scoped forms from C5) must never be committed
+    to THIS repository, the same reason STATE.md and Documentation/
+    already are not: they render one machine's live project rows, not
+    shared repository content."""
+
+    ROOT = os.path.dirname(HERE)
+
+    def test_gitignore_lists_all_four_generated_view_patterns(self):
+        with io.open(os.path.join(self.ROOT, ".gitignore"),
+                     encoding="utf-8") as fh:
+            lines = {line.strip() for line in fh}
+        for pattern in ("/CANVAS.md", "/DELIVERY-PACKET.md",
+                        "/CANVAS-*.md", "/DELIVERY-PACKET-*.md"):
+            self.assertIn(
+                pattern, lines,
+                ".gitignore lost the generated-view pattern %r; a "
+                "founder's own project rows could land in a commit to "
+                "this repository" % pattern)
 
 
 if __name__ == "__main__":

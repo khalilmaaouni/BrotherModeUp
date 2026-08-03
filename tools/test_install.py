@@ -17,6 +17,7 @@ Python 3.9, standard library only.
 No em or en dashes anywhere in this file, its comments, or its output.
 """
 
+import hashlib
 import io
 import json
 import os
@@ -32,8 +33,27 @@ INSTALL = os.path.join(ROOT, "scripts", "install.py")
 UNINSTALL = os.path.join(ROOT, "scripts", "uninstall.py")
 DOCTOR = os.path.join(ROOT, "scripts", "doctor.py")
 SHELL = os.path.join(ROOT, "scripts", "bm_shell.py")
+HOOKS_JSON_PATH = os.path.join(ROOT, "hooks", "hooks.json")
 
 EXIT_REFUSED = 4
+
+
+def write_consented_config(dirpath):
+    """Write a completed Loop 3 consent config plus a writable vault dir
+    under dirpath, returning the config path. Doctor's consent and vault
+    checks (D-3 checks 4 and 5) FAIL without one, which is their tested
+    job; these fixtures exercise everything downstream of consent, so
+    they consent first, the same order the QUICKSTART documents."""
+    vault = os.path.join(dirpath, "vault")
+    if not os.path.isdir(vault):
+        os.makedirs(vault)
+    cfg = os.path.join(dirpath, "consent.json")
+    with io.open(cfg, "w", encoding="utf-8") as fh:
+        json.dump({"setup_complete": True, "vault_path": vault,
+                   "privacy_notice_version": "2026-08-01",
+                   "installation_mode": "clone",
+                   "security_mode": "standard"}, fh)
+    return cfg
 
 
 class InstallerCase(unittest.TestCase):
@@ -100,14 +120,27 @@ class InstallerCase(unittest.TestCase):
 
 class TestCleanInstall(InstallerCase):
 
-    def test_wires_all_five_hooks_including_the_fence(self):
+    def test_wires_all_six_events_including_the_fence(self):
+        """A1 (loop6 refuter finding): PreToolUse now carries TWO groups
+        (the fence, plus the Bash-audit pre phase), and PostToolUse (the
+        Bash-audit post phase) is wired for the first time on this path.
+        This assertion used to require exactly ONE group per event,
+        including PreToolUse; that was the bug (docs/HOOKS.md's own
+        wording: "a clone install gets the fence hook but not the Bash
+        audit hook"), so PreToolUse now asserts 2 and PostToolUse is added
+        to the set of wired events, both tightened to the new true shape
+        rather than weakened."""
         r = self.run_install()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         s = self.read_settings()
         for event in ("SessionStart", "SessionEnd", "Stop", "PreCompact",
-                      "PreToolUse"):
+                      "PostToolUse"):
             self.assertIn(event, s["hooks"], "%s was not wired" % event)
             self.assertEqual(len(s["hooks"][event]), 1)
+        self.assertIn("PreToolUse", s["hooks"], "PreToolUse was not wired")
+        self.assertEqual(len(s["hooks"]["PreToolUse"]), 2,
+                         "PreToolUse must carry both the fence group and "
+                         "the Bash-audit pre group")
 
     def test_fence_hook_group_has_matcher_and_a_file_that_exists(self):
         """The failure this guards: an install that prints success while the
@@ -116,7 +149,14 @@ class TestCleanInstall(InstallerCase):
         no fence while looking installed."""
         self.run_install()
         s = self.read_settings()
-        group = s["hooks"]["PreToolUse"][0]
+        # PreToolUse now carries two groups (the fence, plus the Bash-audit
+        # pre phase): select the fence one by its matcher rather than by
+        # index, since index alone would tie this test to install.py's
+        # internal group ORDER, which is not the contract worth pinning.
+        fence_groups = [g for g in s["hooks"]["PreToolUse"]
+                        if "Edit" in g.get("matcher", "")]
+        self.assertEqual(len(fence_groups), 1, s["hooks"]["PreToolUse"])
+        group = fence_groups[0]
         self.assertIn("matcher", group)
         self.assertIn("Edit", group["matcher"])
         cmd = group["hooks"][0]["command"]
@@ -125,6 +165,46 @@ class TestCleanInstall(InstallerCase):
         self.assertTrue(os.path.isfile(path),
                         "the fence hook command points at %s, which is not "
                         "there" % path)
+
+    def test_bash_audit_pair_is_wired_pre_and_post_and_uninstall_removes_both(
+            self):
+        """A1 (loop6 refuter finding, THE BIG ONE): scripts/install.py used
+        to wire only PreToolUse, so tools/bm_bash_audit.py's PostToolUse
+        entrypoint was never invoked on the clone-install path and the
+        Loop 6 Bash-write detection did not exist for those users. Both
+        entrypoints must now be wired, both must name bm_bash_audit.py,
+        and uninstall must remove both cleanly."""
+        r = self.run_install()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        s = self.read_settings()
+
+        pre_bash = [g for g in s["hooks"]["PreToolUse"]
+                   if g.get("matcher") == "Bash"]
+        self.assertEqual(len(pre_bash), 1, s["hooks"]["PreToolUse"])
+        pre_cmd = pre_bash[0]["hooks"][0]["command"]
+        self.assertIn("bm_bash_audit.py", pre_cmd)
+        self.assertIn(" pre", pre_cmd)
+        path = pre_cmd.split("python3 ", 1)[1].rsplit(None, 1)[0].strip("'")
+        self.assertTrue(os.path.isfile(path),
+                        "the Bash-audit pre command points at %s, which is "
+                        "not there" % path)
+
+        post_bash = [g for g in s["hooks"].get("PostToolUse", [])
+                    if g.get("matcher") == "Bash"]
+        self.assertEqual(len(post_bash), 1, s["hooks"].get("PostToolUse"))
+        post_cmd = post_bash[0]["hooks"][0]["command"]
+        self.assertIn("bm_bash_audit.py", post_cmd)
+        self.assertIn(" post", post_cmd)
+        path = post_cmd.split("python3 ", 1)[1].rsplit(None, 1)[0].strip("'")
+        self.assertTrue(os.path.isfile(path),
+                        "the Bash-audit post command points at %s, which "
+                        "is not there" % path)
+
+        r2 = self.run_uninstall()
+        self.assertEqual(r2.returncode, 0, r2.stdout + r2.stderr)
+        after = self.read_settings()
+        self.assertEqual(after.get("hooks", {}), {},
+                         "uninstall left BrotherMode hook entries behind")
 
     def test_files_land_and_record_names_the_version(self):
         self.run_install()
@@ -151,12 +231,21 @@ class TestCleanInstall(InstallerCase):
         env["HOME"] = self.home
         env.pop("BROTHERMODE_ROOT", None)
         env.pop("BM_FENCE_STRICT", None)
+        env["BROTHERME_CONFIG"] = write_consented_config(self.tmp)
         d = subprocess.run(
-            [sys.executable, doctor, "--settings", self.settings],
+            [sys.executable, doctor, "--settings", self.settings, "--json"],
             env=env, cwd=self.tmp, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, universal_newlines=True, timeout=300)
-        self.assertEqual(d.returncode, 0, d.stdout + d.stderr)
-        self.assertIn("denied a foreign write", d.stdout)
+        # This test's subject is the FENCE check of the installed copy, so
+        # it asserts that check by name from the machine output. Overall
+        # exit 0 is deliberately NOT demanded here: an install copied from
+        # a mid-development tree cannot match the release CHECKSUMS.sha256
+        # (check 9 measures release integrity), and demanding it would make
+        # this test red on every commit between release cuts.
+        report = json.loads(d.stdout)
+        fence = [c for c in report["checks"] if c["key"] == "fence"]
+        self.assertEqual(len(fence), 1, d.stdout)
+        self.assertEqual(fence[0]["status"], "PASS", d.stdout + d.stderr)
 
     def test_machine_state_is_not_copied(self):
         for name in (".git", "__pycache__", "threads"):
@@ -171,6 +260,51 @@ class TestCleanInstall(InstallerCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertFalse(os.path.exists(self.settings))
         self.assertTrue(os.path.isfile(os.path.join(self.target, "SKILL.md")))
+
+
+class TestHooksJsonAgreesWithInstaller(InstallerCase):
+    """C-07 (2026-08-03): hooks/hooks.json and scripts/install.py's
+    hook_groups() are two hand-maintained copies of one hook wiring, and they
+    had drifted. hooks.json sets an explicit timeout and statusMessage on every
+    group; the installer's shared _group() helper never set statusMessage
+    anywhere, and set no timeout at all on SessionStart, SessionEnd, Stop or
+    PreCompact. So the two documented install paths produced different
+    effective configurations, and nothing compared them. This is the same drift
+    class the packaging suite already guards for pyproject.toml: compare field
+    by field rather than trusting two files to agree."""
+
+    def _manifest_groups(self):
+        with io.open(HOOKS_JSON_PATH, encoding="utf-8") as fh:
+            return json.load(fh)["hooks"]
+
+    def test_every_group_agrees_on_timeout_and_status_message(self):
+        r = self.run_install()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        installed = self.read_settings()["hooks"]
+        manifest = self._manifest_groups()
+        mismatches = []
+        for event, groups in manifest.items():
+            installed_groups = installed.get(event, [])
+            for want in groups:
+                matcher = want.get("matcher")
+                got = next((g for g in installed_groups
+                            if g.get("matcher") == matcher), None)
+                if got is None:
+                    mismatches.append(
+                        "%s[%s]: hooks.json wires this group; the installed "
+                        "settings.json has no matching group"
+                        % (event, matcher))
+                    continue
+                want_entry = want["hooks"][0]
+                got_entry = got["hooks"][0]
+                for field in ("timeout", "statusMessage"):
+                    w = want_entry.get(field)
+                    g = got_entry.get(field)
+                    if w != g:
+                        mismatches.append(
+                            "%s[%s].%s: hooks.json=%r, installer=%r"
+                            % (event, matcher, field, w, g))
+        self.assertEqual([], mismatches, "\n".join(mismatches))
 
 
 class TestRefusals(InstallerCase):
@@ -226,9 +360,14 @@ class TestUpgrade(InstallerCase):
         second = self.read_settings()
         self.assertEqual(first, second,
                          "re-running the installer changed the configuration")
-        for event in ("SessionStart", "PreToolUse"):
+        for event in ("SessionStart", "PostToolUse"):
             self.assertEqual(len(second["hooks"][event]), 1,
                              "%s was duplicated by the upgrade" % event)
+        # PreToolUse carries two of our own groups (fence, Bash-audit pre);
+        # idempotence means still exactly two after re-running, not one.
+        self.assertEqual(len(second["hooks"]["PreToolUse"]), 2,
+                         "PreToolUse was duplicated (or dropped a group) "
+                         "by the upgrade")
 
     def test_upgrade_replaces_a_stale_entry_rather_than_stacking(self):
         stale = {"hooks": {"SessionEnd": [{"hooks": [{
@@ -272,7 +411,11 @@ class TestUserHooksSurvive(InstallerCase):
         self.assertIn("theirs-start.sh", " ".join(
             self.all_commands(s, "SessionStart")))
         self.assertEqual(len(s["hooks"]["SessionStart"]), 2)
-        self.assertEqual(len(s["hooks"]["PostToolUse"]), 1)
+        # PostToolUse now also gets our own Bash-audit post group (A1
+        # fix), alongside the user's own pre-existing group: 2, not 1.
+        self.assertEqual(len(s["hooks"]["PostToolUse"]), 2)
+        self.assertIn("theirs-post.sh", " ".join(
+            self.all_commands(s, "PostToolUse")))
 
         self.assertEqual(self.run_uninstall().returncode, 0)
         after = self.read_settings()
@@ -330,18 +473,21 @@ class TestOwnershipBoundaries(InstallerCase):
         return out
 
     def test_an_install_sharing_a_path_prefix_is_not_claimed_as_ours(self):
+        # 7, not the old 5 (A1 fix): SessionStart, SessionEnd, Stop,
+        # PreCompact, PreToolUse-fence, PreToolUse-bash-audit,
+        # PostToolUse-bash-audit, every one of which names the target path.
         long_target = self.target + "-work"
         r = self.run_install(target=long_target)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         before = [c for c in self.all_hook_commands(self.read_settings())
                   if long_target in c]
-        self.assertEqual(len(before), 5)
+        self.assertEqual(len(before), 7)
 
         r = self.run_install("--upgrade")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         after = [c for c in self.all_hook_commands(self.read_settings())
                  if long_target in c]
-        self.assertEqual(len(after), 5,
+        self.assertEqual(len(after), 7,
                          "installing at a prefix path deleted the other "
                          "installation's hooks")
 
@@ -365,7 +511,8 @@ class TestOwnershipBoundaries(InstallerCase):
         target = os.path.join(self.tmp, "Repertoire d'installation", "brothermode")
         r = self.run_install(target=target)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(len(self.all_hook_commands(self.read_settings())), 5)
+        # 7, not the old 5 (A1 fix): see the prefix-path test above.
+        self.assertEqual(len(self.all_hook_commands(self.read_settings())), 7)
 
         r = self.run_uninstall(target=target)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -420,7 +567,10 @@ class TestSymlinkedSettings(InstallerCase):
                         "detaching it from the dotfiles repository")
         written = json.loads(self.read_text(real))
         self.assertEqual(written["model"], "opus")
-        self.assertEqual(len(written.get("hooks", {})), 5)
+        # 6 top-level hook keys, not the old 5 (A1 fix): PostToolUse is now
+        # wired alongside SessionStart, SessionEnd, Stop, PreCompact and
+        # PreToolUse.
+        self.assertEqual(len(written.get("hooks", {})), 6)
         self.assertIn("is a symlink", r.stdout)
 
         r = self.run_uninstall()
@@ -554,8 +704,13 @@ class TestAwkwardPaths(InstallerCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("same directory", r.stdout)
         s = self.read_settings()
-        self.assertEqual(len(s["hooks"]["PreToolUse"]), 1)
-        self.assertIn(self.target, s["hooks"]["PreToolUse"][0]["hooks"][0]["command"])
+        # 2, not the old 1 (A1 fix): the fence group plus the Bash-audit
+        # pre group.
+        self.assertEqual(len(s["hooks"]["PreToolUse"]), 2)
+        fence_groups = [g for g in s["hooks"]["PreToolUse"]
+                        if "Edit" in g.get("matcher", "")]
+        self.assertEqual(len(fence_groups), 1)
+        self.assertIn(self.target, fence_groups[0]["hooks"][0]["command"])
 
 
 class TestPartialPriorInstall(InstallerCase):
@@ -572,7 +727,8 @@ class TestPartialPriorInstall(InstallerCase):
         self.assertEqual(r2.returncode, 0, r2.stdout + r2.stderr)
         self.assertTrue(os.path.isfile(
             os.path.join(self.target, "tools", "bm_fence_hook.py")))
-        self.assertEqual(len(self.read_settings()["hooks"]["PreToolUse"]), 1)
+        # 2, not the old 1 (A1 fix): see the equivalent assertion above.
+        self.assertEqual(len(self.read_settings()["hooks"]["PreToolUse"]), 2)
 
     def test_a_broken_install_is_reported_as_not_done(self):
         """A prior install left the directory unreadable. The installer must
@@ -663,6 +819,14 @@ class DoctorCase(unittest.TestCase):
                 shutil.copy2(os.path.join(HERE, name),
                              os.path.join(self.tools, name))
         self.fence = os.path.join(self.tools, "bm_fence_hook.py")
+        self.consent_cfg = write_consented_config(self.tmp)
+        # A private HOME for doctor's home-relative reads (duplicate-install
+        # check, settings discovery). Made in setUp so the leaves-nothing-
+        # behind test's before-snapshot already contains it; macOS drops a
+        # Library dir inside any HOME a subprocess uses, and inside this
+        # subdir that noise stays out of the top-level listing.
+        self.home = os.path.join(self.tmp, "home")
+        os.makedirs(self.home)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -682,6 +846,8 @@ class DoctorCase(unittest.TestCase):
         env = dict(os.environ)
         env.pop("BROTHERMODE_ROOT", None)
         env.pop("BM_FENCE_STRICT", None)
+        env["BROTHERME_CONFIG"] = self.consent_cfg
+        env["HOME"] = self.home
         return subprocess.run(
             [sys.executable, DOCTOR, "--settings", self.settings],
             env=env, cwd=self.tmp, stdout=subprocess.PIPE,
@@ -840,6 +1006,165 @@ class DoctorCase(unittest.TestCase):
         out = self.run_doctor().stdout
         self.assertIn("FAILS OPEN", out)
         self.assertIn("Bash is NOT gated", out)
+
+
+class TestChecksumsDirtyTreeSkip(unittest.TestCase):
+    """A9 (loop6 refuter finding): a dirty git working tree makes doctor's
+    checksums check (check 9) SKIP rather than compare, and the run still
+    exits 0 without --strict (SKIP is not a failure by default). The SKIP
+    message must say, in one plain sentence, that the integrity check did
+    NOT run, so a reader cannot mistake the SKIP for a PASS. Same fixture
+    technique as tools/test_bm_consent.py's own dirty-tree checksums test:
+    doctor.py resolves its own `root` from its own file location
+    (os.path.dirname(os.path.dirname(__file__))), so a copy of it under a
+    throwaway git repository lets this control exactly what git sees."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="bm-checksums-dirty-test-")
+        self.home = os.path.join(self.tmp, "home")
+        os.makedirs(self.home)
+        vault = os.path.join(self.tmp, "vault")
+        os.makedirs(vault)
+        self.consent_cfg = os.path.join(self.tmp, "consent.json")
+        with io.open(self.consent_cfg, "w", encoding="utf-8") as fh:
+            json.dump({"setup_complete": True, "vault_path": vault,
+                      "privacy_notice_version": "2026-08-01",
+                      "installation_mode": "clone",
+                      "security_mode": "standard"}, fh)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_dirty_tree_skip_message_says_the_check_did_not_run(self):
+        fake_root = os.path.join(self.tmp, "fake-install")
+        fake_scripts = os.path.join(fake_root, "scripts")
+        os.makedirs(fake_scripts)
+        for name in ("doctor.py", "setup.py"):
+            shutil.copy2(os.path.join(ROOT, "scripts", name),
+                        os.path.join(fake_scripts, name))
+        payload = os.path.join(fake_root, "payload.txt")
+        with io.open(payload, "w", encoding="utf-8") as fh:
+            fh.write("committed content\n")
+        with io.open(payload, "rb") as fh:
+            digest = hashlib.sha256(fh.read()).hexdigest()
+        with io.open(os.path.join(fake_root, "CHECKSUMS.sha256"), "w",
+                    encoding="utf-8") as fh:
+            fh.write("%s  payload.txt\n" % digest)
+
+        git_env = dict(os.environ)
+        git_env.update({"GIT_AUTHOR_NAME": "t",
+                        "GIT_AUTHOR_EMAIL": "t@example.com",
+                        "GIT_COMMITTER_NAME": "t",
+                        "GIT_COMMITTER_EMAIL": "t@example.com"})
+        for cmd in (["git", "init"], ["git", "add", "-A"],
+                    ["git", "commit", "-m", "initial"]):
+            r = subprocess.run(cmd, cwd=fake_root, env=git_env,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               universal_newlines=True, timeout=60)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+        # Dirty the tree WITHOUT committing: an ordinary live edit, not a
+        # half-finished release checkout.
+        with io.open(payload, "a", encoding="utf-8") as fh:
+            fh.write("an uncommitted local edit\n")
+
+        run_env = dict(os.environ)
+        run_env.pop("BROTHERMODE_ROOT", None)
+        run_env.pop("BM_FENCE_STRICT", None)
+        run_env["BROTHERME_CONFIG"] = self.consent_cfg
+        run_env["HOME"] = self.home
+        r = subprocess.run(
+            [sys.executable, os.path.join(fake_scripts, "doctor.py"), "--json"],
+            cwd=fake_root, env=run_env, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, universal_newlines=True, timeout=300)
+        report = json.loads(r.stdout)
+        checksums = [c for c in report["checks"] if c["key"] == "checksums"]
+        self.assertEqual(len(checksums), 1, r.stdout)
+        self.assertEqual(checksums[0]["status"], "SKIP")
+        self.assertIn(
+            "did NOT run", checksums[0]["message"],
+            "the SKIP message must say plainly that the integrity check "
+            "did not run, so it cannot be misread as a pass")
+        # SKIP alone must never fail the run (A8b's claim): a FULLY wired
+        # install, where checksums is the only SKIP, still exits 0 on
+        # exactly this SKIP, proven by
+        # DoctorCase.test_calibrated_1_healthy_install_passes against this
+        # actual checkout's own (routinely dirty) working tree. This
+        # fixture is deliberately minimal (no settings.json, no fence) and
+        # has other, unrelated FAILs of its own, so asserting the overall
+        # exit code here would test the wrong thing.
+
+    def test_a_dirty_linked_worktree_skips_exactly_like_a_normal_checkout(self):
+        """The same dirty-tree SKIP, but in a LINKED worktree (created by
+        git worktree add), where .git is a FILE holding a gitdir: pointer
+        instead of a directory. doctor's tree-state helper used to accept
+        only a .git DIRECTORY, so it reported 'cannot tell' for a worktree
+        whose state git reports perfectly well, the SKIP guard never fired,
+        and check 9 compared a live edited tree against a release manifest
+        anyway. Every agent worktree on this project is a linked worktree,
+        so that made the guard dead code exactly where it is used most."""
+        fake_root = os.path.join(self.tmp, "wt-origin")
+        fake_scripts = os.path.join(fake_root, "scripts")
+        os.makedirs(fake_scripts)
+        for name in ("doctor.py", "setup.py"):
+            shutil.copy2(os.path.join(ROOT, "scripts", name),
+                        os.path.join(fake_scripts, name))
+        payload = os.path.join(fake_root, "payload.txt")
+        with io.open(payload, "w", encoding="utf-8") as fh:
+            fh.write("committed content\n")
+        with io.open(payload, "rb") as fh:
+            digest = hashlib.sha256(fh.read()).hexdigest()
+        with io.open(os.path.join(fake_root, "CHECKSUMS.sha256"), "w",
+                    encoding="utf-8") as fh:
+            fh.write("%s  payload.txt\n" % digest)
+
+        git_env = dict(os.environ)
+        git_env.update({"GIT_AUTHOR_NAME": "t",
+                        "GIT_AUTHOR_EMAIL": "t@example.com",
+                        "GIT_COMMITTER_NAME": "t",
+                        "GIT_COMMITTER_EMAIL": "t@example.com"})
+        linked = os.path.join(self.tmp, "wt-linked")
+        for cmd in (["git", "init"], ["git", "add", "-A"],
+                    ["git", "commit", "-m", "initial"],
+                    ["git", "worktree", "add", linked, "HEAD", "--detach"]):
+            r = subprocess.run(cmd, cwd=fake_root, env=git_env,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               universal_newlines=True, timeout=60)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(
+            os.path.isfile(os.path.join(linked, ".git")),
+            "the fixture is only meaningful if .git here is a FILE, which "
+            "is what git worktree add creates")
+
+        # Dirty the LINKED worktree the way a founder does: edit a tracked
+        # file and do not commit it.
+        with io.open(os.path.join(linked, "payload.txt"), "a",
+                    encoding="utf-8") as fh:
+            fh.write("an uncommitted local edit\n")
+
+        run_env = dict(os.environ)
+        run_env.pop("BROTHERMODE_ROOT", None)
+        run_env.pop("BM_FENCE_STRICT", None)
+        run_env["BROTHERME_CONFIG"] = self.consent_cfg
+        run_env["HOME"] = self.home
+        r = subprocess.run(
+            [sys.executable, os.path.join(linked, "scripts", "doctor.py"),
+             "--json"],
+            cwd=linked, env=run_env, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, universal_newlines=True, timeout=300)
+        report = json.loads(r.stdout)
+        checksums = [c for c in report["checks"] if c["key"] == "checksums"]
+        self.assertEqual(len(checksums), 1, r.stdout)
+        self.assertEqual(
+            checksums[0]["status"], "SKIP",
+            "a dirty LINKED worktree must SKIP the integrity check exactly "
+            "as a dirty ordinary checkout does, not compare against the "
+            "manifest and report the founder's own uncommitted edit as a "
+            "tampered file: %s" % checksums[0]["message"])
+        self.assertIn(
+            "did NOT run", checksums[0]["message"],
+            "the SKIP message must say plainly that the integrity check "
+            "did not run, so it cannot be misread as a pass")
 
 
 # ---------------------------------------------------------------------------

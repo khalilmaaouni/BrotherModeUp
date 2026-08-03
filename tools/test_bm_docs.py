@@ -150,14 +150,20 @@ class TestGeneratedFacts(unittest.TestCase):
                            universal_newlines=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         data = json.loads(r.stdout)
-        for key in ("version", "release_tag", "schema_version", "hook_count",
+        for key in ("version", "is_development", "release_tag",
+                    "install_target_tag", "schema_version", "hook_count",
                     "hook_events", "test_suites", "test_suite_files",
                     "gate_command", "supported_python_floor", "default_branch",
                     "retrieval_modes", "repo_url", "primary_skill_dir",
                     "dev_skill_dir", "install_command_pinned",
                     "install_command_dev"):
             self.assertIn(key, data)
-        self.assertEqual(data["release_tag"], "v" + data["version"])
+        if data["is_development"]:
+            self.assertIsNone(
+                data["release_tag"],
+                "a development identity must not carry a release_tag")
+        else:
+            self.assertEqual(data["release_tag"], "v" + data["version"])
         self.assertEqual(data["hook_count"], len(data["hook_events"]))
         self.assertEqual(data["test_suites"], len(data["test_suite_files"]))
 
@@ -248,9 +254,94 @@ class TestNoStaleCurrentNumbers(unittest.TestCase):
                           "the unlisted tools are ungated" % rel)
 
 
+class TestHandWiringBlocksMatchInstaller(unittest.TestCase):
+    """The copy-paste JSON blocks shipped five events for weeks while every
+    prose check nearby stayed green, because no test ever parsed them: the
+    fence test above looks for two substrings, the event test asks only that
+    each event NAME appear somewhere on the page. This class parses each
+    block with json.loads and compares it, group for group, against
+    scripts/install.py's hook_groups(): same events, same matchers, same
+    timeouts, same commands, modulo the documented `~` install target versus
+    the installer's absolute one. A block that drops an event, a matcher
+    group, or a timeout now fails by name instead of shipping a hand-wired
+    install with detection switched off."""
+
+    PAGES = (os.path.join("docs", "QUICKSTART.md"),
+             os.path.join("docs", "SETUP.md"))
+    DOC_TARGET = "~/.claude/skills/brothermode"
+    # Safe-character absolute stand-in, so shlex.quote adds no quoting and
+    # the only difference between the two shapes is the target string itself.
+    ABS_TARGET = "/opt/brothermode-hand-wiring-check"
+
+    @staticmethod
+    def _json_blocks(text):
+        return re.findall(r"```json\n(.*?)```", text, re.DOTALL)
+
+    @staticmethod
+    def _installer():
+        spec = importlib.util.spec_from_file_location(
+            "bm_install_for_docs_test",
+            os.path.join(ROOT, "scripts", "install.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    @staticmethod
+    def _normalized(groups):
+        """Reduce a hooks mapping to the facts that must agree: per event, an
+        ordered list of (matcher, [(command, timeout), ...]) with command
+        whitespace collapsed, so a wrapped line or a trailing space in the
+        documented block cannot manufacture a difference."""
+        out = {}
+        for event, entries in groups.items():
+            out[event] = [
+                {"matcher": g.get("matcher"),
+                 "hooks": [{"command": " ".join(h.get("command", "").split()),
+                            "timeout": h.get("timeout")}
+                           for h in g.get("hooks", [])]}
+                for g in entries]
+        return out
+
+    def test_each_hand_wiring_block_equals_the_installer_shape(self):
+        expected = self._normalized(self._installer().hook_groups(
+            self.ABS_TARGET))
+        for rel in self.PAGES:
+            wiring = None
+            for block in self._json_blocks(read(rel)):
+                try:
+                    parsed = json.loads(block)
+                except ValueError:
+                    continue
+                if isinstance(parsed, dict) and "SessionStart" in str(
+                        parsed.get("hooks", "")):
+                    wiring = parsed["hooks"]
+                    break
+            self.assertIsNotNone(
+                wiring,
+                "%s: no parseable ```json block with a top-level \"hooks\" "
+                "mapping that wires SessionStart; the hand-wiring block is "
+                "missing or is invalid JSON" % rel)
+            substituted = json.loads(
+                json.dumps(wiring).replace(self.DOC_TARGET, self.ABS_TARGET))
+            actual = self._normalized(substituted)
+            self.assertEqual(
+                sorted(actual), sorted(expected),
+                "%s: the hand-wiring block wires events %s but "
+                "scripts/install.py wires %s"
+                % (rel, sorted(actual), sorted(expected)))
+            for event in sorted(expected):
+                self.assertEqual(
+                    actual[event], expected[event],
+                    "%s: the %s groups in the hand-wiring block do not match "
+                    "scripts/install.py hook_groups(); the block is what a "
+                    "reader copies, so the block is what has to be true"
+                    % (rel, event))
+
+
 class TestOneInstall(unittest.TestCase):
     """The public default install target is an IMMUTABLE tag, generated from
-    one release fact (bm_project_facts.py's release_tag), never hand typed.
+    one release fact (bm_project_facts.py's install_target_tag), never hand
+    typed.
 
     THE DEFECT THIS CLASS GUARDS: before this fix, three of the four active
     onboarding pages (README.md:54, docs/QUICKSTART.md:15, docs/SETUP.md:19)
@@ -285,8 +376,9 @@ class TestOneInstall(unittest.TestCase):
             % "; ".join(offenders))
 
     def test_the_primary_install_command_is_identical_on_every_install_page(self):
-        """The one immutable install command, generated from release_tag,
-        must be byte identical across README.md, docs/QUICKSTART.md and
+        """The one immutable install command, generated from
+        install_target_tag, must be byte identical across README.md,
+        docs/QUICKSTART.md and
         docs/SETUP.md, and must match what bm_project_facts.py generates: a
         page that hand types its own version of the pinned tag is exactly
         the drift this loop exists to make impossible."""
@@ -305,7 +397,11 @@ class TestOneInstall(unittest.TestCase):
             "the one bm_project_facts.py generates; it was hand typed "
             "rather than copied from the tool")
 
-    def test_the_pinned_install_uses_the_current_release_tag(self):
+    def test_the_pinned_install_uses_the_public_install_target_tag(self):
+        """The pinned tag is install_target_tag, not release_tag: the public
+        install target is the tag known to actually resolve in git, which is
+        independent of whatever identity VERSION currently claims (a
+        development identity has no release_tag at all)."""
         offenders = []
         for rel in INSTALL_DOCS + (os.path.join("docs", "RELEASE.md"),):
             text = read(rel)
@@ -313,12 +409,12 @@ class TestOneInstall(unittest.TestCase):
                      and _clones_primary_dir(l)]
             for line in pinned:
                 tag = re.search(r"--branch\s+(\S+)", line).group(1)
-                if tag != FACTS["release_tag"]:
+                if tag != FACTS["install_target_tag"]:
                     offenders.append("%s pins %s" % (rel, tag))
         self.assertEqual(
             offenders, [],
-            "a page pins a release tag that disagrees with VERSION (current "
-            "release is %s): %s" % (FACTS["release_tag"], "; ".join(offenders)))
+            "a page pins a tag that disagrees with install_target_tag (%s): "
+            "%s" % (FACTS["install_target_tag"], "; ".join(offenders)))
 
     def test_the_development_command_is_kept_separate_and_labeled(self):
         """Requirement 1's second half: a development command must exist on
@@ -351,13 +447,15 @@ class TestOneInstall(unittest.TestCase):
         for rel in ACTIVE_DOCS:
             for m in re.finditer(r"git clone[^\n]*--branch\s+(\S+)", read(rel)):
                 ref = m.group(1)
-                if ref != FACTS["release_tag"] and ref != FACTS["default_branch"]:
+                if (ref != FACTS["install_target_tag"]
+                        and ref != FACTS["default_branch"]):
                     offenders.append("%s: %s" % (rel, ref))
         self.assertEqual(offenders, [],
                          "a page clones a branch that is neither the default "
-                         "branch (%s) nor the current tag (%s): %s"
-                         % (FACTS["default_branch"], FACTS["release_tag"],
-                            "; ".join(offenders)))
+                         "branch (%s) nor the public install target tag (%s): "
+                         "%s" % (FACTS["default_branch"],
+                                 FACTS["install_target_tag"],
+                                 "; ".join(offenders)))
 
 
 def _git(*args):
@@ -386,11 +484,22 @@ def _tag_exists(tag):
 
 
 class TestReleaseTruth(unittest.TestCase):
-    """Loop 1, requirement 3: a release-truth test. Fable's attack prompt
-    treats release identity as a supply-chain boundary; each check below is
-    its OWN test method with a name that says exactly what it protects, so a
-    failing run points at one broken release fact rather than at "release
-    truth" in the abstract.
+    """Loop 1, requirement 3: a release-truth test, extended for the
+    release-closure program (Loop 0) to protect BOTH identities a tree can
+    carry. Fable's attack prompt treats release identity as a supply-chain
+    boundary; each check below is its OWN test method with a name that says
+    exactly what it protects, so a failing run points at one broken release
+    fact rather than at "release truth" in the abstract.
+
+    A development identity (FACTS["is_development"]) claims no release tag
+    at all: release_tag is None, and no tag named after the dev version may
+    exist. That is what protects against the exact ambiguity rc.10 and
+    rc.11 created: a release-cut commit that was tagged after the branch had
+    already moved past it. The released-identity protections below (tag
+    exists, tag points at the intended commit, checksum manifest matches the
+    tagged tree) SKIP with a stated reason while the current identity is a
+    development one, and re-arm automatically the moment VERSION next names
+    a released version.
 
     Every check that needs the documented tag to exist in git SKIPS, with a
     stated reason, when it does not, rather than passing on an empty
@@ -401,12 +510,128 @@ class TestReleaseTruth(unittest.TestCase):
     holding different code (docs/RELEASE.md, "v2.0.0-rc.1 is WITHDRAWN")."""
 
     def setUp(self):
+        self.is_dev = FACTS["is_development"]
         self.tag = FACTS["release_tag"]
-        self.tag_exists = _tag_exists(self.tag)
+        self.tag_exists = _tag_exists(self.tag) if self.tag else False
+
+    def _skip_unless_released(self):
+        if self.is_dev:
+            self.skipTest(
+                "current identity (%s) is a development identity, not a "
+                "released one; this check re-arms automatically once "
+                "VERSION next names a released version" % FACTS["version"])
+
+    # -- development identity protections --------------------------------
+
+    def test_a_development_identity_claims_no_git_tag(self):
+        """Protects: a development identity must never claim a git tag.
+        release_tag is None for it, and no tag named after its own version
+        may exist either; a later development version quietly growing a
+        matching tag would recreate the exact two-trees ambiguity rc.10 and
+        rc.11 are SUPERSEDED, NEVER TAGGED to avoid."""
+        if not self.is_dev:
+            self.skipTest("current identity (%s) is not a development "
+                          "identity" % FACTS["version"])
+        self.assertIsNone(
+            self.tag, "a development identity must not carry a release_tag")
+        claimed = "v" + FACTS["version"]
+        self.assertFalse(
+            _tag_exists(claimed),
+            "a development tree must not have a git tag named after its "
+            "own development version, but %s exists" % claimed)
+
+    def test_the_public_install_target_tag_resolves_in_git(self):
+        """Protects: install_target_tag, the tag every install page pins,
+        actually resolves. This is a real check now, not a skip, because
+        v2.0.0-rc.9 exists; it holds regardless of whether the current
+        identity is a development one or a released one."""
+        target = FACTS["install_target_tag"]
+        self.assertTrue(
+            _tag_exists(target),
+            "install_target_tag %s does not exist in this repository"
+            % target)
+
+    def test_release_md_marks_rc10_and_rc11_superseded_never_tagged(self):
+        """Protects: docs/RELEASE.md states, in the exact ratified phrase,
+        that rc.10 and rc.11 are both superseded and will never be tagged
+        (amendment A1: a late tag would recreate the two-trees ambiguity),
+        so a reader cannot mistake either for a release still pending a
+        tag."""
+        text = read(os.path.join("docs", "RELEASE.md"))
+        for candidate in ("2.0.0-rc.10", "2.0.0-rc.11"):
+            idx = text.find(candidate)
+            self.assertNotEqual(
+                idx, -1, "docs/RELEASE.md never mentions %s" % candidate)
+            window = text[idx:idx + 200]
+            self.assertIn(
+                "SUPERSEDED, NEVER TAGGED", window,
+                "docs/RELEASE.md does not mark %s as SUPERSEDED, NEVER "
+                "TAGGED near its mention" % candidate)
+
+    def test_changelog_headings_mark_rc10_and_rc11_superseded_never_tagged(self):
+        """Protects: the CHANGELOG section HEADINGS for rc.10 and rc.11 both
+        carry (SUPERSEDED, NEVER TAGGED). The sibling test above pins
+        docs/RELEASE.md only, and the CHANGELOG's rc.11 heading drifted
+        unprotected for a day: found by the 2026-08-02 Loop 9 preliminary
+        review (the second session's identity attacker, reproduced by hand
+        before this pin landed). A heading is what a scanning reader trusts;
+        prose lower down cannot repair a heading that presents a retired
+        candidate as a release."""
+        heading = re.compile(r"(?m)^## (2\.0\.0-rc\.1[01])\b(.*)$")
+        text = read("CHANGELOG.md")
+        matches = heading.findall(text)
+        self.assertTrue(
+            matches, "CHANGELOG.md has no rc.10 or rc.11 section headings")
+        offenders = ["rc heading lacks the marker: ## %s%s" % (v, rest)
+                     for v, rest in matches
+                     if "(SUPERSEDED, NEVER TAGGED)" not in rest]
+        self.assertEqual(
+            offenders, [],
+            "%s. Amendment A1: neither candidate was ever tagged and neither "
+            "ever will be; the heading itself must say so." % "; ".join(offenders))
+
+    def test_all_release_manifests_describe_one_identity(self):
+        """Protects: VERSION, pyproject.toml (PEP 440 normalized),
+        plugin.json and marketplace.json (both its occurrences) all name
+        the same release identity. A manifest quietly left behind while the
+        others move on is exactly how a two-trees ambiguity starts."""
+        version = FACTS["version"]
+        offenders = []
+
+        pep440 = re.search(r'(?m)^version\s*=\s*"([^"]+)"',
+                          read("pyproject.toml")).group(1)
+        normalized = re.sub(r"(\d)rc(\d)", r"\1-rc.\2", pep440)
+        if normalized != version:
+            offenders.append("pyproject.toml: %s (normalized %s)"
+                             % (pep440, normalized))
+
+        plugin = json.loads(read(os.path.join(".claude-plugin",
+                                              "plugin.json")))
+        if plugin.get("version") != version:
+            offenders.append("plugin.json: %r" % plugin.get("version"))
+
+        marketplace = json.loads(read(os.path.join(".claude-plugin",
+                                                    "marketplace.json")))
+        market_version = marketplace.get("metadata", {}).get("version")
+        if market_version != version:
+            offenders.append("marketplace.json metadata.version: %r"
+                             % market_version)
+        for entry in marketplace.get("plugins", []):
+            if entry.get("version") != version:
+                offenders.append("marketplace.json plugins[].version: %r"
+                                 % entry.get("version"))
+
+        self.assertEqual(
+            offenders, [],
+            "manifest(s) disagree with VERSION (%s): %s"
+            % (version, "; ".join(offenders)))
+
+    # -- released identity protections, re-arm at the final release ------
 
     def test_the_documented_tag_exists_in_git(self):
         """Protects: a reader following the pinned install command gets a ref
         that actually resolves, not `fatal: Remote branch ... not found`."""
+        self._skip_unless_released()
         if not self.tag_exists:
             self.skipTest(
                 "tag %s does not exist in this repository yet; cutting it is "
@@ -421,6 +646,7 @@ class TestReleaseTruth(unittest.TestCase):
         is read from git's own history, not trusted by name: the commit that
         actually set VERSION to the current value, never a commit chosen by
         this test's own guess."""
+        self._skip_unless_released()
         if not self.tag_exists:
             self.skipTest("tag %s does not exist yet; see the previous test"
                           % self.tag)
@@ -438,9 +664,11 @@ class TestReleaseTruth(unittest.TestCase):
                         intended))
 
     def test_the_primary_install_command_uses_the_tag_not_a_branch(self):
-        """Protects: the public default clone in README.md,
+        """Protects: once released, the public default clone in README.md,
         docs/QUICKSTART.md and docs/SETUP.md pins --branch <tag>, never a
-        moving branch name such as the default branch."""
+        moving branch name such as the default branch, and install_target_tag
+        has been brought into agreement with the tag just cut."""
+        self._skip_unless_released()
         checked_any = False
         for rel in INSTALL_DOCS:
             text = read(rel)
@@ -471,6 +699,7 @@ class TestReleaseTruth(unittest.TestCase):
         repository before this fix: the tag already existed (git tag -l,
         and it resolves on the configured remote), while docs/RELEASE.md's
         CURRENT STATE section still said "NO tag has been cut for it"."""
+        self._skip_unless_released()
         text = read(os.path.join("docs", "RELEASE.md"))
         current_state = text.split("CURRENT STATE", 1)[-1].split("\n\n", 1)[0]
         if self.tag_exists:
@@ -510,6 +739,7 @@ class TestReleaseTruth(unittest.TestCase):
         guarantee scripts/verify-install.sh makes for an installed copy.
         Read entirely through git plumbing against the tag; no checkout, no
         network."""
+        self._skip_unless_released()
         if not self.tag_exists:
             self.skipTest("tag %s does not exist yet; nothing to check the "
                           "checksum manifest against" % self.tag)

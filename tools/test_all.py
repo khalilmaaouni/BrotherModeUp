@@ -86,8 +86,31 @@ SUITES = (
     # is reported before the long suites run rather than after them.
     "test_bm_docs.py",
     "test_bm_store.py",
+    # Loop 2 (2026-08-01): the mechanical command line over the Store
+    # service methods and D-2 read accessors in bm_store.py. Placed right
+    # after the store suite it wraps, before the other subprocess-heavy
+    # suites, since it drives tools/bm_project.py as a real subprocess and
+    # depends on the store schema the suite above already proved sound.
+    # NO APOSTROPHE ANYWHERE IN THIS COMMENT, ON PURPOSE: the fact loader
+    # in bm_project_facts.py extracts every quoted span inside this tuple
+    # with a plain quote-to-quote regex, so a stray apostrophe in a
+    # comment here opens a fake quoted region that swallows real suite
+    # names. Reproduced directly while writing this: it broke test_bm_docs
+    # dot py, the test named test every named suite file exists.
+    "test_bm_project.py",
     "test_bm_fence_hook.py",
+    # Loop 6 WP-G (2026-08-01): the Bash-write detection suite for
+    # tools/bm_bash_audit.py. Placed right after the fence hook suite it
+    # extends: both drive real subprocesses against a throwaway project and
+    # share the same session-identity module.
+    "test_bm_bash_audit.py",
     "test_install.py",
+    # Loop 3 WP-D (2026-08-01): the consent gate suite for scripts/setup.py,
+    # tools/bm_sessionstart.sh, and the SessionEnd path in tools/bm_telemetry.py.
+    # NO APOSTROPHE IN THIS COMMENT, ON PURPOSE (see the file-level note above):
+    # placed right after the installer suite; both drive real subprocesses
+    # against a fake HOME, and this one is fast.
+    "test_bm_consent.py",
     "test_bm_runtimes.py",
     "test_bm_autosave.py",
     # The loop estimate ledger, landed from the live install 2026-07-31. Early

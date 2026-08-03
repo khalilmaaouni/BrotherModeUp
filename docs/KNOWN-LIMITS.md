@@ -46,18 +46,50 @@ person was not sure about.
   rewrite nobody read is how the stale command got there in the first place. It does
   mean a release cut is a two-step act, and the second step is enforced only by the
   gate.
-- **`scripts/doctor.py` checks the settings FILE and the hook CODE.** It cannot
-  tell whether Claude Code has loaded that file: hooks are read at session
-  start, so a mid-session correction is live at the next session. The fence hook
-  still fails open by design (missing, empty, or corrupt store, or any internal
-  error), so a green doctor is a statement about a healthy store, not about
-  every future run.
-- **The fence covers Edit, Write, MultiEdit and NotebookEdit.** Bash writes
-  (redirection, `sed -i`, `tee`, `git checkout`, inline interpreter scripts, any
-  subprocess) reach the filesystem without passing a hook.
-  `scripts/bm_shell.py` mitigates only the writes a caller chooses to declare:
-  it is a declaration channel, not a sandbox, and its `--declare-none` screen is
-  a short list of obvious write forms, not a shell parser.
+- **`scripts/doctor.py` now runs TEN checks, not one, since 2026-08-01 (Loop
+  3 design D-3, docs/superpowers/specs/2026-08-01-loop3-consent-install-
+  design.md): fence liveness (check 1, unchanged), VERSION-vs-manifest
+  version identity, python3 and git availability, consent config presence,
+  vault path writability, plugin-vs-clone duplicate-hook detection, project
+  store health (`bm_store.py verify`), hook wiring matched to the consented
+  installation_mode, a CHECKSUMS.sha256 self-check, and settings.json
+  validity.** Each prints PASS, FAIL with a one-sentence fix, or SKIP with
+  the reason nothing could be checked yet; `--json` for machines. What was
+  already true of check 1 alone still holds for the whole surface: it checks
+  the settings FILE and the CODE, not whether Claude Code has actually
+  LOADED any of it (hooks are read at session start, so a mid-session
+  correction is live at the next session), and the fence hook still fails
+  open by design (missing, empty, or corrupt store, or any internal error),
+  so a green doctor is a statement about the files and the code right now,
+  not a promise about every future run.
+- **The fence covers Edit, Write, MultiEdit and NotebookEdit for PREVENTION. Bash
+  writes are DETECTED, since 2026-08-01 (Loop 6, D-1), and still not prevented.**
+  Bash writes (redirection, `sed -i`, `tee`, `git checkout`, inline interpreter
+  scripts, any subprocess) still reach the filesystem without passing a hook that
+  can refuse them: `tools/bm_fence_hook.py`'s `PreToolUse` matcher still cannot
+  parse arbitrary shell, so nothing blocks a Bash write the way an Edit or Write
+  can be blocked. What changed is that a fenced file changed BY a Bash call FROM a
+  session that does not own that fence is no longer invisible: `tools/
+  bm_bash_audit.py` snapshots every fenced, existing file before a Bash call and
+  re-hashes it after, raising a high-severity fence-breach alert (through the
+  store, requiring a human) when the hash changed and the acting session is not
+  the owner. Detection, not prevention, stated in as many words in docs/HOOKS.md's
+  own "Bash-write detection hook" section, which also states what it cannot see: a
+  write that restores the original bytes before the check runs, a Bash call that
+  removes its own snapshot along with the evidence, a concurrent process racing
+  the same window, and a claim on a directory or glob that was never expanded into
+  the files it covers. `scripts/bm_shell.py` still mitigates only the writes a
+  caller chooses to declare: it is a declaration channel, not a sandbox, and its
+  `--declare-none` screen is a short list of obvious write forms, not a shell
+  parser. CORRECTED 2026-08-01 (loop6 refuter finding A1/A8c): this row used to say
+  the new hook was wired into the plugin manifest (`hooks/hooks.json`) but NOT YET
+  into `scripts/install.py`'s clone-install path, so a clone install got the fence
+  hook only. That gap is closed: `scripts/install.py` now wires both the
+  `PreToolUse` and `PostToolUse` halves of the Bash-audit pair too, on the same
+  terms as the plugin manifest, so both install paths carry Bash-write detection.
+  What is still true either way: the snapshot only covers a claimed path that
+  resolves to a REAL, EXISTING FILE at the moment the Bash call starts, not a
+  directory or glob-shaped claim expanded into the files it would cover.
 - **OBSERVED GREEN 2026-07-31, on all nine jobs.** This entry used to say no real
   Actions run had ever been observed. Run `30564943060` for commit `f751f9f`
   concluded success across the serial `gate` job, both `suite` legs, and all six
@@ -597,13 +629,21 @@ QUICKSTART honesty label has a register entry behind it:
   defects that first install surfaced: a name collision (a development copy
   carrying the same manifest name is refused loading while the plugin is
   installed; the development copy is now named differently) and double
-  wiring (the plugin auto-wires the same five hook events scripts/install.py
+  wiring (the plugin auto-wires the same six hook events scripts/install.py
   wires into settings.json, so a machine carrying both runs every hook twice
-  while the plugin is installed; pick one wiring, not both).
+  while the plugin is installed; pick one wiring, not both). UPDATED
+  2026-08-01 (Loop 3 design D-3): this double-fire state is no longer
+  silent. `scripts/doctor.py` check 6 detects it mechanically, both a
+  plugin named in settings.json's `enabledPlugins` and a clone-managed
+  `PreToolUse` entry wired at the same time, and FAILs naming which one to
+  remove (`/plugin uninstall <name>` or `python3 scripts/uninstall.py`).
+  What is still NOT true: nothing prevents the double install from
+  happening in the first place, only from staying unnoticed once doctor is
+  run.
 - The marketplace install command only works once these files exist on the
   branch or tag the marketplace add fetches. If your copy predates them, the
   command fails; that is a missing-files condition, not a broken machine.
-- `hooks/hooks.json` mirrors the same five hook events `scripts/install.py`
+- `hooks/hooks.json` mirrors the same six hook events `scripts/install.py`
   wires into `settings.json`, but the plugin-managed wiring has never been
   exercised end to end. The `scripts/install.py` path is the exercised one.
 - How the guided layer loads is only partly proven. On this project's own
@@ -613,10 +653,72 @@ QUICKSTART honesty label has a register entry behind it:
   2026-07-31 (one observation, one machine, one Claude Code version). No
   fresh-machine install of either path has demonstrated the guided layer yet;
   treat reachability as promising, not verified.
-- There is no first-run wizard. The guided skill is instructed to ask where
-  private project memory should live before writing there, but the automatic
-  session records (hooks) default to `~/BrotherModeVault` on their own the
-  first time they fire, without asking. Moving that means setting the
-  `BROTHERMODE_VAULT` environment variable, which is exactly the kind of step
-  the beginner path exists to remove. A real first-run setup is designed
-  (`docs/specs/canonical-project-protocol.md` is the direction) but not built.
+- UPDATED 2026-08-01 (Loop 3 design D-1/D-2, docs/superpowers/specs/
+  2026-08-01-loop3-consent-install-design.md): what this entry used to say
+  is now false and would mislead a reader who trusted it. There IS a
+  first-run setup now, `python3 scripts/setup.py`, runnable interactively
+  (question by question, plain words) or flag-driven
+  (`--vault PATH --mode plugin|clone --accept-notice`) for scripted runs and
+  tests, and it is the ONLY code path in the project allowed to create
+  `~/.brotherme/config.json`. Every write-capable hook entry point
+  (`bm_sessionstart.sh`, `bm_autosave.py`, and all three hook-wired commands
+  in `bm_telemetry.py`: `outcomes-append`, `precompact-brief` and
+  `stop-warn`) checks that config BEFORE writing anything and, when setup has
+  not run, writes NOTHING and prints one sentence naming `scripts/setup.py`:
+  proven directly by walking both the HOME tree and the project tree before
+  and after, a fresh HOME stays at zero files (`tools/test_bm_consent.py`,
+  the suite this loop added).
+  CORRECTED 2026-08-02, and the correction is the useful part: this sentence
+  named only two entry points because only two had been gated, and the two it
+  omitted were writing. `precompact-brief` wrote the founder's last message
+  VERBATIM into `~/BrotherModeVault/99-System/telemetry/last-resume-*.md`
+  pre-consent, and `stop-warn` created the vault tree to hold a marker file.
+  Both were found by an independent Loop 9 review and reproduced from scratch
+  in a throwaway HOME before being fixed. The escape route matters more than
+  either bug: the PreCompact hook line runs TWO programs off one payload, the
+  earlier fix gated the first, and every check that existed drove hook EVENTS
+  rather than every PROGRAM on each line, so nothing could see the second.
+  The gate now sits on each command, and an inventory test reads
+  `hooks/hooks.json` and fails if any hook-wired `bm_telemetry.py` command
+  lacks a consent check, so the next hook cannot reopen the class. The
+  automatic session hooks no longer default the vault to
+  `~/BrotherModeVault` on their own the first time they fire; they simply do
+  not write until `scripts/setup.py` has recorded a vault path, and setup
+  itself never creates the vault directory, only records the path a founder
+  chose. What is still NOT true: the guided `/brotherme-start` skill flow
+  and this CLI-based setup are two separate entry points that have not been
+  unified into one first-run experience, and `docs/specs/canonical-project-
+  protocol.md` remains the longer-term direction, not what shipped here.
+
+## The rc.9 install gap, found by the Loop 9 preliminary refuter pass (2026-08-02)
+
+Three related facts, all true at once, all resolved only by the founder
+cutting the next release tag at program end:
+
+- **The pinned install commands install the pre-fix tree.** Every install
+  page pins `v2.0.0-rc.9`, the last resolvable tag, per the Loop 0
+  version law. But rc.9 predates every commit of the release-closure
+  program, so a user installing today gets the acknowledged-broken
+  five-event hand-wiring blocks, no Bash-write detection, and none of
+  loops 1 through 8. The release branch's own install path does not
+  install the release branch. This is the designed cost of refusing to
+  tag mid-program (a late rc.10 or rc.11 tag would have recreated the
+  rc.8 two-trees ambiguity); it stops being true the moment the next tag
+  is cut and the three doc pins move to it.
+- **rc.9 cannot read a store this branch has touched.** rc.9 code
+  understands store schema 11; the program's Loop 1 migrated the schema
+  to 12. An rc.9 install pointed at a schema-12 store refuses loudly at
+  session start ("store schema_version is 12 but this BrotherMode
+  understands at most 11. Upgrade BrotherMode; do not downgrade the
+  store.") and touches nothing, so the mismatch is safe but noisy. The
+  founder's own machine shows this warning every session for exactly
+  this reason. It ends when the live install is upgraded past the
+  schema-12 migration.
+- **doctor's wiring check reads 1 of 7 hook groups.** Check 8's healthy
+  verdict confirms the PreToolUse fence entry and nothing else: an
+  install missing SessionEnd, Stop, PreCompact, PostToolUse and both
+  Bash-audit groups (telemetry, autosave and the Loop 6 detection all
+  dead) still prints "All 10 checks passed". Widening the check to all
+  seven groups is a post-freeze fix; until then, the mechanical
+  cross-check is `python3 tools/test_install.py`, whose shape assertions
+  do read all seven.

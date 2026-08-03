@@ -1,19 +1,36 @@
 #!/usr/bin/env python3
-"""doctor.py: is the fence hook actually ACTIVE, or only wired?
+"""doctor.py: ten named checks, each PASS, FAIL, or SKIP, plain remediation.
 
-WHY THIS EXISTS
-  scripts/install.py writes the PreToolUse fence entry into settings.json and
-  smoke tests that the hook file runs and exits 0. Both checks pass on a fence
-  that refuses nothing: the smoke test runs the hook from an empty directory,
-  where it takes its documented fail-open path. So "installed" so far means
-  "present and executable", not "denies a write across someone else's fence".
-  That gap is exactly the shape of the headline promise, so it gets its own
-  command.
+WHY THIS EXISTS (grew under Loop 3 design D-3, docs/superpowers/specs/
+2026-08-01-loop3-consent-install-design.md)
+  This file started as one question: is the fence hook wired AND live, or
+  only wired? That question still matters most and its check is check 1,
+  unchanged. The external review's section 13.5 asked for a wider surface:
+  a founder running one command should learn whether the whole install is
+  healthy, not only the fence. So doctor grew to ten checks: the fence
+  simulation; version identity between VERSION and the plugin manifest;
+  python3 and git availability; consent (has scripts/setup.py been run);
+  the vault path; plugin-vs-clone duplicate hook detection (the recon's
+  confirmed double-fire bug: both wirings present means every hook fires
+  twice); project store health; hook wiring matching the consented
+  installation_mode; a CHECKSUMS.sha256 self-check (catches a half-finished
+  update); and whether settings.json itself is valid JSON.
 
-WHAT IT DOES
+WHAT EVERY CHECK PROMISES
+  PASS, FAIL with one plain-word remediation a non-engineer can follow, or
+  SKIP with the reason nothing could be checked. A check never crashes this
+  program: an unexpected exception inside one check is caught and reported
+  as that check's own FAIL, naming the exception, so one broken check cannot
+  hide the other nine. Exit 0 only when every check is PASS or SKIP; --json
+  prints the same information as one machine-readable object. BROTHERME_CONFIG
+  and HOME are honored throughout (mostly by reusing scripts/setup.py's own
+  config reader), so a test harness can point every check at a throwaway
+  HOME without touching the real one.
+
+CHECK 1: THE FENCE HOOK, KEPT EXACTLY AS BEFORE
   1. Reads settings.json and finds the PreToolUse group whose command names a
-     bm_fence_hook.py. Missing group, missing entry, or a command pointing at a
-     file that is not there are each reported as a PROBLEM, by name.
+     bm_fence_hook.py. Missing group, missing entry, or a command pointing at
+     a file that is not there are each reported as a PROBLEM, by name.
   2. Runs a BLOCKED-WRITE SIMULATION against the command string settings.json
      actually holds, not against a path this script reconstructs. It builds a
      throwaway project under a temporary directory, gives it its own store,
@@ -35,19 +52,22 @@ WHAT IT DOES
   never performed by anything. Nothing outside the temporary directory is
   read for the simulation except the hook and store code being tested.
 
-WHAT IT CANNOT TELL YOU
-  That Claude Code has loaded this settings file. A hook is read by the client
-  at session start; a correct settings.json edited mid-session is not live
-  until the next session. Doctor checks the file and the code, which is
-  everything except the client's memory.
+WHAT NO CHECK HERE CAN TELL YOU
+  That Claude Code has loaded the settings file you just fixed. A hook is
+  read by the client at session start; a correct settings.json edited
+  mid-session is not live until the next session. Doctor checks the file and
+  the code, which is everything except the client's memory.
 
 Python 3.9, standard library only, no network. Runs subprocesses only to
-execute the wired hook command and this project's own store CLI.
+execute the wired fence hook command, this project's own store CLI (check 7),
+and (never) anything else.
 
 No em or en dashes anywhere in this file, its comments, or its output.
 """
 
 import argparse
+import collections
+import hashlib
 import io
 import json
 import os
@@ -84,6 +104,14 @@ OWNER_SESSION = "bm-doctor-owner"
 INTRUDER_SESSION = "bm-doctor-intruder"
 SIM_REL_PATH = os.path.join("sim", "fenced.txt")
 
+# scripts/setup.py, same directory, deliberate (mirrors scripts/uninstall.py's
+# own "import install as _install"): this is the ONE place consent is read or
+# written, per its own docstring, and every check below that needs to know
+# whether setup has run goes through it rather than re-reading the config file
+# a second way.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import setup as _bm_setup  # noqa: E402  (same directory, deliberate)
+
 
 def _out(text):
     sys.stdout.write(text + "\n")
@@ -97,23 +125,46 @@ def default_settings_path():
     return os.path.join(os.path.expanduser("~"), ".claude", "settings.json")
 
 
+def _mask_home(path):
+    """Replace the operator's own home-directory prefix with a generic
+    /Users/... placeholder before this path is printed (R5, external review
+    Loop 3/5): every message below that names an absolute path runs through
+    this, so a remediation command doctor.py prints never leaks the machine's
+    real account name. Mirrors the same, simpler technique scripts/
+    rehearse_fresh_install.py's step1_clone already uses for the same
+    reason: the heavier, free-text bs.mask_absolute_paths in
+    tools/bm_store.py replaces a whole path with a withheld marker, which
+    would make a printed command impossible to run; this hides only the
+    account name and keeps the rest of the path, including the command,
+    copy-pasteable."""
+    if not path:
+        return path
+    home = os.path.expanduser("~")
+    if home and path.startswith(home):
+        return "/Users/..." + path[len(home):]
+    return path
+
+
 def read_settings(path):
     """Returns (settings_dict, error_string). Never raises on bad input: an
     unreadable settings file is a finding to report, not a traceback."""
     if not os.path.exists(path):
-        return None, "no settings file at %s" % path
+        return None, ("no settings file at %s. This file is normally created "
+                      "by python3 scripts/install.py, which also wires the "
+                      "hooks into it; run that to create it."
+                      % _mask_home(path))
     try:
         with io.open(path, encoding="utf-8") as fh:
             raw = fh.read()
     except (IOError, OSError) as exc:
-        return None, "settings file at %s could not be read: %s" % (path, exc)
+        return None, "settings file at %s could not be read: %s" % (_mask_home(path), exc)
     try:
         data = json.loads(raw)
     except ValueError as exc:
         return None, ("settings file at %s is not valid JSON (%s). Claude Code "
-                      "ignores it silently, so EVERY hook is off." % (path, exc))
+                      "ignores it silently, so EVERY hook is off." % (_mask_home(path), exc))
     if not isinstance(data, dict):
-        return None, "settings file at %s is JSON but not an object" % path
+        return None, "settings file at %s is JSON but not an object" % _mask_home(path)
     return data, None
 
 
@@ -310,7 +361,8 @@ def blocked_write_simulation(command_words, tools_dir):
 
 
 def doctor(settings_path):
-    """Returns (problems, notes). Both are lists of strings."""
+    """Returns (problems, notes). Both are lists of strings. This is check 1,
+    unchanged from before the ten-check surface existed."""
     problems = []
     notes = []
 
@@ -325,7 +377,7 @@ def doctor(settings_path):
                  "the one-writer promise is a ledger, not a boundary. Fix: run "
                  "python3 scripts/install.py (or --upgrade over an existing "
                  "install), or add the block in docs/HOOKS.md by hand."
-                 % (settings_path, FENCE_BASENAME)], notes)
+                 % (_mask_home(settings_path), FENCE_BASENAME)], notes)
     if len(entries) > 1:
         notes.append("%d fence entries are wired; the first one is the one "
                      "checked below." % len(entries))
@@ -367,13 +419,469 @@ def doctor(settings_path):
     return problems, notes
 
 
+# ---------------------------------------------------------------------------
+# The ten-check surface (Loop 3 design D-3). Each check function below
+# returns a CheckResult; none of them may raise, because _run_check wraps
+# every call and turns an unexpected exception into that check's own FAIL
+# rather than a doctor.py traceback.
+# ---------------------------------------------------------------------------
+
+CheckResult = collections.namedtuple("CheckResult", "key title status message")
+
+STATUS_PASS = "PASS"
+STATUS_FAIL = "FAIL"
+STATUS_SKIP = "SKIP"
+
+CHECK_TITLES = collections.OrderedDict((
+    ("fence", "the write-protection check (fence hook) wired and live"),
+    ("version", "VERSION matches the plugin manifest"),
+    ("runtime", "python3 3.9+ and git are available"),
+    ("consent", "setup has been completed"),
+    ("vault", "vault path exists and is writable"),
+    ("duplicate_install", "only one install method is wired"),
+    ("store", "project store health"),
+    ("mode_wiring", "hook wiring matches installation_mode"),
+    ("checksums", "CHECKSUMS.sha256 self-check"),
+    ("settings_json", "settings.json is valid JSON"),
+))
+
+
+def _result(key, status, message):
+    return CheckResult(key, CHECK_TITLES[key], status, message)
+
+
+def _run_check(key, fn, *args):
+    """Call fn(*args), which must return a CheckResult for `key`. An
+    exception from fn becomes that check's own FAIL instead of a crash: one
+    broken check must never hide the other nine."""
+    try:
+        return fn(*args)
+    except Exception as exc:  # noqa: BLE001 - a check must never crash doctor
+        return _result(key, STATUS_FAIL,
+                       "FAIL: this check crashed (%s: %s). Re-run with --json "
+                       "for the full check list, and report this at "
+                       "https://github.com/khalilmaaouni/BrotherModeUp/issues "
+                       "(include the --json output)."
+                       % (type(exc).__name__, exc))
+
+
+def check_fence(settings_path):
+    problems, notes = doctor(settings_path)
+    if problems:
+        lines = list(notes)
+        lines.append("PROBLEMS (%d):" % len(problems))
+        for p in problems:
+            lines.append("  - %s" % p)
+        lines.append(
+            "Until these are fixed, treat file ownership as a coordination "
+            "ledger only: bm_store.py still refuses an overlapping CLAIM, but "
+            "nothing refuses a WRITE.")
+        return _result("fence", STATUS_FAIL, "\n".join(lines))
+    lines = list(notes)
+    lines.append(
+        "OK: for each of %s, the wired hook denied a foreign write and "
+        "allowed the owner's own write, in a throwaway project that has been "
+        "deleted." % ", ".join(WRITE_TOOL_NAMES))
+    lines.append("")
+    lines.append("What this does NOT prove, stated so it is not assumed:")
+    lines.append(
+        "  - The fence FAILS OPEN by design (docs/HOOKS.md). A missing store, "
+        "a corrupt store, a store with no active claims, or any bug in the "
+        "hook allows the write and prints a line starting "
+        "'bm_fence_hook: FAILING OPEN'. A hook that fails closed would brick "
+        "editing, which is a worse failure than an unenforced fence, so this "
+        "is a choice and not an oversight.")
+    lines.append(
+        "  - Bash is NOT gated. Shell redirection, sed -i, tee, python -c and "
+        "the rest write files without passing any hook. That is outside "
+        "mechanical protection, by policy and not by accident.")
+    lines.append(
+        "  - Claude Code loads settings at session start, so a settings file "
+        "corrected during a session is live at the NEXT session, not this one.")
+    return _result("fence", STATUS_PASS, "\n".join(lines))
+
+
+def check_version_identity(root):
+    version_path = os.path.join(root, "VERSION")
+    manifest_path = os.path.join(root, ".claude-plugin", "plugin.json")
+    if not os.path.isfile(version_path) or not os.path.isfile(manifest_path):
+        missing = version_path if not os.path.isfile(version_path) else manifest_path
+        return _result("version", STATUS_SKIP,
+                       "SKIP: %s is not there, so there is nothing to compare "
+                       "this install root against." % _mask_home(missing))
+    try:
+        version_text = io.open(version_path, encoding="utf-8").read().strip()
+    except (IOError, OSError) as exc:
+        return _result("version", STATUS_FAIL,
+                       "FAIL: could not read %s: %s" % (_mask_home(version_path), exc))
+    try:
+        manifest = json.loads(io.open(manifest_path, encoding="utf-8").read())
+    except (IOError, OSError, ValueError) as exc:
+        return _result("version", STATUS_FAIL,
+                       "FAIL: could not read or parse %s: %s"
+                       % (_mask_home(manifest_path), exc))
+    manifest_version = manifest.get("version") if isinstance(manifest, dict) else None
+    if manifest_version != version_text:
+        return _result("version", STATUS_FAIL,
+                       "FAIL: VERSION says %r but %s says %r. Bring them back "
+                       "in agreement (docs/RELEASE.md's release-cut steps), "
+                       "or this install cannot tell you honestly which "
+                       "release it is." % (version_text, _mask_home(manifest_path),
+                                           manifest_version))
+    return _result("version", STATUS_PASS,
+                   "PASS: VERSION and %s both say %s."
+                   % (_mask_home(manifest_path), version_text))
+
+
+def check_runtime():
+    problems = []
+    if sys.version_info < (3, 9):
+        problems.append(
+            "python3 is %s, older than the 3.9 this project needs. Install a "
+            "newer python3 and re-run." % platform.python_version())
+    if shutil.which("git") is None:
+        problems.append(
+            "git was not found on PATH. Install git so the update and "
+            "release-verification steps that use it can run.")
+    if problems:
+        return _result("runtime", STATUS_FAIL, "FAIL: " + " ".join(problems))
+    return _result("runtime", STATUS_PASS,
+                   "PASS: python3 %s, git on PATH." % platform.python_version())
+
+
+def check_consent():
+    cfg, err = _bm_setup.read_config()
+    cfg_path = _bm_setup.config_path()
+    if err:
+        return _result("consent", STATUS_FAIL,
+                       "FAIL: the config at %s could not be read (%s). Run: "
+                       "python3 scripts/setup.py --reconfigure"
+                       % (_mask_home(cfg_path), err))
+    if not _bm_setup.is_consented(cfg):
+        return _result("consent", STATUS_FAIL,
+                       "FAIL: setup has not been completed yet, so nothing "
+                       "below that depends on it can be checked either. Run: "
+                       "python3 scripts/setup.py")
+    return _result("consent", STATUS_PASS,
+                   "PASS: setup is complete (config at %s)." % _mask_home(cfg_path))
+
+
+def check_vault(root):
+    cfg, err = _bm_setup.read_config()
+    if err or not _bm_setup.is_consented(cfg):
+        return _result("vault", STATUS_SKIP,
+                       "SKIP: setup has not been completed yet, so no vault "
+                       "path is known. Run: python3 scripts/setup.py")
+    vault_path = cfg.get("vault_path")
+    if not isinstance(vault_path, str) or not vault_path:
+        return _result("vault", STATUS_FAIL,
+                       "FAIL: the config has no vault_path recorded. Run: "
+                       "python3 scripts/setup.py --reconfigure")
+    vault_path = os.path.expanduser(vault_path)
+    if not os.path.isdir(vault_path):
+        return _result("vault", STATUS_FAIL,
+                       "FAIL: the vault path %s does not exist yet. Create it: "
+                       "cp -R %s/vault-template %s"
+                       % (_mask_home(vault_path), _mask_home(root), _mask_home(vault_path)))
+    if not os.access(vault_path, os.W_OK):
+        return _result("vault", STATUS_FAIL,
+                       "FAIL: the vault path %s exists but is not writable by "
+                       "you. Fix it: chmod u+w %s"
+                       % (_mask_home(vault_path), _mask_home(vault_path)))
+    return _result("vault", STATUS_PASS,
+                   "PASS: the vault at %s exists and is writable." % _mask_home(vault_path))
+
+
+def _plugin_name(root):
+    """The name this project's own plugin manifest claims, so a duplicate
+    check names the real plugin rather than a hardcoded guess. Falls back to
+    'brotherme' (the shipped name) when the manifest cannot be read, which
+    keeps the check usable rather than silently disabled."""
+    manifest_path = os.path.join(root, ".claude-plugin", "plugin.json")
+    try:
+        manifest = json.loads(io.open(manifest_path, encoding="utf-8").read())
+    except (IOError, OSError, ValueError):
+        return "brotherme"
+    name = manifest.get("name") if isinstance(manifest, dict) else None
+    return name if isinstance(name, str) and name else "brotherme"
+
+
+def _plugin_enabled(settings, plugin_name):
+    """True when settings.json's own enabledPlugins map names this plugin,
+    under any marketplace suffix ('brotherme@some-marketplace'), as truthy.
+    This is the real, observed mechanism (Claude Code writes enabledPlugins
+    into settings.json itself when a plugin is installed and enabled), not a
+    guess at how plugin hooks might appear."""
+    enabled = settings.get("enabledPlugins")
+    if not isinstance(enabled, dict):
+        return False
+    for key, value in enabled.items():
+        if not value or not isinstance(key, str):
+            continue
+        if key.split("@", 1)[0] == plugin_name:
+            return True
+    return False
+
+
+def _clone_fence_present(settings):
+    """True when settings.json has a PreToolUse entry naming a REAL,
+    on-disk bm_fence_hook.py: the shape scripts/install.py writes. A plugin
+    hook command such as '${CLAUDE_PLUGIN_ROOT}/tools/bm_fence_hook.py' fails
+    os.path.isfile (the variable is never expanded here), so it is correctly
+    not counted as a clone install by this same test."""
+    for _group, _entry, _command, words in find_fence_entries(settings):
+        path = fence_path_in(words)
+        if path and os.path.isfile(path):
+            return True
+    return False
+
+
+def check_duplicate_install(settings, settings_err, settings_path, root):
+    if settings_err:
+        return _result("duplicate_install", STATUS_SKIP,
+                       "SKIP: %s could not be read, so this cannot be "
+                       "checked here; see the settings.json check below."
+                       % _mask_home(settings_path))
+    plugin_name = _plugin_name(root)
+    has_plugin = _plugin_enabled(settings, plugin_name)
+    has_clone = _clone_fence_present(settings)
+    if has_plugin and has_clone:
+        return _result("duplicate_install", STATUS_FAIL,
+                       "FAIL: both the plugin (%s is enabled in %s) and a "
+                       "clone install (a PreToolUse entry wired to a real "
+                       "bm_fence_hook.py on disk) are present, so every hook "
+                       "fires twice. Keep one: run '/plugin uninstall %s' to "
+                       "remove the plugin wiring, or run 'python3 "
+                       "scripts/uninstall.py' to remove the clone wiring."
+                       % (plugin_name, _mask_home(settings_path), plugin_name))
+    which = "plugin" if has_plugin else ("clone" if has_clone else "neither")
+    return _result("duplicate_install", STATUS_PASS,
+                   "PASS: only one install method (%s) is wired in %s."
+                   % (which, _mask_home(settings_path)))
+
+
+def check_store_health(doctor_root):
+    store_path = os.path.join(os.getcwd(), ".brothermode", "store.sqlite3")
+    if not os.path.isfile(store_path):
+        return _result("store", STATUS_SKIP,
+                       "SKIP: no project store at %s under the current "
+                       "directory." % _mask_home(store_path))
+    bm_store = os.path.join(doctor_root, "tools", "bm_store.py")
+    if not os.path.isfile(bm_store):
+        return _result("store", STATUS_FAIL,
+                       "FAIL: a store exists at %s but %s is not there to "
+                       "verify it. Reinstall BrotherMode to restore it: "
+                       "python3 scripts/install.py --upgrade (or update via "
+                       "your plugin manager)."
+                       % (_mask_home(store_path), _mask_home(bm_store)))
+    try:
+        r = subprocess.run(
+            [sys.executable, bm_store, "verify"], cwd=os.getcwd(),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return _result("store", STATUS_FAIL,
+                       "FAIL: could not run %s verify: %s" % (bm_store, exc))
+    verdict = ((r.stdout or "") + (r.stderr or "")).strip()
+    if r.returncode != 0:
+        return _result("store", STATUS_FAIL,
+                       "FAIL: %s" % (verdict or
+                                    "bm_store.py verify exited %d with no "
+                                    "output" % r.returncode))
+    return _result("store", STATUS_PASS,
+                   "PASS: %s" % (verdict or "bm_store.py verify reports "
+                                            "healthy."))
+
+
+def check_hook_wiring_matches_mode(settings, settings_err, settings_path, root):
+    cfg, cfg_err = _bm_setup.read_config()
+    if cfg_err or not _bm_setup.is_consented(cfg):
+        return _result("mode_wiring", STATUS_SKIP,
+                       "SKIP: setup has not been completed yet, so "
+                       "installation_mode is not known. Run: python3 "
+                       "scripts/setup.py")
+    if settings_err:
+        return _result("mode_wiring", STATUS_FAIL,
+                       "FAIL: %s could not be read (%s), so hook wiring "
+                       "cannot be compared against installation_mode."
+                       % (_mask_home(settings_path), settings_err))
+    mode = cfg.get("installation_mode")
+    plugin_name = _plugin_name(root)
+    has_plugin = _plugin_enabled(settings, plugin_name)
+    has_clone = _clone_fence_present(settings)
+    if mode == "clone":
+        if has_clone:
+            return _result("mode_wiring", STATUS_PASS,
+                           "PASS: installation_mode is clone and a clone "
+                           "hook wiring is present in %s." % _mask_home(settings_path))
+        return _result("mode_wiring", STATUS_FAIL,
+                       "FAIL: installation_mode is clone but no BrotherMode "
+                       "hook wiring was found in %s. Run: python3 "
+                       "scripts/install.py" % _mask_home(settings_path))
+    if mode == "plugin":
+        if has_plugin:
+            return _result("mode_wiring", STATUS_PASS,
+                           "PASS: installation_mode is plugin and %s is "
+                           "enabled in %s." % (plugin_name, _mask_home(settings_path)))
+        return _result("mode_wiring", STATUS_FAIL,
+                       "FAIL: installation_mode is plugin but %s is not "
+                       "enabled in %s. Run: /plugin install %s"
+                       % (plugin_name, _mask_home(settings_path), plugin_name))
+    return _result("mode_wiring", STATUS_FAIL,
+                   "FAIL: the config's installation_mode is %r, which is "
+                   "neither plugin nor clone. Run: python3 scripts/setup.py "
+                   "--reconfigure" % (mode,))
+
+
+def _git_tree_state(root):
+    """Returns 'dirty', 'clean', or None (not a git working tree, or git is
+    not available). Used only to tell a genuine half-finished RELEASE update
+    (a checked-out tag or branch, always clean the moment the checkout
+    finishes) apart from a live development tree with ordinary uncommitted
+    edits, which a checked-in manifest was never generated to describe and
+    was never going to match. Best-effort: any git failure here is treated
+    as 'cannot tell', which check_checksums treats the same as 'clean' (run
+    the check for real) rather than silently skipping on an ambiguous
+    answer."""
+    if shutil.which("git") is None:
+        return None
+    # A LINKED worktree (git worktree add) and a submodule both keep a .git
+    # FILE holding a gitdir: pointer where an ordinary checkout keeps a .git
+    # DIRECTORY. Both are real working trees whose state git reports
+    # perfectly well, so both must be accepted here; accepting only the
+    # directory returned 'cannot tell' for a tree that could be told, the
+    # SKIP guard below never fired, and check_checksums compared a live
+    # edited worktree against a release manifest as though it were clean.
+    # Requiring .git AT root (rather than letting git walk upwards) is still
+    # deliberate: a plain unpacked release sitting inside somebody else's
+    # repository must not be judged by that repository's tree state.
+    dot_git = os.path.join(root, ".git")
+    if not (os.path.isdir(dot_git) or os.path.isfile(dot_git)):
+        return None
+    try:
+        r = subprocess.run(
+            ["git", "-C", root, "status", "--porcelain"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    return "dirty" if r.stdout.strip() else "clean"
+
+
+def check_checksums(root):
+    manifest_path = os.path.join(root, "CHECKSUMS.sha256")
+    if not os.path.isfile(manifest_path):
+        return _result("checksums", STATUS_SKIP,
+                       "SKIP: no CHECKSUMS.sha256 at %s." % _mask_home(manifest_path))
+    if _git_tree_state(root) == "dirty":
+        # A9 fix (loop6 refuter finding): say in one plain sentence that
+        # the integrity check did NOT run, so this SKIP can never be
+        # misread as a PASS (a plain doctor run, without --strict, exits 0
+        # on a SKIP exactly as it would on every check passing).
+        return _result("checksums", STATUS_SKIP,
+                       "SKIP: the file-integrity check did NOT run this "
+                       "time. %s is a live git working tree with "
+                       "uncommitted changes, so CHECKSUMS.sha256 (generated "
+                       "from a clean, checked-out release) cannot be "
+                       "compared honestly here, and this SKIP is not proof "
+                       "your files are untampered. Commit your work or "
+                       "check out a clean tag, then re-run this check."
+                       % _mask_home(root))
+    try:
+        text = io.open(manifest_path, encoding="utf-8").read()
+    except (IOError, OSError) as exc:
+        return _result("checksums", STATUS_FAIL,
+                       "FAIL: could not read %s: %s" % (_mask_home(manifest_path), exc))
+    problems = []
+    listed = 0
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            continue
+        want_hash, rel_path = parts
+        listed += 1
+        full = os.path.join(root, rel_path)
+        if not os.path.isfile(full):
+            problems.append("%s is listed but missing" % rel_path)
+            continue
+        digest = hashlib.sha256()
+        try:
+            with io.open(full, "rb") as fh:
+                for chunk in iter(lambda: fh.read(65536), b""):
+                    digest.update(chunk)
+        except (IOError, OSError) as exc:
+            problems.append("%s could not be read (%s)" % (rel_path, exc))
+            continue
+        if digest.hexdigest().lower() != want_hash.strip().lower():
+            problems.append("%s does not match its checksum" % rel_path)
+    if problems:
+        shown = problems[:5]
+        more = "" if len(problems) <= 5 else (
+            " and %d more" % (len(problems) - 5))
+        return _result("checksums", STATUS_FAIL,
+                       "FAIL: %d of %d listed file(s) do not match "
+                       "CHECKSUMS.sha256: %s%s. This catches a half-finished "
+                       "update; re-run the update steps (commands/"
+                       "brotherme-update.md) or restore the named file(s)."
+                       % (len(problems), listed, "; ".join(shown), more))
+    return _result("checksums", STATUS_PASS,
+                   "PASS: all %d file(s) listed in CHECKSUMS.sha256 match."
+                   % listed)
+
+
+def check_settings_json(settings_path):
+    _settings, err = read_settings(settings_path)
+    if err:
+        return _result("settings_json", STATUS_FAIL, "FAIL: %s" % err)
+    return _result("settings_json", STATUS_PASS,
+                   "PASS: %s is valid JSON." % _mask_home(settings_path))
+
+
+def run_all_checks(settings_path):
+    """Runs every check in the pinned order and returns the list of ten
+    CheckResults. Settings is read ONCE here and the parsed dict (or an
+    empty one, with the error carried alongside) is handed to every check
+    that needs it, so ten checks never disagree about what settings.json
+    said because one of them re-read it after a change."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    settings, settings_err = read_settings(settings_path)
+    settings_for_scan = settings if isinstance(settings, dict) else {}
+
+    return [
+        _run_check("fence", check_fence, settings_path),
+        _run_check("version", check_version_identity, root),
+        _run_check("runtime", check_runtime),
+        _run_check("consent", check_consent),
+        _run_check("vault", check_vault, root),
+        _run_check("duplicate_install", check_duplicate_install,
+                   settings_for_scan, settings_err, settings_path, root),
+        _run_check("store", check_store_health, root),
+        _run_check("mode_wiring", check_hook_wiring_matches_mode,
+                   settings_for_scan, settings_err, settings_path, root),
+        _run_check("checksums", check_checksums, root),
+        _run_check("settings_json", check_settings_json, settings_path),
+    ]
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="doctor.py",
-        description="Check that the BrotherMode fence hook is wired AND live.")
+        description="Ten checks: is this BrotherMode install healthy, in "
+                    "plain words, PASS or a one-sentence fix for each.")
     p.add_argument("--settings", default=None,
                    help="Claude Code settings file "
                         "(default ~/.claude/settings.json)")
+    p.add_argument("--json", action="store_true",
+                   help="print one JSON object instead of plain text")
+    p.add_argument("--strict", action="store_true",
+                   help="treat any SKIP as a failure too: exit nonzero and "
+                        "list each skipped check and why (default: a SKIP "
+                        "can be legitimate and still exits 0)")
     return p
 
 
@@ -385,39 +893,65 @@ def main(argv):
         return EXIT_UNSUPPORTED
     settings_path = os.path.abspath(args.settings or default_settings_path())
 
-    _out("BrotherMode doctor: fence hook")
-    _out("  settings: %s" % settings_path)
-    problems, notes = doctor(settings_path)
-    for n in notes:
-        _out("  note: %s" % n)
+    checks = run_all_checks(settings_path)
+    proven = sum(1 for c in checks if c.status == STATUS_PASS)
+    skipped = sum(1 for c in checks if c.status == STATUS_SKIP)
+    fail_count = sum(1 for c in checks if c.status == STATUS_FAIL)
+    # I2 (external review, Loop 3/5): STATUS_SKIP used to be folded into
+    # "all_ok" with no visible count anywhere, so a run that only ever
+    # SKIPPED (no store, no manifest, setup never run) read on the exit
+    # code alone exactly like a run that actually PROVED ten things. The
+    # exit code still accepts a SKIP as legitimate by default (a SKIP can be
+    # an honest "nothing to check yet"), but the summary line below states
+    # all three counts every time, so a vacuous pass is impossible to
+    # misread; --strict is the opt-in for a caller (a release gate, a CI
+    # job) that wants every SKIP treated as a blocker instead of a shrug.
+    summary = ("%d of %d proven, %d skipped, %d failed."
+              % (proven, len(checks), skipped, fail_count))
+    ok = fail_count == 0 and not (args.strict and skipped)
 
-    if problems:
-        _out("")
-        _out("PROBLEMS (%d):" % len(problems))
-        for p in problems:
-            _out("  - %s" % p)
-        _out("")
-        _out("Until these are fixed, treat file ownership as a coordination "
-             "ledger only: bm_store.py still refuses an overlapping CLAIM, but "
-             "nothing refuses a WRITE.")
-        return EXIT_PROBLEMS
+    if args.json:
+        payload = {
+            "settings": _mask_home(settings_path),
+            "ok": fail_count == 0,
+            "strict": args.strict,
+            "strict_ok": ok,
+            "proven": proven,
+            "skipped": skipped,
+            "failed": fail_count,
+            "summary": summary,
+            "checks": [
+                {"id": i, "key": c.key, "title": c.title,
+                 "status": c.status, "message": c.message}
+                for i, c in enumerate(checks, 1)
+            ],
+        }
+        _out(json.dumps(payload, indent=2, sort_keys=True))
+        return EXIT_OK if ok else EXIT_PROBLEMS
 
-    _out("  OK: for each of %s, the wired hook denied a foreign write and "
-         "allowed the owner's own write, in a throwaway project that has been "
-         "deleted." % ", ".join(WRITE_TOOL_NAMES))
+    _out("BrotherMode doctor: %d checks" % len(checks))
+    _out("  settings: %s" % _mask_home(settings_path))
+    for i, c in enumerate(checks, 1):
+        _out("")
+        _out("[%d/%d] %s: %s" % (i, len(checks), c.title, c.status))
+        for line in c.message.splitlines():
+            _out("  %s" % line)
     _out("")
-    _out("What this does NOT prove, stated so it is not assumed:")
-    _out("  - The fence FAILS OPEN by design (docs/HOOKS.md). A missing store, "
-         "a corrupt store, a store with no active claims, or any bug in the "
-         "hook allows the write and prints a line starting "
-         "'bm_fence_hook: FAILING OPEN'. A hook that fails closed would brick "
-         "editing, which is a worse failure than an unenforced fence, so this "
-         "is a choice and not an oversight.")
-    _out("  - Bash is NOT gated. Shell redirection, sed -i, tee, python -c and "
-         "the rest write files without passing any hook. That is outside "
-         "mechanical protection, by policy and not by accident.")
-    _out("  - Claude Code loads settings at session start, so a settings file "
-         "corrected during a session is live at the NEXT session, not this one.")
+    _out(summary)
+    if fail_count:
+        _out("%d of %d checks FAILED. Follow each remediation above, then "
+             "re-run this command." % (fail_count, len(checks)))
+        return EXIT_PROBLEMS
+    if args.strict and skipped:
+        _out("--strict: %d check(s) skipped, and --strict treats a SKIP as "
+             "a failure:" % skipped)
+        for c in checks:
+            if c.status == STATUS_SKIP:
+                reason = c.message.splitlines()[0] if c.message else "(no reason given)"
+                _out("  - %s: %s" % (c.title, reason))
+        return EXIT_PROBLEMS
+    _out("All %d checks passed (SKIP is not a failure unless --strict; "
+         "see the reason printed next to it)." % len(checks))
     return EXIT_OK
 
 

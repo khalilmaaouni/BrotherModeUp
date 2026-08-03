@@ -112,6 +112,20 @@ def _parse(argv, known, wants_value=()):
     positional, kv, i = [], {}, 0
     while i < len(argv):
         tok = argv[i]
+        if tok in ("--help", "-h") and "help" not in known:
+            # See the same block in tools/bm_project.py: the generated
+            # adapters promise that --help lists the real flags, and until
+            # 2026-08-02 that promise failed at the subcommand level on every
+            # tool. A docstring above notes this file refuses unknown flags
+            # rather than claiming a record called "--help"; refusing is
+            # right, but --help is not an unknown flag, it is the documented
+            # way to ask what the flags are.
+            print("recognized flags: %s"
+                  % ", ".join("--" + k for k in sorted(known)))
+            if wants_value:
+                print("flags taking a value: %s"
+                      % ", ".join("--" + k for k in sorted(wants_value)))
+            sys.exit(0)
         if tok.startswith("--"):
             name = tok[2:]
             if name not in known:
