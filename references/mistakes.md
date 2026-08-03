@@ -2,9 +2,13 @@
 
 LOAD WHEN: before repeating a pattern that has failed before, such as dispatching writers, resuming after a kill, or running a build.
 
-(Extracted verbatim from SKILL.md section 13; see SKILL.md for the full law.)
+This file is the LIVE home of the ledger. It began as an extract of SKILL.md's
+section 13, and that section no longer exists: the core was cut down and its
+routing table now points here instead. Corrected 2026-08-02, when the stale
+provenance line was found during a session whose whole subject was recording
+its own errors.
 
-## 13. Known-mistakes ledger (never repeat these)
+## The ledger (never repeat these)
 - Two writers in one tree collide: fence first, dispatch second.
 - Session limits kill agents mid-flight: edits survive; message-resume by id works
   and is first choice (proven repeatedly); when resume fails, the TREE is the truth:
@@ -32,3 +36,30 @@ LOAD WHEN: before repeating a pattern that has failed before, such as dispatchin
 - Batch scripts log each move AT the move, never at script end (a crash orphaned 5
   unlogged moves); dedup hashing skips symlinks (a link got crowned over its target).
 
+- Structured-output caps guessed too tight lose whole agents, and the loss is
+  silent until the run dies: size them generously (an unused allowance costs
+  nothing, a tight one costs the answer), give a FAILING agent its own relaxed
+  schema rather than editing the shared one on resume (a shared-schema edit
+  changes every cache key and re-runs work that already succeeded), and never
+  let one agent's schema failure kill a fan-out its synthesis depends on. Cost
+  when learned: four agents across two runs in one session, 1.3M tokens partly
+  re-spent. Evidence: docs/closure/evidence/2026-08-02-wastage-and-errors.md.
+- A gate run started while a fleet is in flight measures the machine, not the
+  code, and dies at EXIT=143 (SIGTERM, not a test failure): check the suite lock
+  AND the load AND what agents are running before starting a suite. Read the
+  exit code before calling a gate red.
+- Before "fixing" something that looks obviously broken, grep the requirements
+  and design records for whether it is deliberate. A true fact with a wrong
+  consequence bolted onto it is still a wrong finding (a .gitignore "fix" that
+  contradicted requirement R-06, shipped and reverted the same hour).
+- When eliminating yourself as the holder of a shared resource, cite the RECEIPT
+  in your own transcript, never a probe of the resource. A refusal is one sample
+  at one instant; a grant is a recorded fact. Three sessions once triangulated
+  onto a wrong conclusion from one unverified premise and sent the founder a
+  false alarm.
+- A tag that resolves is not a tag whose tree contains what the docs promise:
+  check the CONTENTS with git ls-tree, not the ref.
+- Documentation suites scan the WORKING TREE, not only tracked files: an
+  untracked dated draft sitting in the tree will fail a gate that has nothing to
+  do with your change. Run git status before the gate, and preserve rather than
+  delete whatever it finds.
