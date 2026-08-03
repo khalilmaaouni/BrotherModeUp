@@ -63,3 +63,16 @@ its own errors.
   untracked dated draft sitting in the tree will fail a gate that has nothing to
   do with your change. Run git status before the gate, and preserve rather than
   delete whatever it finds.
+- Do NOT implement from a probe's findings while a design for the same item is
+  still in flight: implement, then reconcile, and expect the design to be
+  better. Shipping first cost a security fix that leaked absolute paths into a
+  model-visible deny reason and refused writes in every directory that was not
+  a project, with a TEST asserting the wrong behaviour, which is worse than the
+  bug. Two rules fell out of it: an error channel a HUMAN reads may name paths,
+  an error channel a MODEL reads may not, because nothing is verified at the
+  moment a refusal is produced; and when adding a mode that can refuse, the
+  case with nothing to enforce must still allow, or the switch bricks every
+  unrelated directory the moment it is exported.
+- A new failure code, kind or branch gets a DEFAULT that fails safe, so a later
+  addition that forgets to name one is refused rather than silently waved
+  through the hole the mechanism was audited for.
