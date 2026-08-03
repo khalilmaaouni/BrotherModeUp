@@ -5,9 +5,14 @@ threat model explicit; detection demonstrated.
 
 ## What already exists (verified in-tree today)
 
-- Fail-closed option: BM_FENCE_STRICT (bm_fence_hook.py:497) denies
+- Tightening option: BM_FENCE_STRICT (bm_fence_hook.py) denies
   writes to paths no active record fences; documented at
-  docs/HOOKS.md:257.
+  docs/HOOKS.md:257. CORRECTED 2026-08-03 (closure item C-03): this line
+  originally called it a "fail-closed option", which it is not and never
+  was. It is read AFTER every fail-open path, so it is a complete no-op on
+  a store with no active claims, and it changes nothing about what happens
+  when the fence cannot be checked at all. The genuine fail-closed switch
+  is BM_FENCE_MODE=enforced, added under C-01 on the same date.
 - Declared-path shell writes: scripts/bm_shell.py, the wrapper for
   unavoidable shell writes, already tested in tools/test_install.py.
 - Consent-first disclosure: landed in Loop 3 (setup.py notice, zero
