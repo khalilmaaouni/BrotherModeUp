@@ -210,3 +210,35 @@ no scorecard can quietly omit them.
   two maintainers able to release.
 - **X-06 Fault-injection reliability.** The protocol asks for 10,000 sequences;
   zero have been run, so no reliability figure exists to report.
+
+## C-11 A timing test flakes on one CI leg, and its own reasoning says it cannot
+
+- Severity: **MEDIUM** (verification integrity: a flaky gate teaches people to
+  re-run rather than to read)
+- Metric: verification integrity
+- Claim tested: that `test_quadratic_blowup_is_gone` in `tools/test_bm.py`
+  cannot be moved by machine load.
+- Reproduction: CI run 30818827958 on `7995a10`, job `suite (macos-latest,
+  3.x)`, failed on `assertLess(large / small, 8.0)` while the same test passed
+  on the three other legs of the same commit. Re-running only that leg passed
+  with no code change, which is what separates a flake from a regression.
+- Root cause: the test takes ONE sample per input size. Its own comment argues
+  a ratio is immune to load because "both timings are taken under whatever
+  load is present so contention cancels", and that holds only when the noise
+  is the SAME on both samples. A single scheduling stall landing on the larger
+  measurement inflates the ratio on its own, and `small` is floored at 0.001,
+  so the denominator cannot grow to absorb it.
+- Impact: a red release gate that is not a defect. This project's own records
+  already carry two entries about stopwatch tests measuring the machine; this
+  is the same family in a form that survived the last cleanup because a ratio
+  looked immune.
+- Required change: take several samples per size and compare the MINIMUM of
+  each, which is the standard estimator for a microbenchmark because it is the
+  sample least contaminated by noise. A quadratic redactor still shows roughly
+  16x on minimums, so the defect-detection property is unchanged.
+- Acceptance: the reinjected quadratic redactor still fails the test, and the
+  test passes on a deliberately loaded machine.
+- Adversarial test: reinject the quadratic redactor the existing comment
+  describes and assert the test still fails.
+- machine-closable: **yes**
+- Status: OPEN
