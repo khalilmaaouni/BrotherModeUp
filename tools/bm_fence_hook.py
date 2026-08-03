@@ -353,10 +353,44 @@ def extract_targets(tool_input):
 # ---------------------------------------------------------------------------
 
 class _FailOpen(Exception):
-    """Raised anywhere a decision cannot be made SAFELY. Always caught at the
-    top of decide(); always produces an allow plus a stderr line. A named
-    exception rather than a returned sentinel so a new code path cannot
+    """Raised anywhere a decision cannot be made SAFELY. Caught at the top of
+    decide(). In the default advisory mode it produces an allow plus a stderr
+    line; in enforced mode (see enforced_mode below) it produces a DENY. A
+    named exception rather than a returned sentinel so a new code path cannot
     forget to check the sentinel and accidentally deny."""
+
+
+ENFORCED = "enforced"
+ADVISORY = "advisory"
+
+
+def enforced_mode(env=None):
+    """True when the operator has opted this machine into fail-closed.
+
+    C-01 (2026-08-03). Until now every failure path in this hook produced an
+    allow, and an adversarial probe confirmed it: nine separate conditions
+    (store missing, store corrupt, store zero bytes, store present with ZERO
+    active claims, five shapes of malformed payload, an unrecognized path key,
+    an internal exception mid-decision, bm_store.py unimportable, an
+    underivable session identity) each allowed a write across another
+    session's active fence, exit 0. BM_FENCE_STRICT did not help, because it
+    is read AFTER every one of those raises and is a complete no-op on a
+    zero-claims store, which is the state a fresh project sits in.
+
+    Fail-open remains the DEFAULT and is unchanged, deliberately: a hook that
+    starts refusing edits on a machine whose owner never asked for it is a
+    worse failure than an unenforced fence, and that judgement is recorded in
+    this file's own history. Enforcement is therefore opt-in, one variable,
+    and it is the only thing that changes behaviour here.
+
+    BM_FENCE_MODE is read rather than reusing BM_FENCE_STRICT because the two
+    mean different things and conflating them would silently widen what
+    existing users already set: STRICT tightens which PATHS are covered when
+    the fence is working, while MODE decides what happens when it CANNOT work.
+    """
+    if env is None:
+        env = os.environ
+    return env.get("BM_FENCE_MODE", "").strip().lower() == ENFORCED
 
 
 def active_claims(root):
@@ -533,6 +567,15 @@ def decide(payload):
                 return deny_payload(reason), notes
         return None, notes
     except _FailOpen as e:
+        if enforced_mode():
+            notes.append(
+                "bm_fence_hook: FAILING CLOSED, the write is refused because "
+                "the fence could not be checked. Reason: %s" % e)
+            return deny_payload(
+                "BrotherMode is in enforced mode and could not check file "
+                "ownership, so this write is refused rather than allowed "
+                "unchecked. Reason: %s. Fix the cause, or set "
+                "BM_FENCE_MODE=advisory to go back to warning only." % e), notes
         notes.append(
             "bm_fence_hook: FAILING OPEN, the write is allowed and the fence "
             "was NOT checked. Reason: %s" % e)
@@ -542,6 +585,20 @@ def decide(payload):
         # this file must never become a refusal in front of the founder's
         # editing. Type and message, no traceback, so the stderr line stays
         # one readable sentence.
+        #
+        # In enforced mode that judgement inverts (C-01): somebody who asked
+        # for fail-closed has said they would rather be stopped by a bug in
+        # this hook than have it wave a write through unchecked. The message
+        # still carries no traceback and no file content.
+        if enforced_mode():
+            notes.append(
+                "bm_fence_hook: FAILING CLOSED after an unexpected error, the "
+                "write is refused. Reason: %s: %s" % (type(e).__name__, e))
+            return deny_payload(
+                "BrotherMode is in enforced mode and this ownership check "
+                "failed unexpectedly (%s), so the write is refused rather "
+                "than allowed unchecked. Set BM_FENCE_MODE=advisory to go "
+                "back to warning only." % type(e).__name__), notes
         notes.append(
             "bm_fence_hook: FAILING OPEN after an unexpected error, the write "
             "is allowed and the fence was NOT checked. Reason: %s: %s"

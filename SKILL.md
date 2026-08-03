@@ -143,10 +143,14 @@ memory of it:
 
 - Ground map first: `git status`. Fresh foreign modifications mean coordinate,
   never overwrite.
-- One writer per file. A `PreToolUse` hook (tools/bm_fence_hook.py) blocks a write
-  outside an active claim when installed; see docs/HOOKS.md. It fails OPEN and
-  says why, so a refusal always means a real ownership conflict rather than a
-  broken hook. It does NOT gate Bash.
+- One writer per file. A `PreToolUse` hook (tools/bm_fence_hook.py) refuses a
+  write to a file ANOTHER active claim covers, when installed; see
+  docs/HOOKS.md. By default it fails OPEN and says why, so a refusal always
+  means a real ownership conflict rather than a broken hook, and an unclaimed
+  path is ALLOWED unless you opt into more. `BM_FENCE_MODE=enforced` makes
+  every failure to check refuse instead, and `BM_FENCE_STRICT=1` additionally
+  requires a claim before editing any project path. It does NOT gate Bash, so
+  a shell write crosses a fence unrefused and is only detected afterwards.
 - Fence THEN dispatch. Write the fence line before an agent launches, never after.
 - Never claim done without a verifying command run AFTER the last edit, quoted.
 
