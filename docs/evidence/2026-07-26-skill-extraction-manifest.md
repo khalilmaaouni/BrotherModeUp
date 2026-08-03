@@ -1,4 +1,12 @@
-# MANIFEST-extraction.md
+# Skill extraction manifest, 2026-07-26
+
+HISTORICAL, a record of one mechanical refactor. Do not read it as
+current state. It documents the extraction of SKILL.md sections into
+references/*.md on 2026-07-26; the shape it describes is now simply how the
+skill is laid out, so the manifest is provenance rather than instruction.
+Superseded by: SKILL.md and the references/ directory themselves. Moved out
+of the repository root on 2026-08-02, where its "this task" framing had no
+referent for a newcomer.
 
 Mechanical extraction of SKILL.md sections 1 to 15 into references/*.md, verbatim.
 Section 0 (Invocation sequence) stays in SKILL.md; it was not part of this task.

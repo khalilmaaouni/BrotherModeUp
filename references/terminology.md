@@ -11,6 +11,7 @@ asked for the advanced view (see references/status-view.md).
 |---|---|
 | fence, file claim | "only one worker edits a file at a time" (the mechanism is not named) |
 | work record, lifecycle identifier | "task history" (never shown by default) |
+| store | "your project's records" |
 | retrieval run | never surfaced at all |
 | receipt | "your recorded approval" |
 | worktree, branch | "a separate draft workspace" |

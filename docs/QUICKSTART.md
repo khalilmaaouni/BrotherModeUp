@@ -11,9 +11,9 @@ Honesty label, read this first: this install path has been installed exactly
 once: on the author's machine on 2026-07-31, from a local copy of this
 repository rather than from GitHub, with the full add, install, verify,
 uninstall cycle recorded in docs/evidence/2026-07-31-first-plugin-install.md
-(all seven skills and five hooks registered). Nobody has installed it from
+(all seven skills and six hooks registered). Nobody has installed it from
 GitHub or on any other machine yet. It
-also ships more than new packaging: the guided beginner layer (the six
+also ships more than new packaging: the guided beginner layer (the seven
 /brotherme commands and the guided skill) is new in this release and is
 designed to load through this path; on this project's own machine a clone
 carrying the plugin manifest also registered it in a live session, a single
@@ -74,11 +74,14 @@ something is broken.
 
 The public default clones an immutable, tagged release, not a moving branch:
 the tag is generated from the same release fact every other page reads
-(`python3 tools/bm_project_facts.py --field release_tag`), never typed by
-hand, and `tools/test_bm_docs.py` fails this page if it ever disagrees.
+(`python3 tools/bm_project_facts.py --field install_target_tag`), the last
+tag actually cut and known to resolve, never typed by hand, and
+`tools/test_bm_docs.py` fails this page if it ever disagrees. The
+development tree itself currently reads `2.0.0-rc.12.dev1`, a development
+identity rather than a tagged release; `docs/RELEASE.md` explains why.
 
 ```bash
-git clone --branch v2.0.0-rc.11 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.9 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 Expected: git prints a few lines ending in something like `Resolving deltas:
@@ -158,16 +161,21 @@ python3 ~/.claude/skills/brothermode/scripts/install.py
 Run the `--dry-run` first. It prints every change and writes nothing, so you
 see what is about to happen to your `settings.json` before it happens.
 
-Expected from the real run: a list of five hooks (`SessionStart`, `SessionEnd`,
-`Stop`, `PreCompact`, `PreToolUse`), a line naming the backup of your previous
+Expected from the real run: a list of six hooks (`SessionStart`, `SessionEnd`,
+`Stop`, `PreCompact`, `PreToolUse`, `PostToolUse`), a line naming the backup of your previous
 settings, and a closing line reading `smoke: the fence hook ran end to end and
 exited 0`. That last line is the point. The installer re-reads what it wrote
 and actually executes the one hook that can refuse a write, so "installed"
 means checked rather than attempted.
 
-Five, not the four an earlier version of this page listed: `PreToolUse` is the
-fence hook (`docs/HOOKS.md`), which was documented but was in no install
-instruction, so the fence shipped off unless you wired it yourself.
+Six, not the five an earlier version of this page listed. `PreToolUse` is the
+fence hook (`docs/HOOKS.md`), the one hook that can refuse a write, and it now
+carries a second entry beside it, matched on `Bash`: `bm_bash_audit.py pre`
+records the size, mtime and sha256 of every fenced file before a shell command
+runs. `PostToolUse` is the other half of that pair, `bm_bash_audit.py post`,
+which re-hashes those same files afterwards and raises one alert when a shell
+write changed a file another session's fence covers. Detection, not prevention,
+on purpose: by the time the alert exists, the write already happened.
 
 What the installer will NOT do: overwrite an existing BrotherMode installation
 (it refuses and tells you to pass `--upgrade`), rewrite a `settings.json` that
@@ -185,25 +193,35 @@ python3 -m json.tool ~/.claude/settings.json
 
 Expected: the file prints back, reformatted, with no error.
 
-Then prove the fence is not just wired but LIVE:
+Then prove the fence is not just wired but LIVE, and check the rest of the
+install at the same time:
 
 ```bash
 python3 ~/.claude/skills/brothermode/scripts/doctor.py
 ```
 
-Expected: `OK: the wired hook denied a foreign write and allowed the owner's
-own write`, followed by three lines saying what that did not prove. Doctor
-builds a throwaway project in a temporary directory, claims one file under one
-session, then asks the hook you actually wired to approve an edit of that file
-from a different session. A healthy fence refuses. It then asks again as the
-owner, because a hook that denies everything would pass the first half and
-would be a brick rather than a fence. Nothing outside the temporary directory
-is touched, and it is deleted when doctor exits.
+Doctor runs ten checks, each printing PASS, FAIL with a one-sentence fix, or
+SKIP with the reason nothing could be checked yet (SKIP is not a failure).
+Add `--json` instead of reading the plain text if a script needs to consume
+the result.
 
-Exit code 1 means the fence is not enforcing, and the output names which way it
-is dead: no `PreToolUse` entry at all, an entry pointing at a file that is not
-there, a matcher that leaves some write tools ungated, or a hook that runs and
-refuses nothing.
+| # | Check | A FAIL means, in plain words |
+|---|-------|-------------------------------|
+| 1 | Fence hook wired and live | The blocked-write simulation below: builds a throwaway project, claims one file under one session, then asks the hook you actually wired to approve an edit of that file from a different session. A healthy fence refuses, then allows the same write when the owner asks; a hook that denies everything would pass only the first half and would be a brick, not a fence. Nothing outside a temporary directory is touched. A FAIL names which way it is dead: no `PreToolUse` entry, an entry pointing at a file that is not there, a matcher that leaves some write tools ungated, or a hook that runs and refuses nothing. |
+| 2 | VERSION matches the plugin manifest | `VERSION` and `.claude-plugin/plugin.json` disagree about which release this is. |
+| 3 | python3 3.9+ and git on PATH | One of those two is missing from this machine. |
+| 4 | Setup has been completed | Run `python3 scripts/setup.py`; nothing below this line can be checked before that. |
+| 5 | Vault path exists and is writable | Create it (`cp -R vault-template <your vault path>`) or fix its permissions. |
+| 6 | Only one install method is wired | Both the plugin and a clone install are wiring hooks in the same `settings.json`, so every hook fires twice. Remove one: `/plugin uninstall <name>` or `python3 scripts/uninstall.py`. |
+| 7 | Project store health | A `.brothermode/store.sqlite3` under the current directory failed its own `verify`; SKIP, not FAIL, when there is no store here yet. |
+| 8 | Hook wiring matches installation_mode | The consent config says `plugin` or `clone` and the hooks actually wired disagree with it. |
+| 9 | CHECKSUMS.sha256 self-check | A shipped file does not match the release manifest, the signature of an update that did not finish. |
+| 10 | settings.json is valid JSON | Claude Code silently ignores a broken settings file, so every hook, not only the fence, is off. |
+
+Checks 4, 5 and 8 SKIP until setup has run (`python3 scripts/setup.py`); that
+is expected on a machine that just finished Step 3 above and has not yet
+created a vault. Every other check applies from the moment the hooks are
+wired.
 
 To remove the wiring later:
 
@@ -216,10 +234,11 @@ pass `--remove-files`, and never touches your vault.
 
 ### If you would rather wire it by hand
 
-The installer writes the equivalent of the block below. All five entries are
-here, fence included: an earlier version of this page stopped at four, which
-meant anyone wiring by hand ended up with the one-writer-per-file promise
-switched off and nothing saying so. Merge it into any hooks you already have.
+The installer writes the equivalent of the block below. All six events are
+here, fence included, and so is the `Bash` audit pair: an earlier version of
+this page stopped at four, which meant anyone wiring by hand ended up with the
+one-writer-per-file promise switched off and nothing saying so. Merge it into
+any hooks you already have.
 Use the absolute path to your checkout rather than `~`: the installer writes
 absolute, shell-quoted paths precisely because a home directory containing a
 space breaks the unquoted form.
@@ -228,28 +247,38 @@ space breaks the unquoted form.
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "sh ~/.claude/skills/brothermode/tools/bm_sessionstart.sh" } ] }
+      { "hooks": [ { "type": "command", "command": "sh ~/.claude/skills/brothermode/tools/bm_sessionstart.sh", "timeout": 30 } ] }
     ],
     "SessionEnd": [
-      { "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py outcomes-append" } ] }
+      { "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py outcomes-append", "timeout": 30 } ] }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py stop-warn" } ] }
+      { "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py stop-warn", "timeout": 15 } ] }
     ],
     "PreCompact": [
-      { "hooks": [ { "type": "command", "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_autosave.py precompact; printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py precompact-brief' " } ] }
+      { "hooks": [ { "type": "command", "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_autosave.py precompact; printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py precompact-brief' ", "timeout": 60 } ] }
     ],
     "PreToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_fence_hook.py", "timeout": 10 } ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_bash_audit.py pre", "timeout": 10 } ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_bash_audit.py post", "timeout": 15 } ]
       }
     ]
   }
 }
 ```
 
-The `matcher` on that last entry is the list of write tools the fence gates. Drop
+The `matcher` on the fence entry is the list of write tools the fence gates. Drop
 a tool from it and writes through that tool are ungated, which is one of the
 failure modes `scripts/doctor.py` looks for.
 
@@ -336,7 +365,7 @@ already running when you edited `settings.json` will not have it).
 
 ## What you have now
 
-The five hooks running automatically, a vault of your own, and one proof that
+The six hooks running automatically, a vault of your own, and one proof that
 the telemetry mechanism works end to end. What you do NOT yet have from this
 alone: a history (that takes real weeks of use), a felt-outcome rating trend,
 or a weekly review (`tools/WEEKLY-REVIEW.md`, run it once your first week of

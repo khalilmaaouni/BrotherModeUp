@@ -19,7 +19,7 @@ command is [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
 
 **The plugin way (two lines, inside Claude Code).** This repository is its
 own plugin marketplace: add it once, install from it, and the seven
-/brotherme commands, the guided skill, and the five hooks register on the
+/brotherme commands, the guided skill, and the six hooks register on the
 next start. Upgrading later is one `/plugin` update from the same source;
 uninstalling removes the plugin and leaves your project data and vault
 untouched.
@@ -52,14 +52,17 @@ future session should come from a fixed, checkable snapshot; a moving branch
 feeding auto-run code was the weakest link the original external audit named.
 
 ```bash
-git clone --branch v2.0.0-rc.11 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.9 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 That tag is not typed by hand: it is generated from the same release fact
 every other page reads (`python3 tools/bm_project_facts.py --field
-release_tag`), and `tools/test_bm_docs.py` fails if this page ever disagrees
-with it. Do not run both paths at once on one machine: the plugin wires the
-same five hooks the clone's installer wires, so a machine carrying both runs
+install_target_tag`), the last tag actually cut and known to resolve, and
+`tools/test_bm_docs.py` fails if this page ever disagrees with it. The
+development tree itself currently reads `2.0.0-rc.12.dev1`, a development
+identity rather than a tagged release; `docs/RELEASE.md` explains why the
+public install target and the tree's own identity can differ on purpose. Do not run both paths at once on one machine: the plugin wires the
+same six hooks the clone's installer wires, so a machine carrying both runs
 every hook twice (docs/KNOWN-LIMITS.md records this; pick one).
 `docs/QUICKSTART.md` describes both and labels their status honestly.
 
@@ -87,7 +90,8 @@ python3 tools/bm_project_facts.py
 
 It prints the current version and release tag, the storage schema version, the
 hook events the installer writes (`SessionStart`, `SessionEnd`, `Stop`,
-`PreCompact`, and `PreToolUse`, which is the fence that can refuse a write), the
+`PreCompact`, `PreToolUse`, which is the fence that can refuse a write, and
+`PostToolUse`, which reports a shell write that crossed a fence), the
 suite files the gate runs, and the Python floor. What it deliberately does not
 print is a test count, for the reason given under "Verify the safety claims
 yourself" below. This is a release CANDIDATE,
@@ -232,12 +236,17 @@ rather than expecting silence:
 grep -rnE "urllib|requests|socket|http|curl|wget" tools/*.py tools/*.sh | grep -v "^tools/test_"
 ```
 
-Expected today: two lines, both in `tools/bm_fence_hook.py` (around lines 19 and
-427), both comments citing the URL of the Claude Code hooks documentation that
-the hook implements. A documentation URL inside a comment is not a call, and
-pretending the sweep comes back empty would have been the easier sentence to
-write and a false one. The `test_` files are excluded because they deliberately
-contain these words in fixture data and in the test that enforces the ban above.
+Expect a handful of hits, and expect every one of them to be a URL written
+down rather than a URL fetched: vendor documentation links in comments and in
+the runtime registry's source table, which records where each runtime fact was
+read and on what date. Read the hits by KIND, not by count: what would matter
+is an import of `urllib` or `requests`, or a `socket`, `curl` or `wget`
+invocation, and the sweep shows none. Counting them here instead was a
+mistake, corrected on 2026-08-02: this paragraph claimed two lines while the
+sweep returned fifteen, which is the worst place in the document to be wrong,
+because it sits in the section inviting you to distrust us and check. The
+`test_` files are excluded because they deliberately contain these words in
+fixture data and in the test that enforces the ban above.
 The one thing that shells out at all is the autosave mechanism, and it only ever
 calls local `git`, never a network command; `grep -rn subprocess tools/*.py
 tools/*.sh | grep -v test_` shows exactly where.
@@ -351,7 +360,7 @@ per project or entirely.
 | `tools/test_all.py` | Runs every suite serially, one process each, with one exit code. The actual gate; read this before running any single suite by hand |
 | `tools/WEEKLY-REVIEW.md` | The weekly self-review procedure |
 | `scripts/install.py`, `scripts/uninstall.py` | Wire and unwire the hooks in `~/.claude/settings.json`, backing it up first, touching no hook entry they did not write |
-| `scripts/doctor.py` | Proves the wired fence is LIVE: builds a throwaway project, has one session claim a file, then checks the hook refuses a foreign write and allows the owner's own |
+| `scripts/doctor.py` | Ten environment checks with plain-language remediation (table in docs/SETUP.md); the deepest proves the wired fence is LIVE by simulating a blocked foreign write and an allowed owner write in a throwaway project |
 | `docs/QUICKSTART.md` | The literal ten-minute path, with expected output at every step |
 | `docs/SETUP.md` | The fuller installation and hooks reference |
 | `docs/HOOKS.md` | What each hook receives, what the fence can refuse, and the exact contract it implements |
