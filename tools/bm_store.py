@@ -73,7 +73,7 @@ import sys
 import unicodedata
 import uuid
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
@@ -1356,10 +1356,29 @@ _TABLES_LOOP1 = ("projects", "forecasts", "tasks", "dependencies",
 
 _TABLES_V12 = _TABLES_V11 + _TABLES_LOOP1
 
+# Schema 13 (the Memory Sentinel, phase 1, 2026-08-02, design
+# docs/superpowers/specs/2026-08-02-memory-sentinel-phase1-design.md sections
+# 2.1 to 2.4) adds four tables: what the working agent verified
+# (sentinel_knowledge), what it already tried and what happened
+# (sentinel_procedural), the watcher's private view of progress
+# (sentinel_status, never injected into anybody's context), and the
+# calibration ledger that records EVERY decision including every silence
+# (sentinel_interventions). Its own tuple for the same reason every schema
+# above got one: a healthy schema-12 store must be checked against schema
+# 12's table list, or the version check never runs and a store whose only
+# fault is predating this upgrade gets quarantined. The DDL text itself
+# (_SENTINEL_DDL) is defined further down, after _split_ddl exists; this
+# tuple only needs the table NAMES, which cost nothing to name this early.
+_TABLES_SENTINEL = ("sentinel_knowledge", "sentinel_procedural",
+                    "sentinel_status", "sentinel_interventions")
+
+_TABLES_V13 = _TABLES_V12 + _TABLES_SENTINEL
+
 _TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3,
                       4: _TABLES_V4, 5: _TABLES_V5, 6: _TABLES_V6,
                       7: _TABLES_V7, 8: _TABLES_V8, 9: _TABLES_V9,
-                      10: _TABLES_V10, 11: _TABLES_V11, 12: _TABLES_V12}
+                      10: _TABLES_V10, 11: _TABLES_V11, 12: _TABLES_V12,
+                      13: _TABLES_V13}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -2128,6 +2147,157 @@ CREATE INDEX IF NOT EXISTS evidence_subject_idx
 _LOOP1_DDL_STATEMENTS = _split_ddl(_LOOP1_DDL)
 _LOOP1_INDEX_STATEMENTS = _split_ddl(_LOOP1_INDEX_DDL)
 
+# The Memory Sentinel, phase 1 (schema 13, 2026-08-02). Four tables, written
+# from sections 2.1 to 2.4 of
+# docs/superpowers/specs/2026-08-02-memory-sentinel-phase1-design.md and from
+# nothing else. Applied to a NEW store by _ensure_schema and to an EXISTING
+# schema-12 store by _migrate_12_to_13, which runs this exact same text: one
+# definition, so a migrated store and a fresh store cannot drift.
+#
+# `trigger` is a column name here even though it is also a SQLite keyword.
+# Checked against sqlite3 before it was written rather than assumed: SQLite
+# accepts it unquoted as a column identifier in a CREATE TABLE, an INSERT, a
+# WHERE clause and an index, which is the whole surface this project uses it
+# on. The spec names the column `trigger`; renaming it to dodge a keyword
+# that turns out not to collide would have put the code and the design out
+# of step for no gain.
+_SENTINEL_DDL = """
+CREATE TABLE IF NOT EXISTS sentinel_knowledge (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  session_id TEXT,
+  kind TEXT NOT NULL,
+  content TEXT NOT NULL,
+  source TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  last_surfaced_at TEXT,
+  surface_count INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  superseded_by TEXT
+);
+CREATE TABLE IF NOT EXISTS sentinel_procedural (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  session_id TEXT,
+  attempt TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  diagnosis TEXT,
+  created_at TEXT NOT NULL,
+  last_surfaced_at TEXT,
+  surface_count INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS sentinel_status (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  session_id TEXT,
+  summary TEXT NOT NULL,
+  open_risks TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sentinel_interventions (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  session_id TEXT,
+  trigger TEXT NOT NULL,
+  decision TEXT NOT NULL,
+  memory_ids TEXT,
+  reminder TEXT,
+  reason TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  judged TEXT NOT NULL DEFAULT 'unjudged',
+  judged_at TEXT,
+  judged_by TEXT
+);
+"""
+
+_SENTINEL_INDEX_DDL = """
+CREATE INDEX IF NOT EXISTS sentinel_knowledge_project_idx
+  ON sentinel_knowledge(project_id, active);
+CREATE INDEX IF NOT EXISTS sentinel_procedural_project_idx
+  ON sentinel_procedural(project_id, outcome, active);
+CREATE INDEX IF NOT EXISTS sentinel_status_project_idx
+  ON sentinel_status(project_id, created_at);
+CREATE INDEX IF NOT EXISTS sentinel_interventions_trigger_idx
+  ON sentinel_interventions(project_id, trigger);
+CREATE INDEX IF NOT EXISTS sentinel_interventions_judged_idx
+  ON sentinel_interventions(project_id, judged);
+"""
+
+_SENTINEL_DDL_STATEMENTS = _split_ddl(_SENTINEL_DDL)
+_SENTINEL_INDEX_STATEMENTS = _split_ddl(_SENTINEL_INDEX_DDL)
+
+# The five closed sets the sentinel Store methods refuse against. Deliberately
+# NOT CHECK constraints on the columns: a CHECK raises sqlite3.IntegrityError,
+# which _exec passes through unchanged and which names neither the field nor
+# what would have been legal. These lists exist so the refusal can say both
+# (see _sentinel_enum), the same reason NOTE_KINDS and NOTE_SEVERITIES exist
+# above for the notes table.
+SENTINEL_KNOWLEDGE_KINDS = ("requirement", "constraint", "environment",
+                            "path", "fact")
+SENTINEL_PROCEDURAL_OUTCOMES = ("failed", "succeeded", "ruled_out")
+SENTINEL_TRIGGERS = ("phase_boundary", "pre_risky", "post_failure",
+                     "tool_interval", "resume")
+SENTINEL_DECISIONS = ("inject", "silent")
+SENTINEL_JUDGEMENTS = ("unjudged", "useful", "noise")
+
+# The ONLY two table names retire_memory and mark_surfaced will build SQL
+# from. Both take a table name as an argument, so the name reaches an
+# f-string-shaped "%s" in the statement; every caller-supplied name is
+# checked against this tuple FIRST (see _sentinel_table) and the SQL is built
+# from the matched literal, never from the caller's own string. sentinel_status
+# is absent on purpose: it is append-only and private, so it is neither
+# retirable nor surfaceable.
+SENTINEL_MEMORY_TABLES = ("sentinel_knowledge", "sentinel_procedural")
+
+
+def _sentinel_enum(field, value, allowed):
+    """Refuse an out-of-set value, never coerce it, and name BOTH the field
+    and the whole allowed set in the message.
+
+    The design is explicit about why (section 3): a value silently coerced
+    is a value nobody can audit. A ValueError rather than OwnershipRefused
+    because the design names ValueError, and because this is a caller
+    passing a wrong argument, not a store refusing an ownership move."""
+    if value not in allowed:
+        raise ValueError(
+            "unknown %s %r (allowed: %s)"
+            % (field, value, ", ".join(allowed)))
+    return value
+
+
+def _sentinel_table(table):
+    """The whitelist gate for the two methods that take a table NAME.
+
+    Returns the matched LITERAL from SENTINEL_MEMORY_TABLES, not the
+    caller's string, so what ends up interpolated into the statement is a
+    constant from this module by construction and never caller text that
+    merely compared equal."""
+    for known in SENTINEL_MEMORY_TABLES:
+        if table == known:
+            return known
+    raise ValueError(
+        "unknown table %r (allowed: %s)"
+        % (table, ", ".join(SENTINEL_MEMORY_TABLES)))
+
+
+def _sentinel_id_list(memory_ids):
+    """One list of memory ids from either shape a caller can hold.
+
+    The ledger stores memory_ids as ONE comma-separated string, while the
+    selector hands back a list, so both arrive here. A bare string is
+    treated as that stored form (split on commas), NEVER as a sequence of
+    characters: tuple('abc') is ('a', 'b', 'c'), which would have turned a
+    single id into three ids that match nothing and quietly reported zero
+    rows updated. None and the empty list both mean 'no memories', which is
+    what a silent decision records."""
+    if memory_ids is None:
+        return []
+    if isinstance(memory_ids, str):
+        return [part.strip() for part in memory_ids.split(",")
+                if part.strip()]
+    return [str(memory_id) for memory_id in memory_ids]
+
 NOTE_KINDS = ("insight", "alert", "question", "review", "todo", "risk")
 NOTE_SEVERITIES = ("", "info", "warning", "critical")
 NOTE_AUTHOR_KINDS = ("founder", "assistant", "human")
@@ -2523,6 +2693,34 @@ def _migrate_11_to_12(conn):
         conn.execute(statement)
 
 
+def _migrate_12_to_13(conn):
+    """Schema 12 to 13 (the Memory Sentinel, phase 1, design
+    docs/superpowers/specs/2026-08-02-memory-sentinel-phase1-design.md
+    section 2): four tables (sentinel_knowledge, sentinel_procedural,
+    sentinel_status, sentinel_interventions) plus five indexes. ADDITIVE
+    ONLY: no existing table gains, loses or changes a column here.
+
+    Same contract as _migrate_11_to_12, the last table-only migration:
+    every statement is CREATE TABLE IF NOT EXISTS or CREATE INDEX IF NOT
+    EXISTS, safe whether this runs against a genuinely old schema-12 store
+    or, via _ensure_schema, against a brand new one that already has all
+    four tables. Runs inside the caller's BEGIN EXCLUSIVE, so it must never
+    commit, roll back, or open a transaction of its own.
+
+    What this deliberately does NOT do: it does not backfill a single row.
+    There is no prior sentinel data anywhere to backfill FROM, in this
+    store or beside it, because nothing has ever written a memory, a status
+    or an intervention before this schema existed. The four tables are
+    created empty and stay empty until the new Store methods
+    (add_knowledge, add_procedural, set_status, record_intervention) write
+    into them going forward, which is the same no-invention rule
+    _migrate_11_to_12 states for its own event stream."""
+    for statement in _SENTINEL_DDL_STATEMENTS:
+        conn.execute(statement)
+    for statement in _SENTINEL_INDEX_STATEMENTS:
+        conn.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_1_to_2,
     2: _migrate_2_to_3,
@@ -2535,6 +2733,7 @@ _MIGRATIONS = {
     9: _migrate_9_to_10,
     10: _migrate_10_to_11,
     11: _migrate_11_to_12,
+    12: _migrate_12_to_13,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -4306,6 +4505,12 @@ class Store(object):
             # CREATE TABLE IF NOT EXISTS, so this call is safe on a store
             # that was just created with all eight tables already present.
             _migrate_11_to_12(self.conn)
+        if SCHEMA_VERSION >= 13:
+            # Same rule again. Every statement in _migrate_12_to_13 is
+            # CREATE TABLE IF NOT EXISTS or CREATE INDEX IF NOT EXISTS, so
+            # this call is safe on a store that was just created with all
+            # four sentinel tables already present.
+            _migrate_12_to_13(self.conn)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -10624,6 +10829,363 @@ class Store(object):
         return [_export_row(self.conn, "attribution", dict(r),
                              S.AttributionEvent.LIST_FIELDS, raw=raw)
                 for r in rows]
+
+    # -- the Memory Sentinel (schema 13, section 3 of
+    # docs/superpowers/specs/2026-08-02-memory-sentinel-phase1-design.md,
+    # 2026-08-02) -------------------------------------------------------
+    #
+    # Twelve methods over the four sentinel tables. `actor` is the same
+    # small dict every LOOP 1 method above takes, and it is here for the
+    # same job: each method that CHANGES state and takes an actor writes
+    # its row and its attribution row in ONE self._transaction(), both or
+    # neither. That is not a choice made here, it is this module's standing
+    # rule (every one of the twelve actor-taking methods above does it) and
+    # the design points at upsert_project by name for exactly this.
+    # mark_surfaced and judge_intervention take no actor and write no
+    # attribution: mark_surfaced only bumps a counter on rows whose
+    # creation is already attributed and whose surfacing the ledger row
+    # itself names, and judge_intervention records its own grader in
+    # judged_by, on the row it grades.
+    #
+    # Free text is stored EXACTLY as given, never scrubbed on the way in.
+    # Same as every LOOP 1 method above, and deliberately unlike add_note,
+    # for two reasons the design forces: the reminder the sentinel prints
+    # has to be the verbatim sentence somebody recorded, or the ledger
+    # grades text nobody wrote; and the export side already withholds all
+    # of it, because dump() is default-deny read from the LIVE schema, so
+    # these four tables' prose columns are withheld the day they exist
+    # without one entry being added to any allowlist.
+    #
+    # The reads below return PLAIN row dicts (like list_notes), not
+    # _export_row dicts: they feed the selector and the reminder renderer
+    # inside this process, and a selector handed WITHHELD placeholders
+    # would be matching tokens against the redactor's own output. dump()
+    # remains the export surface and still withholds every one of these
+    # columns.
+
+    def add_knowledge(self, project_id, kind, content, source, session_id,
+                       actor):
+        """Record ONE verified fact, with its attribution event
+        ('sentinel.knowledge.added'), in ONE transaction. Returns the new
+        id.
+
+        `kind` is refused, never coerced, when it is outside
+        SENTINEL_KNOWLEDGE_KINDS: the message names the field and the whole
+        allowed set, because a kind quietly rewritten to something legal is
+        a kind nobody can audit afterwards. The row starts life active,
+        never surfaced (surface_count 0, last_surfaced_at NULL), which is
+        what makes 'has this been said yet' answerable at all."""
+        _sentinel_enum("kind", kind, SENTINEL_KNOWLEDGE_KINDS)
+        memory_id = uuid.uuid4().hex
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO sentinel_knowledge (id, project_id, "
+                  "session_id, kind, content, source, created_at, "
+                  "last_surfaced_at, surface_count, active, superseded_by) "
+                  "VALUES (?,?,?,?,?,?,?,NULL,0,1,NULL)",
+                  (memory_id, project_id, session_id, kind, content, source,
+                   now_iso()))
+            self._write_attribution(
+                project_id, None, "sentinel.knowledge.added", actor,
+                action="add_knowledge", evidence_ref=memory_id)
+        return memory_id
+
+    def add_procedural(self, project_id, attempt, outcome, diagnosis,
+                        session_id, actor):
+        """Record ONE thing that was tried and what happened, with its
+        attribution event ('sentinel.procedural.added'), in ONE
+        transaction. Returns the new id.
+
+        This is the table that exists to stop a repeated failed attempt, so
+        `attempt` is stored in the words that would be recognised again
+        rather than summarised: the selector matches tokens against it.
+        `outcome` is refused when outside SENTINEL_PROCEDURAL_OUTCOMES;
+        `diagnosis` is nullable because 'it failed and nobody yet knows
+        why' is a real and useful state, and inventing a diagnosis to fill
+        the column would be worse than leaving it empty."""
+        _sentinel_enum("outcome", outcome, SENTINEL_PROCEDURAL_OUTCOMES)
+        memory_id = uuid.uuid4().hex
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO sentinel_procedural (id, project_id, "
+                  "session_id, attempt, outcome, diagnosis, created_at, "
+                  "last_surfaced_at, surface_count, active) "
+                  "VALUES (?,?,?,?,?,?,?,NULL,0,1)",
+                  (memory_id, project_id, session_id, attempt, outcome,
+                   diagnosis, now_iso()))
+            self._write_attribution(
+                project_id, None, "sentinel.procedural.added", actor,
+                action="add_procedural", evidence_ref=memory_id)
+        return memory_id
+
+    def set_status(self, project_id, summary, open_risks, session_id,
+                    actor):
+        """Append ONE status row, with its attribution event
+        ('sentinel.status.set'), in ONE transaction. Returns the new id.
+
+        APPEND-ONLY despite the name: 'set' never edits or replaces a prior
+        row, it adds the next one, so the watcher's view of progress keeps
+        its own history. latest_status reads the newest.
+
+        This table is PRIVATE by design. Nothing here is ever injected into
+        the working agent's context and the selector is forbidden from
+        reading it, which is why no method below returns a status row
+        anywhere near a reminder."""
+        status_id = uuid.uuid4().hex
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO sentinel_status (id, project_id, session_id, "
+                  "summary, open_risks, created_at) VALUES (?,?,?,?,?,?)",
+                  (status_id, project_id, session_id, summary, open_risks,
+                   now_iso()))
+            self._write_attribution(
+                project_id, None, "sentinel.status.set", actor,
+                action="set_status", evidence_ref=status_id)
+        return status_id
+
+    def latest_status(self, project_id):
+        """The newest status row for `project_id` as a plain dict, or None
+        when the watcher has never written one.
+
+        created_at DESC then rowid DESC: now_iso() is second-precision, so
+        two statuses written inside the same second compare EQUAL on
+        created_at alone and 'the latest' would be whichever row sqlite
+        happened to hand back first. rowid is the one column every ordinary
+        table already carries that grows with each INSERT, so it settles
+        that tie as insertion order, the same reason list_tasks orders by
+        it."""
+        row = _exec(self,
+            "SELECT * FROM sentinel_status WHERE project_id=? "
+            "ORDER BY created_at DESC, rowid DESC LIMIT 1",
+            (project_id,)).fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
+    def active_knowledge(self, project_id, kinds=None):
+        """Every ACTIVE knowledge row for `project_id`, oldest first
+        (created_at, then rowid for rows written in the same second).
+
+        `kinds` narrows to a set of kinds, and every kind in it is checked
+        against SENTINEL_KNOWLEDGE_KINDS first: a typo in a filter that
+        simply returned an empty list is indistinguishable from a project
+        that recorded nothing, which is the exact shape of silent wrongness
+        this design refuses. Retired rows (active 0) never come back from
+        here, whatever the filter says."""
+        sql = "SELECT * FROM sentinel_knowledge WHERE project_id=? AND active=1"
+        params = [project_id]
+        if kinds is not None:
+            kinds = tuple(kinds)
+            for kind in kinds:
+                _sentinel_enum("kind", kind, SENTINEL_KNOWLEDGE_KINDS)
+            if not kinds:
+                return []
+            sql += " AND kind IN (%s)" % ",".join("?" * len(kinds))
+            params.extend(kinds)
+        sql += " ORDER BY created_at ASC, rowid ASC"
+        return [dict(r) for r in _exec(self, sql, tuple(params)).fetchall()]
+
+    def active_procedural(self, project_id, outcomes=None):
+        """Every ACTIVE procedural row for `project_id`, oldest first, with
+        the same contract active_knowledge carries: `outcomes` is checked
+        against SENTINEL_PROCEDURAL_OUTCOMES before it filters anything,
+        and a retired row never comes back."""
+        sql = "SELECT * FROM sentinel_procedural WHERE project_id=? AND active=1"
+        params = [project_id]
+        if outcomes is not None:
+            outcomes = tuple(outcomes)
+            for outcome in outcomes:
+                _sentinel_enum("outcome", outcome,
+                                SENTINEL_PROCEDURAL_OUTCOMES)
+            if not outcomes:
+                return []
+            sql += " AND outcome IN (%s)" % ",".join("?" * len(outcomes))
+            params.extend(outcomes)
+        sql += " ORDER BY created_at ASC, rowid ASC"
+        return [dict(r) for r in _exec(self, sql, tuple(params)).fetchall()]
+
+    def retire_memory(self, table, memory_id, superseded_by, actor):
+        """Retire ONE memory (active 1 to 0), with its attribution event
+        ('sentinel.memory.retired'), in ONE transaction. The row STAYS;
+        nothing here deletes anything. True when a row actually moved,
+        False when there is no such id or it was already retired, so a
+        caller can tell 'I retired it' from 'there was nothing to retire'.
+
+        `table` goes through _sentinel_table BEFORE any SQL is built, and
+        the two UPDATE statements below are separate literals rather than
+        one interpolated string, so no caller text reaches a statement at
+        all.
+
+        superseded_by is written only for sentinel_knowledge, because that
+        is the only one of the two tables the design gives the column to
+        (sections 2.1 and 2.2). Asking to supersede a procedural memory is
+        therefore REFUSED by name rather than accepted and dropped on the
+        floor: a caller that believes it recorded which attempt replaced
+        which, when nothing was recorded, is worse off than one that got an
+        error."""
+        table = _sentinel_table(table)
+        if table == "sentinel_procedural" and superseded_by:
+            raise ValueError(
+                "sentinel_procedural has no superseded_by column, so "
+                "superseded_by=%r cannot be recorded; retire it with "
+                "superseded_by=None, or record the replacement as its own "
+                "procedural row" % (superseded_by,))
+        retired = False
+        with self._transaction():
+            row = _exec(self,
+                "SELECT project_id, active FROM %s WHERE id=?" % table,
+                (memory_id,)).fetchone()
+            if row is not None and row["active"]:
+                if table == "sentinel_knowledge":
+                    _exec(self,
+                          "UPDATE sentinel_knowledge SET active=0, "
+                          "superseded_by=? WHERE id=? AND active=1",
+                          (superseded_by, memory_id))
+                else:
+                    _exec(self,
+                          "UPDATE sentinel_procedural SET active=0 "
+                          "WHERE id=? AND active=1", (memory_id,))
+                self._write_attribution(
+                    row["project_id"], None, "sentinel.memory.retired",
+                    actor, action="retire_memory", evidence_ref=memory_id)
+                retired = True
+        return retired
+
+    def mark_surfaced(self, table, memory_ids):
+        """Stamp last_surfaced_at and bump surface_count on the named
+        memories. Returns how many rows were actually updated, which is not
+        always len(memory_ids): an id that names nothing updates nothing,
+        and saying so is the point of returning a count rather than None.
+
+        `table` goes through the same _sentinel_table whitelist
+        retire_memory uses, before any SQL is built. memory_ids accepts a
+        list of ids or ONE comma-separated string (see _sentinel_id_list);
+        a bare string is never treated as a sequence of characters.
+
+        No actor and no attribution row here, unlike the writes above: this
+        bumps a counter on rows whose creation is already attributed, and
+        the intervention row written beside it already names exactly which
+        ids were surfaced and why."""
+        table = _sentinel_table(table)
+        ids = _sentinel_id_list(memory_ids)
+        if not ids:
+            return 0
+        ts = now_iso()
+        with self._transaction():
+            cursor = _exec(self,
+                "UPDATE %s SET last_surfaced_at=?, "
+                "surface_count=surface_count+1 WHERE id IN (%s)"
+                % (table, ",".join("?" * len(ids))),
+                tuple([ts] + ids))
+            updated = cursor.rowcount
+        return updated
+
+    def record_intervention(self, project_id, trigger, decision, memory_ids,
+                             reminder, reason, session_id, actor):
+        """Append ONE calibration-ledger row, with its attribution event
+        ('sentinel.intervention.recorded'), in ONE transaction. Returns the
+        new id.
+
+        EVERY decision writes a row, including every silence. That is the
+        whole design: a silence recorded with its reason is evidence, while
+        a silence recorded as an absence is indistinguishable from the
+        sentinel never having run. `trigger` and `decision` are refused
+        when outside SENTINEL_TRIGGERS and SENTINEL_DECISIONS.
+
+        memory_ids is stored comma-separated, and the empty string (never
+        NULL) when nothing was injected, so 'silent' rows all have the same
+        shape. The row lands unjudged; judge_intervention grades it later,
+        and intervention_stats counts what is still ungraded rather than
+        treating ungraded as neutral."""
+        _sentinel_enum("trigger", trigger, SENTINEL_TRIGGERS)
+        _sentinel_enum("decision", decision, SENTINEL_DECISIONS)
+        intervention_id = uuid.uuid4().hex
+        with self._transaction():
+            _exec(self,
+                  "INSERT INTO sentinel_interventions (id, project_id, "
+                  "session_id, trigger, decision, memory_ids, reminder, "
+                  "reason, created_at, judged, judged_at, judged_by) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,'unjudged',NULL,NULL)",
+                  (intervention_id, project_id, session_id, trigger,
+                   decision, ",".join(_sentinel_id_list(memory_ids)),
+                   reminder, reason, now_iso()))
+            self._write_attribution(
+                project_id, None, "sentinel.intervention.recorded", actor,
+                action="record_intervention", reason=reason or "",
+                evidence_ref=intervention_id)
+        return intervention_id
+
+    def judge_intervention(self, intervention_id, judged, judged_by):
+        """Grade ONE intervention. True when a row was graded, False when
+        no such id exists.
+
+        `judged` is refused when outside SENTINEL_JUDGEMENTS; 'unjudged' is
+        in that set on purpose, because the column's own default is
+        'unjudged' and a grader who wants to take a grade BACK should be
+        able to say so in the same vocabulary rather than by writing an
+        undeclared value. judged_at is stamped whichever value lands, so
+        the row always says when it was last touched.
+
+        No actor and no attribution row: judged_by is the grader, recorded
+        on the row itself, which is where a ledger reader looks for it."""
+        _sentinel_enum("judged", judged, SENTINEL_JUDGEMENTS)
+        with self._transaction():
+            cursor = _exec(self,
+                "UPDATE sentinel_interventions SET judged=?, judged_at=?, "
+                "judged_by=? WHERE id=?",
+                (judged, now_iso(), judged_by, intervention_id))
+            updated = cursor.rowcount
+        return updated == 1
+
+    def intervention_stats(self, project_id):
+        """The calibration counts for `project_id`: total, injected,
+        silent, useful, noise, unjudged, and useful_ratio.
+
+        useful_ratio is None, NEVER 0.0, when nothing has been judged. A
+        ratio computed over zero judgements is a number that looks like
+        measurement and is not one, and 0.0 in particular reads as 'we
+        measured, and it was useless'. The caller renders None as NO-DATA.
+
+        The SUMs come back NULL from sqlite when the project has no rows at
+        all, so each is coerced to 0 here rather than leaking None into a
+        count that a caller will format or add up."""
+        row = _exec(self,
+            "SELECT COUNT(*) AS total, "
+            "SUM(CASE WHEN decision='inject' THEN 1 ELSE 0 END) AS injected, "
+            "SUM(CASE WHEN decision='silent' THEN 1 ELSE 0 END) AS silent, "
+            "SUM(CASE WHEN judged='useful' THEN 1 ELSE 0 END) AS useful, "
+            "SUM(CASE WHEN judged='noise' THEN 1 ELSE 0 END) AS noise, "
+            "SUM(CASE WHEN judged='unjudged' THEN 1 ELSE 0 END) AS unjudged "
+            "FROM sentinel_interventions WHERE project_id=?",
+            (project_id,)).fetchone()
+        useful = int(row["useful"] or 0)
+        noise = int(row["noise"] or 0)
+        judged_total = useful + noise
+        return {
+            "total": int(row["total"] or 0),
+            "injected": int(row["injected"] or 0),
+            "silent": int(row["silent"] or 0),
+            "useful": useful,
+            "noise": noise,
+            "unjudged": int(row["unjudged"] or 0),
+            "useful_ratio": (float(useful) / judged_total
+                             if judged_total else None),
+        }
+
+    def recent_interventions(self, project_id, limit):
+        """The most recent `limit` ledger rows for `project_id`, newest
+        first, as plain dicts.
+
+        created_at DESC then rowid DESC for the same reason latest_status
+        orders that way: timestamps here are second-precision, and the
+        cooldown rule in the selection policy depends on 'the last N
+        interventions' meaning the last N in the order they happened, not
+        whichever order sqlite returned for a tied second."""
+        rows = _exec(self,
+            "SELECT * FROM sentinel_interventions WHERE project_id=? "
+            "ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (project_id, limit)).fetchall()
+        return [dict(r) for r in rows]
 
     def dump(self, raw=False):
         """Full JSON-serializable export of every table.

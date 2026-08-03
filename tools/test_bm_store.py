@@ -937,6 +937,15 @@ class TestFixRoundGates(unittest.TestCase):
                                  "TABLE failing mid-migration must roll the "
                                  "caller's transaction back, not move the "
                                  "founder's store aside",
+            "_migrate_12_to_13": "a schema migration step, run INSIDE the "
+                                 "caller's BEGIN EXCLUSIVE (Full-Auto Phase "
+                                 "1: the four Memory Sentinel tables, "
+                                 "knowledge, procedural, private status and "
+                                 "the intervention ledger). Same exemption "
+                                 "and same reason as _migrate_11_to_12: a "
+                                 "CREATE TABLE failing mid-migration must "
+                                 "roll the caller's transaction back, not "
+                                 "move the founder's store aside",
         }
         with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
             source = f.read()
