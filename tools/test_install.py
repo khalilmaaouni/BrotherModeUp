@@ -33,6 +33,7 @@ INSTALL = os.path.join(ROOT, "scripts", "install.py")
 UNINSTALL = os.path.join(ROOT, "scripts", "uninstall.py")
 DOCTOR = os.path.join(ROOT, "scripts", "doctor.py")
 SHELL = os.path.join(ROOT, "scripts", "bm_shell.py")
+HOOKS_JSON_PATH = os.path.join(ROOT, "hooks", "hooks.json")
 
 EXIT_REFUSED = 4
 
@@ -259,6 +260,51 @@ class TestCleanInstall(InstallerCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertFalse(os.path.exists(self.settings))
         self.assertTrue(os.path.isfile(os.path.join(self.target, "SKILL.md")))
+
+
+class TestHooksJsonAgreesWithInstaller(InstallerCase):
+    """C-07 (2026-08-03): hooks/hooks.json and scripts/install.py's
+    hook_groups() are two hand-maintained copies of one hook wiring, and they
+    had drifted. hooks.json sets an explicit timeout and statusMessage on every
+    group; the installer's shared _group() helper never set statusMessage
+    anywhere, and set no timeout at all on SessionStart, SessionEnd, Stop or
+    PreCompact. So the two documented install paths produced different
+    effective configurations, and nothing compared them. This is the same drift
+    class the packaging suite already guards for pyproject.toml: compare field
+    by field rather than trusting two files to agree."""
+
+    def _manifest_groups(self):
+        with io.open(HOOKS_JSON_PATH, encoding="utf-8") as fh:
+            return json.load(fh)["hooks"]
+
+    def test_every_group_agrees_on_timeout_and_status_message(self):
+        r = self.run_install()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        installed = self.read_settings()["hooks"]
+        manifest = self._manifest_groups()
+        mismatches = []
+        for event, groups in manifest.items():
+            installed_groups = installed.get(event, [])
+            for want in groups:
+                matcher = want.get("matcher")
+                got = next((g for g in installed_groups
+                            if g.get("matcher") == matcher), None)
+                if got is None:
+                    mismatches.append(
+                        "%s[%s]: hooks.json wires this group; the installed "
+                        "settings.json has no matching group"
+                        % (event, matcher))
+                    continue
+                want_entry = want["hooks"][0]
+                got_entry = got["hooks"][0]
+                for field in ("timeout", "statusMessage"):
+                    w = want_entry.get(field)
+                    g = got_entry.get(field)
+                    if w != g:
+                        mismatches.append(
+                            "%s[%s].%s: hooks.json=%r, installer=%r"
+                            % (event, matcher, field, w, g))
+        self.assertEqual([], mismatches, "\n".join(mismatches))
 
 
 class TestRefusals(InstallerCase):
