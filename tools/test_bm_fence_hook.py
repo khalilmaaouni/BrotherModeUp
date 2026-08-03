@@ -455,18 +455,69 @@ class EnforcedModeFailsClosed(FenceHookBase):
         and BM_FENCE_STRICT short-circuited before it could tighten anything."""
         self._both_ways(lambda: None, "no active claims")
 
-    def test_no_project_root_denies_when_enforced(self):
+    def test_no_project_root_allows_even_when_enforced(self):
+        """The ONE condition that still allows under enforcement, and it has to
+        be. A directory with no BrotherMode project has no fence to enforce, so
+        denying here would stop editing in every unrelated directory on the
+        machine the moment somebody exported the variable. That is the brick
+        this hook exists to avoid, and an earlier draft of this very feature
+        got it wrong and asserted the deny."""
         outside = os.path.realpath(tempfile.mkdtemp())
         try:
             p = payload(self.OTHER, outside)
             with mock.patch.dict(os.environ, {"BM_FENCE_MODE": "enforced"}):
                 decision, notes = self.decide(p)
-            self.assertIn("enforced mode", self.assertDenied(decision))
+            self.assertAllowed(decision)
+            self.assertTrue(any("FAILING OPEN" in n for n in notes), notes)
             with mock.patch.dict(os.environ, {"BM_FENCE_MODE": ""}):
                 decision2, _ = self.decide(p)
             self.assertAllowed(decision2)
         finally:
             shutil.rmtree(outside, ignore_errors=True)
+
+    def test_deny_reason_never_leaks_a_path_or_payload_content(self):
+        """The stderr note may name paths; the deny REASON may not. It is read
+        by the model and lands in a transcript, and at the moment it is
+        produced nothing has been verified, so no verified context justifies
+        quoting a path. Every enforced-mode reason is drawn from a literal
+        table for exactly this reason."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        for suffix in ("", "-wal", "-shm"):
+            q = bs.store_path(self.root) + suffix
+            if os.path.exists(q):
+                os.remove(q)
+        p = payload(self.OTHER, self.root)
+        with mock.patch.dict(os.environ, {"BM_FENCE_MODE": "enforced"}):
+            decision, notes = self.decide(p)
+        reason = self.assertDenied(decision)
+        self.assertNotIn(self.root, reason)
+        self.assertNotIn("src/app.py", reason)
+        self.assertNotIn(os.path.expanduser("~"), reason)
+        # The operator's channel is allowed to be specific, and must be, or
+        # the refusal is not actionable at the terminal.
+        self.assertTrue(any(self.root in n for n in notes),
+                        "stderr must still name the path for the operator")
+
+    def test_an_unrecognized_mode_value_runs_advisory_and_warns(self):
+        """Denying on a typo would brick editing over a missing letter;
+        silently accepting one would let somebody who asked for enforcement
+        quietly not get it. So: advisory, plus a warning that prints every
+        time rather than once."""
+        mode, warning = fh.fence_mode({"BM_FENCE_MODE": "enfoced"})
+        self.assertEqual(mode, fh.MODE_ADVISORY)
+        self.assertIsNotNone(warning)
+        self.assertIn("not a recognized mode", warning)
+        self.assertEqual(fh.fence_mode({"BM_FENCE_MODE": "enforced"}),
+                         (fh.MODE_ENFORCED, None))
+        self.assertEqual(fh.fence_mode({}), (fh.MODE_ADVISORY, None))
+
+    def test_a_raise_without_a_code_still_denies_when_enforced(self):
+        """The default code is 'unknown' and 'unknown' DENIES, so a raise added
+        later that forgets to pass a code refuses rather than quietly
+        reopening the hole this class was audited for."""
+        self.assertEqual(fh._FailOpen("something").code, "unknown")
+        self.assertEqual(fh._FailOpen("x", "not-a-real-code").code, "unknown")
+        self.assertNotIn("unknown", fh._ALLOW_EVEN_WHEN_ENFORCED)
 
     def test_malformed_payloads_deny_when_enforced(self):
         """The five shapes the probe drove, each its own allow before this."""
