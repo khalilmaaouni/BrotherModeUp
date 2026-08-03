@@ -463,6 +463,17 @@ class TestCalibratedReinjections(unittest.TestCase):
             self.assertTrue(qpath and os.path.exists(qpath),
                              "the damaged file must survive at the quarantine path")
             self.assertFalse(os.path.exists(path), "the corrupt path must be vacated by the rename")
+            # C-09 (2026-08-03): the quarantine DIRECTORY was never chmod'd,
+            # only the files moved into it. A quarantined database holds the
+            # same rows the live one did, so the directory gets the same 0700
+            # the store directory gets. Skipped where the platform has no
+            # POSIX modes, matching how the suite treats mode checks elsewhere.
+            if os.name == "posix":
+                qdir = os.path.dirname(qpath)
+                self.assertEqual(
+                    stat.S_IMODE(os.stat(qdir).st_mode), 0o700,
+                    "the quarantine directory must be owner-only, like the "
+                    "store directory it came from")
             store = bs.Store(d)
             try:
                 rec = store.claim("thing", "ephemeral", "test", [])
@@ -913,6 +924,16 @@ class TestFixRoundGates(unittest.TestCase):
                                  "learning_retrieval_membership and "
                                  "provisional_records). Same exemption and "
                                  "same reason as _migrate_8_to_9: a CREATE "
+                                 "TABLE failing mid-migration must roll the "
+                                 "caller's transaction back, not move the "
+                                 "founder's store aside",
+            "_migrate_11_to_12": "a schema migration step, run INSIDE the "
+                                 "caller's BEGIN EXCLUSIVE (LOOP 1 of the "
+                                 "release-closure program: projects, "
+                                 "forecasts, tasks, dependencies, "
+                                 "attribution, alerts, evidence, "
+                                 "runtime_runs). Same exemption and same "
+                                 "reason as _migrate_10_to_11: a CREATE "
                                  "TABLE failing mid-migration must roll the "
                                  "caller's transaction back, not move the "
                                  "founder's store aside",
@@ -3829,6 +3850,83 @@ class TestStateView(unittest.TestCase):
                 on_disk2 = f.read()
             self.assertEqual(on_disk2.count(bs._STATE_BEGIN), 1)
             self.assertIn("hand written prose stays here", on_disk2)
+
+    def test_write_state_view_regenerates_byte_stable_across_three_renders(self):
+        """LOOP 2 fix (WP-B reproduced): a two-render comparison alone
+        missed a real compounding bug -- each re-splice into an
+        already-marked file grew the file by one blank line, forever,
+        whenever the file had prose on either side of the generated block
+        -- until a THIRD render exposed it (mirrors how
+        tools/test_bm_project.py pins its own CANVAS.md fixed point the
+        same way, for the identical bug in _splice_generated there). Prose
+        both before AND after the markers, so every render after the first
+        exercises the splice path (begin_count == 1), never the from-empty
+        append path.
+
+        The clock is NO LONGER frozen here (C-08, 2026-08-03). It used to be,
+        with a docstring explaining that the timestamp render_state_md stamped
+        into its own header could not then be the thing that changed between
+        renders. That freeze was the suite tolerating a real defect rather than
+        proving its absence: STATE.md genuinely was not byte-stable, and this
+        test could not have caught it. render_state_md now carries no render
+        time at all, so the assertion below runs against a live clock and means
+        what it says."""
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "STATE.md")
+            with io.open(path, "w", encoding="utf-8") as f:
+                f.write("# Project notes\nprose written before the markers\n")
+            store = bs.Store(d)
+            try:
+                store.claim("payments", "persistent", "ship stripe", [])
+            finally:
+                store.close()
+            bs.write_state_view(d)
+            with io.open(path, "a", encoding="utf-8") as f:
+                f.write("\nprose written after the markers, by hand\n")
+            with io.open(path, encoding="utf-8") as f:
+                render1 = f.read()
+            bs.write_state_view(d)
+            with io.open(path, encoding="utf-8") as f:
+                render2 = f.read()
+            self.assertEqual(
+                render1, render2,
+                "STATE.md must regenerate byte-stable from the same rows")
+            bs.write_state_view(d)
+            with io.open(path, encoding="utf-8") as f:
+                render3 = f.read()
+            self.assertEqual(render2, render3)
+            self.assertIn("prose written before the markers", render3)
+            self.assertIn("prose written after the markers, by hand", render3)
+            self.assertEqual(
+                render3.count("prose written after the markers, by hand"), 1)
+
+    def test_state_md_header_carries_no_render_timestamp(self):
+        """C-08 (2026-08-03): the generated header must not stamp its own
+        render time. Guarding the property directly, not only through the
+        byte-stability test above, because a future edit could reintroduce a
+        timestamp in a form that happens to survive three renders inside one
+        fast test run and still break stability in the field."""
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("payments", "persistent", "ship stripe", [])
+            finally:
+                store.close()
+            bs.write_state_view(d)
+            with io.open(os.path.join(d, "STATE.md"), encoding="utf-8") as f:
+                rendered = f.read()
+            header = [ln for ln in rendered.split("\n")
+                      if ln.startswith("_Generated by bm_store.py")]
+            self.assertEqual(
+                len(header), 1,
+                "expected exactly one generated-by header line, got %r"
+                % (header,))
+            self.assertNotRegex(
+                header[0], r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}",
+                "the generated header must carry no render timestamp: it is "
+                "what made STATE.md the one view that could never regenerate "
+                "byte-stable")
+
 
 class TestVerify(unittest.TestCase):
     def test_verify_healthy_store_is_empty(self):
@@ -10661,10 +10759,27 @@ class TestLoop11ExportWithholdingPolicy(unittest.TestCase):
 
     def test_export_policy_scrub_only_set_stays_closed(self):
         """Growing the scrub-only set is a privacy decision, so it fails here
-        rather than passing quietly. Update this list deliberately."""
+        rather than passing quietly. Update this list deliberately.
+
+        V1 (release-closure loop2 refuter fixes) added nine schema-12
+        columns: none of the nine carries a schema.py ENUMS entry, so
+        every one is free text a caller can type anything into, unlike
+        the true enums (tasks.status, forecasts/tasks.confidence,
+        attribution.actor_type, alerts.severity) that stayed on the
+        full-safe list because the store itself already restricts them
+        to a known set of values."""
         self.assertEqual(sorted(bs._DUMP_SCRUB_ONLY_COLUMNS),
-                          [("claims", "path"),
-                           ("records", "name"), ("records", "tier")])
+                          [("alerts", "category"),
+                           ("attribution", "event_type"),
+                           ("claims", "path"),
+                           ("evidence", "kind"),
+                           ("evidence", "subject_type"),
+                           ("projects", "experience_level"),
+                           ("projects", "phase"),
+                           ("projects", "project_type"),
+                           ("records", "name"), ("records", "tier"),
+                           ("runtime_runs", "runtime"),
+                           ("tasks", "priority")])
 
     def test_export_policy_id_shaped_set_stays_closed(self):
         """Same rule for the shape-gated set: adding a column here is a
@@ -13769,6 +13884,983 @@ class TestLoop4Calibration(unittest.TestCase):
                     require_record_identity=True)
                 run1 = res1b["retrieval_uuid"]
                 _assert_reconstructs()
+
+
+# ---------------------------------------------------------------------------
+# LOOP 1 of the release-closure program (2026-08-01, migration brief
+# docs/superpowers/specs/2026-08-01-loop1-migration-brief.md): schema 12
+# gives tables to the five canonical shapes from brotherme/core/schema.py.
+# Fixtures below are deliberately minimal (the boring, valid instance of
+# each shape), because these tests are about the STORE's contract
+# (atomicity, legality, append-only, verify()), not about the shapes
+# themselves, which tools/test_bm_schema.py already covers on its own.
+# ---------------------------------------------------------------------------
+
+def _actor(name="tester"):
+    return {"actor_type": "model", "actor_name": name}
+
+
+def _project(pid="proj1", **kw):
+    d = {"project_id": pid, "name": "Project One",
+         "created_at": "2026-08-01T00:00:00Z",
+         "updated_at": "2026-08-01T00:00:00Z"}
+    d.update(kw)
+    return d
+
+
+def _forecast(fid="fc1", pid="proj1", **kw):
+    d = {"forecast_id": fid, "project_id": pid, "confidence": "high",
+         "created_at": "2026-08-01T00:00:00Z"}
+    d.update(kw)
+    return d
+
+
+def _task(tid="task1", pid="proj1", **kw):
+    d = {"task_id": tid, "project_id": pid, "title": "Do the thing",
+         "status": "planned"}
+    d.update(kw)
+    return d
+
+
+def _alert(aid="alert1", **kw):
+    d = {"alert_id": aid, "severity": "info", "message": "m",
+         "requires_human": False, "created_at": "2026-08-01T00:00:00Z"}
+    d.update(kw)
+    return d
+
+
+def _evidence(eid="ev1", subject_id="task1", **kw):
+    d = {"evidence_id": eid, "subject_type": "task",
+         "subject_id": subject_id, "created_at": "2026-08-01T00:00:00Z"}
+    d.update(kw)
+    return d
+
+
+def _runtime_run(rid="run1", **kw):
+    d = {"run_id": rid, "runtime": "claude-code",
+         "started_at": "2026-08-01T00:00:00Z"}
+    d.update(kw)
+    return d
+
+
+class TestSchema12Migration(unittest.TestCase):
+    """Schema 11 to 12 (LOOP 1, 2026-08-01): projects, forecasts, tasks,
+    dependencies, attribution, alerts, evidence, runtime_runs. Same
+    discipline as TestSchema11Migration: the fixture is a REAL store
+    reverted to schema 11, not hand-written DDL, so it cannot drift from
+    the schema anyone actually has."""
+
+    def _schema11_store(self, d):
+        with bs.Store(d) as store:
+            store.claim("alpha", "persistent", "keep me", ["src/a.py"])
+            c = store.capture_learning_candidate(
+                "manual", trigger="writing an executive update",
+                action="state customer impact first",
+                because="leaders need the business state first",
+                scope_type="global", scope_key="")
+            _approved(store, c["candidate_uuid"],
+                     founder_ref="approved before this loop's tables existed")
+        path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            for t in bs._TABLES_LOOP1:
+                conn.execute("DROP TABLE IF EXISTS %s" % t)
+            conn.execute("UPDATE meta SET value='11' WHERE key='schema_version'")
+            conn.execute("COMMIT")
+        finally:
+            conn.close()
+        return path
+
+    def _snapshot(self, path):
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        try:
+            out = {}
+            for t in bs._TABLES_V11:
+                rows = [dict(r) for r in conn.execute("SELECT * FROM %s" % t)]
+                if t == "meta":
+                    rows = [r for r in rows if r.get("key") != "schema_version"]
+                out[t] = json.dumps(rows, sort_keys=True, default=str)
+            return out
+        finally:
+            conn.close()
+
+    def _tables(self, path):
+        conn = sqlite3.connect(path)
+        try:
+            return {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            conn.close()
+
+    def test_a_schema11_store_migrates_instead_of_being_quarantined(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema11_store(d)
+            with bs.Store(d) as store:
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT value FROM meta WHERE key='schema_version'"
+                    ).fetchone()["value"], str(bs.SCHEMA_VERSION))
+            self.assertTrue(set(bs._TABLES_LOOP1) <= self._tables(path))
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")), [],
+                "a healthy schema-11 store must MIGRATE, never be quarantined")
+
+    def test_migration_preserves_every_schema11_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema11_store(d)
+            before = self._snapshot(path)
+            with bs.Store(d):
+                pass
+            self.assertEqual(before, self._snapshot(path))
+
+    def test_migration_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema11_store(d)
+            with bs.Store(d):
+                pass
+            first = self._snapshot(path)
+            with bs.Store(d):
+                pass
+            self.assertEqual(first, self._snapshot(path))
+
+    def test_calibrated_interrupted_migration_rolls_back_completely(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema11_store(d)
+            original = bs._MIGRATIONS[11]
+
+            def _fail_half_way(conn):
+                conn.execute(bs._LOOP1_DDL_STATEMENTS[0])
+                raise RuntimeError("simulated interruption mid-migration")
+
+            bs._MIGRATIONS[11] = _fail_half_way
+            try:
+                with self.assertRaises(RuntimeError):
+                    bs.Store(d)
+            finally:
+                bs._MIGRATIONS[11] = original
+            conn = sqlite3.connect(path)
+            try:
+                v = conn.execute(
+                    "SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(v, "11", "an interrupted migration must not move the version")
+            for t in bs._TABLES_LOOP1:
+                self.assertNotIn(t, self._tables(path))
+            # RECOVERABLE: reopening finishes the migration cleanly, exactly
+            # as the crash-recovery contract in the migration brief requires.
+            with bs.Store(d):
+                pass
+            self.assertTrue(set(bs._TABLES_LOOP1) <= self._tables(path))
+
+    def test_loop1_ddl_split_matches_the_table_list(self):
+        self.assertEqual(len(bs._LOOP1_DDL_STATEMENTS), len(bs._TABLES_LOOP1))
+        self.assertEqual(len(bs._LOOP1_INDEX_STATEMENTS), 3)
+
+    def test_a_fresh_store_is_born_at_schema12_with_all_eight_tables_present(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT value FROM meta WHERE key='schema_version'"
+                    ).fetchone()["value"], str(bs.SCHEMA_VERSION))
+            self.assertTrue(
+                set(bs._TABLES_LOOP1) <= self._tables(
+                    os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)))
+
+
+class TestLoop1Atomicity(unittest.TestCase):
+    """Every LOOP 1 service method writes its entity row and its
+    attribution row in ONE transaction, both-or-neither. Each test forces
+    a failure BETWEEN the two writes (by making Store._write_attribution
+    raise) and asserts NEITHER row survived the rollback."""
+
+    def _store_with_project(self, d):
+        store = bs.Store(d)
+        store.upsert_project(_project(), _actor())
+        return store
+
+    def test_upsert_project_atomic(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with mock.patch.object(
+                        bs.Store, "_write_attribution",
+                        side_effect=RuntimeError("boom")):
+                    with self.assertRaises(RuntimeError):
+                        store.upsert_project(_project("proj-x"), _actor())
+                self.assertIsNone(store.conn.execute(
+                    "SELECT * FROM projects WHERE project_id='proj-x'").fetchone())
+                self.assertIsNone(store.conn.execute(
+                    "SELECT * FROM attribution WHERE project_id='proj-x'").fetchone())
+
+    def test_add_forecast_atomic(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store_with_project(d) as store:
+                with mock.patch.object(
+                        bs.Store, "_write_attribution",
+                        side_effect=RuntimeError("boom")):
+                    with self.assertRaises(RuntimeError):
+                        store.add_forecast(_forecast("fc-x"), _actor())
+                self.assertIsNone(store.conn.execute(
+                    "SELECT * FROM forecasts WHERE forecast_id='fc-x'").fetchone())
+                self.assertEqual(store.conn.execute(
+                    "SELECT * FROM attribution WHERE event_type='forecast.added'"
+                    ).fetchall(), [])
+
+    def test_create_task_atomic(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store_with_project(d) as store:
+                with mock.patch.object(
+                        bs.Store, "_write_attribution",
+                        side_effect=RuntimeError("boom")):
+                    with self.assertRaises(RuntimeError):
+                        store.create_task(_task("task-x"), _actor())
+                self.assertIsNone(store.conn.execute(
+                    "SELECT * FROM tasks WHERE task_id='task-x'").fetchone())
+                self.assertEqual(store.conn.execute(
+                    "SELECT * FROM dependencies WHERE task_id='task-x'"
+                    ).fetchall(), [])
+                self.assertEqual(store.conn.execute(
+                    "SELECT * FROM attribution WHERE event_type='task.created'"
+                    ).fetchall(), [])
+
+    def test_create_task_atomic_dependencies_mirror_included(self):
+        """The failure lands AFTER the dependencies mirror rows are written
+        (they are inserted before _write_attribution is called), so this
+        also proves the mirror rows roll back with everything else."""
+        with tempfile.TemporaryDirectory() as d:
+            with self._store_with_project(d) as store:
+                store.create_task(_task("dep-target"), _actor())
+                with mock.patch.object(
+                        bs.Store, "_write_attribution",
+                        side_effect=RuntimeError("boom")):
+                    with self.assertRaises(RuntimeError):
+                        store.create_task(
+                            _task("task-y", depends_on=["dep-target"]), _actor())
+                self.assertIsNone(store.conn.execute(
+                    "SELECT * FROM tasks WHERE task_id='task-y'").fetchone())
+                self.assertEqual(store.conn.execute(
+                    "SELECT * FROM dependencies WHERE task_id='task-y'"
+                    ).fetchall(), [])
+
+    def test_transition_task_atomic(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store_with_project(d) as store:
+                store.create_task(_task("task-y"), _actor())
+                with mock.patch.object(
+                        bs.Store, "_write_attribution",
+                        side_effect=RuntimeError("boom")):
+                    with self.assertRaises(RuntimeError):
+                        store.transition_task("task-y", "ready", None, _actor())
+                row = store.conn.execute(
+                    "SELECT status FROM tasks WHERE task_id='task-y'").fetchone()
+                self.assertEqual(row["status"], "planned",
+                                  "the status update must roll back with the attribution write")
+                self.assertEqual(store.conn.execute(
+                    "SELECT * FROM attribution WHERE event_type='task.transitioned'"
+                    ).fetchall(), [])
+
+    def test_raise_alert_atomic(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store_with_project(d) as store:
+                with mock.patch.object(
+                        bs.Store, "_write_attribution",
+                        side_effect=RuntimeError("boom")):
+                    with self.assertRaises(RuntimeError):
+                        store.raise_alert(_alert("alert-x"), "proj1", _actor())
+                self.assertIsNone(store.conn.execute(
+                    "SELECT * FROM alerts WHERE alert_id='alert-x'").fetchone())
+                self.assertEqual(store.conn.execute(
+                    "SELECT * FROM attribution WHERE event_type='alert.raised'"
+                    ).fetchall(), [])
+
+    def test_resolve_alert_atomic(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store_with_project(d) as store:
+                store.raise_alert(_alert("alert-y"), "proj1", _actor())
+                with mock.patch.object(
+                        bs.Store, "_write_attribution",
+                        side_effect=RuntimeError("boom")):
+                    with self.assertRaises(RuntimeError):
+                        store.resolve_alert("alert-y", "proj1", _actor())
+                row = store.conn.execute(
+                    "SELECT resolved_at FROM alerts WHERE alert_id='alert-y'").fetchone()
+                self.assertIsNone(row["resolved_at"],
+                                   "resolved_at must roll back with the attribution write")
+                self.assertEqual(store.conn.execute(
+                    "SELECT * FROM attribution WHERE event_type='alert.resolved'"
+                    ).fetchall(), [])
+
+    def test_add_evidence_atomic(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store_with_project(d) as store:
+                store.create_task(_task("task-z"), _actor())
+                with mock.patch.object(
+                        bs.Store, "_write_attribution",
+                        side_effect=RuntimeError("boom")):
+                    with self.assertRaises(RuntimeError):
+                        store.add_evidence(
+                            _evidence("ev-x", subject_id="task-z"),
+                            "proj1", _actor())
+                self.assertIsNone(store.conn.execute(
+                    "SELECT * FROM evidence WHERE evidence_id='ev-x'").fetchone())
+                self.assertEqual(store.conn.execute(
+                    "SELECT * FROM attribution WHERE event_type='evidence.added'"
+                    ).fetchall(), [])
+
+    def test_record_runtime_run_atomic(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store_with_project(d) as store:
+                with mock.patch.object(
+                        bs.Store, "_write_attribution",
+                        side_effect=RuntimeError("boom")):
+                    with self.assertRaises(RuntimeError):
+                        store.record_runtime_run(
+                            _runtime_run("run-x"), "proj1", _actor())
+                self.assertIsNone(store.conn.execute(
+                    "SELECT * FROM runtime_runs WHERE run_id='run-x'").fetchone())
+                self.assertEqual(store.conn.execute(
+                    "SELECT * FROM attribution WHERE event_type='runtime_run.recorded'"
+                    ).fetchall(), [])
+
+
+class TestLoop1TransitionLegality(unittest.TestCase):
+    """transition_task's legality comes entirely from schema.transition():
+    the ten states, LEGAL_TRANSITIONS, and 'done' refused by name. Nothing
+    is written on any refusal."""
+
+    def test_illegal_transition_refused_nothing_written(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.create_task(_task("task1"), _actor())
+                with self.assertRaises(Exception) as ctx:
+                    # planned -> closed skips every intervening stage.
+                    store.transition_task("task1", "closed", None, _actor())
+                self.assertIn("illegal transition", str(ctx.exception).lower())
+                row = store.conn.execute(
+                    "SELECT status FROM tasks WHERE task_id='task1'").fetchone()
+                self.assertEqual(row["status"], "planned")
+                self.assertEqual(store.conn.execute(
+                    "SELECT * FROM attribution WHERE event_type='task.transitioned'"
+                    ).fetchall(), [])
+
+    def test_done_refused_by_name_nothing_written(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.create_task(_task("task1"), _actor())
+                with self.assertRaises(Exception) as ctx:
+                    store.transition_task("task1", "done", None, _actor())
+                msg = str(ctx.exception).lower()
+                self.assertIn("done", msg)
+                self.assertIn("refused by name", msg)
+                row = store.conn.execute(
+                    "SELECT status FROM tasks WHERE task_id='task1'").fetchone()
+                self.assertEqual(row["status"], "planned")
+                # Only the two attribution rows upsert_project and
+                # create_task wrote earlier; the refused transition added a
+                # third one to nothing.
+                self.assertEqual(store.conn.execute(
+                    "SELECT COUNT(*) FROM attribution").fetchone()[0], 2)
+
+    def test_backward_move_without_reason_refused(self):
+        """A backward move is legal per the protocol but never silent: no
+        reason string means refused, matching schema.transition()'s own
+        contract, restated here as a Store-level regression rather than
+        assumed from the schema suite alone."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.create_task(_task("task1"), _actor())
+                store.transition_task("task1", "ready", None, _actor())
+                store.transition_task("task1", "active", None, _actor())
+                with self.assertRaises(Exception):
+                    store.transition_task("task1", "ready", None, _actor())
+                row = store.conn.execute(
+                    "SELECT status FROM tasks WHERE task_id='task1'").fetchone()
+                self.assertEqual(row["status"], "active")
+
+
+class TestLoop1AppendOnly(unittest.TestCase):
+    """No LOOP 1 service method mutates an existing attribution or
+    forecasts row: attribution is a pure event log and Forecast's own
+    contract in schema.py is "append at each reforecast; never edit"."""
+
+    def test_no_update_statement_targets_attribution_or_forecasts(self):
+        with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertNotRegex(src, r"UPDATE\s+attribution\b")
+        self.assertNotRegex(src, r"UPDATE\s+forecasts\b")
+
+    def test_add_forecast_never_edits_a_prior_forecast_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.add_forecast(_forecast("fc1"), _actor())
+                before = dict(store.conn.execute(
+                    "SELECT * FROM forecasts WHERE forecast_id='fc1'").fetchone())
+                store.add_forecast(_forecast("fc2"), _actor())
+                after = dict(store.conn.execute(
+                    "SELECT * FROM forecasts WHERE forecast_id='fc1'").fetchone())
+                self.assertEqual(before, after)
+                self.assertEqual(store.conn.execute(
+                    "SELECT COUNT(*) FROM forecasts").fetchone()[0], 2)
+
+    def test_attribution_rows_only_ever_accumulate(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                first = store.conn.execute(
+                    "SELECT COUNT(*) FROM attribution").fetchone()[0]
+                # Same project_id: an upsert of unchanged data must still
+                # APPEND a new attribution row, never touch the old one.
+                store.upsert_project(_project(), _actor())
+                second = store.conn.execute(
+                    "SELECT COUNT(*) FROM attribution").fetchone()[0]
+                self.assertEqual(second, first + 1)
+
+
+class TestLoop1VerifyExtension(unittest.TestCase):
+    """verify() reports an attribution row whose project or task has gone
+    missing, and a fully populated LOOP 1 store verifies clean."""
+
+    def test_attribution_referencing_missing_project_is_reported(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+            path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+            conn = sqlite3.connect(path)
+            try:
+                conn.execute(
+                    "INSERT INTO attribution (event_id, project_id, task_id, "
+                    "event_type, actor_type, actor_name, action, timestamp) "
+                    "VALUES ('ev-orphan','no-such-project',NULL,'x.y',"
+                    "'human','h','a','2026-08-01T00:00:00Z')")
+                conn.commit()
+            finally:
+                conn.close()
+            problems = bs.verify(d)
+            self.assertTrue(
+                any("missing project" in p and "no-such-project" in p
+                    for p in problems), problems)
+
+    def test_attribution_referencing_missing_task_is_reported(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+            path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+            conn = sqlite3.connect(path)
+            try:
+                conn.execute(
+                    "INSERT INTO attribution (event_id, project_id, task_id, "
+                    "event_type, actor_type, actor_name, action, timestamp) "
+                    "VALUES ('ev-orphan2','proj1','no-such-task','x.y',"
+                    "'human','h','a','2026-08-01T00:00:00Z')")
+                conn.commit()
+            finally:
+                conn.close()
+            problems = bs.verify(d)
+            self.assertTrue(
+                any("missing task" in p and "no-such-task" in p
+                    for p in problems), problems)
+
+    def test_healthy_loop1_store_verifies_clean(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _actor()
+                store.upsert_project(_project(), actor)
+                store.add_forecast(_forecast(), actor)
+                store.create_task(_task(), actor)
+                store.transition_task("task1", "ready", None, actor)
+                store.raise_alert(_alert(), "proj1", actor)
+                store.resolve_alert("alert1", "proj1", actor)
+                store.add_evidence(_evidence(), "proj1", actor)
+                store.record_runtime_run(_runtime_run(), "proj1", actor)
+            self.assertEqual(bs.verify(d), [])
+
+    def test_all_eight_loop1_tables_are_part_of_the_v12_table_check(self):
+        self.assertEqual(set(bs._TABLES_LOOP1),
+                          set(bs._TABLES_V12) - set(bs._TABLES_V11))
+
+
+class TestLoop1ReadAccessors(unittest.TestCase):
+    """D-2 (loop2 mechanical commands design, 2026-08-01): read accessors on
+    Store AND ReadOnlyStore for the five schema-12 shapes. Same TWO FAILURE
+    POLICIES split this module's own docstring names for dump/
+    render_state_md/render_digest -- these are advisory display, not a
+    mutation, so a missing id degrades (None or []) rather than raising --
+    and the SAME export_column redaction dump() applies, via the shared
+    _export_row helper.
+
+    LOOP 2 REDACTION FIX: the eight schema-12 tables now carry identifier,
+    enum and timestamp entries on _DUMP_SAFE_COLUMNS, the same discipline
+    every other exported table already had, so under the real, unpatched
+    policy an id, a status, a priority or a timestamp comes back visible
+    while every founder-typed prose column (name, title, goal, message and
+    the rest) still comes back WITHHELD, exactly like dump()'s own output
+    for these tables (verified directly below). A test that needs the
+    FULL row, prose included, to check ordering or that a list column
+    decoded correctly, reads through raw=True: the accessors' own named
+    escape hatch (mirrors dump(raw=True), see _export_row), the same one
+    tools/bm_project.py's own local display now uses, rather than
+    monkeypatching the module's redaction policy open."""
+
+    def _seeded_store(self, store):
+        actor = _actor()
+        store.upsert_project(_project(name="Acme Rescue"), actor)
+        store.add_forecast(_forecast("fc1", created_at="2026-08-01T00:00:00Z"),
+                            actor)
+        store.add_forecast(_forecast("fc2", created_at="2026-08-01T00:00:01Z"),
+                            actor)
+        store.create_task(_task("task1"), actor)
+        store.raise_alert(_alert("alert1"), "proj1", actor)
+        store.add_evidence(_evidence("ev1"), "proj1", actor)
+        return actor
+
+    def test_default_redaction_matches_dump_for_a_sensitive_field(self):
+        """Redaction verified in both directions on get_project's default
+        (unpatched, raw=False) return: `name` and `goal` come back
+        withheld, byte for byte the same as dump()'s own projects row;
+        project_id, status, created_at and updated_at (genuine ids, a
+        schema-constrained enum, and timestamps -- the FULL-SAFE lane)
+        come back as the literal value. phase, project_type and
+        experience_level come back literal here too, but for a DIFFERENT
+        reason (V1, release-closure loop2 refuter fixes): they are
+        SCRUB-ONLY, not safe, and an ordinary word has nothing for the
+        scrubber to change -- this test alone cannot tell the two lanes
+        apart. test_scrub_only_schema12_column_redacts_a_secret_shaped_
+        phase below is the test that actually proves the lane, by putting
+        a value in `phase` the scrubber DOES change."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(
+                    _project(name="Confidential Codename",
+                              goal="a founder objective nobody else should see",
+                              status="active", phase="build",
+                              project_type="script",
+                              experience_level="beginner"),
+                    _actor())
+                project = store.get_project("proj1")
+                dumped = store.dump()["projects"][0]
+        self.assertNotIn("Confidential Codename", json.dumps(project))
+        self.assertTrue(project["name"].startswith("[WITHHELD"), project)
+        self.assertTrue(project["goal"].startswith("[WITHHELD"), project)
+        self.assertEqual(project["project_id"], "proj1")
+        self.assertEqual(project["status"], "active")
+        self.assertEqual(project["phase"], "build")
+        self.assertEqual(project["project_type"], "script")
+        self.assertEqual(project["experience_level"], "beginner")
+        self.assertEqual(project["created_at"], "2026-08-01T00:00:00Z")
+        self.assertEqual(project["updated_at"], "2026-08-01T00:00:00Z")
+        S = bs._schema()
+        for col in S.Project.FIELDS:
+            if col in S.Project.LIST_FIELDS:
+                continue  # dump() leaves these as JSON text; accessors decode them
+            self.assertEqual(project[col], dumped[col],
+                              "get_project must redact column %r exactly "
+                              "like dump()" % col)
+
+    def test_scrub_only_schema12_column_redacts_a_secret_shaped_phase(self):
+        """V1 (release-closure loop2 refuter fixes): the test above proves
+        phase/project_type/experience_level stay LEGIBLE for an ordinary
+        word, which is true under EITHER the old full-safe lane or the new
+        scrub-only one and therefore proves nothing about which lane is
+        actually in force. A value that looks like a live secret is the
+        proof: full-safe would have exported it unchanged (the leak V1
+        exists to close), scrub-only redacts it. `phase` is what
+        tools/bm_project.py's own `start --phase` flag writes straight
+        into this column, so this is also the "typed into --phase" case
+        the fix's own writeup names."""
+        secret = "sk-test1234567890abcdef"
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(phase=secret), _actor())
+                project = store.get_project("proj1")
+                dumped = json.dumps(store.dump())
+        self.assertNotEqual(project["phase"], secret)
+        self.assertIn("REDACTED", project["phase"], project)
+        self.assertNotIn(secret, dumped,
+                          "a secret-shaped --phase value must never "
+                          "survive a redacted dump")
+
+    def test_json_list_column_withheld_by_default_stays_a_string_marker(self):
+        """The decode-back-to-a-list step must never crash on a WITHHELD
+        marker (which is not valid JSON) and must never partially decode
+        one: with nothing patched, scope_in stays the marker string."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(
+                    _project(scope_in=["billing", "auth"]), _actor())
+                project = store.get_project("proj1")
+        self.assertIsInstance(project["scope_in"], str)
+        self.assertTrue(project["scope_in"].startswith("[WITHHELD"), project)
+
+    def test_missing_ids_degrade_to_none_or_empty_list(self):
+        """The advisory failure policy: a read accessor never raises for an
+        id that simply does not exist, it degrades."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                self.assertIsNone(store.get_project("nope"))
+                self.assertIsNone(store.get_task("nope"))
+                self.assertIsNone(store.latest_forecast("proj1"))
+                self.assertIsNone(store.latest_forecast("nope"))
+                self.assertEqual(store.list_tasks("nope"), [])
+                self.assertEqual(store.list_forecasts("nope"), [])
+                self.assertEqual(store.list_evidence("task", "nope"), [])
+                self.assertEqual(store.list_attribution("nope"), [])
+                self.assertEqual(store.list_alerts(), [])
+
+    def test_list_dependencies_scopes_to_project_both_sides(self):
+        """WP-H (D-3): list_dependencies returns every dependencies row
+        that names one of `project_id`'s own tasks on EITHER side, added so
+        bm_project.py's export can round-trip this table without SQL of
+        its own. A dependency belonging entirely to a different project
+        stays invisible; one where a FOREIGN task depends on one of THIS
+        project's tasks is still returned, the same both-sides scope
+        purge_project uses to avoid leaving a dangling reference behind."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _actor()
+                store.upsert_project(_project("proj1"), actor)
+                store.upsert_project(_project("proj2"), actor)
+                store.create_task(_task("task1", pid="proj1"), actor)
+                store.create_task(
+                    _task("task2", pid="proj1", depends_on=["task1"]), actor)
+                store.create_task(_task("task3", pid="proj2"), actor)
+                store.create_task(
+                    _task("task4", pid="proj2", depends_on=["task1"]), actor)
+                deps = store.list_dependencies("proj1")
+                pairs = sorted(
+                    (d["task_id"], d["depends_on_task_id"]) for d in deps)
+                self.assertEqual(
+                    pairs, [("task2", "task1"), ("task4", "task1")])
+                # proj2 sees the same row too: task4 is proj2's OWN task,
+                # matching on the task_id side even though what it depends
+                # on belongs to proj1.
+                self.assertEqual(
+                    [(d["task_id"], d["depends_on_task_id"])
+                     for d in store.list_dependencies("proj2")],
+                    [("task4", "task1")])
+                self.assertEqual(store.list_dependencies("nope"), [])
+
+    def test_round_trip_through_service_methods_and_every_accessor(self):
+        """Every schema-12 service method, written once, read back through
+        every one of the nine D-2 accessors: identity, filtering,
+        ordering, the latest_forecast/list_forecasts split, the
+        list_alerts(resolved=...) three-way split, and JSON list columns
+        actually decoded into Python lists once redaction is not in the
+        way. raw=True (the accessors' own named escape hatch, see this
+        class's own docstring) is what gets it out of the way now: the
+        widened _DUMP_SAFE_COLUMNS makes ids and enums visible even under
+        the DEFAULT policy, but name, title and every LIST_FIELDS column
+        (scope_in, depends_on, assumptions, input_artifacts) are
+        prose-shaped and stay withheld there on purpose, so this test still
+        needs the full, unredacted row and asks for it by name rather than
+        by widening the module's own policy out from under it."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = self._seeded_store(store)
+                project = store.get_project("proj1", raw=True)
+                self.assertEqual(project["project_id"], "proj1")
+                self.assertEqual(project["name"], "Acme Rescue")
+                self.assertIsInstance(project["scope_in"], list)
+                self.assertEqual(store.list_projects(raw=True), [project])
+
+                tasks = store.list_tasks("proj1", raw=True)
+                self.assertEqual([t["task_id"] for t in tasks], ["task1"])
+                self.assertIsInstance(tasks[0]["depends_on"], list)
+                self.assertEqual(
+                    store.list_tasks("proj1", status="planned", raw=True),
+                    tasks)
+                self.assertEqual(
+                    store.list_tasks("proj1", status="ready", raw=True), [])
+                task = store.get_task("task1", raw=True)
+                self.assertEqual(task["task_id"], "task1")
+
+                forecasts = store.list_forecasts("proj1", raw=True)
+                self.assertEqual(
+                    [f["forecast_id"] for f in forecasts], ["fc1", "fc2"])
+                self.assertIsInstance(forecasts[0]["assumptions"], list)
+                latest = store.latest_forecast("proj1", raw=True)
+                self.assertEqual(latest["forecast_id"], "fc2")
+
+                alerts = store.list_alerts(raw=True)
+                self.assertEqual([a["alert_id"] for a in alerts],
+                                  ["alert1"])
+                self.assertEqual(
+                    [a["alert_id"] for a in
+                     store.list_alerts(resolved=False, raw=True)],
+                    ["alert1"])
+                self.assertEqual(
+                    store.list_alerts(resolved=True, raw=True), [])
+                store.resolve_alert("alert1", "proj1", actor)
+                self.assertEqual(
+                    [a["alert_id"] for a in
+                     store.list_alerts(resolved=True, raw=True)],
+                    ["alert1"])
+                self.assertEqual(
+                    store.list_alerts(resolved=False, raw=True), [])
+
+                evidence = store.list_evidence("task", "task1", raw=True)
+                self.assertEqual(
+                    [e["evidence_id"] for e in evidence], ["ev1"])
+                self.assertEqual(
+                    store.list_evidence("task", "nope", raw=True), [])
+
+                attributions = store.list_attribution("proj1", raw=True)
+                self.assertGreater(len(attributions), 1)
+                self.assertIsInstance(
+                    attributions[0]["input_artifacts"], list)
+                self.assertEqual(
+                    len(store.list_attribution("proj1", limit=1, raw=True)),
+                    1)
+
+    def test_read_only_store_exposes_the_same_reads_and_refuses_writes(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._seeded_store(store)
+            with bs.ReadOnlyStore(d) as ro:
+                # Same reads: every accessor is callable and returns the
+                # same shape (row count, structural keys) a writable Store
+                # would, under the SAME default redaction.
+                self.assertEqual(ro.get_project("proj1"),
+                                  bs.Store.get_project(ro, "proj1"))
+                self.assertEqual(len(ro.list_projects()), 1)
+                self.assertEqual(len(ro.list_tasks("proj1")), 1)
+                self.assertIsNone(ro.get_task("nope"))
+                self.assertEqual(len(ro.list_forecasts("proj1")), 2)
+                self.assertIsNotNone(ro.latest_forecast("proj1"))
+                self.assertEqual(len(ro.list_alerts()), 1)
+                self.assertEqual(len(ro.list_evidence("task", "task1")), 1)
+                self.assertGreater(len(ro.list_attribution("proj1")), 1)
+                # raw=True delegates through too (D-2: "ReadOnlyStore
+                # delegates it"), proven on the one field default redaction
+                # withholds: name comes back withheld through the default
+                # call and back as the real value through the raw one.
+                self.assertTrue(
+                    ro.get_project("proj1")["name"].startswith("[WITHHELD"))
+                self.assertEqual(
+                    ro.get_project("proj1", raw=True)["name"], "Acme Rescue")
+                self.assertEqual(ro.get_project("proj1", raw=True),
+                                  bs.Store.get_project(ro, "proj1", raw=True))
+                # Refuses writes: no write method exists on this class at
+                # all (the eight schema-12 service methods are Store-only),
+                # and the underlying connection itself refuses at the SQL
+                # level (GATE A, query_only=ON), now proven against one of
+                # the new tables rather than only against meta.
+                for name in ("upsert_project", "add_forecast", "create_task",
+                             "transition_task", "raise_alert",
+                             "resolve_alert", "add_evidence",
+                             "record_runtime_run"):
+                    self.assertFalse(
+                        hasattr(ro, name),
+                        "ReadOnlyStore must not expose write method %r" % name)
+                with self.assertRaises(sqlite3.OperationalError):
+                    ro.conn.execute(
+                        "INSERT INTO projects (project_id, name, created_at, "
+                        "updated_at) VALUES ('x','y','z','z')")
+
+
+class TestPurgeProject(unittest.TestCase):
+    """WP-H (D-3, loop6 security-closure design): purge_project erases a
+    project's rows in ONE transaction and writes the attribution row that
+    documents the purge BEFORE the project row itself goes. Every OTHER
+    attribution row survives on purpose: the record that a deletion
+    happened is the one thing a deletion must not erase."""
+
+    def _seeded_project(self, store):
+        actor = _actor()
+        store.upsert_project(_project("proj1"), actor)
+        store.create_task(_task("task1"), actor)
+        store.create_task(_task("task2", depends_on=["task1"]), actor)
+        store.add_forecast(_forecast("fc1"), actor)
+        alert_id = store.raise_alert(_alert("alert1"), "proj1", actor)
+        store.resolve_alert(alert_id, "proj1", actor, reason="fixed")
+        store.add_evidence(
+            _evidence("ev-proj", subject_type="project", subject_id="proj1"),
+            "proj1", actor)
+        store.add_evidence(_evidence("ev-task", subject_id="task1"),
+                            "proj1", actor)
+        return actor
+
+    def _row_counts(self, store, project_id):
+        c = store.conn
+        return {
+            "projects": c.execute(
+                "SELECT COUNT(*) n FROM projects WHERE project_id=?",
+                (project_id,)).fetchone()["n"],
+            "tasks": c.execute(
+                "SELECT COUNT(*) n FROM tasks WHERE project_id=?",
+                (project_id,)).fetchone()["n"],
+            "dependencies": len(store.list_dependencies(project_id)),
+            "forecasts": c.execute(
+                "SELECT COUNT(*) n FROM forecasts WHERE project_id=?",
+                (project_id,)).fetchone()["n"],
+            "alerts": c.execute("SELECT COUNT(*) n FROM alerts").fetchone()["n"],
+            "evidence": c.execute(
+                "SELECT COUNT(*) n FROM evidence").fetchone()["n"],
+        }
+
+    def test_refuses_wrong_confirmation_token_nothing_removed(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._seeded_project(store)
+                before = self._row_counts(store, "proj1")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.purge_project("proj1", _actor(), "not-proj1")
+                self.assertEqual(ctx.exception.reason, "bad-confirmation")
+                self.assertEqual(self._row_counts(store, "proj1"), before,
+                                  "a wrong confirmation token must change "
+                                  "nothing")
+
+    def test_refuses_unknown_project(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.purge_project("nope", _actor(), "nope")
+                self.assertEqual(ctx.exception.reason, "not-found")
+
+    def test_forced_failure_mid_purge_leaves_everything(self):
+        """Forces the failure at the exact point purge_project writes its
+        own attribution row (the SAME technique TestLoop1Atomicity uses
+        above), which sits AFTER every entity delete and BEFORE the
+        project row is removed: the one point that proves the deletes
+        already issued in this transaction roll back too, not only the
+        write that failed."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._seeded_project(store)
+                before = self._row_counts(store, "proj1")
+                with mock.patch.object(
+                        bs.Store, "_write_attribution",
+                        side_effect=RuntimeError("boom")):
+                    with self.assertRaises(RuntimeError):
+                        store.purge_project("proj1", _actor(), "proj1")
+                self.assertEqual(
+                    self._row_counts(store, "proj1"), before,
+                    "a forced failure mid-purge must leave every row "
+                    "exactly where it was")
+                self.assertIsNotNone(store.get_project("proj1"))
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT * FROM attribution WHERE "
+                        "event_type='project.purged'").fetchall(), [])
+
+    def test_removes_rows_and_writes_attribution_naming_the_purge(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._seeded_project(store)
+                prior_attribution = len(store.conn.execute(
+                    "SELECT * FROM attribution WHERE project_id='proj1'"
+                    ).fetchall())
+                removed = store.purge_project(
+                    "proj1", _actor("purger"), "proj1")
+                self.assertEqual(
+                    removed, {"dependencies": 1, "evidence": 2, "alerts": 1,
+                              "forecasts": 1, "tasks": 2, "projects": 1,
+                              "cross_project_edges_removed": [],
+                              "alerts_skipped": []})
+                # Every entity row this project owned is gone.
+                self.assertIsNone(store.get_project("proj1"))
+                self.assertEqual(store.list_tasks("proj1"), [])
+                self.assertEqual(store.list_dependencies("proj1"), [])
+                self.assertEqual(store.list_forecasts("proj1"), [])
+                self.assertEqual(store.conn.execute(
+                    "SELECT * FROM alerts WHERE alert_id='alert1'"
+                    ).fetchall(), [])
+                self.assertEqual(
+                    store.conn.execute("SELECT * FROM evidence").fetchall(),
+                    [])
+                # The attribution trail SURVIVES: every prior event plus
+                # exactly one new row naming this purge.
+                after = store.conn.execute(
+                    "SELECT * FROM attribution WHERE project_id='proj1'"
+                    ).fetchall()
+                self.assertEqual(len(after), prior_attribution + 1)
+                purge_events = [r for r in after
+                                 if r["event_type"] == "project.purged"]
+                self.assertEqual(len(purge_events), 1)
+                self.assertEqual(purge_events[0]["actor_name"], "purger")
+                self.assertIn("task", purge_events[0]["reason"])
+
+    def test_purge_scrubs_foreign_task_depends_on_json_and_reports_separately(
+            self):
+        """A6 (loop6 refuter finding): a task in ANOTHER project can depend
+        on a task in the project being purged. The dependencies row naming
+        that edge must still go (the FK requires the depended-on task to
+        exist), but it is not this project's own row to count, and the
+        foreign task's own tasks.depends_on JSON mirror must be scrubbed of
+        the purged task id in the SAME transaction, or the queryable
+        dependencies table and the JSON column disagree about what the
+        surviving task depends on."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _actor()
+                store.upsert_project(_project("proj1"), actor)
+                store.upsert_project(_project("proj2"), actor)
+                store.create_task(_task("task1", pid="proj1"), actor)
+                store.create_task(_task("task2", pid="proj1"), actor)
+                store.create_task(
+                    _task("task4", pid="proj2",
+                          depends_on=["task1", "task2"]), actor)
+
+                removed = store.purge_project(
+                    "proj1", _actor("purger"), "proj1")
+
+                # The cross-project edges are reported SEPARATELY, never
+                # folded into proj1's own "dependencies" count (which is 0
+                # here: task1 and task2 depend on nothing of their own).
+                self.assertEqual(removed["dependencies"], 0)
+                self.assertEqual(
+                    removed["cross_project_edges_removed"], ["task4"])
+
+                # The edges are gone from the queryable table.
+                self.assertEqual(store.list_dependencies("proj2"), [])
+
+                # And task4's own depends_on JSON mirror no longer names
+                # either purged task id: the queryable table and the JSON
+                # column must agree.
+                task4 = store.get_task("task4", raw=True)
+                self.assertEqual(task4["depends_on"], [])
+
+    def test_purge_skips_an_alert_id_claimed_by_more_than_one_project(self):
+        """A7 (loop6 refuter finding): purge_project's alerts DELETE used
+        to trust attribution.evidence_ref with no binding check. Attribution
+        rows are append-only and carry no foreign key back to alerts, so if
+        more than one project's own alert.raised trail names the same
+        alert_id, that id is ambiguous ownership and must be skipped and
+        reported rather than deleted on a single dangling pointer. The
+        normal API cannot produce this for a real alert twice (alerts.
+        alert_id is a PRIMARY KEY, so a second raise_alert with the same id
+        fails); this reproduces the ambiguity directly, which is exactly
+        the shape a binding-check guard exists to catch."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _actor()
+                store.upsert_project(_project("proj1"), actor)
+                store.upsert_project(_project("proj2"), actor)
+                alert_id = store.raise_alert(
+                    _alert("shared-alert"), "proj1", actor)
+                with store._transaction():
+                    store._write_attribution(
+                        "proj2", None, "alert.raised", actor,
+                        action="raise_alert", evidence_ref=alert_id)
+
+                removed = store.purge_project(
+                    "proj1", _actor("purger"), "proj1")
+
+                self.assertEqual(removed["alerts"], 0)
+                self.assertEqual(removed["alerts_skipped"], [alert_id])
+                # An ambiguous pointer is never deleted on trust: the alert
+                # row itself survives the purge.
+                rows = store.conn.execute(
+                    "SELECT alert_id FROM alerts WHERE alert_id=?",
+                    (alert_id,)).fetchall()
+                self.assertEqual(len(rows), 1)
 
 
 if __name__ == "__main__":

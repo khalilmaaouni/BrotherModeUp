@@ -17,7 +17,8 @@ WHAT IT DELIBERATELY DOES NOT PRINT
   where the date says what the number was true of.
 
 WHERE EACH FACT COMES FROM
-  version, release_tag        VERSION (one line)
+  version, is_development,
+  release_tag                 VERSION (one line)
   schema_version              tools/bm_store.py, SCHEMA_VERSION
   test_suites, suite files    tools/test_all.py, the SUITES tuple
   hook_events, hook_count     scripts/install.py, HOOK_EVENTS
@@ -28,15 +29,20 @@ WHERE EACH FACT COMES FROM
   repo_url, primary_skill_dir,
   dev_skill_dir                declared below, for the same reason
                                 default_branch is: no subprocess
-  install_command_pinned,      computed from release_tag plus the constants
-  install_command_dev          above. release_tag is the only piece of this
-                                that can go stale, and it is read fresh from
-                                VERSION on every run, which is the whole
-                                point: an onboarding page states this command
-                                by copying what this tool prints, never by
-                                typing a tag from memory, and
+  install_command_pinned,      computed from install_target_tag
+  install_command_dev          (PUBLIC_INSTALL_TAG below), never from
+                                release_tag: a development identity's
+                                release_tag would name a tag that must never
+                                exist, so the pinned install command is built
+                                from the tag known to actually resolve in
+                                git instead. An onboarding page states this
+                                command by copying what this tool prints,
+                                never by typing a tag from memory, and
                                 tools/test_bm_docs.py fails a page that
                                 disagrees with it
+  is_development                true when version contains ".dev"
+  install_target_tag           PUBLIC_INSTALL_TAG below; see docs/RELEASE.md,
+                                "The version law"
 
 Python 3.9, standard library only. No network, no subprocess. Reads files,
 writes none. No em or en dashes anywhere in this file or its output.
@@ -74,6 +80,14 @@ DEV_SKILL_DIR = "~/.claude/skills/brothermode-dev"
 # The one command this project gates on, and the verdict a healthy run ends on.
 GATE_COMMAND = "python3 tools/test_all.py"
 GATE_EXPECTATION = "ALL GREEN"
+
+# The last tag actually cut and known to resolve in git. Declared, not
+# derived from VERSION: VERSION can carry a development identity (a version
+# containing ".dev") whose own "v" + version name must never become a tag, so
+# the public install command is pinned to THIS constant instead, never to
+# release_tag. Bump it by hand, in the same change that cuts and pushes a new
+# tag, never before. See docs/RELEASE.md, "The version law".
+PUBLIC_INSTALL_TAG = "v2.0.0-rc.9"
 
 
 class FactError(Exception):
@@ -147,17 +161,26 @@ def facts(root=ROOT):
     if re.search(r"USING\s+fts5", store_src, re.IGNORECASE):
         modes.append("fts5")
 
-    release_tag = "v" + version
+    # is_development: true when the tree carries a development identity
+    # rather than a released one. A dev identity's own "v" + version is a
+    # tag that must never exist (a late tag on a superseded commit is the
+    # exact two-trees ambiguity this project ratified against), so
+    # release_tag is honest about that instead of pretending one is coming:
+    # present only for a released identity, None for a development one.
+    is_development = ".dev" in version
+    release_tag = None if is_development else ("v" + version)
+
+    install_target_tag = PUBLIC_INSTALL_TAG
 
     # THE ONE PLACE THE PRIMARY INSTALL COMMAND IS ASSEMBLED. Every onboarding
     # page states this command by copying what this tool prints, never by
-    # typing the tag from memory: HEAD moves past the last cut tag on every
-    # loop this project lands, so a hand typed tag is stale the moment it is
-    # written. The one part of this that can drift is release_tag, read fresh
-    # from VERSION above; REPO_URL and PRIMARY_SKILL_DIR are declared
+    # typing the tag from memory. Built from install_target_tag, never from
+    # release_tag: the public install target is the tag known to actually
+    # resolve in git, which is a fact independent of what this tree's own
+    # VERSION currently claims. REPO_URL and PRIMARY_SKILL_DIR are declared
     # constants, same as DEFAULT_BRANCH.
     install_command_pinned = ("git clone --branch %s --depth 1 %s %s"
-                              % (release_tag, REPO_URL, PRIMARY_SKILL_DIR))
+                              % (install_target_tag, REPO_URL, PRIMARY_SKILL_DIR))
     # The separate, clearly labeled development command: tracks the moving
     # default branch on purpose, into its OWN directory, so a reader can never
     # confuse it with the pinned install above.
@@ -168,7 +191,9 @@ def facts(root=ROOT):
 
     return {
         "version": version,
+        "is_development": is_development,
         "release_tag": release_tag,
+        "install_target_tag": install_target_tag,
         "repo_url": REPO_URL,
         "primary_skill_dir": PRIMARY_SKILL_DIR,
         "dev_skill_dir": DEV_SKILL_DIR,

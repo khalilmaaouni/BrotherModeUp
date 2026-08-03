@@ -353,10 +353,142 @@ def extract_targets(tool_input):
 # ---------------------------------------------------------------------------
 
 class _FailOpen(Exception):
-    """Raised anywhere a decision cannot be made SAFELY. Always caught at the
-    top of decide(); always produces an allow plus a stderr line. A named
-    exception rather than a returned sentinel so a new code path cannot
-    forget to check the sentinel and accidentally deny."""
+    """Raised anywhere a decision cannot be made SAFELY. Caught at the top of
+    decide(). In the default advisory mode it produces an allow plus a stderr
+    line; in enforced mode (see enforced_mode below) it produces a DENY. A
+    named exception rather than a returned sentinel so a new code path cannot
+    forget to check the sentinel and accidentally deny.
+
+    `code` selects the enforced-mode wording from _FAIL_REASONS and defaults
+    to 'unknown', which is deliberately a DENYING code: a raise added later
+    that forgets to pass one refuses rather than quietly reopening the hole
+    this class was audited for."""
+
+    def __init__(self, message, code="unknown"):
+        Exception.__init__(self, message)
+        self.code = code if code in _FAIL_REASONS else "unknown"
+
+
+MODE_ADVISORY = "advisory"
+MODE_ENFORCED = "enforced"
+ENFORCED = MODE_ENFORCED
+ADVISORY = MODE_ADVISORY
+
+#: Codes that ALLOW even under enforcement. Exactly one, and it is the case
+#: where there is nothing to enforce: no BROTHERMODE_ROOT, no .brothermode
+#: ancestor, no .git ancestor, so this is not a BrotherMode project at all.
+#: Denying here would stop editing in every unrelated directory on the machine
+#: the moment somebody exported the variable, which is the brick this file
+#: exists to avoid.
+_ALLOW_EVEN_WHEN_ENFORCED = frozenset(("no-root",))
+
+#: Enforced-mode deny copy, keyed by the code carried on _FailOpen. Every
+#: value is a LITERAL, and that is a security property rather than a style
+#: choice. The stderr note is read by the operator and may name paths; this
+#: reason is read by the model and lands in a transcript, and at the moment it
+#: is produced NOTHING has been verified, so nothing verified justifies
+#: quoting a path, a record name, a claim label or any payload content. The
+#: operator gets the detail on stderr; the model gets a category and a remedy.
+_FAIL_REASONS = {
+    "bad-payload": (
+        "the hook payload did not have the shape the PreToolUse contract "
+        "documents, so the target of this write could not be established",
+        "check the hook command in settings.json against docs/HOOKS.md"),
+    "no-session-id": (
+        "the payload carried no session id, so this session has no verifiable "
+        "identity and no ownership could be established",
+        "check the hook wiring in settings.json against docs/HOOKS.md"),
+    "no-target-path": (
+        "a write tool arrived with no path key this hook recognizes, so there "
+        "was nothing to check against the fence",
+        "use Edit or Write with file_path, or declare the path through "
+        "scripts/bm_shell.py"),
+    "no-store": (
+        "this project has no BrotherMode store, so there is no fence to check "
+        "against",
+        "run `python3 tools/bm_store.py init` in the project root"),
+    "store-unreadable": (
+        "the BrotherMode store could not be opened read-only: it is missing, "
+        "empty, busy or corrupt",
+        "run `python3 scripts/doctor.py`, then repair or re-init the store"),
+    "store-unqueryable": (
+        "the BrotherMode store opened but its claims could not be read",
+        "run `python3 scripts/doctor.py`, then repair or re-init the store"),
+    "no-active-claims": (
+        "the BrotherMode store holds no active claims, so no fence exists, "
+        "and enforced mode requires a claim before an edit",
+        "claim the paths first with `python3 tools/bm_store.py claim`"),
+    "no-identity": (
+        "this session's fence token could not be read or created, so its "
+        "ownership label could not be derived",
+        "check that the .brothermode/fence directory is writable, then run "
+        "`python3 tools/bm_fence_hook.py whoami`"),
+    "store-unimportable": (
+        "the fence could not load bm_store.py, so no fence check ran at all",
+        "check that the hook command in settings.json points at a complete "
+        "BrotherMode tools directory"),
+    "internal-error": (
+        "the fence hit an unexpected internal error and could not reach a "
+        "decision",
+        "read the bm_fence_hook line on stderr for the error type, and file "
+        "it as a defect"),
+    "no-root": (
+        "no BrotherMode project root was found, so there is no fence here",
+        "run `python3 tools/bm_store.py init` if this should be a project"),
+    "unknown": (
+        "the fence could not complete its check",
+        "read the bm_fence_hook line on stderr for the reason"),
+}
+
+
+def fence_mode(env=None):
+    """Return (mode, warning_or_None) for BM_FENCE_MODE.
+
+    Unset, empty or 'advisory' is the DEFAULT and is today's behaviour
+    exactly. 'enforced' fails closed. Anything else runs ADVISORY and returns
+    a warning, which is the deliberate middle: denying on a typo would brick
+    editing over a missing letter, and silently accepting one would let
+    somebody who asked for enforcement quietly not get it. The warning prints
+    on every gated call, so it cannot be scrolled past once."""
+    env = os.environ if env is None else env
+    raw = (env.get("BM_FENCE_MODE") or "").strip().lower()
+    if raw in ("", MODE_ADVISORY):
+        return MODE_ADVISORY, None
+    if raw == MODE_ENFORCED:
+        return MODE_ENFORCED, None
+    return MODE_ADVISORY, (
+        "bm_fence_hook: BM_FENCE_MODE=%r is not a recognized mode, so the "
+        "fence is running ADVISORY (fail open). Set it to 'enforced' or "
+        "'advisory'." % raw)
+
+
+def enforced_mode(env=None):
+    """True when the operator has opted this machine into fail-closed.
+
+    C-01 (2026-08-03). Until now every failure path in this hook produced an
+    allow, and an adversarial probe confirmed it: nine separate conditions
+    (store missing, store corrupt, store zero bytes, store present with ZERO
+    active claims, five shapes of malformed payload, an unrecognized path key,
+    an internal exception mid-decision, bm_store.py unimportable, an
+    underivable session identity) each allowed a write across another
+    session's active fence, exit 0. BM_FENCE_STRICT did not help, because it
+    is read AFTER every one of those raises and is a complete no-op on a
+    zero-claims store, which is the state a fresh project sits in.
+
+    Fail-open remains the DEFAULT and is unchanged, deliberately: a hook that
+    starts refusing edits on a machine whose owner never asked for it is a
+    worse failure than an unenforced fence, and that judgement is recorded in
+    this file's own history. Enforcement is therefore opt-in, one variable,
+    and it is the only thing that changes behaviour here.
+
+    BM_FENCE_MODE is read rather than reusing BM_FENCE_STRICT because the two
+    mean different things and conflating them would silently widen what
+    existing users already set: STRICT tightens which PATHS are covered when
+    the fence is working, while MODE decides what happens when it CANNOT work.
+    """
+    if env is None:
+        env = os.environ
+    return env.get("BM_FENCE_MODE", "").strip().lower() == ENFORCED
 
 
 def active_claims(root):
@@ -368,16 +500,16 @@ def active_claims(root):
     the founder's database."""
     bs = _load_store_module()
     if bs is None:
-        raise _FailOpen("bm_store.py could not be imported (%s)" % _BS_ERROR)
+        raise _FailOpen("bm_store.py could not be imported (%s)" % _BS_ERROR, "store-unimportable")
     path = bs.store_path(root)
     if not os.path.isfile(path):
         raise _FailOpen("no store at %s (run `python3 tools/bm_store.py init`)"
-                        % path)
+                        % path, "no-store")
     try:
         store = bs.ReadOnlyStore(root)
     except Exception as e:
         raise _FailOpen("store at %s could not be opened read-only (%s: %s)"
-                        % (path, type(e).__name__, e))
+                        % (path, type(e).__name__, e), "store-unreadable")
     try:
         rows = bs._exec(store,
             "SELECT c.path AS path, r.name AS name, "
@@ -388,7 +520,7 @@ def active_claims(root):
         return [dict(r) for r in rows]
     except Exception as e:
         raise _FailOpen("store at %s could not be read (%s: %s)"
-                        % (path, type(e).__name__, e))
+                        % (path, type(e).__name__, e), "store-unqueryable")
     finally:
         store.close()
 
@@ -451,7 +583,7 @@ def decide(payload):
     notes = []
     try:
         if not isinstance(payload, dict):
-            raise _FailOpen("hook payload was not a JSON object")
+            raise _FailOpen("hook payload was not a JSON object", "bad-payload")
         tool_name = payload.get("tool_name")
         if not isinstance(tool_name, str) or tool_name not in WRITE_TOOLS:
             # Not a file-writing tool. Silent, not loud: this is the common
@@ -459,21 +591,21 @@ def decide(payload):
             return None, []
         tool_input = payload.get("tool_input")
         if not isinstance(tool_input, dict):
-            raise _FailOpen("tool_input for %s was not a JSON object" % tool_name)
+            raise _FailOpen("tool_input for %s was not a JSON object" % tool_name, "bad-payload")
         session_id = payload.get("session_id")
         if not isinstance(session_id, str) or not session_id.strip():
             raise _FailOpen("hook payload carried no session_id, so this "
-                            "session has no verifiable identity")
+                            "session has no verifiable identity", "no-session-id")
         session_id = session_id.strip()
 
         raw_targets = extract_targets(tool_input)
         if not raw_targets:
             raise _FailOpen("no target path found in tool_input for %s "
-                            "(keys: %s)" % (tool_name, ", ".join(sorted(tool_input))))
+                            "(keys: %s)" % (tool_name, ", ".join(sorted(tool_input))), "no-target-path")
 
         bs = _load_store_module()
         if bs is None:
-            raise _FailOpen("bm_store.py could not be imported (%s)" % _BS_ERROR)
+            raise _FailOpen("bm_store.py could not be imported (%s)" % _BS_ERROR, "store-unimportable")
 
         cwd = payload.get("cwd")
         if not isinstance(cwd, str) or not cwd.strip():
@@ -481,18 +613,18 @@ def decide(payload):
         root, _source = bs.resolve_root(cwd or None)
         if root is None:
             raise _FailOpen("no BrotherMode project root found from %s"
-                            % (cwd or os.getcwd()))
+                            % (cwd or os.getcwd()), "no-root")
 
         rows = active_claims(root)
         if not rows:
             raise _FailOpen("the store at %s holds no active claims, so there "
-                            "is no fence to enforce" % bs.store_path(root))
+                            "is no fence to enforce" % bs.store_path(root), "no-active-claims")
 
         try:
             my_label = session_label(root, session_id)
         except Exception as e:
             raise _FailOpen("this session's fence token could not be read or "
-                            "created (%s: %s)" % (type(e).__name__, e))
+                            "created (%s: %s)" % (type(e).__name__, e), "no-identity")
 
         strict = os.environ.get("BM_FENCE_STRICT", "").strip() not in ("", "0")
 
@@ -533,6 +665,20 @@ def decide(payload):
                 return deny_payload(reason), notes
         return None, notes
     except _FailOpen as e:
+        code = getattr(e, "code", "unknown")
+        if enforced_mode() and code not in _ALLOW_EVEN_WHEN_ENFORCED:
+            summary, remedy = _FAIL_REASONS.get(code, _FAIL_REASONS["unknown"])
+            notes.append(
+                "bm_fence_hook: FAILING CLOSED, the write is refused because "
+                "the fence could not be checked. Reason: %s" % e)
+            # Literal copy only. The stderr line above carries the detail for
+            # the operator, including paths; this reason is read by the model
+            # and lands in a transcript, and nothing has been verified at this
+            # point, so it names no path, record, label or payload content.
+            return deny_payload(
+                "BrotherMode is in enforced mode and refused this write "
+                "because %s. To fix it, %s. To go back to warning only, set "
+                "BM_FENCE_MODE=advisory." % (summary, remedy)), notes
         notes.append(
             "bm_fence_hook: FAILING OPEN, the write is allowed and the fence "
             "was NOT checked. Reason: %s" % e)
@@ -542,6 +688,20 @@ def decide(payload):
         # this file must never become a refusal in front of the founder's
         # editing. Type and message, no traceback, so the stderr line stays
         # one readable sentence.
+        #
+        # In enforced mode that judgement inverts (C-01): somebody who asked
+        # for fail-closed has said they would rather be stopped by a bug in
+        # this hook than have it wave a write through unchecked. The message
+        # still carries no traceback and no file content.
+        if enforced_mode():
+            summary, remedy = _FAIL_REASONS["internal-error"]
+            notes.append(
+                "bm_fence_hook: FAILING CLOSED after an unexpected error, the "
+                "write is refused. Reason: %s: %s" % (type(e).__name__, e))
+            return deny_payload(
+                "BrotherMode is in enforced mode and refused this write "
+                "because %s. To fix it, %s. To go back to warning only, set "
+                "BM_FENCE_MODE=advisory." % (summary, remedy)), notes
         notes.append(
             "bm_fence_hook: FAILING OPEN after an unexpected error, the write "
             "is allowed and the fence was NOT checked. Reason: %s: %s"
