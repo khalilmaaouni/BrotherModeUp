@@ -19,7 +19,7 @@ current.
   observed 2026-07-31, per docs/KNOWN-LIMITS.md (the "OBSERVED GREEN 2026-07-31" entry)
   and docs/evidence/RELEASE-CANDIDATE-2.0.0-rc.9.md.
 - The no-tagged-release claim (item 6, "No tagged release, and this is a security gap
-  not a nicety"). Tagged, annotated releases now exist: v2.0.0-rc.1 through v2.0.0-rc.9
+  not a nicety"). Tagged, annotated releases now exist: v2.0.0-rc.1 through v2.0.0-rc.13
   at the time of this correction (rc.1 and rc.5 withdrawn for checksum defects, the
   others superseded as each next candidate lands; VERSION names the current one). The
   install command in README.md's Quick start clones a pinned tag, not a
