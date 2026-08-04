@@ -232,6 +232,11 @@ the shell instead.
    `STORE CORRUPT: store is at schema 12 and this BrotherMode is at 13`.
    A version skew is not corruption; that wording frightens a user whose data is
    fine.
+   DONE 2026-08-04: both schema-skew branches of `Store._verify_schema_or_raise`
+   now raise `OwnershipRefused` ("schema-behind" / "schema-ahead", exit 2) with
+   plain-language wording, `STORE CORRUPT` is reserved for a store that really
+   cannot be read, and `tools/bm_sessionstart.sh` greps for the new refusal so it
+   stays visible at session start.
 
 ### What must NOT be claimed in a 2.0.0 announcement
 
