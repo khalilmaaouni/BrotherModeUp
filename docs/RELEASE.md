@@ -153,18 +153,23 @@ minimum, one real project run through the V2 store for at least a week. Two
 conditions that used to stand here are now MET and struck rather than left
 looking unfinished: green CI on all three platforms and both Python versions
 with the recovery suite included, and the `adopt` defect, closed 2026-07-28
-(`docs/NOT-FINALIZED.md` item 5). The dogfood window is the one that remains.
-Until it closes, do not describe this project as `2.0.0` anywhere.
+(`docs/NOT-FINALIZED.md` item 5). The dogfood window's stated minimum (one
+real project run through the V2 store for at least a week) is now also MET,
+by the author's own daily use recorded as testimony in the rc.13 changelog
+entry. It stays testimony, not measurement: X-04 remains open, and the 2.0.0
+changelog ends by saying so. On 2026-08-04 the founder directed the 2.0.0
+cut in his own words and the waiver is recorded in the CURRENT STATE entry
+for that date.
 
 ## How a user pins a version instead of tracking a branch
 
 Tags exist now, so this is the install instruction, not a future one:
 
 ```bash
-git clone --branch v2.0.0-rc.13 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
-`--branch v2.0.0-rc.13` checks out that exact tag, not a moving branch head. It
+`--branch v2.0.0` checks out that exact tag, not a moving branch head. It
 is the public install target, not necessarily the identity the tree on `main`
 currently carries: `python3 tools/bm_project_facts.py --field
 install_target_tag` prints the tag every onboarding page pins, and `python3
@@ -292,6 +297,27 @@ describes exactly what the tag contains rather than what it contained partway
 through preparing it.
 
 ## What has and has not happened, stated honestly
+
+CURRENT STATE, 2026-08-04, third entry of the day: `VERSION` reads `2.0.0`,
+the first public release identity, and it is the version this tree is cut
+at. Earlier today PR #5 merged as `ef25c1f` with all eleven CI jobs green on
+its head `91bc596` (run `30906411852`, read directly), carrying the Loop 6
+adversarial review, seven generalization fixes, and the schema-skew refusal
+that no longer claims corruption. Loop 1 closed the same day: origin now
+carries exactly one branch, `main`, after four contained branches were
+deleted with containment proven twice. The gate ran green on the closure
+tree after its last edit (run `python3 tools/test_all.py` for the live
+figure; a count typed into this paragraph would go stale, which this
+project's own docs suite refuses). `PUBLIC_INSTALL_TAG` moves to `v2.0.0`
+in the same commit the tag is cut from, per law 1 and law 2 below. RUNBOOK
+NOTE: steps 5 to 7 say an automated agent must refuse them and hand back to
+the founder. On 2026-08-04 the founder directed, in his own words, "I waive
+all limitations for this round" and "Finish the project end-to-end", and
+that waiver is recorded here rather than assumed, for THIS cut only: the
+gate stands for the next one. The tag is cut and pushed through the GitHub
+Desktop app, this machine's sanctioned channel.
+
+The entry below stays as written.
 
 CURRENT STATE, 2026-08-04, second entry of the day: `VERSION` now reads
 `2.0.0-rc.13.dev1`, a DEVELOPMENT identity, because `v2.0.0-rc.13` was cut and
