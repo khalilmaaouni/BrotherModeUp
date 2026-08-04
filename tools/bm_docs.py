@@ -84,6 +84,9 @@ Usage:
   python3 tools/bm_docs.py capability-status            # print the block
   python3 tools/bm_docs.py capability-status --check    # refuse a stale block
   python3 tools/bm_docs.py capability-status --write    # rewrite it in README
+  python3 tools/bm_docs.py roadmap-status --check       # the roadmap block
+  python3 tools/bm_docs.py roadmap-status --write       # rewrite it in docs/
+  python3 tools/bm_docs.py verify-docs                  # every check, one pass
 """
 
 import datetime
@@ -1440,24 +1443,30 @@ def render_capability_status(data):
     return "\n".join(lines)
 
 
-def capability_span(text, where=CAPABILITY_TARGET):
-    """(start, end) of the generated block in `text`, markers included.
+def _marker_span(text, begin, end, where, code):
+    """(start, end) of a generated block in `text`, markers included.
 
     Exactly one of each marker, in order, or a refusal. A page with two blocks
-    would have one of them silently left stale, which is the failure this
-    generator exists to remove."""
-    starts = [m.start() for m in re.finditer(re.escape(CAPABILITY_BEGIN), text)]
-    ends = [m.end() for m in re.finditer(re.escape(CAPABILITY_END), text)]
+    would have one of them silently left stale, which is the failure these
+    generators exist to remove. One primitive rather than one per block: two
+    copies of a splice rule are two chances for one of them to be wrong."""
+    starts = [m.start() for m in re.finditer(re.escape(begin), text)]
+    ends = [m.end() for m in re.finditer(re.escape(end), text)]
     if len(starts) != 1 or len(ends) != 1:
         raise DocsError(
-            "no-capability-markers",
+            code,
             "%s must carry exactly one %s and one %s; it carries %d and %d"
-            % (where, CAPABILITY_BEGIN, CAPABILITY_END, len(starts), len(ends)))
+            % (where, begin, end, len(starts), len(ends)))
     if ends[0] <= starts[0]:
         raise DocsError(
-            "no-capability-markers",
-            "%s carries the END marker before the BEGIN marker" % where)
+            code, "%s carries the END marker before the BEGIN marker" % where)
     return starts[0], ends[0]
+
+
+def capability_span(text, where=CAPABILITY_TARGET):
+    """(start, end) of the generated capability block in `text`."""
+    return _marker_span(text, CAPABILITY_BEGIN, CAPABILITY_END, where,
+                        "no-capability-markers")
 
 
 def extract_capability_status(text, where=CAPABILITY_TARGET):
@@ -1471,6 +1480,185 @@ def replace_capability_status(text, block, where=CAPABILITY_TARGET):
     the two markers is carried through byte for byte: this command owns the
     block and nothing else on the page."""
     start, end = capability_span(text, where)
+    return text[:start] + block + text[end:]
+
+
+# ---------------------------------------------------------------------------
+# The roadmap status block (positioning loop L1.6, 2026-08-04).
+#
+# The register answers "is this offered". A roadmap has to answer a second
+# question the register does not carry: HOW FAR has the claim been checked. So
+# docs/ROADMAP.md is written in six proof states, and this maps the register's
+# four onto them mechanically.
+#
+# Mechanically is the whole point. A roadmap is the one page where an item can
+# be promoted by wishing, and a mapping written in code is a promotion that
+# needs a register edit whose evidence pointer has to resolve to a real file
+# before tools/test_bm_docs.py will pass. Same discipline as the block above:
+# pure renderer, fixed order, no clock, two renders byte identical.
+# ---------------------------------------------------------------------------
+
+ROADMAP_TARGET = "docs/ROADMAP.md"
+ROADMAP_BEGIN = "<!-- BEGIN GENERATED ROADMAP STATUS -->"
+ROADMAP_END = "<!-- END GENERATED ROADMAP STATUS -->"
+
+# The six proof states, strongest first. Certified sits above verified
+# externally without implying it: certified is how strong the proof inside this
+# tree is, verified externally is who did the checking, and the page says in its
+# own words that the second rung is empty and why. Writing them as one ordered
+# ladder is still right for a reader, who wants the strongest claims first.
+ROADMAP_STATES = (
+    ("certified", "Certified",
+     "the register marks it certified, meaning a named evidence file in this "
+     "tree plus a test or a job that goes red when the claim stops being true"),
+    ("verified externally", "Verified externally",
+     "checked by someone outside this project, or on a machine this project "
+     "does not own"),
+    ("verified in CI", "Verified in CI",
+     "the evidence names a continuous integration job, so the check runs "
+     "somewhere other than the author's own machine"),
+    ("verified locally", "Verified locally",
+     "the evidence names a file or a test in this tree, and no continuous "
+     "integration job covers it yet"),
+    ("implemented", "Implemented",
+     "built, with something in the tree describing it, and not measured"),
+    ("planned", "Planned",
+     "named, with no evidence in the tree behind it yet"),
+)
+
+# What tells a beta row's evidence apart: a path under this directory is a job
+# that runs off the author's machine. Matched as a literal, because the folder
+# is the fact rather than any particular file inside it.
+ROADMAP_CI_MARK = ".github/workflows"
+
+# An evidence sentence that POINTS at something: a repository-relative path, or
+# a shouting root-level document such as README.md. The same two shapes
+# tools/test_bm_docs.py recognizes when it checks that a pointer resolves, so
+# "the evidence names a file" means the same thing in both places.
+ROADMAP_EVIDENCE_POINTER = re.compile(
+    r"[\w.\-]+/[\w.\-]+|\b[A-Z][A-Z0-9_.\-]*\.md\b")
+
+
+def roadmap_proof_state(entry):
+    """The proof state for one register entry, or None when it is a non-goal.
+
+    The mapping, stated once here and rendered into the page itself so a reader
+    never has to take it on trust:
+
+      certified     stays certified.
+      beta          becomes verified in CI when its evidence names a job under
+                    .github/workflows, and verified locally otherwise.
+      experimental  becomes implemented when its evidence points at a file in
+                    the tree, and planned when it points at nothing.
+      unsupported   is not a rung at all. It is listed as a non-goal, because a
+                    thing nobody plans to build cannot be somewhere on the way
+                    to being built.
+
+    Nothing reaches `verified externally` from the register today, and that
+    empty rung is the honest reading rather than an oversight: the closure
+    register's X-01 to X-06 are what filling it would take."""
+    state = str(entry.get("state") or "").strip()
+    evidence = str(entry.get("evidence") or "")
+    if state == "certified":
+        return "certified"
+    if state == "beta":
+        return ("verified in CI" if ROADMAP_CI_MARK in evidence
+                else "verified locally")
+    if state == "experimental":
+        return ("implemented" if ROADMAP_EVIDENCE_POINTER.search(evidence)
+                else "planned")
+    if state == "unsupported":
+        return None
+    raise DocsError(
+        "bad-capability-register",
+        "state %r has no proof state on the roadmap. A state nobody mapped is "
+        "a row that would silently vanish from the page." % state)
+
+
+def render_roadmap_status(data):
+    """The generated roadmap block for `data`, markers included. Pure.
+
+    Deterministic by construction: the rung order is the constant above, the
+    order inside a rung is the register's own order, and no clock is read.
+
+    Every cell carrying register text goes through _capability_cell, which
+    strips control characters and escapes a pipe. The proof-state cell is not
+    sanitized because it is not register text at all: it is one of the six
+    literals in ROADMAP_STATES above, chosen by roadmap_proof_state. Running a
+    sanitizer over a constant from this file would read as if the constant were
+    untrusted, which would be the wrong thing to teach the next reader."""
+    entries = data["capabilities"]
+    updated = str(data.get("updated") or "").strip()
+    lines = [
+        ROADMAP_BEGIN,
+        "<!-- Generated from %s by `bm-docs roadmap-status --write` "
+        "(the packaged console script; from a clone, tools/bm_docs.py). "
+        "Edit the register, not this block. -->"
+        % CAPABILITY_REGISTER,
+        "",
+        "Six proof states, mapped from the four states in `%s`%s: %s."
+        % (CAPABILITY_REGISTER,
+           (", updated %s" % updated) if updated else "",
+           "; ".join("%s means %s" % (state, meaning)
+                     for state, _heading, meaning in ROADMAP_STATES)),
+        "",
+        "The mapping is code rather than judgement. Certified stays certified. "
+        "A beta row becomes verified in CI when its evidence names a job under "
+        "`%s`, and verified locally otherwise. An experimental row becomes "
+        "implemented when its evidence points at a file in this tree, and "
+        "planned when it points at nothing. An unsupported row is not a rung "
+        "at all and is listed as a non-goal below."
+        % ROADMAP_CI_MARK,
+    ]
+    for state, heading, meaning in ROADMAP_STATES:
+        rows = [e for e in entries if roadmap_proof_state(e) == state]
+        lines.append("")
+        lines.append("**%s**, %s." % (heading, meaning))
+        lines.append("")
+        if not rows:
+            lines.append("Nothing stands at this rung today.")
+            continue
+        lines.append("| Capability | Proof state | What proves it |")
+        lines.append("|---|---|---|")
+        for entry in rows:
+            lines.append("| %s | %s | %s |"
+                         % (_capability_cell(entry["title"]), state,
+                            _capability_cell(entry["evidence"])))
+    non_goals = [e for e in entries if roadmap_proof_state(e) is None]
+    lines.append("")
+    lines.append("**Not a goal**, and therefore on no rung: the register's "
+                 "unsupported rows, carried here because a roadmap that lists "
+                 "only what is coming reads as a promise about everything it "
+                 "leaves out.")
+    lines.append("")
+    if not non_goals:
+        lines.append("Nothing is recorded as a non-goal.")
+    else:
+        lines.append("| Not a goal | Why it is not offered |")
+        lines.append("|---|---|")
+        for entry in non_goals:
+            lines.append("| %s | %s |" % (_capability_cell(entry["title"]),
+                                          _capability_cell(entry["evidence"])))
+    lines.append("")
+    lines.append(ROADMAP_END)
+    return "\n".join(lines)
+
+
+def roadmap_span(text, where=ROADMAP_TARGET):
+    """(start, end) of the generated roadmap block in `text`."""
+    return _marker_span(text, ROADMAP_BEGIN, ROADMAP_END, where,
+                        "no-roadmap-markers")
+
+
+def extract_roadmap_status(text, where=ROADMAP_TARGET):
+    """The block currently in `text`, markers included."""
+    start, end = roadmap_span(text, where)
+    return text[start:end]
+
+
+def replace_roadmap_status(text, block, where=ROADMAP_TARGET):
+    """`text` with its generated roadmap block replaced by `block`."""
+    start, end = roadmap_span(text, where)
     return text[:start] + block + text[end:]
 
 
@@ -3093,8 +3281,55 @@ def _capability_root(kv):
     return os.path.dirname(HERE)
 
 
-def cmd_capability_status(argv):
-    """Render capabilities.status.json into the generated block in README.md.
+class _GeneratedBlock(object):
+    """One generated block: the page that owns it, how it renders, and how it
+    splices back in.
+
+    Two blocks, one command body. The rules are identical (print, or refuse a
+    stale block, or splice a fresh one in) and two copies of that loop are two
+    chances for one of them to drift. Every printed string keeps the noun of
+    the block it is talking about, so a founder reading a refusal still sees
+    which page is wrong."""
+
+    def __init__(self, name, target, render, extract, replace):
+        self.name = name
+        self.target = target
+        self.render = render
+        self.extract = extract
+        self.replace = replace
+        self.command = "%s-status" % name
+
+    def path(self, root):
+        """The absolute path, built from the forward-slash target so this works
+        on a platform whose separator is not a slash."""
+        return os.path.join(root, *self.target.split("/"))
+
+
+CAPABILITY_BLOCK = _GeneratedBlock(
+    "capability", CAPABILITY_TARGET, render_capability_status,
+    extract_capability_status, replace_capability_status)
+
+ROADMAP_BLOCK = _GeneratedBlock(
+    "roadmap", ROADMAP_TARGET, render_roadmap_status, extract_roadmap_status,
+    replace_roadmap_status)
+
+
+def _read_page(block, root):
+    """The text of the page owning `block`, or a named refusal."""
+    path = block.path(root)
+    if not os.path.isfile(path):
+        raise DocsError("no-%s-target" % block.name,
+                        "%s is not in %s" % (block.target, root))
+    try:
+        with io.open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except OSError as exc:
+        raise DocsError("no-%s-target" % block.name,
+                        "%s could not be read: %s" % (path, exc))
+
+
+def _run_block_command(argv, block):
+    """The shared body behind capability-status and roadmap-status.
 
     With no flag it prints the block and writes nothing. `--check` compares the
     block on the page against a fresh render and refuses when they differ, so a
@@ -3103,62 +3338,377 @@ def cmd_capability_status(argv):
 
     THE STORE FUNNEL IS NOT USED HERE ON PURPOSE. bs.write_generated_document
     redacts everything it writes and protects human blocks, which is right for
-    a document this engine owns end to end. README.md is a page a human owns;
-    running a redactor over it would rewrite prose this command has no business
-    touching. So the write is a plain one, and the undo is git."""
+    a document this engine owns end to end. README.md and docs/ROADMAP.md are
+    pages a human owns; running a redactor over one would rewrite prose this
+    command has no business touching. So the write is the house temp-then-
+    replace primitive, and the undo is git."""
     _pos, kv = _parse(argv, {"root", "write", "check"}, wants_value=("root",))
     if kv.get("write") and kv.get("check"):
         raise DocsError("bad-flags",
                         "--write and --check ask for opposite things; run one")
     root = _capability_root(kv)
     data = load_capability_register(root)
-    block = render_capability_status(data)
+    fresh = block.render(data)
     count = len(data["capabilities"])
     if not kv.get("write") and not kv.get("check"):
-        _out(block)
+        _out(fresh)
         return 0
-    path = os.path.join(root, CAPABILITY_TARGET)
-    if not os.path.isfile(path):
-        raise DocsError("no-capability-target",
-                        "%s is not in %s" % (CAPABILITY_TARGET, root))
-    try:
-        with io.open(path, encoding="utf-8") as fh:
-            text = fh.read()
-    except OSError as exc:
-        raise DocsError("no-capability-target",
-                        "%s could not be read: %s" % (path, exc))
-    current = extract_capability_status(text)
+    path = block.path(root)
+    text = _read_page(block, root)
+    current = block.extract(text)
     if kv.get("check"):
-        if current == block:
-            _out("%s: the generated capability block matches %s (%d "
-                 "capabilities)" % (CAPABILITY_TARGET, CAPABILITY_REGISTER,
-                                    count))
+        if current == fresh:
+            _out("%s: the generated %s block matches %s (%d capabilities)"
+                 % (block.target, block.name, CAPABILITY_REGISTER, count))
             return 0
         raise DocsError(
-            "capability-status-stale",
-            "%s carries a generated capability block that is not what %s "
-            "renders today. Run bm-docs capability-status --write (from a "
-            "clone: the same subcommand on tools/bm_docs.py)."
-            % (CAPABILITY_TARGET, CAPABILITY_REGISTER))
-    if current == block:
-        _out("%s: the generated capability block is already current, nothing "
-             "written" % CAPABILITY_TARGET)
+            "%s-stale" % block.command,
+            "%s carries a generated %s block that is not what %s renders "
+            "today. Run bm-docs %s --write (from a clone: the same subcommand "
+            "on tools/bm_docs.py)."
+            % (block.target, block.name, CAPABILITY_REGISTER, block.command))
+    if current == fresh:
+        _out("%s: the generated %s block is already current, nothing written"
+             % (block.target, block.name))
         return 0
     try:
-        tmp = path + ".capability-status.tmp"
+        tmp = path + ".%s.tmp" % block.command
         with io.open(tmp, "w", encoding="utf-8", newline="\n") as fh:
-            fh.write(replace_capability_status(text, block))
+            fh.write(block.replace(text, fresh))
         os.replace(tmp, path)
     except OSError as exc:
-        raise DocsError("capability-write-failed",
+        raise DocsError("%s-write-failed" % block.name,
                         "%s could not be written: %s" % (path, exc))
-    _out("%s: rewrote the generated capability block from %s (%d capabilities)"
-         % (CAPABILITY_TARGET, CAPABILITY_REGISTER, count))
+    _out("%s: rewrote the generated %s block from %s (%d capabilities)"
+         % (block.target, block.name, CAPABILITY_REGISTER, count))
+    return 0
+
+
+def cmd_capability_status(argv):
+    """Render capabilities.status.json into the generated block in README.md."""
+    return _run_block_command(argv, CAPABILITY_BLOCK)
+
+
+def cmd_roadmap_status(argv):
+    """Render capabilities.status.json into the generated block in the
+    roadmap, in the six proof states rather than the register's four states."""
+    return _run_block_command(argv, ROADMAP_BLOCK)
+
+
+# ---------------------------------------------------------------------------
+# verify-docs: one command a founder can run at a gate (loop L1.7).
+#
+# The checks below already existed, spread across two subcommands and a suite
+# nobody runs by hand in the middle of an edit. Spread out, they get skipped.
+# This runs every one of them in a fixed order, reports one PASS or FAIL line
+# per lane, and exits nonzero if any lane failed, so the answer to "is the
+# documentation honest right now" is one command and one screen.
+#
+# The identity lane is a small COPY of the loading the docs suite does, on
+# purpose: importing a test file from a shipping tool would make the tool
+# depend on the tests, and two independent readings of one fact are worth more
+# than one reading called from two places.
+# ---------------------------------------------------------------------------
+
+IDENTITY_REGISTER = "product.identity.json"
+PLUGIN_MANIFEST = ".claude-plugin/plugin.json"
+MARKETPLACE_MANIFEST = ".claude-plugin/marketplace.json"
+PYPROJECT = "pyproject.toml"
+
+#: Dated records. Their links and their as-of lines are evidence of what was
+#: true on a date, not claims about the tree today, so this reads none of them.
+VERIFY_RECORD_DIRS = ("docs/closure", "docs/evidence", "docs/superpowers")
+
+#: A page whose NAME carries a date is dated evidence, markdown or html.
+VERIFY_DATED_PAGE = re.compile(r"\d{4}-\d{2}-\d{2}.*\.(?:md|html)$")
+
+#: A link a reader is invited to follow. Inline links, reference definitions,
+#: and the html attributes that do the same job.
+_MD_LINK = re.compile(r"\[[^\]]*\]\(\s*<?([^)>\s]+)>?(?:\s+[\"'][^\"']*[\"'])?\s*\)")
+_MD_REF_DEF = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?([^\s>]+)>?")
+_HTML_LINK = re.compile(r"(?is)\b(?:href|src)\s*=\s*[\"']([^\"'>]+)[\"']")
+
+#: Targets that are not a path in this tree at all.
+_NOT_A_LOCAL_PATH = ("http://", "https://", "mailto:", "tel:", "data:",
+                     "javascript:", "#", "//")
+
+#: A line dating its own evidence, and how old that date may be before the line
+#: is worth revisiting. Ninety days is a quarter: long enough that a page is not
+#: nagged for being written last month, short enough that a claim about a moving
+#: field does not sit unread for a year.
+_AS_OF = re.compile(r"(?i)as of\b[^.\n]{0,40}?(\d{4}-\d{2}-\d{2})")
+STALE_AFTER_DAYS = 90
+
+
+def current_doc_pages(root):
+    """Every page a reader lands on as current state, repository relative with
+    forward slashes: the pages under docs/ that are neither dated nor inside a
+    record directory, plus README.md."""
+    out = []
+    docs = os.path.join(root, "docs")
+    for dirpath, _dirnames, filenames in os.walk(docs):
+        for name in sorted(filenames):
+            if not name.endswith((".md", ".html")):
+                continue
+            rel = os.path.relpath(os.path.join(dirpath, name),
+                                  root).replace(os.sep, "/")
+            if rel.startswith(VERIFY_RECORD_DIRS) or VERIFY_DATED_PAGE.search(name):
+                continue
+            out.append(rel)
+    if os.path.isfile(os.path.join(root, "README.md")):
+        out.append("README.md")
+    return sorted(set(out))
+
+
+def _page_links(rel, line):
+    """Every link target on one line of one page."""
+    if rel.endswith(".html"):
+        return _HTML_LINK.findall(line)
+    return _MD_LINK.findall(line) + _MD_REF_DEF.findall(line)
+
+
+def link_offenders(root, pages=None):
+    """Every relative link on a current page that resolves to nothing.
+
+    LINKS ONLY, AND THAT SCOPE IS DELIBERATE. A backticked path in prose is not
+    a link, and this tree has honest reasons to name a file that is not there:
+    docs/ba/ARCHITECTURE.md names the two files the deleted V1 registry used to
+    write, docs/RELEASE.md names the planted backdoor an external check used to
+    prove the verifier missed it, and docs/BENCHMARK-V1-V2-RC2.md names the
+    planted symlink behind the same finding. Requiring those to resolve would
+    ask three pages to lie so a checker could pass. A LINK is different: it is
+    an invitation to click, and a broken one is a promise the page cannot
+    keep."""
+    offenders = []
+    pages = current_doc_pages(root) if pages is None else pages
+    for rel in pages:
+        path = os.path.join(root, *rel.split("/"))
+        try:
+            with io.open(path, encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError as exc:
+            offenders.append("%s could not be read: %s" % (rel, exc))
+            continue
+        in_fence = False
+        for i, line in enumerate(text.split("\n"), 1):
+            # A link inside a fenced block is an EXAMPLE of a link, not an
+            # invitation to click one. A page teaching markdown syntax must not
+            # fail this check for saying what a link looks like.
+            if not rel.endswith(".html") and line.strip().startswith("```"):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                continue
+            for target in _page_links(rel, line):
+                if target.startswith(_NOT_A_LOCAL_PATH):
+                    continue
+                bare = target.split("#", 1)[0].split("?", 1)[0]
+                if not bare:
+                    continue
+                if bare.startswith("/"):
+                    resolved = os.path.join(root, *bare.lstrip("/").split("/"))
+                else:
+                    resolved = os.path.join(os.path.dirname(path),
+                                            *bare.split("/"))
+                if not os.path.exists(resolved):
+                    offenders.append("%s:%d points at %s, which is not in the "
+                                     "tree" % (rel, i, target))
+    return offenders
+
+
+def stale_source_warnings(root, today, pages=None):
+    """Every current line dating its own evidence more than STALE_AFTER_DAYS
+    ago. A warning, never a failure: a page whose reading is old is a page to
+    revisit, and failing a build over the passage of time would teach people to
+    delete the date rather than refresh the reading."""
+    warnings = []
+    pages = current_doc_pages(root) if pages is None else pages
+    for rel in pages:
+        try:
+            with io.open(os.path.join(root, *rel.split("/")),
+                         encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        for i, line in enumerate(text.split("\n"), 1):
+            found = _AS_OF.search(line)
+            if not found:
+                continue
+            try:
+                when = datetime.datetime.strptime(found.group(1),
+                                                  "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            age = (today - when).days
+            if age > STALE_AFTER_DAYS:
+                warnings.append("%s:%d reads as of %s, which is %d days old"
+                                % (rel, i, found.group(1), age))
+    return warnings
+
+
+def _read_json(root, rel, offenders):
+    """One manifest, or None with the reason appended to `offenders`."""
+    path = os.path.join(root, *rel.split("/"))
+    if not os.path.isfile(path):
+        offenders.append("%s is not in the tree" % rel)
+        return None
+    try:
+        with io.open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except ValueError as exc:
+        offenders.append("%s does not parse as JSON: %s" % (rel, exc))
+    except OSError as exc:
+        offenders.append("%s could not be read: %s" % (rel, exc))
+    return None
+
+
+def identity_manifest_offenders(root):
+    """Every disagreement between product.identity.json and the manifests a
+    package registry, a plugin host and a reader actually key off.
+
+    The comparison tools/test_bm_docs.py makes, minus one: that suite also
+    compares tools/bm_project_facts.py's REPO_URL, which is a fact that module
+    computes about the tree it ships in rather than about an arbitrary --root,
+    so it stays in the suite where it can only ever mean this repository."""
+    offenders = []
+    identity = _read_json(root, IDENTITY_REGISTER, offenders)
+    caps = _read_json(root, CAPABILITY_REGISTER, offenders)
+    plugin = _read_json(root, PLUGIN_MANIFEST, offenders)
+    marketplace = _read_json(root, MARKETPLACE_MANIFEST, offenders)
+    if identity is None:
+        return offenders
+    pyproject = os.path.join(root, PYPROJECT)
+    pip_name = None
+    if not os.path.isfile(pyproject):
+        offenders.append("%s is not in the tree" % PYPROJECT)
+    else:
+        try:
+            with io.open(pyproject, encoding="utf-8") as fh:
+                found = re.search(r'(?m)^name\s*=\s*"([^"]+)"', fh.read())
+            pip_name = found.group(1) if found else None
+        except OSError as exc:
+            offenders.append("%s could not be read: %s" % (PYPROJECT, exc))
+        if pip_name is None:
+            offenders.append("%s carries no [project] name" % PYPROJECT)
+
+    def same(label, got, want):
+        if got != want:
+            offenders.append("%s: the identity record says %r, the tree says %r"
+                             % (label, want, got))
+
+    if plugin is not None:
+        same("plugin id (%s name)" % PLUGIN_MANIFEST, plugin.get("name"),
+             identity.get("plugin_id"))
+        same("repo url (%s homepage)" % PLUGIN_MANIFEST,
+             plugin.get("homepage"), identity.get("repo_url"))
+        same("repo url (%s repository)" % PLUGIN_MANIFEST,
+             plugin.get("repository"), identity.get("repo_url"))
+    if marketplace is not None:
+        same("marketplace id (%s name)" % MARKETPLACE_MANIFEST,
+             marketplace.get("name"), identity.get("marketplace_id"))
+        for entry in marketplace.get("plugins", []):
+            same("%s plugins[].name" % MARKETPLACE_MANIFEST, entry.get("name"),
+                 identity.get("plugin_id"))
+    if caps is not None:
+        same("product name (%s)" % CAPABILITY_REGISTER, caps.get("product_name"),
+             identity.get("product_name"))
+    if pip_name is not None:
+        same("pip package (%s [project] name)" % PYPROJECT, pip_name,
+             identity.get("pip_package"))
+    slug, url = identity.get("repo_slug") or "", identity.get("repo_url") or ""
+    if slug not in url:
+        offenders.append("repo slug %r does not appear in repo url %r"
+                         % (slug, url))
+    package = identity.get("python_package") or ""
+    if not os.path.isfile(os.path.join(root, package, "__init__.py")):
+        offenders.append("python package %r has no __init__.py in the tree"
+                         % package)
+    contract = identity.get("contract_doc") or ""
+    if not os.path.exists(os.path.join(root, *contract.split("/"))):
+        offenders.append("contract_doc %r is not in the tree" % contract)
+    return offenders
+
+
+def _block_lane(root, block):
+    """(ok, detail) for one generated block, reported as a lane rather than
+    raised as a refusal: verify-docs runs every lane before it reports, because
+    a founder who fixes one and reruns to find a second has been told half the
+    truth twice."""
+    try:
+        data = load_capability_register(root)
+        fresh = block.render(data)
+        current = block.extract(_read_page(block, root))
+    except DocsError as exc:
+        return False, str(exc)
+    if current != fresh:
+        return False, ("%s carries a generated %s block that is not what %s "
+                       "renders today; run the %s subcommand with --write"
+                       % (block.target, block.name, CAPABILITY_REGISTER,
+                          block.command))
+    return True, ("%s matches %s (%d capabilities)"
+                  % (block.target, CAPABILITY_REGISTER,
+                     len(data["capabilities"])))
+
+
+def _verify_today(kv):
+    """The day the staleness scan measures against. `--today` exists so a test
+    can pin the clock; without it this is the only place in this file that
+    reads one, and it reaches no generated document."""
+    if not kv.get("today"):
+        return datetime.date.today()
+    try:
+        return datetime.datetime.strptime(kv["today"], "%Y-%m-%d").date()
+    except ValueError:
+        raise DocsError("bad-today",
+                        "--today wants an ISO date such as 2026-08-04, not %r"
+                        % kv["today"])
+
+
+def cmd_verify_docs(argv):
+    """Run every documentation check in one pass and report one line per lane.
+
+    Four lanes can fail: the two generated blocks, the identity manifests, and
+    the links on the current pages. A fifth reading, the age of the evidence a
+    page dates for itself, prints warnings and never fails, because the passage
+    of time is not a defect a build can fix."""
+    _pos, kv = _parse(argv, {"root", "today"}, wants_value=("root", "today"))
+    root = _capability_root(kv)
+    today = _verify_today(kv)
+    lanes = [("capability-status", _block_lane(root, CAPABILITY_BLOCK)),
+             ("roadmap-status", _block_lane(root, ROADMAP_BLOCK))]
+    identity = identity_manifest_offenders(root)
+    lanes.append(("identity-manifests",
+                  (not identity,
+                   "; ".join(identity) if identity else
+                   "%s agrees with the plugin, marketplace, pip and register "
+                   "manifests" % IDENTITY_REGISTER)))
+    pages = current_doc_pages(root)
+    links = link_offenders(root, pages)
+    lanes.append(("links",
+                  (not links,
+                   "; ".join(links) if links else
+                   "every relative link on %d current page(s) resolves"
+                   % len(pages))))
+    for name, (ok, detail) in lanes:
+        _out("%s  %s: %s" % ("PASS" if ok else "FAIL", name, detail))
+    warnings = stale_source_warnings(root, today, pages)
+    for warning in warnings:
+        _out("WARNING stale-source: %s" % warning)
+    failed = [name for name, (ok, _d) in lanes if not ok]
+    _out("verify-docs: %d lane(s) checked, %d failed, %d stale-source "
+         "warning(s), measured against %s"
+         % (len(lanes), len(failed), len(warnings), today.isoformat()))
+    if failed:
+        raise DocsError("verify-docs-failed",
+                        "%d lane(s) failed: %s" % (len(failed),
+                                                   ", ".join(failed)))
     return 0
 
 
 COMMANDS = {"tier": cmd_tier, "generate": cmd_generate, "facts": cmd_facts,
-            "capability-status": cmd_capability_status}
+            "capability-status": cmd_capability_status,
+            "roadmap-status": cmd_roadmap_status,
+            "verify-docs": cmd_verify_docs}
 
 
 def main(argv):

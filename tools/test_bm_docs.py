@@ -3862,6 +3862,524 @@ class TestGeneratedCapabilityStatusBlock(unittest.TestCase):
             self.assertIn("mostly works", r.stderr)
 
 
+# ---------------------------------------------------------------------------
+# The evidence-gated roadmap (positioning loop L1.6) and the one verification
+# entry point (loop L1.7), both 2026-08-04.
+#
+# The register says what is OFFERED in four states. A roadmap has to say
+# something the register cannot: how far each claim has actually been checked,
+# and what is deliberately not on the list at all. docs/ROADMAP.md carries that
+# in six proof states, and its status section is GENERATED from the same
+# register for the same reason README.md's is: a hand-typed second copy of the
+# register drifts from it, and drift is the defect the register exists to stop.
+# ---------------------------------------------------------------------------
+
+ROADMAP_DOC = os.path.join("docs", "ROADMAP.md")
+
+#: The six proof states, strongest first. Retyped here rather than imported
+#: from bm_docs.py on purpose: a test that imports the constant it is checking
+#: agrees with the tool by construction and proves nothing about it.
+ROADMAP_PROOF_STATES = ("certified", "verified externally", "verified in CI",
+                        "verified locally", "implemented", "planned")
+
+#: A markdown table row, split on the pipes that are not escaped. The renderer
+#: escapes a pipe inside a register field, so a naive split on "|" would tear a
+#: cell in half the first time an evidence sentence carried one.
+_ROW_SPLIT = re.compile(r"(?<!\\)\|")
+
+
+class _DocsCLI(object):
+    """Shared plumbing for the classes below: bm_docs.py as an imported module,
+    and bm_docs.py as the real command line. Same two helpers
+    TestGeneratedCapabilityStatusBlock defines for itself; that class is left
+    exactly as it was rather than retrofitted onto this, because rewriting a
+    passing guard to save six lines is how a guard gets weakened by accident."""
+
+    DOCS = os.path.join(HERE, "bm_docs.py")
+
+    def _bm_docs(self):
+        spec = importlib.util.spec_from_file_location(
+            "bm_docs_for_roadmap_tests", self.DOCS)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def _run(self, *args):
+        return subprocess.run([sys.executable, self.DOCS] + list(args),
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              universal_newlines=True)
+
+    def _feature_rows(self, block):
+        """(capability, proof state, evidence) for every three-cell row in
+        `block`. A three-cell row is a FEATURE line; the non-goal table below it
+        has two cells, which is what keeps the two apart without the parser
+        having to know the headings."""
+        rows = []
+        for line in block.split("\n"):
+            line = line.strip()
+            if not line.startswith("|") or line.startswith("|---"):
+                continue
+            cells = [c.strip() for c in _ROW_SPLIT.split(line)[1:-1]]
+            if len(cells) != 3 or cells[1] == "Proof state":
+                continue
+            rows.append(tuple(cells))
+        return rows
+
+    def _non_goal_rows(self, block):
+        rows = []
+        for line in block.split("\n"):
+            line = line.strip()
+            if not line.startswith("|") or line.startswith("|---"):
+                continue
+            cells = [c.strip() for c in _ROW_SPLIT.split(line)[1:-1]]
+            if len(cells) != 2 or cells[0] == "Not a goal":
+                continue
+            rows.append(tuple(cells))
+        return rows
+
+
+class TestGeneratedRoadmapStatusBlock(_DocsCLI, unittest.TestCase):
+    """Protects: the roadmap's status section is RENDERED from
+    capabilities.status.json, never retyped beside it, and every line in it
+    carries one of the six proof states.
+
+    Same defect as the README block this mirrors: the register moves, the page
+    keeps yesterday's promise. The added risk here is a roadmap's own: a
+    roadmap is the one page where a claim can be promoted by wishing, so the
+    mapping from register state to proof state is code, and this holds it."""
+
+    def _fixture(self, d, block):
+        """A throwaway tree holding this repository's real register and a
+        roadmap page carrying `block` between the markers."""
+        shutil.copyfile(os.path.join(ROOT, CAPABILITIES_JSON),
+                        os.path.join(d, CAPABILITIES_JSON))
+        os.makedirs(os.path.join(d, "docs"), exist_ok=True)
+        with io.open(os.path.join(d, ROADMAP_DOC), "w",
+                     encoding="utf-8") as fh:
+            fh.write("# demo\n\nbefore\n\n%s\n\nafter\n" % block)
+
+    # -- the real page -----------------------------------------------------
+
+    def test_the_roadmap_block_is_what_the_register_renders_today(self):
+        bm = self._bm_docs()
+        fresh = bm.render_roadmap_status(bm.load_capability_register(ROOT))
+        self.assertEqual(
+            bm.extract_roadmap_status(read(ROADMAP_DOC)), fresh,
+            "%s carries a generated roadmap block that is not what %s renders "
+            "today. It is generated output: run the roadmap-status subcommand "
+            "with --write rather than editing it by hand."
+            % (ROADMAP_DOC, CAPABILITIES_JSON))
+
+    def test_every_register_entry_reaches_the_page(self):
+        """The render could agree with itself and still drop a row."""
+        block = self._bm_docs().extract_roadmap_status(read(ROADMAP_DOC))
+        missing = [e["title"] for e in json.loads(read(CAPABILITIES_JSON))
+                   ["capabilities"] if e["title"] not in block]
+        self.assertEqual(missing, [],
+                         "capability title(s) in the register that reach no "
+                         "line of %s: %s" % (ROADMAP_DOC, "; ".join(missing)))
+
+    def test_the_command_reports_the_page_as_current(self):
+        r = self._run("roadmap-status", "--check")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("matches", r.stdout)
+
+    def test_two_renders_of_one_register_are_byte_identical(self):
+        bm = self._bm_docs()
+        data = bm.load_capability_register(ROOT)
+        self.assertEqual(bm.render_roadmap_status(data),
+                         bm.render_roadmap_status(data))
+        first = self._run("roadmap-status")
+        second = self._run("roadmap-status")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(first.stdout, second.stdout,
+                         "two runs of the renderer disagree")
+
+    # -- the proof states --------------------------------------------------
+
+    def test_every_feature_line_carries_exactly_one_of_the_six_proof_states(self):
+        """The claim this page is FOR. A feature line with no proof state is a
+        promise with nothing behind it, and a line carrying two is a line a
+        reader cannot act on.
+
+        Counted in the proof-state CELL rather than across the whole row on
+        purpose: the evidence cell is register prose, and a register sentence is
+        allowed to contain the word planned without that making the row
+        planned."""
+        block = self._bm_docs().extract_roadmap_status(read(ROADMAP_DOC))
+        rows = self._feature_rows(block)
+        self.assertTrue(rows, "the generated block carries no feature line at "
+                              "all; the parser or the renderer is broken")
+        offenders = []
+        for title, state, _evidence in rows:
+            hits = [s for s in ROADMAP_PROOF_STATES if s in state]
+            if len(hits) != 1 or state not in ROADMAP_PROOF_STATES:
+                offenders.append("%s carries %r" % (title, state))
+        self.assertEqual(
+            offenders, [],
+            "roadmap feature line(s) not carrying exactly one of %s: %s"
+            % (", ".join(ROADMAP_PROOF_STATES), "; ".join(offenders)))
+
+    def test_the_page_covers_every_register_row_once(self):
+        """Every capability is either a feature line or a non-goal, and never
+        both. A row that falls out of both tables is a claim the page stopped
+        reporting without anyone deciding to stop reporting it."""
+        block = self._bm_docs().extract_roadmap_status(read(ROADMAP_DOC))
+        entries = json.loads(read(CAPABILITIES_JSON))["capabilities"]
+        features = [r[0] for r in self._feature_rows(block)]
+        non_goals = [r[0] for r in self._non_goal_rows(block)]
+        self.assertEqual(
+            sorted(features + non_goals),
+            sorted(e["title"] for e in entries),
+            "the roadmap's rows and the register's rows are not the same set")
+        self.assertEqual(
+            sorted(non_goals),
+            sorted(e["title"] for e in entries if e["state"] == "unsupported"),
+            "the non-goal table must hold exactly the unsupported rows")
+
+    def test_the_state_mapping_is_the_documented_one(self):
+        """The mapping, against crafted entries rather than against whatever
+        the register happens to hold today. A mapping tested only through the
+        real file stops being tested the moment the file changes shape."""
+        state_of = self._bm_docs().roadmap_proof_state
+        self.assertEqual("certified", state_of(
+            {"state": "certified", "evidence": "tools/test_bm_docs.py proves it."}))
+        self.assertEqual("verified in CI", state_of(
+            {"state": "beta",
+             "evidence": "the store job in .github/workflows/tests.yml runs it."}))
+        self.assertEqual("verified locally", state_of(
+            {"state": "beta", "evidence": "tools/test_bm_plugin_install.py runs it."}))
+        self.assertEqual("implemented", state_of(
+            {"state": "experimental", "evidence": "docs/BENCHMARK.md states the method."}))
+        self.assertEqual("planned", state_of(
+            {"state": "experimental", "evidence": "not measured"}))
+        self.assertIsNone(state_of(
+            {"state": "unsupported", "evidence": "Not offered."}),
+            "an unsupported row is a non-goal, not a rung on the ladder")
+
+    def test_an_invented_state_is_refused_by_the_mapping(self):
+        bm = self._bm_docs()
+        with self.assertRaises(bm.DocsError):
+            bm.roadmap_proof_state({"state": "mostly works", "evidence": "x"})
+
+    # -- the guard, proven against crafted violations ----------------------
+
+    def test_a_stale_block_is_refused_and_the_writer_repairs_it(self):
+        bm = self._bm_docs()
+        with tempfile.TemporaryDirectory() as d:
+            fresh = bm.render_roadmap_status(bm.load_capability_register(ROOT))
+            stale = fresh.replace("certified", "shipped", 1)
+            self.assertNotEqual(stale, fresh, "the fixture mutated nothing")
+            self._fixture(d, stale)
+            r = self._run("roadmap-status", "--check", "--root", d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("roadmap-status-stale", r.stderr)
+            r = self._run("roadmap-status", "--write", "--root", d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            r = self._run("roadmap-status", "--check", "--root", d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            with io.open(os.path.join(d, ROADMAP_DOC), encoding="utf-8") as fh:
+                repaired = fh.read()
+            self.assertEqual(bm.extract_roadmap_status(repaired), fresh)
+            self.assertIn("before\n", repaired)
+            self.assertIn("after\n", repaired,
+                          "the writer touched text outside the markers")
+
+    def test_a_page_with_no_markers_is_refused_rather_than_guessed_at(self):
+        with tempfile.TemporaryDirectory() as d:
+            shutil.copyfile(os.path.join(ROOT, CAPABILITIES_JSON),
+                            os.path.join(d, CAPABILITIES_JSON))
+            os.makedirs(os.path.join(d, "docs"))
+            with io.open(os.path.join(d, ROADMAP_DOC), "w",
+                         encoding="utf-8") as fh:
+                fh.write("# demo\n\nno markers here\n")
+            r = self._run("roadmap-status", "--check", "--root", d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("no-roadmap-markers", r.stderr)
+
+
+class TestTheRoadmapPageIsEvidenceGated(unittest.TestCase):
+    """Protects the hand-written half of docs/ROADMAP.md: the six proof states
+    are DEFINED on the page, the promotion rule is written down, the waves name
+    outcomes rather than dates, and the deferrals are stated rather than left
+    for a reader to infer from silence."""
+
+    def setUp(self):
+        self.text = read(ROADMAP_DOC)
+
+    def test_the_page_declares_itself_current(self):
+        head = "\n".join(self.text.split("\n")[:25])
+        self.assertTrue(
+            CURRENT_STATUS.search(head),
+            "%s does not declare `Status: CURRENT` in its first 25 lines, so a "
+            "reader cannot tell whether it is the live roadmap" % ROADMAP_DOC)
+
+    def test_this_suite_reads_the_page_as_current_state(self):
+        """It has to be inside current_pages(), or the naming rule and the
+        banned-absolutes rule never look at it."""
+        self.assertIn(ROADMAP_DOC, current_pages())
+
+    def test_the_preamble_defines_all_six_proof_states(self):
+        """Read case insensitively: the page defines each rung as a heading, so
+        the name is capitalized where it is defined and lowercase where the
+        generated table below uses it."""
+        preamble = self.text.split(
+            "<!-- BEGIN GENERATED ROADMAP STATUS -->")[0].lower()
+        missing = [s for s in ROADMAP_PROOF_STATES if s.lower() not in preamble]
+        self.assertEqual(missing, [],
+                         "%s defines no proof state named: %s"
+                         % (ROADMAP_DOC, ", ".join(missing)))
+
+    def test_the_page_states_the_documentation_only_rule(self):
+        """The rule that makes the ladder worth anything: a page edit cannot
+        promote an item. Asserted on the words, because this is the one
+        sentence a later editor is most likely to soften."""
+        self.assertRegex(
+            self.text,
+            r"(?i)no item .{0,80}certified .{0,120}documentation[ \-]only",
+            "%s does not state that no item reaches certified through a "
+            "documentation-only change" % ROADMAP_DOC)
+
+    def test_the_waves_name_outcomes_and_not_dates(self):
+        """A dated roadmap is a promise this project cannot keep and does not
+        make. The waves section is checked for a calendar date of any shape: an
+        ISO date, a quarter, a bare year, or a month name.
+
+        `may` and `march` stay in the month list on purpose, even though both
+        are ordinary English words. The section has to be written around them,
+        which costs one rewording and buys a guard that cannot be walked past
+        by writing "shipping in May" instead of a date."""
+        section = self._section("waves")
+        shapes = (re.compile(r"\d{4}-\d{2}-\d{2}"),
+                  re.compile(r"(?i)\bQ[1-4]\b"),
+                  re.compile(r"\b20\d{2}\b"),
+                  re.compile(r"(?i)\b(january|february|march|april|may|june|"
+                             r"july|august|september|october|november|december)"
+                             r"\b"))
+        offenders = [m.group(0) for pat in shapes for m in pat.finditer(section)]
+        self.assertEqual(offenders, [],
+                         "the waves section of %s names a date or a quarter "
+                         "(%s); waves name outcomes"
+                         % (ROADMAP_DOC, ", ".join(offenders)))
+
+    def test_the_deferrals_section_names_every_deferral(self):
+        section = self._section("deferrals")
+        for word in ("mobile", "creative media", "Office", "multi-user"):
+            self.assertIn(word.lower(), section.lower(),
+                          "the deferrals section of %s never names %s"
+                          % (ROADMAP_DOC, word))
+
+    def _section(self, keyword):
+        """The text of the numbered heading whose title contains `keyword`, up
+        to the next heading of the same level."""
+        parts = re.split(r"(?m)^## ", self.text)
+        for part in parts[1:]:
+            if keyword.lower() in part.split("\n", 1)[0].lower():
+                return part
+        self.fail("%s carries no `## ` heading naming %r" % (ROADMAP_DOC, keyword))
+
+
+class TestVerifyDocsIsOneEntryPoint(_DocsCLI, unittest.TestCase):
+    """Protects: one command runs every documentation check a page can fail,
+    reports one line per lane, and exits nonzero when any lane fails.
+
+    Before this, the checks existed but were spread across two subcommands and
+    a suite nobody runs by hand mid-edit. A founder at a gate needs one command
+    whose output says which lane failed, not a traceback from the first one."""
+
+    LANES = ("capability-status", "roadmap-status", "identity-manifests",
+             "links")
+
+    def _tree(self, d):
+        """A throwaway tree that PASSES every lane, built from this
+        repository's own real register and manifests so the fixture cannot
+        drift into agreeing with a checker that has stopped working."""
+        bm = self._bm_docs()
+        for rel in (CAPABILITIES_JSON, IDENTITY_JSON, "pyproject.toml"):
+            shutil.copyfile(os.path.join(ROOT, rel), os.path.join(d, rel))
+        os.makedirs(os.path.join(d, ".claude-plugin"))
+        for name in ("plugin.json", "marketplace.json"):
+            shutil.copyfile(os.path.join(ROOT, ".claude-plugin", name),
+                            os.path.join(d, ".claude-plugin", name))
+        identity = json.loads(read(IDENTITY_JSON))
+        os.makedirs(os.path.join(d, identity["python_package"]))
+        self._write(d, os.path.join(identity["python_package"], "__init__.py"),
+                    "")
+        os.makedirs(os.path.join(d, "docs", "brand"))
+        self._write(d, identity["contract_doc"].replace("/", os.sep),
+                    "# contract\n\nStatus: CURRENT as of 2026-08-04.\n")
+        data = bm.load_capability_register(d)
+        self._write(d, "README.md", "# demo\n\n%s\n\nA link to "
+                    "[the roadmap](docs/ROADMAP.md).\n"
+                    % bm.render_capability_status(data))
+        self._write(d, ROADMAP_DOC, "# demo\n\n%s\n"
+                    % bm.render_roadmap_status(data))
+        return d
+
+    def _write(self, d, rel, text):
+        with io.open(os.path.join(d, rel), "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def _lanes(self, stdout):
+        """{lane: verdict} read out of the printed report."""
+        out = {}
+        for line in stdout.split("\n"):
+            m = re.match(r"^(PASS|FAIL)\s+([\w\-]+):", line.strip())
+            if m:
+                out[m.group(2)] = m.group(1)
+        return out
+
+    # -- the tree as it stands ---------------------------------------------
+
+    def test_this_repository_passes_every_lane(self):
+        r = self._run("verify-docs")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        lanes = self._lanes(r.stdout)
+        for lane in self.LANES:
+            self.assertEqual("PASS", lanes.get(lane),
+                             "%s did not PASS:\n%s" % (lane, r.stdout))
+
+    def test_every_lane_reports_exactly_once_and_in_order(self):
+        r = self._run("verify-docs")
+        order = [m.group(1) for m in
+                 re.finditer(r"(?m)^(?:PASS|FAIL)\s+([\w\-]+):", r.stdout)]
+        self.assertEqual(list(self.LANES), order[:len(self.LANES)],
+                         "the lanes did not run in the documented order:\n%s"
+                         % r.stdout)
+        for lane in self.LANES:
+            self.assertEqual(1, order.count(lane),
+                             "%s reported %d times" % (lane, order.count(lane)))
+
+    def test_the_fixture_tree_passes_too(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._tree(d)
+            r = self._run("verify-docs", "--root", d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    # -- the guard, proven against crafted violations ----------------------
+
+    def test_a_broken_relative_link_fails_the_link_lane(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._tree(d)
+            self._write(d, os.path.join("docs", "BROKEN.md"),
+                        "# broken\n\nStatus: CURRENT as of 2026-08-04.\n\n"
+                        "See [the missing page](MISSING-PAGE.md).\n")
+            r = self._run("verify-docs", "--root", d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertEqual("FAIL", self._lanes(r.stdout).get("links"),
+                             r.stdout)
+            self.assertIn("MISSING-PAGE.md", r.stdout)
+            # The other lanes still ran and still reported.
+            self.assertEqual("PASS",
+                             self._lanes(r.stdout).get("capability-status"))
+
+    def test_a_link_inside_a_fenced_block_is_an_example_and_not_a_promise(self):
+        """The false positive this scope had to avoid: a page showing what a
+        markdown link looks like is not a page carrying a broken one."""
+        with tempfile.TemporaryDirectory() as d:
+            self._tree(d)
+            self._write(d, os.path.join("docs", "TEACHING.md"),
+                        "# teaching\n\nStatus: CURRENT as of 2026-08-04.\n\n"
+                        "Write a link like this:\n\n```\n"
+                        "[the missing page](MISSING-PAGE.md)\n```\n")
+            r = self._run("verify-docs", "--root", d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual("PASS", self._lanes(r.stdout).get("links"),
+                             r.stdout)
+
+    def test_a_stale_generated_block_fails_its_own_lane(self):
+        bm = self._bm_docs()
+        with tempfile.TemporaryDirectory() as d:
+            self._tree(d)
+            data = bm.load_capability_register(d)
+            stale = bm.render_capability_status(data).replace(
+                "beta means real", "beta means finished", 1)
+            self._write(d, "README.md", "# demo\n\n%s\n\nA link to "
+                        "[the roadmap](docs/ROADMAP.md).\n" % stale)
+            r = self._run("verify-docs", "--root", d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            lanes = self._lanes(r.stdout)
+            self.assertEqual("FAIL", lanes.get("capability-status"), r.stdout)
+            self.assertEqual("PASS", lanes.get("roadmap-status"), r.stdout)
+
+    def test_a_stale_roadmap_block_fails_its_own_lane(self):
+        bm = self._bm_docs()
+        with tempfile.TemporaryDirectory() as d:
+            self._tree(d)
+            stale = bm.render_roadmap_status(
+                bm.load_capability_register(d)).replace("certified", "shipped", 1)
+            self._write(d, ROADMAP_DOC, "# demo\n\n%s\n" % stale)
+            r = self._run("verify-docs", "--root", d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertEqual("FAIL", self._lanes(r.stdout).get("roadmap-status"),
+                             r.stdout)
+
+    def test_a_manifest_disagreement_fails_the_identity_lane(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._tree(d)
+            plugin = json.loads(read(os.path.join(".claude-plugin",
+                                                  "plugin.json")))
+            plugin["name"] = "not-the-plugin-id"
+            self._write(d, os.path.join(".claude-plugin", "plugin.json"),
+                        json.dumps(plugin))
+            r = self._run("verify-docs", "--root", d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertEqual("FAIL",
+                             self._lanes(r.stdout).get("identity-manifests"),
+                             r.stdout)
+            self.assertIn("not-the-plugin-id", r.stdout)
+
+    def test_the_identity_helper_clears_this_repository(self):
+        """The helper the lane runs, against the real tree. It is the same
+        agreement TestProductIdentityIsOneRecord asserts through its own
+        loading; two independent readings of one fact is the point."""
+        self.assertEqual([], self._bm_docs().identity_manifest_offenders(ROOT))
+
+    # -- the warning lane ---------------------------------------------------
+
+    def test_a_stale_source_line_warns_and_does_not_fail(self):
+        """A page whose evidence is old is a page to revisit, not a broken
+        build. `--today` pins the clock so the test cannot rot."""
+        with tempfile.TemporaryDirectory() as d:
+            self._tree(d)
+            self._write(d, os.path.join("docs", "OLD.md"),
+                        "# old\n\nStatus: CURRENT as of 2026-08-04.\n\n"
+                        "The peer reading here is a desk assessment as of "
+                        "2026-01-01.\n")
+            r = self._run("verify-docs", "--root", d, "--today", "2026-08-04")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("WARNING", r.stdout)
+            self.assertIn("2026-01-01", r.stdout)
+            self.assertIn(os.path.join("docs", "OLD.md").replace(os.sep, "/"),
+                          r.stdout.replace(os.sep, "/"))
+
+    def test_a_recent_source_line_does_not_warn(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._tree(d)
+            self._write(d, os.path.join("docs", "RECENT.md"),
+                        "# recent\n\nStatus: CURRENT as of 2026-08-04.\n\n"
+                        "Read as of 2026-07-20.\n")
+            r = self._run("verify-docs", "--root", d, "--today", "2026-08-04")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertNotIn("WARNING", r.stdout)
+
+    def test_the_record_directories_are_not_read_at_all(self):
+        """A dated record is evidence of what was true on a date. Its links and
+        its as-of lines are not the live tree's problem."""
+        with tempfile.TemporaryDirectory() as d:
+            self._tree(d)
+            for rec in ("closure", "evidence", "superpowers"):
+                os.makedirs(os.path.join(d, "docs", rec))
+                self._write(d, os.path.join("docs", rec, "OLD-RECORD.md"),
+                            "# record\n\nAs of 2020-01-01, see "
+                            "[gone](GONE.md).\n")
+            self._write(d, os.path.join("docs", "2020-01-01-dated.md"),
+                        "# dated\n\nAs of 2020-01-01, see [gone](GONE.md).\n")
+            r = self._run("verify-docs", "--root", d, "--today", "2026-08-04")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertNotIn("WARNING", r.stdout)
+
+
 #: Directories kept verbatim as the record of what was written on a date.
 #: Same class as docs/closure and docs/evidence: rewriting a name inside one
 #: falsifies the record, which costs more than the inconsistency it removes.
