@@ -1236,6 +1236,29 @@ round, not introduced by it. DEFERRED to a pass whose fence includes
 `bm_learn.py` and `bm_score.py`, which can then make the strict behavior the
 single default and delete the wrapper.
 
+## 30. `doctor` still calls a healthy schema-skewed store a FAIL, in better words. DEFERRED. Added 2026-08-04.
+
+The corruption-wording fix landed today: a store one schema behind or ahead of
+the running BrotherMode now refuses as `OwnershipRefused` ("schema-behind" /
+"schema-ahead", exit 2) instead of raising `StoreCorrupt`, so no founder is told
+their intact data is corrupt. `scripts/doctor.py`'s `check_store_health` (lines
+663 to 693) shells out to `bm_store.py verify` and treats ANY non-zero exit as
+`FAIL: <verbatim stdout>`. The exit code moved from 1 to 2 and the text no longer
+says CORRUPT, so what doctor prints today is `FAIL: refused (schema-behind):
+...`. That is a real improvement and still the wrong verdict: nothing is broken.
+
+Closing it is not a one-line change. `scripts/doctor.py` has exactly three
+statuses, `STATUS_PASS`, `STATUS_FAIL` and `STATUS_SKIP` (lines 431 to 433), and
+schema skew is none of them: it is a healthy store with an action waiting. Giving
+it a fourth, non-failing status touches doctor's status vocabulary, its summary
+counts and every check that reads them, which was outside this fix's write fence
+(`bm_store.py`, `bm_threads.py`, `bm_sessionstart.sh`, their two test suites and
+this file). Stated here rather than left in a report, because the founder's
+original false alarm came through doctor, not through `verify` (see
+docs/closure/reports/2026-08-04-P-3b-improvised-install.md and
+docs/closure/reports/2026-08-04-P-3c-corrected-quickstart-verification.md).
+DEFERRED.
+
 ## What is genuinely finished
 
 All 17 findings of the second audit are closed in code, with CI green on Linux,
