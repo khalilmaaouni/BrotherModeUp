@@ -875,7 +875,7 @@ Three related facts, all true at once, all resolved only by the founder
 cutting the next release tag at program end:
 
 - **The pinned install commands install the pre-fix tree.** Every install
-  page pins `v2.0.0-rc.13`, the last resolvable tag, per the Loop 0
+  page pins `v2.0.0`, the last resolvable tag, per the Loop 0
   version law. But rc.9 predates every commit of the release-closure
   program, so a user installing today gets the acknowledged-broken
   five-event hand-wiring blocks, no Bash-write detection, and none of
