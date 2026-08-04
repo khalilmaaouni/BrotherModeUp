@@ -98,13 +98,17 @@ What the code actually writes inside your project today:
   owner-only where the platform supports it (on Windows this is best-effort;
   rely on your user profile's access control).
 
-You can verify both claims yourself; the tools are about 61,668 lines of
-standard-library Python and shell (re-measured 2026-08-01 with Loop 6 WP-G,
-the Bash-write detection hook and its test suite, landed: a test fails if
-this figure drifts more than 15 percent from what the command below
-returns, so it is corrected here rather than left to rot even though the
-drift had not yet crossed that line). Most of that growth is test code,
-which is the kind a reader of a security document should want.
+You can verify both claims yourself; the tools are about 76,224 lines of
+standard-library Python and shell (re-measured 2026-08-05 after the signed
+autonomy contract landed; the prior figure of 61,668 from 2026-08-01 drifted
+past the 15 percent guard the test enforces, so it is corrected here rather
+than restated). Most of that growth is test code, which is the kind a reader
+of a security document should want: of the roughly 14,500 lines the autonomy
+contract added, about 2,100 are the contract layer and its command line and
+the rest are the store and behavioral tests plus the security refutation that
+proved the layer holds. The small-toolchain promise still stands: if the
+NON-test line count starts climbing like this, the honest move is to withdraw
+the claim, not keep restating a larger number.
 
 It went UP by roughly 2,700 lines on 2026-07-27, and that direction deserves
 an explanation rather than a quiet edit. The external security audit of that

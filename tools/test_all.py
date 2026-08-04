@@ -98,6 +98,14 @@ SUITES = (
     # names. Reproduced directly while writing this: it broke test_bm_docs
     # dot py, the test named test every named suite file exists.
     "test_bm_project.py",
+    # U1, the autonomy contract layer (loop L02, 2026-08-05): the CLI over
+    # the schema 14 autonomy Store service methods added to bm_store.py.
+    # NO APOSTROPHE ANYWHERE IN THIS COMMENT, ON PURPOSE (see the note
+    # above): placed right after the project CLI suite, before the other
+    # subprocess-heavy suites, since it drives tools/bm_autonomy.py as a
+    # real subprocess and depends on the schema-14 tables the store suite
+    # two entries up already proved sound.
+    "test_bm_autonomy.py",
     "test_bm_fence_hook.py",
     # Loop 6 WP-G (2026-08-01): the Bash-write detection suite for
     # tools/bm_bash_audit.py. Placed right after the fence hook suite it

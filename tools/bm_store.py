@@ -73,7 +73,7 @@ import sys
 import unicodedata
 import uuid
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
@@ -1374,11 +1374,31 @@ _TABLES_SENTINEL = ("sentinel_knowledge", "sentinel_procedural",
 
 _TABLES_V13 = _TABLES_V12 + _TABLES_SENTINEL
 
+# Schema 14 (U1, the autonomy contract layer, 2026-08-05, design
+# docs/superpowers/specs/2026-08-05-u1-autonomy-contract-design.md section 1)
+# adds six tables: the immutable, revision-chained contract itself
+# (autonomy_contracts), what it recorded being spent (autonomy_spend), what
+# it noted assuming and how to reverse it (autonomy_assumptions), the
+# forcing-condition questions it raised for a human (autonomy_interruptions),
+# the human-only steps it queued (autonomy_human_steps), and the controller's
+# own liveness beacons (autonomy_checkpoints). Its own tuple for the same
+# reason every schema above got one: a healthy schema-13 store must be
+# checked against schema 13's table list, or the version check never runs
+# and a store whose only fault is predating this upgrade gets quarantined.
+# The DDL text itself (_AUTONOMY_DDL) is defined further down, after
+# _split_ddl exists; this tuple only needs the table NAMES, which cost
+# nothing to name this early.
+_TABLES_AUTONOMY = ("autonomy_contracts", "autonomy_spend",
+                    "autonomy_assumptions", "autonomy_interruptions",
+                    "autonomy_human_steps", "autonomy_checkpoints")
+
+_TABLES_V14 = _TABLES_V13 + _TABLES_AUTONOMY
+
 _TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3,
                       4: _TABLES_V4, 5: _TABLES_V5, 6: _TABLES_V6,
                       7: _TABLES_V7, 8: _TABLES_V8, 9: _TABLES_V9,
                       10: _TABLES_V10, 11: _TABLES_V11, 12: _TABLES_V12,
-                      13: _TABLES_V13}
+                      13: _TABLES_V13, 14: _TABLES_V14}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -2227,6 +2247,322 @@ CREATE INDEX IF NOT EXISTS sentinel_interventions_judged_idx
 _SENTINEL_DDL_STATEMENTS = _split_ddl(_SENTINEL_DDL)
 _SENTINEL_INDEX_STATEMENTS = _split_ddl(_SENTINEL_INDEX_DDL)
 
+# Schema 14 (U1, the autonomy contract layer). Six tables, in the store's own
+# DDL style. project_id carries a REFERENCES clause on all six, unlike
+# attribution (which deliberately has none: an audit trail must outlive the
+# project it describes). A contract about a project that does not exist is
+# meaningless, and verify()'s dangling-reference check already reports
+# exactly the damage a missing FK here would cause.
+#
+# THE IMMUTABILITY MODEL. autonomy_contracts is INSERT-ONLY: no UPDATE or
+# DELETE statement anywhere in the service layer touches it (purge_project is
+# the one deletion, and it removes the whole row, never edits one). A
+# project's contract is a CHAIN of revisions: revision 1 is the signature,
+# and every later state change (pause, resume, stop, revoke, amend) appends a
+# full new row carrying the complete authorisation as it stands after that
+# change. The LIVE contract is, by definition, the row with the highest
+# revision for that project. Two live contracts is not prevented by a
+# constraint, it is UNREPRESENTABLE: there is exactly one highest revision
+# per project, and UNIQUE(project_id, revision) plus BEGIN IMMEDIATE
+# (Store._transaction) makes a concurrent second signer collide and refuse
+# rather than interleave.
+#
+# token_ceiling and minutes_ceiling are nullable INTEGER, and NULL is the
+# only representation of "no ceiling was set"; zero is a real ceiling
+# meaning "stop immediately", and conflating the two is what invariant I8
+# exists to prevent.
+#
+# autonomy_human_steps.resolved_at and .resolution are the ONE place in this
+# schema where a row is UPDATEd after insert, modelled column for column on
+# alerts.resolved_at plus resolve_alert. The founder's immutability
+# requirement is stated over CONTRACT rows; a queued human step is a to-do
+# item, not an authorisation.
+_AUTONOMY_DDL = """
+CREATE TABLE IF NOT EXISTS autonomy_contracts (
+  contract_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(project_id),
+  revision INTEGER NOT NULL,
+  change_kind TEXT NOT NULL,
+  state TEXT NOT NULL,
+  outcome TEXT NOT NULL DEFAULT '',
+  done_definition TEXT NOT NULL DEFAULT '',
+  allowed_paths TEXT NOT NULL DEFAULT '[]',
+  allowed_surfaces TEXT NOT NULL DEFAULT '[]',
+  risk_classes TEXT NOT NULL DEFAULT '[]',
+  token_ceiling INTEGER,
+  minutes_ceiling INTEGER,
+  signed_by TEXT NOT NULL DEFAULT '',
+  signed_at TEXT,
+  changed_by TEXT NOT NULL DEFAULT '',
+  change_reason TEXT NOT NULL DEFAULT '',
+  session_id TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, revision)
+);
+CREATE TABLE IF NOT EXISTS autonomy_spend (
+  spend_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(project_id),
+  contract_id TEXT NOT NULL REFERENCES autonomy_contracts(contract_id),
+  tokens INTEGER NOT NULL DEFAULT 0,
+  minutes INTEGER NOT NULL DEFAULT 0,
+  note TEXT NOT NULL DEFAULT '',
+  session_id TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS autonomy_assumptions (
+  assumption_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(project_id),
+  contract_id TEXT NOT NULL REFERENCES autonomy_contracts(contract_id),
+  text TEXT NOT NULL,
+  reversal TEXT NOT NULL DEFAULT '',
+  session_id TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS autonomy_interruptions (
+  interruption_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(project_id),
+  contract_id TEXT NOT NULL REFERENCES autonomy_contracts(contract_id),
+  condition TEXT NOT NULL,
+  question TEXT NOT NULL,
+  session_id TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  answered_at TEXT,
+  answer TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS autonomy_human_steps (
+  step_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(project_id),
+  contract_id TEXT NOT NULL REFERENCES autonomy_contracts(contract_id),
+  floor TEXT NOT NULL DEFAULT '',
+  lane TEXT NOT NULL DEFAULT '',
+  what TEXT NOT NULL,
+  click_path TEXT NOT NULL DEFAULT '',
+  blocks TEXT NOT NULL DEFAULT '[]',
+  session_id TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  resolved_at TEXT,
+  resolution TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS autonomy_checkpoints (
+  checkpoint_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(project_id),
+  contract_id TEXT NOT NULL REFERENCES autonomy_contracts(contract_id),
+  controller_id TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  tokens_at INTEGER,
+  minutes_at INTEGER,
+  session_id TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+"""
+
+_AUTONOMY_INDEX_DDL = """
+CREATE INDEX IF NOT EXISTS autonomy_contracts_project_idx
+  ON autonomy_contracts(project_id, revision);
+CREATE INDEX IF NOT EXISTS autonomy_spend_project_idx
+  ON autonomy_spend(project_id, created_at);
+CREATE INDEX IF NOT EXISTS autonomy_assumptions_project_idx
+  ON autonomy_assumptions(project_id, created_at);
+CREATE INDEX IF NOT EXISTS autonomy_interruptions_project_idx
+  ON autonomy_interruptions(project_id, created_at);
+CREATE INDEX IF NOT EXISTS autonomy_human_steps_project_idx
+  ON autonomy_human_steps(project_id, lane, resolved_at);
+CREATE INDEX IF NOT EXISTS autonomy_checkpoints_project_idx
+  ON autonomy_checkpoints(project_id, created_at);
+"""
+
+_AUTONOMY_DDL_STATEMENTS = _split_ddl(_AUTONOMY_DDL)
+_AUTONOMY_INDEX_STATEMENTS = _split_ddl(_AUTONOMY_INDEX_DDL)
+
+# The closed sets the autonomy Store methods refuse against. Same discipline
+# as SENTINEL_KNOWLEDGE_KINDS and friends above: no CHECK constraint on any
+# of these columns (SQLite cannot alter a CHECK without a full table
+# rebuild), so the closed set lives here and the refusal names both the
+# field and the whole allowed set (see _autonomy_enum).
+AUTONOMY_STATES = ("live", "paused", "stopped", "revoked")
+
+AUTONOMY_CHANGE_KINDS = ("sign", "amend", "pause", "resume", "stop", "revoke")
+
+# The four forcing conditions, from the Phase 2 design section 4.
+AUTONOMY_CONDITIONS = ("design-ambiguity", "contradiction",
+                       "hard-gate-collision", "disproven-assumption")
+
+# Pre-approved, reversible action classes. A contract may name any subset.
+AUTONOMY_RISK_CLASSES = ("file-edit", "file-create", "file-move", "build",
+                         "test-run", "local-commit", "local-branch",
+                         "read-only-inspect", "app-drive", "browser-read")
+
+# The five floors. NEVER grantable by any contract. Keyed by id so a refusal
+# can name WHICH floor without restating its sentence at the call site.
+AUTONOMY_FLOORS = (
+    ("credential-entry",
+     "typing credentials, passwords or 2FA codes"),
+    ("payment",
+     "executing any payment or movement of funds"),
+    ("account-signin",
+     "creating an account or completing a sign-in"),
+    ("permanent-delete",
+     "permanent deletion, or any write to production state"),
+    ("publish-release",
+     "publishing or releasing"),
+)
+AUTONOMY_FLOOR_IDS = tuple(f[0] for f in AUTONOMY_FLOORS)
+AUTONOMY_FLOOR_DESCRIPTIONS = dict(AUTONOMY_FLOORS)
+
+# The legal state moves. Same shape as brotherme/core/schema.py's
+# LEGAL_TRANSITIONS: a terminal state maps to an EMPTY tuple, which is what
+# makes "terminal" checkable rather than remembered.
+AUTONOMY_STATE_TRANSITIONS = {
+    "live":    ("paused", "stopped", "revoked"),
+    "paused":  ("live", "stopped", "revoked"),
+    "stopped": ("revoked",),
+    "revoked": (),
+}
+
+# Model names refused in signed_by (invariant I1). This is a denylist of
+# about thirty tokens, a speed bump against the accidental case (a model
+# filling a required field with its own name), never a cryptographic
+# authenticity check. See _refuse_model_signer's own docstring for the
+# honest limits: it does not catch a model told to sign as a real person's
+# name, a new vendor, non-Latin script, deliberate misspelling, or an
+# initial. That limit is published in docs/AUTONOMY.md and
+# docs/KNOWN-LIMITS.md by writer B.
+AUTONOMY_MODEL_TOKENS = (
+    "claude", "opus", "sonnet", "haiku", "fable", "anthropic",
+    "gpt", "openai", "codex", "o1", "o3", "o4",
+    "gemini", "bard", "palm", "google-ai",
+    "llama", "mistral", "mixtral", "cohere", "command-r",
+    "grok", "deepseek", "qwen", "phi", "ollama",
+    "assistant", "agent", "bot", "ai", "llm", "model",
+)
+
+# The breaker thresholds (Phase 2 design, taken verbatim). Not derived from
+# any measurement in this repository.
+AUTONOMY_SOFT_STOP_PCT = 80
+AUTONOMY_HARD_STOP_PCT = 100
+
+
+def _autonomy_enum(field, value, allowed):
+    """Refuse an out-of-set value, never coerce it, and name BOTH the field
+    and the whole allowed set in the message. Verbatim structural copy of
+    _sentinel_enum, for the same reason: a value silently coerced is a value
+    nobody can audit. ValueError, not OwnershipRefused: this is a caller
+    passing a wrong argument, not a store refusing an ownership move."""
+    if value not in allowed:
+        raise ValueError(
+            "unknown %s %r (allowed: %s)"
+            % (field, value, ", ".join(allowed)))
+    return value
+
+
+_MODEL_TOKEN_SPLIT_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _refuse_model_signer(signed_by):
+    """Invariant I1: a model cannot sign its own contract. Lowercases and
+    NFKC-normalizes signed_by, splits it on non-alphanumerics, and refuses
+    (OwnershipRefused, reason 'model-signer') when any resulting token is in
+    AUTONOMY_MODEL_TOKENS. This alone catches every version-suffixed spelling
+    the design names ('claude-opus-5', 'gpt-5.6'): the hyphen and the dot
+    both split, and the bare model name is what actually matches. The
+    refusal names the token it matched.
+
+    HONESTLY, WHAT THIS DOES NOT DO. This is a denylist of about thirty
+    tokens. It catches every model this project has ever run and the obvious
+    generic words. It does NOT catch: a model told to sign as a real
+    person's name (a person's initial is a short token too, and this
+    function cannot tell 'K.' from a model abbreviation, so it does not try:
+    it only refuses tokens that are ACTUALLY on the list); a new vendor whose
+    name is not yet on the list; a name in a non-Latin script; or deliberate
+    misspelling ('cl4ude' does not casefold to 'claude'). It is a speed bump
+    against the accidental case, not a cryptographic authenticity check. The
+    only real answer is a human-held signing secret, and U1 does not have
+    one."""
+    if not isinstance(signed_by, str) or not signed_by.strip():
+        raise OwnershipRefused(
+            "empty-signer",
+            "signed_by must be a non-empty name. A contract this store "
+            "cannot attribute to anyone is not a mandate: pass the name of "
+            "the accountable human.")
+    normalized = unicodedata.normalize("NFKC", signed_by).casefold()
+    tokens = [t for t in _MODEL_TOKEN_SPLIT_RE.split(normalized) if t]
+    for token in tokens:
+        if token in AUTONOMY_MODEL_TOKENS:
+            raise OwnershipRefused(
+                "model-signer",
+                "signed_by %r contains %r, which is a model name. A "
+                "contract a model signed for itself is a note, not a "
+                "mandate: the whole value of this row is that a human put "
+                "it there. Pass the name of the person who is accountable."
+                % (signed_by, token))
+    return signed_by
+
+
+def _latest_contract_row(store, project_id):
+    """The highest-revision autonomy_contracts row for `project_id`, as a
+    raw sqlite3.Row, or None when the project has never had one. MODULE
+    LEVEL rather than a Store method, on purpose, the same reason _exec is
+    module level: gate_check and spend_totals must behave identically
+    whether `store` is a writable Store or a ReadOnlyStore (neither
+    inherits from the other), and a plain function taking `store` explicitly
+    is what lets both call it unchanged."""
+    return _exec(store,
+        "SELECT * FROM autonomy_contracts WHERE project_id=? "
+        "ORDER BY revision DESC LIMIT 1", (project_id,)).fetchone()
+
+
+def _spend_sum(store, project_id):
+    """(total tokens, total minutes) ever recorded for `project_id` across
+    every autonomy_spend row, regardless of which contract revision they
+    were recorded against. MODULE LEVEL for the same reason
+    _latest_contract_row is: shared unchanged between Store and
+    ReadOnlyStore."""
+    row = _exec(store,
+        "SELECT COALESCE(SUM(tokens),0) AS t, COALESCE(SUM(minutes),0) AS m "
+        "FROM autonomy_spend WHERE project_id=?", (project_id,)).fetchone()
+    return int(row["t"] or 0), int(row["m"] or 0)
+
+
+def _spend_verdict(total_tokens, total_minutes, token_ceiling,
+                    minutes_ceiling):
+    """(token_pct, minutes_pct, verdict) from raw totals and ceilings. Pure:
+    no store, no I/O.
+
+    Invariant I8: a None ceiling yields a None percentage, NEVER a zero and
+    never treated as unlimited; that is what lets the caller print the
+    literal NO-DATA instead of a comforting lie about a number nobody set.
+    A ZERO ceiling is a real ceiling meaning 'stop immediately' (I8's own
+    distinction from None), so it always reads as 100 percent, whatever the
+    total is: the line was already crossed the moment it was set to zero.
+
+    verdict is the WORST of whichever percentages are actually available
+    (a project with only a token ceiling is judged on tokens alone); 'no-data'
+    only when NEITHER ceiling was ever set. Thresholds are
+    AUTONOMY_SOFT_STOP_PCT (80) and AUTONOMY_HARD_STOP_PCT (100), taken
+    verbatim from the ratified Phase 2 design."""
+    def _pct(total, ceiling):
+        if ceiling is None:
+            return None
+        if ceiling == 0:
+            return 100.0
+        return 100.0 * total / ceiling
+    token_pct = _pct(total_tokens, token_ceiling)
+    minutes_pct = _pct(total_minutes, minutes_ceiling)
+    available = [p for p in (token_pct, minutes_pct) if p is not None]
+    if not available:
+        verdict = "no-data"
+    else:
+        worst = max(available)
+        if worst >= AUTONOMY_HARD_STOP_PCT:
+            verdict = "hard-stop"
+        elif worst >= AUTONOMY_SOFT_STOP_PCT:
+            verdict = "soft-stop"
+        else:
+            verdict = "ok"
+    return token_pct, minutes_pct, verdict
+
+
 # The five closed sets the sentinel Store methods refuse against. Deliberately
 # NOT CHECK constraints on the columns: a CHECK raises sqlite3.IntegrityError,
 # which _exec passes through unchanged and which names neither the field nor
@@ -2721,6 +3057,36 @@ def _migrate_12_to_13(conn):
         conn.execute(statement)
 
 
+def _migrate_13_to_14(conn):
+    """Schema 13 to 14 (U1, the autonomy contract, design
+    docs/superpowers/specs/2026-08-05-u1-autonomy-contract-design.md
+    section 1): six tables (autonomy_contracts, autonomy_spend,
+    autonomy_assumptions, autonomy_interruptions, autonomy_human_steps,
+    autonomy_checkpoints) plus six indexes. ADDITIVE ONLY: no existing
+    table gains, loses or changes a column here.
+
+    Same contract as _migrate_12_to_13, the last table-only migration:
+    every statement is CREATE TABLE IF NOT EXISTS or CREATE INDEX IF NOT
+    EXISTS, safe whether this runs against a genuinely old schema-13 store
+    or, via _ensure_schema, against a brand new one that already has all
+    six tables. Runs inside the caller's BEGIN EXCLUSIVE, so it must never
+    commit, roll back, or open a transaction of its own.
+
+    What this deliberately does NOT do: it does not backfill a single row,
+    and in particular it does not manufacture a contract for a project that
+    already exists. There is no prior authorisation anywhere to backfill
+    FROM, and an invented contract is the one row in this schema that must
+    never exist without a human having put it there: the whole value of the
+    table is that a human signed it. Every project that predates schema 14
+    therefore has NO contract until somebody runs `sign`, and gate-check
+    refuses for it, which is the correct and safe reading of "nobody
+    authorised anything yet"."""
+    for statement in _AUTONOMY_DDL_STATEMENTS:
+        conn.execute(statement)
+    for statement in _AUTONOMY_INDEX_STATEMENTS:
+        conn.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_1_to_2,
     2: _migrate_2_to_3,
@@ -2734,6 +3100,7 @@ _MIGRATIONS = {
     10: _migrate_10_to_11,
     11: _migrate_11_to_12,
     12: _migrate_12_to_13,
+    13: _migrate_13_to_14,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -3354,6 +3721,40 @@ _DUMP_SAFE_COLUMNS = frozenset((
     ("runtime_runs", "run_id"),
     ("runtime_runs", "result"), ("runtime_runs", "started_at"),
     ("runtime_runs", "finished_at"),
+    # Schema 14 (U1, the autonomy contract). Same discipline as every list
+    # above: identifiers, schema-constrained enums and timestamps only.
+    # outcome, done_definition, allowed_paths, allowed_surfaces, change_reason,
+    # signed_by, changed_by, the assumption text and reversal, the interruption
+    # question and answer, and every human-step prose column are DELIBERATELY
+    # ABSENT and stay withheld: signed_by is a person's NAME, allowed_paths is
+    # a list of absolute paths, and the rest is founder or model prose.
+    ("autonomy_contracts", "contract_id"),
+    ("autonomy_contracts", "project_id"),
+    ("autonomy_contracts", "change_kind"), ("autonomy_contracts", "state"),
+    ("autonomy_contracts", "risk_classes"),
+    ("autonomy_contracts", "signed_at"), ("autonomy_contracts", "created_at"),
+    ("autonomy_spend", "spend_id"), ("autonomy_spend", "project_id"),
+    ("autonomy_spend", "contract_id"), ("autonomy_spend", "created_at"),
+    ("autonomy_assumptions", "assumption_id"),
+    ("autonomy_assumptions", "project_id"),
+    ("autonomy_assumptions", "contract_id"),
+    ("autonomy_assumptions", "created_at"),
+    ("autonomy_interruptions", "interruption_id"),
+    ("autonomy_interruptions", "project_id"),
+    ("autonomy_interruptions", "contract_id"),
+    ("autonomy_interruptions", "condition"),
+    ("autonomy_interruptions", "created_at"),
+    ("autonomy_interruptions", "answered_at"),
+    ("autonomy_human_steps", "step_id"),
+    ("autonomy_human_steps", "project_id"),
+    ("autonomy_human_steps", "contract_id"),
+    ("autonomy_human_steps", "floor"),
+    ("autonomy_human_steps", "created_at"),
+    ("autonomy_human_steps", "resolved_at"),
+    ("autonomy_checkpoints", "checkpoint_id"),
+    ("autonomy_checkpoints", "project_id"),
+    ("autonomy_checkpoints", "contract_id"),
+    ("autonomy_checkpoints", "created_at"),
 ))
 
 
@@ -4519,6 +4920,12 @@ class Store(object):
             # this call is safe on a store that was just created with all
             # four sentinel tables already present.
             _migrate_12_to_13(self.conn)
+        if SCHEMA_VERSION >= 14:
+            # Same rule again. Every statement in _migrate_13_to_14 is
+            # CREATE TABLE IF NOT EXISTS or CREATE INDEX IF NOT EXISTS, so
+            # this call is safe on a store that was just created with all
+            # six autonomy tables already present.
+            _migrate_13_to_14(self.conn)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -10692,6 +11099,38 @@ class Store(object):
             removed["tasks"] = _exec(
                 self, "DELETE FROM tasks WHERE project_id=?",
                 (project_id,)).rowcount
+
+            # U1 extension: the six autonomy tables all carry a REFERENCES
+            # projects(project_id) FK (unlike attribution, which deliberately
+            # has none), so a purge that stopped above would leave every one
+            # of them orphaned, each row pointing at a project that no
+            # longer exists. Deleted here, in the SAME transaction and
+            # BEFORE the project row itself, children first
+            # (autonomy_spend, autonomy_assumptions, autonomy_interruptions,
+            # autonomy_human_steps, autonomy_checkpoints all reference
+            # autonomy_contracts) and autonomy_contracts last. The
+            # attribution trail this project's own autonomy writes left
+            # behind is, like every other table's, kept: purge_project
+            # never touches attribution except to append.
+            removed["autonomy_spend"] = _exec(
+                self, "DELETE FROM autonomy_spend WHERE project_id=?",
+                (project_id,)).rowcount
+            removed["autonomy_assumptions"] = _exec(
+                self, "DELETE FROM autonomy_assumptions WHERE project_id=?",
+                (project_id,)).rowcount
+            removed["autonomy_interruptions"] = _exec(
+                self, "DELETE FROM autonomy_interruptions WHERE project_id=?",
+                (project_id,)).rowcount
+            removed["autonomy_human_steps"] = _exec(
+                self, "DELETE FROM autonomy_human_steps WHERE project_id=?",
+                (project_id,)).rowcount
+            removed["autonomy_checkpoints"] = _exec(
+                self, "DELETE FROM autonomy_checkpoints WHERE project_id=?",
+                (project_id,)).rowcount
+            removed["autonomy_contracts"] = _exec(
+                self, "DELETE FROM autonomy_contracts WHERE project_id=?",
+                (project_id,)).rowcount
+
             self._write_attribution(
                 project_id, None, "project.purged", actor,
                 action="purge_project",
@@ -11234,6 +11673,692 @@ class Store(object):
             (project_id, limit)).fetchall()
         return [dict(r) for r in rows]
 
+    # ------------------------------------------------------------------
+    # U1: the autonomy contract layer (2026-08-05, design
+    # docs/superpowers/specs/2026-08-05-u1-autonomy-contract-design.md).
+    # Every mutating method below opens exactly one self._transaction() and
+    # writes its attribution row inside it (tools/bm_store.py:10113 to
+    # 10125's ADR restated once more: state change and attribution are
+    # inseparable). Every refusal raises OwnershipRefused(reason, message)
+    # with a LITERAL kebab-case reason, or ValueError when the caller passed
+    # a malformed argument rather than attempted an illegal ownership move
+    # (the same split _sentinel_enum and _autonomy_enum draw).
+    #
+    # autonomy_contracts is INSERT-ONLY: no method below issues UPDATE or
+    # DELETE against it. purge_project is the one exception, and it deletes
+    # whole rows, it never edits one (invariant I16).
+    # ------------------------------------------------------------------
+
+    def sign_contract(self, project_id, outcome, done_definition,
+                      allowed_paths, allowed_surfaces, risk_classes,
+                      token_ceiling, minutes_ceiling, signed_by,
+                      session_id, actor, supersede=False):
+        """Append revision N+1 with change_kind 'sign' (no contract yet, or
+        the latest one is not live), or 'amend' (the latest one IS live and
+        supersede=True). Returns {'contract_id', 'revision', 'change_kind'}.
+
+        Every check below runs before any write, in the design's own order:
+        signer, risk classes (a floor id gets its own refusal, distinct from
+        an unrecognised class, BEFORE the generic enum check, so a floor
+        never reaches the generic 'unknown risk class' message), paths,
+        ceilings. Path canonicalisation reuses canonicalize_path (the ONE
+        place a caller-declared path becomes a stored path); a path outside
+        the project root refuses 'path-escape' from that function, with
+        NOTHING written (invariant I6 and adversarial test 3)."""
+        _refuse_model_signer(signed_by)
+        risk_classes = list(risk_classes or [])
+        for rc in risk_classes:
+            if rc in AUTONOMY_FLOOR_IDS:
+                raise OwnershipRefused(
+                    "risk-class-is-floor",
+                    "%r is one of the five safety floors (%s), not a risk "
+                    "class. No contract can grant it, and a contract that "
+                    "tries is a finding worth telling the founder about "
+                    "rather than a permission to honour. Remove it and "
+                    "sign again."
+                    % (rc, AUTONOMY_FLOOR_DESCRIPTIONS[rc]))
+            _autonomy_enum("risk class", rc, AUTONOMY_RISK_CLASSES)
+        allowed_paths = [canonicalize_path(self.root, p, cwd=None)
+                         for p in (allowed_paths or [])]
+        allowed_surfaces = [str(s) for s in (allowed_surfaces or [])]
+        for name, ceiling in (("token_ceiling", token_ceiling),
+                              ("minutes_ceiling", minutes_ceiling)):
+            if ceiling is not None and (
+                    isinstance(ceiling, bool) or not isinstance(ceiling, int)
+                    or ceiling < 0):
+                raise ValueError(
+                    "%s must be a non-negative whole number or None, got %r"
+                    % (name, ceiling))
+        contract_id = uuid.uuid4().hex
+        ts = now_iso()
+        with self._transaction():
+            prow = _exec(self, "SELECT project_id FROM projects "
+                        "WHERE project_id=?", (project_id,)).fetchone()
+            if prow is None:
+                raise OwnershipRefused(
+                    "not-found",
+                    "no project %r in this store; create it before signing "
+                    "a contract for it" % (project_id,))
+            latest = _latest_contract_row(self, project_id)
+            if latest is not None and latest["state"] == "live":
+                if not supersede:
+                    raise OwnershipRefused(
+                        "live-contract-exists",
+                        "project %r already has a live contract at "
+                        "revision %d, signed by %s on %s. Signing a second "
+                        "one without saying so would leave two answers to "
+                        "'what was I allowed to do'. Pass supersede=True to "
+                        "replace it (the old revision stays in the chain, "
+                        "readable forever), or stop or revoke it first."
+                        % (project_id, latest["revision"],
+                           latest["signed_by"],
+                           latest["signed_at"] or latest["created_at"]))
+                change_kind = "amend"
+            else:
+                change_kind = "sign"
+            revision = 1 if latest is None else latest["revision"] + 1
+            _exec(self,
+                  "INSERT INTO autonomy_contracts (contract_id, "
+                  "project_id, revision, change_kind, state, outcome, "
+                  "done_definition, allowed_paths, allowed_surfaces, "
+                  "risk_classes, token_ceiling, minutes_ceiling, "
+                  "signed_by, signed_at, changed_by, change_reason, "
+                  "session_id, created_at) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (contract_id, project_id, revision, change_kind, "live",
+                   outcome or "", done_definition or "",
+                   json.dumps(allowed_paths), json.dumps(allowed_surfaces),
+                   json.dumps(risk_classes), token_ceiling, minutes_ceiling,
+                   signed_by, ts, (actor or {}).get("actor_name", ""), "",
+                   session_id or "", ts))
+            self._write_attribution(
+                project_id, None, "autonomy.contract.%s" % change_kind,
+                actor, action="sign_contract", evidence_ref=contract_id)
+        return {"contract_id": contract_id, "revision": revision,
+                "change_kind": change_kind}
+
+    def set_contract_state(self, project_id, new_state, changed_by, reason,
+                           session_id, actor):
+        """Append revision N+1 carrying new_state and change_kind derived
+        from it, copying every authorisation column forward verbatim
+        (outcome, done_definition, allowed_paths, allowed_surfaces,
+        risk_classes, both ceilings, signed_by, signed_at). Returns
+        {'contract_id', 'revision', 'state', 'changed'} where 'changed' is
+        False for the idempotent no-op (invariant I3: calling this with a
+        state the contract is ALREADY in, most often stop-on-stopped or
+        revoke-on-revoked, writes NO new revision and still returns 0/True
+        to the caller rather than refusing).
+
+        Legality otherwise comes entirely from AUTONOMY_STATE_TRANSITIONS,
+        never restated here: revoked is terminal (an empty tuple), so any
+        move out of it besides revoke-on-revoked raises 'illegal-state-move'
+        naming the legal moves, which is empty for revoked and therefore
+        reads as '(none, terminal)'."""
+        _autonomy_enum("state", new_state, AUTONOMY_STATES)
+        with self._transaction():
+            latest = _latest_contract_row(self, project_id)
+            if latest is None:
+                raise OwnershipRefused(
+                    "no-contract",
+                    "project %r has no contract at all. Nothing to change: "
+                    "run sign first." % (project_id,))
+            current = latest["state"]
+            if current == new_state:
+                return {"contract_id": latest["contract_id"],
+                        "revision": latest["revision"], "state": current,
+                        "changed": False}
+            legal = AUTONOMY_STATE_TRANSITIONS.get(current, ())
+            if new_state not in legal:
+                raise OwnershipRefused(
+                    "illegal-state-move",
+                    "project %r contract is %s (revision %d); moving it "
+                    "to %s is not legal from there. Legal moves from %s: "
+                    "%s."
+                    % (project_id, current, latest["revision"], new_state,
+                       current, ", ".join(legal) or "(none, terminal)"))
+            change_kind = {"paused": "pause", "live": "resume",
+                          "stopped": "stop", "revoked": "revoke"}[new_state]
+            new_contract_id = uuid.uuid4().hex
+            revision = latest["revision"] + 1
+            ts = now_iso()
+            _exec(self,
+                  "INSERT INTO autonomy_contracts (contract_id, "
+                  "project_id, revision, change_kind, state, outcome, "
+                  "done_definition, allowed_paths, allowed_surfaces, "
+                  "risk_classes, token_ceiling, minutes_ceiling, "
+                  "signed_by, signed_at, changed_by, change_reason, "
+                  "session_id, created_at) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (new_contract_id, project_id, revision, change_kind,
+                   new_state, latest["outcome"], latest["done_definition"],
+                   latest["allowed_paths"], latest["allowed_surfaces"],
+                   latest["risk_classes"], latest["token_ceiling"],
+                   latest["minutes_ceiling"], latest["signed_by"],
+                   latest["signed_at"], changed_by or "", reason or "",
+                   session_id or "", ts))
+            self._write_attribution(
+                project_id, None, "autonomy.contract.%s" % change_kind,
+                actor, action="set_contract_state", reason=reason or "",
+                evidence_ref=new_contract_id)
+        return {"contract_id": new_contract_id, "revision": revision,
+                "state": new_state, "changed": True}
+
+    def _raise_breaker_alert(self, project_id, which, actor):
+        """Insert ONE alert row for a breaker crossing, assuming a
+        transaction is ALREADY open (called only from inside record_spend's
+        own self._transaction()). Cannot call self.raise_alert() directly:
+        that method opens its OWN self._transaction(), and sqlite refuses a
+        nested BEGIN. Mirrors raise_alert's own INSERT column for column."""
+        S = _schema()
+        if which == "hard-stop":
+            severity, requires_human = "critical", True
+            message = (
+                "100 percent of a spend ceiling is reached for project "
+                "%r. Stop. Checkpoint every worktree and write the close "
+                "record." % (project_id,))
+        else:
+            severity, requires_human = "high", False
+            message = (
+                "80 percent of a spend ceiling is reached for project %r. "
+                "Stop STARTING new work. Finish what is in flight, then "
+                "checkpoint." % (project_id,))
+        alert = S.Alert(alert_id=uuid.uuid4().hex, severity=severity,
+                        category="autonomy-breaker", message=message,
+                        requires_human=requires_human, created_at=now_iso(),
+                        resolved_at=None).validate()
+        _exec(self,
+              "INSERT INTO alerts (alert_id, severity, category, message, "
+              "why_it_matters, recommended_action, requires_human, "
+              "created_at, resolved_at) VALUES (?,?,?,?,?,?,?,?,?)",
+              (alert.alert_id, alert.severity, alert.category,
+               alert.message, "", "", 1 if alert.requires_human else 0,
+               alert.created_at, alert.resolved_at))
+        self._write_attribution(
+            project_id, None, "alert.raised", actor, action="record_spend",
+            evidence_ref=alert.alert_id)
+        return alert.alert_id
+
+    def record_spend(self, project_id, tokens, minutes, note, session_id,
+                     actor):
+        """Append one spend row against the live contract and return the
+        breaker verdict dict from spend_totals(). Refuses (OwnershipRefused
+        'no-live-contract') when the project has no contract or the latest
+        one is not live: spend is meaningless with nothing to charge it
+        against.
+
+        Refuses (ValueError, never OwnershipRefused: this is a malformed
+        argument, not a situation) a negative tokens or minutes, and refuses
+        tokens=0 AND minutes=0 together, because a spend row recording
+        nothing is noise. A clamped negative would silently become zero and
+        leave the meter wrong in a way nobody could see, so this refuses
+        rather than clamps, and nothing is written either way (invariant I9,
+        adversarial test 6).
+
+        Crossing 80 or 100 percent of either ceiling for the FIRST time also
+        raises an alert (severity high for soft-stop, critical with
+        requires_human=True for hard-stop) in the SAME transaction as the
+        spend row (invariants I9, I10). 'First crossing' is measured by
+        comparing the verdict before this row against the verdict after: a
+        second spend call past a line already crossed raises nothing more,
+        because an alert that fires on every call is an alert nobody
+        reads."""
+        if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens < 0:
+            raise ValueError(
+                "tokens must be zero or a positive whole number, got %r"
+                % (tokens,))
+        if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes < 0:
+            raise ValueError(
+                "minutes must be zero or a positive whole number, got %r"
+                % (minutes,))
+        if tokens == 0 and minutes == 0:
+            raise ValueError(
+                "spend must record at least one of tokens or minutes "
+                "greater than zero; a spend row recording nothing is "
+                "noise. To correct an over-recording, record the "
+                "correction as a note and say so.")
+        spend_id = uuid.uuid4().hex
+        ts = now_iso()
+        with self._transaction():
+            latest = _latest_contract_row(self, project_id)
+            if latest is None or latest["state"] != "live":
+                raise OwnershipRefused(
+                    "no-live-contract",
+                    "project %r has no live contract (%s); spend can only "
+                    "be recorded against a live authorisation."
+                    % (project_id,
+                       "no contract" if latest is None else latest["state"]))
+            before_tokens, before_minutes = _spend_sum(self, project_id)
+            _, _, before_verdict = _spend_verdict(
+                before_tokens, before_minutes, latest["token_ceiling"],
+                latest["minutes_ceiling"])
+            _exec(self,
+                  "INSERT INTO autonomy_spend (spend_id, project_id, "
+                  "contract_id, tokens, minutes, note, session_id, "
+                  "created_at) VALUES (?,?,?,?,?,?,?,?)",
+                  (spend_id, project_id, latest["contract_id"], tokens,
+                   minutes, note or "", session_id or "", ts))
+            self._write_attribution(
+                project_id, None, "autonomy.spend.recorded", actor,
+                action="record_spend", evidence_ref=spend_id)
+            after_tokens, after_minutes = _spend_sum(self, project_id)
+            token_pct, minutes_pct, after_verdict = _spend_verdict(
+                after_tokens, after_minutes, latest["token_ceiling"],
+                latest["minutes_ceiling"])
+            if after_verdict == "hard-stop" and before_verdict != "hard-stop":
+                self._raise_breaker_alert(project_id, "hard-stop", actor)
+            elif (after_verdict == "soft-stop"
+                  and before_verdict not in ("soft-stop", "hard-stop")):
+                self._raise_breaker_alert(project_id, "soft-stop", actor)
+            result = {"tokens": after_tokens, "minutes": after_minutes,
+                      "token_ceiling": latest["token_ceiling"],
+                      "minutes_ceiling": latest["minutes_ceiling"],
+                      "token_pct": token_pct, "minutes_pct": minutes_pct,
+                      "verdict": after_verdict}
+        return result
+
+    def record_assumption(self, project_id, text, reversal, session_id,
+                          actor):
+        """Record ONE assumption against the live contract. Refuses without
+        a live contract: an assumption recorded under no authorisation is a
+        note nobody agreed to. `reversal` is optional prose describing how
+        to undo the thing assumed, which is what makes 'reversible'
+        checkable rather than asserted."""
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("text must be a non-empty string")
+        assumption_id = uuid.uuid4().hex
+        ts = now_iso()
+        with self._transaction():
+            latest = _latest_contract_row(self, project_id)
+            if latest is None or latest["state"] != "live":
+                raise OwnershipRefused(
+                    "no-live-contract",
+                    "project %r has no live contract (%s); an assumption "
+                    "recorded under no authorisation is a note nobody "
+                    "agreed to."
+                    % (project_id,
+                       "no contract" if latest is None else latest["state"]))
+            _exec(self,
+                  "INSERT INTO autonomy_assumptions (assumption_id, "
+                  "project_id, contract_id, text, reversal, session_id, "
+                  "created_at) VALUES (?,?,?,?,?,?,?)",
+                  (assumption_id, project_id, latest["contract_id"], text,
+                   reversal or "", session_id or "", ts))
+            self._write_attribution(
+                project_id, None, "autonomy.assumption.recorded", actor,
+                action="record_assumption", evidence_ref=assumption_id)
+        return assumption_id
+
+    def record_interruption(self, project_id, condition, question,
+                            session_id, actor):
+        """Record ONE forcing-condition question against the live contract.
+        `condition` is refused, never coerced, when it is outside
+        AUTONOMY_CONDITIONS: recording the interruption is what refuses,
+        which is what keeps the question policy honest rather than degrading
+        into whatever felt urgent."""
+        _autonomy_enum("forcing condition", condition, AUTONOMY_CONDITIONS)
+        if not isinstance(question, str) or not question.strip():
+            raise ValueError("question must be a non-empty string")
+        interruption_id = uuid.uuid4().hex
+        ts = now_iso()
+        with self._transaction():
+            latest = _latest_contract_row(self, project_id)
+            if latest is None or latest["state"] != "live":
+                raise OwnershipRefused(
+                    "no-live-contract",
+                    "project %r has no live contract (%s); an interruption "
+                    "raised under no authorisation is a question nobody is "
+                    "running to answer."
+                    % (project_id,
+                       "no contract" if latest is None else latest["state"]))
+            _exec(self,
+                  "INSERT INTO autonomy_interruptions (interruption_id, "
+                  "project_id, contract_id, condition, question, "
+                  "session_id, created_at, answered_at, answer) "
+                  "VALUES (?,?,?,?,?,?,?,NULL,'')",
+                  (interruption_id, project_id, latest["contract_id"],
+                   condition, question, session_id or "", ts))
+            self._write_attribution(
+                project_id, None, "autonomy.interruption.raised", actor,
+                action="record_interruption", evidence_ref=interruption_id)
+        return interruption_id
+
+    def answer_interruption(self, interruption_id, project_id, answer,
+                            actor):
+        """Answer ONE interruption. Refuses (OwnershipRefused
+        'already-answered') if it was already answered, the same
+        resolve-once-then-refuse shape resolve_alert uses for alerts."""
+        if not isinstance(answer, str) or not answer.strip():
+            raise ValueError("answer must be a non-empty string")
+        ts = now_iso()
+        with self._transaction():
+            row = _exec(self,
+                "SELECT * FROM autonomy_interruptions WHERE "
+                "interruption_id=? AND project_id=?",
+                (interruption_id, project_id)).fetchone()
+            if row is None:
+                raise OwnershipRefused(
+                    "not-found",
+                    "no interruption %r for project %r"
+                    % (interruption_id, project_id))
+            if row["answered_at"]:
+                raise OwnershipRefused(
+                    "already-answered",
+                    "interruption %r was already answered at %s"
+                    % (interruption_id, row["answered_at"]))
+            _exec(self,
+                  "UPDATE autonomy_interruptions SET answered_at=?, "
+                  "answer=? WHERE interruption_id=?",
+                  (ts, answer, interruption_id))
+            self._write_attribution(
+                project_id, None, "autonomy.interruption.answered", actor,
+                action="answer_interruption", evidence_ref=interruption_id)
+        return ts
+
+    def queue_human_step(self, project_id, floor, lane, what, click_path,
+                         blocks, session_id, actor):
+        """Queue ONE human-only step. `floor`, when given, must be one of
+        the five AUTONOMY_FLOOR_IDS. `lane` defaults to 'default'. Every id
+        in `blocks` must name a real task in THIS project, or refuses
+        'not-found': a step that claims to block a task that does not exist
+        blocks nothing and looks like it blocks something. Needs SOME
+        contract to exist (any state, not only live: a paused or just-
+        stopped controller may still need to queue the step that explains
+        why), because autonomy_human_steps.contract_id is NOT NULL."""
+        if floor:
+            _autonomy_enum("floor", floor, AUTONOMY_FLOOR_IDS)
+        if not isinstance(what, str) or not what.strip():
+            raise ValueError("what must be a non-empty string")
+        lane = lane or "default"
+        blocks = list(blocks or [])
+        step_id = uuid.uuid4().hex
+        ts = now_iso()
+        with self._transaction():
+            latest = _latest_contract_row(self, project_id)
+            if latest is None:
+                raise OwnershipRefused(
+                    "no-contract",
+                    "project %r has no contract at all; a human step needs "
+                    "a contract to belong to." % (project_id,))
+            for task_id in blocks:
+                trow = _exec(self,
+                    "SELECT task_id FROM tasks WHERE task_id=? AND "
+                    "project_id=?", (task_id, project_id)).fetchone()
+                if trow is None:
+                    raise OwnershipRefused(
+                        "not-found",
+                        "no task %r in project %r; a human step that "
+                        "claims to block a task that does not exist blocks "
+                        "nothing." % (task_id, project_id))
+            _exec(self,
+                  "INSERT INTO autonomy_human_steps (step_id, project_id, "
+                  "contract_id, floor, lane, what, click_path, blocks, "
+                  "session_id, created_at, resolved_at, resolution) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,NULL,'')",
+                  (step_id, project_id, latest["contract_id"], floor or "",
+                   lane, what, click_path or "", json.dumps(blocks),
+                   session_id or "", ts))
+            self._write_attribution(
+                project_id, None, "autonomy.human_step.queued", actor,
+                action="queue_human_step", evidence_ref=step_id)
+        return step_id
+
+    def resolve_human_step(self, step_id, project_id, resolution, actor):
+        """Resolve ONE human step. Refuses (OwnershipRefused
+        'already-resolved') if it was already resolved, modelled column for
+        column on resolve_alert. The founder's immutability requirement is
+        stated over CONTRACT rows; a queued human step is a to-do item, not
+        an authorisation, so this UPDATE is legitimate (matching
+        autonomy_interruptions.answered_at above)."""
+        ts = now_iso()
+        with self._transaction():
+            row = _exec(self,
+                "SELECT * FROM autonomy_human_steps WHERE step_id=? AND "
+                "project_id=?", (step_id, project_id)).fetchone()
+            if row is None:
+                raise OwnershipRefused(
+                    "not-found",
+                    "no human step %r for project %r"
+                    % (step_id, project_id))
+            if row["resolved_at"]:
+                raise OwnershipRefused(
+                    "already-resolved",
+                    "human step %r was already resolved at %s"
+                    % (step_id, row["resolved_at"]))
+            _exec(self,
+                  "UPDATE autonomy_human_steps SET resolved_at=?, "
+                  "resolution=? WHERE step_id=?",
+                  (ts, resolution or "", step_id))
+            self._write_attribution(
+                project_id, None, "autonomy.human_step.resolved", actor,
+                action="resolve_human_step", reason=resolution or "",
+                evidence_ref=step_id)
+        return ts
+
+    def record_checkpoint(self, project_id, controller_id, kind, note,
+                          session_id, actor):
+        """Append ONE controller liveness beacon. Needs SOME contract to
+        exist (any state, deliberately not only live: the design's own
+        hard-stop wording is 'checkpoint every worktree', said AFTER the
+        controller has already stopped), because autonomy_checkpoints.
+        contract_id is NOT NULL. Stamps tokens_at/minutes_at from
+        spend_totals() at the moment of the checkpoint, so 'how far behind
+        is the controller' is answerable without a second read racing a
+        concurrent spend."""
+        if not isinstance(controller_id, str) or not controller_id.strip():
+            raise ValueError("controller_id must be a non-empty string")
+        checkpoint_id = uuid.uuid4().hex
+        ts = now_iso()
+        with self._transaction():
+            latest = _latest_contract_row(self, project_id)
+            if latest is None:
+                raise OwnershipRefused(
+                    "no-contract",
+                    "project %r has no contract at all; a checkpoint needs "
+                    "a contract to belong to." % (project_id,))
+            totals = self.spend_totals(project_id)
+            _exec(self,
+                  "INSERT INTO autonomy_checkpoints (checkpoint_id, "
+                  "project_id, contract_id, controller_id, kind, note, "
+                  "tokens_at, minutes_at, session_id, created_at) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                  (checkpoint_id, project_id, latest["contract_id"],
+                   controller_id, kind or "", note or "", totals["tokens"],
+                   totals["minutes"], session_id or "", ts))
+            self._write_attribution(
+                project_id, None, "autonomy.checkpoint.recorded", actor,
+                action="record_checkpoint", evidence_ref=checkpoint_id)
+        return checkpoint_id
+
+    # --- reads (no transaction, no attribution) --------------------------
+
+    def latest_contract(self, project_id, raw=False):
+        """The highest-revision row as a dict, or None when the project has
+        never had one. Redacted through _export_row unless raw."""
+        row = _latest_contract_row(self, project_id)
+        if row is None:
+            return None
+        return _export_row(
+            self.conn, "autonomy_contracts", dict(row),
+            list_fields=("allowed_paths", "allowed_surfaces",
+                        "risk_classes"), raw=raw)
+
+    def contract_revisions(self, project_id, limit=50, raw=False):
+        """The whole revision chain for `project_id`, OLDEST first: the
+        audit surface the immutability model exists to provide."""
+        rows = _exec(self,
+            "SELECT * FROM autonomy_contracts WHERE project_id=? "
+            "ORDER BY revision ASC LIMIT ?", (project_id, limit)).fetchall()
+        return [_export_row(
+                    self.conn, "autonomy_contracts", dict(r),
+                    list_fields=("allowed_paths", "allowed_surfaces",
+                                "risk_classes"), raw=raw)
+                for r in rows]
+
+    def spend_totals(self, project_id):
+        """{'tokens': int, 'minutes': int, 'token_ceiling': int or None,
+        'minutes_ceiling': int or None, 'token_pct': float or None,
+        'minutes_pct': float or None, 'verdict': 'ok'|'soft-stop'|
+        'hard-stop'|'no-data'}. See _spend_verdict for the NO-DATA rule."""
+        latest = _latest_contract_row(self, project_id)
+        token_ceiling = latest["token_ceiling"] if latest is not None else None
+        minutes_ceiling = (latest["minutes_ceiling"]
+                           if latest is not None else None)
+        total_tokens, total_minutes = _spend_sum(self, project_id)
+        token_pct, minutes_pct, verdict = _spend_verdict(
+            total_tokens, total_minutes, token_ceiling, minutes_ceiling)
+        return {"tokens": total_tokens, "minutes": total_minutes,
+                "token_ceiling": token_ceiling,
+                "minutes_ceiling": minutes_ceiling,
+                "token_pct": token_pct, "minutes_pct": minutes_pct,
+                "verdict": verdict}
+
+    def list_assumptions(self, project_id, limit=200, raw=False):
+        """Every assumption recorded for `project_id`, oldest first."""
+        rows = _exec(self,
+            "SELECT * FROM autonomy_assumptions WHERE project_id=? "
+            "ORDER BY created_at ASC, rowid ASC LIMIT ?",
+            (project_id, limit)).fetchall()
+        return [_export_row(self.conn, "autonomy_assumptions", dict(r),
+                            raw=raw) for r in rows]
+
+    def list_interruptions(self, project_id, answered=None, raw=False):
+        """Every interruption for `project_id`, oldest first. `answered`
+        narrows: None (default) for every interruption, True for only
+        answered ones, False for only open ones."""
+        sql = "SELECT * FROM autonomy_interruptions WHERE project_id=?"
+        if answered is True:
+            sql += " AND answered_at IS NOT NULL"
+        elif answered is False:
+            sql += " AND answered_at IS NULL"
+        sql += " ORDER BY created_at ASC, rowid ASC"
+        rows = _exec(self, sql, (project_id,)).fetchall()
+        return [_export_row(self.conn, "autonomy_interruptions", dict(r),
+                            raw=raw) for r in rows]
+
+    def list_human_steps(self, project_id, lane=None, resolved=None,
+                         raw=False):
+        """Every human step for `project_id`, oldest first. `lane` narrows
+        to one lane; `resolved` narrows the same way `answered` does above.
+        `blocks` decodes to a real list (see invariant I12: a lane is a
+        coarse filter and blocks is the precise one)."""
+        sql = "SELECT * FROM autonomy_human_steps WHERE project_id=?"
+        params = [project_id]
+        if lane is not None:
+            sql += " AND lane=?"
+            params.append(lane)
+        if resolved is True:
+            sql += " AND resolved_at IS NOT NULL"
+        elif resolved is False:
+            sql += " AND resolved_at IS NULL"
+        sql += " ORDER BY created_at ASC, rowid ASC"
+        rows = _exec(self, sql, tuple(params)).fetchall()
+        return [_export_row(self.conn, "autonomy_human_steps", dict(r),
+                            list_fields=("blocks",), raw=raw)
+                for r in rows]
+
+    def recent_checkpoints(self, project_id, limit=20, raw=False):
+        """The most recent `limit` checkpoints for `project_id`, newest
+        first."""
+        rows = _exec(self,
+            "SELECT * FROM autonomy_checkpoints WHERE project_id=? "
+            "ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (project_id, limit)).fetchall()
+        return [_export_row(self.conn, "autonomy_checkpoints", dict(r),
+                            raw=raw) for r in rows]
+
+    def gate_check(self, project_id, action_class, path=None, surface=None):
+        """The verdict dict every caller reads. NEVER writes: a diagnostic
+        that can write is a diagnostic that can silently create the thing
+        it is judging, which is exactly why this belongs on ReadOnlyStore
+        too. Returns {'verdict': 'ALLOWED'|'REFUSED-FLOOR'|'REFUSED-SCOPE'|
+        'REFUSED-STATE'|'REFUSED-CLASS'|'REFUSED-NO-CONTRACT'|
+        'REFUSED-BREAKER', 'floor': floor id or None, 'reason': one
+        sentence, 'contract_id': ..., 'revision': int or None}.
+
+        ORDER OF CHECKS IS NORMATIVE; it is the whole security property:
+          1. no contract at all, or the latest one is not live: refuses
+             FIRST, so a revoked contract can never reach a floor or scope
+             check that might pass (invariant I2).
+          2. action_class is a safety floor: refuses WITHOUT consulting the
+             contract at all, so a floor id smuggled into risk_classes (by
+             hand-writing a row outside sign_contract) is unreachable
+             (invariant I5).
+          3. action_class is not a recognised risk class at all.
+          4. action_class is not one THIS contract grants.
+          5. path given and not covered by allowed_paths (paths_overlap,
+             the store's own path law, never restated here).
+          6. surface given and not in allowed_surfaces.
+          7. spend at or over 100 percent of either ceiling: REFUSED-BREAKER.
+          8. otherwise ALLOWED, with revision set so the caller can prove
+             later which authorisation it acted on (see U2's staleness
+             protocol in the design's section 6)."""
+        latest = _latest_contract_row(self, project_id)
+        if latest is None:
+            return {"verdict": "REFUSED-NO-CONTRACT", "floor": None,
+                    "reason": "project %r has no contract at all. Nothing "
+                              "is authorised. Run sign first." % (project_id,),
+                    "contract_id": None, "revision": None}
+        if latest["state"] != "live":
+            return {"verdict": "REFUSED-STATE", "floor": None,
+                    "reason": "project %r contract is %s (revision %d). "
+                              "Nothing is authorised while it is not live."
+                              % (project_id, latest["state"],
+                                 latest["revision"]),
+                    "contract_id": latest["contract_id"],
+                    "revision": latest["revision"]}
+        if action_class in AUTONOMY_FLOOR_IDS:
+            return {"verdict": "REFUSED-FLOOR", "floor": action_class,
+                    "reason": "%r (%s) is one of the five safety floors. No "
+                              "contract, ever, can authorise it."
+                              % (action_class,
+                                 AUTONOMY_FLOOR_DESCRIPTIONS[action_class]),
+                    "contract_id": latest["contract_id"],
+                    "revision": latest["revision"]}
+        if action_class not in AUTONOMY_RISK_CLASSES:
+            return {"verdict": "REFUSED-CLASS", "floor": None,
+                    "reason": "%r is not a recognised risk class (allowed: "
+                              "%s)." % (action_class,
+                                       ", ".join(AUTONOMY_RISK_CLASSES)),
+                    "contract_id": latest["contract_id"],
+                    "revision": latest["revision"]}
+        granted = json.loads(latest["risk_classes"] or "[]")
+        if action_class not in granted:
+            return {"verdict": "REFUSED-CLASS", "floor": None,
+                    "reason": "this contract does not grant %r. Granted: "
+                              "%s." % (action_class,
+                                      ", ".join(granted) or "(none)"),
+                    "contract_id": latest["contract_id"],
+                    "revision": latest["revision"]}
+        if path is not None:
+            declared_paths = json.loads(latest["allowed_paths"] or "[]")
+            candidate = canonicalize_path(self.root, path, cwd=None)
+            if not any(paths_overlap(d, candidate) for d in declared_paths):
+                return {"verdict": "REFUSED-SCOPE", "floor": None,
+                        "reason": "%r is outside this contract's allowed "
+                                  "paths." % (candidate,),
+                        "contract_id": latest["contract_id"],
+                        "revision": latest["revision"]}
+        if surface is not None:
+            declared_surfaces = json.loads(latest["allowed_surfaces"] or "[]")
+            if surface not in declared_surfaces:
+                return {"verdict": "REFUSED-SCOPE", "floor": None,
+                        "reason": "%r is not one of this contract's "
+                                  "allowed surfaces." % (surface,),
+                        "contract_id": latest["contract_id"],
+                        "revision": latest["revision"]}
+        totals = self.spend_totals(project_id)
+        if totals["verdict"] == "hard-stop":
+            return {"verdict": "REFUSED-BREAKER", "floor": None,
+                    "reason": "spend is at or over 100 percent of a "
+                              "ceiling; the breaker has tripped.",
+                    "contract_id": latest["contract_id"],
+                    "revision": latest["revision"]}
+        return {"verdict": "ALLOWED", "floor": None,
+                "reason": "authorised against risk class %r."
+                          % (action_class,),
+                "contract_id": latest["contract_id"],
+                "revision": latest["revision"]}
+
     def dump(self, raw=False):
         """Full JSON-serializable export of every table.
 
@@ -11500,6 +12625,47 @@ class ReadOnlyStore(object):
 
     def list_attribution(self, project_id, limit=50, raw=False):
         return Store.list_attribution(self, project_id, limit=limit, raw=raw)
+
+    # -- U1: the autonomy contract layer (read-only surface) --------------
+    # Same reuse, same reason as every D-2 accessor above: each of these
+    # only ever SELECTs through _exec and redacts through _export_row (or,
+    # for gate_check and spend_totals, never writes at all), so Store's
+    # implementation works unchanged against a read-only connection.
+    # gate_check belongs here precisely BECAUSE it is a read: a diagnostic
+    # that answers 'would this have been allowed' must not need write
+    # authority. No write method (sign_contract, set_contract_state,
+    # record_spend, and the rest) is defined anywhere on this class.
+
+    def latest_contract(self, project_id, raw=False):
+        return Store.latest_contract(self, project_id, raw=raw)
+
+    def contract_revisions(self, project_id, limit=50, raw=False):
+        return Store.contract_revisions(self, project_id, limit=limit,
+                                        raw=raw)
+
+    def spend_totals(self, project_id):
+        return Store.spend_totals(self, project_id)
+
+    def list_assumptions(self, project_id, limit=200, raw=False):
+        return Store.list_assumptions(self, project_id, limit=limit,
+                                      raw=raw)
+
+    def list_interruptions(self, project_id, answered=None, raw=False):
+        return Store.list_interruptions(self, project_id,
+                                        answered=answered, raw=raw)
+
+    def list_human_steps(self, project_id, lane=None, resolved=None,
+                         raw=False):
+        return Store.list_human_steps(self, project_id, lane=lane,
+                                      resolved=resolved, raw=raw)
+
+    def recent_checkpoints(self, project_id, limit=20, raw=False):
+        return Store.recent_checkpoints(self, project_id, limit=limit,
+                                        raw=raw)
+
+    def gate_check(self, project_id, action_class, path=None, surface=None):
+        return Store.gate_check(self, project_id, action_class, path=path,
+                                surface=surface)
 
     def close(self):
         """Idempotent, same contract as Store.close()."""
