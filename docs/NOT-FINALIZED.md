@@ -33,6 +33,9 @@ not by `--limit`. That is a real cost, it was reproduced on the real CLI on
 Closing it needs a design that bounds volume WITHOUT ever dropping a gate,
 which neither lane wrote. OPEN.
 
+
+TRIAGE, 2026-08-04 (N-5 row 1, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 2, deliberately deferred, reason confirmed still true today. Never withholding a safety gate is the ratified design, and the volume cost this entry names has since been bounded without dropping any gate: the Loop 3 gate manifest with `GATE_EXPANSION_CAP = 5` (tools/bm_learning.py:1124, described in docs/KNOWN-LIMITS.md's rc.4 section) measured 5722 to 1849 characters on a 20-gate store. The entry's "nothing prevents it" framing predates the manifest and understates what shipped.
+
 ## rc.4 MERGE: approval now needs two things, and only one of them is mechanical. PARTIAL. Added 2026-07-29.
 
 `bm_learn.py approve` refuses without BOTH a one-time receipt (post-audit Loop
@@ -45,6 +48,9 @@ answer was given about this exact rule text and has not been spent, and the
 reference is prose a caller types. Neither authenticates WHICH human answered.
 Anyone who can run `grant-approval` can mint a receipt and type a reference.
 PARTIAL.
+
+
+TRIAGE, 2026-08-04 (N-5 row 2, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 3, an honest limit code cannot fix. Neither a receipt nor a typed reference can authenticate WHICH human answered on one machine, one user, no network; no code closes that. Already stated in docs/KNOWN-LIMITS.md ("Approval proves an answer, not an identity", inside "The correction-learning system: built through Loop 12"), so this stops being backlog here.
 
 ## P7 (found in passing, NOT this loop's code): the loop-close gate flakes 1 run in 16. CLOSED 2026-07-31 (Loop 2).
 
@@ -65,6 +71,9 @@ between "0" and "1" based on what it already is, so the forged token can never
 equal the real one. Proven by running the single test 100 consecutive times with
 no failure.
 
+
+TRIAGE, 2026-08-04 (N-5 row 3, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). CLOSED, nothing open to sort. Closed by Loop 2 with a collision-proof forged token, proven over 100 consecutive runs. No counter-evidence found this session.
+
 ## P7: the FTS5 fast path ships DISABLED by default. DEFERRED, deliberately.
 
 The loop's plan calls FTS5 a fast path; this build makes it opt in
@@ -75,6 +84,9 @@ BM25 is a number the founder cannot re-derive by hand, so it should not arrive
 by surprise in a tool whose selling point is explainable retrieval. The cost is
 that the measured retrieval gain is not on by default. DEFERRED.
 
+
+TRIAGE, 2026-08-04 (N-5 row 4, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 2, deliberately deferred, reason confirmed still true today. Opt-in confirmed still true (`FTS5_ENV` in tools/bm_store.py), and the reason outlives the rule: BM25 is a number the founder cannot re-derive by hand in a tool sold on explainable retrieval.
+
 ## P7: the retrieval gain is measured on ONE labelled fixture. PARTIAL.
 
 The improvement claim rests on the stemming case, reproduced on the real CLI
@@ -83,6 +95,9 @@ found under fts5 and not under lexical. That is a demonstration, not a
 benchmark. No labelled corpus of founder rules with graded relevance exists yet,
 so "FTS5 improves measured retrieval" is true of the fixture and unproven at
 scale. PARTIAL.
+
+
+TRIAGE, 2026-08-04 (N-5 row 5, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 3, an honest limit code cannot fix. Proving the gain at scale needs a labelled corpus of real founder rules with graded relevance, which is data, not code. MOVED to docs/KNOWN-LIMITS.md's "THE MEASURED GAIN RESTS ON ONE LABELLED FIXTURE" bullet inside the "P7: what the optional search index does NOT do" section.
 
 ## P7: index maintenance covers approval and edit, not every future write. UNPROVEN in general.
 
@@ -97,6 +112,9 @@ reconciled against the rules at the point retrieval consumes it, so a write site
 that forgets `_fts_write_rule` costs one rewrite of the index rather than wrong
 answers. Naming the omission is still `verify`'s job, and the mechanical
 enforcement is still missing.
+
+
+TRIAGE, 2026-08-04 (N-5 row 6, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 2, deliberately deferred, reason confirmed still true today. Since 2026-07-29 the index is reconciled against the rules at the moment retrieval consumes it, so a future write site that forgets `_fts_write_rule` costs one index rewrite, never a wrong answer. Mechanical enforcement remains `verify`'s job by design.
 
 ## P6: the run stored the founder's prompt by default. CLOSED by fix round P6.
 
@@ -113,6 +131,11 @@ the query by default since Loop 7 and was NOT changed here, because that column
 predates this loop and other paths read it. The prompt therefore still lives in
 the store, in that table, on the default `apply` path. OPEN.
 
+
+CORRECTED 2026-08-04 (N-5 row 7, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md), the OPEN remainder above. N-5 verified in code this session, confirmed independently by this agent with `grep -n "store-excerpt" tools/bm_learn.py tools/bm_store.py`: the default `apply` excerpt is now the bounded term set (`tools/bm_store.py` near line 8124, comment naming this as "the headline defect"), and verbatim prose is stored in `learning_applications.task_excerpt` only under the explicit `--store-excerpt` opt-in in `tools/bm_learn.py` (present at lines 707, 797 and 800), covered by a test in `tools/test_bm_store.py`. The OPEN remainder this entry names, that `task_excerpt` "has kept the query by default since Loop 7", is STALE: it no longer does by default.
+
+TRIAGE, 2026-08-04 (N-5 row 7, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). CLOSED, nothing open to sort, following the correction immediately above.
+
 ## P6: a task's vocabulary is still stored, even though its prose is not. OPEN.
 
 The term set is not the prompt, and it is not nothing either: it names the words
@@ -122,6 +145,9 @@ Refusing to store terms at all would make every retrieval that returned nothing
 permanently `not_decidable`, which is the measurement this loop exists to
 provide, so the trade was taken deliberately rather than by default.
 
+
+TRIAGE, 2026-08-04 (N-5 row 8, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 2, deliberately deferred, reason confirmed still true today. The entry itself records that the trade was taken deliberately: refusing to store terms would make every empty retrieval permanently `not_decidable`, killing the measurement the loop exists for.
+
 ## P6: `retrieval_uuid` is nullable forever, so "legacy" is a permanent state. DEFERRED.
 
 Nothing forces an application row to carry a run, and nothing ever will for the
@@ -129,6 +155,9 @@ rows that already exist. A later round could refuse to write an application
 without one, making the column effectively required for new rows while the old
 ones stay legacy. Not done here: that is a second migration and this loop
 already owns one.
+
+
+TRIAGE, 2026-08-04 (N-5 row 9, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 2, deliberately deferred, reason confirmed still true today. Schema confirmed unchanged: no NOT NULL, no later migration. Requiring it would be a second migration a loop already owning one should not take; legacy rows stay legacy either way.
 
 ## P5-fix: `apply` discloses the two-units-of-work ambiguity, it does not resolve it. PARTIAL.
 
@@ -154,6 +183,9 @@ unchanged: the deeper ambiguity this entry named first is now a hard refusal
 rather than a soft warning, which is a stronger guarantee than the entry
 originally asked for, not a weaker one.
 
+
+TRIAGE, 2026-08-04 (N-5 row 10, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). CLOSED, nothing open to sort, following the correction above. Closed by commit 259c30b: `apply` now refuses without exactly one work identity, a hard refusal stronger than the disclosure this entry originally asked for.
+
 ## P5-fix: the fixes were verified through `apply`, not through the alias. UNPROVEN.
 
 `relevant --record-applications` calls the same
@@ -162,6 +194,9 @@ this round, and `relevant` WITHOUT the flag still records nothing at all, which
 is the deprecated behaviour it is kept for. Neither statement was re-tested
 against the alias in this round beyond the existing deprecation test. Believed
 correct, not demonstrated.
+
+
+TRIAGE, 2026-08-04 (N-5 row 11, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 2, deliberately deferred. The alias calls the same `Store.record_learning_applications`, so it inherits the fixes by construction; spending new verification on a deprecated path scheduled for removal is deliberately declined. If the alias survives into 2.0.0, one test through `relevant --record-applications` is the cheap honest close.
 
 ## Loop P5: `relevant` is deprecated but not removed. DEFERRED, by design.
 
@@ -172,6 +207,9 @@ the old hole. Removal is scheduled for the next major version and is NOT done.
 
 The narrative docs still show `relevant` in their examples; see
 `docs/KNOWN-LIMITS.md`. PARTIAL.
+
+
+TRIAGE, 2026-08-04 (N-5 row 12, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 2, deliberately deferred, reason confirmed still true today. Kept so existing scripts do not break silently, with a deprecation line on every run; removal belongs to the next major version. The narrative-docs sub-note is documentation debt already carried in docs/KNOWN-LIMITS.md.
 
 ## 1. Used daily, never measured. PARTLY CLOSED. Still the highest harm.
 
@@ -194,6 +232,9 @@ test-writing closes it either. Only counting does.
 One consequence worth stating for anyone reading before an upgrade: those users
 track `main` rather than a pinned tag, so whatever lands on `main` reaches them
 on their next install.
+
+
+TRIAGE, 2026-08-04 (N-5 row 13, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 3, an honest limit code cannot fix. Real use exists and graded outcomes do not; only counting closes this, and no code produces the count. Already documented in docs/KNOWN-LIMITS.md's "Used for real, but never MEASURED on a real project" section.
 
 ## 2. Bash writes are not gated by the fence hook. OPEN.
 
@@ -246,6 +287,9 @@ narrower, named, opt-in refusal for the one destructive shape this entry's
 own reproduction used, not a general solution. It needs full operating-system
 containment to go further, not a patch.
 
+
+TRIAGE, 2026-08-04 (N-5 row 14, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 3, an honest limit code cannot fix. Not closable by design: gating Bash means parsing arbitrary shell, and full OS containment is explicitly out of scope; the C-02 narrowing (refusal plus alerting under enforced mode, recorded in the correction above) is what code can do and has shipped. Already stated at length in docs/KNOWN-LIMITS.md's rc.4-merge Bash-write-detection bullet and in SECURITY.md.
+
 ## 3. Session identity is harder to forge, not unforgeable. PARTIAL.
 
 Was: the owning value was printed in plaintext into the file every session reads,
@@ -257,6 +301,9 @@ Copying the label from STATE.md gains an attacker nothing (proven).
 Still: any process running as your user can read the token file and impersonate
 fully. Perfect unforgeability is not reachable on one machine, one user, no
 network. Documented in docs/HOOKS.md rather than overclaimed.
+
+
+TRIAGE, 2026-08-04 (N-5 row 15, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 3, an honest limit code cannot fix. Perfect unforgeability is unreachable on one machine, one user, no network: any process running as the user can read the token file. MOVED to docs/KNOWN-LIMITS.md's new "Session identity is harder to forge, not unforgeable" section.
 
 ## 4. Handovers are lock-serialized, not transactional. CLOSED, 2026-07-29 (Loop P12), REOPENED and CLOSED AGAIN the same day (P12 fix round).
 
@@ -313,6 +360,9 @@ means that second transition has no handover row of its own and the row on
 screen names the earlier one. The record always has a visible handover; the
 transition-to-handover link is what is one-to-one only up to identical text.
 
+
+TRIAGE, 2026-08-04 (N-5 row 16, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 2, deliberately deferred, reason confirmed still true today. The defect itself is closed, twice, with crash-injection and calibration tests; what remains are two deliberate residues this entry names: manual `handover-ack` (because a render must not mutate the database) and same-heading dedupe to one row (the retry dedupe doing its job). Both reasons still hold.
+
 ## 5. The adopt defect. REFUTED and CLOSED, 2026-07-28. This entry was stale.
 
 Was recorded as: a refused adoption attempt still writes a permanent "Adopted
@@ -349,6 +399,9 @@ drifts from the code it describes, and a stale OPEN is not harmless. It cost thi
 program a planned remediation loop, and had nobody re-reproduced it, the "fix"
 would have been a second fix layered on a working one.
 
+
+TRIAGE, 2026-08-04 (N-5 row 17, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). CLOSED, nothing open to sort. Refuted by reproduction and closed; the GATE 3 ordering and its calibrated test confirmed present. Kept in the file as a lesson, not as work.
+
 ## 6. Recovered work is owner-only on POSIX only. OPEN.
 
 The guarantee rests on a 0700 file mode. Windows governs access by ACLs, where
@@ -357,6 +410,9 @@ shared Windows machine, treat recovered work as readable by other local accounts
 
 Found only because the recovery suite entered CI today. Closing it needs a real
 Windows ACL call, not a softer assertion.
+
+
+FOUNDER DECISION, 2026-08-04 (item 1 of 3, N-5 row 18, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). The founder chose the conservative option: SHIP 2.0.0 with the Windows gap disclosed exactly as it stands today. Reason: the project's stdlib-only, no-subprocess law is not relaxed for it. The exposure is narrow (other local accounts on a shared Windows machine), it is honestly disclosed to the person affected at the moment it happens (the tool prints the real file mode it achieved rather than the mode it wanted), and breaking a foundational project law for it costs more than it buys. Bucket 3, an honest limit, already documented in docs/KNOWN-LIMITS.md's "Recovered work is owner-only on POSIX ONLY, not on Windows" section, which this decision does not change.
 
 ## 7. The lazy core missed its own target. PARTIAL, measured.
 
@@ -368,6 +424,9 @@ under 400 means cutting routes or the floor, and neither is worth the saving.
 
 Not re-baselined. The target stands and is unmet.
 
+
+TRIAGE, 2026-08-04 (N-5 row 19, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 2, deliberately deferred, reason confirmed still true today. 1,490 tokens against a 400 target; what remains is the triage, the safety floor and the routing rows, and cutting either is not worth 1,090 tokens. Deliberate, measured, honestly unmet.
+
 ## 8. The lazy core is UNPROVEN in the way that matters.
 
 Nothing yet demonstrates that a session actually LOADS the right reference when it
@@ -376,6 +435,9 @@ project wins are exactly the ones that decay quietly if a file is never read.
 
 The planned guard, a Stop hook that flags when depth was warranted but never
 loaded, is NOT built.
+
+
+TRIAGE, 2026-08-04 (N-5 row 20, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 2, deliberately deferred. Proving sessions load the right reference requires observing real sessions, the same measurement problem as item 1; the planned Stop-hook guard belongs with the dogfood window, the same gating docs/KNOWN-LIMITS.md already applies to the Loop 11B hook.
 
 ## 9. Three scoring checks are red. OPEN.
 
@@ -402,6 +464,9 @@ reports NO-DATA rather than exercising these checks. The exact count of red
 checks is not a fact worth keeping current in this file; it drifts by the
 hour with ordinary use, which is the nature of a live telemetry gate rather
 than a code defect.
+
+
+TRIAGE, 2026-08-04 (N-5 row 21, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 2, deliberately deferred, reason confirmed still true today. These are live telemetry hygiene counters that drift by the hour with ordinary use, as this entry's own 2026-08-04 addendum above says, not code defects a release fixes. The CI NO-DATA structure is the nature of a local-vault-dependent gate and is disclosed above.
 
 ## 10. The suites cannot be run concurrently. OPEN, now mitigated but not fixed.
 
@@ -460,6 +525,9 @@ spend goes up. Plausible mechanism is that contention makes suites take ten time
 longer (test_bm went from 20 seconds to 202), which produces timeouts, re-runs and
 flakes, each costing a full diagnostic round.
 
+
+TRIAGE, 2026-08-04 (N-5 row 22, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 2, deliberately deferred, reason confirmed still true today. The serial `test_all.py` gate is the documented safe path, now also in CI per this entry's own 2026-08-04 correction above; removing the module-rename technique is a test-architecture change deliberately not taken. A public user following the documented gate never hits the hazard.
+
 ## 11. Phase 3, the public install, is DEFERRED.
 
 Not started, by your own sequencing decision: blockers first, and nothing public
@@ -488,6 +556,9 @@ happened yet, and no external user has ever installed either path. The
 Windows-native hook dispatcher this item also asked for is still not built, so the
 documented install path remains shell-dependent on that front.
 
+
+FOUNDER DECISION, 2026-08-04 (item 2 of 3, N-5 row 23, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). The founder chose the conservative option: the Windows-native hook dispatcher is OUT OF SCOPE for 2.0.0, carried to 2.1. Reason: the installer refusing outright is honest and already shipped, and a clean refusal beats a silent half-install; the store and recovery suites do cover Windows for users who reach it via WSL, and a dispatcher built without a single observed external Windows install is effort ahead of evidence. Bucket 2, deliberately deferred. What already shipped (the installer, the plugin) is unaffected by this decision; only the native-Windows dispatcher moves to 2.1.
+
 ## 12. The independent re-audit was never run. DEFERRED.
 
 The plan's Loop 0 was a closing adversarial pass against all 17 findings plus the
@@ -498,6 +569,9 @@ It did not run. So "all 17 closed" rests on MY verification of the fixes plus CI
 not on an independent adversary re-attacking them. That is weaker evidence than
 the finding of each defect, which came from an outside auditor.
 
+
+TRIAGE, 2026-08-04 (N-5 row 24, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 3, an honest limit code cannot fix. Code cannot supply an independent adversary from a second model family. Already documented in docs/KNOWN-LIMITS.md's "No independent second-model review" bullet, with the reopening condition that it becomes work again the day the founder funds it.
+
 ## 13. Orchestration practice did not improve, only the outcome did.
 
 Fences were written AFTER dispatch three times. Two agents were given the same
@@ -507,10 +581,16 @@ text file. No collision resulted, because the write sets happened to be disjoint
 Scored flat rather than up, because scoring a lucky outcome is how a scorecard
 becomes flattery.
 
+
+TRIAGE, 2026-08-04 (N-5 row 25, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 3, an honest limit code cannot fix. A process observation about fence-before-dispatch discipline and a lucky non-collision; there is no code fix, only practice. MOVED to docs/KNOWN-LIMITS.md's new "Orchestration practice did not improve, only the outcome did" section.
+
 ## 14. Findings 16 to 63 of the FIRST audit were triaged by class.
 
 Never individually re-proven. Stated in the limits file so nobody mistakes triage
 for verification. Unchanged this session.
+
+
+TRIAGE, 2026-08-04 (N-5 row 26, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 3, an honest limit code cannot fix. Individual re-proof of 48 findings is exactly the independent re-audit of item 12 and inherits its wall. Already documented in docs/KNOWN-LIMITS.md's "What was checked by class rather than individually" section.
 
 ## 15. `dump` redaction is a secret scrubber, not a redactor. OPEN. Found 2026-07-28.
 
@@ -566,6 +646,9 @@ The PROSE gap this entry opened with is UNCHANGED and still OPEN for
 A scrubber that now matches its own documented token shapes is still not a
 redactor of ordinary sentences.
 
+
+FOUNDER DECISION, 2026-08-04 (item 3 of 3, N-5 row 27, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). The founder chose the conservative option: KEEP the four prose columns (`records.evidence`, `records.objective`, `digests.body`, `transitions.note`) in non-raw `dump`, disclosed plainly. Reason: this follows the founder's own 2026-07-31 ruling (recorded in docs/KNOWN-LIMITS.md, "An approved rule's own `because_text` appears in `applications` output, and that is settled") that prose he wrote and can review is a feature, it preserves `dump`'s diagnostic value, and the harm only arises when output is shared unread, which disclosure addresses at the moment it matters. Bucket 2, deliberately deferred. The remaining work is small and testable once picked: one sentence in `dump`'s own output naming the columns whose ordinary prose is not redacted, plus the SECURITY.md export-posture sentence this entry itself asks for; neither has landed yet as of this triage pass.
+
 ## 16. `bm_store.py claim --help` claims a record named `--help`. CLOSED 2026-07-30 (Loop 0).
 
 Reproduced: `python3 tools/bm_store.py claim --help` prints
@@ -586,6 +669,9 @@ One helper, `_require_positional` (`tools/bm_store.py:9475`), now refuses any
 touched. Calibrated: reverting the helper turns six of the seven new tests red and
 errors the seventh, which is the evidence that they test the fix rather than
 agreeing with it.
+
+
+TRIAGE, 2026-08-04 (N-5 row 28, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). CLOSED, nothing open to sort. Closed wider than filed: `_require_positional` covers seven commands, calibrated by reversion.
 
 ## 17. The English-only, 400-character correction filter. CLOSED 2026-07-29 (Loop 4).
 
@@ -612,6 +698,9 @@ Still true, and stated rather than implied:
   accuracy.
 - Nothing measures recall on a real day of the founder's work yet. That is item
   1, and it stays open.
+
+
+TRIAGE, 2026-08-04 (N-5 row 29, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). CLOSED, nothing open to sort. The filter is closed: three language packs, excerpting instead of dropping, proven through the real CLI. Its residue bullets are the recall-gap honest limit already stated inside the entry and the measurement gap that is item 1's bucket 3; nothing separate to sort here.
 
 ### 17b. What Loop 4 owed the plan and did not build. OPEN, added 2026-07-29.
 
@@ -640,6 +729,9 @@ here so nobody reads "Loop 4 closed" as "Loop 4 complete":
   not written. The record travels with channel 3 candidates instead.
 
 ---
+
+
+TRIAGE, 2026-08-04 (N-5 row 30, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 2, deliberately deferred, reason confirmed still true today. Both open bullets are deliberate with reasons that still hold: no automatic rework detector because a wrong automatic verdict is review cost the founder did not ask for (no scheduler invokes `capture_outcome_candidate`), and the correction row omits a work record because telemetry cannot resolve one, so it travels with channel 3 candidates instead.
 
 ## 18. What Loop 6 built, and what its conflict detector cannot see. Added 2026-07-29.
 
@@ -692,6 +784,9 @@ What is honestly limited, and why each limit was chosen rather than missed:
   pair keeps showing up in `conflicts`, in `relevant`, and as a `verify`
   finding until the founder resolves it.
 
+
+TRIAGE, 2026-08-04 (N-5 row 31, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 2, deliberately deferred, reason confirmed still true today. All five OPEN sub-items carry stated reasons that still hold: lexical detection with the blind spot pinned by a test and a manual `link` escape hatch, no scope-containment guessing on no evidence, no edit CLI because founder surface is a design decision (`grant-edit` still absent), the source-candidate receipt quirk is a correct refusal, and O(n squared) is fine at tens of rows.
+
 ### Correction round, 2026-07-29: four ways the done gate leaked
 
 Found by driving the real CLI against a throwaway store while all four suites
@@ -731,6 +826,9 @@ trade: the founder narrows one scope, or overrides with a stated reason that is
 recorded as an edge. It does mean the refusal fires more often than it did.
 
 ---
+
+
+TRIAGE, 2026-08-04 (N-5 row 32, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). CLOSED, nothing open to sort. Historical fix record, all four defects fixed with calibrated regression tests; the stricter-refusal trade it opened is part of item 18's deliberate design. Nothing open of its own.
 
 ## 19. What Loop 7 built, and what it still cannot see. Added 2026-07-29.
 
@@ -798,6 +896,9 @@ flag would have been.
 
 ---
 
+
+TRIAGE, 2026-08-04 (N-5 row 33, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 2, deliberately deferred, reason confirmed still true today. The remaining bullets are deliberate limits whose reasons hold: context reconstruction undercounts misses in the safe direction, limit-miss semantics are stated, the classifier reports what it is told by design, and the real-day caveat is item 1's bucket 3. The SKILL.md bullet closed per this entry's own 2026-08-04 correction above; DIGEST.md staying short is what a digest is.
+
 ## 20. What Loop 8 built, and what its correction round fixed. Added 2026-07-29.
 
 Before this loop, `learning_applications` could record that a rule was shown and
@@ -858,6 +959,9 @@ What is still honestly open, stated rather than discovered later:
 
 ---
 
+
+TRIAGE, 2026-08-04 (N-5 row 34, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 2, deliberately deferred, reason confirmed still true today. Same standing as item 17b: no automatic detector, deliberately, for the same review-cost reason; the weaker session-only grading path is honestly named in the entry; real-day grading is item 1's bucket 3.
+
 ## 21. Approval receipts landed in code; three documents still describe the old flow. CLOSED 2026-07-31.
 
 Post-audit LOOP 3 (Model A) closed the audit finding in `tools/bm_learn.py`,
@@ -899,6 +1003,9 @@ cannot be read as claiming founder identity authentication.
 
 ---
 
+
+TRIAGE, 2026-08-04 (N-5 row 35, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). CLOSED, nothing open to sort. All six doc sites corrected and SECURITY.md carries the receipts-are-secrets section; mechanism confirmed still enforced.
+
 ## 22. `complete <short-prefix>` blames a missing record for unsupported prefix resolution. CLOSED 2026-07-31.
 
 Reproduced twice by the orchestrator driving the real binary while the suite was
@@ -920,6 +1027,9 @@ shorthand arrives. An unknown or ambiguous prefix still refuses, and now names
 the record it could not find. Three tests, including a calibration that drives
 `transition()` with a raw prefix and confirms the original misleading refusal
 still reproduces at that layer.
+
+
+TRIAGE, 2026-08-04 (N-5 row 36, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). CLOSED, nothing open to sort. Resolved at the CLI layer with `_resolve_record_uuid`, three tests including a calibration; confirmed still wired.
 
 ## 23. The two oldest published tags are lightweight, not annotated. OPEN (low impact). Found 2026-07-31, and this entry's first version was WRONG.
 
@@ -950,6 +1060,9 @@ this project refuses to perform on its own initiative.
 
 The lesson is the entry itself: it was written from a fetch warning rather than
 from a comparison, and the comparison took one command.
+
+
+TRIAGE, 2026-08-04 (N-5 row 37, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 3, an honest limit code cannot fix. Fixing it means force-updating two published refs, which this project refuses permanently on principle, so it will never be done through code. MOVED to docs/KNOWN-LIMITS.md's new "The two oldest published release tags are lightweight, not annotated" section.
 
 ## 24. The two handover flakes were not reproduced, but a THIRD load-sensitive failure was found and FIXED. 2026-07-31.
 
@@ -1004,6 +1117,9 @@ three times under the five-process load that produced the original failure.
 still derives its ceiling from `small`. It has not failed, and it was left alone
 rather than changed on the same day its neighbour was, but it is the identical shape
 and should move to a ratio next time that file is opened.
+
+
+TRIAGE, 2026-08-04 (N-5 row 38, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 3, an honest limit code cannot fix. The two flakes are UNDECIDABLE: one never reproduced under deliberate load, the other's test no longer exists; code cannot fix what cannot be reproduced, and the CI annotation wrapper already captures any recurrence. MOVED to docs/KNOWN-LIMITS.md's new "The two handover flakes were not reproduced; a third was, and is fixed" section.
 
 ## What is genuinely finished
 

@@ -121,9 +121,20 @@ CORRECTION_RE = re.compile(
 
 
 def fld(rec, keys, default=0):
+    """The first present key's value, or `default` when none is present OR
+    the value present is not a real number (N-6 finding 1, 2026-08-04): a
+    ledger row that parses as valid JSON but carries `null` (or a string)
+    where a token count belongs used to return that value UNCHANGED, so the
+    numeric sums built on top of this function raised TypeError, which the
+    blanket handler in main() then swallowed into one cryptic line instead
+    of the nine-metric scorecard. read_jsonl's malformed-line reporting
+    cannot catch this: the row parses fine, it is just the wrong type."""
     for k in keys:
         if k in rec:
-            return rec[k]
+            v = rec[k]
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                return v
+            return default
     return default
 
 
@@ -488,6 +499,13 @@ def scan_corrections(sid, project, user_texts):
     here is a rule: the founder's review through bm_learn.py decides that, and
     no code path in this file can approve anything.
 
+    Returns (found, dropped): found is how many candidates were actually
+    appended (bounded by CORRECTION_CAP_PER_SESSION, the earliest distinct
+    candidates win, unchanged behaviour); dropped is how many additional
+    distinct candidates matched but did not fit under the cap (N-6 finding
+    6, 2026-08-04: this used to be silently discarded with no count kept
+    at all).
+
     Loop 4 (2026-07-29) closed docs/NOT-FINALIZED.md item 17. What changed, and
     why, because the old behaviour was MEASURED rather than guessed: the filter
     was one English regex with a hard 400-character cap, and of five real
@@ -524,9 +542,8 @@ def scan_corrections(sid, project, user_texts):
     seen = {(c.get("session_id"), _dedup_text(learning, c.get("text")))
             for c in read_jsonl(CORRECTIONS) if isinstance(c, dict)}
     found = 0
+    dropped = 0
     for item in user_texts:
-        if found >= CORRECTION_CAP_PER_SESSION:
-            break
         # A caller may pass plain strings (older fixtures and any caller that
         # has no transcript) or the paired dicts parse_transcript now builds.
         if isinstance(item, dict):
@@ -557,6 +574,15 @@ def scan_corrections(sid, project, user_texts):
         key = (sid, _dedup_text(learning, clean))
         if key in seen:
             continue
+        if found >= CORRECTION_CAP_PER_SESSION:
+            # N-6 finding 6 (2026-08-04): capture still stops at the cap
+            # (the earliest CORRECTION_CAP_PER_SESSION distinct candidates
+            # are kept, unchanged), but this now COUNTS what the cap
+            # dropped instead of silently discarding it: the docstring
+            # above records that the Loop 4 redesign exists precisely
+            # because corrections used to be dropped without a trace.
+            dropped += 1
+            continue
         rec["text"] = clean
         if nred:
             rec["redactions"] = nred
@@ -585,7 +611,7 @@ def scan_corrections(sid, project, user_texts):
         atomic_append(CORRECTIONS, rec, mode=0o600)
         seen.add(key)
         found += 1
-    return found
+    return found, dropped
 
 
 def cmd_outcomes_append():
@@ -647,9 +673,14 @@ def cmd_outcomes_append():
             print("bm_telemetry: duplicate flush for %s (identical metrics); not recorded" % sid[:8])
             return
     atomic_append(LEDGER, rec)
-    ncorr = scan_corrections(sid, project, main["user_texts"])
-    print("bm_telemetry: recorded %s (%dk out, %d tools, %.1fh, %d correction candidates)"
-          % (sid[:8], main["out"] // 1000, main["tool_calls"], hours, ncorr))
+    ncorr, ndropped = scan_corrections(sid, project, main["user_texts"])
+    # N-6 finding 6 (2026-08-04): the per-session cap used to stop capture
+    # silently; the drop is now named in the same line the founder already
+    # reads at every SessionEnd.
+    cap_note = (" (%d more matched but were not captured, cap %d/session)"
+                % (ndropped, CORRECTION_CAP_PER_SESSION)) if ndropped else ""
+    print("bm_telemetry: recorded %s (%dk out, %d tools, %.1fh, %d correction candidates%s)"
+          % (sid[:8], main["out"] // 1000, main["tool_calls"], hours, ncorr, cap_note))
 
 
 def cmd_migrate():
@@ -771,7 +802,8 @@ def cmd_speed():
     """Rubric metric 3 feed. HONEST LABELS: duration_h is the span from first to
     last message (includes idle), and OUTCOMES lines are human-recorded runs, a
     PROXY for shipped surfaces. No proxy, no number."""
-    rows = real_sessions(read_jsonl(LEDGER))
+    led, led_bad = read_jsonl(LEDGER, report_bad=True)
+    rows = real_sessions(led)
     def window(lo, hi):
         w = [r for r in rows if lo <= (age_days(r.get("ts", "")) or 999) < hi]
         return {"sessions": len(w),
@@ -780,12 +812,29 @@ def cmd_speed():
     cur, prev = window(0, 7), window(7, 14)
     cur_runs, prev_runs = outcomes_lines_in_window(0, 7), outcomes_lines_in_window(7, 14)
     print("BROTHERMODE SPEED (metric 3 feed; span-hours include idle, runs are OUTCOMES lines)")
+    if led_bad:
+        # N-6 finding 3 (2026-08-04): the same ledger cmd_scorecard warns
+        # about was read here silently; this line matches that warning's
+        # wording so the two commands never disagree about what they saw.
+        print("  WARNING: %d malformed ledger line(s) could not be parsed and are excluded "
+              "from every count below; nothing was deleted." % len(led_bad))
     for label, w, runs in (("last 7d ", cur, cur_runs), ("prior 7d", prev, prev_runs)):
         per = ("%.1f span-h/run" % (w["hours"] / runs)) if runs else "no runs recorded"
         print("  %s: %d sessions, %.1f span-h, %dk out, %d recorded runs -> %s"
               % (label, w["sessions"], w["hours"], w["outk"], runs, per))
     if not (cur_runs and prev_runs):
         print("  trend: NO-DATA (both windows need recorded runs; nothing is invented)")
+    # N-6 finding 10 (2026-08-04): a row timestamped ahead of the clock
+    # yields a negative age, which fails BOTH windows' `lo <= age` test, so
+    # it used to vanish from this command entirely while cmd_scorecard
+    # (age <= 7, no lower bound) still counted it. Reachable via clock
+    # skew, a hand-edited timestamp, or a restored backup; named here
+    # rather than invented into either window.
+    future = [r for r in rows if (age_days(r.get("ts", "")) or 0) < 0]
+    if future:
+        print("  NOTE: %d session(s) have a timestamp ahead of the clock (clock skew, "
+              "a hand-edited timestamp, or a restored backup) and are excluded from "
+              "both windows above." % len(future))
 
 
 def read_jsonl(path, report_bad=False):
@@ -869,7 +918,22 @@ def _coordination_collisions(cwd):
     resume-vs-respawn as judged weekly from OUTCOMES incidents, not computed
     here. Returns (n, note): n is an int when a store was found and read, or
     None with a one-line reason (no bm_store module, no resolvable root, or
-    no store initialized yet at that root)."""
+    no store initialized yet at that root).
+
+    FIX (N-6 finding 5, 2026-08-04): this used to call bm_store.verify() and
+    count problem strings whose PROSE started with the literal 'active
+    claims overlap', so an ordinary wording edit to that message in
+    tools/bm_store.py would silently drop this count to zero while
+    verify() itself still reported the problem -- the unmovable-number
+    defect returning through the back door. tools/bm_store.py is outside
+    this fix's write fence, so instead of exporting a shared prefix
+    constant there (the smallest fix if that file were in scope), this now
+    runs the SAME invariant verify() runs (two ACTIVE claims whose paths
+    overlap) directly against the store's own tables via the public
+    bm_store.ReadOnlyStore and bm_store.paths_overlap. A rewording of
+    verify()'s message can no longer change this number either way; the
+    tradeoff is that this now depends on bm_store's schema (table/column
+    names) rather than its prose, which is the more stable of the two."""
     bm_store, err = _get_bm_store()
     if bm_store is None:
         return None, "bm_store.py unavailable (%s)" % err
@@ -877,10 +941,25 @@ def _coordination_collisions(cwd):
     if root is None:
         return None, "no BrotherMode project root found from %s" % cwd
     try:
-        problems = bm_store.verify(root)
+        store = bm_store.ReadOnlyStore(root)
+        try:
+            active_claims = store.conn.execute(
+                "SELECT c.path AS path, c.lifecycle_uuid AS lifecycle_uuid "
+                "FROM claims c JOIN records r ON r.lifecycle_uuid = c.lifecycle_uuid "
+                "WHERE r.state='active'").fetchall()
+        finally:
+            store.close()
     except Exception as e:
-        return None, "store.verify() could not run (%r)" % (e,)
-    return sum(1 for p in problems if p.startswith("active claims overlap")), None
+        return None, "store read could not run (%r)" % (e,)
+    n = 0
+    for i in range(len(active_claims)):
+        for j in range(i + 1, len(active_claims)):
+            a, b = active_claims[i], active_claims[j]
+            if a["lifecycle_uuid"] == b["lifecycle_uuid"]:
+                continue
+            if bm_store.paths_overlap(a["path"], b["path"]):
+                n += 1
+    return n, None
 
 
 def cmd_scorecard():
@@ -889,7 +968,7 @@ def cmd_scorecard():
     ratings, ratings_bad = read_jsonl(RATINGS, report_bad=True)
     reviews, reviews_bad = read_jsonl(REVIEWS, report_bad=True)
     corrections, corr_bad = read_jsonl(CORRECTIONS, report_bad=True)
-    signals = read_jsonl(SIGNALS)
+    signals, signals_bad = read_jsonl(SIGNALS, report_bad=True)
     n_rework = sum(1 for s in signals if s.get("kind") == "rework")
     n_escaped = sum(1 for s in signals if s.get("kind") == "escaped-defect")
     preds = prediction_counts()
@@ -908,13 +987,13 @@ def cmd_scorecard():
     avg_rating = round(sum(x["score"] for x in attributed) / len(attributed), 2) if attributed else None
     last_review = max((x.get("ts", "") for x in reviews), default=None)
     lr_age = age_days(last_review) if last_review else None
-    bad_total = len(led_bad) + len(ratings_bad) + len(reviews_bad) + len(corr_bad)
+    bad_total = len(led_bad) + len(ratings_bad) + len(reviews_bad) + len(corr_bad) + len(signals_bad)
     print("BROTHERMODE SCORECARD  (mechanical fields computed; judgment fields scored at weekly review)")
     if bad_total:
         print("WARNING: %d malformed ledger line(s) could not be parsed and are excluded from "
-              "every count below (ledger=%d ratings=%d reviews=%d corrections=%d); the raw "
+              "every count below (ledger=%d ratings=%d reviews=%d corrections=%d signals=%d); the raw "
               "files are untouched, nothing was deleted (migrate/dedup preserve a byte-exact backup)."
-              % (bad_total, len(led_bad), len(ratings_bad), len(reviews_bad), len(corr_bad)))
+              % (bad_total, len(led_bad), len(ratings_bad), len(reviews_bad), len(corr_bad), len(signals_bad)))
     print("ledger: %d sessions, %d last 7d, %dk out last 7d, %d correction candidates pending, "
           "%d rework signal(s), %d escaped defect(s)"
           % (len(rows), len(recent), out7 // 1000, len(corrections), n_rework, n_escaped))
@@ -934,10 +1013,15 @@ def cmd_scorecard():
           "trend NOT DECIDABLE at this session volume (see RUBRIC.md), judged directionally at weekly review")
     diverged_txt = ("%d/%d" % (preds["diverged_hits"], preds["diverged_scored"])) \
         if preds["diverged_scored"] else "0 scored divergent predictions"
+    # N-6 finding 11 (2026-08-04): avg_rating is the Python literal None
+    # when there are no attributed ratings; printed with %s that read as
+    # the literal string "avg=None" instead of an absent value. Metric 9
+    # below prints "no data" for the identical situation; matched here.
+    avg_txt = ("%.2f" % avg_rating) if avg_rating is not None else "no data"
     print("4 alignment     : ratings=%d avg=%s (unattributed=%d, never averaged), "
           "prediction alignment (diverged only)=%s, corrections captured=%d, rework=%d, escaped-defects=%d "
           "(10: avg>=4.5 + 0 repeats 2wk)"
-          % (len(attributed), avg_rating, len(unattributed), diverged_txt,
+          % (len(attributed), avg_txt, len(unattributed), diverged_txt,
              len(corrections), n_rework, n_escaped))
     print("5 memory        : canonical=%s; registry + vault hygiene judged weekly" % LEDGER)
     print("6 honesty       : floor gate; escaped defects=%d (signals.jsonl); "
@@ -1121,7 +1205,13 @@ def cmd_startup_nags():
         print("BROTHERMODE NAG: weekly review has NEVER run; run tools/WEEKLY-REVIEW.md this week.")
     elif a > 7:
         print("BROTHERMODE NAG: weekly review overdue (%.0f days); run tools/WEEKLY-REVIEW.md." % a)
-    led = real_sessions(read_jsonl(LEDGER))
+    led_raw, led_bad = read_jsonl(LEDGER, report_bad=True)
+    led = real_sessions(led_raw)
+    if led_bad:
+        # N-6 finding 3 (2026-08-04): same silently-reduced-ledger defect as
+        # cmd_speed, same disclosure wording.
+        print("BROTHERMODE NAG: %d malformed ledger line(s) excluded from the counts "
+              "below; nothing was deleted." % len(led_bad))
     y = [r for r in led if 0.0 <= (age_days(r.get("ts", "")) or 99) <= 1.0]
     if y:
         yk = sum(fld(r, OUT_KEYS) + r.get("sub_out_tokens", 0) for r in y)
@@ -1294,6 +1384,15 @@ def cmd_fence_lint(argv):
         print("LIVE FENCES (fence-then-dispatch; overlap means queue):")
         for h in hits[:8]:
             print("  " + h)
+        if len(hits) > 8:
+            # N-6 finding 8 (2026-08-04): this used to print only the first
+            # eight with no count of how many were hidden, so a dispatcher
+            # reading the output could conclude a file set was free when a
+            # ninth-or-later fence over it existed. This command's own
+            # docstring is that "no writer launches into an occupied file
+            # set", so the count has to be honest even when the list is not.
+            print("  ... %d more not shown (%d live fences total)"
+                  % (len(hits) - 8, len(hits)))
     else:
         print("fence-lint: no live fences found under %s" % cwd)
 
@@ -1342,6 +1441,14 @@ def _git_ref(git_dir, ref):
 
 
 def cmd_check_update():
+    # N-6 finding 9 (2026-08-04): this used to have no consent check of its
+    # own, protected only by tools/bm_sessionstart.sh checking consent
+    # before invoking it -- a gate on the hook line, not the command,
+    # which this file's own history (see cmd_stop_warn's docstring above)
+    # already names as the wrong placement. Silent return, no message,
+    # matching cmd_stop_warn's own precedent for a hook-driven command.
+    if not _consented():
+        return
     git_dir = os.path.join(SKILL_DIR, ".git")
     if not os.path.isdir(git_dir):
         return                      # not a git install; nothing to compare
@@ -1462,6 +1569,23 @@ def _legacy_project_of(cwd):
     return "%s-%s" % (base, h)
 
 
+def _bm_store_unavailable_notice(caller):
+    """N-6 finding 4 (2026-08-04): _resolve_root_quiet returns (None, None)
+    on ANY failure, including bm_store.py being unimportable, and callers
+    used to fall back to a per-folder identity formula with nothing
+    printed -- a silent degradation in a file whose own docstring (line 506
+    to 509) states that the honest form of never blocking is a LABELLED
+    degradation. Only fires when bm_store.py itself could not be loaded;
+    a genuinely rootless folder (no marker, no git) is the documented,
+    non-buggy fallback and stays quiet."""
+    bm_store, err = _get_bm_store()
+    if bm_store is None:
+        print("BROTHERMODE: %s degraded to the legacy per-folder identity because "
+              "bm_store.py could not be loaded (%s); a session where it loads will "
+              "resolve a different identity for the same project." % (caller, err),
+              file=sys.stderr)
+
+
 def _project_of(cwd):
     """Project identity used to key per-project telemetry files (intent log,
     resume brief). MUST resolve the same canonical ROOT bm_store.py and
@@ -1474,6 +1598,7 @@ def _project_of(cwd):
     working outside a BrotherMode project instead of refusing."""
     root, _source = _resolve_root_quiet(cwd)
     if root is None:
+        _bm_store_unavailable_notice("project identity")
         return _legacy_project_of(cwd)
     base = re.sub(r"[^A-Za-z0-9_.-]", "_", os.path.basename(root.rstrip("/"))) or "session"
     h = hashlib.sha1(os.path.abspath(root).encode("utf-8", "replace")).hexdigest()[:6]
@@ -1494,6 +1619,7 @@ def _vault_project_name(cwd):
     root, _source = _resolve_root_quiet(cwd)
     if root:
         return os.path.basename(root) or root
+    _bm_store_unavailable_notice("vault project name")
     return os.path.basename(cwd) or cwd
 
 
@@ -1531,7 +1657,16 @@ def _intent_path(cwd):
 def cmd_intent(argv):
     """Append one write-ahead intent line. Called by the session BEFORE a risky or
     long action so that if the session dies mid-action, the intent is already on
-    disk. Pure: appends to a file, nothing else."""
+    disk. Pure: appends to a file, nothing else.
+
+    N-6 finding 9 (2026-08-04): this used to have no consent check of its
+    own, protected only by tools/bm_sessionstart.sh checking consent before
+    invoking it. Unlike cmd_check_update, this is also typed by hand by a
+    founder, so it prints the same explanatory sentence
+    cmd_outcomes_append already uses rather than returning silently."""
+    if not _consented():
+        print("bm_telemetry: setup is not complete yet; run: python3 scripts/setup.py")
+        return
     text = " ".join(argv).strip()
     if not text:
         print("usage: intent \"next: <what>, because <why>\"")
@@ -1833,10 +1968,21 @@ def cmd_compact_hint():
 
 
 def _read_head(path, limit_chars=6000):
+    """The first `limit_chars` of `path`, with an explicit marker naming how
+    many characters were cut when the file is longer (N-6 finding 7,
+    2026-08-04): this used to cut silently, mid-line, with no sign anywhere
+    in the assembled handoff that anything was missing, even though the
+    handoff tells its reader it is 'a snapshot, not the living record'.
+    Mirrors the omission-marker style _response_digest already uses."""
     try:
-        return open(path, errors="replace").read()[:limit_chars]
+        text = open(path, errors="replace").read()
     except OSError:
         return ""
+    if len(text) <= limit_chars:
+        return text
+    omitted = len(text) - limit_chars
+    return text[:limit_chars] + (
+        "\n\n[...%d characters omitted, truncated for this handoff snapshot]" % omitted)
 
 
 def cmd_handoff(argv):
