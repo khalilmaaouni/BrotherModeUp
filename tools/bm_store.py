@@ -5000,11 +5000,16 @@ class Store(object):
         if fv > SCHEMA_VERSION:
             # Deliberately NOT a quarantine. Moving a newer, healthy store
             # aside because an older binary opened it would destroy exactly the
-            # data the newer binary was looking after.
+            # data the newer binary was looking after. And deliberately NOT
+            # StoreCorrupt either (2026-08-04): the CLI prefixes every
+            # StoreCorrupt with "STORE CORRUPT", which is a frightening lie
+            # about a store whose only property is being ahead of this copy.
             self._refuse_without_quarantine(
-                "store schema_version is %d but this BrotherMode understands at "
-                "most %d. Upgrade BrotherMode; do not downgrade the store. "
-                "Nothing was touched." % (fv, SCHEMA_VERSION))
+                "store is at schema %d; this BrotherMode only understands up to "
+                "schema %d. This is not corruption: the store is healthy and "
+                "ahead of this copy of BrotherMode. Upgrade BrotherMode to read "
+                "it; do not downgrade the store. Nothing was touched."
+                % (fv, SCHEMA_VERSION), reason="schema-ahead")
         expected = _TABLES_BY_VERSION.get(fv)
         if expected is None:
             self._quarantine_and_raise(
@@ -5020,17 +5025,21 @@ class Store(object):
         if fv == SCHEMA_VERSION:
             return
         # A known older version, structurally intact. Migrate, or refuse
-        # clearly if this caller is not allowed to write.
+        # clearly if this caller is not allowed to write. The old wording here
+        # named "`verify` through the writable path", which does not exist:
+        # verify(root) always opens a ReadOnlyStore, so following that advice
+        # could never migrate anything (corrected 2026-08-04).
         if not migrate:
             self._refuse_without_quarantine(
-                "store is at schema %d and this BrotherMode is at %d. A "
-                "read-only command cannot migrate it. Run any normal "
-                "BrotherMode command (for example `verify` through the writable "
-                "path, or `claim`) once to migrate, then retry. Nothing was "
-                "touched." % (fv, SCHEMA_VERSION))
+                "store is at schema %d; this BrotherMode reads schema %d. This "
+                "is not corruption, just an upgrade waiting to happen, and your "
+                "data is fine. Run any writable command (for example `claim` or "
+                "`checkpoint`) once and it migrates automatically, then retry "
+                "this command. Nothing was touched yet."
+                % (fv, SCHEMA_VERSION), reason="schema-behind")
         self._migrate_from(fv)
 
-    def _refuse_without_quarantine(self, message):
+    def _refuse_without_quarantine(self, message, reason=None):
         """Refuse an open WITHOUT moving the store aside, closing the handle on
         the way out.
 
@@ -5039,11 +5048,41 @@ class Store(object):
         moving it would be the only data loss in the situation. But a refusal
         still has to close the connection it opened: the leak detector in
         test_bm_store.py exists because an unclosed handle passes on POSIX and
-        fails on Windows, which is how it reached CI run 18 undetected."""
+        fails on Windows, which is how it reached CI run 18 undetected.
+
+        `reason` says WHICH of those two things this is, and changes the
+        exception (2026-08-04). Not moving the file was never enough: every
+        caller that catches StoreCorrupt prints "STORE CORRUPT: ..." and exits
+        1, so a founder whose store was one version behind was told their data
+        was damaged when nothing was wrong with it at all. With a reason, this
+        raises OwnershipRefused instead, which the CLI already prints as
+        "refused (<reason>): ..." at exit 2, the code this project already uses
+        everywhere for "this is about your situation, not your file". Without
+        one, it stays StoreCorrupt: the pre-migration-backup failure below is a
+        real write failure mid-migration, not a healthy store.
+
+        The two reasons are written out one branch each, with the code as a
+        LITERAL string, on purpose. A single OwnershipRefused(reason, message)
+        here would pass a variable, which
+        test_structural_every_ownership_refusal_names_a_reason_code cannot
+        read: that guard parses this file and requires every OwnershipRefused
+        call to name its reason literally, because sixteen call sites written
+        as OwnershipRefused(message, reason=...) reached a live dogfood run in
+        Loop 2. Exempting a raise from it to save two lines is how the next
+        sixteen get in."""
         try:
             self.close()
         except Exception:
             pass
+        if reason == "schema-ahead":
+            raise OwnershipRefused("schema-ahead", message)
+        if reason == "schema-behind":
+            raise OwnershipRefused("schema-behind", message)
+        if reason is not None:
+            raise ValueError(
+                "_refuse_without_quarantine got an unknown reason code %r; add "
+                "its branch above rather than raising an unnamed refusal"
+                % (reason,))
         raise StoreCorrupt(message)
 
     def _migrate_from(self, from_version):
@@ -11395,15 +11434,23 @@ class ReadOnlyStore(object):
         # never migrate. It gets a clear "needs migration" refusal instead.
         return Store._verify_schema_or_raise(self)
 
-    def _refuse_without_quarantine(self, message):
+    def _refuse_without_quarantine(self, message, reason=None):
         """Borrowed for the same reason as _verify_schema_or_raise above, and
         MISSING until a live probe caught it (correction-learning Loop 1,
         2026-07-29): opening a real schema-1 store with a schema-2 binary
         through `verify` raised AttributeError instead of the intended refusal.
         All 419 tests were green, because not one of them opened an
         out-of-date store through the READ-ONLY path. The regression test for
-        this is test_readonly_store_on_schema1_refuses_cleanly."""
-        return Store._refuse_without_quarantine(self, message)
+        this is test_readonly_store_on_schema1_refuses_cleanly.
+
+        `reason` is passed straight through (2026-08-04), because this class is
+        where the schema-behind refusal actually reaches a founder: verify,
+        dump and dashboard all read through here, and they are what printed the
+        false "STORE CORRUPT". The writable Store keeps migrate=True on every
+        open, so it only reaches that branch through _migrate_from's own
+        post-migration re-verify, which cannot see an unmoved version unless a
+        migration is broken."""
+        return Store._refuse_without_quarantine(self, message, reason=reason)
 
     def dump(self, raw=False):
         # Reuses Store.dump() verbatim: it only calls _exec(self, ...) over

@@ -15,6 +15,15 @@ any agent or CI job does on its own.
 
     bm-store  bm-threads  bm-telemetry  bm-learn  bm-runtimes  bm-score
 
+CORRECTED 2026-08-04 (per CHK-2B,
+docs/closure/reports/2026-08-04-CHK-2B-packaging-counts.md). The six-command
+list above was accurate on 2026-07-29 and has since grown stale: the
+`[project.scripts]` block of `pyproject.toml` now declares 12 console
+scripts, not six (derivation: `grep -c "^bm-" pyproject.toml` -> 12):
+`bm-store`, `bm-threads`, `bm-telemetry`, `bm-learn`, `bm-packs`, `bm-docs`,
+`bm-docs-export`, `bm-runtimes`, `bm-score`, `bm-project`, `bm-ledger`, and
+`bm-sentinel`. `pipx install brothermode` puts all 12 on your PATH.
+
 That is the toolchain. It is not the skill. `SKILL.md`, the docs, the
 templates, and the hook wiring do not come with it, because a Python package
 installs Python and a Claude Code skill is a directory the runtime reads.
@@ -131,6 +140,15 @@ enforces, does not accept that spelling, so `pyproject.toml` publishes
 labelled with a version that is not this release is a supply-chain problem
 rather than a typo.
 
+CORRECTED 2026-08-04 (per CHK-2B,
+docs/closure/reports/2026-08-04-CHK-2B-packaging-counts.md). "`VERSION` says
+`2.0.0-rc.3`" above described the state on 2026-07-29 and is stale as a
+current-state claim: `VERSION` now says `2.0.0-rc.13.dev1` (derivation:
+`cat VERSION`), and `pyproject.toml` publishes `2.0.0rc13.dev1` (derivation:
+`grep '^version = ' pyproject.toml`). The mechanism described above is
+unchanged: the two spellings are the same release written two ways, and
+`tools/test_bm.py` still fails the build if they disagree.
+
 ## Known limitations of this packaging
 
 - **The modules install at the top level.** `bm_store`, `bm_threads` and
@@ -142,10 +160,23 @@ rather than a typo.
   mean rewriting that loader in every file for a namespace benefit. The
   `bm_` prefix is the only thing keeping them apart from someone else's
   code, and it is a convention rather than a guarantee.
+
+  CORRECTED 2026-08-04 (per CHK-2B): "seven siblings" (nine modules total)
+  was accurate on 2026-07-29 and is stale now. `pyproject.toml`'s
+  `py-modules` list declares 17 modules today, `bm_store` and 16 siblings
+  (derivation: `sed -n '92,110p' pyproject.toml` shows 17 entries; also
+  confirmed by `ls tools/bm_*.py | wc -l` -> 17). The deliberate top-level
+  install and the `bm_` prefix reasoning above are unchanged.
 - **`scripts/bootstrap.sh` has nothing to hand off to yet.** It looks for
   `scripts/install.py`, which does not exist in this checkout. Until the
   installer lands, bootstrap prints the manual install path and exits 3
   rather than exiting 0 on work it did not do.
+
+  CORRECTED 2026-08-04 (per CHK-2B): this was accurate on 2026-07-29 and is
+  stale now. `scripts/install.py` exists in this checkout (derivation:
+  `ls scripts/install.py`). `scripts/bootstrap.sh` has an installer to hand
+  off to; whether it still prints the manual path and exits 3 in any
+  fallback case was not re-verified by this pass and is not claimed here.
 - **A package install wires no hooks.** It cannot: hooks live in the user's
   `settings.json` and point at file paths. `pipx install brothermode` gives
   you commands, not a configured session. Concretely, only `*.py` modules
@@ -160,3 +191,12 @@ rather than a typo.
   Apple silicon with Python 3.9.6. The wheel is pure Python and marked
   `py3-none-any`, so it should install anywhere, but "should" is the correct
   word: no other platform has been tested.
+
+  CORRECTED 2026-08-04 (per CHK-2B): this was accurate on 2026-07-29 and is
+  stale now. CI has run a packaging install suite since 2026-08-04 (C-06):
+  `.github/workflows/tests.yml` lines 119-129 run a job named "Run the
+  packaging install suite" that executes
+  `python3 tools/test_bm_packaging_install.py`, building a real install
+  rather than only trusting the hand-run build described above. It still
+  only builds and installs; it is not the same as testing every supported
+  platform by hand, which remains a manual claim elsewhere in this file.
