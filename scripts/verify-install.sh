@@ -170,6 +170,7 @@ find "$TARGET" ! -type d \
     ! -name '.DS_Store' \
     ! -name '*.bak*' \
     ! -name 'STATE.md' \
+    ! -name 'CANVAS.md' \
     > "$WORKDIR/installed_raw"
 
 EXTRA=0

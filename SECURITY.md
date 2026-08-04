@@ -321,6 +321,49 @@ this project stops being able to promise anything".
   otherwise. Wired on BOTH install paths since 2026-08-01 (the Claude Code
   plugin manifest and `scripts/install.py`'s clone-install path alike; see
   docs/HOOKS.md's "Installing the Bash audit hook").
+  EXTENDED 2026-08-03 (closure item C-02). Two things above were incomplete
+  until that date. FIRST, a shell command that destroyed BrotherMode's OWN
+  enforcement state produced no alert and no stderr line at all. The measured
+  case was `rm -f .brothermode/store.sqlite3`: the store is not itself a
+  claimed path, so nothing in the detection pair ever looked at it, and with
+  the store gone a write the fence had just refused became an allow. That is
+  now DETECTED on the same pair, in both modes and in every BrotherMode
+  project. The pre phase records whether the store exists, is non-empty and
+  still begins with the SQLite file header, and which session tokens exist;
+  the post phase reports every one of those that was lost, on stderr and as a
+  high-severity `fence-control-loss` alert row. Growth and ordinary mutation
+  are ignored on purpose, because a shell call that runs `bm_store.py` is
+  normal work. When the store itself is what went missing the row cannot be
+  written, and the hook says exactly that instead of falling silent.
+  SECOND, and only if you opt in with `BM_FENCE_MODE=enforced` AND the Bash
+  call's cwd resolves to a BrotherMode project, that command is now REFUSED
+  before it runs. The project check is load-bearing, not decoration: this
+  hook installs at USER-GLOBAL scope
+  (`~/.claude/settings.json`), so it runs on every Bash call in every Claude
+  Code session on the machine, and an earlier draft that refused before
+  resolving a project root would have refused this same command in every
+  unrelated, non-BrotherMode directory too. Outside a BrotherMode project the
+  refusal check is inert. THE DELIBERATE LIMIT THIS CREATES: when
+  `tools/bm_store.py` cannot be imported at all, the project check itself
+  cannot run, so nothing is refused, even under enforced mode, anywhere. That
+  is a fail-open path inside a fail-closed feature, chosen on purpose,
+  because the only alternative is refusing every Bash command in every
+  directory on the machine, which is not shippable. Someone who can break
+  that import can therefore disable the refusal. Read what the refusal is,
+  and is not, before relying on it: it is a literal match, a small list of
+  destructive shell forms combined with the literal names `.brothermode` and
+  `store.sqlite3`, plus two forms that wipe a whole directory without naming
+  anything (`git clean` with `-x`, and `rm -r` aimed at `.` or `*`). It is
+  not a shell parser and will not become one here. A name assembled at
+  runtime, held in a variable, or sitting inside a script file the hook never
+  reads is NOT caught, and neither is any program that deletes the file
+  without the name appearing in the command. It also over-refuses on purpose,
+  inside a BrotherMode project: a read-only command that merely mentions the
+  directory next to a redirection is refused too. What enforced mode adds
+  beyond the refusal is the aftermath: if the store does go missing by a
+  route the refusal misses, the fence hook in that same mode then DENIES
+  rather than allowing (C-01), so the one-command bypass needs both halves to
+  fail rather than one.
 - **A secret leaking through an export.** `dump`, its JSON output, and the
   MCP server responses all pass through ONE withholding policy
   (`export_column` in `tools/bm_store.py`): founder-typed prose is withheld
@@ -348,6 +391,18 @@ sentence that says why it is out of scope rather than merely unmentioned:
   that process could already read or overwrite; there is no privilege
   boundary between "this tool" and "anything else you are running" to
   defend across.
+- **A shell command that writes or deletes files, in the general case.**
+  Claude Code hands a `Bash` PreToolUse hook a command STRING, not the set of
+  files that command will touch, and nothing inside "Python 3.9, standard
+  library only" turns one into the other, so there is no honest way to gate
+  shell writes the way Edit and Write are gated. What exists instead is
+  stated above: after-the-fact detection for fenced files and for
+  BrotherMode's own state, and, in enforced mode and inside a BrotherMode
+  project only, a literal-match refusal for the obvious destructive forms
+  aimed at that state. Real containment would need an operating-system write
+  mediator (a sandbox profile, a container, a FUSE layer). That is out of
+  scope for this project, deliberately and not for now, and
+  docs/KNOWN-LIMITS.md carries the same statement.
 - **A supply-chain compromise of Python or git themselves.** This project
   is standard-library Python plus one documented, local-only use of the
   `git` binary; if either of those two trusted programs were themselves

@@ -127,6 +127,15 @@ SUITES = (
     # pure function with plain data and the rest uses a throwaway store, so it
     # fails on a policy branch rather than on timing.
     "test_bm_sentinel.py",
+    # C-06 (closure register): builds a real wheel, installs it into a
+    # throwaway venv, and invokes every console script pyproject.toml
+    # declares, the exact adversarial test the register names. Runs near
+    # the end of the fast suites because it needs network egress once (to
+    # upgrade pip inside its own throwaway venv) and takes real seconds
+    # rather than a fraction of one; it reports SKIPPED rather than
+    # failing red when that egress is not available, so an offline
+    # machine still gets ALL GREEN rather than a false alarm.
+    "test_bm_packaging_install.py",
     "test_bm.py",
 )
 

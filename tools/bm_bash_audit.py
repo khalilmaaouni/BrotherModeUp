@@ -24,17 +24,27 @@ WHY THIS EXISTS
   believes this closes the Bash gap has been misled.
 
 THE RULES THIS FILE OBEYS (same three bm_fence_hook.py states, plus one)
-  1. FAIL OPEN, LOUDLY. Nothing here ever blocks a Bash call: both
-     entrypoints below always return 0, whatever went wrong. A hook that
-     failed closed on its own bug would brick every shell command the
-     founder runs. Every failure path prints its reason to stderr, same
-     policy as bm_fence_hook.py's own stated one.
-  2. STDOUT IS RESERVED. A PreToolUse hook's stdout is the permission
-     decision channel; this hook never has a decision to make, so it never
-     writes to stdout at all, on either entrypoint, so a future reader
-     cannot mistake output here for something Claude Code will parse.
-     Every diagnostic, including the one required sentence naming a breach,
-     goes to stderr.
+  1. FAIL OPEN, LOUDLY, IN THE DEFAULT MODE. Both entrypoints always return
+     0, whatever went wrong, and by default nothing here ever blocks a Bash
+     call. A hook that failed closed on its own bug would brick every shell
+     command the founder runs. Every failure path prints its reason to
+     stderr, same policy as bm_fence_hook.py's own stated one.
+     ONE EXCEPTION, added for C-02 (2026-08-03) and opt-in only: when
+     BM_FENCE_MODE=enforced AND the Bash call's cwd resolves to a
+     BrotherMode project, the pre phase REFUSES a Bash command that matches
+     an obvious destructive form aimed at BrotherMode's own enforcement
+     state (the store file, the fence token directory). Outside a
+     BrotherMode project this hook is installed at user-global scope, so
+     that project check is load-bearing, not decoration: without it,
+     enforced mode would refuse commands anywhere on the machine. See
+     refusal_for() for exactly what that can and cannot catch, in its own
+     words. The default mode is byte-for-byte unchanged.
+  2. STDOUT IS THE DECISION CHANNEL AND NOTHING ELSE. A PreToolUse hook's
+     stdout is the permission decision channel. This hook writes to it in
+     exactly one situation, the enforced-mode refusal in rule 1, and it
+     writes the deny object and nothing else; the post phase never writes to
+     stdout at all. Every diagnostic, including the sentences naming a
+     breach or a lost store, goes to stderr.
   3. CANONICAL PATHS AND IDENTITY, SHARED WITH THE FENCE HOOK, NOT
      REIMPLEMENTED. This file loads tools/bm_fence_hook.py by path (the same
      importlib-by-path technique bm_fence_hook.py itself uses for
@@ -70,6 +80,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import sys
 import time
 import uuid
@@ -222,6 +233,166 @@ def _read_stdin_json():
 
 
 # ---------------------------------------------------------------------------
+# C-02: the REFUSE half. Enforced mode only.
+# ---------------------------------------------------------------------------
+
+def _enforced(env=None):
+    """True when BM_FENCE_MODE is 'enforced'.
+
+    Read here rather than through bm_fence_hook.enforced_mode() because this
+    check has to work even when that module cannot be imported, which is one
+    of the states enforcement exists for. tools/test_bm_bash_audit.py asserts
+    this function and fh.enforced_mode() agree on every value they are given,
+    so the duplication cannot drift."""
+    env = os.environ if env is None else env
+    return (env.get("BM_FENCE_MODE", "") or "").strip().lower() == "enforced"
+
+
+def deny_payload(reason):
+    """The PreToolUse deny object, the same four-key shape
+    tools/bm_fence_hook.py's own deny_payload builds, restated here for the
+    same reason _enforced is: a refusal must not depend on an import that may
+    itself be the thing that failed. A test asserts the two are identical."""
+    return {"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": reason,
+    }}
+
+
+_DESTRUCTIVE_FORMS = (
+    (r"(^|[^<>&])>{1,2}([^&]|$)", "output redirection (> or >>)"),
+    (r"\btee\b", "tee"),
+    (r"\bsed\b[^|;]*\s-i", "sed -i"),
+    (r"\bperl\b[^|;]*\s-i", "perl -i"),
+    (r"\brm\b", "rm"),
+    (r"\bunlink\b", "unlink"),
+    (r"\bshred\b", "shred"),
+    (r"\btruncate\b", "truncate"),
+    (r"\bdd\b", "dd"),
+    (r"\bmv\b", "mv"),
+    (r"\bcp\b", "cp"),
+    (r"\bln\b", "ln"),
+    (r"\bchmod\b", "chmod"),
+    (r"\bchown\b", "chown"),
+    (r"\bpatch\b", "patch"),
+    (r"\bgit\s+(checkout|restore|reset|clean|stash|apply|rm)\b",
+     "a git command that rewrites files"),
+    (r"\b(python3?|node|ruby|perl)\b[^|;]*\s-(c|e)\b",
+     "an inline interpreter script"),
+    (r"\bfind\b[^|;]*\s-delete\b", "find -delete"),
+    (r"\bmkdir\b", "mkdir"),
+)
+
+_TREE_WIDE_FORMS = (
+    (r"\bgit\s+clean\b[^|;]*\s-{1,2}[A-Za-z]*[xX]",
+     "git clean with -x, which deletes ignored files"),
+    (r"\brm\b[^|;]*\s-[A-Za-z]*[rR][A-Za-z]*\s+(\.|\./|\*|\./\*)(\s|;|$)",
+     "rm -r aimed at the whole working directory"),
+)
+
+_REFUSE_REASONS = {
+    "store-destruction": (
+        "the command matched a shell form that deletes or overwrites files, "
+        "and it named BrotherMode's own enforcement state, which is the "
+        "record of who owns which file",
+        "make the change with Edit or Write so the fence can check it, or, "
+        "if this store really has to be rebuilt, re-run that one command "
+        "with BM_FENCE_MODE=advisory and say in the session that you did"),
+    "tree-wide-destruction": (
+        "the command matched a shell form that empties or rewrites the whole "
+        "working directory, which would take BrotherMode's own enforcement "
+        "state with it",
+        "name the paths the command should touch instead of the whole "
+        "directory, or re-run that one command with BM_FENCE_MODE=advisory "
+        "and say in the session that you did"),
+}
+
+
+def protected_names(bs):
+    """The literal names of this project's own enforcement state on disk.
+    Taken from bm_store's constants rather than retyped, so a rename there
+    cannot leave this list matching a name that no longer exists."""
+    store_dirname = bs.STORE_DIRNAME if bs is not None else ".brothermode"
+    store_filename = bs.STORE_FILENAME if bs is not None else "store.sqlite3"
+    return (store_dirname, store_filename)
+
+
+def refusal_for(command_text, bs):
+    """(code, labels, names) when this command text matches a destructive
+    form aimed at BrotherMode's own enforcement state, else (None, [], []).
+
+    WHAT THIS CAN AND CANNOT DO, STATED RATHER THAN IMPLIED. This is not a
+    shell parser and cannot become one here, for the reason bm_fence_hook.py
+    already gives for leaving Bash out of WRITE_TOOLS. It matches two things
+    and only two:
+
+      A. the command TEXT contains one of this project's own state names as
+         a literal substring (bm_store.STORE_DIRNAME or STORE_FILENAME) AND
+         it matches one of the destructive shell forms above.
+      B. the command TEXT matches one of a very small set of forms that
+         empty or rewrite the whole working directory without naming
+         anything at all.
+
+    It therefore catches every form the C-02 reproduction used (rm,
+    redirection, sed -i, tee, an inline python3 -c, git checkout). It MISSES,
+    by construction and not by oversight:
+      - a name assembled at runtime ('d=.brother; rm -f ${d}mode/...'),
+      - a name reached through a variable, an alias, a shell function, or a
+        script FILE whose contents this hook never sees,
+      - any program that removes the file without the name appearing in the
+        command at all (an editor, a runtime reading the path from a config,
+        a second process this command merely starts),
+      - every destructive form not in the two lists above.
+    And it OVER-refuses on purpose: a read-only command that merely mentions
+    the directory next to any redirection ('ls .brothermode > /tmp/x') is
+    refused too, and so is 'git clean -x' anywhere in the tree. Erring toward
+    refusal is the deliberate choice, because the alternative inside a
+    fail-closed mode is a false ALLOW on exactly the class of command this
+    exists for."""
+    if not isinstance(command_text, str) or not command_text.strip():
+        return None, [], []
+    names = [n for n in protected_names(bs) if n in command_text]
+    if names:
+        labels = [lab for pat, lab in _DESTRUCTIVE_FORMS
+                  if re.search(pat, command_text)]
+        if labels:
+            return "store-destruction", labels, names
+    labels = [lab for pat, lab in _TREE_WIDE_FORMS
+              if re.search(pat, command_text)]
+    if labels:
+        return "tree-wide-destruction", labels, []
+    return None, [], []
+
+
+def _refuse(code, labels, names):
+    """Emit the refusal: one operator sentence on stderr, one deny object on
+    stdout. The deny REASON is LITERAL, drawn from _REFUSE_REASONS, and names
+    no path and no payload content, matching the rule bm_fence_hook.py's
+    _FAIL_REASONS already follows: that string is read by the model and lands
+    in a transcript. The stderr line is allowed to be specific, and is, but
+    even it never repeats the command text: it names only the FORM LABELS and
+    the PROTECTED NAMES, both of which are this file's own constants."""
+    summary, remedy = _REFUSE_REASONS[code]
+    detail = " and ".join(labels) or "a destructive shell form"
+    named = ", ".join(names)
+    _warn("bm_bash_audit: REFUSING this Bash call. BM_FENCE_MODE=enforced, "
+          "and the command matched %s%s. Nothing was run and nothing was "
+          "changed. The command text is not repeated here."
+          % (detail, (" while naming %s" % named) if named else ""))
+    try:
+        sys.stdout.write(json.dumps(deny_payload(
+            "BrotherMode is in enforced mode and refused this shell command "
+            "because %s. To fix it, %s. To go back to warning only, set "
+            "BM_FENCE_MODE=advisory." % (summary, remedy))))
+        sys.stdout.flush()
+    except Exception as e:
+        _warn("bm_bash_audit: the refusal above could not be written to "
+              "stdout (%s: %s), so Claude Code will not see it; treat the "
+              "line above as the only record." % (type(e).__name__, e))
+
+
+# ---------------------------------------------------------------------------
 # Snapshot storage. Lives beside the fence token directory, inside the same
 # .brothermode container the store and the fence hook already use, so it
 # inherits whatever gitignore and containment treatment that directory has.
@@ -362,6 +533,136 @@ def _entry_for_claim(root, rel_path, row):
     }
 
 
+#: The first sixteen bytes of every SQLite database file. Read from the
+#: on-disk format documentation and confirmed against this project's own
+#: store; used only to notice that a file that WAS a database no longer is.
+SQLITE_MAGIC = b"SQLite format 3\x00"
+
+ALERT_CATEGORY_CONTROL = "fence-control-loss"
+
+#: The control findings, keyed by code, each a LITERAL sentence. C-02: a
+#: shell command that destroys the enforcement state used to produce no
+#: output at all, because the store is not itself a claimed path and nothing
+#: in this file looked at it.
+CONTROL_FINDINGS = {
+    "store-removed": (
+        "the BrotherMode store file was present before this shell command "
+        "and is gone after it"),
+    "store-emptied": (
+        "the BrotherMode store file held a non-empty database before this "
+        "shell command and is zero bytes after it"),
+    "store-overwritten": (
+        "the BrotherMode store file no longer begins with the SQLite file "
+        "header, so what is there now is not a database"),
+    "fence-dir-removed": (
+        "the fence directory that holds session ownership tokens was present "
+        "before this shell command and is gone after it"),
+    "fence-token-removed": (
+        "one or more session ownership tokens that existed before this shell "
+        "command are gone after it"),
+}
+
+
+def _control_state(root, bs, fh):
+    """A deliberately COARSE picture of BrotherMode's own enforcement state.
+
+    Coarse on purpose. The store legitimately CHANGES during a Bash call (any
+    bm_store.py command run through a shell writes to it), so a content hash
+    here would alarm on ordinary work and be trained away within a day. This
+    records only enough to notice the three destructive outcomes: the store
+    gone, emptied, or replaced by something that is not a database, plus the
+    fence token directory or individual tokens disappearing. Never raises: an
+    unreadable state is recorded as absent, not as a crash in front of a Bash
+    call."""
+    state = {"store_present": False, "store_size": 0, "store_header_ok": False,
+             "fence_dir_present": False, "token_files": []}
+    try:
+        p = bs.store_path(root)
+        if os.path.isfile(p):
+            state["store_present"] = True
+            state["store_size"] = os.stat(p).st_size
+            with io.open(p, "rb") as f:
+                state["store_header_ok"] = (
+                    f.read(len(SQLITE_MAGIC)) == SQLITE_MAGIC)
+    except OSError:
+        pass
+    try:
+        d = fh.fence_dir(root)
+        if os.path.isdir(d):
+            state["fence_dir_present"] = True
+            state["token_files"] = sorted(
+                n for n in os.listdir(d) if n.endswith(fh.TOKEN_SUFFIX))
+    except OSError:
+        pass
+    return state
+
+
+def _control_findings(root, bs, fh, before):
+    """Codes for every destructive change between the pre-phase state and
+    now. Growth, ordinary mutation, and NEW token files are invisible here on
+    purpose: this reports loss, not change."""
+    if not isinstance(before, dict):
+        return []
+    now = _control_state(root, bs, fh)
+    out = []
+    if before.get("store_present"):
+        if not now["store_present"]:
+            out.append("store-removed")
+        elif before.get("store_size", 0) > 0 and now["store_size"] == 0:
+            out.append("store-emptied")
+        elif before.get("store_header_ok") and not now["store_header_ok"]:
+            out.append("store-overwritten")
+    if before.get("fence_dir_present") and not now["fence_dir_present"]:
+        out.append("fence-dir-removed")
+    elif before.get("fence_dir_present"):
+        gone = [t for t in (before.get("token_files") or [])
+                if t not in (now["token_files"] or [])]
+        if gone:
+            out.append("fence-token-removed")
+    return out
+
+
+def _raise_control_alert(bs, root, code, offending_session_id):
+    """One alert row for one control finding. Same shape, severity and actor
+    as _raise_breach_alert, different category, and a message built entirely
+    from CONTROL_FINDINGS, so no founder text and no absolute path can reach
+    it at all."""
+    alert = {
+        "alert_id": uuid.uuid4().hex,
+        "severity": ALERT_SEVERITY,
+        "category": ALERT_CATEGORY_CONTROL,
+        "message": (
+            "a Bash command run by session %s changed BrotherMode's own "
+            "enforcement state: %s. Enforcement state is not a fenced file, "
+            "so no hook refused this."
+            % (offending_session_id, CONTROL_FINDINGS[code])),
+        "why_it_matters": (
+            "the fence decides who may write which file by reading this "
+            "state, so a shell command that removes or empties it turns "
+            "every later refusal into an allow, silently, and that is the "
+            "defect this check exists for."),
+        "recommended_action": (
+            "restore the store and the fence directory (git, or an autosave "
+            "snapshot through `%s recover`), then "
+            "run `python3 scripts/doctor.py` and confirm the claims you "
+            "expect are still there."
+            % bs.invocation("bm-autosave", os.path.join(HERE, "bm_autosave.py"))),
+        "requires_human": True,
+        "created_at": bs.now_iso(),
+        "resolved_at": None,
+    }
+    actor = {
+        "actor_type": "hook",
+        "actor_name": "bm_bash_audit",
+        "session_id": offending_session_id,
+    }
+    store = bs.Store(root, create=False)
+    try:
+        store.raise_alert(alert, ALERT_PROJECT_ID, actor)
+    finally:
+        store.close()
+
+
 def _remove_snapshot_best_effort(path):
     """Delete a snapshot file whose job is finished. Never raises: an
     unreadable filesystem here must not turn a successful comparison into a
@@ -423,6 +724,14 @@ def _raise_breach_alert(bs, root, rel_path, entry, offending_session_id):
     """Open a writable Store, raise ONE alert row, close it. Never called
     pre-consent (both entrypoints gate before this is reachable) and never
     called for the fence's own owner (the caller filters that first)."""
+    # C-02: SAY IT FIRST, then try to record it. This line used to be printed
+    # only AFTER store.raise_alert returned, so a detection that could not be
+    # recorded (a store that has just been deleted, a disk that is full) was
+    # announced by nothing at all except a generic FAILING OPEN line further
+    # up the stack. Detection must be audible even when recording fails.
+    _warn("bm_bash_audit: DETECTED a Bash write across a fence: %s changed "
+          "and the session that ran the command does not own that fence."
+          % bs.mask_absolute_paths(bs.redact_text(rel_path)))
     message = _breach_message(bs, rel_path, entry, offending_session_id)
     alert = {
         "alert_id": uuid.uuid4().hex,
@@ -514,12 +823,17 @@ def _run_pre(payload):
         raise _FailOpen("no active claim resolved to an existing file")
 
     snapshot = {
-        "schema": 1,
+        "schema": 2,
         "session_id": session_id,
         "tool_use_id": tool_use_id,
         "root": root,
         "created_at": bs.now_iso(),
         "entries": entries,
+        # C-02: the enforcement state itself, which is not a claimed path and
+        # so was never looked at before. schema goes 1 to 2 for this; a
+        # schema-1 snapshot written by an older copy simply carries no
+        # "control" key, and _control_findings returns nothing for it.
+        "control": _control_state(root, bs, fh),
     }
     _ensure_snapshot_dir(root, bs)
     spath = snapshot_path(root, bs, session_id, tool_use_id)
@@ -529,10 +843,53 @@ def _run_pre(payload):
 
 
 def cmd_pre(argv):
+    # C-02, the REFUSE half, and it runs FIRST, before the consent gate, on
+    # purpose. It reads nothing but the payload the harness already handed
+    # us, opens no file and writes nothing, so the pre-consent rule above
+    # still holds, and an operator who set BM_FENCE_MODE=enforced asked to
+    # be refused rather than to be refused only once setup happens to have
+    # been run.
+    #
+    # SCOPED TO A PROJECT, and that scoping is the whole correction. An
+    # earlier draft of this block refused BEFORE resolving a project root.
+    # This hook installs at USER-GLOBAL scope, so that draft reached into
+    # every directory on this machine, and its blanket except would have
+    # refused EVERY Bash command anywhere bm_store.py failed to import.
+    # That is the same defect already corrected once in bm_fence_hook.py.
+    # Outside a BrotherMode project this block now does nothing at all.
+    payload, err = _read_stdin_json()
+    if err is None and _enforced() and isinstance(payload, dict):
+        bs = _load_store_module()
+        root = None
+        if bs is not None:
+            cwd = payload.get("cwd")
+            cwd = cwd if isinstance(cwd, str) and cwd.strip() else None
+            try:
+                root, _source = bs.resolve_root(cwd)
+            except Exception:
+                root = None
+        if root is not None:
+            try:
+                tool_input = payload.get("tool_input")
+                command_text = (tool_input or {}).get("command") \
+                    if isinstance(tool_input, dict) else None
+                code, labels, names = refusal_for(command_text, bs)
+                if code is not None:
+                    _refuse(code, labels, names)
+                    return 0
+            except Exception as e:
+                # Inside a known project, enforced mode inverts the usual
+                # judgement the way bm_fence_hook.py's blanket catch does:
+                # somebody who asked for fail-closed would rather be stopped
+                # by a bug here than have a store-destroying command waved
+                # through unexamined. Outside a project we never get here.
+                _refuse("store-destruction",
+                        ["an internal error in the refusal check (%s)"
+                         % type(e).__name__], [])
+                return 0
     if not _consented():
         _warn(_CONSENT_REQUIRED_LINE)
         return 0
-    payload, err = _read_stdin_json()
     try:
         if err is not None:
             raise _FailOpen(err)
@@ -581,6 +938,31 @@ def _run_post(payload):
 
     spath = snapshot_path(root, bs, session_id, tool_use_id)
     snapshot = _load_snapshot(spath)
+
+    # C-02: the enforcement state is checked FIRST, before ownership is even
+    # derived, because a command that destroyed the store is exactly the
+    # command after which deriving anything from the store is pointless, and
+    # because this half must be audible whatever else fails below.
+    for code in _control_findings(root, bs, fh, snapshot.get("control")):
+        _warn("bm_bash_audit: DETECTED a change to BrotherMode's own "
+              "enforcement state during a Bash call: %s. Enforcement state "
+              "is not a fenced file, so no hook refused this."
+              % CONTROL_FINDINGS[code])
+        if os.path.isfile(bs.store_path(root)):
+            try:
+                _raise_control_alert(bs, root, code, session_id)
+                _warn("bm_bash_audit: a high-severity fence-control-loss "
+                      "alert was raised and needs a human.")
+            except Exception as e:
+                _warn("bm_bash_audit: that finding could NOT be recorded as "
+                      "an alert (%s: %s); the line above is the only record."
+                      % (type(e).__name__, e))
+        else:
+            _warn("bm_bash_audit: that finding could NOT be recorded as an "
+                  "alert, because the store that would hold it is the thing "
+                  "that went missing; the line above is the only record. "
+                  "Restore it from git or from an autosave snapshot, then "
+                  "run `python3 scripts/doctor.py`.")
 
     try:
         my_label = fh.session_label(root, session_id)

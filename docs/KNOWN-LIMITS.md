@@ -90,6 +90,55 @@ person was not sure about.
   What is still true either way: the snapshot only covers a claimed path that
   resolves to a REAL, EXISTING FILE at the moment the Bash call starts, not a
   directory or glob-shaped claim expanded into the files it would cover.
+  EXTENDED 2026-08-03 (closure item C-02), and this is the honest shape of
+  what is and is not contained.
+  WHAT IS CONTAINED: nothing, in the operating-system sense. No file this
+  project writes is protected from a shell command by anything except a hook
+  that Claude Code chooses to run.
+  WHAT IS NOW REFUSED: with `BM_FENCE_MODE=enforced` set, AND ONLY WHEN THE
+  BASH CALL'S CWD RESOLVES TO A BROTHERMODE PROJECT, a `Bash` command whose
+  TEXT matches a small literal list of destructive forms (`rm`, `>`, `>>`,
+  `tee`, `sed -i`, `truncate`, `mv`, `cp`, `chmod`, an inline `python3 -c`, a
+  rewriting `git` subcommand, `find -delete`, and a few more) while also
+  containing the literal string `.brothermode` or `store.sqlite3`, plus
+  exactly two whole-directory forms that name nothing (`git clean` with
+  `-x`, and `rm -r` aimed at `.` or `*`). The project check is load-bearing,
+  not decoration: this hook installs at USER-GLOBAL scope
+  (`~/.claude/settings.json`), so it runs on every Bash call in every Claude
+  Code session on the machine, and without the project check enforced mode
+  would refuse commands in every unrelated, non-BrotherMode directory too.
+  Outside a BrotherMode project the refusal check is inert.
+  THE DELIBERATE LIMIT THIS CREATES: when `tools/bm_store.py` cannot be
+  imported at all, the project check itself cannot run, so nothing is
+  refused, even under enforced mode, anywhere. That is a fail-open path
+  inside a fail-closed feature, chosen on purpose: the only alternative is
+  refusing every Bash command in every directory on the machine, which is
+  not shippable. Someone who can break that import can therefore disable the
+  refusal.
+  WHAT IS NOW DETECTED, in both modes and in every BrotherMode project: the
+  store file disappearing, becoming zero bytes, or ceasing to begin with the
+  SQLite file header, and any session token file disappearing, between the
+  start and the end of a Bash call. Each one prints a sentence on stderr and
+  raises a high-severity `fence-control-loss` alert; when the store is the
+  thing that went missing the alert cannot be written and the hook says so
+  rather than falling silent.
+  WHAT IS NOT CAUGHT, stated in full because a partial check presented as a
+  complete one is the failure this file exists to prevent: a path assembled
+  at runtime or held in a variable; a destructive command inside a script
+  file, a Makefile target, or any program the command merely starts; any form
+  not on the list; a write that returns a fenced file to its original bytes
+  before the check runs; a Bash call that deletes its own snapshot; every
+  write by a process that never passed through a hook at all (a second
+  terminal, an editor, a background job); and, as stated above, anything at
+  all once `tools/bm_store.py` cannot be imported. A project with NO active
+  claim is not snapshotted at all, so nothing is detected there either,
+  though enforced mode still refuses. And the refusal over-refuses by
+  design, inside a BrotherMode project: `ls .brothermode > /tmp/x` is
+  refused, and so is `git clean -xfd` anywhere in the tree. Full
+  operating-system containment (a sandbox profile, a container, a FUSE write
+  mediator) was considered and is explicitly OUT of scope: it sits outside
+  "Python 3.9, standard library only" and would be a second product rather
+  than a fix.
 - **OBSERVED GREEN 2026-07-31, on all nine jobs.** This entry used to say no real
   Actions run had ever been observed. Run `30564943060` for commit `f751f9f`
   concluded success across the serial `gate` job, both `suite` legs, and all six

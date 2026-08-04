@@ -116,6 +116,17 @@ jobs:
       # hook that reports the cross-fence write the fence hook cannot block.
       - name: Run the bash audit suite
         run: python3 tools/test_bm_bash_audit.py
+      # The packaging install suite, landed 2026-08-04 (C-06): builds a real
+      # wheel, installs it into a throwaway virtualenv, and invokes every
+      # declared console script, which is the register's own adversarial test
+      # for C-06 made executable. UNLIKE every suite above it, this one needs
+      # network egress once for pip, and it SKIPs rather than fails when pip
+      # cannot reach an index, so an offline runner reports a skip instead of
+      # a red build. It is the slowest step in this job by a wide margin and
+      # that is inherent: nothing short of a real install proves a packaged
+      # install works.
+      - name: Run the packaging install suite
+        run: python3 tools/test_bm_packaging_install.py
   # One serial job that runs the SAME command a loop close runs locally
   # (Loop 9 task 2, answered yes). The split jobs above exist for per-platform
   # evidence and cannot be replaced by this one; this one exists because the

@@ -1195,31 +1195,90 @@ class TestThreadsUseStore(unittest.TestCase):
 
 
 class TestPreWriteGate(unittest.TestCase):
-    """Every place in tools/ that writes a file must be a REVIEWED place.
+    """Every place in tools/, scripts/, mcp/ and brotherme/ that writes,
+    replaces, copies, removes or chmods a file must be a REVIEWED place.
+    Proves a new write site cannot appear unreviewed, the gap that let a
+    secret leak ship three times in one week.
 
-    This does not prove redaction. It proves that a NEW write site cannot appear
-    without someone deciding whether it needs redaction, which is the gap that
-    let the same secret-leak bug ship three times in one week.
+    Widened for C-04: old scanner matched only open(...'w'...), os.open( and
+    .write(), only inside tools/. Missed os.replace, shutil's write
+    functions, os.mkdir/makedirs, os.unlink/remove and os.chmod inside files
+    already reviewed, and never scanned scripts/, mcp/, brotherme/.
     """
-    WRITE_PATTERNS = (r'open\([^)]*["\']w["\']', r'os\.open\(', r'\.write\(')
 
-    def _sites(self):
+    WRITE_PATTERNS = (
+        r'open\([^)]*["\']w["\']',
+        r'os\.open\(',
+        r'\.write\(',
+        r'os\.replace\(',
+        r'shutil\.(copy2?|copyfile|copytree|move|rmtree)\(',
+        r'os\.(mkdir|makedirs)\(',
+        r'os\.(unlink|remove)\(',
+        r'os\.chmod\(',
+    )
+
+    #: Repo root, one level above tools/.
+    ROOT = os.path.dirname(HERE)
+
+    #: Directories this gate is responsible for, relative to ROOT. All four
+    #: directories the closure register names for C-04: tools, scripts, mcp,
+    #: brotherme.
+    SCAN_ROOTS = ("tools", "scripts", "mcp", "brotherme")
+
+    #: Never descended into: caches and build metadata, not reviewable source.
+    EXCLUDED_DIRS = {"__pycache__"}
+
+    def _iter_py_files(self, base, root_rel):
+        root_abs = os.path.join(base, root_rel)
+        for dirpath, dirnames, filenames in os.walk(root_abs):
+            dirnames[:] = sorted(
+                d for d in dirnames
+                if d not in self.EXCLUDED_DIRS
+                and not d.startswith(".")
+                and not d.endswith(".egg-info"))
+            for fn in sorted(filenames):
+                if fn.endswith(".py") and not fn.startswith("test_"):
+                    yield os.path.join(dirpath, fn)
+
+    def _sites(self, base=None, scan_roots=None):
+        base = self.ROOT if base is None else base
+        scan_roots = self.SCAN_ROOTS if scan_roots is None else scan_roots
         found = {}
-        for fn in sorted(os.listdir(HERE)):
-            if not fn.endswith(".py") or fn.startswith("test_"):
-                continue
-            src = io.open(os.path.join(HERE, fn), encoding="utf-8").read().splitlines()
-            hits = []
-            for i, line in enumerate(src, 1):
-                if line.strip().startswith("#"):
-                    continue
-                for pat in self.WRITE_PATTERNS:
-                    if re.search(pat, line):
-                        hits.append(i)
-                        break
-            if hits:
-                found[fn] = len(hits)
+        for root_rel in scan_roots:
+            for path in self._iter_py_files(base, root_rel):
+                key = os.path.relpath(path, base).replace(os.sep, "/")
+                src = io.open(path, encoding="utf-8").read().splitlines()
+                hits = []
+                for i, line in enumerate(src, 1):
+                    if line.strip().startswith("#"):
+                        continue
+                    for pat in self.WRITE_PATTERNS:
+                        if re.search(pat, line):
+                            hits.append(i)
+                            break
+                if hits:
+                    found[key] = len(hits)
         return found
+
+    def _assert_matches_manifest(self, actual, manifest):
+        """Shared by test_no_unreviewed_write_sites and the adversarial test
+        below, so the adversarial test exercises the REAL gate, not a copy."""
+        self.assertTrue(actual, "the write-site scanner found nothing; it is broken")
+        for key in sorted(manifest):
+            self.assertIn(key, actual,
+                          "%s is in the reviewed inventory but no longer writes any "
+                          "file. If it was renamed or its writes moved, update "
+                          "tools/write_sites.json to match." % key)
+        for key, count in sorted(actual.items()):
+            self.assertIn(key, manifest,
+                          "%s writes files but is not in the reviewed inventory. "
+                          "Review whether every text it writes passes through "
+                          "redaction, then add it to tools/write_sites.json." % key)
+            self.assertEqual(
+                count, manifest[key],
+                "%s has %d write sites but %d were reviewed. A write site was "
+                "added or removed: confirm it redacts user or model text, then "
+                "update tools/write_sites.json." % (key, count, manifest[key]))
 
     def test_no_unreviewed_write_sites(self):
         manifest_path = os.path.join(HERE, "write_sites.json")
@@ -1227,25 +1286,33 @@ class TestPreWriteGate(unittest.TestCase):
                         "write_sites.json is missing; it is the reviewed inventory")
         manifest = json.load(io.open(manifest_path))["reviewed"]
         actual = self._sites()
-        # Strengthened: the loop below only ever looked at files that still
-        # write, so an empty scanner (a broken _sites, a renamed tool) passed
-        # this test while proving nothing at all. Both directions must match.
-        self.assertTrue(actual, "the write-site scanner found nothing; it is broken")
-        for fn in sorted(manifest):
-            self.assertIn(fn, actual,
-                          "%s is in the reviewed inventory but no longer writes any "
-                          "file. If it was renamed or its writes moved, update "
-                          "tools/write_sites.json to match." % fn)
-        for fn, count in sorted(actual.items()):
-            self.assertIn(fn, manifest,
-                          "%s writes files but is not in the reviewed inventory. "
-                          "Review whether every text it writes passes through "
-                          "redaction, then add it to tools/write_sites.json." % fn)
-            self.assertEqual(
-                count, manifest[fn],
-                "%s has %d write sites but %d were reviewed. A write site was "
-                "added or removed: confirm it redacts user or model text, then "
-                "update tools/write_sites.json." % (fn, count, manifest[fn]))
+        self._assert_matches_manifest(actual, manifest)
+
+    def test_widened_scope_catches_a_smuggled_site(self):
+        """C-04 adversarial test. Pre-widening, os.replace and any directory
+        outside tools/ were BOTH invisible at once. Plant a throwaway file
+        writing only via os.replace inside a directory named "scripts" under
+        an isolated temp root, never touching the real repo, and confirm the
+        SAME comparison the real gate runs refuses it unreviewed."""
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.realpath(d)
+            planted_dir = os.path.join(root, "scripts")
+            os.makedirs(planted_dir)
+            planted = os.path.join(planted_dir, "bm_smuggled_write.py")
+            with io.open(planted, "w", encoding="utf-8") as f:
+                f.write("import os\n\n\ndef rotate(tmp, path):\n"
+                        "    os.replace(tmp, path)\n")
+
+            found = self._sites(base=root, scan_roots=("scripts",))
+
+            self.assertIn("scripts/bm_smuggled_write.py", found,
+                          "the widened scanner missed an os.replace site "
+                          "inside a scripts-shaped directory; the C-04 fix "
+                          "regressed")
+            self.assertEqual(found["scripts/bm_smuggled_write.py"], 1)
+
+            with self.assertRaises(AssertionError):
+                self._assert_matches_manifest(found, manifest={})
 
 
 class TestHonestReportingUnderFailure(unittest.TestCase):
@@ -3676,6 +3743,25 @@ class TestLoop12RedactionIsLinearInInputSize(unittest.TestCase):
         # about 16x when quadratic, so 8x separates them with room for noise,
         # and both timings are taken under whatever load is present so
         # contention cancels.
+        #
+        # FIXED 2026-08-04, C-11. "No load can move it" was still only half
+        # true: it holds when the SAME noise lands on both samples, and this
+        # took exactly ONE sample per size. CI run 30818827958 failed this
+        # exact assertion on one leg of eleven and passed on an unchanged
+        # re-run, because a single stall on `large` alone was enough while
+        # `small` is floored at 0.001 and cannot grow to absorb it. _time()
+        # now returns the MINIMUM of five samples per size.
+        #
+        # CALIBRATED 2026-08-04, and read the sizes here before trusting them
+        # to catch anything. This text is a run of LETTERS, and the pattern
+        # opens with (?<![A-Za-z0-9]), so only two offsets in the whole string
+        # can start a match. This test is a useful regression guard on the
+        # overall cost of redact(), but it is NOT the one that proves the
+        # quadratic defect is detectable: a reinjected unbounded pattern moves
+        # this ratio to 3.9x, still linear. That proof lives in
+        # test_calibrated_reinjecting_the_unbounded_pattern_reproduces_the_blowup
+        # below, which uses underscores because they are the character that
+        # clears the lookbehind at every offset.
         small = max(self._time("x " + "B" * 8000), 0.001)
         large = self._time("x " + "B" * 32000)
         self.assertLess(large / small, 8.0,
@@ -3716,6 +3802,21 @@ class TestLoop12RedactionIsLinearInInputSize(unittest.TestCase):
         # quadratic signature. Both timings are taken under whatever load is
         # present, so contention scales them together and cancels in the ratio,
         # which is the property the old absolute ceiling did not have.
+        #
+        # FIXED 2026-08-04, C-11. This test shares _time() with
+        # test_quadratic_blowup_is_gone above and carried the identical
+        # single-sample exposure, so the minimum-of-five change there fixes
+        # this one too with no edit needed here.
+        #
+        # CALIBRATED 2026-08-04, and THIS is the test that carries the
+        # detection property. Underscores clear the boundary lookbehind at
+        # every offset, so the unbounded pattern gets n starting positions and
+        # goes quadratic on exactly this input shape. That is proven by
+        # test_calibrated_reinjecting_the_unbounded_pattern_reproduces_the_blowup
+        # below, which reinjects the pre-Loop-12 pattern and measures 15.8x
+        # against the 4.1x this bounded pattern gives. The 15.6x recorded
+        # three paragraphs up was measured on underscores as well, which is
+        # why the two figures agree.
         small = max(self._time("_" * 8000), 0.001)
         large = self._time("_" * 32000)
         self.assertLess(large / small, 8.0,
@@ -3724,22 +3825,77 @@ class TestLoop12RedactionIsLinearInInputSize(unittest.TestCase):
                         "where linear is about 4x and quadratic about 16x"
                         % (small, large, large / small))
 
-    # NO CALIBRATION TEST HERE, and that absence is deliberate and recorded
-    # (C-11, 2026-08-04). One was written and then REMOVED because it did not
-    # calibrate: reinjecting the pre-Loop-12 unbounded key-value pattern onto
-    # bm.SECRET_PATTERNS[8] produced a 4.0x ratio on these inputs, which is
-    # linear, not the roughly 16x a quadratic would give. The monkeypatch
-    # itself works (redact() reads the module global at call time), so the
-    # honest reading is that this pattern is not quadratic on an 8000 and
-    # 32000 character run of one repeated character, whatever it did on the
-    # 4 MB row named in the comment above.
-    #
-    # What that means for the two tests above, stated rather than implied:
-    # the minimum-of-5 estimator provably fixes the FLAKE, and their ability
-    # to catch a genuinely quadratic redactor is now UNVERIFIED by this
-    # session. Shipping a green calibration that proves nothing, or a red one
-    # that blocks the suite, would both have been worse than saying so. The
-    # register carries this as the open half of C-11.
+    def test_calibrated_reinjecting_the_unbounded_pattern_reproduces_the_blowup(self):
+        # CALIBRATION for the two tests above: C-11's adversarial half, and the
+        # correction of an earlier reading recorded here on 2026-08-04.
+        #
+        # THE EARLIER READING, and why it was wrong. A calibration test was
+        # written and then removed because reinjecting the pre-Loop-12
+        # unbounded key-value pattern produced a 4.0x ratio, which is linear.
+        # The note left behind concluded that the pattern "is not quadratic on
+        # a run of one repeated character". That conclusion was too broad: it
+        # generalised from ONE repeated character to all of them. The probe had
+        # used the "x " + "B" * n text from the sibling test above, and a run of
+        # LETTERS cannot exercise this pattern at all. The pattern opens with
+        # the boundary lookbehind (?<![A-Za-z0-9]), so inside a run of "B" every
+        # offset but the first is preceded by an alphanumeric and is rejected
+        # before any backtracking happens. Two start positions do work in the
+        # whole string, so the cost is linear no matter what follows.
+        #
+        # "_" is the one character that is EXCLUDED from that lookbehind while
+        # still being INSIDE the [A-Za-z0-9_]* run that follows it, which is
+        # exactly what the sibling test's own first sentence says. So every one
+        # of n offsets clears the lookbehind, and each one then scans the rest
+        # of the run looking for the keyword alternation that never arrives:
+        # n starts times n characters, the O(n^2) this class exists to catch.
+        # The bound {0,40} on the shipped pattern is what caps the inner scan
+        # at a constant and turns the same shape linear.
+        #
+        # Measured on this machine, minimum of five samples per size, 1000 and
+        # 4000 underscores: unbounded gave 0.0263s and 0.4160s, a 15.8x ratio;
+        # the shipped bounded pattern gave 0.0023s and 0.0093s, a 4.1x ratio.
+        # That 15.8x is the same signature as the 15.6x the sibling comment
+        # above records, which is corroboration rather than coincidence: that
+        # figure was measured on underscores too. Sizes are 1000 and 4000
+        # rather than 8000 and 32000 to keep this test near 2s instead of near
+        # 130s; quadratic cost rises fast and the ratio is what is being
+        # asserted, not the absolute time.
+        #
+        # If this test ever stops reproducing, the two tests above are no
+        # longer calibrated to the defect they exist to catch, and the
+        # minimum-of-5 estimator in _time() may be suppressing a real
+        # regression rather than only suppressing noise.
+        unbounded = re.compile(
+            bm._BEFORE + r"[A-Za-z0-9_]*(?:pass(?:word|wd|phrase)?"
+            r"|secret|token|api[_-]?key|access[_-]?key|private[_-]?key"
+            r"|credential)s?\s*(?:[:=]|\s+(?:is|was)\s+)\s*\S+", re.I)
+        original = bm.SECRET_PATTERNS
+        reinjected = list(original)
+        reinjected[8] = unbounded
+        bm.SECRET_PATTERNS = reinjected
+        try:
+            small = max(self._time("_" * 1000), 0.001)
+            large = self._time("_" * 4000)
+        finally:
+            bm.SECRET_PATTERNS = original
+        self.assertGreaterEqual(
+            large / small, 8.0,
+            "REINJECTION CHECK: the pre-Loop-12 unbounded key=value pattern "
+            "must still show a superlinear ratio, so that the two tests above "
+            "are proven able to catch it. 1000 chars took %.4fs, 4000 took "
+            "%.4fs, a %.1fx ratio where 15.8x was measured when this was "
+            "written and anything near 4x means the calibration has been lost"
+            % (small, large, large / small))
+
+    def test_calibration_reinjection_is_reverted_afterwards(self):
+        # The calibration above swaps a real product symbol and restores it in
+        # a finally block. If that restore ever broke, every later redaction
+        # test in this process would run against the reinjected pattern and
+        # could pass or fail for reasons that have nothing to do with the code
+        # under test. This asserts the shipped pattern is the bounded one, so
+        # a leaked monkeypatch fails here by name instead of surfacing as an
+        # unrelated flake somewhere downstream.
+        self.assertIn("{0,40}", bm.SECRET_PATTERNS[8].pattern)
 
 
 class TestLoop12PairedArtifactsAreRedacted(unittest.TestCase):
