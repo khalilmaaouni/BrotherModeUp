@@ -14,11 +14,26 @@ Required: the founder's real project run through the seven beginner
 commands, seven calendar days minimum (amendment A2 started the clock the
 day Loop 2 closed, 2026-08-01).
 
-State: NOT STARTED. No dogfood record exists anywhere in this tree or the
-vault. No engineering can compress this: the gate demands calendar days of
-real founder work. FOUNDER-GATED. The one thing this session can say is
-that the commands the dogfood needs are the mechanical ones Loop 2 landed
-and the scripted end-to-end gate exercises daily.
+State: CORRECTED 2026-08-03, and the correction runs the other way from
+almost every other line in this program. This row said NOT STARTED because
+no dogfood record existed in the tree or the vault, and that was true of the
+RECORD. It was not true of the world: the founder states that he and other
+people have been using BrotherMode for weeks, installed by pointing them at
+this repository and letting Claude install it.
+
+So the honest state is REAL USE, UNMEASURED. Daily founder use over weeks,
+plus an unknown number of other users on their own machines, is exactly the
+kind of evidence the seven-day calendar gate was asking for, and nobody
+wrote it down. What is still genuinely missing is the MEASUREMENT the
+protocol also wants: counted projects, recorded failures, rework, and a
+comparison against working without the tool. Real use is not the same as
+graded outcomes, and this row will not claim the second from the first.
+
+Two things follow that matter more than the label. Those users track `main`
+rather than a pinned tag, so what lands on `main` reaches them on their next
+install. And the docs elsewhere still say this has never run on a real
+project, which understates the project and misleads the next reader; that
+sentence is corrected wherever it appears.
 
 ### 2. Three fresh-machine outside installs
 

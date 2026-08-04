@@ -204,8 +204,14 @@ no scorecard can quietly omit them.
 - **X-02 External user study.** Needs participants who did not build this.
 - **X-03 Benchmark corpus.** Thirty projects, five users, three operating
   systems, two runtimes.
-- **X-04 Sustained dogfood.** Thirty days of calendar time; the clock has not
-  started.
+- **X-04 Sustained dogfood.** CORRECTED 2026-08-03: the clock had started and
+  nobody had written it down. The founder reports weeks of his own daily use
+  plus other people using it on their own machines, installed by pointing them
+  at this repository. That is real use, and this register had been recording
+  the opposite. What remains missing is the MEASUREMENT rather than the usage:
+  counted projects, recorded failures and rework, and a comparison against
+  working without the tool. Real use does not become a graded outcome by being
+  real, and this line will not claim the second from the first.
 - **X-05 Ecosystem thresholds.** Twenty-five active users, five contributors,
   two maintainers able to release.
 - **X-06 Fault-injection reliability.** The protocol asks for 10,000 sequences;
