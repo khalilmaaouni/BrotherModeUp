@@ -76,3 +76,10 @@ its own errors.
 - A new failure code, kind or branch gets a DEFAULT that fails safe, so a later
   addition that forgets to name one is refused rather than silently waved
   through the hole the mechanism was audited for.
+- A GUI button's label is a SAMPLE, not a property: the app can re-render between
+  the screenshot and the click. Re-read the control in the same call that clicks
+  it, or click something inert first. Learned by pressing what a screenshot
+  showed as "Fetch origin" and what had become "Push origin" by the time the
+  click landed. The push was correct and wanted, which is the only reason this
+  is a near-miss rather than an incident; the same misread on a Merge or a
+  Force-push button is not recoverable.

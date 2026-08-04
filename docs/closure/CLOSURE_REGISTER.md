@@ -247,4 +247,6 @@ no scorecard can quietly omit them.
 - Adversarial test: reinject the quadratic redactor the existing comment
   describes and assert the test still fails.
 - machine-closable: **yes**
-- Status: OPEN
+- Status: **PARTLY CLOSED 2026-08-04.** The FLAKE is fixed and verified: `_time()` in `tools/test_bm.py` now returns the MINIMUM of five samples per size instead of one, which is the standard microbenchmark estimator because noise can only add latency, never remove it. Both timing tests share that helper, so both are fixed by one change, and the suite passes.
+  The ADVERSARIAL half is NOT closed, and this is the honest part. A calibration test was written and then removed: reinjecting the pre-Loop-12 unbounded key-value pattern onto `bm.SECRET_PATTERNS[8]` produced a 4.0x ratio on the 8000 and 32000 character inputs, which is linear rather than the roughly 16x a quadratic gives. The monkeypatch works (redact reads the module global at call time), so the reading is that this pattern is not quadratic on a run of one repeated character, whatever it did on the 4 MB row the original comment names.
+  CONSEQUENCE, stated rather than implied: these tests' ability to catch a genuinely quadratic redactor is UNVERIFIED by this session. Shipping a green calibration that proves nothing, or a red one that blocks the suite, would both have been worse. Closing this needs an input that actually reproduces the blowup.
