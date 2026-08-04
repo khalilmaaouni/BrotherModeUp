@@ -298,6 +298,18 @@ through preparing it.
 
 ## What has and has not happened, stated honestly
 
+CURRENT STATE, 2026-08-04, fourth entry of the day: `VERSION` now reads
+`2.0.1.dev1`, a DEVELOPMENT identity, because `v2.0.0` was cut and pushed
+earlier tonight and rule 3 of the version law requires `main` to bump
+immediately afterwards. `release_tag` is `None` for this identity and no tag
+named `v2.0.1.dev1` will ever exist. `install_target_tag` stays `v2.0.0`,
+the last tag known to resolve, per rule 5. The two manifest descriptions
+also stop calling the plugin packaging a release candidate, which stopped
+being true when 2.0.0 shipped; the git-clone install remains the verified
+path and both descriptions still say so.
+
+The entry below describes the release cut itself and stays as written.
+
 CURRENT STATE, 2026-08-04, third entry of the day: `VERSION` reads `2.0.0`,
 the first public release identity, and it is the version this tree is cut
 at. Earlier today PR #5 merged as `ef25c1f` with all eleven CI jobs green on
