@@ -3,7 +3,10 @@
 Two ways in. Path 1 is the simple one: two commands typed inside Claude Code,
 nothing else. Path 2 is the step-by-step one, written for technical users, and
 it is the path every command of which has been run and checked before
-publication. Pick one; do not do both.
+publication. Pick one; do not do both. If nothing is going to type an
+interactive `/plugin` command for you, for example a script or an agent
+installing this with no Claude Code session open, use Path 2: Path 1 needs an
+interactive session to run its two commands in.
 
 ## Path 1: install as a plugin (the simple way)
 
@@ -308,6 +311,23 @@ ls ~/BrotherModeVault/Home.md
 ```
 
 Expected: that path printed back.
+
+That folder existing is not the same as setup being complete. Doctor's check
+4, "Setup has been completed," still reads FAIL until `scripts/setup.py` runs
+and records the consent that names this folder as your vault; check 4's own
+remediation text names this exact command. Run it now, non-interactively,
+with the same path you just created:
+
+```bash
+python3 ~/.claude/skills/brothermode/scripts/setup.py --vault ~/BrotherModeVault --mode clone --accept-notice
+```
+
+Expected: a line reading `setup: config written to ~/.brotherme/config.json`,
+the vault path and installation mode you just gave it printed back, then
+doctor's own output printed inline (checks 4, 5 and 8 should now read PASS),
+and a closing line naming the next action. This is the one command doctor's
+remediation text points at directly; skipping it is why check 4 fails on an
+otherwise-correct install.
 
 ## 5. Verify the installation
 
