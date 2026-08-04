@@ -94,7 +94,7 @@ drift out of the page it was written on. To change what this says, change the
 register and re-run the command.
 
 <!-- BEGIN GENERATED CAPABILITY STATUS -->
-<!-- Generated from capabilities.status.json by `python3 tools/bm_docs.py capability-status --write`. Edit the register, not this block. -->
+<!-- Generated from capabilities.status.json by `bm-docs capability-status --write` (the packaged console script; from a clone, tools/bm_docs.py). Edit the register, not this block. -->
 
 Four states and no others, read out of `capabilities.status.json`, updated 2026-08-04: certified means proven in this tree today by the evidence named; beta means real, with a named gap; experimental means built or planned, not measured; unsupported means not offered, and no plan makes it offered.
 
