@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BrotherME, explained simply</title>
+<title>BrotherMode, explained simply</title>
 <style>
   :root {
     --paper: #FAF8F4;
@@ -170,9 +170,9 @@
 </head>
 <body>
 <main>
-  <p class="kicker">BrotherME for Claude Code</p>
+  <p class="kicker">BrotherMode for Claude Code</p>
   <h1>The plugin that refuses to say done</h1>
-  <p class="lede">BrotherME blocks a second writer on a file another session already claimed, and it refuses the word done until a check runs after the last change and passes. On Claude Code both are machinery, not advice.</p>
+  <p class="lede">BrotherMode blocks a second writer on a file another session already claimed, and it refuses the word done until a check runs after the last change and passes. On Claude Code both are machinery, not advice.</p>
 
   <p>Install is two lines. You need Claude Code and Python 3.9 or newer, nothing else. Open Claude Code and type them one at a time.</p>
   <pre>/plugin marketplace add khalilmaaouni/BrotherModeUp
@@ -213,12 +213,12 @@ refused (overlap): claim overlaps active record 'website-pages' (lifecycle 01daa
   </div>
 
   <h3>What that feels like in a conversation</h3>
-  <p class="honesty">This conversation is an illustration. The commands, the questions and the gates are real; these five bubbles were composed for this page, not recorded from a session. The full worked project is in the book.</p>
+  <p class="honesty">This conversation is an illustration. The commands, the questions and the gates are real; these five bubbles were composed for this page, not recorded from a session. The full worked project is in the book. The replies below are labelled BrotherME because that is the persona the guided flow speaks under; the product is BrotherMode, and the persona name belongs to the guided skill and its /brotherme commands, nowhere else.</p>
   <div class="bubble-row founder"><div class="bubble founder"><span class="speaker">You</span><code>/brotherme-start</code> I run a bakery. I want a website: our story, photos, hours, and cake pre-orders.</div></div>
-  <div class="bubble-row bot"><div class="bubble bot"><span class="speaker">BrotherME</span>Pre-orders is the one decision that changes everything else. When someone orders a cake, what should happen? A) you get an email (recommended, works day one), B) they pick a pickup slot, C) they pay online.</div></div>
+  <div class="bubble-row bot"><div class="bubble bot"><span class="speaker persona">BrotherME</span>Pre-orders is the one decision that changes everything else. When someone orders a cake, what should happen? A) you get an email (recommended, works day one), B) they pick a pickup slot, C) they pay online.</div></div>
   <div class="bubble-row founder"><div class="bubble founder"><span class="speaker">You</span>Email. We confirm by phone anyway.</div></div>
-  <div class="bubble-row bot"><div class="bubble bot"><span class="speaker">BrotherME</span>Bad news first: one check failed. The gallery's third photo links to nothing when tapped. Fixing now, and the fix re-runs the same check.</div></div>
-  <div class="bubble-row bot"><div class="bubble bot"><span class="speaker">BrotherME</span>The re-run passed, so this is delivered. The packet lists what was built, every check that ran after the last change, and what I left out on purpose.</div></div>
+  <div class="bubble-row bot"><div class="bubble bot"><span class="speaker persona">BrotherME</span>Bad news first: one check failed. The gallery's third photo links to nothing when tapped. Fixing now, and the fix re-runs the same check.</div></div>
+  <div class="bubble-row bot"><div class="bubble bot"><span class="speaker persona">BrotherME</span>The re-run passed, so this is delivered. The packet lists what was built, every check that ran after the last change, and what I left out on purpose.</div></div>
 
   <h2>Get it, update it, go deeper</h2>
   <div class="steps">
@@ -229,7 +229,7 @@ refused (overlap): claim overlaps active record 'website-pages' (lifecycle 01daa
   </div>
 
   <footer>
-    BrotherME 2.0.0-rc.11, 2026-08-01. This page ships inside the repository at docs/brotherme-explained.html and is updated by hand at each release.
+    BrotherMode. This page ships inside the repository at docs/brotherme-explained.html and is updated by hand at each release. It carries no version number of its own on purpose: the release to install is the tag the install pages pin, printed by <code>python3 tools/bm_project_facts.py --field install_target_tag</code>, and <code>/brotherme-update</code> compares what you have against the newest one.
   </footer>
 </main>
 </body>
