@@ -822,12 +822,27 @@ class TestVersionAndSchemaAgree(unittest.TestCase):
             % (FACTS["version"], "; ".join(offenders)))
 
     def test_no_active_page_states_a_different_schema_version(self):
+        """Anchored to the claim, not the number, like the version check
+        above: a page's own prose may not state a stale schema version, but a
+        VERBATIM QUOTATION of what some older binary prints (text inside
+        double quotes or a backtick code span) is dated evidence and stays
+        legal. Found the hard way when L02 moved the schema to 14 and this
+        check fired on KNOWN-LIMITS quoting an rc.9 console message."""
         offenders = []
         pat = re.compile(r"schema[_ ]version[^\d\n]{0,12}(\d+)", re.IGNORECASE)
+        quoted = re.compile(r'"[^"\n]*"|`[^`\n]*`')
         for rel in ACTIVE_DOCS:
-            for m in pat.finditer(read(rel)):
-                if int(m.group(1)) != FACTS["schema_version"]:
-                    offenders.append("%s: %s" % (rel, m.group(0)))
+            for line in read(rel).split("\n"):
+                bare = quoted.sub("", line)
+                # A quotation that spans lines leaves its opening quote
+                # unpaired on this line; everything after it is quoted text.
+                for opener in ('"', "`"):
+                    cut = bare.find(opener)
+                    if cut != -1:
+                        bare = bare[:cut]
+                for m in pat.finditer(bare):
+                    if int(m.group(1)) != FACTS["schema_version"]:
+                        offenders.append("%s: %s" % (rel, m.group(0)))
         self.assertEqual(offenders, [],
                          "a page states a schema version other than %d: %s"
                          % (FACTS["schema_version"], "; ".join(offenders)))
@@ -4390,7 +4405,9 @@ class TestVerifyDocsIsOneEntryPoint(_DocsCLI, unittest.TestCase):
 RECORD_DIRS = (os.path.join("docs", "closure"),
                os.path.join("docs", "evidence"),
                os.path.join("docs", "superpowers"),
-               os.path.join("docs", "craft"))
+               os.path.join("docs", "craft"),
+               os.path.join("docs", "program", "absolute-lead", "evidence"),
+               os.path.join("docs", "program", "solo-founder-ic"))
 
 #: Pages this check does NOT read, each with the reason it is out. EMPTY since
 #: 2026-08-04 (positioning loop L1.4), and that is the point: it held the two

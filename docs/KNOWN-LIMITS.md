@@ -902,3 +902,59 @@ cutting the next release tag at program end:
   seven groups is a post-freeze fix; until then, the mechanical
   cross-check is `python3 tools/test_install.py`, whose shape assertions
   do read all seven.
+
+## U1 autonomy contract: the signer check, one concurrency note, and one stale number (2026-08-05)
+
+- **The `sign --signed-by` check is a denylist, not an authentication
+  check.** Full account and the plain-language version of this limit:
+  `docs/AUTONOMY.md`. Stated here in the same terms the code carries: it
+  refuses roughly thirty model-name tokens, case-folded and Unicode
+  normalized, and it does NOT catch a model deliberately told to sign as
+  a real person's name (an initial like `K.` reads no differently from
+  any other short token, so the check does not try to tell them apart), a
+  vendor or model name not yet on the list, a name written in a
+  non-Latin script, or a deliberate misspelling (`cl4ude` does not fold
+  to `claude`). A stricter, version-suffix-shaped regex (matching a
+  pattern like `claude-opus-5`) was drafted during implementation and
+  DISCARDED: it also matched `K. Maaouni`, which normalizes to
+  `k-maaouni`, a word-hyphen-word shape the regex could not tell apart
+  from a model name, and it would have wrongly refused a real person's
+  own name. Plain token splitting against the fixed list, with no
+  shape-based pattern, is what ships, and it is the intentionally weaker,
+  more honest check.
+- **Two concurrent signers do not corrupt anything, but not for the
+  reason first assumed.** The design sketch this loop implemented from
+  predicted a race resolved by `UNIQUE(project_id, revision)`: the
+  SECOND concurrent signer would collide on that constraint and have to
+  retry. What the store actually does is re-read the latest revision
+  INSIDE the write lock it already holds, so the second signer never
+  collides at all; it simply waits for the lock, then lands on the next
+  free revision in turn. Both signers succeed, on two different
+  consecutive revisions, and exactly one highest revision exists when
+  both are done. This is a stronger property than the one the design
+  sketch predicted (no wasted attempt, no retry), not a weaker one, but
+  it is a different mechanism, and a reader who goes looking for the
+  collision-and-retry behavior in the code will not find it.
+- **`sign --allowed-path` and `gate-check --path` are always resolved
+  against the project root, never against the directory the command was
+  run from.** An earlier design sketch assumed the CLI would pass the
+  caller's current directory through to path resolution; the store
+  methods that actually shipped (`Store.sign_contract`,
+  `Store.gate_check`) take no such argument at all, so there is nowhere
+  for the CLI to pass one. A path typed from a project subdirectory is
+  therefore interpreted the same way it would be from the project root,
+  which is simpler than the original plan but worth stating plainly
+  rather than leaving a founder to discover it by surprise.
+- **This very file's rc.9 entry above still quotes a stale schema
+  number.** The bullet dated 2026-08-02, two entries up, quotes a
+  verbatim console message naming the schema number that was live at
+  the time (thirteen); the U1 loop that added this section moved the
+  live schema forward by one. The quoted sentence is left untouched on
+  purpose, per this file's own rule against editing a dated entry to
+  agree with today, so `tools/test_bm_docs.py`'s mechanical schema
+  check currently reports that one line as a mismatch against today's
+  number. Disclosed here rather than silently patched: fixing it needs
+  either a founder-authorized edit to that specific historical quote,
+  or the same current-claim-versus-dated-evidence exemption
+  `tools/test_bm_docs.py` already gives its sibling version-number
+  check, neither of which is this loop's file to make.
