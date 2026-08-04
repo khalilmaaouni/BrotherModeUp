@@ -7,6 +7,17 @@ its adversarial test both pass, never on a code change alone.
 `machine-closable` means it can be closed with code and tests on this machine
 today: no outside human, no paid credits, no calendar time.
 
+ALL ELEVEN machine-closable items (C-01 to C-11) are CLOSED as of 2026-08-04.
+The gate that covers the last four of them, run after the last edit:
+`test_all: 1518 tests across 14 suites, 6 skipped, 209.6s wall. ALL GREEN`,
+exit 0. Two of those closures are narrowings rather than complete fixes and
+say so in their own entries: C-02 ships refusal and alerting but not
+containment, and carries a deliberate fail-open when the store module cannot
+be imported; C-06 leaves `bm_project_facts.py` and `scripts/` unwired on
+purpose. What remains open is X-01 to X-06 below, and none of it is closable
+by engineering: it needs credits, outside participants, or calendar time.
+That is the honest reason a 9 out of 10 still cannot be claimed today.
+
 ---
 
 ## C-01 The enforcement boundary never fails closed
@@ -62,7 +73,40 @@ today: no outside human, no paid credits, no calendar time.
   supported shell path without a recorded refusal or a recorded alert.
 - Adversarial test: the exact chained sequence above, asserted to fail.
 - machine-closable: **partly** (refusal and alerting yes; OS-level sandboxing no)
-- Status: OPEN
+- Status: **CLOSED 2026-08-04, as the partly it was always scoped to be.** Both
+  halves landed. REFUSE: `BM_FENCE_MODE=enforced` makes `tools/bm_bash_audit.py`
+  return a deny for an obvious destructive command aimed at the store or the
+  fence directory, before the consent gate so a half-installed machine is still
+  covered. ALERT: `.brothermode/store.sqlite3` was never a CLAIMED path, which
+  is why the Bash audit never looked at it and the bypass was silent; a control
+  snapshot now covers the enforcement state itself, and `_raise_breach_alert`
+  announces the detection BEFORE it tries to record it, because a detection
+  whose store has just been deleted was previously announced by nothing.
+  `EnforcedModeRefusesStoreDestruction` in `tools/test_bm_bash_audit.py` carries
+  one test per mutation form the reproduction above used (redirection, `sed -i`,
+  `tee`, `python3 -c`, `git checkout`, plus `rm`, the fence directory, and
+  `git clean -xfd` which names no BrotherMode path and deletes it anyway). Each
+  asserts BOTH directions: refused under enforced, allowed by default. Fence
+  suite 16 tests to 30.
+  THREE THINGS THIS DOES NOT DO, stated here rather than left to the reader.
+  (1) Full containment needs an operating-system sandbox and is explicitly out
+  of scope, unchanged. (2) The matcher is LITERAL, not a shell parser: a path
+  assembled at runtime, held in a variable, or sitting inside a script file the
+  hook never reads is not caught. (3) A deliberate fail-open sits inside the
+  fail-closed feature: when `tools/bm_store.py` cannot be imported at all, the
+  project check cannot run and NOTHING is refused, so anyone who can break that
+  import can disable the refusal. That was chosen because the only alternative
+  refuses every Bash command in every directory on the machine, this hook being
+  installed user-globally. `SECURITY.md` and `docs/KNOWN-LIMITS.md` say all
+  three in those words.
+  PROCESS NOTE, kept because it is the more useful record. The approved spec's
+  own change 8 refused BEFORE resolving a project root, which is exactly the
+  machine-wide defect `references/mistakes.md` already had a law about from the
+  last time it happened. The implementing agent stopped and refused to apply it
+  rather than shipping it, and the corrected change added the root check plus
+  `test_the_refusal_stays_inert_outside_a_brothermode_project_even_when_enforced`
+  so the defect cannot return. A written law did not prevent it; a second pair
+  of eyes did.
 
 ## C-03 Three documents overstate the boundary, one inverts it
 
@@ -106,7 +150,32 @@ today: no outside human, no paid credits, no calendar time.
 - Adversarial test: add an `os.replace` write in an unreviewed directory and
   assert the gate catches it.
 - machine-closable: **yes**
-- Status: OPEN
+- Status: **CLOSED 2026-08-04.** `TestPreWriteGate` in `tools/test_bm.py` now
+  matches eight constructs instead of three (adding `os.replace`, four `shutil`
+  write functions, `os.mkdir`/`os.makedirs`, `os.unlink`/`os.remove`,
+  `os.chmod`) and walks all four directories the acceptance names: `tools/`,
+  `scripts/`, `mcp/` and `brotherme/`. Manifest keys became repository-relative
+  paths, because a bare filename stopped being unambiguous the moment a second
+  directory joined the scan. `tools/write_sites.json` goes from 68 sites across
+  14 files to 193 across 22, and every newly surfaced site was read line by
+  line rather than accepted on the scanner's count. None writes founder or
+  model text without redaction: every one is scaffolding around an
+  already-reviewed write (the atomic-swap half of a temp-file-then-replace, a
+  directory created ahead of a reviewed write, a temp file the tool itself
+  created being deleted, a permission tightened, or a verbatim byte copy of an
+  existing file), or structural config in `scripts/`.
+  The adversarial test, `test_widened_scope_catches_a_smuggled_site`, plants a
+  file writing only via `os.replace` inside a `scripts`-shaped directory under
+  an isolated temp root and asserts the SAME comparison the real gate runs
+  refuses it. It shares that comparison with the real test rather than copying
+  it, so the adversarial test cannot drift into passing against a mock.
+  SCOPE NOTE: the implementation spec recommended deferring `scripts/` to a
+  second stage. It was not deferred, because this item's acceptance names all
+  four directories and shipping three of four would have left C-04 open while
+  reading as closed. The counts were also re-measured against the finished tree
+  rather than transcribed from the spec, which caught one real drift:
+  `bm_bash_audit.py` is 9 sites, not the spec's 8, because C-02 landed a new
+  `sys.stdout.write` in `_refuse` after the spec was written.
 
 ## C-05 Most of the suite has never run on the declared Python floor
 
@@ -140,7 +209,37 @@ today: no outside human, no paid credits, no calendar time.
 - Adversarial test: install into a fresh virtualenv and invoke each documented
   command.
 - machine-closable: **yes**
-- Status: OPEN
+- Status: **CLOSED 2026-08-04.** `pyproject.toml` declares twelve console
+  scripts where it declared nine, adding `bm-project`, `bm-ledger` and
+  `bm-sentinel`. The sentinel was the one the earlier spec could not have
+  known about: it merged into `main` after that spec was written and carried
+  the identical gap, documented as a command line in two documents and wired
+  to nothing. Packaging also gained the `brotherme` package mapping and the
+  `brotherme/core/schema.py` data file, without which a packaged
+  `bm-project` crashed at import time with a `FileNotFoundError`, and
+  `tools/bm_store.py`'s `_schema()` gained a second candidate path so it
+  resolves in both the checkout layout and the flat installed layout.
+  The register's own adversarial test is now executable rather than a
+  description: `tools/test_bm_packaging_install.py` builds a real wheel,
+  installs it into a throwaway virtualenv, and invokes every declared console
+  script, including a live `bm-store` / `bm-project` / `bm-ledger` /
+  `bm-sentinel` workflow. It is registered in `tools/test_all.py` and in the
+  CI `suite` job. It is the only suite needing network egress, and it SKIPs
+  rather than fails when pip cannot reach an index, so an offline runner
+  reports a skip instead of a red build.
+  DELIBERATELY STILL UNWIRED, so this is a narrowing and not a silent gap:
+  `tools/bm_project_facts.py` cannot be a console script as written, because
+  it reads `VERSION`, `tools/test_all.py`'s source and `scripts/install.py`'s
+  source, none of which ship in a wheel. `scripts/` ships nothing, unchanged.
+  `docs/PACKAGING.md` is independently stale on its own counts and is NOT
+  fixed here; it is named so the next reader does not trust it.
+  INCIDENT DURING VERIFICATION, recorded because the mechanism generalises: a
+  probe running with `HOME` overridden to a throwaway directory still wrote one
+  synthetic row into the operator's real memory vault, because `BROTHERMODE_VAULT`
+  is exported ambient and takes precedence over `HOME`. The row was removed on
+  the founder's decision and the test now pins every redirecting variable.
+  `references/mistakes.md` carries it as a law: HOME isolation is not vault
+  isolation.
 
 ## C-07 The two install paths produce different hook configurations
 
@@ -247,6 +346,9 @@ no scorecard can quietly omit them.
 - Adversarial test: reinject the quadratic redactor the existing comment
   describes and assert the test still fails.
 - machine-closable: **yes**
-- Status: **PARTLY CLOSED 2026-08-04.** The FLAKE is fixed and verified: `_time()` in `tools/test_bm.py` now returns the MINIMUM of five samples per size instead of one, which is the standard microbenchmark estimator because noise can only add latency, never remove it. Both timing tests share that helper, so both are fixed by one change, and the suite passes.
-  The ADVERSARIAL half is NOT closed, and this is the honest part. A calibration test was written and then removed: reinjecting the pre-Loop-12 unbounded key-value pattern onto `bm.SECRET_PATTERNS[8]` produced a 4.0x ratio on the 8000 and 32000 character inputs, which is linear rather than the roughly 16x a quadratic gives. The monkeypatch works (redact reads the module global at call time), so the reading is that this pattern is not quadratic on a run of one repeated character, whatever it did on the 4 MB row the original comment names.
-  CONSEQUENCE, stated rather than implied: these tests' ability to catch a genuinely quadratic redactor is UNVERIFIED by this session. Shipping a green calibration that proves nothing, or a red one that blocks the suite, would both have been worse. Closing this needs an input that actually reproduces the blowup.
+- Status: **CLOSED 2026-08-04.** The FLAKE was closed first: `_time()` in `tools/test_bm.py` returns the MINIMUM of five samples per size instead of one, which is the standard microbenchmark estimator because noise can only add latency, never remove it. Both timing tests share that helper, so both are corrected by one change.
+  The ADVERSARIAL half is now closed too, and the route to it is the part worth keeping. This item previously read PARTLY CLOSED, because a calibration test had been written and then REMOVED: reinjecting the pre-Loop-12 unbounded key-value pattern onto `bm.SECRET_PATTERNS[8]` produced a 4.0x ratio, which is linear, and the note left behind concluded that the pattern "is not quadratic on a run of one repeated character".
+  THAT CONCLUSION WAS WRONG, and the pattern was quadratic all along. The probe text was `"x " + "B" * n`, a run of LETTERS. The pattern opens with the boundary lookbehind `(?<![A-Za-z0-9])`, so inside a run of letters every offset except the first is preceded by an alphanumeric and is rejected before any backtracking can happen: two starting positions in the entire string, linear by construction, and NO input of that shape could ever have exhibited the defect. A run of UNDERSCORES clears that lookbehind at every offset while still being consumed by the `[A-Za-z0-9_]*` that follows, giving n starting positions each scanning n characters. The sibling test `test_a_run_of_underscores_does_not_blow_up_either` had been saying so in its own first sentence the whole time.
+  Measured on the underscore input, minimum of five samples per size, 1000 and 4000 characters: unbounded 0.0263s and 0.4160s, a 15.8x ratio; the shipped bounded pattern 0.0023s and 0.0093s, a 4.1x ratio. The 15.8x agrees with the 15.6x this file's own older comment records, which is corroboration rather than coincidence, because that figure was measured on underscores too. Sizes are 1000 and 4000 rather than 8000 and 32000 to keep the test near 2s instead of near 130s, since quadratic cost rises fast and the ratio is what is asserted, not the absolute time.
+  `test_calibrated_reinjecting_the_unbounded_pattern_reproduces_the_blowup` carries it, alongside `test_calibration_reinjection_is_reverted_afterwards` so a leaked monkeypatch fails by name rather than surfacing as an unrelated flake downstream. The calibration was shown able to FAIL, not merely observed passing: with the reinjection disabled it goes red at 4.4x with a message naming the cause, and it was restored and re-run green afterwards. The acceptance's other clause holds as well, the class passing under deliberate CPU load (load average 6.47, 4.844s).
+  THE LESSON, now a law in `references/mistakes.md`: a probe that cannot reach the defect measures nothing, and its silence reads exactly like an all-clear. A negative result from an instrument of unproven sensitivity is NO-DATA, never a finding. Withdrawing the test rather than shipping a green one that proved nothing was still the right call at the time. The error was writing the conclusion down as a property of the code instead of as a limit of the probe.

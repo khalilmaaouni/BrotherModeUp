@@ -54,9 +54,15 @@
 # construction, and it can never drift from .gitignore because it does not
 # reimplement .gitignore's rules. If this is ever run against a tree copied
 # without its .git directory, it falls back to a plain filesystem walk with
-# the same exclusions .gitignore already documents (STATE.md, threads/,
-# __pycache__/, .DS_Store, *.bak*, .superpowers/) plus this repo's own
-# machine state (.brothermode/).
+# the same exclusions .gitignore already documents (STATE.md, CANVAS.md,
+# threads/, __pycache__/, .DS_Store, *.bak*, .superpowers/) plus this repo's
+# own machine state (.brothermode/). CANVAS.md joined that list on
+# 2026-08-04: it is generated per machine by `bm_project.py start` and
+# gitignored exactly like STATE.md, but only STATE.md was named here, so
+# verify-install.sh reported CANVAS.md as an EXTRA file on every machine
+# where anyone had ever started a project. A verifier that says FAILED on a
+# correct installation trains people to ignore it, which costs more than the
+# file was ever worth.
 
 set -e
 
@@ -169,6 +175,7 @@ else
         ! -name '.DS_Store' \
         ! -name '*.bak*' \
         ! -name 'STATE.md' \
+        ! -name 'CANVAS.md' \
         | sed 's|^\./||' > "$WORKDIR/filelist"
 fi
 

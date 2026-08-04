@@ -2800,9 +2800,17 @@ def _schema():
     global _SCHEMA_MOD
     if _SCHEMA_MOD is None:
         import importlib.util
-        path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "brotherme", "core", "schema.py")
+        here = os.path.dirname(os.path.abspath(__file__))
+        # Two layouts to support, checked in this order:
+        #  1. flat pip/pipx install: this file and the brotherme/ package
+        #     both land directly in site-packages, so brotherme/core is a
+        #     sibling of this file's own directory.
+        #  2. git checkout: this file lives in <repo>/tools/, brotherme/
+        #     is a sibling of tools/ one level up.
+        for candidate_root in (here, os.path.dirname(here)):
+            path = os.path.join(candidate_root, "brotherme", "core", "schema.py")
+            if os.path.exists(path):
+                break
         spec = importlib.util.spec_from_file_location(
             "brotherme_core_schema", path)
         mod = importlib.util.module_from_spec(spec)
