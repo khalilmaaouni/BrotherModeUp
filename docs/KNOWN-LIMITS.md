@@ -347,11 +347,27 @@ repository root, avoid glob fences, do not run two worktrees of one repo in
 parallel sessions, and never restore an autosave snapshot in place without
 inspecting it first in a separate worktree.
 
-## Never run on a real project
+## Used for real, but never MEASURED on a real project
 
-Unchanged from the previous handover, and it is the honest headline. Everything
-here rests on tests, adversarial execution, and simulated lifecycles. No day of
-real founder work has yet been done through the V2 store.
+CORRECTED 2026-08-03, and this correction runs in the opposite direction from
+most on this page: the limit was overstated, not understated. Every earlier
+version said flatly that nothing here had ever run on a real project and that
+everything rested on tests, adversarial execution and simulated lifecycles.
+That was true of the RECORD and false of the world. The founder reports weeks
+of his own daily use, plus other people using it on their own machines,
+installed by pointing them at this repository.
+
+What remains true, and is the actual limit: none of that use was MEASURED.
+There is no counted set of projects, no recorded failure and rework rate, no
+comparison against working without the tool, and no outside participant whose
+experience was observed rather than reported. So the honest statement is that
+real use exists and graded outcomes do not, and a score that wants the second
+cannot borrow it from the first.
+
+The older, stronger claim survives in the dated documents that made it
+(docs/SCORECARD-2026-07-27.md, docs/ACCOUNTING-2026-07-26.md). Those were
+accurate on their dates and are deliberately NOT rewritten: editing a dated
+record to match today is the failure this project refuses on principle.
 
 ## Continuous integration HAS executed, and it FAILED on Windows
 
