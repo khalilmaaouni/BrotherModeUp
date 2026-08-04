@@ -80,3 +80,9 @@ that command's output, not remembered.
 - Windows is exercised by CI store, suite and gate jobs; the full product
   lifecycle on native Windows (installer, hooks, uninstall) is NOT certified
   and remains the positioning plan's WIN phase.
+- CORRECTION, 2026-08-04 late night, same day: the line above overstates the
+  Windows matrix. Reading .github/workflows/tests.yml directly: windows-latest
+  appears in exactly one job, store; the suite job matrix is ubuntu and macos
+  only, and the gate job runs on ubuntu. Windows CI coverage at this baseline
+  is the store job alone. Found by the W3 writer while encoding
+  capabilities.status.json; the register carries the corrected fact.

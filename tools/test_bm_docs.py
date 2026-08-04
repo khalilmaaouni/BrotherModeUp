@@ -3497,6 +3497,591 @@ class TestTheAdoptionBook(unittest.TestCase):
                       "their question, not the product's structure")
 
 
+# ---------------------------------------------------------------------------
+# The identity contract and the capability register (positioning loops L1.2
+# and L1.3, 2026-08-04). The 2026-08-04 identity survey found five written
+# forms of one idea in the tracked tree: BrotherModeUp 165 times in 44 files,
+# BrotherMode 641 times in 130 files, BrotherME 131 times in 19 files, and the
+# two lowercase namespaces 700 and 466 times. Nothing in the tree said which
+# form belonged where, so nothing could go red when a page picked the wrong
+# one. These tests are that missing check.
+# ---------------------------------------------------------------------------
+
+IDENTITY_JSON = "product.identity.json"
+CAPABILITIES_JSON = "capabilities.status.json"
+IDENTITY_CONTRACT = os.path.join("docs", "brand", "IDENTITY-CONTRACT.md")
+
+#: The only four states a capability may be in. Anything else is a state
+#: somebody invented in a hurry, which is how "mostly works" gets shipped.
+CAPABILITY_STATES = ("certified", "beta", "experimental", "unsupported")
+
+#: An evidence pointer that names a path in this repository must name one that
+#: exists. Two shapes are recognized: a repo-relative path with a slash, and a
+#: shouting root-level document such as README.md.
+EVIDENCE_PATH_TOKEN = re.compile(r"[\w.\-]+(?:/[\w.\-]+)+|\b[A-Z][A-Z0-9_.\-]*\.md\b")
+
+
+def capability_offenders(data, root=ROOT):
+    """Every reason `data` is not a usable capability register, as strings.
+
+    Kept out of the TestCase so the crafted-violation fixtures below can run
+    the SAME predicate against hand-built data, which is what proves the guard
+    bites rather than just agreeing with the file that happens to be here."""
+    offenders = []
+    entries = data.get("capabilities")
+    if not isinstance(entries, list) or not entries:
+        return ["capabilities: expected a non-empty list"]
+    seen = set()
+    for i, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            offenders.append("entry %d is not an object" % i)
+            continue
+        where = entry.get("id") or "entry %d" % i
+        for key in ("id", "title", "state", "evidence"):
+            value = entry.get(key)
+            if not isinstance(value, str) or not value.strip():
+                offenders.append("%s: %s is missing or empty" % (where, key))
+        if entry.get("id") in seen:
+            offenders.append("%s: duplicate id" % where)
+        seen.add(entry.get("id"))
+        if entry.get("state") not in CAPABILITY_STATES:
+            offenders.append("%s: state %r is not one of %s"
+                             % (where, entry.get("state"),
+                                ", ".join(CAPABILITY_STATES)))
+        evidence = entry.get("evidence")
+        if isinstance(evidence, str):
+            for token in EVIDENCE_PATH_TOKEN.findall(evidence):
+                # A pointer at the end of a sentence carries the sentence's
+                # punctuation. The file it names does not.
+                token = token.rstrip(".,;:)")
+                if not os.path.exists(os.path.join(root, token)):
+                    offenders.append("%s: evidence names %s, which is not in "
+                                     "the tree" % (where, token))
+    return offenders
+
+
+class TestProductIdentityIsOneRecord(unittest.TestCase):
+    """Protects: the product identity is written down once, machine-readably,
+    and agrees with the manifests that a package registry and a plugin host
+    actually key off. A contract nobody can diff against is a memo."""
+
+    def test_both_identity_files_exist_and_parse(self):
+        for rel in (IDENTITY_JSON, CAPABILITIES_JSON, IDENTITY_CONTRACT):
+            self.assertTrue(
+                os.path.exists(os.path.join(ROOT, rel)),
+                "%s is missing; the identity contract has no machine-readable "
+                "half without it" % rel)
+        for rel in (IDENTITY_JSON, CAPABILITIES_JSON):
+            try:
+                json.loads(read(rel))
+            except ValueError as exc:
+                self.fail("%s does not parse as JSON: %s" % (rel, exc))
+
+    def test_the_identity_record_carries_every_agreed_field(self):
+        identity = json.loads(read(IDENTITY_JSON))
+        missing = [k for k in ("product_name", "persona_name", "persona_scope",
+                               "plugin_id", "marketplace_id", "pip_package",
+                               "python_package", "command_prefixes",
+                               "env_prefixes", "repo_slug", "repo_url",
+                               "durable_state_namespace",
+                               "code_identity_namespace", "contract_doc")
+                   if k not in identity]
+        self.assertEqual(missing, [],
+                         "%s is missing field(s): %s"
+                         % (IDENTITY_JSON, ", ".join(missing)))
+        for key in ("command_prefixes", "env_prefixes"):
+            self.assertIsInstance(identity[key], list, "%s must be a list" % key)
+            self.assertTrue(identity[key], "%s must not be empty" % key)
+
+    def test_the_identity_record_agrees_with_the_shipped_manifests(self):
+        """The template for this is test_all_release_manifests_describe_one
+        _identity above: read every manifest that carries the fact and refuse
+        a disagreement, rather than trusting one of them."""
+        identity = json.loads(read(IDENTITY_JSON))
+        caps = json.loads(read(CAPABILITIES_JSON))
+        plugin = json.loads(read(os.path.join(".claude-plugin", "plugin.json")))
+        marketplace = json.loads(read(os.path.join(".claude-plugin",
+                                                   "marketplace.json")))
+        pip_name = re.search(r'(?m)^name\s*=\s*"([^"]+)"',
+                             read("pyproject.toml")).group(1)
+        offenders = []
+
+        def same(label, got, want):
+            if got != want:
+                offenders.append("%s: identity says %r, the tree says %r"
+                                 % (label, want, got))
+
+        same("plugin id (.claude-plugin/plugin.json name)",
+             plugin.get("name"), identity["plugin_id"])
+        same("marketplace id (.claude-plugin/marketplace.json name)",
+             marketplace.get("name"), identity["marketplace_id"])
+        for entry in marketplace.get("plugins", []):
+            same("marketplace plugins[].name", entry.get("name"),
+                 identity["plugin_id"])
+        same("pip package (pyproject.toml [project] name)", pip_name,
+             identity["pip_package"])
+        same("repo url (plugin.json homepage)", plugin.get("homepage"),
+             identity["repo_url"])
+        same("repo url (plugin.json repository)", plugin.get("repository"),
+             identity["repo_url"])
+        same("repo url (tools/bm_project_facts.py REPO_URL)",
+             FACTS["repo_url"], identity["repo_url"] + ".git")
+        same("product name (capabilities.status.json)",
+             caps.get("product_name"), identity["product_name"])
+        same("contract doc pointer", identity["contract_doc"],
+             IDENTITY_CONTRACT.replace(os.sep, "/"))
+
+        if identity["repo_slug"] not in identity["repo_url"]:
+            offenders.append("repo slug %r does not appear in repo url %r"
+                             % (identity["repo_slug"], identity["repo_url"]))
+        if not os.path.exists(os.path.join(ROOT, identity["python_package"],
+                                           "__init__.py")):
+            offenders.append("python package %r has no __init__.py in the tree"
+                             % identity["python_package"])
+        if not os.path.exists(os.path.join(ROOT, identity["contract_doc"])):
+            offenders.append("contract_doc %r is not in the tree"
+                             % identity["contract_doc"])
+
+        self.assertEqual(
+            offenders, [],
+            "the identity record and the shipped manifests disagree: %s"
+            % "; ".join(offenders))
+
+    def test_the_contract_document_declares_itself_current(self):
+        head = "\n".join(read(IDENTITY_CONTRACT).split("\n")[:25])
+        self.assertTrue(
+            CURRENT_STATUS.search(head),
+            "%s does not declare `Status: CURRENT` in its first 25 lines, so a "
+            "reader cannot tell whether it is the live contract"
+            % IDENTITY_CONTRACT)
+
+    def test_no_em_or_en_dash_in_the_identity_files(self):
+        """The project's copy rule, on the three files this loop adds. The
+        older dash test targets ACTIVE_DOCS and the toolchain, neither of
+        which these are."""
+        offenders = []
+        for rel in (IDENTITY_CONTRACT, IDENTITY_JSON, CAPABILITIES_JSON):
+            for i, line in enumerate(read(rel).split("\n"), 1):
+                if "\u2013" in line or "\u2014" in line:
+                    offenders.append("%s:%d" % (rel, i))
+        self.assertEqual(offenders, [], "em or en dash found at %s"
+                         % ", ".join(offenders))
+
+
+class TestCapabilityRegisterIsHonest(unittest.TestCase):
+    """Protects: every capability the project claims carries one of four
+    states and a pointer to what proves it. The failure this prevents is the
+    one the register was written for: a page saying a thing works, with
+    nothing behind the sentence and no way for a test to notice."""
+
+    def test_every_entry_carries_a_valid_state_and_real_evidence(self):
+        offenders = capability_offenders(json.loads(read(CAPABILITIES_JSON)))
+        self.assertEqual(
+            offenders, [],
+            "%s: %s" % (CAPABILITIES_JSON, "; ".join(offenders)))
+
+    def test_the_register_declares_its_own_provenance(self):
+        caps = json.loads(read(CAPABILITIES_JSON))
+        for key in ("product_name", "updated", "source_of_truth"):
+            self.assertTrue(str(caps.get(key, "")).strip(),
+                            "%s: top-level key %s is missing or empty"
+                            % (CAPABILITIES_JSON, key))
+        self.assertRegex(caps["updated"], r"^\d{4}-\d{2}-\d{2}$",
+                         "%s: updated must be an ISO date" % CAPABILITIES_JSON)
+
+    def test_the_register_states_what_is_not_promised(self):
+        """A register with no `unsupported` row is a brochure. The non-promises
+        are the half a reader cannot get anywhere else."""
+        caps = json.loads(read(CAPABILITIES_JSON))
+        states = [e.get("state") for e in caps.get("capabilities", [])]
+        for state in CAPABILITY_STATES:
+            self.assertIn(state, states,
+                          "%s carries no capability in state %r"
+                          % (CAPABILITIES_JSON, state))
+
+    # -- the guard, proven against crafted violations ----------------------
+
+    def test_an_invented_state_is_caught(self):
+        bad = {"capabilities": [{"id": "x", "title": "X",
+                                 "state": "mostly works",
+                                 "evidence": "tools/test_bm_docs.py"}]}
+        self.assertEqual(
+            capability_offenders(bad),
+            ["x: state 'mostly works' is not one of certified, beta, "
+             "experimental, unsupported"])
+
+    def test_an_empty_evidence_field_is_caught(self):
+        bad = {"capabilities": [{"id": "x", "title": "X", "state": "beta",
+                                 "evidence": "   "}]}
+        self.assertEqual(capability_offenders(bad),
+                         ["x: evidence is missing or empty"])
+
+    def test_evidence_naming_a_file_that_is_not_there_is_caught(self):
+        bad = {"capabilities": [{"id": "x", "title": "X", "state": "certified",
+                                 "evidence": "tools/test_bm_imaginary.py"}]}
+        self.assertEqual(
+            capability_offenders(bad),
+            ["x: evidence names tools/test_bm_imaginary.py, which is not in "
+             "the tree"])
+
+    def test_an_empty_register_is_caught(self):
+        self.assertEqual(capability_offenders({"capabilities": []}),
+                         ["capabilities: expected a non-empty list"])
+
+
+#: Directories kept verbatim as the record of what was written on a date.
+#: Same class as docs/closure and docs/evidence: rewriting a name inside one
+#: falsifies the record, which costs more than the inconsistency it removes.
+#: docs/craft was added on 2026-08-04 for the same reason: it holds an outside
+#: reviewer's own words (docs/craft/FABLE-PRODUCT-CRAFT-RESEARCH-REVIEW.md
+#: writes "BrotherModeUp itself has no frontend" and names BrotherME twice),
+#: and editing a quotation of a reviewer is not a naming fix.
+RECORD_DIRS = (os.path.join("docs", "closure"),
+               os.path.join("docs", "evidence"),
+               os.path.join("docs", "superpowers"),
+               os.path.join("docs", "craft"))
+
+#: Pages this check does NOT read, each with the reason it is out. Every one
+#: of these is a real violation of the contract that a later loop has to fix
+#: in prose; none of them could be fixed from inside the loop that wrote this
+#: test, whose write fence covered four files and none of these.
+NAMING_EXCLUSIONS = {
+    # Presents BrotherME as the product ("BrotherME for Claude Code",
+    # "BrotherME blocks a second writer", a version line reading
+    # "BrotherME 2.0.0-rc.11") alongside legitimate persona speaker labels.
+    # Separating the two is a copy rewrite of a shipped page.
+    os.path.join("docs", "brotherme-explained.html"):
+        "product-name uses of BrotherME mixed with legitimate persona speech",
+    # One line, citing the historical source plan by the title it was written
+    # under: "Source: the BrotherME roadmap, sections 4.5 and 7".
+    os.path.join("docs", "specs", "canonical-project-protocol.md"):
+        "cites the BrotherME roadmap, a dated source document, by its title",
+}
+
+#: A page whose NAME carries a date is dated evidence, markdown or html.
+DATED_PAGE = re.compile(r"\d{4}-\d{2}-\d{2}.*\.(?:md|html)$")
+
+REPO_SLUG_WORD = re.compile(r"BrotherModeUp")
+PERSONA_WORD = re.compile(r"(?<![A-Za-z])BrotherME(?![A-Za-z])")
+
+#: Regions where a name is a string a machine reads, not a name a reader is
+#: being taught: fenced and inline code, and the repository path itself in a
+#: URL or an install command. The slug is the real path on GitHub, so a
+#: command carrying it is correct and a command without it is broken.
+_MD_FENCE = re.compile(r"(?ms)^[ \t]*```.*?^[ \t]*```")
+_MD_INLINE_CODE = re.compile(r"`[^`\n]*`")
+_HTML_PRE = re.compile(r"(?is)<pre\b.*?</pre>")
+_HTML_INLINE_CODE = re.compile(r"(?is)<code\b.*?</code>")
+_SLUG_IN_URL_OR_COMMAND = re.compile(r"khalilmaaouni/BrotherModeUp[\w./\-]*")
+
+#: A line that is talking about the guided beginner surface, where the persona
+#: name is the correct word. Anchored so `skills/brothermode` cannot match.
+_PERSONA_SCOPE = re.compile(r"skills/brotherme\b|/brotherme-|brotherme-\w|persona",
+                            re.IGNORECASE)
+
+
+def _blanked(match):
+    """The matched region with its line structure kept and its text gone, so
+    line numbers stay honest."""
+    return re.sub(r"[^\n]", " ", match.group(0))
+
+
+def prose_only(text, is_html):
+    """`text` with every code region and every repository-path use removed."""
+    for pat in ((_HTML_PRE, _HTML_INLINE_CODE) if is_html
+                else (_MD_FENCE, _MD_INLINE_CODE)):
+        text = pat.sub(_blanked, text)
+    return _SLUG_IN_URL_OR_COMMAND.sub(_blanked, text)
+
+
+def _read_at(root, rel):
+    with io.open(os.path.join(root, rel), encoding="utf-8") as fh:
+        return fh.read()
+
+
+def current_pages(root=ROOT):
+    """Every page a reader lands on as CURRENT state: the pages under docs/
+    that are neither a dated record nor inside a record directory, plus the
+    two active pages that live at the repository root. CHANGELOG.md is absent
+    on purpose: it is a dated ledger, and its old entries keep their old
+    names."""
+    out = []
+    for dirpath, _dirnames, filenames in os.walk(os.path.join(root, "docs")):
+        for name in sorted(filenames):
+            if not name.endswith((".md", ".html")):
+                continue
+            rel = os.path.relpath(os.path.join(dirpath, name), root)
+            if rel.startswith(RECORD_DIRS) or DATED_PAGE.search(name):
+                continue
+            out.append(rel)
+    out += [p for p in ACTIVE_DOCS if not p.startswith("docs" + os.sep)]
+    return sorted(set(out))
+
+
+def naming_offenders(root=ROOT, pages=None):
+    """Every place a current page uses a name the identity contract does not
+    allow there. See docs/brand/IDENTITY-CONTRACT.md sections 3 and 4.
+
+    BrotherModeUp is legal in a code region and in the repository path itself;
+    it is illegal in prose, where it would read as the name of the product.
+    BrotherME is legal in a code region (a path or a filename carries it) and
+    on a line about the guided beginner surface, where it is the persona's own
+    name; it is illegal anywhere else on a current page. The contract itself is
+    not read, because it is the page that quotes both rules in order to state
+    them."""
+    offenders = []
+    pages = current_pages(root) if pages is None else pages
+    for rel in pages:
+        if rel == IDENTITY_CONTRACT or rel in NAMING_EXCLUSIONS:
+            continue
+        text = _read_at(root, rel)
+        raw = text.split("\n")
+        for i, line in enumerate(prose_only(text, rel.endswith(".html")).split("\n"), 1):
+            if REPO_SLUG_WORD.search(line):
+                offenders.append("%s:%d BrotherModeUp" % (rel, i))
+            if PERSONA_WORD.search(line) and not _PERSONA_SCOPE.search(raw[i - 1]):
+                offenders.append("%s:%d BrotherME" % (rel, i))
+    return offenders
+
+
+class TestCurrentPagesUseTheCanonicalNames(unittest.TestCase):
+    """Protects: the ratified naming decision of 2026-08-04. BrotherMode is
+    the product name everywhere a reader treats a page as current. BrotherME
+    is a persona voice, not a product name. BrotherModeUp is a repository
+    slug, not a name for the thing.
+
+    The check ran strict once, before the allowances below existed, and
+    returned 44 hits across 15 pages. Every one was then read: the install
+    commands and code fences are correct and stay, the two named exclusions
+    are real violations that a later loop has to fix in prose, and the
+    fixtures below hold the line that the allowances did not neuter the
+    rule."""
+
+    def test_no_current_page_uses_a_retired_name_as_the_product_name(self):
+        offenders = naming_offenders()
+        self.assertEqual(
+            offenders, [],
+            "current page(s) using a name the identity contract does not "
+            "allow there: %s" % ", ".join(offenders))
+
+    def test_the_page_set_is_the_current_one_and_excludes_the_records(self):
+        pages = current_pages()
+        self.assertIn("README.md", pages)
+        self.assertIn(os.path.join("docs", "QUICKSTART.md"), pages)
+        for rel in pages:
+            self.assertFalse(rel.startswith(RECORD_DIRS),
+                             "%s is a record, not a current page" % rel)
+            self.assertFalse(DATED_PAGE.search(os.path.basename(rel)),
+                             "%s is dated evidence, not a current page" % rel)
+        self.assertNotIn("CHANGELOG.md", pages)
+
+    # -- the guard, proven against crafted violations ----------------------
+
+    def _offenders_for(self, text, name="example.md"):
+        """The real predicate, against a throwaway tree holding one page."""
+        d = tempfile.mkdtemp()
+        try:
+            os.makedirs(os.path.join(d, "docs"))
+            for root_page in ("README.md", "SKILL.md"):
+                with io.open(os.path.join(d, root_page), "w",
+                             encoding="utf-8") as fh:
+                    fh.write("# placeholder\n")
+            with io.open(os.path.join(d, "docs", name), "w",
+                         encoding="utf-8") as fh:
+                fh.write(text)
+            return naming_offenders(d)
+        finally:
+            shutil.rmtree(d)
+
+    def test_the_slug_used_as_a_product_name_in_prose_is_caught(self):
+        self.assertEqual(
+            self._offenders_for("# Page\n\nBrotherModeUp keeps one writer per "
+                                "file.\n"),
+            [os.path.join("docs", "example.md") + ":3 BrotherModeUp"])
+
+    def test_the_persona_used_as_a_product_name_in_prose_is_caught(self):
+        self.assertEqual(
+            self._offenders_for("# Page\n\nBrotherME keeps one writer per "
+                                "file.\n"),
+            [os.path.join("docs", "example.md") + ":3 BrotherME"])
+
+    def test_the_slug_in_an_install_command_or_a_url_is_allowed(self):
+        self.assertEqual(
+            self._offenders_for(
+                "# Page\n\nRun this:\n\n```\ngit clone https://github.com/"
+                "khalilmaaouni/BrotherModeUp.git ~/x\n```\n\nOr read "
+                "github.com/khalilmaaouni/BrotherModeUp for the source.\n"),
+            [])
+
+    def test_a_name_inside_a_code_fence_or_a_path_is_allowed(self):
+        self.assertEqual(
+            self._offenders_for(
+                "# Page\n\nThe source plan is "
+                "`docs/evidence/2026-08-01-source-BrotherME_plan.md`.\n\n"
+                "```\ncd /absolute/path/to/BrotherModeUp\n```\n"),
+            [])
+
+    def test_the_persona_named_on_a_line_about_the_guided_skill_is_allowed(self):
+        self.assertEqual(
+            self._offenders_for(
+                "# Page\n\nThe persona BrotherME speaks only inside the "
+                "guided skill.\n"),
+            [])
+
+    def test_an_html_page_is_read_the_same_way(self):
+        self.assertEqual(
+            self._offenders_for(
+                "<h1>Page</h1>\n<pre>git clone x/BrotherModeUp.git</pre>\n"
+                "<p>BrotherME is the product.</p>\n", name="page.html"),
+            [os.path.join("docs", "page.html") + ":3 BrotherME"])
+
+    def test_a_dated_page_and_a_record_directory_are_not_read_at_all(self):
+        d = tempfile.mkdtemp()
+        try:
+            os.makedirs(os.path.join(d, "docs", "closure"))
+            for root_page in ("README.md", "SKILL.md"):
+                with io.open(os.path.join(d, root_page), "w",
+                             encoding="utf-8") as fh:
+                    fh.write("# placeholder\n")
+            for rel in (os.path.join("docs", "2026-07-01-old.md"),
+                        os.path.join("docs", "closure", "REPORT.md")):
+                with io.open(os.path.join(d, rel), "w",
+                             encoding="utf-8") as fh:
+                    fh.write("# Old\n\nBrotherModeUp did the thing.\n")
+            self.assertEqual(naming_offenders(d), [])
+        finally:
+            shutil.rmtree(d)
+
+
+#: Words that promise more than any file in this tree can show. Each is
+#: banned on a current page unless the same line points at the evidence.
+BANNED_ABSOLUTES = (
+    re.compile(r"fully supported", re.IGNORECASE),
+    re.compile(r"production[ \-]ready", re.IGNORECASE),
+    re.compile(r"works everywhere", re.IGNORECASE),
+    re.compile(r"(?<![A-Za-z])all platforms(?![A-Za-z])", re.IGNORECASE),
+)
+
+
+#: A sentence that DENIES one of the absolutes is the honest use of the words,
+#: and this project's pages carry three of them ("Not production ready beyond
+#: the tested user and platform scope"). The cue is looked for on the matching
+#: line and the two above it, because a denial often opens a sentence that the
+#: banned words finish.
+_DISCLAIMER = re.compile(
+    r"\b(?:not|never|no|none|nor|neither|without|nothing)\b|n't", re.IGNORECASE)
+
+#: A pointer at a file that carries the evidence. Presence is what is checked
+#: here; capability_offenders above is what checks a pointer resolves.
+_EVIDENCE_CITATION = re.compile(
+    r"[\w.\-]+/[\w.\-]+\.(?:md|py|json|ya?ml|toml|html|sh)")
+
+_ABSOLUTE_WINDOW = 2
+
+
+def absolute_offenders(root=ROOT, pages=None):
+    """Every unqualified absolute claim on a current page.
+
+    A claim is legal when the same line cites the file that carries the
+    evidence, and a denial is not a claim at all."""
+    offenders = []
+    if pages is None:
+        pages = [p for p in current_pages(root) if p not in NAMING_EXCLUSIONS]
+    for rel in pages:
+        text = _read_at(root, rel)
+        raw = text.split("\n")
+        lines = prose_only(text, rel.endswith(".html")).split("\n")
+        for i, line in enumerate(lines, 1):
+            for pat in BANNED_ABSOLUTES:
+                found = pat.search(line)
+                if not found:
+                    continue
+                window = "\n".join(raw[max(0, i - 1 - _ABSOLUTE_WINDOW):i])
+                if _DISCLAIMER.search(window):
+                    continue
+                if _EVIDENCE_CITATION.search(raw[i - 1]):
+                    continue
+                offenders.append("%s:%d %s" % (rel, i, found.group(0)))
+    return offenders
+
+
+class TestNoUnbackedAbsolutes(unittest.TestCase):
+    """Protects: a current page never says a thing is finished in words no
+    file can support. The four phrases are the ones a reader cannot check and
+    cannot recover from being wrong about."""
+
+    def test_no_current_page_makes_an_unbacked_absolute_claim(self):
+        offenders = absolute_offenders()
+        self.assertEqual(
+            offenders, [],
+            "unbacked absolute claim(s) on a current page: %s. Either cite the "
+            "file that proves it on the same line, or write what is actually "
+            "true." % ", ".join(offenders))
+
+    # -- the guard, proven against crafted violations ----------------------
+
+    def _offenders_for(self, text):
+        d = tempfile.mkdtemp()
+        try:
+            os.makedirs(os.path.join(d, "docs"))
+            for root_page in ("README.md", "SKILL.md"):
+                with io.open(os.path.join(d, root_page), "w",
+                             encoding="utf-8") as fh:
+                    fh.write("# placeholder\n")
+            with io.open(os.path.join(d, "docs", "example.md"), "w",
+                         encoding="utf-8") as fh:
+                fh.write(text)
+            return absolute_offenders(d)
+        finally:
+            shutil.rmtree(d)
+
+    def test_a_bare_claim_is_caught(self):
+        rel = os.path.join("docs", "example.md")
+        self.assertEqual(
+            self._offenders_for("# Page\n\nThe installer is production ready.\n"),
+            [rel + ":3 production ready"])
+        self.assertEqual(
+            self._offenders_for("# Page\n\nIt works everywhere.\n"),
+            [rel + ":3 works everywhere"])
+        self.assertEqual(
+            self._offenders_for("# Page\n\nThe suite runs on all platforms.\n"),
+            [rel + ":3 all platforms"])
+        self.assertEqual(
+            self._offenders_for("# Page\n\nWindows is fully supported.\n"),
+            [rel + ":3 fully supported"])
+
+    def test_a_claim_that_cites_its_evidence_on_the_same_line_is_allowed(self):
+        self.assertEqual(
+            self._offenders_for(
+                "# Page\n\nThe suite runs on all platforms named in "
+                ".github/workflows/tests.yml.\n"),
+            [])
+
+    def test_a_denial_is_not_a_claim(self):
+        self.assertEqual(
+            self._offenders_for(
+                "# Page\n\nNot production ready before dogfooding.\n"),
+            [])
+
+    def test_a_denial_two_lines_above_still_covers_the_sentence(self):
+        """The shape this project already writes: the denial opens the
+        sentence and the banned words finish it a line or two later."""
+        self.assertEqual(
+            self._offenders_for(
+                "# Page\n\nIt is deliberately NOT described as autonomous\n"
+                "self improvement, as statistical learning, or as\n"
+                "production ready.\n"),
+            [])
+
+    def test_a_denial_further_up_the_page_does_not_launder_a_claim(self):
+        rel = os.path.join("docs", "example.md")
+        self.assertEqual(
+            self._offenders_for(
+                "# Page\n\nThis is not a toy.\n\nline\n\nline\n\n"
+                "The installer is production ready.\n"),
+            [rel + ":9 production ready"])
+
+
 class TestNoDashes(unittest.TestCase):
     """The project's own copy rule, enforced on the files this suite governs."""
 
