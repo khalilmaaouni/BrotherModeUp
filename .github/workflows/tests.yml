@@ -127,6 +127,15 @@ jobs:
       # install works.
       - name: Run the packaging install suite
         run: python3 tools/test_bm_packaging_install.py
+      # The plugin path install suite, landed 2026-08-04 (N-3 / B-3): drives
+      # the real claude CLI through marketplace add, install, list, details,
+      # uninstall and marketplace remove, against a throwaway copy of the
+      # tree and a throwaway HOME. The claude binary is not present on a
+      # GitHub runner, so its class B and class C skip here; its class A
+      # needs no binary at all and runs on every leg, which keeps this step
+      # green and above zero tests on every platform in this matrix.
+      - name: Run the plugin install suite
+        run: python3 tools/test_bm_plugin_install.py
   # One serial job that runs the SAME command a loop close runs locally
   # (Loop 9 task 2, answered yes). The split jobs above exist for per-platform
   # evidence and cannot be replaced by this one; this one exists because the
