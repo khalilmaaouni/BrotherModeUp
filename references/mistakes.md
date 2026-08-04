@@ -88,3 +88,25 @@ its own errors.
   verification to anyone who trusts the sentence. Name the commit next to the
   verdict, and if the current one has not finished, say "in progress" rather
   than reaching back one commit for a number that looks better.
+- A PROBE THAT CANNOT REACH THE DEFECT MEASURES NOTHING, and its silence reads
+  exactly like an all-clear. C-11's adversarial test was written, measured 4.0x
+  where a quadratic gives about 16x, and was withdrawn with a note concluding
+  the pattern "is not quadratic on a run of one repeated character". The
+  pattern was quadratic. The probe text was a run of LETTERS, and the pattern
+  opens with (?<![A-Za-z0-9]), so every offset inside that run was rejected
+  before any backtracking could happen: two starting positions in the whole
+  string, linear by construction, and no input of that shape could ever have
+  shown the defect. A run of UNDERSCORES clears that lookbehind at every offset
+  and reproduces at 15.8x. Before concluding "the defect is not there", show
+  that the probe can detect the defect WHEN IT IS there. A negative result from
+  an instrument of unproven sensitivity is NO-DATA, never a finding, and
+  writing it down as a finding is how a real defect gets an alibi.
+- HOME ISOLATION IS NOT VAULT ISOLATION. A verification probe ran with HOME
+  overridden to a throwaway directory and still wrote a synthetic row into the
+  operator's real memory vault, because BROTHERMODE_VAULT was exported ambient in
+  that shell and takes precedence over HOME. Overriding the variable a tool
+  USUALLY resolves through does not contain a tool that resolves through a
+  second one first. Any probe that could reach a ledger, a store or a vault
+  pins EVERY variable that can redirect it (HOME, BROTHERMODE_VAULT,
+  BROTHERSBE_VAULT) and then asserts the real target is untouched afterwards,
+  rather than inferring containment from the one override it set.
