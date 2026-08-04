@@ -30,6 +30,21 @@ current.
   version 11, and loops 0 through 5 of the plan have landed. See
   docs/CORRECTION-LEARNING.md and the rc.8/rc.9 entries in CHANGELOG.md.
 
+RESOLVED 2026-08-04 (orchestrator, superseding CHK-2C's CANNOT-FULLY-DECIDE
+addendum on the no-tagged-release bullet above,
+docs/closure/reports/2026-08-04-CHK-2C-remaining-verdicts.md). CHK-2C
+flagged that this local clone's `git tag -l` shows rc.1-rc.9 and rc.13 but
+not rc.10-rc.12, and could not decide whether that was a local gap or the
+true state upstream without a live remote check. Measured directly with
+`git ls-remote --tags origin` and `git tag -l`, two separate facts follow.
+First, rc.10, rc.11 and rc.12 were never tagged at all, on either side (the
+remote carries only v2.0.0-rc.1, rc.2, rc.4 through rc.9, and rc.13), so the
+local tag list is not incomplete and there is nothing to fetch. Second, and
+this is a new defect worth recording rather than the one CHK-2C suspected:
+`v2.0.0-rc.3` exists as a LOCAL tag only (`git tag -l` lists it) and is
+absent from the remote (`git ls-remote --tags origin` does not list it), so
+anyone told to pin `v2.0.0-rc.3` cannot resolve it from GitHub.
+
 ## 1. The telemetry tool never got its audit pass (biggest gap)
 
 `tools/bm_telemetry.py` is 1,211 lines. It holds the corrections ledger, the outcomes
@@ -51,6 +66,22 @@ Confirmed still open by reading the code today:
 Why it matters most: this is where YOUR data lives, and it is the half of the system the
 learning loops depend on. Publishing a tool whose own honesty gate prints an unmovable
 number undercuts the thing the project is selling.
+
+CORRECTED 2026-08-04 (per CHK-2C,
+docs/closure/reports/2026-08-04-CHK-2C-remaining-verdicts.md), two counts
+only; the three findings above are not re-dispositioned here.
+`tools/bm_telemetry.py` is 1995 lines by `wc -l tools/bm_telemetry.py`, not
+1,211 as the opening line above says: the file has grown since this entry
+was written. And the "Confirmed still open" block above enumerates exactly
+THREE findings, not "roughly thirteen": there is no enumerable source for
+"thirteen" anywhere in this tree tied to telemetry findings (checked with
+`grep -rniE "thirteen|13 (findings|audit)" docs/*.md`, whose only hits are
+unrelated: a benchmark scenario count, a law-amendment count, a routing-row
+count, and a rule count). Dispositions for the three findings themselves
+(project identity from current folder, the hardcoded collisions/baton-drops
+line, and silently discarded malformed lines) are PENDING a separate,
+currently running audit that is probing them with calibrated tests; that
+audit's verdict supersedes any reading-only judgement recorded here.
 
 ## 2. The learning redesign is law text, not code
 

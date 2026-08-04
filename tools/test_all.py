@@ -136,6 +136,12 @@ SUITES = (
     # failing red when that egress is not available, so an offline
     # machine still gets ALL GREEN rather than a false alarm.
     "test_bm_packaging_install.py",
+    # The plugin path install suite (N-3 / B-3, 2026-08-04): drives the real
+    # claude CLI through marketplace add, install, uninstall and marketplace
+    # remove, against a throwaway copy of the tree. Placed with the other
+    # environment dependent suites at the end: class B and class C need a
+    # claude binary on PATH and skip without one, but class A always runs.
+    "test_bm_plugin_install.py",
     "test_bm.py",
 )
 
