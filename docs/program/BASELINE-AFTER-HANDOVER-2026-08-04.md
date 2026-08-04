@@ -62,6 +62,18 @@ that command's output, not remembered.
 - Uninstall: NOT rehearsed on 2026-08-04. The documented uninstall path in
   README.md exists and was last exercised before this baseline; treating it
   as unverified at this baseline is the honest reading.
+- ADDENDUM, 2026-08-04 late night, same day: the rehearsal has now run,
+  hermetically (fresh scratch HOME, pinned vault env vars, the v2.0.0 tag
+  cloned fresh). Verdict PASS against the plan's own done-check: after the
+  documented uninstall, every remaining file is either documented-retained
+  user data (vault, consent config) or toolchain noise, and no hook entry
+  survives in settings.json. Every documented Path 2 command ran verbatim
+  with matching output. The rehearsal also exercised the new schema-skew
+  wording in the wild: the doctor met an older store and printed refused
+  (schema-behind) with nothing touched, instead of the retired STORE
+  CORRUPT message. One near-miss disclosed: two script invocations ran
+  with the wrong working directory and the doctor read a real store
+  read-only; its content hash was verified identical before and after.
 
 ## Known limits accepted into the next program
 

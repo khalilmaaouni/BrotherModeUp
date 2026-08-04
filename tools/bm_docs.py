@@ -81,6 +81,9 @@ Usage:
   python3 tools/bm_docs.py generate             # write the folder
   python3 tools/bm_docs.py generate --tier 3    # override, may lower
   python3 tools/bm_docs.py facts --json         # the projected facts
+  python3 tools/bm_docs.py capability-status            # print the block
+  python3 tools/bm_docs.py capability-status --check    # refuse a stale block
+  python3 tools/bm_docs.py capability-status --write    # rewrite it in README
 """
 
 import datetime
@@ -1300,6 +1303,174 @@ def write_floor_record(root, tier):
         # a sentence in the report, not a lost generation.
         return None, "%s: %s" % (type(exc).__name__, exc)
     return path, None
+
+
+# ---------------------------------------------------------------------------
+# The capability status block (positioning loop L1.4, 2026-08-04).
+#
+# capabilities.status.json is the register a page has to agree with before it
+# claims anything. A page that retypes the register drifts from it, which is
+# the exact defect the register exists to stop, so README.md carries a
+# GENERATED block and this renders it. Same discipline as the rest of this
+# file: no timestamp reaches the output, the order is fixed, and two renders of
+# one register are byte identical.
+#
+# This is deliberately NOT part of the Documentation/ engine above. It reads no
+# store, writes no generated folder, and runs against a plain checkout that has
+# never been initialized, because README.md is a repository page rather than a
+# project's own documentation.
+# ---------------------------------------------------------------------------
+
+CAPABILITY_REGISTER = "capabilities.status.json"
+CAPABILITY_TARGET = "README.md"
+CAPABILITY_BEGIN = "<!-- BEGIN GENERATED CAPABILITY STATUS -->"
+CAPABILITY_END = "<!-- END GENERATED CAPABILITY STATUS -->"
+
+# The four states, in the order a reader needs them: what is proven first, what
+# is not offered last. The meanings mirror the `source_of_truth` sentence in
+# capabilities.status.json, and tools/test_bm_docs.py refuses a register entry
+# carrying a state outside this set, so the two cannot drift apart in silence.
+CAPABILITY_STATES = (
+    ("certified", "Certified",
+     "proven in this tree today by the evidence named"),
+    ("beta", "Beta", "real, with a named gap"),
+    ("experimental", "Experimental", "built or planned, not measured"),
+    ("unsupported", "Unsupported",
+     "not offered, and no plan makes it offered"),
+)
+
+
+def load_capability_register(root):
+    """The register at `root`, parsed and checked hard enough to render.
+
+    Every failure is a named refusal rather than a traceback, because the
+    caller is a founder at a gate: a missing file, a file that is not JSON and
+    an entry with an invented state are three different things to fix and the
+    message says which one happened."""
+    path = os.path.join(root, CAPABILITY_REGISTER)
+    if not os.path.isfile(path):
+        raise DocsError(
+            "no-capability-register",
+            "%s is not in %s, so there is no register to render" % (
+                CAPABILITY_REGISTER, root))
+    try:
+        with io.open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except ValueError as exc:
+        raise DocsError("bad-capability-register",
+                        "%s does not parse as JSON: %s"
+                        % (CAPABILITY_REGISTER, exc))
+    except OSError as exc:
+        raise DocsError("bad-capability-register",
+                        "%s could not be read: %s" % (path, exc))
+    entries = data.get("capabilities") if isinstance(data, dict) else None
+    if not isinstance(entries, list) or not entries:
+        raise DocsError("bad-capability-register",
+                        "%s carries no non-empty capabilities list"
+                        % CAPABILITY_REGISTER)
+    known = set(state for state, _h, _m in CAPABILITY_STATES)
+    for i, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            raise DocsError("bad-capability-register",
+                            "%s entry %d is not an object"
+                            % (CAPABILITY_REGISTER, i))
+        where = entry.get("id") or "entry %d" % i
+        for key in ("id", "title", "state", "evidence"):
+            if not str(entry.get(key) or "").strip():
+                raise DocsError("bad-capability-register",
+                                "%s: %s is missing or empty in %s"
+                                % (where, key, CAPABILITY_REGISTER))
+        if entry["state"] not in known:
+            raise DocsError(
+                "bad-capability-register",
+                "%s: state %r is not one of %s. A state nobody defined is how "
+                "'mostly works' gets shipped."
+                % (where, entry["state"], ", ".join(sorted(known))))
+    return data
+
+
+def _capability_cell(text):
+    """One register field as one markdown table cell.
+
+    Nothing is truncated here, unlike _cell above: the evidence sentence IS the
+    claim, and half of it would read as a smaller promise than the register
+    makes. Only the two things a table cannot survive are handled, a newline
+    and a pipe."""
+    flat = L.plain_dashes(L.safe_display(text or "", 4000))
+    return flat.replace("|", "\\|")
+
+
+def render_capability_status(data):
+    """The generated block for `data`, markers included. Pure.
+
+    Deterministic by construction: the state order is the constant above, the
+    order inside a state is the register's own order, and no clock is read. Two
+    renders of one register are byte identical, which is what lets a test call
+    a stale block stale."""
+    entries = data["capabilities"]
+    updated = str(data.get("updated") or "").strip()
+    lines = [
+        CAPABILITY_BEGIN,
+        "<!-- Generated from %s by `python3 tools/bm_docs.py "
+        "capability-status --write`. Edit the register, not this block. -->"
+        % CAPABILITY_REGISTER,
+        "",
+        "Four states and no others, read out of `%s`%s: %s."
+        % (CAPABILITY_REGISTER,
+           (", updated %s" % updated) if updated else "",
+           "; ".join("%s means %s" % (state, meaning)
+                     for state, _heading, meaning in CAPABILITY_STATES)),
+    ]
+    for state, heading, meaning in CAPABILITY_STATES:
+        rows = [e for e in entries if e["state"] == state]
+        lines.append("")
+        lines.append("**%s**, %s." % (heading, meaning))
+        lines.append("")
+        if not rows:
+            lines.append("Nothing is recorded in this state.")
+            continue
+        lines.append("| Capability | What proves it, or why it is not offered |")
+        lines.append("|---|---|")
+        for entry in rows:
+            lines.append("| %s | %s |" % (_capability_cell(entry["title"]),
+                                          _capability_cell(entry["evidence"])))
+    lines.append("")
+    lines.append(CAPABILITY_END)
+    return "\n".join(lines)
+
+
+def capability_span(text, where=CAPABILITY_TARGET):
+    """(start, end) of the generated block in `text`, markers included.
+
+    Exactly one of each marker, in order, or a refusal. A page with two blocks
+    would have one of them silently left stale, which is the failure this
+    generator exists to remove."""
+    starts = [m.start() for m in re.finditer(re.escape(CAPABILITY_BEGIN), text)]
+    ends = [m.end() for m in re.finditer(re.escape(CAPABILITY_END), text)]
+    if len(starts) != 1 or len(ends) != 1:
+        raise DocsError(
+            "no-capability-markers",
+            "%s must carry exactly one %s and one %s; it carries %d and %d"
+            % (where, CAPABILITY_BEGIN, CAPABILITY_END, len(starts), len(ends)))
+    if ends[0] <= starts[0]:
+        raise DocsError(
+            "no-capability-markers",
+            "%s carries the END marker before the BEGIN marker" % where)
+    return starts[0], ends[0]
+
+
+def extract_capability_status(text, where=CAPABILITY_TARGET):
+    """The block currently in `text`, markers included."""
+    start, end = capability_span(text, where)
+    return text[start:end]
+
+
+def replace_capability_status(text, block, where=CAPABILITY_TARGET):
+    """`text` with its generated block replaced by `block`. Everything outside
+    the two markers is carried through byte for byte: this command owns the
+    block and nothing else on the page."""
+    start, end = capability_span(text, where)
+    return text[:start] + block + text[end:]
 
 
 # ---------------------------------------------------------------------------
@@ -2909,7 +3080,81 @@ def cmd_facts(argv):
     return 0
 
 
-COMMANDS = {"tier": cmd_tier, "generate": cmd_generate, "facts": cmd_facts}
+def _capability_root(kv):
+    """Which tree the capability commands read.
+
+    NOT bs.require_root(). The register and README.md are files of this
+    REPOSITORY, not of a project's own store, and this command has to run in a
+    fresh checkout that was never initialized. `--root` exists so the suite can
+    render a throwaway fixture tree without touching this repository."""
+    if kv.get("root"):
+        return os.path.abspath(os.path.expanduser(kv["root"]))
+    return os.path.dirname(HERE)
+
+
+def cmd_capability_status(argv):
+    """Render capabilities.status.json into the generated block in README.md.
+
+    With no flag it prints the block and writes nothing. `--check` compares the
+    block on the page against a fresh render and refuses when they differ, so a
+    register edit that never reached the page fails loudly. `--write` replaces
+    the block, touching nothing outside the two markers.
+
+    THE STORE FUNNEL IS NOT USED HERE ON PURPOSE. bs.write_generated_document
+    redacts everything it writes and protects human blocks, which is right for
+    a document this engine owns end to end. README.md is a page a human owns;
+    running a redactor over it would rewrite prose this command has no business
+    touching. So the write is a plain one, and the undo is git."""
+    _pos, kv = _parse(argv, {"root", "write", "check"}, wants_value=("root",))
+    if kv.get("write") and kv.get("check"):
+        raise DocsError("bad-flags",
+                        "--write and --check ask for opposite things; run one")
+    root = _capability_root(kv)
+    data = load_capability_register(root)
+    block = render_capability_status(data)
+    count = len(data["capabilities"])
+    if not kv.get("write") and not kv.get("check"):
+        _out(block)
+        return 0
+    path = os.path.join(root, CAPABILITY_TARGET)
+    if not os.path.isfile(path):
+        raise DocsError("no-capability-target",
+                        "%s is not in %s" % (CAPABILITY_TARGET, root))
+    try:
+        with io.open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as exc:
+        raise DocsError("no-capability-target",
+                        "%s could not be read: %s" % (path, exc))
+    current = extract_capability_status(text)
+    if kv.get("check"):
+        if current == block:
+            _out("%s: the generated capability block matches %s (%d "
+                 "capabilities)" % (CAPABILITY_TARGET, CAPABILITY_REGISTER,
+                                    count))
+            return 0
+        raise DocsError(
+            "capability-status-stale",
+            "%s carries a generated capability block that is not what %s "
+            "renders today. Run python3 tools/bm_docs.py capability-status "
+            "--write." % (CAPABILITY_TARGET, CAPABILITY_REGISTER))
+    if current == block:
+        _out("%s: the generated capability block is already current, nothing "
+             "written" % CAPABILITY_TARGET)
+        return 0
+    try:
+        with io.open(path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(replace_capability_status(text, block))
+    except OSError as exc:
+        raise DocsError("capability-write-failed",
+                        "%s could not be written: %s" % (path, exc))
+    _out("%s: rewrote the generated capability block from %s (%d capabilities)"
+         % (CAPABILITY_TARGET, CAPABILITY_REGISTER, count))
+    return 0
+
+
+COMMANDS = {"tier": cmd_tier, "generate": cmd_generate, "facts": cmd_facts,
+            "capability-status": cmd_capability_status}
 
 
 def main(argv):
