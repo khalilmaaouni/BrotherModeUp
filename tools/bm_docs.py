@@ -1411,8 +1411,9 @@ def render_capability_status(data):
     updated = str(data.get("updated") or "").strip()
     lines = [
         CAPABILITY_BEGIN,
-        "<!-- Generated from %s by `python3 tools/bm_docs.py "
-        "capability-status --write`. Edit the register, not this block. -->"
+        "<!-- Generated from %s by `bm-docs capability-status --write` "
+        "(the packaged console script; from a clone, tools/bm_docs.py). "
+        "Edit the register, not this block. -->"
         % CAPABILITY_REGISTER,
         "",
         "Four states and no others, read out of `%s`%s: %s."
@@ -3136,15 +3137,18 @@ def cmd_capability_status(argv):
         raise DocsError(
             "capability-status-stale",
             "%s carries a generated capability block that is not what %s "
-            "renders today. Run python3 tools/bm_docs.py capability-status "
-            "--write." % (CAPABILITY_TARGET, CAPABILITY_REGISTER))
+            "renders today. Run bm-docs capability-status --write (from a "
+            "clone: the same subcommand on tools/bm_docs.py)."
+            % (CAPABILITY_TARGET, CAPABILITY_REGISTER))
     if current == block:
         _out("%s: the generated capability block is already current, nothing "
              "written" % CAPABILITY_TARGET)
         return 0
     try:
-        with io.open(path, "w", encoding="utf-8", newline="\n") as fh:
+        tmp = path + ".capability-status.tmp"
+        with io.open(tmp, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(replace_capability_status(text, block))
+        os.replace(tmp, path)
     except OSError as exc:
         raise DocsError("capability-write-failed",
                         "%s could not be written: %s" % (path, exc))
