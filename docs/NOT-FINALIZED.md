@@ -1121,6 +1121,121 @@ and should move to a ratio next time that file is opened.
 
 TRIAGE, 2026-08-04 (N-5 row 38, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 3, an honest limit code cannot fix. The two flakes are UNDECIDABLE: one never reproduced under deliberate load, the other's test no longer exists; code cannot fix what cannot be reproduced, and the CI annotation wrapper already captures any recurrence. MOVED to docs/KNOWN-LIMITS.md's new "The two handover flakes were not reproduced; a third was, and is fixed" section.
 
+## 25. The blanket handler in `bm_telemetry.py`'s `main()` is still a single-line total-loss amplifier. DEFERRED. Added 2026-08-04.
+
+`tools/bm_telemetry.py:2289` (it was line 2135 before this round's edits moved it)
+is one `except Exception as e:` printing
+`bm_telemetry: swallowed error (never blocks): %r`, followed by `sys.exit(0)`.
+Any type-shaped defect anywhere in the file therefore collapses into that single
+cryptic line: nine scorecard metrics, or the speed table, or the 24h spend line,
+replaced by an exception repr at exit 0, with nothing telling the operator that
+anything is missing. The A2 adversarial review of 2026-08-04 named this handler
+as the amplifier that turned its findings 1 and 2 from wrong numbers into total
+loss, and it survived that round untouched on purpose.
+
+It survives this round untouched too, on purpose. The never-block contract is
+this file's stated law ("Law: this tool NEVER blocks work. Every path exits 0",
+`tools/bm_telemetry.py:75`), and no telemetry command may fail a founder's
+session. What would remove the AMPLIFICATION, as opposed to the swallow, is
+per-metric isolation, so that one unreadable field costs one metric line instead
+of every line after it. That is a structural change to every print site in
+`cmd_scorecard`, `cmd_speed` and `cmd_startup_nags`, which is a refactor, was
+outside this pass's write fence, and is a founder decision about how much
+structure to buy rather than a writer's call. Every future type defect in this
+file inherits the same blast radius until it is made. DEFERRED.
+
+## 26. `duration_h` is silently zeroed when a transcript timestamp cannot be read. DEFERRED. Added 2026-08-04.
+
+`tools/bm_telemetry.py:699` sets `hours = 0.0` and the `try` immediately below it
+ends in a bare `pass`, the only `except`-then-`pass` in the file. A transcript
+whose first or last timestamp does not parse therefore writes `duration_h: 0.0`
+into the ledger with no marker, and metric 3's span-hours feed cannot tell a
+genuinely instant session from an unmeasurable one. The value is summed inside
+`cmd_speed`'s window and divided by the recorded-run count, so the zero travels
+into a printed average.
+
+This round fixed the READ side only: a null or a string in `duration_h` no longer
+collapses `speed`, and the substitution is now counted and named in that
+command's WARNING line. The zero is written by the WRITE side, and telling an
+unknown duration apart from a real one means changing what the ledger writer
+stores, for instance omitting the field rather than writing `0.0`, or writing an
+explicit unknown marker. Changing the record schema was excluded from this pass
+by instruction, and it is a decision about the shape of the durable ledger rather
+than a bug fix. DEFERRED.
+
+## 27. Two Loop 6 deferred suggestions lived only in a dated closure report. DEFERRED. Added 2026-08-04.
+
+Recorded here because `docs/closure/reports/2026-08-04-B-6-telemetry-fixes.md`
+and `docs/closure/HANDOVER-2026-08-04-TO-A-NEW-MACHINE.md` were their only homes,
+and a handover document is superseded by the next handover. Neither suggestion is
+lost; both are still deliberately not done.
+
+**A shared "labelled absence" text helper.** `cmd_speed`'s future-dated
+disclosure and `cmd_scorecard`'s unattributed-ratings and `avg=no data` handling
+print honest labels for an absent number in slightly different styles. One small
+shared helper for that text would lower the chance of another `avg=None`-shaped
+bug appearing in a metric added later. Not done: it touches every metric's print
+line for a consistency gain, well past what any finding asked for. This round
+added four more disclosure lines in the same hand-written style, so the surface
+it would cover is now larger than when it was first proposed.
+
+**The duplicated overlap-pair count.** `_coordination_collisions` in
+`tools/bm_telemetry.py` counts pairs of ACTIVE claims whose paths overlap using
+its own nested loop over `bm_store.paths_overlap` (`tools/bm_store.py:537`),
+duplicating the loop `bm_store.verify()` already runs for the same invariant. Two
+copies of one invariant is a drift surface: a change to one can move the printed
+collision number without moving the other, which is the same class of defect the
+prose-matching version of this function was replaced for. The B-6 report proposed
+moving both onto one small public helper in `bm_store.py`, suggesting the name
+`count_active_overlaps(root)`. That name is a PROPOSAL and not an existing
+symbol, verified 2026-08-04: `grep -n "count_active_overlaps" tools/bm_store.py`
+returns nothing. DEFERRED until `bm_store.py` is inside some fix's write fence.
+
+## 28. The consent-gate inventory does not enumerate commands wired from `tools/bm_sessionstart.sh`. DEFERRED (guard only). Added 2026-08-04.
+
+`tools/test_bm_consent.py` builds its inventory in `_wired_commands` from
+`hooks/hooks.json` alone. `tools/bm_sessionstart.sh` is one of the programs that
+manifest wires, and the script carries its own consent gate at line 18 that exits
+before reaching anything else, so the three telemetry commands it invokes at
+lines 24, 25 and 27 (`startup-nags`, `check-update`, `compact-hint`) are never
+reached without consent THROUGH THAT PATH. That is exactly why the inventory
+could not see that two of them had no gate of their own: the script's gate masked
+the gap for the only caller the inventory knew about.
+
+The two specific commands are fixed and are covered by direct tests
+(`TestConsentGateOnCheckUpdateAndIntent` in `tools/test_bm.py`), so the DEFECT is
+closed. The GUARD is not. Nothing in the suite today would catch the next command
+wired into that shell script without a consent check of its own. Closing it means
+teaching `tools/test_bm_consent.py` to parse `bm_sessionstart.sh`'s own
+invocations and drive each one directly, which was outside this pass's write
+fence. DEFERRED.
+
+## 29. `read_jsonl`'s permissive default stays, so `tools/bm_learn.py` keeps its own disclosure. DEFERRED. Added 2026-08-04.
+
+The A2 finding 2 fix routes a line that parses into a JSON scalar or array down
+the same malformed-line reporting path as a line that cannot be parsed at all. It
+is applied through a new `read_records()` wrapper in `tools/bm_telemetry.py` that
+every reader in that file now uses, and `read_jsonl`'s own default is UNCHANGED.
+
+Flipping the default was tried first and reverted, with evidence.
+`tools/bm_learn.py`'s `inbox` command counts non-object lines itself and prints
+its own more specific message, and its `--backfill` path prints ONLY that count,
+never the unparseable-line numbers. Under the stricter default, reproduced on the
+real CLI, `bm_learn.py inbox --file <f> --backfill` on a file holding two
+non-object lines printed the two-line import summary and said nothing at all
+about them: the fix would have silently DELETED a disclosure the founder gets
+today, which is the exact defect class this round exists to close.
+`tools/bm_learn.py` was outside this pass's write fence, so the split stays and
+that command keeps working exactly as before.
+
+Stated plainly, because an unstated consequence is the failure this file exists
+to prevent: `tools/bm_score.py` also calls `read_jsonl` without the wrapper
+(lines 33, 103, 137 and 144) and still receives non-object rows, so a hand-edited
+ledger holding a bare `null` can still raise there. That is unchanged by this
+round, not introduced by it. DEFERRED to a pass whose fence includes
+`bm_learn.py` and `bm_score.py`, which can then make the strict behavior the
+single default and delete the wrapper.
+
 ## What is genuinely finished
 
 All 17 findings of the second audit are closed in code, with CI green on Linux,
