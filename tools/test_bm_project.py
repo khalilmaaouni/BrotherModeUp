@@ -1366,7 +1366,16 @@ class TestExportAndPurge(unittest.TestCase):
                 removed, {"dependencies": 1, "evidence": 2, "alerts": 1,
                           "forecasts": 1, "tasks": 2, "projects": 1,
                           "cross_project_edges_removed": [],
-                          "alerts_skipped": []})
+                          "alerts_skipped": [],
+                          # L02 (schema 14) put six autonomy tables under the
+                          # same purge; this fixture seeds none, so each is 0,
+                          # and the purge reports them anyway rather than
+                          # hiding a table it touched.
+                          "autonomy_contracts": 0, "autonomy_spend": 0,
+                          "autonomy_assumptions": 0,
+                          "autonomy_interruptions": 0,
+                          "autonomy_human_steps": 0,
+                          "autonomy_checkpoints": 0})
 
             after = _raw_dump(root)
             self.assertEqual(

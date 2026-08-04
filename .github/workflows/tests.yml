@@ -205,6 +205,13 @@ jobs:
       # first project driven end to end through the seven command surfaces.
       - name: Run the project CLI suite
         run: python .github/run_with_annotations.py tools/test_bm_project.py
+      # The autonomy contract CLI suite (U1, loop L02, 2026-08-05): same
+      # subprocess-driven shape as the project CLI suite above, over the
+      # schema 14 tables the V2 store suite already proved sound on this
+      # leg, so it runs cross-platform here rather than in the POSIX-only
+      # suite job.
+      - name: Run the autonomy contract CLI suite
+        run: python .github/run_with_annotations.py tools/test_bm_autonomy.py
       # The recovery suite runs on Windows too, not only on the POSIX legs above.
       # Recovery is the subsystem whose failure loses work rather than merely
       # reporting it wrongly, so it gets the widest platform coverage, not the

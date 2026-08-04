@@ -26,6 +26,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unicodedata
 import unittest
@@ -943,6 +944,17 @@ class TestFixRoundGates(unittest.TestCase):
                                  "knowledge, procedural, private status and "
                                  "the intervention ledger). Same exemption "
                                  "and same reason as _migrate_11_to_12: a "
+                                 "CREATE TABLE failing mid-migration must "
+                                 "roll the caller's transaction back, not "
+                                 "move the founder's store aside",
+            "_migrate_13_to_14": "a schema migration step, run INSIDE the "
+                                 "caller's BEGIN EXCLUSIVE (U1, the autonomy "
+                                 "contract layer: autonomy_contracts, "
+                                 "autonomy_spend, autonomy_assumptions, "
+                                 "autonomy_interruptions, "
+                                 "autonomy_human_steps, "
+                                 "autonomy_checkpoints). Same exemption and "
+                                 "same reason as _migrate_12_to_13: a "
                                  "CREATE TABLE failing mid-migration must "
                                  "roll the caller's transaction back, not "
                                  "move the founder's store aside",
@@ -14870,7 +14882,14 @@ class TestPurgeProject(unittest.TestCase):
                     removed, {"dependencies": 1, "evidence": 2, "alerts": 1,
                               "forecasts": 1, "tasks": 2, "projects": 1,
                               "cross_project_edges_removed": [],
-                              "alerts_skipped": []})
+                              "alerts_skipped": [],
+                              # U1: no autonomy rows in this fixture, so every
+                              # one of the six new tables removes zero.
+                              "autonomy_spend": 0, "autonomy_assumptions": 0,
+                              "autonomy_interruptions": 0,
+                              "autonomy_human_steps": 0,
+                              "autonomy_checkpoints": 0,
+                              "autonomy_contracts": 0})
                 # Every entity row this project owned is gone.
                 self.assertIsNone(store.get_project("proj1"))
                 self.assertEqual(store.list_tasks("proj1"), [])
@@ -14968,6 +14987,1227 @@ class TestPurgeProject(unittest.TestCase):
                     "SELECT alert_id FROM alerts WHERE alert_id=?",
                     (alert_id,)).fetchall()
                 self.assertEqual(len(rows), 1)
+
+
+# ---------------------------------------------------------------------------
+# U1: the autonomy contract layer (2026-08-05, design
+# docs/superpowers/specs/2026-08-05-u1-autonomy-contract-design.md). Writer
+# A's store-side suite: schema 13 to 14, the twelve new Store methods, the
+# sixteen invariants and the store-side adversarial set. tools/bm_autonomy.py
+# (the CLI) and its own tests belong to writer B and do not exist yet.
+# ---------------------------------------------------------------------------
+
+def _autonomy_actor(name="controller"):
+    return {"actor_type": "model", "actor_name": name}
+
+
+def _sign(store, project_id="p1", outcome="ship it",
+          done_definition="tests green", allowed_paths=None,
+          allowed_surfaces=None, risk_classes=None, token_ceiling=None,
+          minutes_ceiling=None, signed_by="Khalil Maaouni",
+          session_id="sess1", actor=None, supersede=False):
+    return store.sign_contract(
+        project_id, outcome, done_definition,
+        [] if allowed_paths is None else allowed_paths,
+        [] if allowed_surfaces is None else allowed_surfaces,
+        ["file-edit", "read-only-inspect"] if risk_classes is None
+        else risk_classes,
+        token_ceiling, minutes_ceiling, signed_by, session_id,
+        actor or _autonomy_actor(), supersede=supersede)
+
+
+def _seed(store, pid="p1", actor=None):
+    store.upsert_project(_project(pid), actor or _actor())
+    return pid
+
+
+class TestSchema14Migration(unittest.TestCase):
+    """Schema 13 to 14 (U1): six tables (autonomy_contracts, autonomy_spend,
+    autonomy_assumptions, autonomy_interruptions, autonomy_human_steps,
+    autonomy_checkpoints) plus six indexes. Same discipline as
+    TestSchema12Migration above and TestSchema13Migration
+    (tools/test_bm_sentinel.py): the 'old store' fixture is a REAL store
+    reverted to look like schema 13, never hand-written DDL, so the fixture
+    cannot drift from the schema anyone actually has."""
+
+    _EXPECTED_COLUMNS = {
+        "autonomy_contracts": {
+            "contract_id", "project_id", "revision", "change_kind", "state",
+            "outcome", "done_definition", "allowed_paths",
+            "allowed_surfaces", "risk_classes", "token_ceiling",
+            "minutes_ceiling", "signed_by", "signed_at", "changed_by",
+            "change_reason", "session_id", "created_at"},
+        "autonomy_spend": {
+            "spend_id", "project_id", "contract_id", "tokens", "minutes",
+            "note", "session_id", "created_at"},
+        "autonomy_assumptions": {
+            "assumption_id", "project_id", "contract_id", "text",
+            "reversal", "session_id", "created_at"},
+        "autonomy_interruptions": {
+            "interruption_id", "project_id", "contract_id", "condition",
+            "question", "session_id", "created_at", "answered_at",
+            "answer"},
+        "autonomy_human_steps": {
+            "step_id", "project_id", "contract_id", "floor", "lane",
+            "what", "click_path", "blocks", "session_id", "created_at",
+            "resolved_at", "resolution"},
+        "autonomy_checkpoints": {
+            "checkpoint_id", "project_id", "contract_id", "controller_id",
+            "kind", "note", "tokens_at", "minutes_at", "session_id",
+            "created_at"},
+    }
+
+    def _schema13_store(self, d):
+        with bs.Store(d):
+            pass
+        path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            for t in bs._TABLES_AUTONOMY:
+                conn.execute("DROP TABLE IF EXISTS %s" % t)
+            conn.execute("UPDATE meta SET value='13' WHERE key='schema_version'")
+            conn.execute("COMMIT")
+        finally:
+            conn.close()
+        return path
+
+    def _tables(self, path):
+        conn = sqlite3.connect(path)
+        try:
+            return {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            conn.close()
+
+    def _columns(self, path, table):
+        conn = sqlite3.connect(path)
+        try:
+            return {row[1] for row in
+                    conn.execute("PRAGMA table_info(%s)" % table)}
+        finally:
+            conn.close()
+
+    def _row_count(self, path, table):
+        conn = sqlite3.connect(path)
+        try:
+            return conn.execute("SELECT COUNT(*) FROM %s" % table).fetchone()[0]
+        finally:
+            conn.close()
+
+    def test_schema_version_moves_from_13_to_14(self):
+        self.assertEqual(bs.SCHEMA_VERSION, 14)
+
+    def test_the_migrations_table_has_an_entry_for_schema_13(self):
+        self.assertIn(13, bs._MIGRATIONS)
+        self.assertIs(bs._MIGRATIONS[13], bs._migrate_13_to_14)
+
+    def test_a_brand_new_store_has_all_six_autonomy_tables_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                row = store.conn.execute(
+                    "SELECT value FROM meta WHERE key='schema_version'").fetchone()
+                self.assertEqual(row["value"], "14")
+            path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+            found = self._tables(path)
+            for table, expected in self._EXPECTED_COLUMNS.items():
+                self.assertIn(table, found)
+                self.assertEqual(self._columns(path, table), expected,
+                                 "%s must have exactly the stated columns"
+                                 % table)
+                self.assertEqual(self._row_count(path, table), 0,
+                                 "spec: no backfill, created empty")
+
+    def test_migration_from_a_real_schema13_fixture_survives_every_row(self):
+        """A REAL schema-13 fixture (a genuine store, opened and written to,
+        then reverted; never hand-written DDL), carrying rows in tables that
+        predate schema 14, so ADDITIVE ONLY is proven against real data, not
+        an empty database."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _actor()
+                store.upsert_project(_project("proj1"), actor)
+                store.create_task(_task("task1"), actor)
+                store.add_knowledge("proj1", "fact",
+                                    "the api key rotates weekly", "founder",
+                                    "sess1", actor)
+            path = self._schema13_store(d)
+            conn = sqlite3.connect(path)
+            conn.row_factory = sqlite3.Row
+            try:
+                before = {
+                    t: [dict(r) for r in conn.execute("SELECT * FROM %s" % t)]
+                    for t in ("projects", "tasks", "sentinel_knowledge")}
+            finally:
+                conn.close()
+            self.assertEqual(len(before["projects"]), 1)
+            self.assertEqual(len(before["tasks"]), 1)
+            self.assertEqual(len(before["sentinel_knowledge"]), 1)
+
+            with bs.Store(d) as store:
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT value FROM meta WHERE key='schema_version'"
+                    ).fetchone()["value"], "14")
+
+            conn = sqlite3.connect(path)
+            conn.row_factory = sqlite3.Row
+            try:
+                after = {
+                    t: [dict(r) for r in conn.execute("SELECT * FROM %s" % t)]
+                    for t in ("projects", "tasks", "sentinel_knowledge")}
+            finally:
+                conn.close()
+            self.assertEqual(before, after,
+                             "additive-only migration must not touch a "
+                             "pre-existing row")
+            found = self._tables(path)
+            for table in bs._TABLES_AUTONOMY:
+                self.assertIn(table, found)
+                self.assertEqual(self._row_count(path, table), 0)
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")), [],
+                "a healthy schema-13 store must MIGRATE, never be quarantined")
+
+    def test_migration_is_idempotent_through_a_second_store_open(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema13_store(d)
+            with bs.Store(d):
+                pass
+            first = {t: self._row_count(path, t) for t in bs._TABLES_AUTONOMY}
+            first_cols = {t: self._columns(path, t) for t in bs._TABLES_AUTONOMY}
+            with bs.Store(d):
+                pass
+            second = {t: self._row_count(path, t) for t in bs._TABLES_AUTONOMY}
+            second_cols = {t: self._columns(path, t) for t in bs._TABLES_AUTONOMY}
+            self.assertEqual(first, second)
+            self.assertEqual(first_cols, second_cols)
+
+    def test_migrate_13_to_14_is_idempotent_when_called_directly_twice(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema13_store(d)
+            conn = sqlite3.connect(path)
+            try:
+                conn.execute("BEGIN EXCLUSIVE")
+                bs._migrate_13_to_14(conn)
+                bs._migrate_13_to_14(conn)  # running it twice must not raise
+                conn.execute("COMMIT")
+            finally:
+                conn.close()
+            found = self._tables(path)
+            for table in bs._TABLES_AUTONOMY:
+                self.assertIn(table, found)
+
+    def test_calibrated_interrupted_schema14_migration_rolls_back_completely_and_reruns(self):
+        """Adversarial test 14. A forced failure two statements into
+        _migrate_13_to_14 (the same technique
+        TestSchema12Migration.test_calibrated_interrupted_migration_rolls_back_completely
+        uses): assert the version did not move, none of the six tables
+        exist, the pre-existing row is byte identical, and the
+        .pre-schema14-migration backup file exists. Then restore and
+        reopen: an interrupted migration must be re-runnable, not
+        poisoned."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project("proj1"), _actor())
+            path = self._schema13_store(d)
+            conn = sqlite3.connect(path)
+            conn.row_factory = sqlite3.Row
+            try:
+                before = [dict(r) for r in conn.execute("SELECT * FROM projects")]
+            finally:
+                conn.close()
+
+            original_fn = bs._MIGRATIONS[13]
+
+            def _fail_after_two_statements(conn_):
+                conn_.execute(bs._AUTONOMY_DDL_STATEMENTS[0])
+                conn_.execute(bs._AUTONOMY_DDL_STATEMENTS[1])
+                raise RuntimeError("simulated interruption mid-migration")
+
+            bs._MIGRATIONS[13] = _fail_after_two_statements
+            try:
+                with self.assertRaises(RuntimeError):
+                    bs.Store(d)
+            finally:
+                bs._MIGRATIONS[13] = original_fn
+
+            conn = sqlite3.connect(path)
+            try:
+                v = conn.execute(
+                    "SELECT value FROM meta WHERE key='schema_version'"
+                ).fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(v, "13",
+                             "an interrupted migration must not move the "
+                             "version")
+            found = self._tables(path)
+            for t in bs._TABLES_AUTONOMY:
+                self.assertNotIn(t, found)
+
+            conn = sqlite3.connect(path)
+            conn.row_factory = sqlite3.Row
+            try:
+                after = [dict(r) for r in conn.execute("SELECT * FROM projects")]
+            finally:
+                conn.close()
+            self.assertEqual(before, after,
+                             "pre-existing rows must be byte identical "
+                             "after a rolled-back migration")
+
+            backup_path = path + ".pre-schema14-migration"
+            self.assertTrue(
+                os.path.isfile(backup_path),
+                "the pre-migration backup must exist at %s" % backup_path)
+
+            # RECOVERABLE: reopening finishes the migration cleanly.
+            with bs.Store(d):
+                pass
+            self.assertTrue(set(bs._TABLES_AUTONOMY) <= self._tables(path))
+
+    def test_adversarial_an_old_schema13_store_refuses_schema_behind_reused_wording(self):
+        """'Older and newer schema wording': reuses the exact schema-behind
+        vocabulary I15 pins for every other schema boundary
+        (test_readonly_store_on_older_schema_refuses_without_claiming_corruption
+        above), applied at the 13/14 line specifically."""
+        with tempfile.TemporaryDirectory() as d:
+            self._schema13_store(d)
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.ReadOnlyStore(d)
+            self.assertEqual(ctx.exception.reason, "schema-behind")
+            msg = str(ctx.exception)
+            self.assertIn("migrates automatically", msg)
+            self.assertNotIn("CORRUPT", msg)
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")), [])
+
+    def test_adversarial_a_newer_schema15_store_refuses_schema_ahead_reused_wording(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.conn.execute("BEGIN IMMEDIATE")
+                store.conn.execute(
+                    "UPDATE meta SET value='15' WHERE key='schema_version'")
+                store.conn.execute("COMMIT")
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.Store(d)
+            self.assertEqual(ctx.exception.reason, "schema-ahead")
+            self.assertNotIn("CORRUPT", str(ctx.exception))
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")), [])
+
+
+class TestAutonomySignContract(unittest.TestCase):
+    """sign_contract: I1 (model signer), I5/I11 (floor vs unknown risk
+    class), I6/I7 (path law), and the sign-time half of adversarial tests
+    1 to 4."""
+
+    def test_sign_creates_revision_one_live_with_change_kind_sign(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                r = _sign(store)
+                self.assertEqual(r["revision"], 1)
+                self.assertEqual(r["change_kind"], "sign")
+                latest = store.latest_contract("p1", raw=True)
+                self.assertEqual(latest["state"], "live")
+                self.assertEqual(latest["contract_id"], r["contract_id"])
+
+    def test_sign_refuses_unknown_project(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    _sign(store, project_id="nope")
+                self.assertEqual(ctx.exception.reason, "not-found")
+
+    def test_sign_without_supersede_on_a_live_contract_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    _sign(store)
+                self.assertEqual(ctx.exception.reason, "live-contract-exists")
+                self.assertEqual(len(store.contract_revisions("p1")), 1,
+                                 "a refused sign must write nothing")
+
+    def test_sign_with_supersede_on_a_live_contract_appends_amend(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                r2 = _sign(store, outcome="ship it, revised", supersede=True)
+                self.assertEqual(r2["revision"], 2)
+                self.assertEqual(r2["change_kind"], "amend")
+                self.assertEqual(len(store.contract_revisions("p1")), 2)
+
+    def test_sign_after_a_stopped_contract_is_a_plain_sign_no_supersede_needed(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                store.set_contract_state("p1", "stopped", "khalil", "",
+                                         "sess1", _autonomy_actor())
+                r3 = _sign(store)  # no supersede: latest is stopped, not live
+                self.assertEqual(r3["revision"], 3)
+                self.assertEqual(r3["change_kind"], "sign")
+                self.assertEqual(store.latest_contract("p1", raw=True)["state"],
+                                 "live")
+
+    def test_adversarial_six_model_names_refuse_and_two_documented_bypasses_are_accepted(self):
+        """Invariant I1, honestly. The six names the design table-drives
+        over must all refuse and name the matched token; 'K. Maaouni' and
+        'cl4ude' are both ACCEPTED, the disclosed limit of a denylist, not
+        an oversight."""
+        refused = ("Claude", "claude-opus-5", "GPT-5.6", "Fable 5",
+                  "the assistant", "AI Agent")
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                for i, name in enumerate(refused):
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        _sign(store, signed_by=name)
+                    self.assertEqual(ctx.exception.reason, "model-signer",
+                                     "signer %r must refuse" % (name,))
+                self.assertEqual(store.contract_revisions("p1"), [],
+                                 "every refused sign must write nothing")
+                # the two documented bypasses: accepted, on purpose.
+                r = _sign(store, signed_by="K. Maaouni")
+                self.assertEqual(r["change_kind"], "sign")
+                r2 = _sign(store, signed_by="cl4ude", supersede=True)
+                self.assertEqual(r2["change_kind"], "amend")
+
+    def test_an_unknown_risk_class_refuses_at_sign_and_names_the_allowed_set(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                with self.assertRaises(ValueError) as ctx:
+                    _sign(store, risk_classes=["not-a-real-class"])
+                msg = str(ctx.exception)
+                for c in bs.AUTONOMY_RISK_CLASSES:
+                    self.assertIn(c, msg)
+                self.assertEqual(store.contract_revisions("p1"), [])
+
+    def test_adversarial_a_floor_in_risk_classes_refuses_at_sign_and_at_the_gate_even_when_written_directly(self):
+        """Invariant I5 plus adversarial test 11, all three shapes."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                # Shape 1: refused at sign, naming the floor.
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    _sign(store, risk_classes=["payment"])
+                self.assertEqual(ctx.exception.reason, "risk-class-is-floor")
+                self.assertIn("payment", str(ctx.exception))
+                self.assertEqual(store.contract_revisions("p1"), [])
+
+                # Shape 2: a contract row written directly (simulating a
+                # tampered store, bypassing sign_contract entirely). Even
+                # then, gate_check must still refuse the floor.
+                ts = bs.now_iso()
+                with store._transaction():
+                    store.conn.execute(
+                        "INSERT INTO autonomy_contracts (contract_id, "
+                        "project_id, revision, change_kind, state, "
+                        "outcome, done_definition, allowed_paths, "
+                        "allowed_surfaces, risk_classes, token_ceiling, "
+                        "minutes_ceiling, signed_by, signed_at, "
+                        "changed_by, change_reason, session_id, "
+                        "created_at) VALUES "
+                        "('tampered','p1',1,'sign','live','o','d','[]',"
+                        "'[]','[\"payment\"]',NULL,NULL,'Khalil Maaouni',"
+                        "?,'', '', '', ?)", (ts, ts))
+                gc = store.gate_check("p1", "payment")
+                self.assertEqual(gc["verdict"], "REFUSED-FLOOR")
+                self.assertEqual(gc["floor"], "payment")
+
+                # Shape 3: risk_classes grants only file-edit; asking for
+                # permanent-delete is REFUSED-FLOOR, not REFUSED-CLASS,
+                # because the floor check runs first (order of checks).
+                gc2 = store.gate_check("p1", "permanent-delete")
+                self.assertEqual(gc2["verdict"], "REFUSED-FLOOR")
+
+    def test_a_dotdot_path_in_allowed_paths_refuses_path_escape_at_sign_time(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    _sign(store, allowed_paths=["../outside"])
+                self.assertEqual(ctx.exception.reason, "path-escape")
+                self.assertEqual(store.contract_revisions("p1"), [],
+                                 "a path-escape refusal must write nothing")
+
+    def test_adversarial_a_sibling_directory_sharing_a_name_prefix_is_out_of_scope(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["api"], risk_classes=["file-edit"])
+                refused = store.gate_check("p1", "file-edit",
+                                           path="api_secrets/keys.py")
+                self.assertEqual(refused["verdict"], "REFUSED-SCOPE")
+                allowed = store.gate_check("p1", "file-edit",
+                                           path="api/pay.py")
+                self.assertEqual(allowed["verdict"], "ALLOWED")
+
+    def test_adversarial_four_spellings_of_one_path_converge_and_a_dotdot_escapes(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.realpath(d)
+            os.makedirs(os.path.join(root, "src"))
+            with bs.Store(root) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["src/pay.py"],
+                      risk_classes=["file-edit"])
+                for path, cwd in (
+                        ("src/pay.py", None),
+                        ("./src/pay.py", None),
+                        ("src/../src/pay.py", None),
+                        ("pay.py", os.path.join(root, "src"))):
+                    candidate = bs.canonicalize_path(root, path, cwd=cwd)
+                    self.assertEqual(candidate, "src/pay.py")
+                    gc = store.gate_check("p1", "file-edit", path=candidate)
+                    self.assertEqual(gc["verdict"], "ALLOWED",
+                                     "%r via cwd=%r must be allowed"
+                                     % (path, cwd))
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    bs.canonicalize_path(root, "../pay.py", cwd=None)
+                self.assertEqual(ctx.exception.reason, "path-escape")
+
+    def test_adversarial_a_symlink_out_of_root_refuses_and_a_symlink_inside_stores_its_target(self):
+        with tempfile.TemporaryDirectory() as base:
+            root = os.path.realpath(os.path.join(base, "root"))
+            outside = os.path.realpath(os.path.join(base, "outside"))
+            os.makedirs(root)
+            os.makedirs(outside)
+            os.symlink(outside, os.path.join(root, "out"))
+            with bs.Store(root) as store:
+                _seed(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    _sign(store, allowed_paths=["out/x.txt"])
+                self.assertEqual(ctx.exception.reason, "path-escape")
+                self.assertEqual(store.contract_revisions("p1"), [],
+                                 "a symlink escape must write nothing")
+
+                os.makedirs(os.path.join(root, "real"))
+                os.symlink(os.path.join(root, "real"),
+                          os.path.join(root, "link"))
+                _sign(store, allowed_paths=["link"],
+                      risk_classes=["file-edit"])
+                stored = store.latest_contract("p1", raw=True)
+                self.assertEqual(stored["allowed_paths"], ["real"])
+                gc_in = store.gate_check("p1", "file-edit", path="real/f.py")
+                self.assertEqual(gc_in["verdict"], "ALLOWED")
+                gc_out = store.gate_check("p1", "file-edit",
+                                          path="other/f.py")
+                self.assertNotEqual(gc_out["verdict"], "ALLOWED")
+
+    def test_adversarial_nfc_and_nfd_spellings_agree_on_darwin_and_differ_on_linux(self):
+        nfc = unicodedata.normalize("NFC", "src/café.py")
+        nfd = unicodedata.normalize("NFD", "src/café.py")
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=[nfc], risk_classes=["file-edit"])
+                gc = store.gate_check("p1", "file-edit", path=nfd)
+                if sys.platform in ("darwin", "win32"):
+                    self.assertEqual(
+                        gc["verdict"], "ALLOWED",
+                        "on %s, NFC and NFD spellings are one inode and "
+                        "must agree" % sys.platform)
+                else:
+                    self.assertEqual(
+                        gc["verdict"], "REFUSED-SCOPE",
+                        "on %s, NFC and NFD are genuinely different byte "
+                        "strings and must differ" % sys.platform)
+
+    def test_negative_ceiling_raises_value_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                with self.assertRaises(ValueError):
+                    _sign(store, token_ceiling=-1)
+                self.assertEqual(store.contract_revisions("p1"), [])
+
+
+class TestAutonomyStateTransitions(unittest.TestCase):
+    """set_contract_state: I2, I3, I4, and adversarial tests 7 and 8."""
+
+    def test_pause_refuses_new_work_and_resume_restores_the_same_authorisation(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["src"], risk_classes=["file-edit"],
+                      token_ceiling=1000, minutes_ceiling=60)
+                store.set_contract_state("p1", "paused", "khalil", "lunch",
+                                         "sess1", _autonomy_actor())
+                gc = store.gate_check("p1", "file-edit", path="src/a.py")
+                self.assertEqual(gc["verdict"], "REFUSED-STATE")
+                store.set_contract_state("p1", "live", "khalil", "back",
+                                         "sess1", _autonomy_actor())
+                latest = store.latest_contract("p1", raw=True)
+                self.assertEqual(latest["allowed_paths"], ["src"])
+                self.assertEqual(latest["risk_classes"], ["file-edit"])
+                self.assertEqual(latest["token_ceiling"], 1000)
+                self.assertEqual(latest["minutes_ceiling"], 60)
+                self.assertEqual(latest["signed_by"], "Khalil Maaouni")
+                gc2 = store.gate_check("p1", "file-edit", path="src/a.py")
+                self.assertEqual(gc2["verdict"], "ALLOWED")
+
+    def test_gate_check_on_a_revoked_contract_refuses_state_before_any_other_check(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["src"], risk_classes=["file-edit"])
+                store.set_contract_state("p1", "revoked", "khalil",
+                                         "founder said stop", "sess1",
+                                         _autonomy_actor())
+                # A REVOKED contract must never reach a floor or scope check
+                # that might pass: even a request for a floor comes back
+                # REFUSED-STATE, not REFUSED-FLOOR.
+                gc = store.gate_check("p1", "payment")
+                self.assertEqual(gc["verdict"], "REFUSED-STATE")
+                gc2 = store.gate_check("p1", "file-edit", path="src/a.py")
+                self.assertEqual(gc2["verdict"], "REFUSED-STATE")
+
+    def test_adversarial_stop_three_times_appends_one_revision_and_exits_zero_thrice(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                r1 = store.set_contract_state("p1", "stopped", "khalil", "",
+                                              "sess1", _autonomy_actor())
+                self.assertTrue(r1["changed"])
+                rev_after_first_stop = store.latest_contract("p1", raw=True)["revision"]
+                r2 = store.set_contract_state("p1", "stopped", "khalil", "",
+                                              "sess1", _autonomy_actor())
+                self.assertFalse(r2["changed"])
+                r3 = store.set_contract_state("p1", "stopped", "khalil", "",
+                                              "sess1", _autonomy_actor())
+                self.assertFalse(r3["changed"])
+                self.assertEqual(
+                    store.latest_contract("p1", raw=True)["revision"],
+                    rev_after_first_stop,
+                    "stop on an already-stopped contract writes no new "
+                    "revision")
+                self.assertEqual(len(store.contract_revisions("p1")), 2,
+                                 "exactly one revision from the sign, one "
+                                 "from the first stop")
+
+    def test_revoke_is_terminal_and_resume_after_revoke_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                store.set_contract_state("p1", "revoked", "khalil", "done",
+                                         "sess1", _autonomy_actor())
+                r2 = store.set_contract_state("p1", "revoked", "khalil", "",
+                                              "sess1", _autonomy_actor())
+                self.assertFalse(r2["changed"],
+                                 "revoke on an already-revoked contract is "
+                                 "an idempotent no-op")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.set_contract_state("p1", "live", "khalil", "",
+                                             "sess1", _autonomy_actor())
+                self.assertEqual(ctx.exception.reason, "illegal-state-move")
+
+    def test_resume_from_stopped_refuses_illegal_state_move(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                store.set_contract_state("p1", "stopped", "khalil", "",
+                                         "sess1", _autonomy_actor())
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.set_contract_state("p1", "live", "khalil", "",
+                                             "sess1", _autonomy_actor())
+                self.assertEqual(ctx.exception.reason, "illegal-state-move")
+
+    def test_set_contract_state_refuses_when_no_contract_exists(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.set_contract_state("p1", "paused", "khalil", "",
+                                             "sess1", _autonomy_actor())
+                self.assertEqual(ctx.exception.reason, "no-contract")
+
+    def test_adversarial_stop_against_a_held_write_lock_refuses_db_busy_and_succeeds_on_retry(self):
+        """Adversarial test 8, using the suite's own established pattern
+        (test_calibrated_11_locked_database_refuses_without_quarantine
+        above) rather than a second manually-held Store transaction: a raw
+        connection holding BEGIN EXCLUSIVE is the simpler, already-proven
+        way to force db-busy in this suite."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+            path = bs.store_path(d)
+            locker = sqlite3.connect(path, timeout=0, isolation_level=None)
+            locker.execute("BEGIN EXCLUSIVE")
+            try:
+                store = bs.Store(d, busy_timeout_ms=50)
+                try:
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        store.set_contract_state(
+                            "p1", "stopped", "khalil", "", "sess1",
+                            _autonomy_actor())
+                    self.assertEqual(ctx.exception.reason, "db-busy")
+                finally:
+                    store.close()
+            finally:
+                locker.execute("ROLLBACK")
+                locker.close()
+            with bs.Store(d) as store2:
+                r = store2.set_contract_state("p1", "stopped", "khalil", "",
+                                              "sess1", _autonomy_actor())
+                self.assertTrue(r["changed"],
+                                 "after the lock is released, a retry must "
+                                 "succeed")
+
+
+class TestAutonomySpendAndBreaker(unittest.TestCase):
+    """record_spend and spend_totals: I8, I9, I10, and adversarial tests
+    5 and 6."""
+
+    def test_adversarial_an_unset_ceiling_never_becomes_zero_percent_or_unlimited(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)  # no ceilings at all
+                store.record_spend("p1", 10000000, 0, "", "sess1",
+                                   _autonomy_actor())
+                totals = store.spend_totals("p1")
+                self.assertIsNone(totals["token_pct"])
+                self.assertIsNone(totals["minutes_pct"])
+                self.assertEqual(totals["verdict"], "no-data")
+                gc = store.gate_check("p1", "file-edit")
+                self.assertEqual(gc["verdict"], "ALLOWED",
+                                 "NO-DATA must never itself trip the breaker")
+
+    def test_adversarial_negative_and_all_zero_spend_are_refused_and_write_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                with self.assertRaises(ValueError):
+                    store.record_spend("p1", -500, 0, "", "sess1",
+                                       _autonomy_actor())
+                with self.assertRaises(ValueError):
+                    store.record_spend("p1", 0, 0, "", "sess1",
+                                       _autonomy_actor())
+                totals = store.spend_totals("p1")
+                self.assertEqual(totals["tokens"], 0)
+                self.assertEqual(totals["minutes"], 0)
+
+    def test_record_spend_refuses_without_a_live_contract(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.record_spend("p1", 10, 0, "", "sess1",
+                                       _autonomy_actor())
+                self.assertEqual(ctx.exception.reason, "no-live-contract")
+
+    def test_at_eighty_percent_the_verdict_is_soft_stop_and_gate_check_still_allows(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, token_ceiling=100, risk_classes=["file-edit"])
+                result = store.record_spend("p1", 80, 0, "", "sess1",
+                                            _autonomy_actor())
+                self.assertEqual(result["verdict"], "soft-stop")
+                gc = store.gate_check("p1", "file-edit")
+                self.assertEqual(gc["verdict"], "ALLOWED",
+                                 "soft-stop finishes in-flight work; "
+                                 "gate_check must still allow")
+                alerts = [a for a in store.list_alerts()
+                         if a["category"] == "autonomy-breaker"]
+                self.assertEqual(len(alerts), 1)
+                self.assertEqual(alerts[0]["severity"], "high")
+
+    def test_at_one_hundred_percent_gate_check_refuses_breaker_and_one_critical_alert_exists(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, token_ceiling=100, risk_classes=["file-edit"])
+                store.record_spend("p1", 100, 0, "", "sess1",
+                                   _autonomy_actor())
+                gc = store.gate_check("p1", "file-edit")
+                self.assertEqual(gc["verdict"], "REFUSED-BREAKER")
+                alerts = [a for a in store.list_alerts()
+                         if a["category"] == "autonomy-breaker"]
+                self.assertEqual(len(alerts), 1)
+                self.assertEqual(alerts[0]["severity"], "critical")
+                self.assertEqual(alerts[0]["requires_human"], 1)
+                # a second spend call past the line raises nothing more.
+                store.record_spend("p1", 1, 0, "", "sess1", _autonomy_actor())
+                alerts2 = [a for a in store.list_alerts()
+                          if a["category"] == "autonomy-breaker"]
+                self.assertEqual(len(alerts2), 1,
+                                 "an alert that fires on every call is an "
+                                 "alert nobody reads")
+
+    def test_a_zero_ceiling_reads_as_one_hundred_percent_immediately(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, token_ceiling=0, risk_classes=["file-edit"])
+                gc = store.gate_check("p1", "file-edit")
+                self.assertEqual(gc["verdict"], "REFUSED-BREAKER",
+                                 "zero is a real ceiling meaning stop "
+                                 "immediately")
+
+
+class TestAutonomyAssumptionsInterruptionsHumanSteps(unittest.TestCase):
+    """record_assumption, record_interruption, answer_interruption,
+    queue_human_step, resolve_human_step: I12 and the interruption policy
+    from the Phase 2 design section 7."""
+
+    def test_record_assumption_refuses_without_a_live_contract(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.record_assumption("p1", "the API is stable", "",
+                                            "sess1", _autonomy_actor())
+                self.assertEqual(ctx.exception.reason, "no-live-contract")
+
+    def test_record_assumption_happy_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                aid = store.record_assumption(
+                    "p1", "the API is stable", "revert the config flag",
+                    "sess1", _autonomy_actor())
+                rows = store.list_assumptions("p1")
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["assumption_id"], aid)
+
+    def test_record_interruption_refuses_an_unrecognised_condition_naming_all_four(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                with self.assertRaises(ValueError) as ctx:
+                    store.record_interruption("p1", "seems-important",
+                                              "is this ok?", "sess1",
+                                              _autonomy_actor())
+                msg = str(ctx.exception)
+                for c in bs.AUTONOMY_CONDITIONS:
+                    self.assertIn(c, msg)
+
+    def test_answer_interruption_refuses_when_already_answered(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                iid = store.record_interruption(
+                    "p1", "hard-gate-collision", "which floor applies?",
+                    "sess1", _autonomy_actor())
+                store.answer_interruption(iid, "p1", "neither, proceed",
+                                          _autonomy_actor())
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.answer_interruption(iid, "p1", "again",
+                                              _autonomy_actor())
+                self.assertEqual(ctx.exception.reason, "already-answered")
+
+    def test_queue_human_step_refuses_a_blocks_id_that_names_no_task(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.queue_human_step(
+                        "p1", "", "signing", "click accept", "", ["nope"],
+                        "sess1", _autonomy_actor())
+                self.assertEqual(ctx.exception.reason, "not-found")
+
+    def test_resolve_human_step_refuses_when_already_resolved(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                sid = store.queue_human_step(
+                    "p1", "", "signing", "click accept", "", [], "sess1",
+                    _autonomy_actor())
+                store.resolve_human_step(sid, "p1", "done", _autonomy_actor())
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.resolve_human_step(sid, "p1", "again",
+                                             _autonomy_actor())
+                self.assertEqual(ctx.exception.reason, "already-resolved")
+
+    def test_adversarial_an_open_human_step_in_one_lane_leaves_another_lane_allowed(self):
+        """Invariant I12: a human step is a to-do item, never an
+        authorisation, so gate_check never consults it at all; a lane is a
+        coarse filter for a human reading the queue, and blocks is the
+        precise one."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, risk_classes=["file-edit"])
+                store.create_task(_task("task1", pid="p1"), _actor())
+                store.queue_human_step(
+                    "p1", "account-signin", "signing", "sign in to deploy",
+                    "", ["task1"], "sess1", _autonomy_actor())
+                open_signing = store.list_human_steps("p1", lane="signing",
+                                                       resolved=False)
+                self.assertEqual(len(open_signing), 1)
+                open_build = store.list_human_steps("p1", lane="build",
+                                                     resolved=False)
+                self.assertEqual(open_build, [])
+                # gate_check for ordinary work is entirely unaffected by the
+                # open human step: it never consults human_steps at all.
+                gc = store.gate_check("p1", "file-edit")
+                self.assertEqual(gc["verdict"], "ALLOWED")
+
+
+class TestAutonomyCheckpoints(unittest.TestCase):
+    """record_checkpoint and recent_checkpoints: adversarial test 12."""
+
+    def test_record_checkpoint_stamps_current_spend_totals(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, token_ceiling=1000)
+                store.record_spend("p1", 250, 5, "", "sess1",
+                                   _autonomy_actor())
+                cid = store.record_checkpoint("p1", "ctrl-1", "phase",
+                                              "boundary reached", "sess1",
+                                              _autonomy_actor())
+                rows = store.recent_checkpoints("p1")
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["checkpoint_id"], cid)
+                self.assertEqual(rows[0]["tokens_at"], 250)
+                self.assertEqual(rows[0]["minutes_at"], 5)
+
+    def test_record_checkpoint_allowed_even_after_hard_stop(self):
+        """The design's own hard-stop wording is 'checkpoint every
+        worktree', said AFTER the controller has already stopped, so this
+        must not require a live contract."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                store.set_contract_state("p1", "stopped", "khalil",
+                                         "breaker tripped", "sess1",
+                                         _autonomy_actor())
+                cid = store.record_checkpoint("p1", "ctrl-1", "close",
+                                              "closing out", "sess1",
+                                              _autonomy_actor())
+                self.assertIsNotNone(cid)
+
+    def test_adversarial_a_checkpoint_against_an_old_revision_is_visible_and_does_not_change_authorisation(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, risk_classes=["file-edit"])  # revision 1
+                store.record_checkpoint("p1", "ctrl-1", "phase", "at rev 1",
+                                        "sess1", _autonomy_actor())
+                store.set_contract_state("p1", "paused", "khalil", "r",
+                                         "sess1", _autonomy_actor())  # rev 2
+                store.set_contract_state("p1", "live", "khalil", "r",
+                                         "sess1", _autonomy_actor())  # rev 3
+                checkpoints = store.recent_checkpoints("p1")
+                self.assertEqual(len(checkpoints), 1)
+                checkpoint_contract = store.conn.execute(
+                    "SELECT revision FROM autonomy_contracts WHERE "
+                    "contract_id=?",
+                    (checkpoints[0]["contract_id"],)).fetchone()
+                self.assertEqual(checkpoint_contract["revision"], 1)
+                latest = store.latest_contract("p1", raw=True)
+                self.assertEqual(latest["revision"], 3)
+                self.assertNotEqual(checkpoint_contract["revision"],
+                                    latest["revision"],
+                                    "a stale checkpoint is a reporting fact, "
+                                    "visible but never mutated")
+                # A lagging heartbeat must not itself change authorisation:
+                # gate_check still judges against the LIVE revision, 3.
+                gc = store.gate_check("p1", "file-edit")
+                self.assertEqual(gc["revision"], 3)
+
+
+class TestAutonomyConcurrencyReadOnlyAndClock(unittest.TestCase):
+    """Adversarial tests 9, 13, 15, 16."""
+
+    def test_adversarial_two_concurrent_signers_produce_one_highest_revision_and_no_corruption(self):
+        """Adversarial test 13, one delta from the design's own wording
+        (reported to the caller): the design's prose describes the second
+        signer colliding on UNIQUE(project_id, revision) and being refused.
+        That outcome presupposes the target revision number is computed
+        from a read taken BEFORE the write lock is acquired. This
+        implementation deliberately re-reads the latest revision INSIDE the
+        already-open self._transaction() (BEGIN IMMEDIATE), which is what
+        makes the collision itself unreachable: SQLite's RESERVED lock
+        fully serializes the two signers, so the second one, once it
+        finally acquires the lock, sees the first one's already-committed
+        row and computes the NEXT free revision rather than colliding with
+        it. What this test proves instead is the property the design
+        actually cares about ('two live contracts is unrepresentable'):
+        both concurrent signers succeed, sequentially, at two DIFFERENT
+        consecutive revisions, there is never more than one highest
+        revision, and no row is ever duplicated or corrupted. Each Store is
+        constructed INSIDE its own worker thread (sqlite3 connections are
+        not usable across threads)."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                store.set_contract_state("p1", "paused", "k", "r", "s",
+                                         _autonomy_actor())
+            results = {}
+            errors = {}
+
+            def _do(name):
+                store = bs.Store(d)
+                try:
+                    results[name] = _sign(store, outcome="racer %s" % name,
+                                          supersede=True)
+                except bs.BMStoreError as e:
+                    errors[name] = e
+                finally:
+                    store.close()
+
+            ta = threading.Thread(target=_do, args=("a",))
+            tb = threading.Thread(target=_do, args=("b",))
+            ta.start()
+            tb.start()
+            ta.join()
+            tb.join()
+
+            self.assertEqual(errors, {},
+                             "full serialization under BEGIN IMMEDIATE "
+                             "means neither concurrent signer is refused: "
+                             "%s" % errors)
+            self.assertEqual(len(results), 2)
+            revisions_won = sorted(r["revision"] for r in results.values())
+            self.assertEqual(revisions_won, [3, 4],
+                             "the two signers must land on two DIFFERENT "
+                             "consecutive revisions, never the same one")
+
+            with bs.Store(d) as store:
+                chain = store.contract_revisions("p1")
+                self.assertEqual([r["revision"] for r in chain], [1, 2, 3, 4])
+                self.assertEqual(
+                    store.latest_contract("p1", raw=True)["revision"], 4,
+                    "there is exactly one highest revision")
+                # every attribution row this project accumulated names a
+                # real actor; nothing was silently lost or duplicated.
+                sign_events = store.conn.execute(
+                    "SELECT * FROM attribution WHERE project_id='p1' AND "
+                    "event_type IN ('autonomy.contract.sign', "
+                    "'autonomy.contract.amend')").fetchall()
+                self.assertEqual(len(sign_events), 3,
+                                 "the original sign plus the two racers' "
+                                 "amends, one attribution row each")
+
+    def test_adversarial_a_revoke_between_check_and_action_moves_the_revision_a_caller_holds(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, risk_classes=["file-edit"])
+                gc1 = store.gate_check("p1", "file-edit")
+                self.assertEqual(gc1["verdict"], "ALLOWED")
+                rev_held = gc1["revision"]
+                store.set_contract_state("p1", "revoked", "khalil", "stop",
+                                         "sess1", _autonomy_actor())
+                gc2 = store.gate_check("p1", "file-edit")
+                self.assertEqual(gc2["verdict"], "REFUSED-STATE")
+                self.assertNotEqual(gc2["revision"], rev_held)
+                self.assertGreater(gc2["revision"], rev_held)
+                self.assertNotEqual(
+                    store.latest_contract("p1", raw=True)["revision"],
+                    rev_held,
+                    "a caller holding rev_held can detect staleness by "
+                    "re-reading latest_contract()")
+
+    def test_adversarial_a_read_only_store_answers_gate_check_and_has_no_write_method_at_all(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["src"], risk_classes=["file-edit"])
+            with bs.ReadOnlyStore(d) as ro:
+                self.assertIsNotNone(ro.latest_contract("p1"))
+                self.assertEqual(ro.spend_totals("p1")["verdict"], "no-data")
+                self.assertEqual(ro.list_human_steps("p1"), [])
+                gc = ro.gate_check("p1", "file-edit", path="src/a.py")
+                self.assertEqual(gc["verdict"], "ALLOWED")
+                for name in ("sign_contract", "set_contract_state",
+                            "record_spend", "record_assumption",
+                            "record_interruption", "answer_interruption",
+                            "queue_human_step", "resolve_human_step",
+                            "record_checkpoint"):
+                    self.assertFalse(
+                        hasattr(ro, name),
+                        "%s must not be defined on ReadOnlyStore at all"
+                        % name)
+
+        with tempfile.TemporaryDirectory() as d2:
+            with bs.Store(d2):
+                pass
+            path = os.path.join(d2, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+            conn = sqlite3.connect(path)
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                for t in bs._TABLES_AUTONOMY:
+                    conn.execute("DROP TABLE IF EXISTS %s" % t)
+                conn.execute(
+                    "UPDATE meta SET value='13' WHERE key='schema_version'")
+                conn.execute("COMMIT")
+            finally:
+                conn.close()
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.ReadOnlyStore(d2)
+            self.assertEqual(ctx.exception.reason, "schema-behind")
+
+    def test_adversarial_same_second_writes_and_a_backwards_clock_never_reorder_the_revision_chain(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, token_ceiling=1000)
+                store.set_contract_state("p1", "paused", "k", "r", "s",
+                                         _autonomy_actor())
+                r3 = store.set_contract_state("p1", "live", "k", "r", "s",
+                                              _autonomy_actor())
+                # (a) revisions written back to back: ordering is by
+                # revision, an integer, never by (second-precision) clock.
+                self.assertEqual(
+                    store.latest_contract("p1", raw=True)["revision"],
+                    r3["revision"])
+
+                # (b) a spend row stepped BACKWARDS in time, before the
+                # contract's own created_at: spend_totals must still count
+                # it, because the epoch boundary is by revision, not clock.
+                store.record_spend("p1", 10, 1, "n", "sess1",
+                                   _autonomy_actor())
+                store.conn.execute("BEGIN IMMEDIATE")
+                store.conn.execute(
+                    "UPDATE autonomy_spend SET "
+                    "created_at='2000-01-01T00:00:00Z' WHERE project_id=?",
+                    ("p1",))
+                store.conn.execute("COMMIT")
+                totals = store.spend_totals("p1")
+                self.assertEqual(totals["tokens"], 10)
+
+                # (c) two rows at the same second: latest_contract returns
+                # the higher revision, deterministically, repeatedly.
+                for _ in range(100):
+                    self.assertEqual(
+                        store.latest_contract("p1", raw=True)["revision"],
+                        r3["revision"])
+
+
+class TestAutonomyStructuralGuards(unittest.TestCase):
+    """I13 (every transition auditable) and I16 (contract rows are
+    immutable), the two invariants that are proven structurally rather
+    than behaviourally, so the guard holds for code written next year too,
+    not only the methods that exist today."""
+
+    def test_structural_no_service_method_updates_an_autonomy_contract_row(self):
+        tree = ast.parse(
+            io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8").read())
+
+        class _Visitor(ast.NodeVisitor):
+            def __init__(self):
+                self.func_stack = ["<module>"]
+                self.offenders = []
+
+            def visit_FunctionDef(self, node):
+                self.func_stack.append(node.name)
+                self.generic_visit(node)
+                self.func_stack.pop()
+
+            def visit_Constant(self, node):
+                if (isinstance(node.value, str)
+                        and "autonomy_contracts" in node.value):
+                    up = node.value.upper()
+                    enclosing = self.func_stack[-1]
+                    if (enclosing != "purge_project"
+                            and ("UPDATE " in up or "DELETE FROM" in up)):
+                        self.offenders.append(
+                            (node.lineno, enclosing, node.value))
+
+        v = _Visitor()
+        v.visit(tree)
+        self.assertEqual(
+            v.offenders, [],
+            "an UPDATE or DELETE names autonomy_contracts outside "
+            "purge_project: %s" % (v.offenders,))
+
+    def test_every_autonomy_write_leaves_an_attribution_row_naming_the_actor(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                actor = _autonomy_actor("auditor")
+                _sign(store, actor=actor, risk_classes=["file-edit"])
+                store.set_contract_state("p1", "paused", "k", "r", "s", actor)
+                store.set_contract_state("p1", "live", "k", "r", "s", actor)
+                store.record_spend("p1", 1, 0, "", "s", actor)
+                store.record_assumption("p1", "text", "", "s", actor)
+                iid = store.record_interruption(
+                    "p1", "contradiction", "which wins?", "s", actor)
+                store.answer_interruption(iid, "p1", "the newer one", actor)
+                sid = store.queue_human_step(
+                    "p1", "", "l", "w", "", [], "s", actor)
+                store.resolve_human_step(sid, "p1", "done", actor)
+                store.record_checkpoint("p1", "ctrl", "k", "n", "s", actor)
+
+                rows = store.conn.execute(
+                    "SELECT * FROM attribution WHERE project_id='p1' AND "
+                    "actor_name='auditor'").fetchall()
+                event_types = {r["event_type"] for r in rows}
+                self.assertEqual(
+                    event_types,
+                    {"autonomy.contract.sign", "autonomy.contract.pause",
+                     "autonomy.contract.resume", "autonomy.spend.recorded",
+                     "autonomy.assumption.recorded",
+                     "autonomy.interruption.raised",
+                     "autonomy.interruption.answered",
+                     "autonomy.human_step.queued",
+                     "autonomy.human_step.resolved",
+                     "autonomy.checkpoint.recorded"})
+
+
+class TestAutonomyPurgeLeavesNoOrphans(unittest.TestCase):
+    """Extends TestPurgeProject above: purge_project must remove every row
+    in all six autonomy tables, counted exactly like every other table's
+    rows, so no orphan survives a purge (tools/bm_store.py:10532's own
+    extension)."""
+
+    def test_purge_removes_every_autonomy_row_across_all_six_tables(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                actor = _autonomy_actor()
+                _sign(store, actor=actor)
+                store.set_contract_state("p1", "paused", "k", "r", "s", actor)
+                store.set_contract_state("p1", "live", "k", "r", "s", actor)
+                store.record_spend("p1", 10, 1, "", "s", actor)
+                store.record_assumption("p1", "text", "", "s", actor)
+                store.record_interruption(
+                    "p1", "contradiction", "q?", "s", actor)
+                store.queue_human_step(
+                    "p1", "", "l", "w", "", [], "s", actor)
+                store.record_checkpoint("p1", "ctrl", "k", "n", "s", actor)
+
+                for t in bs._TABLES_AUTONOMY:
+                    count = store.conn.execute(
+                        "SELECT COUNT(*) c FROM %s WHERE project_id='p1'"
+                        % t).fetchone()["c"]
+                    self.assertGreater(count, 0,
+                                       "%s must be seeded before the purge "
+                                       "proves it empties" % t)
+
+                removed = store.purge_project("p1", actor, "p1")
+                for t in bs._TABLES_AUTONOMY:
+                    self.assertIn(t, removed)
+                    self.assertGreater(removed[t], 0)
+
+                for t in bs._TABLES_AUTONOMY:
+                    count = store.conn.execute(
+                        "SELECT COUNT(*) c FROM %s WHERE project_id='p1'"
+                        % t).fetchone()["c"]
+                    self.assertEqual(count, 0,
+                                     "%s must have zero rows for 'p1' after "
+                                     "purge" % t)
 
 
 if __name__ == "__main__":
