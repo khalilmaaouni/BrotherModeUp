@@ -417,12 +417,17 @@ pointed at the same file:
   (`redact_text`, then `mask_absolute_paths`) before it is stored, so a founder-typed
   record name cannot smuggle a secret or an absolute path into the row unmasked.
 
-This hook is **detection, not prevention, on purpose** (D-1's own words): by the time
-the alert exists, the write already happened. It never has a decision to make, so
-unlike `bm_fence_hook.py` it never writes to stdout at all; every diagnostic goes to
-stderr, and both entrypoints always exit 0, whatever went wrong. It is consent-gated
-exactly like `tools/bm_autosave.py`: pre-consent, both entrypoints check first, before
-reading stdin, and write nothing at all.
+This hook is **detection, not prevention, for every ordinary write** (D-1's own words):
+by the time the alert exists, the write already happened. It has a decision to make in
+exactly one situation, added by C-02 and described below (BM_FENCE_MODE=enforced, and
+only inside a BrotherMode project), and in that one situation the `pre` phase writes a
+deny object to stdout; otherwise it never writes to stdout at all, on either entrypoint,
+and every diagnostic goes to stderr. Both entrypoints always exit 0, whatever went wrong.
+It is consent-gated like `tools/bm_autosave.py`: pre-consent, nothing is read from disk
+and nothing is written, not a snapshot file and not an alert row. The one thing that runs
+ahead of that gate is the enforced-mode refusal check, which reads only the payload the
+harness already handed the hook, resolves whether that payload's cwd is a BrotherMode
+project before doing anything else, and writes nothing at all.
 
 **What it can see:** a fenced file whose bytes are different, or gone, after a Bash
 call from a session that is not that fence's owner.
@@ -455,6 +460,72 @@ call from a session that is not that fence's owner.
   (`records.session_id == the label this process derives from its own token`); a
   record claimed by hand with an arbitrary `--session` value that is not a real
   derived label will never match, on either hook.
+
+### Refusing the obvious destructive forms (C-02, 2026-08-03, enforced mode, inside a
+### BrotherMode project only)
+
+The gap closure item C-02 measured was narrower and worse than "Bash is not gated". With
+a proven DENY in place, `rm -f .brothermode/store.sqlite3` through Bash turned that DENY
+into an ALLOW, and produced no alert row and no stderr line at all, because the store is
+not itself a claimed path and nothing in this pair looked at it. Enforcement state that
+the ungated channel can delete is not enforcement.
+
+Two halves landed, and only one of them is a refusal.
+
+**Always on, in both modes, in every BrotherMode project: the enforcement state is
+watched.** The `pre` phase now records, alongside the fenced files, whether the store
+exists, whether it is non-empty, whether it still begins with the SQLite file header, and
+which session token files are present. The `post` phase reports every one of those that
+was LOST during the call: one sentence on stderr and one high-severity
+`fence-control-loss` alert row per finding, checked before ownership is even derived.
+Growth and ordinary mutation are invisible on purpose, because a Bash call that runs
+`bm_store.py` is normal work and a check that alarmed on it would be switched off within a
+day. When the store itself is what went missing, the row cannot be written at all, and the
+hook says exactly that.
+
+**Opt in, enforced mode, AND ONLY INSIDE A BROTHERMODE PROJECT: the obvious forms are
+refused before they run.** With `BM_FENCE_MODE=enforced`, the `pre` phase resolves the
+Bash call's cwd against `bm_store.resolve_root` first. If that resolves to no BrotherMode
+project, the refusal check does nothing at all and the call proceeds exactly as it would
+under the default mode. If it resolves to a project, and the command TEXT matches a small
+literal list of destructive shell forms while also containing the literal string
+`.brothermode` or `store.sqlite3`, or matches one of exactly two whole-directory forms
+that name nothing (`git clean` with `-x`, and `rm -r` aimed at `.` or `*`), the `pre`
+phase writes a deny object to stdout and the command does not run. The deny reason comes
+from a literal table and names no path and no part of the command, for the same reason
+`bm_fence_hook.py`'s `_FAIL_REASONS` are literal.
+
+**Why the project check exists at all, stated plainly.** This hook installs at
+USER-GLOBAL scope (`~/.claude/settings.json`, per `scripts/install.py`), so it runs on
+every Bash call in every Claude Code session on this machine, not only inside BrotherMode
+projects. An earlier draft of this refusal ran before resolving a project root; under that
+draft, setting `BM_FENCE_MODE=enforced` and then running `git clean -xfd` in any unrelated
+git repository anywhere on the machine would have been refused with a BrotherMode-specific
+deny reason, in a directory that has nothing to do with BrotherMode. The project check
+closes that: outside a BrotherMode project this refusal is inert, the same way
+`bm_fence_hook.py` itself already refuses to act outside a project it recognizes.
+
+**THE DELIBERATE LIMIT THIS CREATES.** When `tools/bm_store.py` cannot be imported at
+all, the project check itself cannot run, so nothing is refused, even under enforced
+mode, anywhere. That is a fail-open path inside a fail-closed feature, and it is chosen on
+purpose: the alternative is refusing every Bash command in every directory on the machine,
+which is not shippable. Someone who can break that import can therefore disable the
+refusal.
+
+**This is not containment, and the difference is the whole point.** It is a substring
+match plus a regex list, not a shell parser, and `refusal_for`'s own docstring lists what
+it misses: a path assembled at runtime or held in a variable, a destructive command
+inside a script file or a Makefile target, any form not on the list, and any program that
+deletes the file without the name appearing in the command. It also over-refuses,
+deliberately, inside a BrotherMode project: `ls .brothermode > /tmp/x` is refused, and so
+is `git clean -xfd` anywhere in the tree. Real containment needs an operating-system write
+mediator (a sandbox profile, a container, a FUSE layer), which is out of scope here and
+recorded as such in docs/KNOWN-LIMITS.md.
+
+What enforced mode adds beyond the refusal is the aftermath. If the store does go missing
+by a route the refusal misses, `bm_fence_hook.py` in the same mode then DENIES instead of
+allowing (C-01), so the one-command bypass the register recorded now needs both halves to
+fail rather than one.
 
 ### Installing the Bash audit hook
 

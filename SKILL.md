@@ -150,7 +150,12 @@ memory of it:
   path is ALLOWED unless you opt into more. `BM_FENCE_MODE=enforced` makes
   every failure to check refuse instead, and `BM_FENCE_STRICT=1` additionally
   requires a claim before editing any project path. It does NOT gate Bash, so
-  a shell write crosses a fence unrefused and is only detected afterwards.
+  a shell write crosses a fence unrefused and is only detected afterwards. One
+  narrow class is the exception, and only in enforced mode inside a
+  BrotherMode project: an obvious destructive command aimed at BrotherMode's
+  own store or fence directory is refused, matched literally rather than
+  parsed. Outside a BrotherMode project (this hook installs user-globally)
+  the refusal is inert. docs/KNOWN-LIMITS.md states what it misses.
 - Fence THEN dispatch. Write the fence line before an agent launches, never after.
 - Never claim done without a verifying command run AFTER the last edit, quoted.
 

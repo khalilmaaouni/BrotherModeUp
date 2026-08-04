@@ -21,6 +21,17 @@ file:
       and after both the PreToolUse and the PostToolUse phase.
   (e) a corrupt or a missing snapshot file fails open, prints a reason,
       exits 0, and raises no alert.
+
+C-02 (2026-08-03) adds two classes below D-4's spine:
+  EnforcedModeRefusesStoreDestruction, one test per mutation form the
+  closure register's reproduction used, each asserting BOTH directions on
+  that form (refused under BM_FENCE_MODE=enforced INSIDE A BROTHERMODE
+  PROJECT, allowed under the default, and also allowed under enforced mode
+  OUTSIDE a BrotherMode project, since this hook installs at user-global
+  scope and must stay inert everywhere else), and ControlStateLossIsDetected,
+  which covers the silence itself: a shell command that removes the store or
+  a session token used to produce no output and no alert row at all, because
+  the store is not a claimed path and nothing in the hook looked at it.
 """
 import io
 import json
@@ -95,7 +106,8 @@ class BashAuditBase(unittest.TestCase):
 
         self._env_patch = mock.patch.dict(os.environ, {}, clear=False)
         self._env_patch.start()
-        for k in ("BROTHERMODE_ROOT", "BM_FENCE_STRICT", "BM_FENCE_SESSION_ID"):
+        for k in ("BROTHERMODE_ROOT", "BM_FENCE_STRICT", "BM_FENCE_SESSION_ID",
+                  "BM_FENCE_MODE"):
             os.environ.pop(k, None)
         os.environ["BROTHERME_CONFIG"] = self.cfg_path
 
@@ -124,27 +136,39 @@ class BashAuditBase(unittest.TestCase):
             f.write(text)
 
     def run_hook(self, phase, session_id, tool_use_id="toolu_01TEST",
-                consented=True):
+                consented=True, command="echo hi", env_extra=None,
+                cwd_override=None):
         """Run bm_bash_audit.py exactly as Claude Code would: a bare
-        subcommand (pre or post) with a JSON hook payload on stdin."""
+        subcommand (pre or post) with a JSON hook payload on stdin.
+
+        `command` is the shell command the payload carries, which every test
+        before C-02 left at the harmless default; `env_extra` sets variables
+        for that one run (BM_FENCE_MODE, for the enforced-mode half).
+        `cwd_override`, also added for C-02, lets a test claim the hook is
+        running from a directory that is NOT this fixture's BrotherMode
+        project, to prove the refusal stays inert there; every test before
+        C-02, and every C-02 test but that one, leaves it unset and gets
+        self.root exactly as before."""
+        payload_cwd = cwd_override if cwd_override is not None else self.root
         payload = json.dumps({
             "session_id": session_id,
             "transcript_path": os.path.join(self.root, "transcript.jsonl"),
-            "cwd": self.root,
+            "cwd": payload_cwd,
             "permission_mode": "default",
             "hook_event_name": "PreToolUse" if phase == "pre" else "PostToolUse",
             "tool_name": "Bash",
-            "tool_input": {"command": "echo hi"},
+            "tool_input": {"command": command},
             "tool_use_id": tool_use_id,
         })
         env = dict(os.environ)
+        env.update(env_extra or {})
         if not consented:
             env.pop("BROTHERME_CONFIG", None)
             env["BROTHERME_CONFIG"] = os.path.join(
                 self._tmp.name, "no-such-config.json")
         return subprocess.run(
             [sys.executable, HOOK_PATH, phase], input=payload, text=True,
-            capture_output=True, cwd=self.root, env=env)
+            capture_output=True, cwd=payload_cwd, env=env)
 
     def alerts(self, raw=True):
         with bs.Store(self.root, create=False) as store:
@@ -442,6 +466,302 @@ class TestSupplementary(BashAuditBase):
         self.assertIn("FAILING OPEN", r.stderr)
         self.assertIn("no active claims", r.stderr)
         self.assertEqual(self.tree_listing(), before)
+
+
+# ---------------------------------------------------------------------------
+# C-02, the ALERT half: a shell command that destroys the enforcement state
+# itself used to produce no output and no row at all, because the store is
+# not a claimed path and nothing here looked at it.
+# ---------------------------------------------------------------------------
+
+class ControlStateLossIsDetected(BashAuditBase):
+
+    def test_a_removed_session_token_raises_an_alert_row(self):
+        owner = self.label(self.OWNER)
+        self.claim("mine", ["src/mine.txt"], owner)
+        token = fh.token_path(self.root, self.OWNER)
+        self.assertTrue(os.path.isfile(token), "no owner token to remove")
+
+        r1 = self.run_hook("pre", self.OTHER, tool_use_id="toolu_token")
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+
+        os.remove(token)
+
+        r2 = self.run_hook("post", self.OTHER, tool_use_id="toolu_token")
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        self.assertEqual(r2.stdout, "", "the post phase must never print to "
+                                        "stdout")
+        self.assertIn("DETECTED a change to BrotherMode's own enforcement "
+                      "state", r2.stderr)
+        self.assertIn("fence-control-loss alert was raised", r2.stderr)
+
+        rows = self.alerts(raw=True)
+        self.assertEqual(len(rows), 1, rows)
+        self.assertEqual(rows[0]["category"], "fence-control-loss")
+        self.assertEqual(rows[0]["severity"], "high")
+        self.assertTrue(rows[0]["requires_human"])
+        self.assertNotIn(self.root, rows[0]["message"])
+
+        raised = [e for e in self.bash_audit_attribution()
+                  if e.get("event_type") == "alert.raised"]
+        self.assertEqual(len(raised), 1, raised)
+        self.assertEqual(raised[0]["actor_name"], "bm_bash_audit")
+
+    def test_a_deleted_store_is_still_announced_even_though_unrecordable(self):
+        """The C-02 reproduction's first command. The alert row cannot exist,
+        because the thing that would hold it is what was destroyed, so the
+        stderr line is the whole record and it has to be there."""
+        owner = self.label(self.OWNER)
+        self.claim("mine", ["src/mine.txt"], owner)
+
+        r1 = self.run_hook("pre", self.OTHER, tool_use_id="toolu_delstore")
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+
+        for suffix in ("", "-wal", "-shm"):
+            p = bs.store_path(self.root) + suffix
+            if os.path.exists(p):
+                os.remove(p)
+
+        r2 = self.run_hook("post", self.OTHER, tool_use_id="toolu_delstore")
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        self.assertIn("is gone after it", r2.stderr)
+        self.assertIn("could NOT be recorded as an alert", r2.stderr)
+
+    def test_ordinary_store_growth_between_the_phases_is_not_an_alert(self):
+        """The coarseness is deliberate: a Bash call that runs bm_store.py is
+        ordinary work, and a check that alarmed on it would be turned off."""
+        owner = self.label(self.OWNER)
+        self.claim("mine", ["src/mine.txt"], owner)
+
+        r1 = self.run_hook("pre", self.OTHER, tool_use_id="toolu_growth")
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+
+        self.claim("second", ["src/other.py"], owner)
+
+        r2 = self.run_hook("post", self.OTHER, tool_use_id="toolu_growth")
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        self.assertNotIn("enforcement state", r2.stderr)
+        self.assertEqual(self.alerts(), [])
+
+    def test_a_breach_is_announced_before_it_is_recorded(self):
+        """Ordering, not decoration: the detection sentence used to be
+        printed only after the alert row was written, so a detection that
+        could not be recorded was announced by nothing specific at all."""
+        owner = self.label(self.OWNER)
+        self.claim("mine", ["src/mine.txt"], owner)
+        r1 = self.run_hook("pre", self.OTHER, tool_use_id="toolu_order")
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        self.write_file("src/mine.txt", "tampered\n")
+        r2 = self.run_hook("post", self.OTHER, tool_use_id="toolu_order")
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        detected = r2.stderr.index("DETECTED a Bash write across a fence")
+        recorded = r2.stderr.index("fence-breach alert was raised")
+        self.assertLess(detected, recorded)
+
+
+# ---------------------------------------------------------------------------
+# C-02 (2026-08-03), the REFUSE half. One test per mutation form the closure
+# register's reproduction used, each asserting BOTH directions on that form:
+# refused under BM_FENCE_MODE=enforced INSIDE A BROTHERMODE PROJECT, allowed
+# under the default. The second half is the important one, exactly as in
+# test_bm_fence_hook.py's EnforcedModeFailsClosed: it is what stops a later
+# change from quietly making fail-closed the default for people who never
+# asked for it. A THIRD direction is asserted once, at the end of this class
+# (test_the_refusal_stays_inert_outside_a_brothermode_project_even_when_
+# enforced): this hook installs at USER-GLOBAL scope (~/.claude/settings.json),
+# so an earlier draft that refused before resolving a project root would have
+# refused this same command in every unrelated directory on the machine. That
+# defect was caught before it shipped; this test is what stops it coming back.
+# ---------------------------------------------------------------------------
+
+class EnforcedModeRefusesStoreDestruction(BashAuditBase):
+
+    def _both_ways(self, command, slug):
+        """Refused under enforced INSIDE THIS FIXTURE'S PROJECT, allowed by
+        default, on ONE command."""
+        owner = self.label(self.OWNER)
+        self.claim("mine-" + slug, ["src/mine.txt"], owner)
+
+        r = self.run_hook("pre", self.OTHER, tool_use_id="toolu_enf_" + slug,
+                          command=command,
+                          env_extra={"BM_FENCE_MODE": "enforced"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(r.stdout.strip(),
+                        "enforced mode wrote no decision to stdout, so "
+                        "Claude Code would have run the command")
+        decision = json.loads(r.stdout)
+        out = decision["hookSpecificOutput"]
+        self.assertEqual(out["hookEventName"], "PreToolUse")
+        self.assertEqual(out["permissionDecision"], "deny")
+        reason = out["permissionDecisionReason"]
+        self.assertIn("enforced mode", reason)
+        self.assertIn("REFUSING", r.stderr)
+        # No snapshot was written for a call that will never run.
+        self.assertFalse(
+            os.path.isfile(self.snapshot_path(self.OTHER,
+                                              "toolu_enf_" + slug)),
+            "a refused Bash call still left a snapshot behind")
+
+        r2 = self.run_hook("pre", self.OTHER, tool_use_id="toolu_def_" + slug,
+                           command=command)
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        self.assertEqual(r2.stdout, "",
+                         "the DEFAULT mode refused a Bash call; fail-closed "
+                         "must stay opt-in")
+        self.assertNotIn("REFUSING", r2.stderr)
+
+    def test_rm_of_the_store_is_refused_when_enforced(self):
+        """The closure register's own reproduction command, verbatim."""
+        self._both_ways("rm -f .brothermode/store.sqlite3", "rm")
+
+    def test_redirection_onto_the_store_is_refused_when_enforced(self):
+        self._both_ways(": > .brothermode/store.sqlite3", "redir")
+
+    def test_sed_i_on_the_store_is_refused_when_enforced(self):
+        self._both_ways("sed -i.bak -e 's/a/b/' .brothermode/store.sqlite3",
+                        "sed")
+
+    def test_tee_onto_the_store_is_refused_when_enforced(self):
+        self._both_ways("echo x | tee .brothermode/store.sqlite3", "tee")
+
+    def test_inline_python_removing_the_store_is_refused_when_enforced(self):
+        self._both_ways(
+            "python3 -c \"import os; os.remove('.brothermode/store.sqlite3')\"",
+            "python")
+
+    def test_git_checkout_of_the_store_is_refused_when_enforced(self):
+        self._both_ways("git checkout -- .brothermode/store.sqlite3", "git")
+
+    def test_removing_the_fence_directory_is_refused_when_enforced(self):
+        """Not the store, the other half of the enforcement state: the tokens
+        that decide which session owns which record."""
+        self._both_ways("rm -rf .brothermode/fence", "fencedir")
+
+    def test_a_tree_wide_wipe_that_names_nothing_is_refused_when_enforced(self):
+        """`git clean -xfd` names no BrotherMode path at all and deletes it
+        anyway, because .brothermode is excluded from git. It is caught by
+        the second, deliberately tiny rule rather than by name."""
+        self._both_ways("git clean -xfd", "gitclean")
+
+    def test_ordinary_commands_are_untouched_even_when_enforced(self):
+        """The false-positive guard. Enforcement that stopped ordinary work
+        would be removed within a day, so the refusal has to be narrow enough
+        to live with: reading the directory, querying the store, and editing
+        a source file all still run."""
+        owner = self.label(self.OWNER)
+        self.claim("mine", ["src/mine.txt"], owner)
+        for i, command in enumerate((
+                "echo hi",
+                "git status --short",
+                "ls -la .brothermode",
+                "python3 tools/bm_store.py verify",
+                "rm -rf build",
+                "make test 2>&1 | tail -5",
+                "git checkout -- src/other.py")):
+            r = self.run_hook("pre", self.OTHER,
+                              tool_use_id="toolu_benign_%d" % i,
+                              command=command,
+                              env_extra={"BM_FENCE_MODE": "enforced"})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout, "",
+                             "enforced mode refused %r, which writes nothing "
+                             "BrotherMode owns" % command)
+
+    def test_the_deny_reason_names_no_path_and_no_command_text(self):
+        """Same rule bm_fence_hook.py's _FAIL_REASONS follows: the operator
+        gets the detail on stderr, the model gets a category and a remedy.
+        Nothing has been verified at the moment this is produced, so nothing
+        justifies quoting a path or the command."""
+        owner = self.label(self.OWNER)
+        self.claim("mine", ["src/mine.txt"], owner)
+        command = "rm -f .brothermode/store.sqlite3 && echo SECRETMARKER"
+        r = self.run_hook("pre", self.OTHER, tool_use_id="toolu_literal",
+                          command=command,
+                          env_extra={"BM_FENCE_MODE": "enforced"})
+        reason = json.loads(r.stdout)["hookSpecificOutput"][
+            "permissionDecisionReason"]
+        self.assertNotIn("SECRETMARKER", reason)
+        self.assertNotIn(".brothermode/store.sqlite3", reason)
+        self.assertNotIn(self.root, reason)
+        self.assertNotIn("SECRETMARKER", r.stderr,
+                         "even the operator line must not repeat the command")
+
+    def test_an_unrecognized_mode_value_does_not_refuse(self):
+        """Byte-identical to fence_mode's rule: a typo runs advisory rather
+        than refusing over a missing letter."""
+        owner = self.label(self.OWNER)
+        self.claim("mine", ["src/mine.txt"], owner)
+        r = self.run_hook("pre", self.OTHER, tool_use_id="toolu_typo",
+                          command="rm -f .brothermode/store.sqlite3",
+                          env_extra={"BM_FENCE_MODE": "enfoced"})
+        self.assertEqual(r.stdout, "")
+
+    def test_this_files_two_borrowed_primitives_match_the_fence_hooks(self):
+        """`_enforced` and `deny_payload` are restated here rather than
+        imported, so that a refusal still works when bm_fence_hook.py is the
+        thing that failed. This is the test that stops the copies drifting."""
+        for value in ("enforced", "ENFORCED", " enforced ", "advisory",
+                      "enfoced", "", "1"):
+            self.assertEqual(ba._enforced({"BM_FENCE_MODE": value}),
+                             fh.enforced_mode({"BM_FENCE_MODE": value}),
+                             "the two readings of BM_FENCE_MODE=%r "
+                             "disagree" % value)
+        self.assertEqual(ba._enforced({}), fh.enforced_mode({}))
+        self.assertEqual(ba.deny_payload("because"),
+                         fh.deny_payload("because"))
+
+    def test_the_refusal_check_is_documented_as_partial(self):
+        """The register's own wording: this cannot pretend to catch
+        everything. A name built at runtime is the honest miss, asserted here
+        so nobody later reads the feature as complete containment."""
+        code, _labels, _names = ba.refusal_for(
+            "d=.brother; rm -f ${d}mode/store.sqlite3", bs)
+        self.assertEqual(code, "store-destruction",
+                         "the literal store filename is still in that text")
+        code2, _l2, _n2 = ba.refusal_for("d=.brother; rm -f ${d}mode/s*", bs)
+        self.assertIsNone(code2,
+                          "a name assembled at runtime is a STATED miss; if "
+                          "this ever starts matching, update refusal_for's "
+                          "docstring and docs/KNOWN-LIMITS.md rather than "
+                          "deleting this test")
+
+    def test_the_refusal_stays_inert_outside_a_brothermode_project_even_when_enforced(self):
+        """THE CORRECTION, pinned. This hook installs at USER-GLOBAL scope
+        (~/.claude/settings.json), so an earlier draft that refused BEFORE
+        resolving a project root would have refused this exact command in
+        every unrelated directory on the machine, not just inside a
+        BrotherMode project. With BM_FENCE_MODE=enforced set, the SAME
+        store-destroying command text must be ALLOWED when the hook's cwd is
+        a directory that resolves to no BrotherMode project at all, and
+        REFUSED when it is this fixture's own project, so the scoping check
+        cannot silently regress to the unscoped behaviour."""
+        command = "rm -f .brothermode/store.sqlite3"
+        with tempfile.TemporaryDirectory() as outside:
+            outside = os.path.realpath(outside)
+            r_outside = self.run_hook(
+                "pre", self.OTHER, tool_use_id="toolu_outside",
+                command=command, env_extra={"BM_FENCE_MODE": "enforced"},
+                cwd_override=outside)
+            self.assertEqual(r_outside.returncode, 0, r_outside.stderr)
+            self.assertEqual(
+                r_outside.stdout, "",
+                "enforced mode refused a Bash call outside any BrotherMode "
+                "project; this hook installs user-globally and must stay "
+                "inert everywhere that is not a BrotherMode project")
+            self.assertNotIn("REFUSING", r_outside.stderr)
+
+        owner = self.label(self.OWNER)
+        self.claim("mine-scoped", ["src/mine.txt"], owner)
+        r_inside = self.run_hook(
+            "pre", self.OTHER, tool_use_id="toolu_inside",
+            command=command, env_extra={"BM_FENCE_MODE": "enforced"})
+        self.assertEqual(r_inside.returncode, 0, r_inside.stderr)
+        self.assertIn("REFUSING", r_inside.stderr,
+                      "the same command inside this fixture's own "
+                      "BrotherMode project must still be refused")
+        decision = json.loads(r_inside.stdout)
+        self.assertEqual(
+            decision["hookSpecificOutput"]["permissionDecision"], "deny")
 
 
 # ---------------------------------------------------------------------------

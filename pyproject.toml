@@ -73,9 +73,18 @@ bm-docs = "bm_docs:cli"
 bm-docs-export = "bm_docs_export:cli"
 bm-runtimes = "bm_runtimes:cli"
 bm-score = "bm_score:cli"
+bm-project = "bm_project:cli"
+bm-ledger = "bm_ledger:main"
+bm-sentinel = "bm_sentinel:main"
 
 [tool.setuptools]
-package-dir = { "" = "tools" }
+# "" (the root) maps to tools/, where every flat py-module below lives.
+# brotherme is a real package (brotherme/, brotherme/core/) that sits next
+# to tools/ at the repo root, not inside it, so it needs its own mapping;
+# without this second entry setuptools looks for it at tools/brotherme and
+# finds nothing (reproduced: built wheel lists brotherme/ zero times
+# without this line, three times with it).
+package-dir = { "" = "tools", "brotherme" = "brotherme" }
 # Explicit list, never a wildcard. A wildcard would sweep in test_*.py and
 # would also silently ship whatever new file lands in tools/ next. Adding a
 # module here is a decision, and the packaging test in tools/test_bm.py
@@ -99,4 +108,9 @@ py-modules = [
     "bm_ledger",
     "bm_sentinel",
 ]
+# brotherme/core/schema.py is library code tools/bm_store.py loads by path
+# (see _schema() there); without this the wheel/sdist never contain it and
+# every packaged command touching a project/task/forecast/alert fails at
+# runtime with FileNotFoundError. Verified in the built wheel file list.
+packages = ["brotherme", "brotherme.core"]
 include-package-data = false
