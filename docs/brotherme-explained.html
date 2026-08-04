@@ -190,11 +190,11 @@ refused (overlap): claim overlaps active record 'website-pages' (lifecycle 01daa
   <div class="status">
     <h2>Status, 2026-08-04</h2>
     <ul>
-      <li><b>Verified:</b> the refusal above, and the test suite guarding it, run on Claude Code today. 1518 tests across 14 suites, all green, and the same suite green on every CI job across three operating systems and both supported Python versions.</li>
+      <li><b>Verified:</b> the refusal above, and the test suite guarding it, run on Claude Code today. 1573 tests across 15 suites, all green, and the same suite green on every CI job across three operating systems and both supported Python versions.</li>
       <li><b>Real use exists; measurement does not.</b> An earlier version of this page said nobody had used this for real work, and that was wrong: the author has used it daily for weeks and other people run it on their own machines. What is missing is the MEASUREMENT, not the usage. There are no counted projects, no recorded failure or rework rate, no observed outside participant, and no comparison against working without it. Real use does not become a graded result by being real.</li>
       <li><b>Claude Code only.</b> Other AI tools get advisory instruction files, not enforced gates, and the gates fail open rather than lock you out.</li>
       <li><b>The shell is only partly covered.</b> With <code>BM_FENCE_MODE=enforced</code> set, an obvious destructive command aimed at BrotherMode's own store is refused. That is a narrowing, not containment: it matches literally rather than parsing your shell, so a path built at runtime is not caught, and there is no operating-system sandbox. <code>docs/KNOWN-LIMITS.md</code> lists exactly what it misses.</li>
-      <li><b>Release candidate 2.0.0-rc.13,</b> not a finished 2.0.0. The two-line install has run its full cycle once, on the author's machine. Type <code>/brotherme-update</code> to check whether a newer release has shipped.</li>
+      <li><b>Release 2.0.0,</b> the first public release. The install pages pin it, the repository carries exactly one branch, and the changelog ends with what is still unproven rather than claiming it. Type <code>/brotherme-update</code> to check whether a newer release has shipped.</li>
       <li><b>Pick one install path.</b> The plugin or the older clone, never both; a machine carrying both runs everything twice.</li>
     </ul>
   </div>
