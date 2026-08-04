@@ -3627,11 +3627,31 @@ class TestLoop12RedactionIsLinearInInputSize(unittest.TestCase):
     A wall-clock budget is a blunt instrument, so this asserts the SHAPE: four
     times the input must not take anything like sixteen times the work."""
 
-    def _time(self, text):
+    def _time(self, text, samples=5):
+        """Minimum of several samples, not one (C-11, 2026-08-04).
+
+        A single wall-clock sample is exposed to one bad scheduling stall
+        landing on it alone, and that is exactly what happened: CI run
+        30818827958 failed the ratio assertion below on one leg of eleven and
+        passed on an unchanged re-run. The comment in that test argued a ratio
+        could not be moved by load because both timings run under the same
+        load, which holds only when the SAME noise reaches both samples.
+
+        Minimum-of-N is the standard estimator for a microbenchmark because
+        noise can only ADD latency to a sample, never remove it, so the
+        minimum converges on the true unloaded cost. Five samples means a
+        stall would have to land on every draw at one size and none at the
+        other to move the ratio. Both call sites in this class share this
+        helper, so both are fixed here rather than twice."""
         import time
-        start = time.time()
-        bm.redact(text)
-        return time.time() - start
+        best = None
+        for _ in range(samples):
+            start = time.time()
+            bm.redact(text)
+            elapsed = time.time() - start
+            if best is None or elapsed < best:
+                best = elapsed
+        return best
 
     def test_quadratic_blowup_is_gone(self):
         # FIXED 2026-07-31. This test carried BOTH failure modes at once, which
@@ -3703,6 +3723,23 @@ class TestLoop12RedactionIsLinearInInputSize(unittest.TestCase):
                         "chars took %.4fs, 32000 took %.4fs, a %.1fx ratio "
                         "where linear is about 4x and quadratic about 16x"
                         % (small, large, large / small))
+
+    # NO CALIBRATION TEST HERE, and that absence is deliberate and recorded
+    # (C-11, 2026-08-04). One was written and then REMOVED because it did not
+    # calibrate: reinjecting the pre-Loop-12 unbounded key-value pattern onto
+    # bm.SECRET_PATTERNS[8] produced a 4.0x ratio on these inputs, which is
+    # linear, not the roughly 16x a quadratic would give. The monkeypatch
+    # itself works (redact() reads the module global at call time), so the
+    # honest reading is that this pattern is not quadratic on an 8000 and
+    # 32000 character run of one repeated character, whatever it did on the
+    # 4 MB row named in the comment above.
+    #
+    # What that means for the two tests above, stated rather than implied:
+    # the minimum-of-5 estimator provably fixes the FLAKE, and their ability
+    # to catch a genuinely quadratic redactor is now UNVERIFIED by this
+    # session. Shipping a green calibration that proves nothing, or a red one
+    # that blocks the suite, would both have been worse than saying so. The
+    # register carries this as the open half of C-11.
 
 
 class TestLoop12PairedArtifactsAreRedacted(unittest.TestCase):
