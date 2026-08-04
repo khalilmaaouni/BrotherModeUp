@@ -140,6 +140,20 @@ belongs to and says it cannot tell them apart, and still exits 0. Making
 would break the documented retrieve-then-claim order that P5's own linking
 behaviour depends on. OPEN for the next round on this path.
 
+CORRECTED IN PART, 2026-08-04 (per CHK-2A row 10, docs/closure/reports/2026-08-04-CHK-2A-not-finalized-verdicts.md).
+CLOSED IN PART, 2026-07-30, commit 259c30b, "Give every substantial task one
+unambiguous work identity, and settle the promise that collided with it."
+`apply` now refuses without exactly one of `--record` with an existing work
+uuid, `--new-record` with a name, or an active work record already in the
+environment, in addition to `--session` (tools/bm_learn.py:733-766). Session
+plus query text can no longer collapse two different units of work phrased
+the same way into one row: each is refused into its own identity or refused
+outright. This closes the gap the original PARTIAL named as not shipped in
+that round: making `--record` mandatory for `apply`. Still true and
+unchanged: the deeper ambiguity this entry named first is now a hard refusal
+rather than a soft warning, which is a stronger guarantee than the entry
+originally asked for, not a weaker one.
+
 ## P5-fix: the fixes were verified through `apply`, not through the alias. UNPROVEN.
 
 `relevant --record-applications` calls the same
@@ -190,6 +204,47 @@ tools the hook can see and not for the shell.
 Why not fixed: gating Bash means parsing arbitrary shell to decide which paths a
 command will touch, which is either unreliable or so strict it blocks ordinary
 work. It needs a design, not a patch.
+
+CORRECTION, 2026-08-04 (per CHK-2A row 14, C-02,
+docs/closure/reports/2026-08-04-CHK-2A-not-finalized-verdicts.md). The
+heading's own premise is still true: the PreToolUse fence hook
+(tools/bm_fence_hook.py) still does not see Bash, WRITE_TOOLS excludes it, so
+a file written through a shell command still goes straight around the
+PreToolUse fence itself. That half of this entry is unchanged and is not
+closable by design.
+
+What changed under C-02, landed 2026-08-04 (see
+docs/closure/CLOSURE_REGISTER.md): tools/bm_bash_audit.py now refuses an
+obvious destructive shell command aimed at BrotherMode's own enforcement
+state, and detects and alerts on loss of that state, in both cases only when
+BM_FENCE_MODE=enforced is set. The three limits on that guarantee, carried
+verbatim from the project's own security documentation rather than
+paraphrased:
+
+1. It is a literal match, a small list of destructive shell forms combined
+   with the literal names .brothermode and store.sqlite3. It is not a shell
+   parser and will not become one here. A name assembled at runtime, held in
+   a variable, or sitting inside a script file the hook never reads is NOT
+   caught.
+2. Full operating-system containment, a sandbox profile, a container, a FUSE
+   write mediator, was considered and is explicitly out of scope.
+3. When tools/bm_store.py cannot be imported at all, the project check
+   itself cannot run, so nothing is refused, even under enforced mode,
+   anywhere. That is a fail-open path inside a fail-closed feature, chosen on
+   purpose, because the only alternative is refusing every Bash command in
+   every directory on the machine, which is not shippable.
+
+All three were checked against the shipped code by CHK-2A on 2026-08-04
+(tools/bm_bash_audit.py:321-352, docs/KNOWN-LIMITS.md:111-117,
+SECURITY.md:346-352) and each is accurate as literally implemented, not
+overclaimed and not underclaimed.
+
+Why not fixed further: gating Bash directly still means parsing arbitrary
+shell to decide which paths a command will touch, which remains either
+unreliable or so strict it blocks ordinary work. What C-02 adds is a
+narrower, named, opt-in refusal for the one destructive shape this entry's
+own reproduction used, not a general solution. It needs full operating-system
+containment to go further, not a patch.
 
 ## 3. Session identity is harder to forge, not unforgeable. PARTIAL.
 
@@ -332,6 +387,22 @@ Related and worth naming: this gate FAILS locally and PASSES in CI, because CI h
 no vault so the checks return NO-DATA. A gate that cannot fail where it runs is
 not really gating anything.
 
+ADDENDUM, 2026-08-04 (per CHK-2A row 21,
+docs/closure/reports/2026-08-04-CHK-2A-not-finalized-verdicts.md). A re-run
+of `python3 tools/bm_score.py` (read-only, never writes, exits 0
+unconditionally in non-strict mode) on 2026-08-04 shows four checks red, not
+three: cache-economy (32 of 33 sessions warm-read, one at 86 percent),
+fence-hygiene (STATE.md older than 2 days), budget-vs-tier (STATE.md fence
+lines untagged), and prediction-seals (4 sealed against a target of 5, not
+the 3 cited above). Derivation command: `python3 tools/bm_score.py`. The
+structural claims above are unchanged and still verified: this gate is
+local-vault-dependent, `bm_score.py --strict` still runs in CI
+(.github/workflows/tests.yml line 70) where no vault exists, so CI still
+reports NO-DATA rather than exercising these checks. The exact count of red
+checks is not a fact worth keeping current in this file; it drifts by the
+hour with ordinary use, which is the nature of a live telemetry gate rather
+than a code defect.
+
 ## 10. The suites cannot be run concurrently. OPEN, now mitigated but not fixed.
 
 They rename a module aside mid-run, so two at once break each other. Reproduced
@@ -360,6 +431,28 @@ Restored afterwards: 419 tests across 4 suites, 2 skipped, ALL GREEN, exit 0.
 Not in CI. CI deliberately splits the suites across platform legs to produce
 per-platform evidence, and `test_all.py` is the LOCAL loop-close gate. Wiring it
 into CI is a Loop 13 option, not done here.
+
+CORRECTED 2026-08-04 (per CHK-2A row 22,
+docs/closure/reports/2026-08-04-CHK-2A-not-finalized-verdicts.md), replacing
+only the closing claim above; the module-rename concurrency defect itself is
+unchanged and still true. This entry used to say `test_all.py` was "Not in
+CI" and that wiring it in was a Loop 13 option, not shipped. That is no
+longer true: .github/workflows/tests.yml now runs a dedicated gate job on
+every push and pull request, `python3 tools/test_all.py --artifacts
+"$RUNNER_TEMP/bm-test-output" --timeout 1200`, alongside the per-platform
+suite and store jobs that still exist for their own reason, per-platform
+evidence the serial gate cannot produce. `tools/test_all.py`'s own `SUITES`
+tuple now lists 14 suites (derived by counting the quoted `test_*.py`
+entries in the `SUITES` tuple, tools/test_all.py:83), not the 4 this entry's
+calibration paragraph above describes; that paragraph is left as written
+because it documents a point-in-time calibration, not a current count. The
+underlying design defect this entry names, that the suites still rename a
+module aside and so cannot run concurrently with each other or with a second
+invocation of `test_all.py` itself, is unchanged: `tools/test_bm.py` and
+`tools/test_bm_bash_audit.py` both still use the technique. CI's own three
+jobs (suite, gate, store) still run as separate processes on separate
+runners, which sidesteps the concurrency hazard by not sharing a filesystem
+rather than by fixing it.
 
 Related, and your own observation from tonight, recorded as a hypothesis rather
 than a finding because it is not yet measured: when the machine slows down, token
@@ -686,6 +779,22 @@ What is NOT closed, stated here rather than discovered later:
   not infer them. It cannot look at a task and decide the task is trivial; it
   can only report what it was told, plus the one thing it checks itself, which
   is whether a live gate rule exists.
+
+CLOSED IN PART, 2026-08-04 (per CHK-2A row 33,
+docs/closure/reports/2026-08-04-CHK-2A-not-finalized-verdicts.md), replacing
+only the SKILL.md/DIGEST.md bullet above; the other bullets in this item are
+unchanged and still true. That bullet used to say SKILL.md does not yet
+mention `--record-applications`, `disposition`, or `should-retrieve`. That is
+no longer true of SKILL.md: it now documents the mandatory work identity
+`apply` requires (see the row 10 correction on the P5-fix item above), and
+names `disposition`, `classify`, and `should-retrieve` by name, with
+`should-retrieve` described exactly as answering whether a task shape
+warranted retrieval at all. It is still true of DIGEST.md, which is 13 lines
+long (`wc -l DIGEST.md`) and names no learning command at all. Recording
+substantial-work applications no longer depends only on somebody remembering
+an optional flag: `apply` now refuses outright without a work identity
+(row 10 correction), which is a stronger fix than merely documenting the
+flag would have been.
 
 ---
 
