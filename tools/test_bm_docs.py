@@ -3729,6 +3729,139 @@ class TestCapabilityRegisterIsHonest(unittest.TestCase):
                          ["capabilities: expected a non-empty list"])
 
 
+class TestGeneratedCapabilityStatusBlock(unittest.TestCase):
+    """Protects: README.md's certified-versus-beta section is RENDERED from
+    capabilities.status.json, never retyped beside it.
+
+    The register was landed as the source of truth for what this project
+    claims, and the page a reader actually opens is README.md. Nothing
+    connected the two, so the register could move while the page kept
+    yesterday's promise, which is the same class of defect this whole suite
+    exists for. tools/bm_docs.py capability-status renders the block between
+    two markers; this refuses a block that is not what a fresh render
+    produces."""
+
+    DOCS = os.path.join(HERE, "bm_docs.py")
+
+    def _bm_docs(self):
+        spec = importlib.util.spec_from_file_location(
+            "bm_docs_for_capability_tests", self.DOCS)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def _run(self, *args):
+        return subprocess.run([sys.executable, self.DOCS] + list(args),
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              universal_newlines=True)
+
+    def _fixture(self, d, block):
+        """A throwaway tree holding this repository's real register and a
+        README carrying `block` between the markers, so the fixtures exercise
+        the same register the page has to agree with."""
+        shutil.copyfile(os.path.join(ROOT, CAPABILITIES_JSON),
+                        os.path.join(d, CAPABILITIES_JSON))
+        with io.open(os.path.join(d, "README.md"), "w",
+                     encoding="utf-8") as fh:
+            fh.write("# demo\n\nbefore\n\n%s\n\nafter\n" % block)
+
+    # -- the real page -----------------------------------------------------
+
+    def test_the_readme_block_is_what_the_register_renders_today(self):
+        bm = self._bm_docs()
+        fresh = bm.render_capability_status(bm.load_capability_register(ROOT))
+        self.assertEqual(
+            bm.extract_capability_status(read("README.md")), fresh,
+            "README.md's generated capability block is not what %s renders "
+            "today. It is generated output: run python3 tools/bm_docs.py "
+            "capability-status --write rather than editing it by hand."
+            % CAPABILITIES_JSON)
+
+    def test_every_register_entry_reaches_the_page(self):
+        """The render could agree with itself and still drop a row. Every
+        title in the register has to appear in the block a reader sees,
+        including the unsupported ones, which are the half nobody else
+        publishes."""
+        block = self._bm_docs().extract_capability_status(read("README.md"))
+        missing = [e["title"] for e in json.loads(read(CAPABILITIES_JSON))
+                   ["capabilities"] if e["title"] not in block]
+        self.assertEqual(missing, [],
+                         "capability title(s) in the register that reach no "
+                         "line of README.md: %s" % "; ".join(missing))
+
+    def test_the_command_reports_the_page_as_current(self):
+        r = self._run("capability-status", "--check")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("matches", r.stdout)
+
+    # -- determinism -------------------------------------------------------
+
+    def test_two_renders_of_one_register_are_byte_identical(self):
+        """The same guarantee the documentation engine makes: a generator that
+        churns makes every review open on a diff that means nothing."""
+        bm = self._bm_docs()
+        data = bm.load_capability_register(ROOT)
+        self.assertEqual(bm.render_capability_status(data),
+                         bm.render_capability_status(data))
+        first = self._run("capability-status")
+        second = self._run("capability-status")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(first.stdout, second.stdout,
+                         "two runs of the renderer disagree")
+
+    # -- the guard, proven against crafted violations ----------------------
+
+    def test_a_stale_block_is_refused_and_the_writer_repairs_it(self):
+        """The defect this test exists for: the register moves, the page keeps
+        yesterday's promise. Proven end to end, against the real CLI."""
+        bm = self._bm_docs()
+        with tempfile.TemporaryDirectory() as d:
+            fresh = bm.render_capability_status(
+                bm.load_capability_register(ROOT))
+            stale = fresh.replace("beta means real", "beta means finished", 1)
+            self.assertNotEqual(stale, fresh, "the fixture mutated nothing")
+            self._fixture(d, stale)
+            r = self._run("capability-status", "--check", "--root", d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("capability-status-stale", r.stderr)
+            r = self._run("capability-status", "--write", "--root", d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            r = self._run("capability-status", "--check", "--root", d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            with io.open(os.path.join(d, "README.md"), encoding="utf-8") as fh:
+                repaired = fh.read()
+            self.assertEqual(bm.extract_capability_status(repaired), fresh)
+            self.assertIn("before\n", repaired)
+            self.assertIn("after\n", repaired,
+                          "the writer touched text outside the markers")
+
+    def test_a_page_with_no_markers_is_refused_rather_than_guessed_at(self):
+        with tempfile.TemporaryDirectory() as d:
+            shutil.copyfile(os.path.join(ROOT, CAPABILITIES_JSON),
+                            os.path.join(d, CAPABILITIES_JSON))
+            with io.open(os.path.join(d, "README.md"), "w",
+                         encoding="utf-8") as fh:
+                fh.write("# demo\n\nno markers here\n")
+            r = self._run("capability-status", "--check", "--root", d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("no-capability-markers", r.stderr)
+
+    def test_a_register_carrying_an_invented_state_is_refused(self):
+        """The renderer must not be a second, weaker gate than
+        capability_offenders above: an entry nobody could place is a refusal,
+        not a row quietly dropped from the page."""
+        with tempfile.TemporaryDirectory() as d:
+            data = json.loads(read(CAPABILITIES_JSON))
+            data["capabilities"][0]["state"] = "mostly works"
+            with io.open(os.path.join(d, CAPABILITIES_JSON), "w",
+                         encoding="utf-8") as fh:
+                fh.write(json.dumps(data))
+            r = self._run("capability-status", "--root", d)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("bad-capability-register", r.stderr)
+            self.assertIn("mostly works", r.stderr)
+
+
 #: Directories kept verbatim as the record of what was written on a date.
 #: Same class as docs/closure and docs/evidence: rewriting a name inside one
 #: falsifies the record, which costs more than the inconsistency it removes.
@@ -3741,22 +3874,23 @@ RECORD_DIRS = (os.path.join("docs", "closure"),
                os.path.join("docs", "superpowers"),
                os.path.join("docs", "craft"))
 
-#: Pages this check does NOT read, each with the reason it is out. Every one
-#: of these is a real violation of the contract that a later loop has to fix
-#: in prose; none of them could be fixed from inside the loop that wrote this
-#: test, whose write fence covered four files and none of these.
-NAMING_EXCLUSIONS = {
-    # Presents BrotherME as the product ("BrotherME for Claude Code",
-    # "BrotherME blocks a second writer", a version line reading
-    # "BrotherME 2.0.0-rc.11") alongside legitimate persona speaker labels.
-    # Separating the two is a copy rewrite of a shipped page.
-    os.path.join("docs", "brotherme-explained.html"):
-        "product-name uses of BrotherME mixed with legitimate persona speech",
-    # One line, citing the historical source plan by the title it was written
-    # under: "Source: the BrotherME roadmap, sections 4.5 and 7".
-    os.path.join("docs", "specs", "canonical-project-protocol.md"):
-        "cites the BrotherME roadmap, a dated source document, by its title",
-}
+#: Pages this check does NOT read, each with the reason it is out. EMPTY since
+#: 2026-08-04 (positioning loop L1.4), and that is the point: it held the two
+#: pages the loop that wrote this test could not reach from inside its own
+#: write fence, and both were fixed in prose rather than left excluded.
+#:
+#: docs/brotherme-explained.html presented the persona as the product (a title,
+#: a kicker, a lede and a version line all reading BrotherME). The product
+#: words are now BrotherMode, the three speaker labels stay BrotherME because
+#: that is the persona speaking, and the paragraph above them introduces the
+#: persona by name so the allowance below is earned rather than assumed.
+#: docs/specs/canonical-project-protocol.md cited the dated source plan by the
+#: title it was written under; it now names the file path instead, which is
+#: what the contract's historical-marker rule asks a CURRENT page to do.
+#:
+#: A page added here again needs the same thing this dictionary always needed:
+#: a named reason, and a loop that owns the fix.
+NAMING_EXCLUSIONS = {}
 
 #: A page whose NAME carries a date is dated evidence, markdown or html.
 DATED_PAGE = re.compile(r"\d{4}-\d{2}-\d{2}.*\.(?:md|html)$")
@@ -3852,10 +3986,10 @@ class TestCurrentPagesUseTheCanonicalNames(unittest.TestCase):
 
     The check ran strict once, before the allowances below existed, and
     returned 44 hits across 15 pages. Every one was then read: the install
-    commands and code fences are correct and stay, the two named exclusions
-    are real violations that a later loop has to fix in prose, and the
-    fixtures below hold the line that the allowances did not neuter the
-    rule."""
+    commands and code fences are correct and stay, and the fixtures below hold
+    the line that the allowances did not neuter the rule. The two pages that
+    were named exclusions were fixed in prose on 2026-08-04 and the exclusion
+    list is now empty, so this test reads every current page in the tree."""
 
     def test_no_current_page_uses_a_retired_name_as_the_product_name(self):
         offenders = naming_offenders()
