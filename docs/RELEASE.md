@@ -293,6 +293,16 @@ through preparing it.
 
 ## What has and has not happened, stated honestly
 
+CURRENT STATE, 2026-08-04, second entry of the day: `VERSION` now reads
+`2.0.0-rc.13.dev1`, a DEVELOPMENT identity, because `v2.0.0-rc.13` was cut and
+pushed earlier today and rule 3 of the version law requires `main` to bump
+immediately afterwards. `release_tag` is `None` for this identity and no tag
+named `v2.0.0-rc.13.dev1` will ever exist. `install_target_tag` stays
+`v2.0.0-rc.13`, the last tag known to resolve, which is rule 5: an onboarding
+page must not go stale merely because the tree moved into development.
+
+The entry below describes the release cut itself and stays as written.
+
 CURRENT STATE, 2026-08-04: `VERSION` reads `2.0.0-rc.13`, a real release
 identity rather than a development one, and it is the version this tree is
 cut at. All eleven machine-closable items in `docs/closure/CLOSURE_REGISTER.md`
