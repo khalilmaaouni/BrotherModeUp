@@ -205,7 +205,13 @@ class TestRedaction(unittest.TestCase):
 
     def test_intent_redacts_secret_but_preserves_content(self):
         with tempfile.TemporaryDirectory() as v, tempfile.TemporaryDirectory() as repo:
-            env = dict(os.environ, BROTHERMODE_VAULT=v)
+            # N-6 finding 9 (2026-08-04): cmd_intent gained its own consent
+            # gate, the same shape TestResumeBrief already documents for
+            # cmd_precompact_brief's own gate. This test is about REDACTION
+            # and FILE MODE, so it supplies consent and keeps testing
+            # exactly what it always did; the pre-consent behavior has its
+            # own tests in TestConsentGateOnCheckUpdateAndIntent above.
+            env = _consented_env(repo, v)
             r = subprocess.run(
                 [sys.executable, os.path.join(HERE, "bm_telemetry.py"), "intent",
                  "next: rotate the key, because PROD_DB_PASSWORD=hunter2 leaked"],
@@ -6049,6 +6055,413 @@ class TestGitignoreCoversGeneratedProjectViews(unittest.TestCase):
                 ".gitignore lost the generated-view pattern %r; a "
                 "founder's own project rows could land in a commit to "
                 "this repository" % pattern)
+
+
+class TestScorecardSurvivesANullTokenField(unittest.TestCase):
+    """N-6 finding 1 (2026-08-04). A ledger row that parses as valid JSON but
+    carries `null` where a token count belongs used to make fld() return
+    None unchanged, the out7 sum at cmd_scorecard raise TypeError, and the
+    blanket handler in main() swallow it -- one cryptic line instead of all
+    nine metrics, and read_jsonl's malformed-line reporting could never
+    help because the row parses fine."""
+
+    def test_null_output_tokens_does_not_collapse_the_scorecard(self):
+        with tempfile.TemporaryDirectory() as v:
+            teld = os.path.join(v, "99-System", "telemetry")
+            os.makedirs(teld)
+            ledger = os.path.join(teld, "outcomes.jsonl")
+            rows = [
+                {"schema": 2, "ts": bm.now_iso(), "session_id": "s1", "project": "p",
+                 "end_reason": "other", "gen_ai.usage.output_tokens": 100,
+                 "gen_ai.usage.input_tokens": 50},
+                {"schema": 2, "ts": bm.now_iso(), "session_id": "s2", "project": "p",
+                 "end_reason": "other", "gen_ai.usage.output_tokens": None,
+                 "gen_ai.usage.input_tokens": 50},
+            ]
+            with io.open(ledger, "w", encoding="utf-8") as f:
+                for r in rows:
+                    f.write(json.dumps(r) + "\n")
+            env = dict(os.environ, BROTHERMODE_VAULT=v)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
+                                "scorecard"], env=env, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0)
+            self.assertIn("BROTHERMODE SCORECARD", r.stdout,
+                          "a null token field must not collapse the scorecard to one line")
+            self.assertNotIn("swallowed error", r.stdout,
+                             "the null token field crashed and was swallowed by the "
+                             "blanket handler instead of being handled")
+
+
+class TestScorecardDisclosesMalformedSignalsLines(unittest.TestCase):
+    """N-6 finding 2 (2026-08-04). cmd_scorecard reads outcomes, ratings,
+    reviews and corrections with report_bad=True and feeds the WARNING
+    line; signals.jsonl was read without it, so a corrupt signals line
+    silently lowered the rework/escaped-defect counts (metrics 4 and 6)
+    while the WARNING line, which exists to disclose exactly this, said
+    nothing."""
+
+    def test_malformed_signals_line_is_named_in_the_warning(self):
+        with tempfile.TemporaryDirectory() as v:
+            teld = os.path.join(v, "99-System", "telemetry")
+            os.makedirs(teld)
+            signals = os.path.join(teld, "signals.jsonl")
+            good1 = {"ts": bm.now_iso(), "kind": "rework", "session_id": "s1"}
+            good2 = {"ts": bm.now_iso(), "kind": "escaped-defect", "session_id": "s2"}
+            with io.open(signals, "w", encoding="utf-8") as f:
+                f.write(json.dumps(good1) + "\n")
+                f.write('{"kind": "rework", "session_id": "truncat\n')  # malformed
+                f.write(json.dumps(good2) + "\n")
+            env = dict(os.environ, BROTHERMODE_VAULT=v)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
+                                "scorecard"], env=env, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0)
+            self.assertIn("WARNING", r.stdout,
+                          "a malformed signals.jsonl line must trigger the WARNING line")
+            self.assertIn("signals=1", r.stdout,
+                          "the WARNING must name how many signals lines were dropped")
+
+
+class TestSpeedAndStartupNagsDiscloseMalformedLedgerLines(unittest.TestCase):
+    """N-6 finding 3 (2026-08-04). cmd_migrate and cmd_dedup disclose
+    malformed lines; cmd_speed and cmd_startup_nags both call
+    read_jsonl(LEDGER) without report_bad, so they publish session counts,
+    span-hours and token sums computed over a silently reduced ledger while
+    cmd_scorecard, reading the SAME file, prints a WARNING."""
+
+    def _ledger_with_one_bad_line(self, v):
+        teld = os.path.join(v, "99-System", "telemetry")
+        os.makedirs(teld, exist_ok=True)
+        ledger = os.path.join(teld, "outcomes.jsonl")
+        good1 = {"schema": 2, "ts": bm.now_iso(), "session_id": "s1", "project": "p",
+                 "end_reason": "other", "gen_ai.usage.output_tokens": 1500,
+                 "gen_ai.usage.input_tokens": 10, "duration_h": 1.0}
+        good2 = {"schema": 2, "ts": bm.now_iso(), "session_id": "s2", "project": "p",
+                 "end_reason": "other", "gen_ai.usage.output_tokens": 1500,
+                 "gen_ai.usage.input_tokens": 10, "duration_h": 2.0}
+        with io.open(ledger, "w", encoding="utf-8") as f:
+            f.write(json.dumps(good1) + "\n")
+            f.write('{"schema": 2, "session_id": "truncat\n')  # malformed
+            f.write(json.dumps(good2) + "\n")
+        return ledger
+
+    def test_speed_discloses_malformed_lines(self):
+        with tempfile.TemporaryDirectory() as v:
+            self._ledger_with_one_bad_line(v)
+            env = dict(os.environ, BROTHERMODE_VAULT=v)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
+                                "speed"], env=env, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0)
+            self.assertIn("1 malformed", r.stdout,
+                          "speed must disclose the dropped ledger line count")
+
+    def test_startup_nags_discloses_malformed_lines(self):
+        with tempfile.TemporaryDirectory() as v:
+            self._ledger_with_one_bad_line(v)
+            env = dict(os.environ, BROTHERMODE_VAULT=v)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
+                                "startup-nags"], env=env, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0)
+            self.assertIn("1 malformed", r.stdout,
+                          "startup-nags must disclose the dropped ledger line count")
+
+
+class TestProjectIdentityDegradesLoudlyWithoutBmStore(unittest.TestCase):
+    """N-6 finding 4 (2026-08-04). _resolve_root_quiet returns (None, None)
+    on ANY exception, including bm_store.py being unimportable, and
+    _project_of then silently falls back to _legacy_project_of -- the exact
+    per-folder-collision formula the 2026-07-26 round removed, with nothing
+    printed. This forces bm._get_bm_store() to report unavailable (the same
+    calibration shape TestCompactHintHonesty uses for bm_autosave, patching
+    the CACHED module reference rather than the file) and checks that the
+    degradation is now labelled, matching this file's own law that the
+    honest form of never blocking is a labelled degradation, not a silent
+    one."""
+
+    def test_identity_fallback_prints_a_degradation_notice(self):
+        old_cache = list(bm._bm_store_cache)
+        bm._bm_store_cache[:] = [None, "simulated: bm_store.py unavailable"]
+        old_stderr = sys.stderr
+        sys.stderr = captured = io.StringIO()
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                deep = os.path.join(d, "deep", "sub")
+                os.makedirs(deep)
+                bm._project_of(d)
+                bm._project_of(deep)
+        finally:
+            sys.stderr = old_stderr
+            bm._bm_store_cache[:] = old_cache
+        err = captured.getvalue()
+        self.assertIn("bm_store.py could not be loaded", err,
+                      "falling back to the legacy per-folder identity must say so, "
+                      "not degrade silently")
+
+
+class TestCoordinationCollisionsIndependentOfVerifyWording(unittest.TestCase):
+    """N-6 finding 5 (2026-08-04). _coordination_collisions used to count
+    bm_store.verify()'s problem strings by matching the literal prefix
+    'active claims overlap', so an ordinary wording edit to that message in
+    tools/bm_store.py would silently drop the count to 0 while verify()
+    itself still reported the problem. tools/bm_store.py is outside this
+    fix's write fence (a hard, program-enforced single-writer boundary), so
+    the fix stays entirely inside bm_telemetry.py: _coordination_collisions
+    now runs the SAME invariant verify() runs (two ACTIVE claims whose
+    paths overlap) directly against the store via the public
+    bm_store.ReadOnlyStore and bm_store.paths_overlap, instead of parsing
+    verify()'s prose, so a wording change there can no longer move this
+    number either way.
+
+    Proven by monkeypatching the CACHED bm_store module object
+    bm_telemetry.py itself loaded (bm._bm_store_cache[0], a separate module
+    instance from bs, the same calibration shape TestCompactHintHonesty
+    uses for bm_autosave) -- forcing verify() to report a reworded message
+    and checking the collision count is unaffected."""
+
+    def test_collision_count_survives_a_verify_wording_change(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("one", "ephemeral", "obj", ["a/b.py"], session_id="s1")
+                # Simulate the corruption the API itself would never
+                # produce (the store's claim() refuses an overlapping
+                # claim): a second active record whose claim overlaps the
+                # first, inserted directly at the SQL layer, the same
+                # technique test_bm_store.py's own TestVerify uses.
+                conn = store.conn
+                conn.execute("BEGIN IMMEDIATE")
+                ts = bs.now_iso()
+                conn.execute(
+                    "INSERT INTO records (lifecycle_uuid, name, lifetime, state, "
+                    "objective, owner, session_id, tier, check_cmd, evidence, "
+                    "version, created_at, updated_at) VALUES "
+                    "(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    ("deadbeefcafe", "two", "ephemeral", "active", "obj2", "", "s2",
+                     "", "", "", 1, ts, ts))
+                conn.execute(
+                    "INSERT INTO claims (lifecycle_uuid, path) VALUES (?,?)",
+                    ("deadbeefcafe", "a/b.py"))
+                conn.execute("COMMIT")
+            finally:
+                store.close()
+            mod, err = bm._get_bm_store()
+            self.assertIsNotNone(mod, "bm_store.py failed to load: %s" % err)
+            old_verify = mod.verify
+
+            def _reworded_verify(root):
+                problems = old_verify(root)
+                return [p.replace("active claims overlap",
+                                   "claims collide over a shared path") for p in problems]
+            mod.verify = _reworded_verify
+            try:
+                n, note = bm._coordination_collisions(d)
+            finally:
+                mod.verify = old_verify
+            self.assertIsNone(note, note)
+            self.assertEqual(n, 1, "a wording change to verify()'s prose must not "
+                                    "change the collision count")
+
+
+class TestCorrectionCapDropDiscloses(unittest.TestCase):
+    """N-6 finding 6 (2026-08-04). CORRECTION_CAP_PER_SESSION = 8 and the
+    `break` in scan_corrections stop capture at eight with nothing recorded
+    that more existed, directly against the docstring at line 491 to 504,
+    which says the Loop 4 redesign was driven by corrections being dropped
+    SILENTLY. grep -c -i -E "CORRECTION_CAP|correction cap|cap_per_session"
+    tools/test_bm.py returned 0 before this test: the cap was untested."""
+
+    def test_more_than_eight_corrections_disclose_the_drop_count(self):
+        texts = ["No, that is not what I asked for. From now on always use "
+                 "option %d instead." % i for i in range(1, 13)]
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "corrections.jsonl")
+            old = bm.CORRECTIONS
+            bm.CORRECTIONS = path
+            try:
+                result = bm.scan_corrections("sess-cap", "proj", texts)
+            finally:
+                bm.CORRECTIONS = old
+            rows = [json.loads(x) for x in _read(path).splitlines() if x.strip()]
+            self.assertEqual(len(rows), 8, "the cap itself must still hold at 8")
+            self.assertEqual(result, (8, 4),
+                             "scan_corrections must report (captured, dropped): "
+                             "8 captured of 12 distinct candidates, 4 dropped silently today")
+
+
+class TestHandoffDisclosesTruncation(unittest.TestCase):
+    """N-6 finding 7 (2026-08-04). _read_head caps at 6000 characters (4000
+    for the latest session log, 20000 for OUTCOMES.md) and added no marker,
+    so a handoff.md silently cut a teammate-facing file mid-line with no
+    sign anywhere that it happened, even though the file itself says it is
+    'a snapshot, not the living record'."""
+
+    def test_an_oversized_overview_gets_a_named_truncation_marker(self):
+        with tempfile.TemporaryDirectory() as v:
+            base = os.path.join(v, "10-Projects", "demo", "Sessions")
+            os.makedirs(base)
+            proj = os.path.dirname(base)
+            body = "builds X. " + ("filler line to pad this file out. " * 300)
+            self.assertGreater(len(body), 6000)
+            io.open(os.path.join(proj, "Overview.md"), "w").write(body)
+            env = dict(os.environ, BROTHERMODE_VAULT=v)
+            with tempfile.TemporaryDirectory() as cwd:
+                r = subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
+                                    "handoff", "demo"], env=env, cwd=cwd,
+                                   capture_output=True, text=True)
+                out = os.path.join(cwd, "handoff-demo.md")
+                self.assertTrue(os.path.exists(out), "handoff file not written")
+                text = io.open(out).read()
+                omitted = len(body) - 6000
+                self.assertIn("characters omitted", text,
+                              "a truncated section must say so explicitly")
+                self.assertIn(str(omitted), text,
+                              "the marker must name how many characters were cut")
+
+
+class TestFenceLintDisclosesHiddenFences(unittest.TestCase):
+    """N-6 finding 8 (2026-08-04). cmd_fence_lint prints hits[:8] with no
+    count of how many were not shown, even though its own docstring says
+    its job is that 'no writer launches into an occupied file set'. With
+    more than eight live fences, the ninth onward vanish silently and a
+    dispatcher reading the output can wrongly conclude a file set is
+    free."""
+
+    def setUp(self):
+        # Same isolation TestFenceLintRecognizesStoreRenderedFences uses:
+        # this checkout's own dev environment must never leak in.
+        self._old_registries = os.environ.pop("BROTHERMODE_REGISTRIES", None)
+
+    def tearDown(self):
+        if self._old_registries is not None:
+            os.environ["BROTHERMODE_REGISTRIES"] = self._old_registries
+
+    def test_more_than_eight_live_fences_names_the_total(self):
+        with tempfile.TemporaryDirectory() as d:
+            bs.init_project(d).close()
+            store = bs.Store(d, create=False)
+            try:
+                for i in range(12):
+                    store.claim("rec%02d" % i, "ephemeral", "test finding 8",
+                                ["file%02d.py" % i], tier="T2")
+            finally:
+                store.close()
+            bs.write_state_view(d)
+            code, out = _call_thread_cmd_in_process(d, bm.cmd_fence_lint, [d])
+        self.assertEqual(code, 0)
+        self.assertIn("LIVE FENCES", out)
+        # A bare "12" substring is not safe to assert on: the printed lines
+        # embed random 32-char hex lifecycle uuids, and two adjacent hex
+        # digits coincidentally spelling "12" is not vanishingly unlikely
+        # across 8 of them. Assert the exact structured disclosure instead.
+        self.assertIn("12 live fences total", out,
+                      "fence-lint must name the true total when it hides some")
+        self.assertIn("4 more not shown", out,
+                      "fence-lint must say how many of the 12 were hidden")
+
+
+class TestConsentGateOnCheckUpdateAndIntent(unittest.TestCase):
+    """N-6 finding 9 (2026-08-04). cmd_check_update creates the vault
+    telemetry directory and writes installed-skill-version; cmd_intent
+    writes a per-project log. Neither called _consented(), so both
+    materialized the vault in a stranger's home before setup had run,
+    protected only by the hook line in tools/bm_sessionstart.sh checking
+    consent before invoking them -- exactly the placement this file's own
+    docstring (line 1586 to 1588 before this fix) says is wrong. The
+    inventory test built to catch this class (tools/test_bm_consent.py)
+    reads hooks/hooks.json and never enumerates bm_sessionstart.sh's own
+    invocations, so it could not see either command; this test drives both
+    commands directly instead and is outside that blind spot. Both
+    commands' HOME is pinned to a throwaway directory so this can never
+    read a real founder consent config from the machine running it."""
+
+    def test_check_update_writes_nothing_without_consent(self):
+        with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as v:
+            env = dict(os.environ, HOME=home, BROTHERMODE_VAULT=v)
+            env.pop("BROTHERME_CONFIG", None)
+            marker = os.path.join(v, "99-System", "telemetry", "installed-skill-version")
+            self.assertFalse(os.path.exists(marker))
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
+                                "check-update"], env=env, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0)
+            self.assertFalse(os.path.exists(marker),
+                             "check-update wrote installed-skill-version without consent")
+
+    def test_intent_writes_nothing_without_consent(self):
+        with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as v, \
+             tempfile.TemporaryDirectory() as repo:
+            env = dict(os.environ, HOME=home, BROTHERMODE_VAULT=v)
+            env.pop("BROTHERME_CONFIG", None)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
+                                "intent", "next: X, because Y"], env=env, cwd=repo,
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0)
+            self.assertFalse(os.path.exists(os.path.join(v, "99-System")),
+                             "intent wrote into the vault without consent")
+            self.assertIn("setup is not complete", r.stdout)
+
+    def test_intent_still_writes_once_consented(self):
+        with tempfile.TemporaryDirectory() as v, tempfile.TemporaryDirectory() as repo:
+            env = _consented_env(repo, v)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
+                                "intent", "next: X, because Y"], env=env, cwd=repo,
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0)
+            self.assertTrue(glob.glob(os.path.join(v, "99-System", "telemetry", "intent-*.log")),
+                            "intent must still write once setup is complete")
+
+
+class TestSpeedDisclosesFutureDatedSessions(unittest.TestCase):
+    """N-6 finding 10 (2026-08-04). cmd_speed's window() filters with
+    lo <= (age_days(...) or 999) < hi; a row timestamped ahead of the clock
+    yields a negative age, which fails both windows' lower bound, so the
+    row appears in NEITHER window and nothing says so, while cmd_scorecard
+    (age <= 7, no lower bound) still counts the same row. Reachability is
+    clock skew, a hand-edited timestamp, or a restored backup, not an
+    everyday path, but it is real."""
+
+    def test_a_future_dated_session_is_named_not_just_dropped(self):
+        with tempfile.TemporaryDirectory() as v:
+            teld = os.path.join(v, "99-System", "telemetry")
+            os.makedirs(teld)
+            ledger = os.path.join(teld, "outcomes.jsonl")
+            now = bm.now_iso()
+            future = (bm.datetime.datetime.now(bm.datetime.timezone.utc)
+                      + bm.datetime.timedelta(hours=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            rows = [
+                {"schema": 2, "ts": now, "session_id": "s1", "project": "p",
+                 "end_reason": "other", "gen_ai.usage.output_tokens": 1000,
+                 "gen_ai.usage.input_tokens": 10, "duration_h": 1.0},
+                {"schema": 2, "ts": future, "session_id": "s2", "project": "p",
+                 "end_reason": "other", "gen_ai.usage.output_tokens": 5000,
+                 "gen_ai.usage.input_tokens": 10, "duration_h": 5.0},
+            ]
+            with io.open(ledger, "w", encoding="utf-8") as f:
+                for r in rows:
+                    f.write(json.dumps(r) + "\n")
+            env = dict(os.environ, BROTHERMODE_VAULT=v)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
+                                "speed"], env=env, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0)
+            self.assertIn("1 session", r.stdout)
+            self.assertIn("ahead of the clock", r.stdout,
+                          "a future-dated session dropped from both windows must be "
+                          "named, not silently invisible")
+
+
+class TestScorecardNeverPrintsAvgNone(unittest.TestCase):
+    """N-6 finding 11 (2026-08-04). Line 908 leaves avg_rating as the Python
+    literal None when there are no attributed ratings, and line 937 formats
+    it with %s, so metric 4 reads 'avg=None' -- the exact class metric 9
+    (line 954) already handles correctly, printing 'no data' instead."""
+
+    def test_no_attributed_ratings_prints_no_data_not_avg_none(self):
+        with tempfile.TemporaryDirectory() as v:
+            os.makedirs(os.path.join(v, "99-System", "telemetry"))
+            env = dict(os.environ, BROTHERMODE_VAULT=v)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
+                                "scorecard"], env=env, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0)
+            self.assertNotIn("avg=None", r.stdout)
+            self.assertIn("avg=no data", r.stdout)
 
 
 if __name__ == "__main__":
