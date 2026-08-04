@@ -54,15 +54,26 @@ instrument can detect X when it IS there. This is now a law in
 Every line here was read off disk or off the remote. Re-verify before trusting;
 this file ages.
 
-- `main` at `268ee33`, pushed. Local HEAD == origin/main == ls-remote,
-  divergence `0 0`.
-- Tag `v2.0.0-rc.13` published, annotated, dereferences to `268ee33`.
-- `VERSION` reads `2.0.0-rc.13`.
-- Local gate on that tree: `1518 tests across 14 suites, 2 skipped, ALL GREEN`,
-  exit 0.
-- CI run on `060a47a` concluded success, all eleven jobs. A run on `268ee33`
-  was IN PROGRESS when this was written. **Read the run for `268ee33` yourself.
-  Do not inherit a verdict from an earlier commit; that is a law here.**
+UPDATED at the end of the writing session, after LOOP 0 landed. The lines below
+are the CURRENT state; anything in this file describing Loop 0 as pending is
+superseded by PART 2's completion note.
+
+- `main` at `2e6f6f1`, pushed. Local HEAD == origin/main, divergence `0 0`.
+- Tag `v2.0.0-rc.13` published, annotated, dereferences to `268ee33`, and still
+  resolves on the remote.
+- `VERSION` reads `2.0.0-rc.13.dev1`, a DEVELOPMENT identity. Confirmed through
+  the project's own facts, not by reading the file: `is_development` True,
+  `release_tag` None, `install_target_tag` `v2.0.0-rc.13`.
+- Local gate on `2e6f6f1`: `1518 tests across 14 suites, 6 skipped, 177.0s wall,
+  ALL GREEN`, exit 0, run after the last edit.
+- `verify-install`: PASSED, 237 files match, 0 mismatched, 0 missing, 0 extra.
+- **CI on `268ee33`, the RELEASE commit the tag points at: concluded SUCCESS.**
+  That was in progress for most of the session and is now settled, so the
+  release is verified on both sides: the local gate before the tag was cut, and
+  GitHub's full matrix on the exact tagged commit.
+- CI on `2e6f6f1` was IN PROGRESS at handover. **Read that run yourself before
+  claiming anything about it. Do not inherit a verdict from `268ee33`; a CI
+  result belongs to one commit and that is a law in `references/mistakes.md`.**
 - All eleven machine-closable closure-register items are CLOSED.
 - Open PRs: none.
 - Remote branches: five. Four are dead weight, proven contained (PART 3).
@@ -71,7 +82,20 @@ this file ages.
 
 ---
 
-## PART 2: LOOP 0. THE VERSION IDENTITY IS WRONG RIGHT NOW. DO THIS FIRST.
+## PART 2: LOOP 0. DONE 2026-08-04, commit `2e6f6f1`. Kept for the reasoning.
+
+**COMPLETE. Do not redo it.** `VERSION` is `2.0.0-rc.13.dev1`, `pyproject.toml`
+is `2.0.0rc13.dev1`, the three plugin-manifest version fields follow,
+`PUBLIC_INSTALL_TAG` correctly stayed at `v2.0.0-rc.13`, `docs/RELEASE.md`
+gained a second dated entry rather than an edit to the first, the manifest was
+regenerated last, and both planning documents were committed with it.
+Done-check satisfied: gate ALL GREEN at exit 0 after the last edit,
+`is_development` True, `release_tag` None.
+
+The section below is the original brief, kept because the REASONING is what the
+next release cut needs, not because the task is outstanding. Start at PART 3.
+
+### Original brief, for reference at the next release cut
 
 **Severity: this is the exact failure that got `v2.0.0-rc.1` withdrawn.**
 
