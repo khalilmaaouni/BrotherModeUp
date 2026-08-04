@@ -30,5 +30,10 @@ printf '%s' "$PAYLOAD" | python3 "$DIR/tools/bm_telemetry.py" compact-hint 2>/de
 # see (an unacknowledged quarantine, corruption, or anything else verify or
 # bm_store.py's own pre-command warning reports), so a lost database is never
 # a session's whole SessionStart output being nothing.
-STORE_HEALTH="$(python3 "$DIR/tools/bm_store.py" verify 2>&1)"; printf '%s\n' "$STORE_HEALTH" | grep -Eq 'problem\(s\) found|STORE CORRUPT|WARNING|unexpected error|db-busy|stale-identity|Traceback' && printf '%s\n' "$STORE_HEALTH"
+# "refused (schema-" is matched too (2026-08-04): a store one schema behind or
+# ahead of this BrotherMode stopped being reported as STORE CORRUPT that day,
+# which is the truth, but it is still something the founder has to act on (one
+# writable command migrates it). Without this alternative the fix would have
+# traded a scary visible message for an accurate invisible one.
+STORE_HEALTH="$(python3 "$DIR/tools/bm_store.py" verify 2>&1)"; printf '%s\n' "$STORE_HEALTH" | grep -Eq 'problem\(s\) found|STORE CORRUPT|refused \(schema-|WARNING|unexpected error|db-busy|stale-identity|Traceback' && printf '%s\n' "$STORE_HEALTH"
 exit 0
