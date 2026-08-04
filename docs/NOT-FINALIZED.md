@@ -159,13 +159,27 @@ the old hole. Removal is scheduled for the next major version and is NOT done.
 The narrative docs still show `relevant` in their examples; see
 `docs/KNOWN-LIMITS.md`. PARTIAL.
 
-## 1. Never run on a real day of your work. UNPROVEN. Highest harm.
+## 1. Used daily, never measured. PARTLY CLOSED. Still the highest harm.
 
-Everything in this repository rests on test suites, adversarial review and
-simulated lifecycles. Not one hour of real founder work has gone through the V2
-store. Every score, including the good ones, inherits that caveat.
+CORRECTED 2026-08-03. This item used to say that not one hour of real founder
+work had gone through the V2 store and that everything rested on test suites,
+adversarial review and simulated lifecycles. The founder reports the opposite:
+weeks of his own daily use, and other people using it on their own machines,
+installed by pointing them at this repository.
 
-No amount of further test-writing closes this. Only using it does.
+So the "never used" half is closed, and it was closed for weeks while these
+documents said otherwise, which is its own lesson about where a project's truth
+actually lives.
+
+What is still open is the half that always mattered more: none of that use has
+been MEASURED. No counted projects, no recorded failure or rework rate, no
+observed outside participant, no comparison against working without the tool.
+Every score on this page still inherits THAT caveat, and no amount of further
+test-writing closes it either. Only counting does.
+
+One consequence worth stating for anyone reading before an upgrade: those users
+track `main` rather than a pinned tag, so whatever lands on `main` reaches them
+on their next install.
 
 ## 2. Bash writes are not gated by the fence hook. OPEN.
 
