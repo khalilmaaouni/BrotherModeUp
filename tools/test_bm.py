@@ -652,6 +652,36 @@ class TestThreadSafety(unittest.TestCase):
                              "the dashboard raised on a non-string mode value")
             self.assertIn("BROTHERMODE THREADS", r.stdout)
 
+    def test_dashboard_on_older_schema_store_refuses_without_claiming_corruption(self):
+        """Added 2026-08-04 with the wording fix. bm_threads.py's dashboard is
+        the one path that printed "STORE CORRUPT" for a healthy store with no
+        test covering it at all: it reads through ReadOnlyStore, so a store one
+        schema behind this BrotherMode reached its StoreCorrupt handler. It now
+        falls through to main()'s existing OwnershipRefused handler, which
+        names the reason and exits 2. HOME and both vault variables are pinned
+        into throwaway directories so this can never reach a real vault."""
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as home, \
+             tempfile.TemporaryDirectory() as vault:
+            env = dict(HOME=home, BROTHERMODE_VAULT=vault, BROTHERSBE_VAULT=vault)
+            _run_threads(("on",), d, env=env)
+            r0 = _run_threads(("start", "search", "build search",
+                               "--files", "api/search.py"), d, env=env)
+            self.assertEqual(r0.returncode, 0, r0.stdout + r0.stderr)
+            # LAST, and only through sqlite3: any writable bm_threads command
+            # run after this point would migrate the store straight back up.
+            conn = sqlite3.connect(bs.store_path(d))
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute("UPDATE meta SET value=? WHERE key='schema_version'",
+                             (str(bs.SCHEMA_VERSION - 1),))
+                conn.execute("COMMIT")
+            finally:
+                conn.close()
+            r = _run_threads(("dashboard",), d, env=env)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertNotIn("STORE CORRUPT", r.stdout)
+            self.assertIn("refused (schema-behind)", r.stdout)
+
     def test_concurrent_starts_all_register(self):
         # A thread invisible to the store is invisible to the dashboard AND
         # skipped by `off`, which would silently lose its context. The

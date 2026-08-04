@@ -2799,6 +2799,16 @@ class TestFixRound8(unittest.TestCase):
                                  "verify must not report healthy against a quarantined store")
 
     def test_calibrated_criticalA_wrong_schema_version_quarantines(self):
+        # Despite the name this test has carried since fix-round 8, nothing is
+        # quarantined here and nothing ever was: 999 is ABOVE SCHEMA_VERSION,
+        # so this is the store-is-ahead-of-the-binary branch, which has always
+        # refused through _refuse_without_quarantine and left the file where it
+        # is. What changed on 2026-08-04 is the exception and the wording: a
+        # store ahead of this binary is healthy, so it refuses as
+        # OwnershipRefused("schema-ahead") instead of claiming corruption, and
+        # the message names the version instead of the meta key. The
+        # load-bearing assertion is unchanged: a store whose schema version is
+        # not this binary's must never open as healthy.
         with tempfile.TemporaryDirectory() as d:
             store = bs.Store(d)
             store.claim("thing", "ephemeral", "obj", [])
@@ -2806,9 +2816,10 @@ class TestFixRound8(unittest.TestCase):
             store.conn.execute("UPDATE meta SET value='999' WHERE key='schema_version'")
             store.conn.execute("COMMIT")
             store.close()
-            with self.assertRaises(bs.StoreCorrupt) as ctx:
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
                 bs.Store(d)
-            self.assertIn("schema_version", str(ctx.exception))
+            self.assertEqual(ctx.exception.reason, "schema-ahead")
+            self.assertIn("999", str(ctx.exception))
 
     def test_calibrated_criticalA_readonlystore_also_refuses_dropped_table(self):
         # The schema door is not writer-only: a diagnostic (dashboard,
@@ -4094,6 +4105,13 @@ class TestCLIExitCodes(unittest.TestCase):
             self.assertIn("name-active", r2.stdout)
 
     def test_cli_corrupt_store_exits_one(self):
+        # Since 2026-08-04 this is the SPECIFIC regression guard that GENUINE
+        # corruption still exits 1 and still says CORRUPT. Schema skew stopped
+        # doing either on that date (see
+        # test_cli_older_schema_store_dashboard_refuses_without_claiming_corruption
+        # below), so the word has to keep meaning something here. Nothing in
+        # this test changed: garbage bytes are not a database, which is real
+        # corruption and not a version difference.
         with tempfile.TemporaryDirectory() as d:
             os.makedirs(bs.store_dir(d))
             with io.open(bs.store_path(d), "wb") as f:
@@ -4101,6 +4119,35 @@ class TestCLIExitCodes(unittest.TestCase):
             r = _run_cli(["dashboard"], d)
             self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
             self.assertIn("CORRUPT", r.stdout)
+
+    def test_cli_older_schema_store_dashboard_refuses_without_claiming_corruption(self):
+        """The founder-facing half of the 2026-08-04 wording fix, proved
+        through a real subprocess because the exit code is half the message: a
+        store one schema behind this BrotherMode refuses at exit 2 (the
+        "your situation", not "your file is damaged" code this CLI already
+        uses for every other refusal) and never prints CORRUPT.
+
+        HOME and both vault variables are pinned into throwaway directories.
+        Neither bm_store.py nor bm_threads.py reads them today, and pinning
+        them is how it stays impossible for this test to reach a real vault if
+        one of them ever starts."""
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as home, \
+             tempfile.TemporaryDirectory() as vault:
+            env = dict(HOME=home, BROTHERMODE_VAULT=vault, BROTHERSBE_VAULT=vault)
+            r0 = _run_cli(["init"], d, env=env)
+            self.assertEqual(r0.returncode, 0, r0.stdout + r0.stderr)
+            conn = sqlite3.connect(bs.store_path(d))
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute("UPDATE meta SET value=? WHERE key='schema_version'",
+                             (str(bs.SCHEMA_VERSION - 1),))
+                conn.execute("COMMIT")
+            finally:
+                conn.close()
+            r = _run_cli(["dashboard"], d, env=env)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertNotIn("CORRUPT", r.stdout)
+            self.assertIn("refused (schema-behind)", r.stdout)
 
     def test_cli_no_root_exits_two(self):
         # No init, no .git, no marker anywhere above a fresh tempdir: the CLI
@@ -5853,15 +5900,40 @@ class TestSchema2Migration(unittest.TestCase):
             self.assertTrue(set(bs._TABLES_LEARNING) <= self._tables(path))
 
     def test_newer_schema_is_refused_without_being_quarantined(self):
+        # The exception type moved from StoreCorrupt to OwnershipRefused on
+        # 2026-08-04: a store AHEAD of this binary is healthy, so "corrupt"
+        # was the wrong word, not merely the wrong exit code. The quarantine
+        # assertion below is unchanged and is still the load-bearing one:
+        # whatever this raises, it must never move the file.
         with tempfile.TemporaryDirectory() as d:
             with bs.Store(d) as store:
                 store.claim("thing", "ephemeral", "obj", [])
                 store.conn.execute("BEGIN IMMEDIATE")
                 store.conn.execute("UPDATE meta SET value='99' WHERE key='schema_version'")
                 store.conn.execute("COMMIT")
-            with self.assertRaises(bs.StoreCorrupt) as ctx:
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
                 bs.Store(d)
-            self.assertIn("understands at most", str(ctx.exception))
+            self.assertIn("only understands up to", str(ctx.exception))
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")), [],
+                "a NEWER store is healthy; moving it aside would be the only data loss")
+
+    def test_newer_schema_is_refused_without_claiming_corruption(self):
+        """Companion to the test above, added 2026-08-04. That one pins the
+        side effect (nothing moves); this one pins the WORD. A store ahead of
+        this binary carries the machine-checkable reason "schema-ahead", and
+        must never be described to a founder as corruption, because the store
+        is the one thing in this situation that is definitely fine."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.claim("thing", "ephemeral", "obj", [])
+                store.conn.execute("BEGIN IMMEDIATE")
+                store.conn.execute("UPDATE meta SET value='99' WHERE key='schema_version'")
+                store.conn.execute("COMMIT")
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.Store(d)
+            self.assertEqual(ctx.exception.reason, "schema-ahead")
+            self.assertNotIn("CORRUPT", str(ctx.exception))
             self.assertEqual(
                 glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")), [],
                 "a NEWER store is healthy; moving it aside would be the only data loss")
@@ -5880,13 +5952,19 @@ class TestSchema2Migration(unittest.TestCase):
         because not one of them opened an out-of-date store through the
         read-only path. ReadOnlyStore borrows Store._verify_schema_or_raise
         unbound, so it also needed _refuse_without_quarantine; without it this
-        raised AttributeError instead of the intended refusal."""
+        raised AttributeError instead of the intended refusal.
+
+        The expected type moved from StoreCorrupt to OwnershipRefused on
+        2026-08-04 with the wording fix. The AttributeError guard is untouched
+        and still load-bearing: a missing _refuse_without_quarantine raises
+        AttributeError, which is not OwnershipRefused either, so this still
+        fails the moment that delegation goes away again."""
         with tempfile.TemporaryDirectory() as d:
             path = self._schema1_store(d)
-            with self.assertRaises(bs.StoreCorrupt) as ctx:
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
                 bs.ReadOnlyStore(d)
             msg = str(ctx.exception)
-            self.assertIn("read-only command cannot migrate it", msg)
+            self.assertIn("migrates automatically", msg)
             self.assertNotIn("AttributeError", msg)
             conn = sqlite3.connect(path)
             try:
@@ -5895,6 +5973,26 @@ class TestSchema2Migration(unittest.TestCase):
             finally:
                 conn.close()
             self.assertEqual(v, "1", "a read-only refusal must change nothing")
+
+    def test_readonly_store_on_older_schema_refuses_without_claiming_corruption(self):
+        """The founder's own report, 2026-08-04: `verify` on a store one
+        schema behind this BrotherMode printed `STORE CORRUPT: store is at
+        schema 12 and this BrotherMode is at 13`, which frightens someone
+        whose data is intact. A version skew is an upgrade waiting to happen,
+        so it refuses with the reason "schema-behind", never the word CORRUPT,
+        and never a quarantine directory."""
+        with tempfile.TemporaryDirectory() as d:
+            self._schema1_store(d)
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.ReadOnlyStore(d)
+            self.assertEqual(ctx.exception.reason, "schema-behind")
+            msg = str(ctx.exception)
+            self.assertIn("migrates automatically", msg)
+            self.assertNotIn("CORRUPT", msg)
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")), [],
+                "a store awaiting migration is healthy; moving it aside would be "
+                "the only data loss")
 
     def test_ddl_split_matches_the_table_and_index_lists(self):
         """_split_ddl is a plain semicolon split, which is only safe while no
