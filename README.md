@@ -15,7 +15,10 @@ the technical detail stays out of the way until you ask for it.
 Two ways in. The plugin way is two lines and no folders; the pinned clone is
 the path that has been proven end to end the most times. The full,
 copy-pasteable, ten-minute walkthrough with the expected output of every
-command is [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
+command is [`docs/QUICKSTART.md`](docs/QUICKSTART.md). With no interactive
+Claude Code session to type `/plugin` commands into, for example a script
+installing this unattended, use the pinned clone below rather than the
+plugin way.
 
 **The plugin way (two lines, inside Claude Code).** This repository is its
 own plugin marketplace: add it once, install from it, and the seven
