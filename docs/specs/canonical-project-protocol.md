@@ -14,9 +14,12 @@ command surface. `project-template/CANVAS.md` and
 `project-template/DELIVERY-PACKET.md` remain as the layout the generated
 views follow; the generated files are views of the store, never the truth.
 
-Source: the BrotherME roadmap, sections 4.5 (lifecycle) and 7 (canonical
-project objects). This document restates them as the normative reference so
-the roadmap can evolve as a plan while this page stays the contract.
+Source: the dated source plan recorded at
+`docs/evidence/2026-08-01-source-BrotherME_Final_Release_Closure_Plan_Fable_Governed.md`,
+whose section 7 carries the same lifecycle transitions and names the same
+canonical objects this page defines. That file is a dated record and keeps the
+title it was written under; this document restates its rules as the normative
+reference so the plan can evolve while this page stays the contract.
 
 ## 1. Task lifecycle: the ten states
 
