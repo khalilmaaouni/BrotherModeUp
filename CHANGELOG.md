@@ -1,5 +1,63 @@
 # Changelog
 
+## 2.0.0, 2026-08-04: the first public release, from one clean branch
+
+The release-closure program is complete. Records were corrected against the
+tree and proven append-only (Loop 2), the beginner install path was proven by
+two independent probes given only the repository URL and then re-proven
+against the corrected page (Loop 3), every open defect was triaged and the
+blocks-a-user bucket is empty (Loop 5), the telemetry audit closed eleven
+findings test-first and then survived an adversarial second review that
+forced a generalization wave of seven more fixes (Loop 6 and the R-6
+report), and the repository now carries exactly one branch, main, with every
+contained branch deleted after its containment was proven twice.
+
+Gate on the closure tree after its last edit: `test_all: 1573 tests across
+15 suites, 6 skipped, 177.2s wall. ALL GREEN`, exit 0, at `91bc596`, which
+`main` merges unchanged as `ef25c1f`. CI run `30906411852` on `91bc596`
+concluded success with all eleven jobs green individually, read directly.
+
+WHAT IS NEW FOR YOU
+
+A schema skew is no longer called corruption. A store older or newer than
+the running BrotherMode now gets `refused (schema-behind)` or
+`refused (schema-ahead)` with plain instructions and the reassurance that
+nothing was touched; STORE CORRUPT is reserved for stores that are actually
+damaged.
+
+Telemetry can no longer be taken down by one bad ledger line. A null, a bare
+number, a string or an array on any line of any ledger is counted and
+disclosed like other unusable lines instead of collapsing the scorecard, the
+speed report and both repair commands into one swallowed-error line.
+Unusable token fields, unreadable timestamps, future-dated rows and invalid
+ratings are excluded from the numbers AND disclosed with counts, instead of
+being silently coerced or silently dropped.
+
+The install pages pin `v2.0.0`, and the documented beginner path is the one
+proven by a probe forbidden from being cleverer than the page.
+
+WHAT BROKE
+
+The exit code for the two schema-skew refusals moved from 1 to 2, the code
+every other refusal already uses. A script keying on exit 1 for store
+problems should also treat exit 2 as a refusal. Genuine corruption still
+exits 1 and still says CORRUPT.
+
+WHAT IS STILL UNPROVEN, and this list is the point
+
+The shell refusal is a NARROWING, not containment: a literal matcher, not a
+shell parser; no operating-system sandbox; fail-open when tools/bm_store.py
+cannot be imported. Packaging is a narrowing: tools/bm_project_facts.py and
+everything in scripts/ stay unwired on purpose, because they read files that
+do not ship in a wheel.
+
+Real use exists and MEASUREMENT does not. The founder's daily use is
+testimony, not a measurement. Register items X-01 to X-06 stay open and are
+not closable by writing code: X-01 second runtime conformance, X-02 an
+external user study, X-03 a benchmark corpus, X-04 measured dogfood, X-05
+ecosystem thresholds, X-06 fault-injection reliability. Nothing in this
+release changes that, and no scorecard should read as though it did.
+
 ## 2.0.0-rc.13, 2026-08-04: the closure register closes, and two of the fixes are narrowings that say so
 
 Every one of the eleven machine-closable items in `docs/closure/CLOSURE_REGISTER.md`
