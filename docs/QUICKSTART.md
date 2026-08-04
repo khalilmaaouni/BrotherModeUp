@@ -81,7 +81,7 @@ development tree itself currently reads `2.0.0-rc.12.dev1`, a development
 identity rather than a tagged release; `docs/RELEASE.md` explains why.
 
 ```bash
-git clone --branch v2.0.0-rc.9 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.0.0-rc.13 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 Expected: git prints a few lines ending in something like `Resolving deltas:

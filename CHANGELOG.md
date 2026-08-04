@@ -1,5 +1,64 @@
 # Changelog
 
+## 2.0.0-rc.13, 2026-08-04: the closure register closes, and two of the fixes are narrowings that say so
+
+Every one of the eleven machine-closable items in `docs/closure/CLOSURE_REGISTER.md`
+now reads CLOSED. Gate on the released tree: `test_all: 1518 tests across 14
+suites, 6 skipped, ALL GREEN`, exit 0, up from 1494 across 13. CI run
+`30874562002` on `060a47a` concluded success with all eleven jobs green
+individually.
+
+WHAT IS NEW FOR YOU
+
+`BM_FENCE_MODE=enforced` now refuses an obvious destructive shell command aimed
+at BrotherMode's own store or fence directory, inside a BrotherMode project.
+Before this, one `rm` through Bash silently disabled the whole enforcement
+boundary and left no trace. Detection is also announced BEFORE it is recorded,
+because a detection whose store has just been deleted used to be announced by
+nothing at all.
+
+A pip install now exposes twelve console scripts instead of nine, and actually
+works: a packaged `bm-project` previously crashed at import time. `bm-sentinel`
+and `bm-ledger` are wired for the first time.
+
+The write-site review gate widened from three constructs in one directory to
+eight constructs across `tools/`, `scripts/`, `mcp/` and `brotherme/`, so 193
+mutation sites across 22 files are now under review rather than 68 across 14.
+
+The whole suite runs on the declared Python 3.9 floor in CI, not just three
+files of it. Release branches get push-triggered runs. `STATE.md` renders
+byte-stable. Quarantine directories are owner-only.
+
+WHAT BROKE
+
+Nothing intentionally. The 12 to 13 store schema migration is additive only and
+the runner backs the store up through SQLite's own backup API first, so an
+existing install upgrades in place. The one real consequence is direction: once
+a store is on schema 13, an OLDER install refuses to open it and says so,
+deliberately, rather than quarantining it.
+
+WHAT IS STILL UNPROVEN, and this list is the point
+
+The shell refusal is a NARROWING, not containment. It is a literal matcher, not
+a shell parser: a path assembled at runtime or held in a variable is not caught.
+There is no operating-system sandbox and there will not be one here. And when
+`tools/bm_store.py` cannot be imported at all, nothing is refused even under
+enforced mode, which is a deliberate fail-open chosen because the alternative
+refuses every shell command in every directory on the machine. Anyone who can
+break that import can disable the refusal. `SECURITY.md` and
+`docs/KNOWN-LIMITS.md` carry all three in these words.
+
+Packaging is also a narrowing: `tools/bm_project_facts.py` and everything in
+`scripts/` stay unwired on purpose, because they read files that do not ship in
+a wheel.
+
+Real use exists and MEASUREMENT does not. There are no counted projects, no
+recorded failure or rework rate, no observed outside participant, and no
+comparison against working without the tool. Register items X-01 to X-06 stay
+open and are not closable by writing code: they need paid credits, outside
+participants, or calendar time. Nothing in this release changes that, and no
+scorecard should read as though it did.
+
 ## 2.0.0-rc.12.dev1, unreleased development identity, 2026-08-01: the release-closure program opens, rc.10 and rc.11 are retired
 
 The tree carried `2.0.0-rc.11` (and, briefly the same day, `2.0.0-rc.10`)
