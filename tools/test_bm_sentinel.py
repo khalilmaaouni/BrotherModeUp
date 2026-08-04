@@ -195,8 +195,13 @@ class TestSchema13Migration(unittest.TestCase):
         return path
 
     def test_schema_version_moves_from_12_to_13(self):
-        self.assertEqual(bs.SCHEMA_VERSION, 13,
-                         "spec section 2: SCHEMA_VERSION moves from 12 to 13")
+        # The sentinel spec moved the version from 12 to 13. Later loops may
+        # move it further (L02 took it to 14), so the guard pins the floor
+        # rather than the exact number: pinning 13 exactly made this test
+        # break on every later migration while proving nothing extra.
+        self.assertGreaterEqual(
+            bs.SCHEMA_VERSION, 13,
+            "spec section 2: SCHEMA_VERSION moved from 12 to at least 13")
 
     def test_the_migrations_table_has_an_entry_for_schema_12(self):
         self.assertIn(12, bs._MIGRATIONS)
@@ -209,7 +214,7 @@ class TestSchema13Migration(unittest.TestCase):
             with bs.Store(d) as store:
                 row = store.conn.execute(
                     "SELECT value FROM meta WHERE key='schema_version'").fetchone()
-                self.assertEqual(row["value"], "13")
+                self.assertEqual(row["value"], str(bs.SCHEMA_VERSION))
             path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
             found = _tables(path)
             for table, expected in _EXPECTED_COLUMNS.items():
