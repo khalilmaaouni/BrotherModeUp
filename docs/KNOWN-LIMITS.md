@@ -213,6 +213,26 @@ person was not sure about.
   grep -v "^tools/test_"` returns nothing. `docs/beta/BETA-KIT.md` ships the
   corrected grep.
 
+## Session identity is harder to forge, not unforgeable
+
+MOVED HERE 2026-08-04 (N-5 bucket 3,
+docs/closure/reports/2026-08-04-N-5-open-defect-triage.md row 15), from
+`docs/NOT-FINALIZED.md` item 3, an honest limit code cannot fix rather than
+backlog work. The entry it replaces there stays in place, pointing here,
+per this project's rule against editing a dated entry to agree with today.
+
+Was: the owning value was printed in plaintext into the file every session
+reads, so the ownership check compared a public value against itself.
+
+Now: a per-session secret, stored owner-only, with only a hash on the
+claim. Copying the label from `STATE.md` gains an attacker nothing
+(proven).
+
+Still: any process running as your user can read the token file and
+impersonate fully. Perfect unforgeability is not reachable on one machine,
+one user, no network. Documented in `docs/HOOKS.md` rather than overclaimed;
+nothing further for code to do here.
+
 ## P7: what the optional search index does NOT do
 
 - IT IS ENGLISH STEMMING. The tokenizer is `porter unicode61`. unicode61 folds
@@ -259,6 +279,19 @@ person was not sure about.
   They can never be retrieved (the state filter runs before ranking), so this
   costs index size, not privacy: the same text is in the versions table either
   way. Un-indexing them is not done.
+- THE MEASURED GAIN RESTS ON ONE LABELLED FIXTURE. COMPLETED HERE 2026-08-04
+  (N-5 bucket 3, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md
+  row 5, completing what N-5 called the partial coverage of this claim by
+  the public-benchmark caveat above). `docs/NOT-FINALIZED.md`'s entry on
+  this stays in place, pointing here. The improvement claim rests on the
+  stemming case, reproduced on the real CLI both ways round: a rule written
+  about "pushing", a task that says "pushed", found under fts5 and not
+  under lexical. That is a demonstration, not a benchmark. No labelled
+  corpus of founder rules with graded relevance exists yet, so "FTS5
+  improves measured retrieval" is true of the fixture and unproven at
+  scale. Proving the gain at scale needs a labelled corpus, which is data
+  to gather, not code to write; the register's X-03 item names the same
+  gap.
 
 ## P6: what the retrieval run still cannot tell you
 
@@ -679,6 +712,87 @@ The original external audit contained 63 findings. Twenty-two were reproduced by
 execution. The remainder were triaged into phases by class rather than each being
 re-proven. If one of them matters to a decision, re-verify it rather than trusting
 this file.
+
+## Orchestration practice did not improve, only the outcome did
+
+MOVED HERE 2026-08-04 (N-5 bucket 3,
+docs/closure/reports/2026-08-04-N-5-open-defect-triage.md row 25), from
+`docs/NOT-FINALIZED.md` item 13. A process observation, not a code defect,
+so there is no fix to build, only practice to change: `docs/NOT-FINALIZED.md`
+stays in place with this pointer, per this project's rule against editing a
+dated entry to agree with today.
+
+Fences were written AFTER dispatch three times. Two agents were given the
+same file under an "add-only" fence, which is not a safe concurrency
+primitive on a text file. No collision resulted, because the write sets
+happened to be disjoint. Scored flat rather than up, because scoring a
+lucky outcome is how a scorecard becomes flattery.
+
+## The two oldest published release tags are lightweight, not annotated
+
+MOVED HERE 2026-08-04 (N-5 bucket 3,
+docs/closure/reports/2026-08-04-N-5-open-defect-triage.md row 37), from
+`docs/NOT-FINALIZED.md` item 23. Not closable by design: fixing it means
+force-updating two already-published refs, which this project refuses to
+do on its own initiative, so it belongs here as a standing limit rather than
+in a backlog. `docs/NOT-FINALIZED.md` stays in place with this pointer, per
+this project's rule against editing a dated entry to agree with today.
+
+`docs/RELEASE.md` requires release tags to be annotated ("annotated, not
+lightweight, as the steps below require"), and the two OLDEST published
+tags do not meet that rule:
+
+    remote v2.0.0-rc.1 -> 7c2e0ec   (no ^{} line: LIGHTWEIGHT)
+    local  v2.0.0-rc.1 -> tag object ea0ca74 -> commit 7c2e0ec  (ANNOTATED)
+    remote v2.0.0-rc.2 -> 2aef6a4   (no ^{} line: LIGHTWEIGHT)
+    local  v2.0.0-rc.2 -> tag object 09224c7 -> commit 2aef6a4  (ANNOTATED)
+
+Both names resolve to the SAME COMMIT on both sides; the local copies carry
+more information (an annotation object) than the remote does, so re-pointing
+the local tags to match the remote would lose information for nothing, and
+`git fetch --tags` already refuses that with "would clobber existing tag".
+`rc.4`, `rc.6` and `rc.7` are all annotated on the remote (each shows a
+`^{}` line). Impact is low: `rc.1` is withdrawn and `rc.2` superseded, so
+nothing current depends on either, and a lightweight tag still names the
+right commit. N-5 re-checked this fresh with a read-only
+`git ls-remote --tags origin`: v2.0.0-rc.1 and v2.0.0-rc.2 still show no
+peeled `^{}` line while v2.0.0-rc.13 does.
+
+## The two handover flakes were not reproduced; a third was, and is fixed
+
+MOVED HERE 2026-08-04 (N-5 bucket 3,
+docs/closure/reports/2026-08-04-N-5-open-defect-triage.md row 38), from
+`docs/NOT-FINALIZED.md` item 24. Two flakes are UNDECIDABLE rather than
+open work: code cannot fix what cannot be reproduced, and the CI annotation
+wrapper already captures any recurrence, which is what a code fix would
+have bought here anyway. `docs/NOT-FINALIZED.md` stays in place with this
+pointer, per this project's rule against editing a dated entry to agree
+with today.
+
+**Handover item 9, "the store suite fails when it runs slowly."** The
+recorded correlate was 71 seconds for a failing run against 12 to 13 for a
+passing one. Re-run three times under deliberate CPU load: about 32 seconds
+each time, all green, well short of the 71 recorded. Evidence of absence at
+that load on that machine, not proof the defect is gone.
+
+**Handover item 10**, a named test asserting a deliberate two-thread race
+on the handover lock, does not exist in the tree under that name and the
+suite that would hold it contains no `threading.Thread` at all. Either
+renamed or removed between the handover and today; recorded as
+UNDECIDABLE rather than closed.
+
+**A third load-sensitive failure, in `test_bm.py`, WAS reproduced and IS
+fixed.** A bare-stopwatch timing test with no baseline measured the machine
+rather than the algorithm, and a first fix attempt (deriving the ceiling
+from a small-input measurement) was shown wrong by calibration: a
+deliberately reinjected quadratic redactor passed it, because a quadratic
+inflates the small measurement too. The assertion now lives on the RATIO of
+large to small timing, which no defect can inflate the same way, and it was
+calibrated both directions (linear passes, reinjected quadratic fails) and
+confirmed green three times under the load that produced the original
+failure. C-11 (closure register) later moved the underlying timer itself to
+a minimum-of-five-samples helper shared by both timing tests, which is
+outside the scope of this move and is not restated here.
 
 ## The plugin install path and the beginner layer: brand new, installed once
 
