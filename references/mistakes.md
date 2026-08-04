@@ -83,3 +83,8 @@ its own errors.
   click landed. The push was correct and wanted, which is the only reason this
   is a near-miss rather than an incident; the same misread on a Merge or a
   Force-push button is not recoverable.
+- A CI result belongs to ONE COMMIT. Quoting a green run beside a newer SHA
+  borrows an older commit's evidence for code it never tested, and it reads as
+  verification to anyone who trusts the sentence. Name the commit next to the
+  verdict, and if the current one has not finished, say "in progress" rather
+  than reaching back one commit for a number that looks better.
