@@ -33,17 +33,21 @@ probe could never reach the pattern.
 
 ## 2. WHERE THINGS STAND
 
-- Branch `feature/loops-2-and-3-closure`, commit `ebc11e8`, pushed.
+- Branch `feature/loops-2-and-3-closure`, commit `2327746`, pushed and verified
+  (HEAD, upstream and ls-remote all agree).
 - Pull request #5 OPEN: https://github.com/khalilmaaouni/BrotherModeUp/pull/5
-- Full gate at `ebc11e8`: `test_all: 1536 tests across 15 suites, 6 skipped,
-  220.4s wall. ALL GREEN`, exit 0, run after the last edit.
-- Integrity at `ebc11e8`: 251 files match, 0 missing, 0 extra, PASSED, exit 0.
-- CI on `ebc11e8` was `in_progress` and was NEVER READ. Read it yourself. A CI
-  verdict belongs to one commit and is never inherited.
-- IN FLIGHT at writing time, result unseen: an agent held a single-writer fence
-  on `tools/bm_telemetry.py` and `tools/test_bm.py` for the eleven telemetry
-  fixes. If those files are dirty or the suite is red, that is why. Check
-  `git status` and `STATE.md` wave 21 first.
+- Full gate at `2327746`: `test_all: 1550 tests across 15 suites, 6 skipped,
+  359.8s wall. ALL GREEN`, exit 0, run after the last edit.
+- Integrity at `2327746`: 254 files match, 0 missing, 0 extra, PASSED, exit 0.
+- CI on `ebc11e8` completed SUCCESS, read directly. CI on `2327746` was still
+  `in_progress` and was NOT read. Read it yourself. A CI verdict belongs to one
+  commit and is never inherited.
+- Loop 6 has since CLOSED: eleven of eleven telemetry findings fixed, each with
+  a test written first and shown failing before the fix. `tools/test_bm.py` went
+  from 242 tests to 256, and my own re-run reported `Ran 256 tests` / `OK` at
+  exit 0. Two improvements were deliberately left out and recorded as
+  suggestions: a shared helper for labelled-absence text, and removing a
+  duplicated overlap count that lives in `tools/bm_store.py`, outside the fence.
 
 | Loop | What it was | State |
 |---|---|---|
@@ -53,7 +57,7 @@ probe could never reach the pattern.
 | 3 | beginner install path unverified | closed, evidence section 3 |
 | 4 | unblock full auto by configuration | configured, behaviour NOT verified |
 | 5 | open-defect triage | closed, bucket 1 empty |
-| 6 | telemetry audit, eleven findings | in flight, result unseen |
+| 6 | telemetry audit, eleven findings | closed, 11 of 11 fixed |
 | 7 | promote to a public 2.0.0 | not started, founder cuts the tag |
 
 ---
@@ -201,7 +205,7 @@ the shell instead.
 
 ## 7. WHAT TO DO NEXT, in priority order
 
-1. **Finish or verify Loop 6, the eleven telemetry defects.** Authoritative list
+1. **Adversarially review Loop 6, which is now fixed but unreviewed.** Authoritative list
    with a calibrated probe per finding:
    `docs/closure/reports/2026-08-04-N-6-telemetry-findings.md`. The worst: a
    single JSON `null` in a token field destroys the whole scorecard, because the
