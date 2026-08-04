@@ -6464,5 +6464,344 @@ class TestScorecardNeverPrintsAvgNone(unittest.TestCase):
             self.assertIn("avg=no data", r.stdout)
 
 
+def _telemetry_env(home, vault):
+    """Env for driving bm_telemetry.py against a THROWAWAY vault only. HOME is
+    pinned too (not just the vault variables) so nothing here can reach the
+    real home directory of whoever runs the suite, the same isolation
+    TestConsentGateOnCheckUpdateAndIntent above uses."""
+    return dict(os.environ, HOME=home, BROTHERMODE_VAULT=vault,
+                BROTHERSBE_VAULT=vault)
+
+
+def _write_telemetry(vault, name, rows):
+    """A crafted telemetry jsonl in a throwaway vault. Rows are written as
+    given (a string entry is written verbatim, so a test can put a line that
+    is valid JSON but not a record into the file)."""
+    teld = os.path.join(vault, "99-System", "telemetry")
+    os.makedirs(teld, exist_ok=True)
+    path = os.path.join(teld, name)
+    with io.open(path, "w", encoding="utf-8") as f:
+        for r in rows:
+            f.write((r if isinstance(r, str) else json.dumps(r)) + "\n")
+    return path
+
+
+def _write_ledger(vault, rows):
+    return _write_telemetry(vault, "outcomes.jsonl", rows)
+
+
+def _ledger_row(sid, **over):
+    """One well-formed schema-2 ledger row, before a test spoils one field."""
+    row = {"schema": 2, "ts": bm.now_iso(), "session_id": sid, "project": "p",
+           "end_reason": "other", "gen_ai.usage.output_tokens": 1000,
+           "gen_ai.usage.input_tokens": 10, "sub_out_tokens": 100,
+           "cache_read": 900, "cache_write": 100, "duration_h": 1.0}
+    row.update(over)
+    return row
+
+
+class TestNumericSiblingFieldsSurviveBadValues(unittest.TestCase):
+    """A2 finding 1 (2026-08-04). fld() was hardened against a null or a
+    string on OUT_KEYS and IN_KEYS, but sub_out_tokens, cache_read,
+    cache_write and duration_h are written side by side by the SAME record
+    literal in the same writer (bm_telemetry.py line 656 to 663) and were
+    still read with a raw r.get(key, 0), which returns the stored null
+    unchanged. Whatever hand edit, restored backup or older schema can put a
+    null on the field that was fixed can put one on its siblings with equal
+    ease, and the resulting TypeError inside the sum is swallowed by the
+    blanket handler in main() into one cryptic line instead of the nine
+    metrics, the speed table, or the spend line."""
+
+    def _run(self, cmd, bad):
+        with tempfile.TemporaryDirectory() as v, tempfile.TemporaryDirectory() as home:
+            _write_ledger(v, [_ledger_row("s1"), _ledger_row("s2", **bad)])
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"), cmd],
+                               env=_telemetry_env(home, v), cwd=home,
+                               capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0)
+        self.assertNotIn("swallowed error", r.stdout,
+                         "%s collapsed on %r instead of handling it" % (cmd, bad))
+        return r.stdout
+
+    def test_scorecard_survives_null_sibling_token_fields(self):
+        out = self._run("scorecard", {"sub_out_tokens": None, "cache_read": None,
+                                      "cache_write": None})
+        self.assertIn("BROTHERMODE SCORECARD", out)
+        self.assertIn("9 cache economy", out,
+                      "the scorecard must still print every metric line, not stop "
+                      "part way through")
+
+    def test_scorecard_survives_string_sibling_token_fields(self):
+        out = self._run("scorecard", {"sub_out_tokens": "lots", "cache_read": "many",
+                                      "cache_write": "some"})
+        self.assertIn("BROTHERMODE SCORECARD", out)
+        self.assertIn("9 cache economy", out)
+
+    def test_speed_survives_a_null_duration(self):
+        out = self._run("speed", {"duration_h": None})
+        self.assertIn("BROTHERMODE SPEED", out)
+        self.assertIn("last 7d ", out, "the speed table must still print both windows")
+        self.assertIn("prior 7d", out)
+
+    def test_speed_survives_a_string_duration_and_sub_out_tokens(self):
+        out = self._run("speed", {"duration_h": "2h", "sub_out_tokens": "lots"})
+        self.assertIn("BROTHERMODE SPEED", out)
+        self.assertIn("last 7d ", out)
+        self.assertIn("prior 7d", out)
+
+    def test_startup_nags_survives_a_null_sub_out_tokens(self):
+        out = self._run("startup-nags", {"sub_out_tokens": None})
+        self.assertIn("BROTHERMODE SPEND", out,
+                      "the 24h spend line must still print")
+
+    def test_startup_nags_survives_a_string_sub_out_tokens(self):
+        out = self._run("startup-nags", {"sub_out_tokens": "lots"})
+        self.assertIn("BROTHERMODE SPEND", out)
+
+
+class TestValidJsonNonObjectRowsAreReportedMalformed(unittest.TestCase):
+    """A2 finding 2 (2026-08-04). read_jsonl appended whatever json.loads
+    returned, and a JSON scalar or array is valid JSON, so a line reading
+    `null`, `123`, `"text"` or `[1,2,3]` landed in `rows` as None, int, str
+    or list. Every consumer then calls rec.get(...) on it and raises
+    AttributeError, which the blanket handler in main() swallows into one
+    line, taking out the scorecard AND both repair commands an operator
+    would reach for to fix the file. read_jsonl's own docstring promises
+    'a caller doing arithmetic over rows still gets clean data'; a row that
+    merely parses is not clean, so a non-record row is now counted and
+    reported down the SAME malformed-line path as an unparseable line."""
+
+    def _run(self, cmd, vault):
+        with tempfile.TemporaryDirectory() as home:
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"), cmd],
+                               env=_telemetry_env(home, vault), cwd=home,
+                               capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0)
+        self.assertNotIn("swallowed error", r.stdout,
+                         "%s collapsed on a valid-JSON non-record row" % cmd)
+        return r.stdout
+
+    def test_scorecard_reports_a_bare_null_ledger_line(self):
+        with tempfile.TemporaryDirectory() as v:
+            _write_ledger(v, [_ledger_row("s1"), "null"])
+            out = self._run("scorecard", v)
+        self.assertIn("BROTHERMODE SCORECARD", out)
+        self.assertIn("9 cache economy", out)
+        self.assertIn("ledger=1", out,
+                      "the bare null row must be counted in the malformed disclosure")
+
+    def test_scorecard_reports_a_json_array_ledger_line(self):
+        with tempfile.TemporaryDirectory() as v:
+            _write_ledger(v, [_ledger_row("s1"), "[1,2,3]"])
+            out = self._run("scorecard", v)
+        self.assertIn("BROTHERMODE SCORECARD", out)
+        self.assertIn("9 cache economy", out)
+        self.assertIn("ledger=1", out)
+
+    def test_scorecard_reports_a_bare_null_signals_line(self):
+        with tempfile.TemporaryDirectory() as v:
+            _write_ledger(v, [_ledger_row("s1")])
+            _write_telemetry(v, "signals.jsonl",
+                             [{"ts": bm.now_iso(), "kind": "rework", "session_id": "s1"},
+                              "null"])
+            out = self._run("scorecard", v)
+        self.assertIn("BROTHERMODE SCORECARD", out)
+        self.assertIn("signals=1", out,
+                      "the bare null signals row must be counted in the malformed "
+                      "disclosure, not silently lower the rework count")
+
+    def test_scorecard_reports_a_json_string_ratings_line(self):
+        with tempfile.TemporaryDirectory() as v:
+            _write_ledger(v, [_ledger_row("s1")])
+            _write_telemetry(v, "ratings.jsonl",
+                             [{"ts": bm.now_iso(), "score": 5, "attributed": True},
+                              '"text"'])
+            out = self._run("scorecard", v)
+        self.assertIn("BROTHERMODE SCORECARD", out)
+        self.assertIn("ratings=1", out)
+
+    def test_migrate_survives_and_reports_a_bare_null_ledger_line(self):
+        with tempfile.TemporaryDirectory() as v:
+            _write_ledger(v, [_ledger_row("s1"), "null"])
+            out = self._run("migrate", v)
+        self.assertIn("1 malformed line(s)", out,
+                      "migrate must name the non-record row it left out of the "
+                      "rewritten file")
+        self.assertIn("nothing was deleted", out)
+
+    def test_dedup_survives_and_reports_a_bare_null_ledger_line(self):
+        with tempfile.TemporaryDirectory() as v:
+            _write_ledger(v, [_ledger_row("s1"), "null"])
+            out = self._run("dedup", v)
+        self.assertIn("1 malformed line(s) left in place", out,
+                      "dedup must name the non-record row it read past")
+
+
+class TestMeasuredCountsARealInputTokenValue(unittest.TestCase):
+    """A2 finding 4 (2026-08-04). The comment above the `measured` line says
+    it means 'has a real input-token field', but the test was `k in r`,
+    which only proves the KEY is there. The same round taught fld() that a
+    null is not a real number and left this sibling check eight lines below
+    unchanged, so metric 2's stated 10-point target ('0 unmeasured') could
+    be reached by rows carrying no usable number at all."""
+
+    def test_null_and_string_input_tokens_are_not_counted_measured(self):
+        with tempfile.TemporaryDirectory() as v, tempfile.TemporaryDirectory() as home:
+            _write_ledger(v, [
+                _ledger_row("s1"),
+                _ledger_row("s2", **{"gen_ai.usage.input_tokens": None}),
+                _ledger_row("s3", **{"gen_ai.usage.input_tokens": "lots"}),
+            ])
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
+                                "scorecard"], env=_telemetry_env(home, v), cwd=home,
+                               capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0)
+        self.assertNotIn("swallowed error", r.stdout)
+        self.assertIn("measured=1/3", r.stdout,
+                      "only the row with a real numeric input-token value counts as "
+                      "measured; a null or a string is the absence the comment above "
+                      "that line already claims it reports")
+
+
+class TestUnreadableTimestampsAreDisclosed(unittest.TestCase):
+    """A2 finding 5 (2026-08-04). age_days returns None on any parse failure
+    and every caller writes (age_days(...) or 99) or (... or 999), so a row
+    whose ts is valid JSON but not a readable date is silently treated as
+    ancient and drops out of every window, while still counting in the
+    session total. The two numbers on the same printed line then disagree
+    with nothing to explain it, and read_jsonl's malformed-line reporting
+    cannot help because the row parses fine. The exclusion itself is
+    unchanged; it is now disclosed."""
+
+    def _run(self, cmd):
+        with tempfile.TemporaryDirectory() as v, tempfile.TemporaryDirectory() as home:
+            _write_ledger(v, [_ledger_row("s1"), _ledger_row("s2", ts="yesterday")])
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"), cmd],
+                               env=_telemetry_env(home, v), cwd=home,
+                               capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0)
+        self.assertNotIn("swallowed error", r.stdout)
+        return r.stdout
+
+    def test_scorecard_names_the_row_it_dropped_from_the_window(self):
+        out = self._run("scorecard")
+        self.assertIn("1 session(s) have a timestamp that could not be read", out,
+                      "the scorecard must say how many rows its 7d window silently "
+                      "excluded for an unreadable timestamp")
+        self.assertIn("ledger: 2 sessions, 1 last 7d", out,
+                      "the totals must still print, unchanged, alongside the note")
+
+    def test_speed_names_the_row_it_dropped_from_both_windows(self):
+        out = self._run("speed")
+        self.assertIn("1 session(s) have a timestamp that could not be read", out,
+                      "speed must say how many rows both windows silently excluded "
+                      "for an unreadable timestamp")
+        self.assertIn("last 7d ", out, "the speed table must still print")
+
+
+class TestScorecardDisclosesFutureDatedSessions(unittest.TestCase):
+    """A2 finding 6 (2026-08-04). The disclosure added for the future-dated
+    row landed on cmd_speed, the command where that row is ABSENT, and
+    nothing was added to cmd_scorecard, whose window (age <= 7, no lower
+    bound) still COUNTS it: the output tokens of a session timestamped ahead
+    of the clock are reported as spend from the last seven days with no
+    comment. The two commands still disagreed about the same file, which is
+    the exact condition the speed NOTE's own comment says it was written to
+    prevent."""
+
+    def test_a_future_dated_session_is_named_in_the_scorecard(self):
+        with tempfile.TemporaryDirectory() as v, tempfile.TemporaryDirectory() as home:
+            future = (bm.datetime.datetime.now(bm.datetime.timezone.utc)
+                      + bm.datetime.timedelta(hours=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            _write_ledger(v, [_ledger_row("s1"), _ledger_row("s2", ts=future)])
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
+                                "scorecard"], env=_telemetry_env(home, v), cwd=home,
+                               capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0)
+        self.assertNotIn("swallowed error", r.stdout)
+        self.assertIn("1 session(s) have a timestamp ahead of the clock", r.stdout,
+                      "the scorecard counts a future-dated session in its last-7d "
+                      "numbers and must say so, in the same words cmd_speed uses")
+        self.assertIn("ledger: 2 sessions, 2 last 7d", r.stdout,
+                      "the counting behavior itself is unchanged; only the silence is")
+
+
+class TestUnusableNumericFieldsAreDisclosed(unittest.TestCase):
+    """A2 finding 7 (2026-08-04). fld() substitutes its default for a
+    present-but-non-numeric field, so the crash it replaced became a
+    wrong-but-plausible number instead: two sessions, one of which really
+    had unknown output tokens, were reported as one total with nothing said.
+    The existing WARNING line scopes itself to lines that 'could not be
+    parsed', so it stays silent here by construction. This file's own law at
+    the top is 'Numbers are parsed or absent; nothing is invented', which
+    makes a labelled absence the required outcome, not a silent zero."""
+
+    def _run(self, cmd, rows):
+        with tempfile.TemporaryDirectory() as v, tempfile.TemporaryDirectory() as home:
+            _write_ledger(v, rows)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"), cmd],
+                               env=_telemetry_env(home, v), cwd=home,
+                               capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0)
+        self.assertNotIn("swallowed error", r.stdout)
+        return r.stdout
+
+    def test_scorecard_names_the_substituted_fields_and_still_prints_totals(self):
+        out = self._run("scorecard", [
+            _ledger_row("s1"),
+            _ledger_row("s2", **{"gen_ai.usage.output_tokens": None,
+                                 "gen_ai.usage.input_tokens": None}),
+        ])
+        self.assertIn("2 numeric field(s) were present but could not be read as a number",
+                      out, "the two substituted fields must be counted and named")
+        self.assertIn("ledger: 2 sessions, 2 last 7d, 1k out last 7d", out,
+                      "the totals must still print alongside the disclosure")
+        self.assertIn("measured=1/2", out,
+                      "the row whose fields were named unusable is the same row "
+                      "'measured' excludes; the two numbers must agree")
+
+    def test_speed_names_the_substituted_fields_and_still_prints_the_table(self):
+        out = self._run("speed", [
+            _ledger_row("s1"),
+            _ledger_row("s2", duration_h=None, **{"gen_ai.usage.output_tokens": None}),
+        ])
+        self.assertIn("2 numeric field(s) were present but could not be read as a number",
+                      out, "speed must disclose the substitutions in the same words "
+                           "the scorecard uses")
+        self.assertIn("last 7d ", out, "the speed table must still print")
+        self.assertIn("prior 7d", out)
+
+
+class TestScorecardAppliesTheWriteSideRatingRule(unittest.TestCase):
+    """A2 finding 8 (2026-08-04). cmd_rate validates hard on the write side
+    (int(), not float(), then 1 <= score <= 5, with a comment saying a
+    fractional score 'would mean the system rated itself, not the founder'),
+    and cmd_scorecard re-read the same file with only isinstance(x, (int,
+    float)) and averaged whatever it found: 4.5, 99, -3 and a JSON `true`
+    (an int in Python, and the exact type fld() deliberately excludes eight
+    hundred lines earlier) all went straight into metric 4. The ledger this
+    file calls the founder's own voice could carry a self-rating the write
+    path was built to refuse."""
+
+    def test_only_whole_scores_1_to_5_are_averaged_and_the_rest_are_named(self):
+        with tempfile.TemporaryDirectory() as v, tempfile.TemporaryDirectory() as home:
+            _write_ledger(v, [_ledger_row("s1")])
+            _write_telemetry(v, "ratings.jsonl", [
+                {"ts": bm.now_iso(), "score": s, "task": "t", "attributed": True}
+                for s in (5, 4.5, 99, True, -3)
+            ])
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bm_telemetry.py"),
+                                "scorecard"], env=_telemetry_env(home, v), cwd=home,
+                               capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0)
+        self.assertNotIn("swallowed error", r.stdout)
+        self.assertIn("ratings=1 avg=5.00", r.stdout,
+                      "only the score of 5 survives the rule the write side already "
+                      "enforces; the average must be computed on that alone")
+        self.assertIn("4 rating(s) carry a score the rate command itself refuses",
+                      r.stdout,
+                      "the four refused scores must be counted, not dropped silently")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
