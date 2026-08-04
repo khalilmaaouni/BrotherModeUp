@@ -1,0 +1,115 @@
+{
+  "product_name": "BrotherMode",
+  "updated": "2026-08-04",
+  "source_of_truth": "This file is the register a page must agree with before it claims anything. Four states only: certified means proven in this tree today by the evidence named; beta means real but with a named gap; experimental means built or planned but not measured; unsupported means it is not offered and no plan makes it offered. An evidence value of 'not measured' means exactly that, and on an unsupported row it also means the non-promise is not yet written into a shipped page. tools/test_bm_docs.py refuses an entry with an unknown state, an empty evidence field, or an evidence pointer naming a file that is not in the tree.",
+  "capabilities": [
+    {
+      "id": "single-writer-enforcement",
+      "title": "One writer per file, refused by a hook rather than by convention",
+      "state": "certified",
+      "evidence": "tools/bm_fence_hook.py refuses a write to a file another session has claimed, wired by hooks/hooks.json and proven by tools/test_bm_fence_hook.py."
+    },
+    {
+      "id": "durable-store-and-recovery",
+      "title": "Durable local store that survives a crash and can be recovered",
+      "state": "certified",
+      "evidence": "tools/bm_store.py holds the state and tools/test_bm_store.py exercises recovery; the store job in .github/workflows/tests.yml runs that suite on Linux, macOS and Windows."
+    },
+    {
+      "id": "evidence-discipline",
+      "title": "Current pages are held to the facts read out of the tree",
+      "state": "certified",
+      "evidence": "tools/test_bm_docs.py refuses a current page carrying a stale count, a stale version, or a dated record that declares no status; docs/ba/QA-GATES.md states the gates."
+    },
+    {
+      "id": "guided-beginner-flow",
+      "title": "Guided beginner flow on Claude Code",
+      "state": "certified",
+      "evidence": "skills/brotherme/SKILL.md drives the flow, commands/brotherme-start.md is its entry point, and docs/QUICKSTART.md is the install path a beginner follows."
+    },
+    {
+      "id": "ci-macos-and-linux",
+      "title": "Continuous integration on macOS and Linux",
+      "state": "certified",
+      "evidence": ".github/workflows/tests.yml runs the suite job on ubuntu-latest and macos-latest at Python 3.9 and 3.x, with fail-fast disabled so one platform cannot erase another's result."
+    },
+    {
+      "id": "telemetry-with-consent",
+      "title": "Session telemetry recorded only after the user consents",
+      "state": "certified",
+      "evidence": "scripts/setup.py writes the consent record, tools/bm_telemetry.py is the only writer, and tools/test_bm_consent.py refuses a write without consent."
+    },
+    {
+      "id": "plugin-packaging",
+      "title": "Install as a Claude Code plugin from the repository marketplace",
+      "state": "beta",
+      "evidence": "The manifests are real and installable (.claude-plugin/plugin.json, .claude-plugin/marketplace.json, tools/test_bm_plugin_install.py), and one install is recorded in docs/evidence/2026-07-31-first-plugin-install.md. The verified path stated in README.md is still the git clone, so this stays beta until the plugin path carries the same evidence."
+    },
+    {
+      "id": "windows",
+      "title": "Windows",
+      "state": "beta",
+      "evidence": "Only the store job in .github/workflows/tests.yml runs on windows-latest; the suite and gate jobs run on Linux and macOS only. docs/KNOWN-LIMITS.md records that the installer refuses Windows and that WSL works. There is no native Windows install lifecycle."
+    },
+    {
+      "id": "web-delivery-lane",
+      "title": "Delivering a web build through the same guided flow",
+      "state": "experimental",
+      "evidence": "not measured"
+    },
+    {
+      "id": "deployment-previews",
+      "title": "Deployment previews attached to a delivery",
+      "state": "experimental",
+      "evidence": "not measured"
+    },
+    {
+      "id": "benchmark-harness",
+      "title": "Benchmark harness comparing runs",
+      "state": "experimental",
+      "evidence": "docs/BENCHMARK.md describes the method and docs/BENCHMARK-V1-V2-RC2.md records a dated run. No run against the current tree is recorded, so no current number is claimed."
+    },
+    {
+      "id": "autonomous-production-publication",
+      "title": "Publishing to production on its own",
+      "state": "unsupported",
+      "evidence": "Not offered. Cutting and publishing a release is a founder-gated sequence of steps in docs/RELEASE.md, and the suite skips the release checks until a human has cut the tag."
+    },
+    {
+      "id": "automatic-spending",
+      "title": "Spending money on the user's behalf",
+      "state": "unsupported",
+      "evidence": "Not offered. SECURITY.md states there is no account and no server, and that the only outbound call is a version check the user invokes by hand."
+    },
+    {
+      "id": "legal-or-security-certification",
+      "title": "Legal or security certification of any kind",
+      "state": "unsupported",
+      "evidence": "not measured"
+    },
+    {
+      "id": "guaranteed-native-mobile",
+      "title": "A guaranteed native mobile result",
+      "state": "unsupported",
+      "evidence": "not measured"
+    },
+    {
+      "id": "replacement-of-specialist-review",
+      "title": "Replacing a human specialist review",
+      "state": "unsupported",
+      "evidence": "not measured"
+    },
+    {
+      "id": "multi-user-enterprise-pm",
+      "title": "Multi-user or enterprise project management",
+      "state": "unsupported",
+      "evidence": "Not offered. README.md states there is no shared server, no account system and no multi-user coordination layer, and that running this as a control plane for several people is not what it is for."
+    },
+    {
+      "id": "self-modification-of-safety-rules",
+      "title": "Changing its own safety rules",
+      "state": "unsupported",
+      "evidence": "not measured"
+    }
+  ]
+}
