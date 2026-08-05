@@ -17410,7 +17410,16 @@ class TestGlobAllowedPathsAreDepthExact(unittest.TestCase):
     and the env file. Design section 5.1: a glob is matched SEGMENT BY
     SEGMENT with fnmatch.fnmatchcase and is DEPTH EXACT, so it grants
     exactly what it matches at its own depth and nothing else. A plain
-    path still grants its whole subtree, which is the recursive spelling."""
+    path still grants its whole subtree, which is the recursive spelling.
+
+    AMENDED 2026-08-05 by founder decision: depth-exact is necessary and
+    was not sufficient, so a pattern now grants the FILES it matches at
+    its own depth and no directory. Two rows below moved with it, both
+    from ALLOWED to REFUSED-SCOPE, and the comment on
+    test_a_bare_star_is_one_segment_and_a_directory_glob_is_one_level
+    carries the reason. The rule lives in
+    TestAPatternGrantsOnlyWhatAFenceOverItWouldAlsoGrant at the end of
+    this file."""
 
     def test_a_directory_glob_admits_only_its_own_directory_at_its_own_depth(self):
         _gate_verdicts(self, ["api/*.py"], (
@@ -17439,12 +17448,32 @@ class TestGlobAllowedPathsAreDepthExact(unittest.TestCase):
             (".", "REFUSED-SCOPE")))
 
     def test_a_bare_star_is_one_segment_and_a_directory_glob_is_one_level(self):
+        # THE RULE CHANGED HERE, by founder decision on 2026-08-05, and
+        # these two rows are the ones it moved. Round 4 pinned ('src',
+        # ALLOWED) under ['*'] and ('src/app', ALLOWED) under ['src/*']:
+        # a pattern matched a plain DIRECTORY at its own depth. Round 5
+        # then MEASURED what that costs (FIX-round5-store-report.md
+        # section 3): a fence over a directory covers its whole subtree,
+        # so 'src/app/deep/keys.pem' was writable under ['src/*'] although
+        # gate_check REFUSES that file when it is named directly, and the
+        # property gate_check's own docstring states was false 35 times
+        # over 55440 triples. Round 5 stopped rather than move a pinned
+        # verdict; the founder moved it, choosing this rule over the two
+        # measured alternatives (a pattern granting the subtree of
+        # everything it matches reinstates the whole-project grant, and a
+        # pattern granting nothing breaks ['api/*.py']).
+        #
+        # It NARROWS: every row below that moved went from ALLOWED to
+        # REFUSED-SCOPE, and nothing that was refused became allowed. The
+        # rest of this class is untouched and still green, including the
+        # ('src/a.py', REFUSED-SCOPE) row directly under this comment,
+        # which is the depth-exactness round 4 landed.
         _gate_verdicts(self, ["*"], (
             ("main.py", "ALLOWED"),
-            ("src", "ALLOWED"),
+            ("src", "REFUSED-SCOPE"),
             ("src/a.py", "REFUSED-SCOPE")))
         _gate_verdicts(self, ["src/*"], (
-            ("src/app", "ALLOWED"),
+            ("src/app", "REFUSED-SCOPE"),
             ("src/app/main.py", "REFUSED-SCOPE"),
             ("src", "REFUSED-SCOPE")))
 
@@ -18056,7 +18085,15 @@ class TestGlobAllowancesGrantOnlyWhatTheyLiterallyMatch(unittest.TestCase):
          violations under a non-glob allowance, and every surviving
          violation is exactly that shape. It stays green if a later round
          removes them all, and goes red the moment a violation of any OTHER
-         shape appears, which is the guard worth having."""
+         shape appears, which is the guard worth having.
+
+    2026-08-05, the round that removed them all: the founder took the rule
+    decision this class was waiting on, so shape 2 is now empty and the
+    loops below are vacuous, exactly as the last sentence promised. Nothing
+    here was weakened to get there; the assertion that would catch a NEW
+    shape is unchanged, and the property is asserted rather than
+    characterised in
+    TestAPatternGrantsOnlyWhatAFenceOverItWouldAlsoGrant."""
 
     #: One and two segment paths built from these, on both sides.
     _LITERAL_TOKENS = ("src", "app", "api", "a.py", "b.py", "secrets.env")
@@ -18973,6 +19010,160 @@ class TestScopePathHandlingRefusesTotally(unittest.TestCase):
                     "a boundary documented TOTAL returns a string or "
                     "refuses; %s returned %r"
                     % (bs._safe_repr(entry), got))
+
+
+# ---------------------------------------------------------------------------
+# L03, the GLOB RULE. This is a FOUNDER DECISION taken on 2026-08-05 after
+# both alternatives were measured, not a bug fix, and it is the reason two
+# round-4 verdict rows move (see the comment on
+# TestGlobAllowedPathsAreDepthExact.
+# test_a_bare_star_is_one_segment_and_a_directory_glob_is_one_level).
+#
+# The rule: an allowed_paths entry grants a candidate path ONLY IF it also
+# grants everything a FENCE over that candidate would cover.
+#
+# The baseline this closes is docs/program/absolute-lead/evidence/L03/
+# FIX-round5-store-report.md section 3: 55440 triples, 35 violations, every
+# one the same shape (a pattern admits a plain DIRECTORY at its own depth,
+# and a fence over a directory covers its whole subtree, so
+# 'src/app/deep/keys.pem' became writable under ['src/*'] although naming
+# that file directly is REFUSED).
+# ---------------------------------------------------------------------------
+
+#: The sweep's universe. Directory names carry NO extension and file names
+#: DO, which is not a convenience of the fixture: it is exactly the reading
+#: the rule now makes of a name, so the tree a founder would write is the
+#: tree the sweep runs over.
+_SWEEP_LITERAL_TOKENS = ("src", "app", "api", "a.py", "keys.pem")
+_SWEEP_GLOB_TOKENS = ("*", "*.py", "?pp", "[ab]", "**", "s*", "*.pem")
+_SWEEP_COVERED = (
+    # directories
+    "src", "src/app", "src/app/deep", "api", "api/sub", "app",
+    # files
+    "src/a.py", "src/b.py", "src/keys.pem", "src/app/a.py",
+    "src/app/keys.pem", "src/app/deep/keys.pem", "api/a.py", "api/pay.py",
+    "api/sub/secrets.env", "app/a.py", "a.py", "keys.pem", "secrets.env",
+    "Makefile",
+)
+
+
+def _sweep_paths(tokens, depth):
+    """Every 1 to `depth` segment path spellable from `tokens`."""
+    out = []
+    for n in range(1, depth + 1):
+        for combo in itertools.product(tokens, repeat=n):
+            out.append("/".join(combo))
+    return out
+
+
+def _glob_rule_sweep():
+    """(triples, violations) for the property gate_check's own docstring
+    states: a path this check ALLOWS can never name a file that a directly
+    named path would be REFUSED for.
+
+    A violation is a triple (allowance, candidate, file) where the
+    allowance GRANTS the candidate, a fence over that candidate COVERS the
+    file, and the same allowance REFUSES that file by name. Both relations
+    come from the store's own primitives (path_within_allowed for the
+    verdict, _fence_covers for the coverage), so this measures the shipped
+    semantics rather than a model of them.
+
+    Kept at module level, not inside the TestCase, so the same sweep can be
+    run from a one-line command for the evidence file without a second
+    implementation of it existing anywhere."""
+    allowed = _sweep_paths(_SWEEP_LITERAL_TOKENS + _SWEEP_GLOB_TOKENS, 3)
+    candidates = _sweep_paths(_SWEEP_LITERAL_TOKENS, 3)
+    triples = len(allowed) * len(candidates) * len(_SWEEP_COVERED)
+    violations = []
+    for a in allowed:
+        for b in candidates:
+            if not bs.path_within_allowed(a, b):
+                continue
+            for f in _SWEEP_COVERED:
+                if _fence_covers(b, f) and not bs.path_within_allowed(a, f):
+                    violations.append((a, b, f))
+    return triples, violations
+
+
+class TestAPatternGrantsOnlyWhatAFenceOverItWouldAlsoGrant(unittest.TestCase):
+    """FOUNDER DECISION, 2026-08-05: an allowed_paths entry grants a
+    candidate path ONLY IF it also grants everything a FENCE over that
+    candidate would cover.
+
+    Two other rules were tried and measured in round 5 and both were
+    rejected by the founder, with their verbatim failures in
+    FIX-round5-store-report.md section 3: making a pattern grant the
+    SUBTREE of everything it matches reinstates the whole-project grant
+    (['*'] would authorise everything at every depth again), and making a
+    pattern grant NOTHING breaks ['api/*.py'], which is a legitimate
+    founder allowance. The chosen rule NARROWS only.
+
+    What it costs, stated so it is not discovered later: a pattern reads
+    the NAME it matched. An extensionless name is a directory, because a
+    fence over a directory covers its whole subtree and the pattern does
+    not match that subtree, so the pattern cannot grant it. A name that
+    carries an extension is a file, and a fence over a file covers the
+    file. Name the directory literally when the subtree is what you mean,
+    which is the spelling that has always granted a subtree."""
+
+    def test_a_pattern_no_longer_grants_a_directory_at_its_own_depth(self):
+        """Required outcome 1, and AZ's reproduction 4 from
+        REFUTATION-4-authorization.md: ['src/*'] admitted 'src/app', whose
+        fence then covered 'src/app/deep/keys.pem', a file the same
+        contract refuses when it is named directly."""
+        _gate_verdicts(self, ["src/*"], (
+            ("src/app", "REFUSED-SCOPE"),
+            ("src/app/deep/keys.pem", "REFUSED-SCOPE"),
+            # the file the pattern matches is untouched by the narrowing
+            ("src/a.py", "ALLOWED"),
+            ("src", "REFUSED-SCOPE")))
+
+    def test_a_founder_pattern_over_files_still_grants_the_files_it_names(self):
+        """Required outcome 2, and the reason remedy C was rejected:
+        ['api/*.py'] is a legitimate founder allowance and must keep
+        working exactly as it did."""
+        _gate_verdicts(self, ["api/*.py"], (
+            ("api/pay.py", "ALLOWED"),
+            ("api/pay.py/", "ALLOWED"),
+            ("api/notes.md", "REFUSED-SCOPE"),
+            ("api", "REFUSED-SCOPE"),
+            ("api/sub/deep/secrets.env", "REFUSED-SCOPE")))
+
+    def test_a_bare_star_grants_a_file_at_the_root_and_no_directory(self):
+        """Required outcome 3, and the reason remedy A was rejected: under
+        remedy A ['*'] granted 'src' AND its subtree, which is the whole
+        project grant coming back by the front door."""
+        _gate_verdicts(self, ["*"], (
+            ("main.py", "ALLOWED"),
+            ("src", "REFUSED-SCOPE"),
+            ("src/a.py", "REFUSED-SCOPE")))
+
+    def test_a_plain_path_still_grants_its_whole_subtree(self):
+        """The CONTROL. The rule moves the PATTERN branch and nothing else:
+        a plain path is still the recursive spelling, which is what a
+        founder is told to write when they mean a subtree."""
+        _gate_verdicts(self, ["src"], (
+            ("src", "ALLOWED"),
+            ("src/app", "ALLOWED"),
+            ("src/app/deep/keys.pem", "ALLOWED"),
+            ("srcx", "REFUSED-SCOPE")))
+
+    def test_no_path_this_gate_allows_names_a_file_it_would_refuse(self):
+        """Required outcome 4: the exhaustive sweep, ZERO violations.
+
+        Round 5 measured 35 violations over 55440 triples here and stopped,
+        because closing them meant moving a pinned verdict. The founder
+        moved it, so this asserts the property instead of characterising
+        the residual."""
+        triples, violations = _glob_rule_sweep()
+        self.assertGreater(triples, 100000,
+                           "the sweep must be exhaustive, not a sample")
+        self.assertEqual(
+            violations, [],
+            "%d violations over %d triples. Each is an allowance that "
+            "grants a candidate whose fence then covers a file the same "
+            "allowance refuses by name; the first three are %r"
+            % (len(violations), triples, violations[:3]))
 
 
 if __name__ == "__main__":

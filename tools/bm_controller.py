@@ -187,16 +187,81 @@ class RecordIntentWorker(WorkerAdapter):
                 "cost": {"tokens": 0, "minutes": 0}, "status": "pending"}
 
 
+#: THE ENVIRONMENT PREFIX A CHILD OF THIS ENGINE MAY NOT INHERIT
+#: (CROSS-FAMILY REFUTATION finding 3, HIGH, DATA DESTRUCTION).
+#:
+#: git honours GIT_DIR and GIT_WORK_TREE OVER cwd, so a shipped
+#: `bm-controller record-result` invoked in an environment where those are
+#: set (a git hook, a wrapper script, another repository's tooling) ran the
+#: unit's rollback against a DIFFERENT repository and exited 0, which this
+#: engine reads as a clean rollback and therefore warns nobody about. The
+#: orchestrator reproduced it first hand: two throwaway repositories P and
+#: Q, an uncommitted edit in Q, `GIT_DIR=../Q/.git GIT_WORK_TREE=../Q git
+#: restore -- a.py` run from inside P, and Q's edit was destroyed.
+#:
+#: A PREFIX rather than a list, and that is the whole point. The names were
+#: enumerated on this machine (git 2.50.1) as the union of three sources
+#: rather than from memory: the ENVIRONMENT VARIABLES section of git(1),
+#: the environment section of git-config(1), and `strings` over the shipped
+#: git binary. That union is 205 distinct GIT_ names, and the ones that
+#: really move where git operates are NOT all in the documentation:
+#: GIT_CONFIG, GIT_CONFIG_COUNT, GIT_CONFIG_PARAMETERS, GIT_ATTR_GLOBAL,
+#: GIT_ATTR_SYSTEM, GIT_GRAFT_FILE, GIT_SHALLOW_FILE, GIT_QUARANTINE_PATH,
+#: GIT_IMPLICIT_WORK_TREE, GIT_EXEC_PATH, GIT_TEMPLATE_DIR,
+#: GIT_REPLACE_REF_BASE and GIT_PREFIX all appear in git(1)'s own
+#: environment section NOWHERE. A hand-kept list would have shipped with
+#: those thirteen holes in it and would have grown a fourteenth the next
+#: time git added one. The prefix covers every name git reads today and
+#: every name it adds later, at the cost of the small, disclosed set below.
+#:
+#: WHAT THIS COSTS, stated rather than buried: a command that RELIED on an
+#: inherited GIT_AUTHOR_NAME, GIT_SSH_COMMAND or GIT_PAGER now sees git's
+#: own configured defaults instead. That is the correct direction for this
+#: product (a done_check that needs an ambient git identity is one that
+#: behaves differently for every founder who runs it), and it is the whole
+#: known cost of the rule.
+_GIT_ENV_PREFIX = "GIT_"
+
+
+def _sanitised_env(environ=None):
+    """The environment every subprocess this engine starts really gets: a
+    copy of the caller's, minus the whole git redirection class.
+
+    Takes `environ` so the rule can be exercised directly on a dictionary,
+    which is what makes it testable without a process at all. Everything
+    else is passed through untouched, deliberately: PATH, HOME and the
+    founder's own tooling variables are what make a legitimate done_check
+    work, and an empty environment would break every real check for
+    reasons that have nothing to do with safety."""
+    source = os.environ if environ is None else environ
+    return {k: v for k, v in source.items()
+            if not k.startswith(_GIT_ENV_PREFIX)}
+
+
 class SubprocessCheckRunner(CheckRunner):
     """Production runner. The ONLY place in this file that touches
     `subprocess`: runs the done-check, the verifier command, the rollback
     command, and the final done-definition check, all founder-authored
     shell command strings stored on the unit or the contract, never text
-    this file composes itself."""
+    this file composes itself.
+
+    Every one of them runs in a SANITISED environment (_sanitised_env
+    above, CROSS-FAMILY REFUTATION finding 3): the git variables that
+    redirect where git reads and writes are stripped before anything
+    starts, so no command this engine runs can be pointed at another
+    repository by whatever the process that invoked `bm-controller`
+    happened to export.
+
+    This is the ONE place the strip can live and be total. The engine has
+    exactly one subprocess primitive, pinned structurally by
+    tools/test_bm_controller.py's _execution_primitive_offences, so a
+    command site added later inherits the sanitised environment by
+    construction rather than by remembering to ask for it."""
 
     def run(self, command, cwd):
         proc = subprocess.run(
-            command, shell=True, cwd=cwd, capture_output=True, text=True)
+            command, shell=True, cwd=cwd, capture_output=True, text=True,
+            env=_sanitised_env())
         return {"exit_code": proc.returncode, "stdout": proc.stdout,
                 "stderr": proc.stderr}
 
@@ -440,16 +505,74 @@ _NOTE_CONTRACT_PAUSED = ("the CONTRACT is paused, and that is what pauses "
                          "contract first with bm-autonomy resume, then "
                          "bm-controller resume this run")
 
+#: THE EXECUTION LEDGER, and the three clauses every founder-facing
+#: "nothing ran" sentence in this file is built from (REFUTATION-6 F2).
+#:
+#: Round 6 fixed one such sentence by giving one branch its own constant,
+#: and the defect came straight back in the constant this round INTRODUCED:
+#: `_NOTE_SPEND_BREAKER` hard-codes "NO command was run for this result:
+#: not the unit's done_check, not its verifier, not the rollback and not
+#: the whole done-definition", and two of its three use sites are reached
+#: in calls that just ran a done_check, a verifier and a `git restore`.
+#: docs/FULL-AUTO.md promises the opposite in as many words.
+#:
+#: A per-branch constant cannot fix that class, because the branch is
+#: exactly the wrong thing to derive the sentence from: it says which test
+#: refused, not what already executed. So the sentence is derived from the
+#: LEDGER ControllerEngine._run_command writes, which is the one funnel
+#: every command in this module passes through. A site that runs a command
+#: without naming itself to the ledger is a test failure
+#: (test_every_command_site_names_itself_to_the_ledger).
+#:
+#: SCOPE OF THE WORD "this call": the ledger is reset at every PUBLIC entry
+#: point, so on `bm-controller record-result`, which handles exactly one
+#: result, "this call" and "this result" are the same set. On a `step` or
+#: `check_timeouts` wave that judges several units it is the whole wave,
+#: which is coarser and still true. docs/KNOWN-LIMITS.md states that.
+
+
+def _nothing_ran_clause(executed):
+    """The clause for a sentence about a brake that stopped the work."""
+    if not executed:
+        return ("NO command was run for this result: not the unit's "
+                "done_check, not its verifier, not the rollback and not "
+                "the whole done-definition")
+    return ("no command was run after that point, and what this call HAD "
+            "already run, each under an authorisation that was live at the "
+            "moment it started, is: " + ", ".join(executed))
+
+
+def _nothing_executed_clause(executed):
+    """The same fact in the words the dispatch-closing branch uses."""
+    if not executed:
+        return ("NO command was executed (no done_check, no verifier, no "
+                "rollback)")
+    return ("nothing further was executed; this call had already run: "
+            + ", ".join(executed))
+
+
+def _step_execution_clause(executed):
+    """The same fact again, in the founder STEP, which is the copy a
+    founder still has days later when the summary is long gone."""
+    if not executed:
+        return ("Nothing was executed for it: not its done_check, not its "
+                "verifier and not its rollback, so its write_scope is in "
+                "whatever state the worker left it and needs manual "
+                "inspection.")
+    return ("Nothing further was executed for it; this call had already "
+            "run: %s. Its write_scope is in whatever state that left it "
+            "and needs manual inspection." % (", ".join(executed),))
+
+
 #: The contract is stopped, revoked or gone. NOTHING is authorised, and in
-#: particular nothing is EXECUTED: the kill switch stops the unit's own
-#: model-authored done_check, its verifier and the git rollback, not just
-#: new dispatches (REFUTATION-4 AZ F5).
-_NOTE_CONTRACT_NOT_LIVE = ("the contract is %s, not live: nothing is "
-                           "authorised, so the result was recorded and "
-                           "rejected and NO command was executed (no "
-                           "done_check, no verifier, no rollback). The "
-                           "fence is parked and a founder step names the "
-                           "unit")
+#: particular nothing further is EXECUTED: the kill switch stops the unit's
+#: own model-authored done_check, its verifier and the git rollback, not
+#: just new dispatches (REFUTATION-4 AZ F5).
+def _contract_not_live_note(state_word, executed):
+    return ("the contract is %s, not live: nothing is authorised, so the "
+            "result was recorded and rejected and %s. The fence is parked "
+            "and a founder step names the unit"
+            % (state_word, _nothing_executed_clause(executed)))
 
 #: A dispatch is open but the run stands where this engine may not start
 #: work. `bm-controller resume` no-ops unless the run is PAUSED and
@@ -497,12 +620,18 @@ _NOTE_CONTRACT_DIED_MIDCOMMAND = (
 #: record-result` still ran the unit's model-authored done_check AND the
 #: founder's whole done_definition, accepted the unit and declared the run
 #: DELIVERABLE_READY.
-_NOTE_SPEND_BREAKER = (
-    "the founder's SPEND CEILING has tripped, so nothing is authorised and "
-    "NO command was run for this result: not the unit's done_check, not "
-    "its verifier, not the rollback and not the whole done-definition (%s). "
-    "Raise the ceiling with bm-autonomy sign --supersede, or accept the "
-    "stop; the run drains on the next bm-controller step")
+#:
+#: REFUTATION-6 F2 turned it from a constant into a function of the
+#: LEDGER: two of its three use sites (_settle_after_wave and
+#: _deliver_or_hold) are reached in calls that may just have executed the
+#: unit's done_check, its verifier and a `git restore` under the round-6
+#: carve-out, and the constant told the founder that none of them ran.
+def _spend_breaker_note(reason, executed):
+    return ("the founder's SPEND CEILING has tripped (%s), so nothing "
+            "further is authorised and %s. Raise the ceiling with "
+            "bm-autonomy sign --supersede, or accept the stop; the run "
+            "drains on the next bm-controller step"
+            % (reason, _nothing_ran_clause(executed)))
 
 #: A run whose meter never saw an accepted unit's cost is not a
 #: deliverable (REFUTATION-5 S7). See _unreconciled_uncharged_spend.
@@ -522,6 +651,23 @@ _NOTE_SPEND_UNRECONCILED = (
 #: resolvable step AND blocks no work: _reconcile_lane_blocks only ever
 #: writes lanes that units are actually in.
 SPEND_RECONCILE_LANE = "spend-reconciliation"
+
+#: What makes a step in that lane a SPEND DISCLOSURE rather than merely a
+#: step that shares its lane (REFUTATION-6 F5). Round 6 called the lane
+#: reserved and reserved nothing: `plan` accepted a unit into it, and
+#: _unreconciled_uncharged_spend selected by LANE alone, so ANY step there
+#: blocked the whole run's delivery carrying a sentence that named a cause
+#: that had not happened ("N accepted unit(s) cost spend this engine could
+#: NOT charge") while the meter showed nothing uncharged at all.
+#:
+#: BOTH halves of the refuter's choice are taken, and they close different
+#: routes. _validated_units refuses the lane NAME, which is what makes the
+#: shipped documentation true and stops a unit ever being gated by the
+#: disclosure. This marker is what stops a step queued into that lane by
+#: anything OTHER than the disclosure (an SDK caller, a future tool, a
+#: hand-written row) from blocking delivery in the disclosure's name: the
+#: block is on the fact the disclosure itself wrote, not on where it sits.
+_SPEND_RECONCILE_MARKER = "UNCHARGED SPEND: "
 
 #: git reads a LEADING COLON as pathspec MAGIC, not as a file name
 #: (gitglossary(7), "pathspec"): ':/' is the repository root, ':!x' and
@@ -555,6 +701,39 @@ def _pathspec_literal(path):
     if path.startswith(_PATHSPEC_MAGIC_PREFIX):
         return _PATHSPEC_LITERAL_PREFIX + path
     return path
+
+
+def _git_prefix(root):
+    """The `git ...` the rollback starts with: the plain binary, or the
+    binary told EXACTLY which repository it is acting on.
+
+    CROSS-FAMILY REFUTATION finding 3, the second of two independent
+    defences (the first is _sanitised_env above). A command-line
+    --git-dir/--work-tree beats the environment, verified against git
+    2.50.1, so even a git variable that survived the strip cannot move
+    this command: with GIT_DIR and GIT_WORK_TREE both pointing at an
+    unrelated repository Q, the named command restored a.py in THIS
+    project and left Q's uncommitted edit exactly where it was.
+
+    The naming is conditional because it has to be honest: a repository
+    that is not at the project root is one this engine cannot name, and
+    guessing at an ancestor would be a worse answer than git's own
+    discovery. So when there is no .git at the root the command stays byte
+    for byte the one this engine has always composed, git discovers the
+    repository from cwd exactly as before, and _sanitised_env is what
+    protects that case. Both branches are pinned by tests.
+
+    A .git FILE (a linked worktree, a submodule) is named the same way as
+    a .git directory: git 2.50.1 follows the `gitdir:` indirection through
+    --git-dir, verified in a real linked worktree. A root whose .git is
+    neither makes git exit non-zero, which is the dirty-write-scope
+    warning path, so the founder hears about it instead of the engine
+    silently restoring somewhere else."""
+    marker = os.path.join(root, ".git")
+    if not os.path.exists(marker):
+        return "git "
+    return "git --git-dir=%s --work-tree=%s " % (shlex.quote(marker),
+                                                 shlex.quote(root))
 
 
 def _unsafe_scope_entry(entry):
@@ -642,6 +821,19 @@ def _unsafe_scope_container(field, value):
 #: retry and draining nothing.
 _DEFERRED_CONTENTION = "DEFERRED-CONTENTION"
 
+#: This file's OTHER own verdict word, and for the same reason: the unit's
+#: write_scope is not a SHAPE this engine can iterate as a list of paths,
+#: so no path in it can be judged and gate_check is never asked
+#: (REFUTATION-6 F4). The DISPATCH route asks _unsafe_write_scope before
+#: anything else; the JUDGING route round 6 added asked gate_check
+#: straight away and iterated `unit["write_scope"] or []`, so a
+#: non-iterable row left an uncaught TypeError out of receive_result, which
+#: main() does not catch (it catches bs.BMStoreError and ValueError). A
+#: refusal, not a traceback: the population this is for is the one
+#: _unsafe_scope_entry's docstring names, a store written by an older
+#: version, a hand-written row, an SDK caller that never ran `plan`.
+_REFUSED_SCOPE_SHAPE = "REFUSED-SCOPE-SHAPE"
+
 #: Dependency statuses no controller action can ever move forward again:
 #: select_ready_units requires every dependency to be DONE, FAILED means
 #: the circuit breaker is exhausted (design step 17), and SKIPPED means a
@@ -713,9 +905,26 @@ class ControllerEngine(object):
             DEFAULT_DISPATCH_TIMEOUT_SECONDS if dispatch_timeout_seconds
             is None else dispatch_timeout_seconds)
         self._now_fn = now_fn or _default_now
+        #: The execution ledger for the call in progress. See
+        #: _nothing_ran_clause and _open_call: it is the ONLY thing this
+        #: engine keeps on `self`, it is reset at every public entry, it
+        #: feeds founder-facing PROSE and nothing else, and no control flow
+        #: anywhere reads it. That is what keeps it inside the class
+        #: docstring's rule rather than an exception to it: a resumed
+        #: engine reconstructs position from the store exactly as before,
+        #: and the worst a stale ledger could ever do is name a command in
+        #: a sentence.
+        self._executed = []
 
     def _now(self):
         return self._now_fn()
+
+    def _open_call(self):
+        """Start this public call's execution ledger. Called at the top of
+        every entry point that can reach a command (step, receive_result,
+        check_timeouts), so the sentence "what this call ran" is answered
+        from this call and never from the last one."""
+        self._executed = []
 
     # -- the run guard and the one exit funnel -----------------------------
 
@@ -892,7 +1101,8 @@ class ControllerEngine(object):
                 return verdict
         return None
 
-    def _run_command(self, project_id, command, unit=None, charged=None):
+    def _run_command(self, project_id, command, unit=None, charged=None,
+                     label=None):
         """THE ONE place this engine hands a founder-authored or
         model-authored command to the CheckRunner, and it refuses to run
         one at all unless the WHOLE authorisation allows it at this
@@ -931,11 +1141,107 @@ class ControllerEngine(object):
         outside SubprocessCheckRunner.run and that `self.checker` is bound
         once and called once (REFUTATION-5 S5: the round-5 guard passed
         with `subprocess.run`, `os.system`, `getattr(self.checker, "run")`
-        and an aliased `runner = self.checker` added inline)."""
+        and an aliased `runner = self.checker` added inline).
+
+        `label` is what this command is CALLED in the sentence a founder
+        reads, and it is required of every call site by
+        test_every_command_site_names_itself_to_the_ledger
+        (REFUTATION-6 F2). It is appended to the ledger only AFTER the
+        runner returns, so the ledger holds what really executed rather
+        than what was about to be attempted; a runner that raises records
+        nothing, which is the conservative direction (a sentence that
+        under-claims what ran is corrected by the founder's own eyes on
+        the tree, one that over-claims is not)."""
         if self._authorisation_refusal(project_id, unit,
                                        charged) is not None:
             return None
-        return self.checker.run(command, cwd=self.store.root)
+        outcome = self.checker.run(command, cwd=self.store.root)
+        self._executed.append(label or command)
+        return outcome
+
+    def _authorisation_window(self, claimed, project_id, run_id, unit,
+                              exit_code, summary=None, charged=None):
+        """THE re-ask, and the ONE place its answer is turned into a
+        rejection. None when the whole authorisation still covers this
+        unit's work at this instant; otherwise the outcome word of a
+        rejection that has already been written down durably.
+
+        REFUTATION-6 F1 (HIGH, the founder's kill switch). Round 6 asked
+        this question in exactly one place, after the done_check, and
+        called it "after every command". It is not: in full auto the unit's
+        VERIFIER is model-authored shell of unbounded duration, and a stop
+        or a revoke landing while it ran was never re-asked, so the unit
+        was accepted under a killed contract, its fence released as sound
+        work, its dispatch recorded 'pass', and ZERO founder steps named
+        any of it. The founder's own done-definition had the same window in
+        front of DELIVERABLE_READY.
+
+        ONE helper rather than one copy per window, deliberately: two
+        copies of a question this consequential drift apart, and round 6's
+        own defect was exactly a second site that never got the first
+        site's fix. The complete set of windows is in this round's report
+        and is pinned structurally by _R7_COMMAND_SITES in
+        tools/test_bm_controller.py.
+
+        The rejection goes through _reject_as_stale, the SAME sequence the
+        done_check window and the ordinary staleness branch use, never a
+        lookalike: rejected verification carrying the real exit code, the
+        unit back through the circuit breaker, the rollback (itself gated,
+        so a dead contract composes it and runs nothing), the fence parked,
+        and a founder step."""
+        refusal = self._authorisation_refusal(project_id, unit, charged)
+        if refusal is None:
+            return None
+        unit_id = claimed["unit_id"]
+        state_word = self._contract_state(project_id) or "missing"
+        if refusal["verdict"] == "REFUSED-BREAKER":
+            reason = ("the founder's spend ceiling tripped while unit %s was "
+                      "being checked (%s): what had already started ran "
+                      "under a live authorisation, and nothing further is "
+                      "authorised, so the result is rejected rather than "
+                      "accepted" % (unit_id, refusal["reason"]))
+            stop_reason = "SPEND_STOP"
+            note = _spend_breaker_note(refusal["reason"], self._executed)
+        elif state_word != "live":
+            # Kept WORD FOR WORD from round 6's done_check window, which
+            # this method absorbed: the sentence a founder may already have
+            # seen for that window is the sentence they see for the others.
+            reason = ("the contract became %s while unit %s was being "
+                      "checked: the check had already started under a live "
+                      "authorisation so it RAN, and the authorisation it ran "
+                      "under no longer exists, so the result is rejected "
+                      "rather than accepted" % (state_word, unit_id))
+            stop_reason = "CONTRACT_NOT_LIVE"
+            note = _NOTE_CONTRACT_DIED_MIDCOMMAND % (state_word,)
+        else:
+            reason = ("the live contract stopped authorising unit %s's write "
+                      "scope while it was being checked (%s), so the result "
+                      "is rejected rather than accepted"
+                      % (unit_id, refusal["reason"]))
+            stop_reason = "FOUNDER_WAITING"
+            note = ("nothing was accepted: the live contract stopped "
+                    "authorising unit %s's write scope while it was being "
+                    "checked (%s). Widen the contract or re-plan the unit"
+                    % (unit_id, refusal["reason"]))
+        return self._reject_as_stale(
+            claimed, project_id, run_id, unit, exit_code, reason, summary,
+            stop_reason=stop_reason, note=note, charged=charged)
+
+    def _refusal_stop(self, project_id, refusal, not_live_note):
+        """(stop_reason, note) for a refusal on a path that will now run
+        NOTHING further and accept nothing. `not_live_note` is the one
+        sentence only the CALLER knows, taking the contract's state word;
+        the other two branches are identical everywhere and are therefore
+        written once (REFUTATION-6 F2: three hand-copied if/elif chains
+        were how the breaker's false sentence reached three call sites)."""
+        if refusal["verdict"] == "REFUSED-BREAKER":
+            return "SPEND_STOP", _spend_breaker_note(refusal["reason"],
+                                                     self._executed)
+        contract_state = self._contract_state(project_id)
+        if contract_state == "paused":
+            return "CONTRACT_PAUSED", _NOTE_CONTRACT_PAUSED
+        return ("CONTRACT_NOT_LIVE",
+                not_live_note % (contract_state or "missing",))
 
     def _authorisation_moved(self, project_id, stamped_revision):
         """(moved, latest_revision) for the staleness protocol: did the
@@ -1186,6 +1492,19 @@ class ControllerEngine(object):
                         details={"unit_id": unit_id,
                                  "fence_name": self.UNIT_FENCE_PREFIX
                                  + str(unit_id)})
+            lane = unit.get("lane")
+            if isinstance(lane, str) and lane.strip() == SPEND_RECONCILE_LANE:
+                raise bs.OwnershipRefused(
+                    "reserved-lane",
+                    "unit %r cannot be planned into lane %r: that lane is "
+                    "RESERVED for this engine's own uncharged-spend "
+                    "disclosure, whose founder step blocks delivery until "
+                    "the meter is reconciled, so a unit there would be "
+                    "gated by a bookkeeping step that has nothing to do "
+                    "with it. Nothing was written and the run has not "
+                    "moved; rename the lane and plan again."
+                    % (unit_id, SPEND_RECONCILE_LANE),
+                    details={"unit_id": unit_id, "lane": lane})
             self._refuse_bad_scopes(unit, unit_id)
             read_scope = unit.get("read_scope")
             if read_scope:
@@ -1247,6 +1566,7 @@ class ControllerEngine(object):
         and every one of them names its stop reason from STOP_REASONS or
         leaves it None to mean "the wave made progress, call step()
         again" (law L3)."""
+        self._open_call()
         run = self._run_or_refuse(project_id)
         run_id = run["run_id"]
         summary = {"run_id": run_id, "state": run["state"],
@@ -1584,6 +1904,7 @@ class ControllerEngine(object):
         that the result it just recorded also delivered the run, or that
         their own done-definition failed. Round 4 computed all three and
         dropped them (REFUTATION-4 LV L4-F1)."""
+        self._open_call()
         run = self._run_or_refuse(project_id)
         run_id = run["run_id"]
         summary = {} if summary is None else summary
@@ -1760,6 +2081,7 @@ class ControllerEngine(object):
             self.session_id, self.actor)
         self.store.queue_human_step(
             project_id, "", SPEND_RECONCILE_LANE,
+            _SPEND_RECONCILE_MARKER +
             "unit %s cost %d token(s) and %d minute(s) that could NOT be "
             "charged: the contract was %s when the answer arrived, and "
             "spend is only recordable against a live authorisation, so the "
@@ -1786,8 +2108,9 @@ class ControllerEngine(object):
         out of. A question whose answer decides whether a founder's
         ceiling means anything is not a question to answer through a
         window."""
-        return self.store.list_human_steps(
+        return [step for step in self.store.list_human_steps(
             project_id, lane=SPEND_RECONCILE_LANE, resolved=False, raw=True)
+            if (step["what"] or "").startswith(_SPEND_RECONCILE_MARKER)]
 
     def _handle_late_result(self, project_id, run_id, dispatch_id, unit,
                             state, summary=None, charged=None):
@@ -1862,7 +2185,8 @@ class ControllerEngine(object):
             # tree, and the kill switch stops it like every other command
             # (REFUTATION-4 AZ F5). None means nothing ran, which is not an
             # exit code and must never be read as one.
-            rb = self._run_command(project_id, rollback_cmd, unit, charged)
+            rb = self._run_command(project_id, rollback_cmd, unit, charged,
+                                   label="the unit's rollback (git restore)")
             if rb is not None and rb["exit_code"] != 0:
                 self._warn_dirty_write_scope(project_id, unit_id,
                                              rb["exit_code"], unit["lane"])
@@ -1885,7 +2209,8 @@ class ControllerEngine(object):
             if contract_state != "live":
                 self._set_reason(
                     summary, "CONTRACT_NOT_LIVE",
-                    _NOTE_CONTRACT_NOT_LIVE % (contract_state or "missing",))
+                    _contract_not_live_note(contract_state or "missing",
+                                            self._executed))
         return "rejected"
 
     # -- timeouts (design section 5 fault 4, "worker hangs") -----------
@@ -1927,6 +2252,7 @@ class ControllerEngine(object):
         dispatch-row fact. A unit whose STATUS drifted (the SKIPPED case
         LV's p14 case B found) is no longer invisible to the timeout, and a
         CANCELLED dispatch is correctly invisible to it."""
+        self._open_call()
         run = self.store.get_run(project_id, raw=True)
         if run is None:
             return []
@@ -2318,7 +2644,34 @@ class ControllerEngine(object):
         One call per DISTINCT path, in declaration order, short-circuiting
         on the first refusal (which is also what stops a REFUSED-STATE or
         REFUSED-BREAKER verdict from being followed by pointless further
-        checks before the caller starts its drain)."""
+        checks before the caller starts its drain).
+
+        THE CONTAINER QUESTION IS ASKED FIRST, HERE, and not only by the
+        dispatch route (REFUTATION-6 F4). `for path in unit["write_scope"]
+        or []` is a TypeError for a scalar and a character shredder for a
+        bare string, and round 6 put this method on the JUDGING path
+        without carrying _authorise_dispatch's own first line across, so
+        the SCOPE half of the authorisation refusal was not total: a
+        non-iterable row left a traceback out of receive_result, and
+        main() catches bs.BMStoreError and ValueError only.
+
+        The ENTRY question (a pathspec, an option-looking path, a glob)
+        is deliberately NOT asked here: it is asked where it is ACTED on,
+        in _rollback_plan, which composes no command for such a row and
+        tells the founder the scope was left as the worker left it. Moving
+        it here would refuse the done_check of a unit whose answer is
+        already in hand, and an existing test pins that behaviour
+        (test_a_scope_that_goes_bad_after_dispatch_is_never_rolled_back).
+        The container question is different in kind: without it there is
+        no loop to run at all."""
+        problem = _unsafe_scope_container("write_scope",
+                                          unit.get("write_scope"))
+        if problem is not None:
+            return {"verdict": _REFUSED_SCOPE_SHAPE, "floor": None,
+                    "revision": None, "contract_id": None,
+                    "reason": "unit %s cannot be judged against the "
+                              "contract: %s"
+                              % (unit["unit_id"], problem)}, None
         seen, paths = set(), []
         for path in unit["write_scope"] or []:
             if path not in seen:
@@ -2673,8 +3026,22 @@ class ControllerEngine(object):
         provider outage, so no caller could tell them apart, and a driver
         re-asked the same unavailable worker max_steps times (15 of 15
         steps, 15 asks) while the shape the production RecordIntentWorker
-        ALWAYS produces spun for the same reason."""
-        status = result.get("status")
+        ALWAYS produces spun for the same reason.
+
+        THE SHAPE QUESTION IS ASKED FIRST (CROSS-FAMILY REFUTATION finding
+        2). This method used to read `result.get("status")` on its first
+        line, BEFORE the malformed-result branch below, so an SDK
+        WorkerAdapter returning None, a list, a string or an int raised
+        AttributeError straight out of the engine: the unit was left
+        DISPATCHED, the run EXECUTING and the fence ACTIVE, which is worse
+        than the malformed result it should have been, because the next
+        step finds an orphaned dispatch rather than a rejection it can
+        retry. `result` is UNTRUSTED worker output and the very first
+        question about untrusted input is what shape it is; a result that
+        is not a dict now takes exactly the same recorded rejection every
+        other malformed result takes."""
+        shapeless = not isinstance(result, dict)
+        status = None if shapeless else result.get("status")
         dispatch_id = claimed["dispatch_id"]
         unit_id = claimed["unit_id"]
 
@@ -2692,12 +3059,15 @@ class ControllerEngine(object):
                 project_id=project_id)
             return None, "OUTAGE"
 
-        if status == "malformed" or "artifacts" not in result:
+        if shapeless or status == "malformed" or "artifacts" not in result:
             # Untrusted worker output never crashes the controller
             # (fault 5): treated as a rejected result, not an exception.
+            # `shapeless` is checked FIRST so the two reads below are only
+            # ever made of something that really is a dict.
             self.store.record_result(
-                dispatch_id, result.get("worker_claim", ""), [], self.actor,
-                project_id=project_id)
+                dispatch_id,
+                "" if shapeless else result.get("worker_claim", ""), [],
+                self.actor, project_id=project_id)
             self._ensure_verifying(project_id, run_id)
             self.store.record_verification(
                 dispatch_id, None, "malformed worker output", False,
@@ -2764,7 +3134,8 @@ class ControllerEngine(object):
                 self._contract_state(project_id), summary, refusal=refusal)
 
         outcome = self._run_command(project_id, unit["done_check"] or "true",
-                                    unit, charged)
+                                    unit, charged,
+                                    label="the unit's done_check")
         if outcome is None:
             # The authorisation died between the read above and this call.
             # The same answer as the branch above, reached one statement
@@ -2776,21 +3147,13 @@ class ControllerEngine(object):
                                                     charged))
         exit_ok = outcome["exit_code"] == unit["done_check_expect_exit"]
 
-        # -- S3: the kill switch can land DURING the command above.
-        after = self._authorisation_refusal(project_id, unit, charged)
-        if after is not None:
-            state_word = self._contract_state(project_id) or "missing"
-            return self._reject_as_stale(
-                claimed, project_id, run_id, unit, outcome["exit_code"],
-                "the contract became %s while unit %s was being checked: "
-                "the check had already started under a live authorisation "
-                "so it RAN, and the authorisation it ran under no longer "
-                "exists, so the result is rejected rather than accepted"
-                % (state_word, unit_id),
-                summary,
-                stop_reason="CONTRACT_NOT_LIVE",
-                note=_NOTE_CONTRACT_DIED_MIDCOMMAND % (state_word,),
-                charged=charged)
+        # -- WINDOW 1 of 3 on this path (REFUTATION-5 S3, REFUTATION-6 F1):
+        # the kill switch can land DURING the done_check above.
+        stale = self._authorisation_window(
+            claimed, project_id, run_id, unit, outcome["exit_code"], summary,
+            charged)
+        if stale is not None:
+            return stale
 
         moved, latest_revision = self._authorisation_moved(
             project_id, claimed["contract_revision"])
@@ -2805,7 +3168,8 @@ class ControllerEngine(object):
         verifier_ok = True
         if unit["verifier"]:
             v_outcome = self._run_command(project_id, unit["verifier"],
-                                          unit, charged)
+                                          unit, charged,
+                                          label="the unit's verifier")
             if v_outcome is None:
                 return self._close_without_running(
                     project_id, run_id, claimed, unit,
@@ -2813,11 +3177,32 @@ class ControllerEngine(object):
                     refusal=self._authorisation_refusal(project_id, unit,
                                                         charged))
             verifier_ok = v_outcome["exit_code"] == 0
+            # -- WINDOW 2 of 3. The verifier is MODEL-authored shell in
+            # full auto, so its duration is unbounded and it is the window
+            # REFUTATION-6 F1 walked through. Round 6 asked nothing between
+            # here and the acceptance below.
+            stale = self._authorisation_window(
+                claimed, project_id, run_id, unit, outcome["exit_code"],
+                summary, charged)
+            if stale is not None:
+                return stale
         accepted = exit_ok and verifier_ok
         verdict_text = ("pass" if accepted else
                         "fail: done_check_exit=%s (wanted %s) verifier_ok=%s"
                         % (outcome["exit_code"],
                            unit["done_check_expect_exit"], verifier_ok))
+        # -- WINDOW 3 of 3, and the one that holds whatever a later edit
+        # puts above it: NOTHING is written about this unit's fate until
+        # the authorisation has been asked one last time, immediately
+        # before the write. Window 2 is adjacent to it today and is kept
+        # anyway, because "re-asked after every command" and "re-asked
+        # before the acceptance" are two different promises and the second
+        # one must not depend on nothing ever being inserted between them.
+        stale = self._authorisation_window(
+            claimed, project_id, run_id, unit, outcome["exit_code"], summary,
+            charged)
+        if stale is not None:
+            return stale
         self.store.record_verification(
             dispatch_id, outcome["exit_code"], verdict_text, accepted,
             self.actor, project_id=project_id)
@@ -2873,7 +3258,8 @@ class ControllerEngine(object):
         if rb_refusal is not None:
             self._warn_unrollbackable_scope(project_id, rb_refusal, lane)
         elif rollback_cmd is not None:
-            rb = self._run_command(project_id, rollback_cmd, unit, charged)
+            rb = self._run_command(project_id, rollback_cmd, unit, charged,
+                                   label="the unit's rollback (git restore)")
             if rb is not None and rb["exit_code"] != 0:
                 self._warn_dirty_write_scope(
                     project_id, claimed["unit_id"], rb["exit_code"], lane)
@@ -2889,13 +3275,14 @@ class ControllerEngine(object):
             # which is round 5's behaviour unchanged.
             self.store.queue_human_step(
                 project_id, "", lane,
-                "unit %s answered, its done_check RAN, and the "
-                "authorisation it ran under was gone by the time the "
-                "verdict was read (%s). The result is recorded and "
-                "rejected and its write_scope is in whatever state the "
-                "check left it, so it needs manual inspection. Sign a "
-                "fresh contract and re-plan to attempt it again, then "
-                "resolve this step." % (claimed["unit_id"], reason),
+                "unit %s answered, this call RAN %s, and the authorisation "
+                "they ran under was gone by the time the verdict was read "
+                "(%s). The result is recorded and rejected and its "
+                "write_scope is in whatever state they left it, so it needs "
+                "manual inspection. Sign a fresh contract and re-plan to "
+                "attempt it again, then resolve this step."
+                % (claimed["unit_id"],
+                   ", ".join(self._executed) or "no command at all", reason),
                 "", [], self.session_id, self.actor)
             if summary is not None:
                 self._set_reason(summary, stop_reason, note)
@@ -2944,9 +3331,11 @@ class ControllerEngine(object):
                                  _NOTE_CONTRACT_PAUSED)
             return "held"
         state_word = contract_state or "missing"
-        nothing_ran = ("so the result was recorded and rejected and NO "
-                       "command was executed (no done_check, no verifier, "
-                       "no rollback)")
+        # DERIVED from what this call executed, never from which branch is
+        # writing it (REFUTATION-6 F2): this method is reached from the
+        # verifier's own refusal too, where the done_check HAS run.
+        nothing_ran = ("so the result was recorded and rejected and %s"
+                       % (_nothing_executed_clause(self._executed),))
         if verdict == "REFUSED-BREAKER":
             reason = ("the founder's spend ceiling has tripped (%s), so the "
                       "authorisation this dispatch was stamped under "
@@ -2954,11 +3343,30 @@ class ControllerEngine(object):
                       % (refusal["reason"],
                          claimed.get("contract_revision"), nothing_ran))
             stop_reason = "SPEND_STOP"
-            note = _NOTE_SPEND_BREAKER % (refusal["reason"],)
+            note = _spend_breaker_note(refusal["reason"], self._executed)
             step_cause = ("the founder's spend ceiling had tripped (%s)"
                           % (refusal["reason"],))
             fence_note = ("the spend breaker has tripped; nothing was "
-                          "judged and nothing was run")
+                          "judged and %s"
+                          % (_nothing_executed_clause(self._executed),))
+        elif verdict == _REFUSED_SCOPE_SHAPE:
+            # REFUTATION-6 F4. Not "the contract refuses this scope": the
+            # scope is not a shape this engine can read AS a scope, so no
+            # path in it was ever judged and no rollback can be composed
+            # for it either. Saying the contract refused it would send a
+            # founder to widen a contract that is not the problem.
+            reason = ("this unit's write_scope cannot be read as a list of "
+                      "paths (%s), so no path in it could be judged against "
+                      "the contract, %s" % (refusal["reason"], nothing_ran))
+            stop_reason = "FOUNDER_WAITING"
+            note = ("nothing was judged and nothing was accepted: unit %s's "
+                    "write_scope is not a list of paths (%s). Re-plan the "
+                    "unit with a list of plain relative paths inside the "
+                    "project" % (unit_id, refusal["reason"]))
+            step_cause = ("its write_scope could not be read as a list of "
+                          "paths (%s)" % (refusal["reason"],))
+            fence_note = ("this unit's write_scope is not a list of paths, "
+                          "so nothing was judged and nothing was run")
         elif contract_state == "live" and refusal is not None:
             reason = ("the live contract no longer authorises this unit's "
                       "write scope (%s), %s" % (refusal["reason"],
@@ -2979,10 +3387,11 @@ class ControllerEngine(object):
                 % (state_word, claimed.get("contract_revision"),
                    nothing_ran))
             stop_reason = "CONTRACT_NOT_LIVE"
-            note = _NOTE_CONTRACT_NOT_LIVE % (state_word,)
+            note = _contract_not_live_note(state_word, self._executed)
             step_cause = "the contract was %s" % (state_word,)
-            fence_note = ("the contract is %s; nothing was judged and "
-                          "nothing was run" % state_word)
+            fence_note = ("the contract is %s; nothing was judged and %s"
+                          % (state_word,
+                             _nothing_executed_clause(self._executed)))
         self.store.record_verification(
             claimed["dispatch_id"], None, reason, False, self.actor,
             project_id=project_id)
@@ -2991,13 +3400,11 @@ class ControllerEngine(object):
         self._release_fence(claimed["fence_uuid"], "parked", fence_note)
         self.store.queue_human_step(
             project_id, "", (unit or {}).get("lane") or "default",
-            "unit %s returned a result and %s. Nothing "
-            "was executed for it: not its done_check, not its verifier and "
-            "not its rollback, so its write_scope is in whatever state the "
-            "worker left it and needs manual inspection. The result is "
+            "unit %s returned a result and %s. %s The result is "
             "recorded and rejected and the fence is parked. Sign a fresh "
             "contract and re-plan to attempt it again, then resolve this "
-            "step." % (unit_id, step_cause),
+            "step." % (unit_id, step_cause,
+                       _step_execution_clause(self._executed)),
             "", [], self.session_id, self.actor)
         # NO reconcile here, deliberately, unlike _handle_late_result: the
         # founder step in the unit's own lane IS the mechanism
@@ -3046,7 +3453,8 @@ class ControllerEngine(object):
             # which is not a failed rollback and must not be reported as
             # one.
             rb = self._run_command(project_id, rollback_cmd,
-                                   self._unit_row(run_id, unit_id), charged)
+                                   self._unit_row(run_id, unit_id), charged,
+                                   label="the unit's rollback (git restore)")
             if rb is not None and rb["exit_code"] != 0:
                 unit = self._unit_row(run_id, unit_id)
                 self._warn_dirty_write_scope(
@@ -3170,8 +3578,19 @@ class ControllerEngine(object):
              left exactly as the worker left it instead of being told
              nothing.
 
-        The command emitted for an ordinary plain-path unit is byte for
-        byte the one this engine has always composed."""
+        The command emitted for an ordinary plain-path unit in a project
+        that is not itself a git repository root is byte for byte the one
+        this engine has always composed.
+
+        A THIRD defence joined the two above (CROSS-FAMILY REFUTATION
+        finding 3, HIGH, DATA DESTRUCTION), and it guards a different
+        thing: not WHICH PATHS the command names, but WHICH REPOSITORY it
+        acts on. git honours GIT_DIR and GIT_WORK_TREE over cwd, so this
+        command, run from an environment carrying either, restored files
+        in an unrelated repository and exited 0. _sanitised_env strips
+        that whole class at the one subprocess site; _git_prefix makes
+        this command name its own repository as well, so the two defences
+        do not share a single point of failure."""
         unit = self._unit_row(run_id, unit_id)
         write_scope = unit["write_scope"] if unit else []
         if not write_scope:
@@ -3180,7 +3599,7 @@ class ControllerEngine(object):
         if problem is not None:
             return None, ("unit %s was NOT rolled back: %s"
                           % (unit_id, problem))
-        return "git restore -- " + " ".join(
+        return _git_prefix(self.store.root) + "restore -- " + " ".join(
             shlex.quote(_pathspec_literal(p)) for p in write_scope), None
 
     def _warn_unrollbackable_scope(self, project_id, refusal, lane):
@@ -3285,23 +3704,15 @@ class ControllerEngine(object):
             # the three it is beats overwriting it with a founder-gating
             # verdict computed under an authorisation that no longer
             # applies (REFUTATION-4 AZ F5, REFUTATION-5 S2).
-            contract_state = self._contract_state(project_id)
-            if refusal["verdict"] == "REFUSED-BREAKER":
-                self._set_reason(summary, "SPEND_STOP",
-                                 _NOTE_SPEND_BREAKER % (refusal["reason"],))
-            elif contract_state == "paused":
-                self._set_reason(summary, "CONTRACT_PAUSED",
-                                 _NOTE_CONTRACT_PAUSED)
-            else:
-                # NOT _NOTE_CONTRACT_NOT_LIVE (REFUTATION-5 S3, second
-                # half): that constant's text hard-codes "NO command was
-                # executed", which is a statement about a DIFFERENT
-                # branch. By the time a wave settles, this engine may have
-                # run a done_check that was authorised when it started.
-                self._set_reason(
-                    summary, "CONTRACT_NOT_LIVE",
-                    _NOTE_SETTLE_CONTRACT_NOT_LIVE
-                    % (contract_state or "missing",))
+            # NOT _contract_not_live_note (REFUTATION-5 S3, second half):
+            # that sentence is a statement about a DIFFERENT branch. By the
+            # time a wave settles, this engine may have run a done_check
+            # that was authorised when it started, which is why the settle
+            # path has its own third-branch sentence and why the breaker
+            # sentence _refusal_stop builds reads the ledger
+            # (REFUTATION-6 F2).
+            self._set_reason(summary, *self._refusal_stop(
+                project_id, refusal, _NOTE_SETTLE_CONTRACT_NOT_LIVE))
             return
         ready = self.store.select_ready_units(run_id)
         if ready:
@@ -3669,19 +4080,10 @@ class ControllerEngine(object):
             # to the founder's WHOLE test suite, is the most expensive
             # command in the system and was the one the spend breaker left
             # ungated). Nothing is written and nothing is run.
-            contract_state = self._contract_state(project_id)
-            if refusal["verdict"] == "REFUSED-BREAKER":
-                self._set_reason(summary, "SPEND_STOP",
-                                 _NOTE_SPEND_BREAKER % (refusal["reason"],))
-            elif contract_state == "paused":
-                self._set_reason(summary, "CONTRACT_PAUSED",
-                                 _NOTE_CONTRACT_PAUSED)
-            else:
-                self._set_reason(
-                    summary, "CONTRACT_NOT_LIVE",
-                    "the done-definition was not run and nothing was "
-                    "delivered: the contract is %s, not live"
-                    % (contract_state or "missing",))
+            self._set_reason(summary, *self._refusal_stop(
+                project_id, refusal,
+                "the done-definition was not run and nothing was delivered: "
+                "the contract is %s, not live"))
             return
         # -- REFUTATION-5 S7. A run whose meter never saw an accepted
         # unit's cost cannot be declared a deliverable. See
@@ -3708,13 +4110,31 @@ class ControllerEngine(object):
             # against, and it is not a model action bounded by the risk
             # classes the founder granted the model. State and breaker are
             # asked, and they are the two that apply.
-            outcome = self._run_command(project_id, done_definition)
+            outcome = self._run_command(
+                project_id, done_definition,
+                label="the founder's whole done-definition")
             if outcome is None:
                 self._set_reason(
                     summary, "CONTRACT_NOT_LIVE",
                     "the done-definition was not run and nothing was "
                     "delivered: the contract stopped being live while this "
                     "wave was settling")
+                return
+            # -- THE LAST WINDOW (REFUTATION-6 F1). The founder's whole
+            # test suite is the longest-running command in the system, and
+            # round 6 wrote the deliverable checkpoint and walked the run
+            # to DELIVERABLE_READY straight after it with nothing asked in
+            # between: a `bm-autonomy stop` pressed during the suite was
+            # followed by the run being declared ready. Declaring a
+            # deliverable is an ACCEPTANCE, so it gets the same treatment
+            # the unit acceptance gets.
+            refusal = self._authorisation_refusal(project_id)
+            if refusal is not None:
+                self._set_reason(summary, *self._refusal_stop(
+                    project_id, refusal,
+                    "the done-definition RAN and nothing was delivered: the "
+                    "contract became %s while it was running, so no "
+                    "deliverable is declared and the run stays where it is"))
                 return
             if outcome["exit_code"] != 0:
                 # Bounded to ONCE per park decision, because the loop stops
