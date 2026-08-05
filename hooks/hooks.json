@@ -29,8 +29,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_telemetry.py\" stop-warn",
-            "timeout": 15,
+            "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_telemetry.py\" stop-warn; printf %s \"$p\" | python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_lead.py\" watchdog --tick'",
+            "timeout": 30,
             "statusMessage": "Checking for unfinished work"
           }
         ]

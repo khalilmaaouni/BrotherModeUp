@@ -98,6 +98,18 @@ OWNED_TOOLS = (
     # tools/bm_bash_audit.py, the PreToolUse/PostToolUse Bash-write
     # detection pair.
     "bm_bash_audit.py",
+    # L04 (2026-08-05): tools/bm_lead.py, the second program in the Stop
+    # group (the watchdog due-check). It MUST be here, and the test that
+    # caught its absence is the reason to say why rather than just add it:
+    # command_is_ours is deliberately asymmetric, so a command naming ANY
+    # path this list does not own is never removed, on the grounds that
+    # leaving one of our entries behind costs a duplicate hook while
+    # removing one of the user's costs them work they cannot get back.
+    # Chaining a new tool into an existing hook command therefore breaks
+    # UNINSTALL rather than install, and it breaks it silently: the entry
+    # simply stops being recognised as ours and stays in the user's
+    # settings pointing at files that are no longer on disk.
+    "bm_lead.py",
 )
 
 # Mirrors the fallback exclusion list in scripts/checksums.sh and
@@ -144,14 +156,30 @@ def hook_commands(target):
     autosave = os.path.join(tools, "bm_autosave.py")
     telemetry = os.path.join(tools, "bm_telemetry.py")
     bash_audit = os.path.join(tools, "bm_bash_audit.py")
+    lead = os.path.join(tools, "bm_lead.py")
     inner = (
         'p=$(cat); printf %s "$p" | python3 ' + _q(autosave) + ' precompact; '
         'printf %s "$p" | python3 ' + _q(telemetry) + ' precompact-brief'
     )
+    # L04: Stop runs TWO programs off one stdin payload, so it takes the same
+    # inner-script-then-sh-c shape PreCompact already uses rather than a second
+    # hand-escaped spelling. The second program is the watchdog due-check, which
+    # ships ON BY DEFAULT by founder decision and writes nothing before consent
+    # (it is a due-check, not a daemon).
+    # WHY THIS EDIT EXISTS AT ALL, recorded because the guard is the only reason
+    # it was caught: hooks/hooks.json and this function are two hand-maintained
+    # copies of one wiring, and L04 changed only the first. A user installing
+    # through this script would have got NO watchdog while the plugin manifest
+    # promised one, which would have made "on by default" false for exactly the
+    # people who never read the manifest.
+    stop_inner = (
+        'p=$(cat); printf %s "$p" | python3 ' + _q(telemetry) + ' stop-warn; '
+        'printf %s "$p" | python3 ' + _q(lead) + ' watchdog --tick'
+    )
     return {
         "SessionStart": "sh " + _q(os.path.join(tools, "bm_sessionstart.sh")),
         "SessionEnd": "python3 " + _q(telemetry) + " outcomes-append",
-        "Stop": "python3 " + _q(telemetry) + " stop-warn",
+        "Stop": "sh -c " + _q(stop_inner),
         "PreCompact": "sh -c " + _q(inner),
         "PreToolUse": "python3 " + _q(os.path.join(tools, "bm_fence_hook.py")),
         "PreToolUse-bash-audit": "python3 " + _q(bash_audit) + " pre",
@@ -198,7 +226,8 @@ def hook_groups(target):
                                 "Loading your project memory")],
         "SessionEnd": [_group(None, cmds["SessionEnd"], 30,
                               "Saving the session record")],
-        "Stop": [_group(None, cmds["Stop"], 15,
+        # 15 to 30 with L04: the group now runs two programs rather than one.
+        "Stop": [_group(None, cmds["Stop"], 30,
                         "Checking for unfinished work")],
         "PreCompact": [_group(
             None, cmds["PreCompact"], 60,

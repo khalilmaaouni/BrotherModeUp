@@ -1667,3 +1667,72 @@ here.
 - **`tools/test_bm_runtimes.py` still never runs on Windows.** Its `shlex.split`
   ordering bug is fixed anyway because the fix was one line, but the `suite` job is
   ubuntu and macos only, so that file has no Windows evidence behind it at all.
+
+## L04: what founder mode, the ledger and the watchdog do NOT do (2026-08-05)
+
+L04 added the founder-facing command surface, the record of decisions and
+catch-ups behind it, the handback, the handover pages, and the half-hour
+watchdog. The design is `docs/program/absolute-lead/DESIGN-L04.md`, and every
+gap below is named in its section 16 with the same reason, so this page and that
+design cannot drift into two different lists. Nothing here is a defect report:
+each one is a thing the loop decided not to close, with what closing it would
+take.
+
+- **The watchdog is a due check on the Stop hook, so it cannot fire inside a
+  turn that never ends.** It runs once per model turn, which means a single turn
+  that works for two hours produces no catch-up until it finishes. Closing this
+  means running the due check on a tool-use hook instead, which would run it on
+  every command in every session for a catch-up that is due at most twice an
+  hour. That trade is a measurement this loop did not make, so it was not taken.
+  Until it is, `/brotherme-brief` is the manual path and it is one command.
+- **The five-minute gap ceiling in the active-work clock is a chosen number, not
+  a measured one.** The clock sums the gaps between recorded actions and counts
+  each gap up to a ceiling, so an idle stretch stops adding time. Five minutes is
+  argued from the two behaviours the founder asked for (a working session earns a
+  catch-up in about half an hour, an idle one does not spam), and it is not
+  derived from measured session history, because none is recorded. It is a named
+  constant in `tools/bm_store.py`, so moving it is one edit, and any move should
+  come with the measurement this loop could not make. This is the same honesty
+  `tools/bm_controller.py` already prints beside its own dispatch timeout.
+- **The ledger records the coordinator's judgement; your project's records stay
+  the truth.** An entry in the ledger is a claim ABOUT the records, never a
+  replacement for them. Where the two disagree, what the status view prints is
+  what the records hold, and the disagreement is itself appended as a risk entry
+  rather than resolved quietly. That means a wrong entry can sit in the ledger,
+  visibly, until something supersedes it. Nothing edits or deletes an entry, so a
+  correction is a new entry naming the one it corrects, and a reader has to read
+  both. That is the cost of an append-only record and it was accepted on purpose.
+- **The separate controller event table is deferred, and a test decides whether
+  it is needed at all.** The store already appends an event for every controller
+  move through its attribution trail, so a second table would be a second record
+  of the same events. What lands instead is a replay test in
+  `tools/test_bm_store.py`, `TestControllerEventsReplayFromAttribution`, which
+  reconstructs a run's state sequence and each unit's status sequence from those
+  events alone. Green means the table is redundant and the deferral was right.
+  Red means it names the exact transition that leaves no event, and that output
+  is the specification for the table in the next loop. The verdict of that run
+  belongs beside this paragraph, written by whoever lands the test, and is not
+  claimed here in advance of it.
+- **The store and project command lines are not gated on consent, and never
+  were.** A person who types `python3 tools/bm_project.py start` before running
+  setup writes rows today. L04 did not change that and does not close it. The
+  consent law this project states in `SECURITY.md` is about UNATTENDED writes,
+  which is what a hook is, and the watchdog is gated for exactly that reason.
+  This is recorded so the watchdog's gate is not read as a claim about the whole
+  toolchain.
+- **Handing control back does not cancel work already in flight.** Work
+  dispatched before control changed hands stays dispatched. The handover page
+  lists it by name with its age, rather than the system cancelling it, because
+  cancelling would mean writing controller state from outside the controller.
+  The disclosure costs a paragraph; the alternative costs a second writer of a
+  state machine that is deliberately single-writer.
+- **The handover pages cover one project at a time.** A folder holding several
+  projects generates one set of pages per project. There is no cross-project
+  rollup, and no page implies one.
+- **Every capability L04 registers is beta, and none of them is certified.** The
+  register `capabilities.status.json` is what states that, and `beta` there means
+  real with a named gap. The gap these six share is not the code and not the
+  tests: it is that nobody outside this project has run any of them. What
+  certification would take is written down already, in `docs/ROADMAP.md` section
+  1 and in `docs/closure/CLOSURE_REGISTER.md` items X-01 to X-06, and none of it
+  closes by writing more code here.

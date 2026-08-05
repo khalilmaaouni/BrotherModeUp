@@ -78,7 +78,7 @@ import sys
 import unicodedata
 import uuid
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
@@ -252,11 +252,33 @@ _SECTION_BUDGETS = {
 }
 
 
+_ISO_STAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
 def now_iso():
     """UTC, second precision, ISO 8601. Every timestamp this module writes
     uses this one function, so two rows written a millisecond apart cannot
     be compared as if they were microsecond-precise."""
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.datetime.now(datetime.timezone.utc).strftime(_ISO_STAMP_FORMAT)
+
+
+def parse_iso_stamp(value):
+    """The stored timestamp `value` as an aware datetime, or None when it
+    is not in now_iso()'s OWN format.
+
+    None rather than an exception, and no second format tried, because
+    the one caller that needs this (active_minutes_since) has to DISCLOSE
+    a row it could not place rather than guess at it: a store that has
+    been edited by hand, restored from a partial backup, or written by
+    some future tool must not be able to inflate or deflate a founder's
+    activity total through a timestamp nobody can read."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.datetime.strptime(value, _ISO_STAMP_FORMAT)
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=datetime.timezone.utc)
 
 
 # ---------------------------------------------------------------------------
@@ -1984,11 +2006,29 @@ _TABLES_CONTROLLER = ("controller_runs", "controller_units",
 
 _TABLES_V15 = _TABLES_V14 + _TABLES_CONTROLLER
 
+# Schema 16 (L04, the insight ledger and the briefing timeline, design
+# docs/program/absolute-lead/DESIGN-L04.md section 5). Two tables, and
+# they are two rather than one because an insight makes a CLAIM and
+# carries an evidence_class, while a briefing makes no claim at all: it
+# records what the founder was shown and the measurement that made it
+# due. Forcing a briefing into insights would need rows with an empty
+# claim and a meaningless evidence class, which is exactly the narration
+# the ledger exists to make visible. Its own tuple for the same reason
+# every schema above got one: a healthy schema-15 store must be checked
+# against schema 15's table list, or a store whose only fault is
+# predating this upgrade gets quarantined instead of migrated. The DDL
+# text itself (_LEAD_DDL) is defined further down, after _split_ddl
+# exists; this tuple only needs the table NAMES.
+_TABLES_LEAD = ("insights", "briefings")
+
+_TABLES_V16 = _TABLES_V15 + _TABLES_LEAD
+
 _TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3,
                       4: _TABLES_V4, 5: _TABLES_V5, 6: _TABLES_V6,
                       7: _TABLES_V7, 8: _TABLES_V8, 9: _TABLES_V9,
                       10: _TABLES_V10, 11: _TABLES_V11, 12: _TABLES_V12,
-                      13: _TABLES_V13, 14: _TABLES_V14, 15: _TABLES_V15}
+                      13: _TABLES_V13, 14: _TABLES_V14, 15: _TABLES_V15,
+                      16: _TABLES_V16}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -3060,6 +3100,156 @@ CREATE INDEX IF NOT EXISTS controller_dispatches_unit_idx
 _CONTROLLER_DDL_STATEMENTS = _split_ddl(_CONTROLLER_DDL)
 _CONTROLLER_INDEX_STATEMENTS = _split_ddl(_CONTROLLER_INDEX_DDL)
 
+# Schema 16 (L04, the insight ledger and the briefing timeline, design
+# docs/program/absolute-lead/DESIGN-L04.md section 5.1 and 5.2). Beside
+# the controller block for the same reason every schema addition sits
+# beside the one before it: one place to read the whole DDL history in
+# order.
+#
+# insights.supersedes is a plain TEXT column with a store-level existence
+# check, deliberately NOT a self-referencing foreign key. Two reasons,
+# both mechanical: a colliding or unknown id must refuse with a named
+# reason code rather than raise a bare sqlite3.IntegrityError (the same
+# convention _autonomy_enum and every OwnershipRefusal above follow), and
+# a self-FK would make purge_project's single "delete this project's
+# whole chain" statement trip a per-row check for no gain.
+#
+# supersedes exists at all because the alternative breaks append-only: a
+# forward "control_taken" pointer on the decision row would need an
+# UPDATE the day a handback is taken. Instead the HANDBACK row carries
+# supersedes at INSERT time, and "was the handback taken on decision X"
+# becomes a query rather than a mutation.
+#
+# mutation and observed are their own columns, not free text inside
+# evidence, because the rule that a CALIBRATION must name the control it
+# broke and the count it observed is unenforceable buried in prose and is
+# a refusal (R5) as a column. confidence_basis is split out of confidence
+# for the same reason: "state the basis" is only checkable when it has
+# somewhere of its own to live.
+#
+# briefings.run_state and briefings.open_steps are STORED so the
+# phase-boundary trigger is a comparison against the previous ROW rather
+# than against remembered state. There is no rendered-text column beyond
+# the lines a briefing prints and no render timestamp, for the same
+# reason render_canvas carries none: a regenerated page must be byte
+# stable from the same rows.
+_LEAD_DDL = """
+CREATE TABLE IF NOT EXISTS insights (
+  insight_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(project_id),
+  created_at TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  claim TEXT NOT NULL,
+  evidence TEXT NOT NULL DEFAULT '',
+  evidence_class TEXT NOT NULL,
+  alternatives TEXT NOT NULL DEFAULT '[]',
+  flip_condition TEXT NOT NULL DEFAULT '',
+  confidence TEXT NOT NULL,
+  confidence_basis TEXT NOT NULL DEFAULT '',
+  mutation TEXT NOT NULL DEFAULT '',
+  observed TEXT NOT NULL DEFAULT '',
+  decision_class TEXT NOT NULL DEFAULT '',
+  control_offered INTEGER NOT NULL DEFAULT 0,
+  control_taken INTEGER NOT NULL DEFAULT 0,
+  supersedes TEXT NOT NULL DEFAULT '',
+  work_record TEXT NOT NULL DEFAULT '',
+  run_id TEXT NOT NULL DEFAULT '',
+  unit_id TEXT NOT NULL DEFAULT '',
+  session_id TEXT NOT NULL DEFAULT '',
+  actor_type TEXT NOT NULL DEFAULT '',
+  actor_name TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS briefings (
+  briefing_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(project_id),
+  created_at TEXT NOT NULL,
+  trigger TEXT NOT NULL,
+  active_minutes INTEGER NOT NULL DEFAULT 0,
+  event_count INTEGER NOT NULL DEFAULT 0,
+  skipped_events INTEGER NOT NULL DEFAULT 0,
+  since_briefing TEXT NOT NULL DEFAULT '',
+  run_state TEXT NOT NULL DEFAULT '',
+  open_steps INTEGER NOT NULL DEFAULT 0,
+  where_we_are TEXT NOT NULL,
+  what_changed TEXT NOT NULL DEFAULT '',
+  what_it_cost TEXT NOT NULL DEFAULT '',
+  decision_insight TEXT NOT NULL DEFAULT '',
+  risk_insight TEXT NOT NULL DEFAULT '',
+  session_id TEXT NOT NULL DEFAULT '',
+  actor_type TEXT NOT NULL DEFAULT '',
+  actor_name TEXT NOT NULL DEFAULT ''
+);
+"""
+
+# insights_supersedes_idx is not decoration: open_key_decisions is an
+# anti-join against it and runs on every founder-facing status read.
+_LEAD_INDEX_DDL = """
+CREATE INDEX IF NOT EXISTS insights_project_created_idx
+  ON insights(project_id, created_at);
+CREATE INDEX IF NOT EXISTS insights_project_kind_idx
+  ON insights(project_id, kind);
+CREATE INDEX IF NOT EXISTS insights_supersedes_idx
+  ON insights(supersedes);
+CREATE INDEX IF NOT EXISTS briefings_project_created_idx
+  ON briefings(project_id, created_at);
+"""
+
+_LEAD_DDL_STATEMENTS = _split_ddl(_LEAD_DDL)
+_LEAD_INDEX_STATEMENTS = _split_ddl(_LEAD_INDEX_DDL)
+
+# The closed sets record_insight and record_briefing refuse against. Same
+# discipline as CONTROLLER_DISPATCH_STATUSES and the AUTONOMY_* sets
+# below: no CHECK constraint is written into the DDL above, because
+# SQLite cannot alter a CHECK without a full table rebuild AND because a
+# CHECK produces a bare sqlite3.IntegrityError where this store's own
+# convention is a refusal that names the field and the whole allowed set.
+INSIGHT_KINDS = ("DECISION", "CALIBRATION", "RISK", "LEARNING", "HANDBACK")
+
+EVIDENCE_CLASSES = ("EXECUTED", "MEASURED", "READ", "REASONED")
+
+# The five key-decision triggers, in STAKES order. A renderer sorts the
+# founder's queue by this order, so it is data rather than a sort key
+# somebody remembers.
+INSIGHT_DECISION_CLASSES = ("GATE", "RULE", "TEST", "DEFERRAL", "PREFERENCE")
+
+INSIGHT_CONFIDENCE = ("low", "moderate", "high")
+
+BRIEFING_TRIGGERS = ("ACTIVE_MINUTES", "PHASE_BOUNDARY", "REQUESTED")
+
+# The caller-settable keys of record_insight's and record_briefing's dict
+# argument. Everything NOT here is filled by the store (the id, the
+# timestamp, and the three actor columns), so naming one of those is the
+# same typo class as naming a column that does not exist and gets the
+# same loud refusal (R16) rather than a silent drop.
+INSIGHT_FIELDS = ("kind", "subject", "claim", "evidence", "evidence_class",
+                  "alternatives", "flip_condition", "confidence",
+                  "confidence_basis", "mutation", "observed",
+                  "decision_class", "control_offered", "control_taken",
+                  "supersedes", "work_record", "run_id", "unit_id")
+
+BRIEFING_FIELDS = ("trigger", "active_minutes", "event_count",
+                   "skipped_events", "since_briefing", "run_state",
+                   "open_steps", "where_we_are", "what_changed",
+                   "what_it_cost", "decision_insight", "risk_insight")
+
+# The active-work clock (design section 7.1). Five minutes is the whole
+# mechanism, so it is argued rather than picked: at 300 seconds a session
+# emitting an event every thirty seconds reaches thirty active minutes in
+# about thirty wall-clock minutes, which is the founder's cadence, while
+# a session emitting one event an hour accrues five minutes per event and
+# needs six hours to earn a briefing, which is the half that stops an
+# idle session from spamming. A session that goes quiet for two hours
+# while genuinely busy cannot exist, because the work it is doing writes
+# attribution rows. Module-level names so a test can lower them and drive
+# the whole clock deterministically without sleeping.
+#
+# HONESTLY: 300 is CHOSEN, not derived from measured session history,
+# because none is recorded. Same honesty as
+# DEFAULT_DISPATCH_TIMEOUT_SECONDS' own comment in tools/bm_controller.py.
+ACTIVE_GAP_CEILING_SECONDS = 300
+BRIEFING_ACTIVE_MINUTES = 30
+
 # The run-level state machine (design section 1). A terminal state maps to
 # an EMPTY tuple, same convention as AUTONOMY_STATE_TRANSITIONS above and
 # brotherme/core/schema.py's LEGAL_TRANSITIONS, so "terminal" is checkable
@@ -3198,6 +3388,123 @@ def _autonomy_enum(field, value, allowed):
             "unknown %s %r (allowed: %s)"
             % (field, value, ", ".join(allowed)))
     return value
+
+
+# The L04 ledger reuses _autonomy_enum above rather than growing a third
+# structural copy of it (_sentinel_enum was the first, _autonomy_enum the
+# second). Its name is historical: it is this store's ONE out-of-set
+# refusal shape, and every message it raises names the field and the whole
+# allowed set, which is what a caller of record_insight needs too.
+
+
+def _lead_fields(kind, payload, allowed):
+    """Refuse a key the caller invented, naming it (R16). A silent drop
+    turns a typo in a column name into a row that is quietly missing the
+    field the author thought they wrote, which is the exact failure the
+    walk-edge guard in tools/bm_controller.py fails loudly to avoid.
+
+    The store's OWN columns (the id, created_at and the three actor
+    columns) are deliberately NOT in `allowed`: they are filled here, so
+    naming one is the same typo class as naming a column that does not
+    exist at all, and gets the same refusal rather than a write the caller
+    believes they controlled."""
+    if not isinstance(payload, dict):
+        raise ValueError(
+            "%s must be a dict of (%s), got %r"
+            % (kind, ", ".join(allowed), type(payload).__name__))
+    unknown = sorted(k for k in payload if k not in allowed)
+    if unknown:
+        raise ValueError(
+            "unknown %s field(s) %s (allowed: %s)"
+            % (kind, ", ".join(unknown), ", ".join(allowed)))
+    return payload
+
+
+def _lead_text(field, value):
+    """One TEXT column of the ledger. A non-string is a ValueError, never
+    a coercion: an integer stored in a TEXT-affinity column is exactly the
+    class of fault the controller's own retry_ceiling incident recorded
+    (a plan carrying "one" where a number belonged), and the fix there was
+    to refuse at the boundary rather than to compare mixed types later."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError("%s must be a string, got %r"
+                         % (field, type(value).__name__))
+    return value
+
+
+def _lead_count(field, value):
+    """One non-negative INTEGER column of the ledger. bool is refused
+    explicitly because isinstance(True, int) is True in Python and a
+    briefing claiming True active minutes is not a briefing anyone can
+    read."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("%s must be a whole number, got %r" % (field, value))
+    if value < 0:
+        raise ValueError("%s must not be negative, got %r" % (field, value))
+    return value
+
+
+def _lead_flag(field, value):
+    """control_offered and control_taken: 0 or 1, never coerced. A value
+    outside the pair would silently become 0 under a bool() cast, and a 0
+    there is the difference between a decision that offered the founder
+    control and one that did not."""
+    if value in (0, 1):
+        return int(value)
+    raise ValueError("%s must be 0 or 1, got %r" % (field, value))
+
+
+def _lead_window(sql, params, since, until, limit):
+    """The since/until/limit tail both ledger list accessors share, so the
+    two of them cannot drift in what a window means.
+
+    `since` is EXCLUSIVE and `until` is INCLUSIVE. That pairing is what
+    lets a caller anchor on a row it already holds: "everything after the
+    briefing I am looking at" must not hand that briefing back, and
+    "everything up to this page's cut" must include the row written AT the
+    cut, which is what makes a page regenerated a week later byte
+    identical to the one generated today."""
+    if since:
+        sql += " AND created_at > ?"
+        params.append(since)
+    if until:
+        sql += " AND created_at <= ?"
+        params.append(until)
+    sql += " ORDER BY created_at DESC, rowid DESC"
+    if limit is not None:
+        _lead_count("limit", limit)
+        sql += " LIMIT ?"
+        params.append(limit)
+    return sql, params
+
+
+def _lead_alternatives_json(value):
+    """Validate and encode the `alternatives` column (R10): a list of
+    {"option": str, "why_not": str} and nothing else. Returns the JSON
+    text the column stores.
+
+    Exactly those two keys, not "at least" those two, because the road not
+    taken is what a later reader is here for: an extra key is either a
+    field this schema should carry as a column of its own or a typo, and
+    both deserve to be seen now rather than to survive as JSON nobody
+    renders."""
+    if not isinstance(value, list):
+        raise ValueError(
+            "bad-alternatives: alternatives must be a list of "
+            '{"option": str, "why_not": str}, got %r'
+            % (type(value).__name__,))
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {"option", "why_not"}:
+            raise ValueError(
+                "bad-alternatives: every alternative must be exactly "
+                '{"option": str, "why_not": str}, got %r' % (item,))
+        if not all(isinstance(item[k], str) for k in ("option", "why_not")):
+            raise ValueError(
+                "bad-alternatives: option and why_not must both be "
+                "strings, got %r" % (item,))
+    return json.dumps(value)
 
 
 _MODEL_TOKEN_SPLIT_RE = re.compile(r"[^a-z0-9]+")
@@ -3858,6 +4165,37 @@ def _migrate_14_to_15(conn):
         conn.execute(statement)
 
 
+def _migrate_15_to_16(conn):
+    """Schema 15 to 16 (L04, the insight ledger and the briefing timeline,
+    design docs/program/absolute-lead/DESIGN-L04.md section 5.3): two
+    tables (insights, briefings) plus four indexes. ADDITIVE ONLY: no
+    existing table gains, loses or changes a column here, and no existing
+    index is dropped or redefined.
+
+    Same contract as _migrate_14_to_15, the last table-only migration:
+    every statement is CREATE TABLE IF NOT EXISTS or CREATE INDEX IF NOT
+    EXISTS, safe whether this runs against a genuinely old schema-15 store
+    or, via _ensure_schema, against a brand new one that already has both
+    tables. Runs inside the caller's BEGIN EXCLUSIVE, so it must never
+    commit, roll back, or open a transaction of its own; that is also why
+    it walks _split_ddl's statement list instead of calling executescript,
+    whose implicit COMMIT would end the caller's transaction underneath
+    it.
+
+    What this deliberately does NOT do: it does not backfill a single row,
+    and in particular it does not manufacture an insight for work that
+    already happened. There is no prior judgement anywhere to backfill
+    FROM: the attribution trail records what the controller DID, never why
+    a coordinator chose it, and an invented claim carrying an invented
+    evidence_class is precisely the narration this ledger exists to make
+    impossible. Every project that predates schema 16 therefore has an
+    empty ledger until somebody records an insight."""
+    for statement in _LEAD_DDL_STATEMENTS:
+        conn.execute(statement)
+    for statement in _LEAD_INDEX_STATEMENTS:
+        conn.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_1_to_2,
     2: _migrate_2_to_3,
@@ -3873,6 +4211,7 @@ _MIGRATIONS = {
     12: _migrate_12_to_13,
     13: _migrate_13_to_14,
     14: _migrate_14_to_15,
+    15: _migrate_15_to_16,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -4559,6 +4898,38 @@ _DUMP_SAFE_COLUMNS = frozenset((
     ("controller_dispatches", "done_check_exit"),
     ("controller_dispatches", "created_at"),
     ("controller_dispatches", "resulted_at"),
+    # Schema 16 (L04, the insight ledger and the briefing timeline). Same
+    # accounting the notes block above makes for author, anchor_key, body,
+    # resolution and override_reason, in the same words: a dump shows that
+    # a decision EXISTS and withholds what it says. Identifiers, enums,
+    # counters and timestamps only.
+    #
+    # DELIBERATELY ABSENT, and therefore withheld: subject, claim,
+    # evidence, alternatives, flip_condition, confidence_basis, mutation,
+    # observed, where_we_are, what_changed, what_it_cost, and BOTH actor
+    # columns on both tables. Those are founder and project content; an
+    # actor_name is a person's or a model's name, and a claim is the
+    # sentence the whole ledger exists to hold.
+    #
+    # control_offered, control_taken, active_minutes, event_count,
+    # skipped_events and open_steps are INTEGER, so _text_columns never
+    # surfaces them and these entries are no-ops against _export_row;
+    # listed anyway for the same reason ("alerts", "requires_human") is,
+    # so this block is a complete and honest account of every column the
+    # policy named rather than a subset silently narrowed for redundancy.
+    ("insights", "insight_id"), ("insights", "project_id"),
+    ("insights", "created_at"), ("insights", "kind"),
+    ("insights", "evidence_class"), ("insights", "decision_class"),
+    ("insights", "confidence"), ("insights", "control_offered"),
+    ("insights", "control_taken"), ("insights", "supersedes"),
+    ("insights", "work_record"), ("insights", "run_id"),
+    ("insights", "unit_id"),
+    ("briefings", "briefing_id"), ("briefings", "project_id"),
+    ("briefings", "created_at"), ("briefings", "trigger"),
+    ("briefings", "active_minutes"), ("briefings", "event_count"),
+    ("briefings", "skipped_events"), ("briefings", "since_briefing"),
+    ("briefings", "run_state"), ("briefings", "open_steps"),
+    ("briefings", "decision_insight"), ("briefings", "risk_insight"),
 ))
 
 
@@ -5736,6 +6107,12 @@ class Store(object):
             # this call is safe on a store that was just created with all
             # three controller tables already present.
             _migrate_14_to_15(self.conn)
+        if SCHEMA_VERSION >= 16:
+            # Same rule again. Every statement in _migrate_15_to_16 is
+            # CREATE TABLE IF NOT EXISTS or CREATE INDEX IF NOT EXISTS, so
+            # this call is safe on a store that was just created with both
+            # ledger tables already present.
+            _migrate_15_to_16(self.conn)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -5778,6 +6155,13 @@ class Store(object):
             self.conn.executescript(_STATE_CHANGE_RECEIPT_INDEX_DDL)
         if SCHEMA_VERSION >= 11:
             self.conn.executescript(_LOOP4_INDEX_DDL)
+        if SCHEMA_VERSION >= 16:
+            # Same reasoning as every guard above: the four schema-16
+            # indexes live inside _migrate_15_to_16, which is a silent
+            # no-op for any store that migrated before an index was added
+            # to that text. Idempotent (IF NOT EXISTS), so running it on
+            # every open costs nothing once they exist.
+            self.conn.executescript(_LEAD_INDEX_DDL)
 
     # ------------------------------------------------------------------
     # The optional FTS5 fast path (LOOP P7). Read the block above
@@ -11962,6 +12346,25 @@ class Store(object):
                 self, "DELETE FROM autonomy_contracts WHERE project_id=?",
                 (project_id,)).rowcount
 
+            # L04 extension: both ledger tables carry a REFERENCES
+            # projects(project_id) FK, so a purge that stopped above would
+            # leave every insight and every briefing orphaned. Order
+            # between the two is free (neither references the other), and
+            # `supersedes` is deliberately NOT a foreign key, so one
+            # statement removing a whole project's chain of decisions and
+            # handbacks cannot trip a per-row check. Like every other
+            # table here, the attribution trail these rows left behind is
+            # KEPT: purge_project never touches attribution except to
+            # append, and that includes the insight.recorded and
+            # briefing.recorded events. The judgement rows go; the record
+            # that they once existed stays.
+            removed["insights"] = _exec(
+                self, "DELETE FROM insights WHERE project_id=?",
+                (project_id,)).rowcount
+            removed["briefings"] = _exec(
+                self, "DELETE FROM briefings WHERE project_id=?",
+                (project_id,)).rowcount
+
             self._write_attribution(
                 project_id, None, "project.purged", actor,
                 action="purge_project",
@@ -14426,6 +14829,414 @@ class Store(object):
                             list_fields=("result_artifacts",), raw=raw)
                 for r in rows]
 
+    # -- L04: the insight ledger and the briefing timeline ---------------
+    # Design docs/program/absolute-lead/DESIGN-L04.md sections 5, 6 and 7.
+    #
+    # THE ONE LAW HERE IS APPEND-ONLY. No UPDATE and no DELETE names
+    # insights or briefings anywhere in this module except purge_project,
+    # the same law autonomy_contracts already lives under, and it is
+    # proven the same way, by an ast guard over this file
+    # (tools/test_bm_store.py, TestTheLedgerIsAppendOnly). A correction is
+    # a NEW row whose `supersedes` names the row it corrects, so "what did
+    # we believe last Tuesday" stays answerable.
+    #
+    # THE LEDGER CITES THE STORE, IT NEVER REPLACES IT. An insight is a
+    # claim ABOUT rows. Where an insight and a row disagree, the row wins
+    # and the disagreement is itself appended as a RISK insight. Nothing
+    # below computes a number a founder is then shown: these two methods
+    # only record, and every generated page reads its numbers from the
+    # entity tables.
+    #
+    # No other module issues SQL against either table.
+
+    def record_insight(self, project_id, insight, actor):
+        """Append ONE row to the insight ledger, with its attribution
+        event ('insight.recorded'), in ONE transaction: both land or
+        neither does. Returns {'insight_id', 'kind', 'decision_class'}.
+
+        `insight` is a dict; every key of INSIGHT_FIELDS is accepted and
+        nothing else (R16). Validation runs BEFORE the transaction opens
+        where it can, and inside it where a refusal needs to read a row,
+        so a refused write leaves nothing behind either way.
+
+        Sixteen refusals, section 6.2. ValueError for a malformed argument
+        the caller controls; OwnershipRefused with a kebab-case reason
+        code for a well-formed input this store's own rules refuse:
+        'evidence-missing', 'calibration-incomplete', 'no-flip-condition',
+        'handback-not-offered', 'no-alternative',
+        'handback-without-decision', 'not-found', 'foreign-insight',
+        'handback-already-taken'.
+
+        R7 ('handback-not-offered') is the one that carries the founder
+        decision. A key decision that did not offer the founder control
+        cannot be RECORDED, so it cannot reach the queue, so no renderer
+        has to remember to append the option. The founder design proposed
+        a decision-window helper 'so it cannot be omitted by an author who
+        forgets'; a helper can be bypassed by writing the row directly,
+        and a refusal at the one place that writes cannot."""
+        _lead_fields("insight", insight, INSIGHT_FIELDS)
+        kind = _autonomy_enum("kind", insight.get("kind"), INSIGHT_KINDS)
+        claim = insight.get("claim")
+        if not isinstance(claim, str) or not claim.strip():
+            raise ValueError(
+                "an insight with no claim is narration, not an insight "
+                "(claim was %r)" % (claim,))
+        evidence_class = _autonomy_enum(
+            "evidence_class", insight.get("evidence_class"),
+            EVIDENCE_CLASSES)
+        confidence = _autonomy_enum(
+            "confidence", insight.get("confidence"), INSIGHT_CONFIDENCE)
+        decision_class = _lead_text("decision_class",
+                                    insight.get("decision_class"))
+        if decision_class:
+            _autonomy_enum("decision_class", decision_class,
+                           INSIGHT_DECISION_CLASSES)
+        # `or []` would be wrong here: it would turn a caller's 0, "" or
+        # False into an empty list silently, and R10 exists precisely so a
+        # malformed alternatives argument is SEEN. Only an absent key and
+        # an explicit None mean "none offered".
+        alternatives = insight.get("alternatives", [])
+        if alternatives is None:
+            alternatives = []
+        alternatives_json = _lead_alternatives_json(alternatives)
+        subject = _lead_text("subject", insight.get("subject"))
+        evidence = _lead_text("evidence", insight.get("evidence"))
+        flip_condition = _lead_text("flip_condition",
+                                    insight.get("flip_condition"))
+        confidence_basis = _lead_text("confidence_basis",
+                                      insight.get("confidence_basis"))
+        mutation = _lead_text("mutation", insight.get("mutation"))
+        observed = _lead_text("observed", insight.get("observed"))
+        supersedes = _lead_text("supersedes", insight.get("supersedes"))
+        work_record = _lead_text("work_record", insight.get("work_record"))
+        run_id = _lead_text("run_id", insight.get("run_id"))
+        unit_id = _lead_text("unit_id", insight.get("unit_id"))
+        control_offered = _lead_flag("control_offered",
+                                     insight.get("control_offered", 0))
+        control_taken = _lead_flag("control_taken",
+                                   insight.get("control_taken", 0))
+        actor = actor or {}
+        insight_id = uuid.uuid4().hex
+        ts = now_iso()
+        with self._transaction():
+            # R15 first, and BEFORE the foreign key can raise: a bare
+            # sqlite3.IntegrityError names no project and offers no
+            # remedy, which is the whole reason this store refuses by
+            # reason code instead.
+            if _exec(self, "SELECT project_id FROM projects WHERE "
+                     "project_id=?", (project_id,)).fetchone() is None:
+                raise OwnershipRefused(
+                    "not-found",
+                    "no project %r to record an insight against"
+                    % (project_id,))
+            if evidence_class in ("EXECUTED", "MEASURED") and not evidence:
+                raise OwnershipRefused(
+                    "evidence-missing",
+                    "an %s claim must carry the command or the measurement "
+                    "it rests on; without one it is REASONED and must say "
+                    "so." % (evidence_class,))
+            if kind == "CALIBRATION" and (not mutation or not observed):
+                raise OwnershipRefused(
+                    "calibration-incomplete",
+                    "a calibration must name the control it broke "
+                    "(mutation) and the count it observed (observed); "
+                    "otherwise nobody can tell whether the check works.")
+            if kind == "DECISION" and not flip_condition:
+                raise OwnershipRefused(
+                    "no-flip-condition",
+                    "a decision nothing could change is not a decision; "
+                    "name what would have changed it.")
+            if decision_class and control_offered != 1:
+                raise OwnershipRefused(
+                    "handback-not-offered",
+                    "a %s decision reaches the founder's queue, so it must "
+                    "offer to hand the work back (control_offered=1). This "
+                    "is a store refusal, not a rendering convention: a "
+                    "decision that did not offer control cannot be "
+                    "recorded." % (decision_class,))
+            if decision_class and not alternatives:
+                raise OwnershipRefused(
+                    "no-alternative",
+                    "the road not taken is the point of a key decision; a "
+                    "%s decision must carry at least one alternative with "
+                    "its why_not." % (decision_class,))
+            if kind == "HANDBACK" and not supersedes:
+                raise OwnershipRefused(
+                    "handback-without-decision",
+                    "a handback answers a decision: name it in supersedes.")
+            if supersedes:
+                srow = _exec(self,
+                             "SELECT insight_id, project_id FROM insights "
+                             "WHERE insight_id=?", (supersedes,)).fetchone()
+                if srow is None:
+                    raise OwnershipRefused(
+                        "not-found",
+                        "supersedes names no insight %r" % (supersedes,))
+                if srow["project_id"] != project_id:
+                    raise OwnershipRefused(
+                        "foreign-insight",
+                        "insight %r belongs to project %r, not %r. An "
+                        "insight id is not a capability: name that "
+                        "project's own row."
+                        % (supersedes, srow["project_id"], project_id))
+            if kind == "HANDBACK":
+                taken = _exec(self,
+                              "SELECT insight_id FROM insights WHERE "
+                              "kind='HANDBACK' AND supersedes=?",
+                              (supersedes,)).fetchone()
+                if taken is not None:
+                    raise OwnershipRefused(
+                        "handback-already-taken",
+                        "decision %r was already handed back (%s). Control "
+                        "changes hands once; a second handback would make "
+                        "'who owns this' unanswerable."
+                        % (supersedes, taken["insight_id"]))
+            _exec(self,
+                  "INSERT INTO insights (insight_id, project_id, "
+                  "created_at, kind, subject, claim, evidence, "
+                  "evidence_class, alternatives, flip_condition, "
+                  "confidence, confidence_basis, mutation, observed, "
+                  "decision_class, control_offered, control_taken, "
+                  "supersedes, work_record, run_id, unit_id, session_id, "
+                  "actor_type, actor_name) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (insight_id, project_id, ts, kind, subject, claim,
+                   evidence, evidence_class, alternatives_json,
+                   flip_condition, confidence, confidence_basis, mutation,
+                   observed, decision_class, control_offered, control_taken,
+                   supersedes, work_record, run_id, unit_id,
+                   actor.get("session_id", ""), actor.get("actor_type", ""),
+                   actor.get("actor_name", "")))
+            self._write_attribution(
+                project_id, None, "insight.recorded", actor,
+                action="record_insight", evidence_ref=insight_id)
+        return {"insight_id": insight_id, "kind": kind,
+                "decision_class": decision_class}
+
+    def record_briefing(self, project_id, briefing, actor):
+        """Append ONE row to the briefing timeline, with its attribution
+        event ('briefing.recorded'), in ONE transaction. Returns
+        {'briefing_id', 'trigger', 'active_minutes'}. Same append-only law
+        as record_insight above.
+
+        A briefing is a timestamped record of what the founder was SHOWN
+        and of the measurement that made it due, which is why it lives in
+        its own table and carries no evidence_class: it makes no claim.
+
+        Refusals: an unknown key or an unknown `trigger` is a ValueError
+        naming the whole allowed set; a negative or non-integer counter is
+        a ValueError; an empty `where_we_are` is a ValueError, because a
+        briefing with nothing to say is the empty row this timeline exists
+        to not accumulate; an unknown project or an unknown
+        `since_briefing` refuses 'not-found'; a `since_briefing` from
+        another project refuses 'foreign-briefing', the same shape
+        record_insight's own supersedes check uses."""
+        _lead_fields("briefing", briefing, BRIEFING_FIELDS)
+        trigger = _autonomy_enum("trigger", briefing.get("trigger"),
+                                 BRIEFING_TRIGGERS)
+        where_we_are = briefing.get("where_we_are")
+        if not isinstance(where_we_are, str) or not where_we_are.strip():
+            raise ValueError(
+                "a briefing must say where the work stands "
+                "(where_we_are was %r)" % (where_we_are,))
+        active_minutes = _lead_count("active_minutes",
+                                     briefing.get("active_minutes", 0))
+        event_count = _lead_count("event_count",
+                                  briefing.get("event_count", 0))
+        skipped_events = _lead_count("skipped_events",
+                                     briefing.get("skipped_events", 0))
+        open_steps = _lead_count("open_steps", briefing.get("open_steps", 0))
+        since_briefing = _lead_text("since_briefing",
+                                    briefing.get("since_briefing"))
+        run_state = _lead_text("run_state", briefing.get("run_state"))
+        what_changed = _lead_text("what_changed", briefing.get("what_changed"))
+        what_it_cost = _lead_text("what_it_cost", briefing.get("what_it_cost"))
+        decision_insight = _lead_text("decision_insight",
+                                      briefing.get("decision_insight"))
+        risk_insight = _lead_text("risk_insight", briefing.get("risk_insight"))
+        actor = actor or {}
+        briefing_id = uuid.uuid4().hex
+        ts = now_iso()
+        with self._transaction():
+            if _exec(self, "SELECT project_id FROM projects WHERE "
+                     "project_id=?", (project_id,)).fetchone() is None:
+                raise OwnershipRefused(
+                    "not-found",
+                    "no project %r to record a briefing against"
+                    % (project_id,))
+            if since_briefing:
+                prev = _exec(self,
+                             "SELECT briefing_id, project_id FROM briefings "
+                             "WHERE briefing_id=?",
+                             (since_briefing,)).fetchone()
+                if prev is None:
+                    raise OwnershipRefused(
+                        "not-found",
+                        "since_briefing names no briefing %r"
+                        % (since_briefing,))
+                if prev["project_id"] != project_id:
+                    raise OwnershipRefused(
+                        "foreign-briefing",
+                        "briefing %r belongs to project %r, not %r"
+                        % (since_briefing, prev["project_id"], project_id))
+            _exec(self,
+                  "INSERT INTO briefings (briefing_id, project_id, "
+                  "created_at, trigger, active_minutes, event_count, "
+                  "skipped_events, since_briefing, run_state, open_steps, "
+                  "where_we_are, what_changed, what_it_cost, "
+                  "decision_insight, risk_insight, session_id, actor_type, "
+                  "actor_name) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (briefing_id, project_id, ts, trigger, active_minutes,
+                   event_count, skipped_events, since_briefing, run_state,
+                   open_steps, where_we_are, what_changed, what_it_cost,
+                   decision_insight, risk_insight,
+                   actor.get("session_id", ""), actor.get("actor_type", ""),
+                   actor.get("actor_name", "")))
+            self._write_attribution(
+                project_id, None, "briefing.recorded", actor,
+                action="record_briefing", evidence_ref=briefing_id)
+        return {"briefing_id": briefing_id, "trigger": trigger,
+                "active_minutes": active_minutes}
+
+    # -- L04 read accessors ----------------------------------------------
+    # Same two failure policies the D-2 block above states: these are
+    # advisory reads, not mutations, so a missing id degrades to None
+    # (get_*) or an empty list (list_*) rather than raising. Redaction is
+    # IDENTICAL to dump()'s through the shared _export_row helper, so they
+    # add no new disclosure surface, and `raw` mirrors dump(raw=True)
+    # exactly: local text display passes raw=True, an export does not.
+    #
+    # `since` is EXCLUSIVE and `until` is INCLUSIVE, on every accessor
+    # that takes them. That pairing is what lets a caller anchor on a row
+    # it already holds: "everything after the briefing I am looking at"
+    # must not return that briefing again, and "everything up to this
+    # page's cut" must include the row written at the cut, which is what
+    # makes a regenerated page byte identical a week later.
+
+    def list_insights(self, project_id, kind=None, since=None, until=None,
+                      limit=None, raw=False):
+        """Insights for `project_id`, NEWEST FIRST (created_at, then rowid
+        as the tie break, so two rows written in the same second still
+        have one deterministic order). `limit` therefore means the newest
+        N. A page that wants oldest first reverses this; the order is not
+        a per-caller option, so two readers cannot disagree about which
+        row is the latest."""
+        if kind is not None:
+            _autonomy_enum("kind", kind, INSIGHT_KINDS)
+        sql = "SELECT * FROM insights WHERE project_id=?"
+        params = [project_id]
+        if kind is not None:
+            sql += " AND kind=?"
+            params.append(kind)
+        sql, params = _lead_window(sql, params, since, until, limit)
+        rows = _exec(self, sql, tuple(params)).fetchall()
+        return [_export_row(self.conn, "insights", dict(r),
+                            list_fields=("alternatives",), raw=raw)
+                for r in rows]
+
+    def get_insight(self, insight_id, raw=False):
+        """ONE insight row by id, or None if no such insight."""
+        row = _exec(self, "SELECT * FROM insights WHERE insight_id=?",
+                    (insight_id,)).fetchone()
+        if row is None:
+            return None
+        return _export_row(self.conn, "insights", dict(row),
+                           list_fields=("alternatives",), raw=raw)
+
+    def list_briefings(self, project_id, since=None, until=None, limit=None,
+                       raw=False):
+        """Briefings for `project_id`, newest first, same ordering rule
+        and same window rule as list_insights above."""
+        sql, params = _lead_window(
+            "SELECT * FROM briefings WHERE project_id=?", [project_id],
+            since, until, limit)
+        rows = _exec(self, sql, tuple(params)).fetchall()
+        return [_export_row(self.conn, "briefings", dict(r), raw=raw)
+                for r in rows]
+
+    def latest_briefing(self, project_id, raw=False):
+        """The newest briefing for `project_id`, or None when this project
+        has never had one. That None is a real answer, not a gap to paper
+        over: it is what the quiet-stretch path prints instead of
+        manufacturing a briefing to look busy."""
+        rows = self.list_briefings(project_id, limit=1, raw=raw)
+        return rows[0] if rows else None
+
+    def open_key_decisions(self, project_id, raw=False):
+        """The DECISION rows carrying a decision_class that NOTHING
+        supersedes, newest first.
+
+        That absence is the whole definition of open. A decision leaves
+        the founder's queue when something supersedes it, whether that
+        something is a HANDBACK row (the founder took control) or a later
+        DECISION row (the founder picked an option and the coordinator
+        recorded the pick). No status column, no UPDATE, no second truth
+        to keep in step with the first."""
+        rows = _exec(self,
+            "SELECT * FROM insights AS i WHERE i.project_id=? AND "
+            "i.kind='DECISION' AND i.decision_class<>'' AND NOT EXISTS "
+            "(SELECT 1 FROM insights AS s WHERE s.supersedes=i.insight_id) "
+            "ORDER BY i.created_at DESC, i.rowid DESC",
+            (project_id,)).fetchall()
+        return [_export_row(self.conn, "insights", dict(r),
+                            list_fields=("alternatives",), raw=raw)
+                for r in rows]
+
+    def active_minutes_since(self, project_id, since_iso, now=None):
+        """How many minutes of ACTIVE work this project has accumulated
+        since `since_iso`. Returns {'active_minutes', 'events', 'skipped'}.
+
+        The activity signal is the attribution table, which every mutating
+        service method appends to through _write_attribution. An
+        attribution row exists BECAUSE work happened, which is what makes
+        it a work signal and not a clock.
+
+        Let T be [since_iso] followed by every attribution timestamp for
+        this project in (since_iso, now], ascending. Active seconds is the
+        sum over consecutive pairs of min(gap, ACTIVE_GAP_CEILING_SECONDS).
+
+        `now` is deliberately NOT appended to T: an open-ended idle
+        stretch at the end accrues nothing, so a session that stops
+        working stops accruing immediately rather than earning a briefing
+        by having been left open.
+
+        A row whose timestamp does not parse in now_iso()'s own format is
+        skipped and counted in 'skipped', never guessed at, and every
+        surface that renders this total discloses a non-zero skipped count
+        rather than presenting a number that quietly dropped rows."""
+        since_dt = parse_iso_stamp(since_iso)
+        if since_dt is None:
+            raise ValueError(
+                "since_iso must be a %s timestamp, got %r"
+                % (_ISO_STAMP_FORMAT, since_iso))
+        now_dt = parse_iso_stamp(now if now is not None else now_iso())
+        if now_dt is None:
+            raise ValueError(
+                "now must be a %s timestamp, got %r"
+                % (_ISO_STAMP_FORMAT, now))
+        rows = _exec(self,
+                     "SELECT timestamp FROM attribution WHERE project_id=?",
+                     (project_id,)).fetchall()
+        stamps, skipped = [], 0
+        for row in rows:
+            parsed = parse_iso_stamp(row["timestamp"])
+            if parsed is None:
+                skipped += 1
+                continue
+            if since_dt < parsed <= now_dt:
+                stamps.append(parsed)
+        stamps.sort()
+        seconds = 0.0
+        previous = since_dt
+        for stamp in stamps:
+            gap = (stamp - previous).total_seconds()
+            if gap > 0:
+                seconds += min(gap, ACTIVE_GAP_CEILING_SECONDS)
+            previous = stamp
+        return {"active_minutes": int(seconds // 60), "events": len(stamps),
+                "skipped": skipped}
+
     def dump(self, raw=False):
         """Full JSON-serializable export of every table.
 
@@ -14897,6 +15708,37 @@ class ReadOnlyStore(object):
 
     def list_dispatches(self, unit_id, raw=False):
         return Store.list_dispatches(self, unit_id, raw=raw)
+
+    # -- L04: the insight ledger (read-only surface) ---------------------
+    # Same reuse, same reason as the U1 and U2 blocks above: each of these
+    # only ever SELECTs through _exec and redacts through _export_row, so
+    # Store's implementation works unchanged against a read-only
+    # connection. NEITHER write method (record_insight, record_briefing)
+    # is defined anywhere on this class, which is what makes "a diagnostic
+    # cannot append a judgement" structural rather than a convention.
+
+    def list_insights(self, project_id, kind=None, since=None, until=None,
+                      limit=None, raw=False):
+        return Store.list_insights(self, project_id, kind=kind, since=since,
+                                   until=until, limit=limit, raw=raw)
+
+    def get_insight(self, insight_id, raw=False):
+        return Store.get_insight(self, insight_id, raw=raw)
+
+    def list_briefings(self, project_id, since=None, until=None, limit=None,
+                       raw=False):
+        return Store.list_briefings(self, project_id, since=since,
+                                    until=until, limit=limit, raw=raw)
+
+    def latest_briefing(self, project_id, raw=False):
+        return Store.latest_briefing(self, project_id, raw=raw)
+
+    def open_key_decisions(self, project_id, raw=False):
+        return Store.open_key_decisions(self, project_id, raw=raw)
+
+    def active_minutes_since(self, project_id, since_iso, now=None):
+        return Store.active_minutes_since(self, project_id, since_iso,
+                                          now=now)
 
     def close(self):
         """Idempotent, same contract as Store.close()."""
