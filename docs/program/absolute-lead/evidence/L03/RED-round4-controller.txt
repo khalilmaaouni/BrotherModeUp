@@ -1,0 +1,584 @@
+RED evidence, round 4, the CONTROLLER half of the L03 hardening.
+
+Captured by running each NEW test class of DESIGN-round4.md section 17.1
+against the UNTOUCHED tools/bm_controller.py, before any controller edit.
+tools/bm_store.py already carries the round-4 STORE half (landed by the
+store writer, FIX-round4-store-report.md), which is why a few blocks below
+fail on a store refusal the controller does not yet handle rather than on
+the round-3 behaviour: that is the same finding seen from the other side.
+
+Command, once per class:
+
+  cd /Users/khalil.maaouni/Documents/BrotherModeUp/tools
+  python3 -m unittest -v test_bm_controller.<class>
+
+===================================================================
+BLOCK: TestR3PausedIsAFounderOnlyGate
+===================================================================
+test_a_paused_run_dispatches_nothing_under_a_live_contract (test_bm_controller.TestR3PausedIsAFounderOnlyGate)
+SM A, probes p08_cli_paused_dispatch.py and ... FAIL
+test_a_paused_run_never_delivers_itself (test_bm_controller.TestR3PausedIsAFounderOnlyGate)
+SM B, probe p09_deliver_guard_and_spin.py part a: PAUSED to ... FAIL
+test_a_result_arriving_on_a_paused_run_is_recorded_and_held (test_bm_controller.TestR3PausedIsAFounderOnlyGate)
+SM A consequence 3 and DESIGN-round4 section 4.3. Round 3 routed ... FAIL
+test_check_timeouts_abandons_nothing_on_a_paused_run (test_bm_controller.TestR3PausedIsAFounderOnlyGate)
+Abandoning a dispatch records a result AND a rejected ... FAIL
+test_plan_refuses_run_paused_instead_of_un_pausing_the_run (test_bm_controller.TestR3PausedIsAFounderOnlyGate)
+upsert_units always flips a run to READY and PAUSED to READY is ... FAIL
+test_run_to_completion_stops_on_the_first_step_of_a_paused_run (test_bm_controller.TestR3PausedIsAFounderOnlyGate)
+One guard, checked once: run_to_completion needs no PAUSED ... ERROR
+
+======================================================================
+ERROR: test_run_to_completion_stops_on_the_first_step_of_a_paused_run (test_bm_controller.TestR3PausedIsAFounderOnlyGate)
+One guard, checked once: run_to_completion needs no PAUSED
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2211, in test_run_to_completion_stops_on_the_first_step_of_a_paused_run
+    self.assertEqual(trace[0]["stop_reason"], "FOUNDER_WAITING")
+KeyError: 'stop_reason'
+
+======================================================================
+FAIL: test_a_paused_run_dispatches_nothing_under_a_live_contract (test_bm_controller.TestR3PausedIsAFounderOnlyGate)
+SM A, probes p08_cli_paused_dispatch.py and
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2024, in test_a_paused_run_dispatches_nothing_under_a_live_contract
+    self.assertEqual(summary["dispatched"], [])
+AssertionError: Lists differ: ['u1'] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+'u1'
+
+- ['u1']
++ []
+
+======================================================================
+FAIL: test_a_paused_run_never_delivers_itself (test_bm_controller.TestR3PausedIsAFounderOnlyGate)
+SM B, probe p09_deliver_guard_and_spin.py part a: PAUSED to
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2067, in test_a_paused_run_never_delivers_itself
+    self.assertEqual(store.get_run("p1", raw=True)["state"],
+AssertionError: 'DELIVERABLE_READY' != 'PAUSED'
+- DELIVERABLE_READY
++ PAUSED
+ : the engine never takes the founder's own resume edge to deliver
+
+======================================================================
+FAIL: test_a_result_arriving_on_a_paused_run_is_recorded_and_held (test_bm_controller.TestR3PausedIsAFounderOnlyGate)
+SM A consequence 3 and DESIGN-round4 section 4.3. Round 3 routed
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2109, in test_a_result_arriving_on_a_paused_run_is_recorded_and_held
+    self.assertEqual(outcome, "held")
+AssertionError: 'rejected' != 'held'
+- rejected
++ held
+
+
+======================================================================
+FAIL: test_check_timeouts_abandons_nothing_on_a_paused_run (test_bm_controller.TestR3PausedIsAFounderOnlyGate)
+Abandoning a dispatch records a result AND a rejected
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2159, in test_check_timeouts_abandons_nothing_on_a_paused_run
+    self.assertEqual(engine.check_timeouts("p1"), [])
+AssertionError: Lists differ: ['u1'] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+'u1'
+
+- ['u1']
++ []
+
+======================================================================
+FAIL: test_plan_refuses_run_paused_instead_of_un_pausing_the_run (test_bm_controller.TestR3PausedIsAFounderOnlyGate)
+upsert_units always flips a run to READY and PAUSED to READY is
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2182, in test_plan_refuses_run_paused_instead_of_un_pausing_the_run
+    engine.plan("p1", run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.105s
+
+FAILED (failures=5, errors=1)
+EXIT=1
+
+===================================================================
+BLOCK: TestR3TheSummaryStateIsTheStoreState
+===================================================================
+test_a_founder_gated_remainder_reports_the_state_the_store_holds (test_bm_controller.TestR3TheSummaryStateIsTheStoreState)
+LV p11 and SM p07 case 4: a run wedged in EXECUTING whose only ... FAIL
+test_every_summary_of_a_driven_trace_matches_the_store (test_bm_controller.TestR3TheSummaryStateIsTheStoreState)
+The whole trajectory, not one row: a multi-wave run driven step ... ok
+test_run_to_completion_stops_on_a_state_the_store_actually_holds (test_bm_controller.TestR3TheSummaryStateIsTheStoreState)
+SM E's load-bearing half: the loop terminated because of a state ... FAIL
+
+======================================================================
+FAIL: test_a_founder_gated_remainder_reports_the_state_the_store_holds (test_bm_controller.TestR3TheSummaryStateIsTheStoreState)
+LV p11 and SM p07 case 4: a run wedged in EXECUTING whose only
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2258, in test_a_founder_gated_remainder_reports_the_state_the_store_holds
+    self.assertEqual(summary["state"],
+AssertionError: 'WAITING_HUMAN' != 'EXECUTING'
+- WAITING_HUMAN
++ EXECUTING
+ : the summary never says anything the store does not hold: {'run_id': '87dc360120eb40fa840f565c3ead92e7', 'state': 'WAITING_HUMAN', 'dispatched': [], 'completed': [], 'note': 'only founder-gated lanes remain'}
+
+======================================================================
+FAIL: test_run_to_completion_stops_on_a_state_the_store_actually_holds (test_bm_controller.TestR3TheSummaryStateIsTheStoreState)
+SM E's load-bearing half: the loop terminated because of a state
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2302, in test_run_to_completion_stops_on_a_state_the_store_actually_holds
+    self.assertEqual(trace[-1]["state"],
+AssertionError: 'WAITING_HUMAN' != 'EXECUTING'
+- WAITING_HUMAN
++ EXECUTING
+
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.044s
+
+FAILED (failures=2)
+EXIT=1
+
+===================================================================
+BLOCK: TestR3StopReasonDrivesEveryLoopDriver
+===================================================================
+test_a_double_contract_amend_is_contention_and_says_so (test_bm_controller.TestR3StopReasonDrivesEveryLoopDriver)
+LV p3: the round-3 contention deferral fed the round-3 park stop ... ERROR
+test_a_failing_done_definition_runs_once_per_call (test_bm_controller.TestR3StopReasonDrivesEveryLoopDriver)
+LV p8 case C: 15 executions of the founder's WHOLE ... FAIL
+test_a_fence_overlap_is_contention_and_says_so (test_bm_controller.TestR3StopReasonDrivesEveryLoopDriver)
+LV p2: zero founder steps exist and the event that unblocks the ... ERROR
+test_a_provider_outage_parks_after_one_ask (test_bm_controller.TestR3StopReasonDrivesEveryLoopDriver)
+LV p8 case D and SM J: 15 of 15 steps, 15 worker asks, no ... ERROR
+test_the_ordinary_async_park_reports_in_flight_after_one_ask (test_bm_controller.TestR3StopReasonDrivesEveryLoopDriver)
+SM J probe p09 part c: the note a parked async wave actually ... FAIL
+test_the_soft_spend_stop_parks_in_one_step (test_bm_controller.TestR3StopReasonDrivesEveryLoopDriver)
+LV p1 and FIX-round3 residual 4: 12 of 12 steps, every one ... FAIL
+
+======================================================================
+ERROR: test_a_double_contract_amend_is_contention_and_says_so (test_bm_controller.TestR3StopReasonDrivesEveryLoopDriver)
+LV p3: the round-3 contention deferral fed the round-3 park stop
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2450, in test_a_double_contract_amend_is_contention_and_says_so
+    self.assertEqual(summary["stop_reason"], "CONTENTION")
+KeyError: 'stop_reason'
+
+======================================================================
+ERROR: test_a_fence_overlap_is_contention_and_says_so (test_bm_controller.TestR3StopReasonDrivesEveryLoopDriver)
+LV p2: zero founder steps exist and the event that unblocks the
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2421, in test_a_fence_overlap_is_contention_and_says_so
+    self.assertEqual(trace[-1]["stop_reason"], "CONTENTION")
+KeyError: 'stop_reason'
+
+======================================================================
+ERROR: test_a_provider_outage_parks_after_one_ask (test_bm_controller.TestR3StopReasonDrivesEveryLoopDriver)
+LV p8 case D and SM J: 15 of 15 steps, 15 worker asks, no
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2388, in test_a_provider_outage_parks_after_one_ask
+    self.assertEqual(trace[-1]["stop_reason"], "OUTAGE")
+KeyError: 'stop_reason'
+
+======================================================================
+FAIL: test_a_failing_done_definition_runs_once_per_call (test_bm_controller.TestR3StopReasonDrivesEveryLoopDriver)
+LV p8 case C: 15 executions of the founder's WHOLE
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2368, in test_a_failing_done_definition_runs_once_per_call
+    self.assertEqual(
+AssertionError: 15 != 1 : exactly ONE done-definition execution per call
+
+======================================================================
+FAIL: test_the_ordinary_async_park_reports_in_flight_after_one_ask (test_bm_controller.TestR3StopReasonDrivesEveryLoopDriver)
+SM J probe p09 part c: the note a parked async wave actually
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2471, in test_the_ordinary_async_park_reports_in_flight_after_one_ask
+    self.assertEqual(len(trace), 1)
+AssertionError: 12 != 1
+
+======================================================================
+FAIL: test_the_soft_spend_stop_parks_in_one_step (test_bm_controller.TestR3StopReasonDrivesEveryLoopDriver)
+LV p1 and FIX-round3 residual 4: 12 of 12 steps, every one
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2340, in test_the_soft_spend_stop_parks_in_one_step
+    self.assertEqual(len(trace), 1,
+AssertionError: 12 != 1 : one wave discovers the soft stop and the loop stops on it: [{'run_id': '3eed84611904444fa7c9f90e21dedc20', 'state': 'READY', 'dispatched': [], 'completed': [], 'note': 'soft-stop: 1 unit(s) selectable but no new dispatch; finishing in-flight work only'}, {'run_id': '3eed84611904444fa7c9f90e21dedc20', 'state': 'READY', 'dispatched': [], 'completed': [], 'note': 'soft-stop: 1 unit(s) selectable but no new dispatch; finishing in-flight work only'}, {'run_id': '3eed84611904444fa7c9f90e21dedc20', 'state': 'READY', 'dispatched': [], 'completed': [], 'note': 'soft-stop: 1 unit(s) selectable but no new dispatch; finishing in-flight work only'}, {'run_id': '3eed84611904444fa7c9f90e21dedc20', 'state': 'READY', 'dispatched': [], 'completed': [], 'note': 'soft-stop: 1 unit(s) selectable but no new dispatch; finishing in-flight work only'}, {'run_id': '3eed84611904444fa7c9f90e21dedc20', 'state': 'READY', 'dispatched': [], 'completed': [], 'note': 'soft-stop: 1 unit(s) selectable but no new dispatch; finishing in-flight work only'}, {'run_id': '3eed84611904444fa7c9f90e21dedc20', 'state': 'READY', 'dispatched': [], 'completed': [], 'note': 'soft-stop: 1 unit(s) selectable but no new dispatch; finishing in-flight work only'}, {'run_id': '3eed84611904444fa7c9f90e21dedc20', 'state': 'READY', 'dispatched': [], 'completed': [], 'note': 'soft-stop: 1 unit(s) selectable but no new dispatch; finishing in-flight work only'}, {'run_id': '3eed84611904444fa7c9f90e21dedc20', 'state': 'READY', 'dispatched': [], 'completed': [], 'note': 'soft-stop: 1 unit(s) selectable but no new dispatch; finishing in-flight work only'}, {'run_id': '3eed84611904444fa7c9f90e21dedc20', 'state': 'READY', 'dispatched': [], 'completed': [], 'note': 'soft-stop: 1 unit(s) selectable but no new dispatch; finishing in-flight work only'}, {'run_id': '3eed84611904444fa7c9f90e21dedc20', 'state': 'READY', 'dispatched': [], 'completed': [], 'note': 'soft-stop: 1 unit(s) selectable but no new dispatch; finishing in-flight work only'}, {'run_id': '3eed84611904444fa7c9f90e21dedc20', 'state': 'READY', 'dispatched': [], 'completed': [], 'note': 'soft-stop: 1 unit(s) selectable but no new dispatch; finishing in-flight work only'}, {'run_id': '3eed84611904444fa7c9f90e21dedc20', 'state': 'READY', 'dispatched': [], 'completed': [], 'note': 'soft-stop: 1 unit(s) selectable but no new dispatch; finishing in-flight work only'}]
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.090s
+
+FAILED (failures=3, errors=3)
+EXIT=1
+
+===================================================================
+BLOCK: TestR3TheExecutingWedgeUnwinds
+===================================================================
+test_a_wave_that_claims_nothing_still_reaches_delivery (test_bm_controller.TestR3TheExecutingWedgeUnwinds)
+LV p9: DELIVERABLE FOREVER OUT OF REACH: True. ... FAIL
+test_the_wedge_note_never_appears_in_any_summary (test_bm_controller.TestR3TheExecutingWedgeUnwinds)
+The note itself is the artefact of the dead end: 'the ... ok
+
+======================================================================
+FAIL: test_a_wave_that_claims_nothing_still_reaches_delivery (test_bm_controller.TestR3TheExecutingWedgeUnwinds)
+LV p9: DELIVERABLE FOREVER OUT OF REACH: True.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2504, in test_a_wave_that_claims_nothing_still_reaches_delivery
+    self.assertEqual(store.get_run("p1", raw=True)["state"],
+AssertionError: 'EXECUTING' != 'DELIVERABLE_READY'
+- EXECUTING
++ DELIVERABLE_READY
+ : the breaker exhausts the ungrantable unit, the empty wave unwinds, and the run delivers: {'run_id': 'e49c6580f3ee4bb09bd052bee1621dd1', 'state': 'EXECUTING', 'dispatched': [], 'completed': [], 'note': 'no selectable unit could be claimed this wave (fence overlap, or gate_check refused and the circuit breaker absorbed it); tried again next step; nothing is in flight either, so the run is parked until a founder acts'}
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.027s
+
+FAILED (failures=1)
+EXIT=1
+
+===================================================================
+BLOCK: TestR3TheSkippedLifecycleClosesAtTheSource
+===================================================================
+test_a_byte_identical_re_plan_revives_the_skipped_unit (test_bm_controller.TestR3TheSkippedLifecycleClosesAtTheSource)
+LV p5: the reuse-untouched rule made the founder's own repair a ... ok
+test_a_re_plan_cancels_the_dropped_units_open_dispatch (test_bm_controller.TestR3TheSkippedLifecycleClosesAtTheSource) ... ok
+test_a_re_plan_parks_the_dropped_units_fence (test_bm_controller.TestR3TheSkippedLifecycleClosesAtTheSource) ... FAIL
+test_a_result_for_a_cancelled_dispatch_refuses_instead_of_reviving_the_unit (test_bm_controller.TestR3TheSkippedLifecycleClosesAtTheSource)
+LV finding 4: `receive_result returned: u1` and the dropped unit ... FAIL
+test_the_whole_founder_recovery_ends_deliverable_ready (test_bm_controller.TestR3TheSkippedLifecycleClosesAtTheSource)
+LV p6's own control: before round 3 the founder's repair ... FAIL
+
+======================================================================
+FAIL: test_a_re_plan_parks_the_dropped_units_fence (test_bm_controller.TestR3TheSkippedLifecycleClosesAtTheSource)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2605, in test_a_re_plan_parks_the_dropped_units_fence
+    self.assertNotEqual(
+AssertionError: 'active' == 'active' : a dropped unit holds no fence over the founder's files
+
+======================================================================
+FAIL: test_a_result_for_a_cancelled_dispatch_refuses_instead_of_reviving_the_unit (test_bm_controller.TestR3TheSkippedLifecycleClosesAtTheSource)
+LV finding 4: `receive_result returned: u1` and the dropped unit
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2592, in test_a_result_for_a_cancelled_dispatch_refuses_instead_of_reviving_the_unit
+    self.assertEqual(store.spend_totals("p1")["tokens"], 0,
+AssertionError: 1 != 0 : no meter is charged for a unit that is no longer in the graph
+
+======================================================================
+FAIL: test_the_whole_founder_recovery_ends_deliverable_ready (test_bm_controller.TestR3TheSkippedLifecycleClosesAtTheSource)
+LV p6's own control: before round 3 the founder's repair
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2667, in test_the_whole_founder_recovery_ends_deliverable_ready
+    self.assertEqual(store.get_run("p1", raw=True)["state"],
+AssertionError: 'WAITING_HUMAN' != 'DELIVERABLE_READY'
+- WAITING_HUMAN
++ DELIVERABLE_READY
+ : RUN DELIVERED: {'run_id': '17cd65d5bdfd4a039017685b73c887d7', 'state': 'WAITING_HUMAN', 'dispatched': ['u1'], 'completed': ['u1'], 'note': 'no spend ceiling on file (no-data); starting units and saying so'}
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.074s
+
+FAILED (failures=3)
+EXIT=1
+
+===================================================================
+BLOCK: TestR3BlockedIsAMaterialisedViewOfTheLaneGate
+===================================================================
+test_a_healthy_unit_sharing_the_lane_recovers (test_bm_controller.TestR3BlockedIsAMaterialisedViewOfTheLaneGate)
+LV p12: block_lane_units flips EVERY PENDING/READY unit of the ... FAIL
+test_resolving_the_step_unblocks_the_lane_on_the_next_step (test_bm_controller.TestR3BlockedIsAMaterialisedViewOfTheLaneGate)
+SM p07 case 3: `select_ready_units now: []` forever, whatever ... ERROR
+test_resolving_without_repairing_re_queues_exactly_one_step (test_bm_controller.TestR3BlockedIsAMaterialisedViewOfTheLaneGate)
+LV p5's dead end: the run rested in WAITING_HUMAN reporting ... FAIL
+test_ten_consecutive_steps_queue_exactly_one_escalation_step (test_bm_controller.TestR3BlockedIsAMaterialisedViewOfTheLaneGate)
+The idempotency marker is state-derived (an open founder step in ... ok
+
+======================================================================
+ERROR: test_resolving_the_step_unblocks_the_lane_on_the_next_step (test_bm_controller.TestR3BlockedIsAMaterialisedViewOfTheLaneGate)
+SM p07 case 3: `select_ready_units now: []` forever, whatever
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2722, in test_resolving_the_step_unblocks_the_lane_on_the_next_step
+    engine.step("p1")
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_controller.py", line 511, in step
+    claimed, self.worker.run(claimed["brief"]), project_id,
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 221, in run
+    script = self.scripts[unit_id]
+KeyError: 'u1'
+
+======================================================================
+FAIL: test_a_healthy_unit_sharing_the_lane_recovers (test_bm_controller.TestR3BlockedIsAMaterialisedViewOfTheLaneGate)
+LV p12: block_lane_units flips EVERY PENDING/READY unit of the
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2737, in test_a_healthy_unit_sharing_the_lane_recovers
+    self.assertEqual(
+AssertionError: 'DONE' != 'BLOCKED'
+- DONE
++ BLOCKED
+ : the collateral is real while the lane is gated
+
+======================================================================
+FAIL: test_resolving_without_repairing_re_queues_exactly_one_step (test_bm_controller.TestR3BlockedIsAMaterialisedViewOfTheLaneGate)
+LV p5's dead end: the run rested in WAITING_HUMAN reporting
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2770, in test_resolving_without_repairing_re_queues_exactly_one_step
+    self.assertEqual(
+AssertionError: 0 != 1 : one fresh step, because the condition still holds: []
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.063s
+
+FAILED (failures=2, errors=1)
+EXIT=1
+
+===================================================================
+BLOCK: TestR3EveryDispatchRouteIsGateChecked
+===================================================================
+test_a_legitimate_re_await_never_opens_a_second_dispatch_row (test_bm_controller.TestR3EveryDispatchRouteIsGateChecked)
+At-most-once re-dispatch is preserved by the dispatch UNIQUE key ... ok
+test_a_narrowing_supersede_stops_the_re_await (test_bm_controller.TestR3EveryDispatchRouteIsGateChecked)
+AZ F-A1 c1: `worker call count: {'u1': 2}` and `fence still ... FAIL
+test_every_worker_handoff_sits_behind_the_one_choke_point (test_bm_controller.TestR3EveryDispatchRouteIsGateChecked)
+A structural guard, shaped like TestNoSQLGuard above: parse ... FAIL
+test_the_revoke_control_still_drains_with_one_worker_call (test_bm_controller.TestR3EveryDispatchRouteIsGateChecked)
+AZ's own control C1b, which must stay green: the contract check ... ok
+
+======================================================================
+FAIL: test_a_narrowing_supersede_stops_the_re_await (test_bm_controller.TestR3EveryDispatchRouteIsGateChecked)
+AZ F-A1 c1: `worker call count: {'u1': 2}` and `fence still
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2839, in test_a_narrowing_supersede_stops_the_re_await
+    self.assertEqual(
+AssertionError: 2 != 1 : no worker is handed a brief the LIVE contract refuses
+
+======================================================================
+FAIL: test_every_worker_handoff_sits_behind_the_one_choke_point (test_bm_controller.TestR3EveryDispatchRouteIsGateChecked)
+A structural guard, shaped like TestNoSQLGuard above: parse
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2921, in test_every_worker_handoff_sits_behind_the_one_choke_point
+    self.assertTrue(
+AssertionError: False is not true : every function that calls the worker obtains its brief from _authorise_dispatch: callers=['_resume_dispatched', 'step'] authorised=[]
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.059s
+
+FAILED (failures=2)
+EXIT=1
+
+===================================================================
+BLOCK: TestR3ForeignAndCancelledDispatchIdsRefuse
+===================================================================
+test_a_dispatch_from_an_earlier_terminal_run_refuses (test_bm_controller.TestR3ForeignAndCancelledDispatchIdsRefuse)
+SM K probe p10_cross_run_dispatch.py: on the late-result path ... ERROR
+test_a_dispatch_from_another_project_refuses_and_changes_nothing (test_bm_controller.TestR3ForeignAndCancelledDispatchIdsRefuse)
+AZ F-A3, reproduced through the real shipped CLI: project A's ... ERROR
+test_an_unknown_dispatch_id_refuses_rather_than_tracebacks (test_bm_controller.TestR3ForeignAndCancelledDispatchIdsRefuse)
+main() catches bs.BMStoreError and ValueError only, so every ... ok
+
+======================================================================
+ERROR: test_a_dispatch_from_an_earlier_terminal_run_refuses (test_bm_controller.TestR3ForeignAndCancelledDispatchIdsRefuse)
+SM K probe p10_cross_run_dispatch.py: on the late-result path
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 3005, in test_a_dispatch_from_an_earlier_terminal_run_refuses
+    engine.receive_result("p1", old, "done", ["a.py"],
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_controller.py", line 615, in receive_result
+    return self._handle_late_result(
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_controller.py", line 699, in _handle_late_result
+    project_id, "", unit["lane"],
+TypeError: 'NoneType' object is not subscriptable
+
+======================================================================
+ERROR: test_a_dispatch_from_another_project_refuses_and_changes_nothing (test_bm_controller.TestR3ForeignAndCancelledDispatchIdsRefuse)
+AZ F-A3, reproduced through the real shipped CLI: project A's
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2968, in test_a_dispatch_from_another_project_refuses_and_changes_nothing
+    engine1.receive_result("p1", foreign, "done", ["b.py"],
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_controller.py", line 656, in receive_result
+    "fence_uuid": unit["fence_uuid"],
+TypeError: 'NoneType' object is not subscriptable
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.041s
+
+FAILED (errors=2)
+EXIT=1
+
+===================================================================
+BLOCK: TestR3LateResultKeepsItsSpendAndItsFounderRecord
+===================================================================
+test_a_late_result_at_the_ceiling_still_reaches_the_founder (test_bm_controller.TestR3LateResultKeepsItsSpendAndItsFounderRecord)
+SM D probe p06 case B: `founder (open human steps, ... FAIL
+test_spend_lands_on_a_stopped_run (test_bm_controller.TestR3LateResultKeepsItsSpendAndItsFounderRecord)
+SM C probe p14, the four-shipped-command route (`start`, `plan`, ... FAIL
+test_the_blocked_status_the_late_result_causes_is_reversible (test_bm_controller.TestR3LateResultKeepsItsSpendAndItsFounderRecord)
+SM F: round 3's late-result path wrote BLOCKED directly through ... ERROR
+test_the_dirty_scope_warning_lands_in_the_units_own_lane (test_bm_controller.TestR3LateResultKeepsItsSpendAndItsFounderRecord)
+SM observation 4: _warn_dirty_write_scope wrote into the ... FAIL
+
+======================================================================
+ERROR: test_the_blocked_status_the_late_result_causes_is_reversible (test_bm_controller.TestR3LateResultKeepsItsSpendAndItsFounderRecord)
+SM F: round 3's late-result path wrote BLOCKED directly through
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 3140, in test_the_blocked_status_the_late_result_causes_is_reversible
+    engine._reconcile_lane_blocks("p1", run["run_id"])
+AttributeError: 'ControllerEngine' object has no attribute '_reconcile_lane_blocks'
+
+======================================================================
+FAIL: test_a_late_result_at_the_ceiling_still_reaches_the_founder (test_bm_controller.TestR3LateResultKeepsItsSpendAndItsFounderRecord)
+SM D probe p06 case B: `founder (open human steps,
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 3108, in test_a_late_result_at_the_ceiling_still_reaches_the_founder
+    self.assertGreater(
+AssertionError: 0 not greater than 0 : a real result is never discarded without at least one new founder-visible record: before=(0, 0) after=(0, 0)
+
+======================================================================
+FAIL: test_spend_lands_on_a_stopped_run (test_bm_controller.TestR3LateResultKeepsItsSpendAndItsFounderRecord)
+SM C probe p14, the four-shipped-command route (`start`, `plan`,
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 3058, in test_spend_lands_on_a_stopped_run
+    self.assertEqual(store.spend_totals("p1")["tokens"], 9000,
+AssertionError: 0 != 9000 : every result path charges the meter exactly once, under exactly one rule
+
+======================================================================
+FAIL: test_the_dirty_scope_warning_lands_in_the_units_own_lane (test_bm_controller.TestR3LateResultKeepsItsSpendAndItsFounderRecord)
+SM observation 4: _warn_dirty_write_scope wrote into the
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 3175, in test_the_dirty_scope_warning_lands_in_the_units_own_lane
+    self.assertEqual(
+AssertionError: Items in the first set but not the second:
+'default'
+Items in the second set but not the first:
+'build' : the warning gates the unit's OWN lane, never a hard-coded one: {'default'}
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.058s
+
+FAILED (failures=3, errors=1)
+EXIT=1
+
+===================================================================
+BLOCK: TestR3FailedRecoverableReachesVerifying
+===================================================================
+test_every_walk_edge_is_one_the_store_itself_allows (test_bm_controller.TestR3FailedRecoverableReachesVerifying)
+The import-time guard, restated as a test over all three edge ... ERROR
+test_the_done_check_runs_from_verifying_and_the_run_delivers (test_bm_controller.TestR3FailedRecoverableReachesVerifying)
+SM p16's fourth matrix row: `start=FAILED_RECOVERABLE ... ... FAIL
+
+======================================================================
+ERROR: test_every_walk_edge_is_one_the_store_itself_allows (test_bm_controller.TestR3FailedRecoverableReachesVerifying)
+The import-time guard, restated as a test over all three edge
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 3249, in test_every_walk_edge_is_one_the_store_itself_allows
+    "_DISPATCH_WALK_EDGES": bc._DISPATCH_WALK_EDGES,
+AttributeError: module 'bm_controller' has no attribute '_DISPATCH_WALK_EDGES'
+
+======================================================================
+FAIL: test_the_done_check_runs_from_verifying_and_the_run_delivers (test_bm_controller.TestR3FailedRecoverableReachesVerifying)
+SM p16's fourth matrix row: `start=FAILED_RECOVERABLE ...
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 3234, in test_the_done_check_runs_from_verifying_and_the_run_delivers
+    self.assertEqual(
+AssertionError: 'FAILED_RECOVERABLE' != 'VERIFYING'
+- FAILED_RECOVERABLE
++ VERIFYING
+ : a recorded result implies VERIFYING BEFORE any verification runs: [('unit-check', 'FAILED_RECOVERABLE'), ('verify.sh', 'FAILED_RECOVERABLE')]
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.016s
+
+FAILED (failures=1, errors=1)
+EXIT=1
+
+===================================================================
+BLOCK: TestR3TheClaimedCrashWindowRecovers
+===================================================================
+test_a_claimed_unit_with_no_dispatch_row_is_recovered (test_bm_controller.TestR3TheClaimedCrashWindowRecovers)
+LV p13: `fence STILL: active`, `open founder steps: 0`, ... FAIL
+test_the_recovery_burns_no_retry_the_unit_never_earned (test_bm_controller.TestR3TheClaimedCrashWindowRecovers)
+Nothing was ever dispatched, so there was no attempt to fail; ... ok
+
+======================================================================
+FAIL: test_a_claimed_unit_with_no_dispatch_row_is_recovered (test_bm_controller.TestR3TheClaimedCrashWindowRecovers)
+LV p13: `fence STILL: active`, `open founder steps: 0`,
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 3306, in test_a_claimed_unit_with_no_dispatch_row_is_recovered
+    self.assertNotEqual(store.get(fence_uuid).state, "active",
+AssertionError: 'active' == 'active' : the fence a crash left held is parked
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.027s
+
+FAILED (failures=1)
+EXIT=1
+
+===================================================================
+RE-CAPTURE: TestR3TheExecutingWedgeUnwinds after strengthening
+test_the_wedge_note_never_appears_in_any_summary
+===================================================================
+The first capture of that one test was GREEN, because LV p9 only reaches
+the wedge note on the SECOND driver call (the first stops on round 3's own
+no-progress note). The test now drives twice, which is what reproduces it.
+The eight OTHER individual tests that are green in the blocks above are
+CONTROLS and each says so in its own docstring; every one of the eleven
+CLASSES is red.
+
+test_a_wave_that_claims_nothing_still_reaches_delivery (test_bm_controller.TestR3TheExecutingWedgeUnwinds)
+LV p9: DELIVERABLE FOREVER OUT OF REACH: True. ... FAIL
+test_the_wedge_note_never_appears_in_any_summary (test_bm_controller.TestR3TheExecutingWedgeUnwinds)
+The note itself is the artefact of the dead end: 'the ... FAIL
+
+======================================================================
+FAIL: test_a_wave_that_claims_nothing_still_reaches_delivery (test_bm_controller.TestR3TheExecutingWedgeUnwinds)
+LV p9: DELIVERABLE FOREVER OUT OF REACH: True.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2509, in test_a_wave_that_claims_nothing_still_reaches_delivery
+    self.assertEqual(store.get_run("p1", raw=True)["state"],
+AssertionError: 'EXECUTING' != 'DELIVERABLE_READY'
+- EXECUTING
++ DELIVERABLE_READY
+ : the breaker exhausts the ungrantable unit, the empty wave unwinds, and the run delivers: {'run_id': 'a53f5c3d0d2043acbca8c95eebfc6eb0', 'state': 'EXECUTING', 'dispatched': [], 'completed': [], 'note': 'no selectable unit could be claimed this wave (fence overlap, or gate_check refused and the circuit breaker absorbed it); tried again next step; nothing is in flight either, so the run is parked until a founder acts'}
+
+======================================================================
+FAIL: test_the_wedge_note_never_appears_in_any_summary (test_bm_controller.TestR3TheExecutingWedgeUnwinds)
+The note itself is the artefact of the dead end: 'the
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 2536, in test_the_wedge_note_never_appears_in_any_summary
+    self.assertNotIn(
+AssertionError: 'is not a legal move' unexpectedly found in 'the done-definition passes but the run is EXECUTING, from which delivery is not a legal move; staying in place' : delivery is refused by an OWNED-EDGE rule, never by a legality accident: {'run_id': '109eeb3147ca416fac3d1f5c12335769', 'state': 'EXECUTING', 'dispatched': [], 'completed': [], 'note': 'the done-definition passes but the run is EXECUTING, from which delivery is not a legal move; staying in place'}
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.058s
+
+FAILED (failures=2)
+EXIT=1

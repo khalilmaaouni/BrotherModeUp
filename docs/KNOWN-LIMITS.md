@@ -958,3 +958,348 @@ cutting the next release tag at program end:
   or the same current-claim-versus-dated-evidence exemption
   `tools/test_bm_docs.py` already gives its sibling version-number
   check, neither of which is this loop's file to make.
+
+## L03: what the Full-Auto controller does NOT yet do (2026-08-05)
+
+The durable controller (docs/FULL-AUTO.md, tools/bm_controller.py) resumes a
+run by the SAME controller identity after a crash, proven end to end by the E4
+fixture, and it refuses a second LIVE controller for one project through the
+one-writer fence. What it does NOT do yet: automatically ADOPT a DEAD
+controller's run under a new identity. The store primitive for that adoption
+exists and is tested (a fresh session is blocked without an explicit displace
+flag, and adopts with it), but the controller does not wire it into its own
+start path, so recovering a genuinely abandoned run today needs a later store
+method or a founder passing the displace flag by hand. Recorded here rather
+than left implicit.
+
+The at-most-once external side-effect guarantee holds only where the unit's
+operation is idempotent or its worker is the record-intent kind that BrotherMode
+ships. A unit that runs a non-idempotent external command through a custom
+worker can repeat that command if the process dies between the command and its
+checkpoint; the controller records the accepted result exactly once, but it
+cannot make an arbitrary external command idempotent. The founder-gated and
+production surfaces stay behind the contract's floors regardless.
+
+What the second hardening round (2026-08-05) narrowed but did not close:
+
+- A contract that allows a path PATTERN, for example `api/*.py`, authorises
+  everything under that pattern's literal prefix directory, so `api/notes.md`
+  passes under `api/*.py`. Naming plain directories in `allowed_paths` is the
+  precise form; the pattern form is a coarser boundary than it looks. Naming
+  the PARENT of an allowed path no longer widens anything, which is the case
+  this round fixed.
+- A contract revoked in the instant between the controller reading it and
+  recording spend against it still raises out of that one call. The next
+  `step` resumes the pending result and settles it correctly, so the window is
+  two adjacent store calls wide and self healing, not the minutes-wide window
+  it used to be.
+- `run_to_completion` returns instead of spinning when a pass achieves nothing
+  and nothing is in flight. The one shape it still spins on is a run held at a
+  soft spend stop with no work in flight, where every pass reports the same
+  soft-stop note; `bm-controller step` and `status` show the same state without
+  looping.
+- The deadline check that abandons a hung dispatch is an engine method a
+  scheduler or SDK caller drives. It is still not wired to a subcommand of
+  `bm-controller`, so nothing abandons a hung dispatch automatically today.
+- Concurrency between two controller processes against one store was exercised
+  in a single process with a delegating wrapper, never as two real operating
+  system processes contending for the same SQLite file.
+
+## L03 round 4: what the third adversarial pass closed, and the six things it deliberately did not (2026-08-05)
+
+Three independent refuters attacked the round-3 controller fixes (state
+machine, authorisation, liveness) and raised twenty-six findings. The
+hardening round that followed closed twenty-three of them. This section
+records the three it deliberately DEFERRED, with the reason for each, plus
+three bounds that survive by design, plus the two statements this page made
+after round 2 that are now WRONG and are corrected here rather than left
+standing.
+
+### Corrections to what this page said after round 2
+
+- **The glob claim above is superseded.** The round-2 entry says a contract
+  allowing `api/*.py` also authorises `api/notes.md`. That was true, and it
+  understated the blast radius: a leading wildcard such as `*.py` authorised
+  the entire project, at any depth, because the pattern's literal prefix was
+  empty. Both are now closed. THE RULE, in one sentence a founder can hold
+  the system to: **a plain path grants its whole subtree, and a pattern
+  grants exactly what it matches at its own depth.** `api` grants
+  `api/pay.py` and `api/sub/deep/secrets.env`. `api/*.py` grants
+  `api/pay.py` and refuses `api`, `api/notes.md` and
+  `api/sub/deep/secrets.env`. `**` is NOT recursive: `api/**` grants the
+  direct children of `api` and nothing below them, and the recursive
+  spelling is the plain directory. Naming the PARENT of an allowed path
+  still widens nothing, which round 2 fixed and this round left alone.
+- **The soft-spend-stop spin is closed, and it was not the only one.** The
+  round-2 entry says `run_to_completion` still spins at a soft spend stop.
+  Every pass now reports one machine-readable reason out of a fixed set and
+  both loop drivers stop on it, so the soft stop, a failing done-definition
+  (which used to re-run the founder's whole test suite once per wasted pass,
+  up to 500 times in one call), a provider outage, transient fence
+  contention and the ordinary parked dispatch all stop after ONE pass. The
+  reason is printed as a `reason:` line and carried in `--json` as
+  `stop_reason`; `docs/FULL-AUTO.md` lists all eight words and says for each
+  whether a founder needs to act.
+
+### Deferred, each with its reason
+
+- **No path floor: a contract signed with `allowed_paths ['.']` authorises
+  BrotherMode's own `.brothermode/store.db`, `.git/config` and
+  `.claude/settings.json`.** Closing it means a sixth entry in the safety
+  floors, which are a founder-facing closed set enumerated in the contract
+  refusals, in `docs/AUTONOMY.md`, in `bm-autonomy`'s help text and in its
+  tests. That is a policy change about what a founder may EVER authorise,
+  not a defect in the controller machinery this round was scoped to. The
+  recommendation on file for a later round: refuse the store's own directory
+  and the version-control metadata directory inside `gate_check`, before the
+  `allowed_paths` comparison, so no contract can grant them. Until then:
+  grant the directories the work actually needs, not `.`.
+- **The duplicate-controller refusal is only on `begin()`.** `step`,
+  `record-result` and `stop` perform no ownership check, so a caller that
+  skips `start` bypasses the one-writer fence. Closing it means deciding an
+  ADOPTION policy for the controller fence, because a legitimate crash
+  resume arrives with a different controller id and a still-active fence,
+  which is exactly the shape the fence store's `adopted` state exists for.
+  Picking that policy is a design decision beyond this round's scope, and
+  guessing it would risk wedging the shipped resume path `bm-controller
+  start` depends on. The damaging version needs two simultaneous drivers,
+  which no refuter demonstrated. Run one controller per project.
+- **An empty `allowed_paths` still authorises a unit that declares no write
+  scope.** The path check is skipped entirely when there is no path to
+  check, so such a unit is judged on its risk class alone. Making "no path
+  granted" mean "nothing authorised" is a change to what an empty
+  `allowed_paths` MEANS, which is contract semantics rather than controller
+  machinery. The recommendation on file: decide it in the contract layer, by
+  refusing to sign an empty `allowed_paths` at all.
+
+### Bounds that survive by design, stated rather than implied
+
+- **The run-state read and the result handler are not atomic.**
+  `record-result` reads the run state and then branches on it, and a
+  concurrent writer moving the run between those two puts the call on the
+  wrong side of the branch. This round did NOT close that race, and says so
+  plainly: closing it needs the whole result path inside one store
+  transaction, which means a store method that runs a founder's own
+  subprocess, and the harness seam exists precisely to forbid that. What the
+  round DID remove is both consequences a refuter measured. A stopped run
+  gaining newly selectable work with no founder step is closed by the
+  unconditional founder step and by the dispatch-source rule; a run wedged
+  in `EXECUTING` with its only unit blocked is closed by the empty-wave
+  unwind and the two-way lane reconcile. The race survives; its damage does
+  not.
+- **Controller unit ids are ONE GLOBAL NAMESPACE.** Two projects in one
+  store cannot both use a unit called `u1`. The symptom is closed (a clean
+  refusal naming the colliding id, the project that already holds it, and
+  the fix, instead of a raw database traceback, with the plan rolled back
+  cleanly so a re-plan with fresh ids recovers), but the underlying limit is
+  a composite-key table rebuild, which is not an additive change. Prefix
+  unit ids per project.
+- **A path containing a NUL byte is still accepted.** A write scope entry
+  that is a number, a list or an object is now refused with `bad-path`
+  naming the entry and its type, rather than crashing. A NUL byte inside a
+  string path is not refused; that is a separate policy decision about path
+  bytes which this round did not take.
+- **A founder step gates its lane PROJECT WIDE, across runs.** The human
+  steps table has no run id, so a step left open by an EARLIER run gates the
+  same lane in a new one. Narrowing it needs a schema column. The behaviour
+  is fully recoverable by resolving the step, and `bm-controller status`
+  shows the open count.
+- **Timeouts still have no subcommand.** The deadline check that abandons a
+  hung dispatch remains an engine method a scheduler or SDK caller drives.
+  It now refuses to act at all on a PAUSED run, and it reads dispatch rows
+  rather than unit statuses so a dropped unit's stale dispatch can no longer
+  hide from it, but nothing abandons a hung dispatch automatically today.
+- **Two real controller processes contending for one store file were still
+  not exercised.** Every concurrency probe in this round, as in the last
+  one, ran in a single process with a delegating wrapper firing the
+  competing write. That is a faithful simulation of the interleaving and it
+  is NOT a test of two operating system processes against one SQLite file.
+
+## L03 round 5, the STORE half: what the fourth adversarial pass closed here, and the three things it did not (2026-08-05)
+
+This section is written by the store writer of round 5 and covers ONLY the
+store (`tools/bm_store.py`). The controller half of the same round is
+disclosed separately, by the writer who owns that file. Nothing above this
+heading was edited to add it.
+
+### Closed in this round
+
+- **A write scope is now a literal path, never a pattern.** A unit that
+  declared `write_scope ['*.py']` used to be authorised, fenced and rolled
+  back over the WHOLE project, because everything downstream of the
+  authorisation check reduces a pattern to the directory before its first
+  wildcard, and for a leading wildcard that directory is the project root.
+  The engine's own rollback (`git restore -- '*.py'`, and git's pathspec
+  globbing IS recursive) then destroyed uncommitted work at depths the rule
+  said the pattern never granted. Declaring a pattern as a write scope is
+  now refused outright (`glob-write-scope`), and the refusal says what to do
+  instead: name the files, or name the directory they live in, which grants
+  its whole subtree. Patterns stay legal in a contract's `allowed_paths`,
+  where the founder is drawing the boundary rather than a worker naming its
+  own.
+- **A path that escapes the project can no longer be re-spelled to get in.**
+  Only the literal part of a pattern was ever resolved on disk, so
+  `src/[a]pp` (which matches exactly one path, `src/app`) was accepted where
+  naming `src/app` was refused for resolving outside the project through a
+  symlink. Both spellings refuse now, because the pattern spelling cannot be
+  declared at all.
+- **A command naming one project can no longer write another project's
+  run.** Every store write that resolves a run from an id the caller supplied
+  now accepts the project the caller believes it is working on and refuses
+  `run-not-in-project` before touching anything. Eleven entry points, listed
+  in the round-5 store fix report.
+
+### Not closed, and what stands in the way
+
+- **A pattern in `allowed_paths` still grants a subtree it does not itself
+  match, through one spelling.** A contract granting `src/*` authorises the
+  directory `src/app`, and a fence over a directory covers everything under
+  it, so `src/app/deep/keys.pem` is reachable even though asking about that
+  file by name is refused. Closing it means moving the pattern rule in one
+  of two directions, and both break behaviour that this project's own tests
+  already pin in the opposite direction: making a pattern grant the subtree
+  of what it matches turns `['*']` into a whole-project grant again, and
+  making a pattern grant nothing breaks `api/*.py`, which is the whole point
+  of allowing a pattern there. Measured, not argued: the failing assertions
+  for both are in
+  `docs/program/absolute-lead/evidence/L03/RED-round5-store.txt`. Until a
+  round is scoped to decide that rule deliberately, the practical advice is
+  the same one the teachable rule already gives: grant the directory you
+  mean, not a pattern that happens to match it.
+- **A unit that declares NO write scope is still dispatched, under any
+  contract, and claims an empty fence.** The page already deferred this as a
+  question about what an empty `allowed_paths` MEANS; the missing data now
+  exists and is worse than the deferral assumed. Under a contract granting
+  only `docs`, a unit with `write_scope []` is authorised on its risk class
+  alone, dispatched, and fenced over nothing at all, and in the default
+  (non-strict) fence mode a fence holding nothing refuses no write anywhere.
+  The recommendation on file is unchanged and is a contract-layer decision,
+  not a controller one: refuse to sign an empty `allowed_paths`, and decide
+  whether an empty write scope is ever a legitimate unit. Until then, give
+  every unit a write scope.
+- **Two earlier deferrals are unchanged and are stated above rather than
+  restated here**: there is still no path floor (a contract granting `.`
+  reaches BrotherMode's own store directory, the VCS metadata directory and
+  the editor settings directory), and the duplicate-driver refusal still
+  only fires on `start`, so a second driver that skips `start` is not
+  refused. Both remain as the "Deferred, each with its reason" section
+  above describes them, and nothing in round 5 changed either.
+
+### One bound this round's own fix introduces
+
+- **The foreign-run refusal only fires when the caller says which project it
+  means.** The check is an argument a caller passes, not something the store
+  can infer, so a caller that omits it gets exactly the previous behaviour.
+  Every store write that can be reached with a run id now accepts that
+  argument; wiring the shipped commands to pass it is the controller's own
+  change, and until that lands the refusal protects callers that opt in
+  rather than every route into the store.
+
+## L03 round 5, the CONTROLLER half: what the fourth adversarial pass closed here, and the five things it did not (2026-08-05)
+
+This section is written by the controller writer of round 5 and covers ONLY
+`tools/bm_controller.py` and its suite. The store half of the same round is
+disclosed in the section immediately above, by the writer who owns that
+file. Nothing above this heading was edited to add it.
+
+### Closed in this round
+
+- **The kill switch now stops COMMANDS, not just new work.** After
+  `bm-autonomy stop` or `revoke`, one `bm-controller record-result` still
+  executed the unit's own model-authored done-check and then a `git restore`
+  over the founder's working tree, and one plain `bm-controller step` did
+  the same through the crash-resume branch, which by design runs before the
+  contract is read. Every command the engine can run now goes through one
+  call site that re-reads the contract immediately before running anything
+  and refuses to run at all unless it is live. A result arriving under a
+  dead contract is recorded, rejected, its fence parked and a founder step
+  queued naming the unit and the contract state, with zero commands
+  executed.
+- **A pause no longer destroys a real answer.** The hold that design round 4
+  added only worked for a run paused by a route no shipped command has. On
+  the route the CLI actually takes, the contract being paused, the answer
+  was rejected as stale on resume, rolled back on disk and charged a retry.
+  A pause and a resume copy every authorisation column forward unchanged, so
+  they no longer count as the authorisation moving, and the same held answer
+  is accepted afterwards. A real amend still rejects.
+- **A paused contract says which command clears it.** The note pointed only
+  at `bm-controller resume`, which cannot clear a contract pause: the next
+  pass re-reads the contract and pauses the run again, forever. Both
+  commands are named now, in the order they must be run, and the machine
+  readable reason distinguishes a contract pause from a run pause.
+- **A run blocked by a founder step in an UPSTREAM lane now says so.** It
+  reported "nothing founder-gated, inspect the graph" and left the run
+  READY, for a run that one `resolve` unwedges. It parks as founder-waiting
+  now, moves the run to WAITING_HUMAN, and the note names the lane and the
+  step.
+- **A delivered run names what is still founder-gated.** The settle path,
+  which is every synchronous wave and every `record-result`, computed the
+  stop reason, the note and the founder-gated remainder and then threw all
+  three away. `bm-controller start` on a delivered run with a failed unit
+  never mentioned it. The wave that delivers now carries its own verdict,
+  and `record-result` prints it.
+- **Four more, smaller:** a run left mid-verification with an open dispatch
+  now names `record-result`, the one command that recovers it, instead of
+  three that cannot; a unit stranded behind an already-closed dispatch (a
+  crash window in five places) is recovered and its fence parked instead of
+  held over the founder's files forever; a unit id the fence store would
+  refuse is refused at plan time instead of wedging the run permanently; and
+  a unit's read scope is canonicalised and kept inside the project exactly
+  as its write scope is, so a brief can no longer hand a worker `/etc` or a
+  path under the home directory.
+- **A command naming one project can no longer write another project's run.**
+  `plan --project p1 --run <p2's run id>` un-paused p2, cancelled its open
+  dispatch, parked its fence and replaced its unit graph. Every store write
+  this file makes now names the project the caller said it was working on,
+  so the store refuses before touching anything.
+
+### Not closed, and what stands in the way
+
+- **A held result's meter cannot be charged while the contract is paused.**
+  Spend is only recordable against a live authorisation, which is the right
+  rule for a revoked contract and the wrong one for a reversible pause, and
+  the cost is not carried on the recorded result, so it cannot be charged
+  later either. The drop is no longer silent: a checkpoint records the exact
+  uncharged tokens and minutes and says the breaker under-counts by that
+  much. Closing it properly needs a store change (either spend recordable
+  against a paused contract, or the cost stored with the result so the
+  charge can be deferred to the resume), and that is not this file's to
+  make. Until then, a run that is paused mid-flight and resumed has a
+  breaker reading low by one unit's cost, visible in the checkpoint trail.
+- **A unit with NO write scope is still dispatched and fences nothing.**
+  Unchanged from the store half's disclosure above, and it is a contract
+  layer decision rather than a controller one. Give every unit a write
+  scope.
+- **There is still no path floor, and the duplicate-driver refusal still
+  only fires on `start`.** Both are unchanged from earlier sections of this
+  page; round 5 touched neither.
+- **One retirement note in the controller suite claims one property more
+  than its replacement pins.** A test retired in round 4 was superseded by
+  one that asserts two of the three properties the retirement note claims;
+  the third holds in fact and is asserted by nothing. Round 5 did not fix
+  the wording or add the assertion.
+- **The controller suite is one test below a numeric floor an earlier design
+  set for itself.** That floor counted tests before an authorised retirement
+  and was never adjusted for it. The retirement is recorded in the file with
+  its argument, so nothing is silently missing, but a later round reading
+  that floor literally would flag the number.
+
+### Bounds this round's own fixes introduce
+
+- **The pause-is-not-an-amend rule reads the contract's revision chain.** It
+  asks whether every revision since a dispatch was stamped was a pure
+  lifecycle change (pause, resume, stop, revoke), which by construction
+  cannot alter what was authorised. It reads a bounded window of that chain
+  and, on any doubt at all, including a chain longer than the window,
+  reports that the authorisation moved, which is the older and stricter
+  answer. A project with thousands of contract revisions therefore gets the
+  round-4 behaviour back rather than a wrong answer.
+- **The read-scope check is a project-root containment check, not an
+  authorisation check.** A read scope still is not measured against the
+  contract's allowed paths, deliberately: those are a WRITE boundary, and
+  gating reads on them would refuse units the contract permits. What is new
+  is only that a read scope cannot name a path outside the project.
+- **The founder step queued when a result lands under a dead contract gates
+  that unit's lane.** That is the intended mechanism, and on a run that is
+  about to drain it costs nothing, but it is a real gate: the lane stays
+  unselectable until the step is resolved.
