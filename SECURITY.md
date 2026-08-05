@@ -98,7 +98,7 @@ What the code actually writes inside your project today:
   owner-only where the platform supports it (on Windows this is best-effort;
   rely on your user profile's access control).
 
-You can verify both claims yourself; the tools are about 91,100 lines of
+You can verify both claims yourself; the tools are about 108,900 lines of
 standard-library Python and shell (re-measured 2026-08-05 after the Full-Auto
 controller landed; the figure of 76,224 from earlier the same day drifted past
 the 15 percent guard the test enforces, so it is corrected here rather than
@@ -204,6 +204,44 @@ choice: it can only see an update that something else already fetched, which is 
 it also warns when your copy is simply old.
 
 To disable it, remove the `check-update` line from `tools/bm_sessionstart.sh`.
+
+## The page that shows where your project stands, and what publishing it means
+
+Added 2026-08-05 with the live project view, and disclosed here because it is the
+one artefact of this product that can leave your machine on purpose.
+
+`bm-view render` writes `PROJECT-VIEW.html` at the top of your project folder,
+and `bm-view brief-page` writes a page under `Handover/` for whoever picks up a
+decision you took back. Both are ordinary files, written through the same one
+write funnel as every other generated view, gated on the same consent record as
+everything else: before setup, `bm-view` writes nothing, creates no folder and
+publishes nothing. Both are generated from your project's own records, so what
+they contain is what those records contain: your outcome in your own words, the
+decisions and what was weighed, what has been learned and what would change it,
+the checks and their results, spend against your ceilings, the recorded ids
+behind each claim, and the file paths inside your project that the work touched.
+They are subject to the same redaction rules as every other generated view, and
+they carry no tokens, no receipts and no contents of any file outside what a
+record holds. Read one before you send it anywhere, exactly as you would the
+handover pages.
+
+The page makes no network call. Nothing in it is fetched when it opens: no
+fonts, no images, no scripts, no addresses of any kind, so it renders with the
+machine offline, and there is no request that could carry anything anywhere.
+
+Publishing is a separate act, and it is Claude's, not this toolchain's. No
+command here can publish: publishing happens when Claude takes the file you
+already have and puts it at a private address on claude.ai that only you and
+anyone you deliberately share it with can open. Two things about that are worth
+knowing before you agree to the first one. You are asked once, by Claude's own
+permission prompt, and publishing that same page again afterwards does not ask
+again, so after your first yes the page updates silently, which is the behaviour
+you want and also the reason it is written here rather than left to be
+discovered. And publishing can be unavailable to you entirely, for reasons that
+have nothing to do with this product: the conditions are listed in
+`docs/KNOWN-LIMITS.md`. Either way the file on disk is the primary artefact. It
+is what the command promises, it is what is committed and diffed, and the
+published copy is a convenience laid on top of it.
 
 ## Approval and state-change receipts are secrets
 

@@ -1,0 +1,233 @@
+RED-F: failing-first evidence for WRITER F of DESIGN-visual-surface.md
+(the register, the onboarding copy and the disclosure).
+
+Tree: /Users/khalil.maaouni/Documents/BrotherModeUp
+Date: 2026-08-05
+Writer F owns section 13.4's DOCS half. Every command below was run from the
+repository root unless the block says otherwise.
+
+READ THIS FIRST, because it decides how to read the rest of the file.
+Section 13.4 gives this writer exactly one test CHANGE and two rows marked
+"none":
+
+    TestCapabilityRegisterIsHonest (tools/test_bm_docs.py:3686)   no change
+    test_no_wired_command_of_any_module_writes_before_consent     no change,
+        and it belongs to tools/test_bm_consent.py, which is Writer E's file
+    TestNoDashes (tools/test_bm_docs.py:4769)                     CHANGED
+
+So this writer's RED is not a new suite. It is three reproductions of the gap
+the loop exists to close, each run against the tree BEFORE the corresponding
+edit, and each one is a guard that is already shipped doing its job. A block
+that showed a green result would not be evidence and is labelled as a baseline
+rather than as RED.
+
+
+================================================================================
+BLOCK 0 (BASELINE, not RED). The docs suite on the untouched tree.
+================================================================================
+
+Why it is here: no suite's count may DROP (design 13.5), so the "before" number
+has to be recorded before anything moves.
+
+    $ python3 tools/test_bm_docs.py
+    ................................................................................
+    ................................................................s.ss.s.s........
+    ..................
+    ----------------------------------------------------------------------
+    Ran 199 tests in 16.785s
+
+    OK (skipped=5)
+    exit=0
+
+
+================================================================================
+BLOCK 1 (RED). TestNoDashes, widened to the five files section 13.4 names,
+against the untouched tree.
+================================================================================
+
+The edit under test, at tools/test_bm_docs.py:4774, is the one section 13.4
+specifies: the target list gains tools/bm_visual.py, tools/bm_view.py,
+tools/test_bm_visual.py, tools/test_bm_view.py and references/visual-surface.md.
+
+    $ python3 tools/test_bm_docs.py TestNoDashes
+    E
+    ======================================================================
+    ERROR: test_no_em_or_en_dash_in_the_active_pages_or_this_toolchain (__main__.TestNoDashes)
+    ----------------------------------------------------------------------
+    Traceback (most recent call last):
+      File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_docs.py", line 4785, in test_no_em_or_en_dash_in_the_active_pages_or_this_toolchain
+        for i, line in enumerate(read(rel).split("\n"), 1):
+      File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_docs.py", line 132, in read
+        with io.open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
+    FileNotFoundError: [Errno 2] No such file or directory: '/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_visual.py'
+
+    ----------------------------------------------------------------------
+    Ran 1 test in 0.006s
+
+    FAILED (errors=1)
+    exit=1
+
+What this reproduces: four of the five files the design puts under the copy rule
+do not exist in the tree, because they belong to Writer D (tools/bm_visual.py,
+tools/test_bm_visual.py) and Writer E (tools/bm_view.py, tools/test_bm_view.py).
+read() raises on a missing path, so naming one early converts a green guard into
+an error and it stops guarding anything at all.
+
+WHAT LANDED, and it is deliberately partial: the target list gains
+references/visual-surface.md only, because that file now exists and this writer
+wrote it. The four tools files carry a comment at the same site naming them and
+saying who adds them. Adding them here today would be a red that no writer in
+this loop can clear.
+
+
+================================================================================
+BLOCK 2 (RED). The four capability rows against the SHIPPED guard. This is
+gate 3 of section 16, reproduced rather than asserted.
+================================================================================
+
+Predicate: capability_offenders (tools/test_bm_docs.py:3539), the function
+behind test_every_entry_carries_a_valid_state_and_real_evidence (3692). Run over
+the four drafted rows of section 12.3 (live-project-view, visual-onboarding,
+alert-ladder, visible-handback) against this tree, with the shipped guard
+imported rather than reimplemented:
+
+    rows checked: 4
+    live-project-view: evidence names tools/bm_view.py, which is not in the tree
+    live-project-view: evidence names tools/bm_visual.py, which is not in the tree
+    live-project-view: evidence names tools/test_bm_view.py, which is not in the tree
+    live-project-view: evidence names tools/test_bm_visual.py, which is not in the tree
+    visual-onboarding: evidence names tools/test_bm_view.py, which is not in the tree
+    visual-onboarding: evidence names tools/bm_view.py, which is not in the tree
+    alert-ladder: evidence names tools/bm_visual.py, which is not in the tree
+    alert-ladder: evidence names tools/test_bm_visual.py, which is not in the tree
+    visible-handback: evidence names tools/bm_view.py, which is not in the tree
+    visible-handback: evidence names tools/test_bm_view.py, which is not in the tree
+    offenders: 10
+
+The same run, through the shipped roadmap mapping (tools/bm_docs.py
+roadmap_proof_state, 1542), so the rung each row would print on docs/ROADMAP.md
+is recorded rather than guessed:
+
+    live-project-view -> verified locally
+    visual-onboarding -> verified locally
+    alert-ladder -> verified locally
+    visible-handback -> verified locally
+
+"verified locally" is exactly true and is chosen rather than inherited: none of
+the four rows names a job under .github/workflows, because the two CI steps for
+the new suites are Writer E's deliverable and a step that has never executed
+does not prove a check runs anywhere other than the author's machine.
+
+Consequence, and it is the reason capabilities.status.json did not move:
+capabilities.status.json, README.md and docs/ROADMAP.md are BLOCKED at gate 3.
+No row was weakened to name a path that exists, and no test was edited to let a
+row through.
+
+
+================================================================================
+BLOCK 3 (RED, and it is a guard the design did not predict). The shipped command
+set is pinned by exact equality, and a fifteenth command file moves it.
+================================================================================
+
+BEFORE, on the untouched tree, with fourteen command files:
+
+    $ python3 tools/test_bm.py TestTheSeventhCommandAndTheDeepTourAreWired
+    ----------------------------------------------------------------------
+    Ran 8 tests in 0.004s
+
+    OK
+    exit=0
+
+AFTER commands/brotherme-view.md exists, which design section 12.3 requires:
+
+    $ python3 tools/test_bm.py TestTheSeventhCommandAndTheDeepTourAreWired
+    ======================================================================
+    FAIL: test_exactly_seven_brotherme_commands_ship (__main__.TestTheSeventhCommandAndTheDeepTourAreWired)
+    ----------------------------------------------------------------------
+    Traceback (most recent call last):
+      File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm.py", line 5703, in test_exactly_seven_brotherme_commands_ship
+        self.assertEqual(expected, found,
+    AssertionError: Lists differ: ['bro[283 chars]brotherme-stop.md', 'brotherme-update.md'] != ['bro[283 chars]brotherme-stop.md', 'brotherme-update.md', 'brotherme-view.md']
+
+    Second list contains 1 additional elements.
+    First extra element 14:
+    'brotherme-view.md'
+
+    ... the shipped command set drifted from the fourteen this release
+    documents (seven beginner, three controller, four founder mode)
+
+    ----------------------------------------------------------------------
+    Ran 8 tests in 0.004s
+
+    FAILED (failures=1)
+    exit=1
+
+The other seven tests in that class PASS, including the two that this writer's
+edits could have broken:
+
+    test_the_deep_tour_flow_exists_on_both_sides ... ok
+        (skills/brotherme/SKILL.md keeps "## Deep tour flow" and still names
+        bm_docs.py generate for the developer half of the tour, while the
+        live half now comes from bm-view render)
+    test_the_five_store_backed_commands_name_the_mechanical_command ... ok
+        (commands/brotherme-start.md keeps python3 tools/bm_project.py start,
+        commands/brotherme-status.md keeps python3 tools/bm_project.py status)
+
+PROPOSED MINIMAL REMEDY, not applied here because tools/test_bm.py is in no
+writer's allowed set for this loop: add one name to the pinned list at
+tools/test_bm.py:5696 to 5702,
+
+    "brotherme-update.md", "brotherme-view.md"]
+
+and extend the comment above it by one clause, the way L03 and L04 each did:
+"L05 adds one more (view), the visual surface family, so it is now fifteen."
+That keeps the assertion at exact equality over the whole set and loosens
+nothing. The pin is performing its designed function: every growth of the
+command set costs somebody a sentence rather than landing quietly.
+
+
+================================================================================
+LATE NOTE (added after the last edit, because the tree moved underneath it)
+================================================================================
+
+tools/test_bm_visual.py appeared in the tree at 22:21 while this writer was
+finishing, landed by Writer D. tools/bm_visual.py, tools/bm_view.py and
+tools/test_bm_view.py are still absent, so gate 3 is unchanged and BLOCK 2
+stands exactly as written.
+
+The new file was checked against the rule it is about to come under:
+
+    tools/test_bm_visual.py em or en dash lines: [956, 959, 964, 978, 985]
+
+Read at those lines, the dashes are deliberate hostile fixture data inside
+test_every_text_medium_path_emits_ascii_only: the test feeds an em dash and
+other non ASCII into every text path precisely to prove none of it survives
+into terminal output, and it closes with an assertNotIn on the em dash,
+written as a literal character rather than as an escape.
+
+So the design's section 13.4 widening and that test collide, and the collision
+was not predicted. It was NOT resolved here: tools/test_bm_visual.py is Writer
+D's file and this writer may not edit it, and narrowing the dash guard to let a
+test file through would be weakening a founder ratified copy rule to fit one
+fixture.
+
+PROPOSED MINIMAL REMEDY, for whoever owns that file: write the hostile
+characters as backslash-u escapes rather than as literal characters (the em
+dash as backslash-u-2014, the en dash as backslash-u-2013, and the same for the
+emoji). The test means exactly the same thing to the machine, the assertion reads
+identically, and the source file then carries no dash character, so both rules
+hold at once. Precedent inside the same suite: tools/test_bm_docs.py's own dash
+check is written with backslash-u-2013 and backslash-u-2014 escapes for this
+reason.
+
+
+================================================================================
+WHAT IS NOT IN THIS FILE, said rather than left to be noticed
+================================================================================
+
+1. No new test class was written by this writer, because section 13.4's docs
+   half asks for none. The two capability classes and the consent class are
+   marked "none" in the design, and the consent one is Writer E's file.
+2. tools/test_bm_visual.py and tools/test_bm_view.py, which hold the great bulk
+   of section 13, are Writers D and E. Their RED belongs in their own files.
+3. tools/test_all.py was not run, per the brief. The orchestrator runs the gate.

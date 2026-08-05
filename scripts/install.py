@@ -110,6 +110,11 @@ OWNED_TOOLS = (
     # simply stops being recognised as ours and stays in the user's
     # settings pointing at files that are no longer on disk.
     "bm_lead.py",
+    # L05 (2026-08-06): tools/bm_view.py, the third and fourth programs in
+    # the Stop group (the page rewrite-if-stale and the alert tick). Same
+    # law as bm_lead.py above: the Stop command names it, so uninstall must
+    # own it or the whole Stop entry stops being recognised as ours.
+    "bm_view.py",
 )
 
 # Mirrors the fallback exclusion list in scripts/checksums.sh and
@@ -157,6 +162,7 @@ def hook_commands(target):
     telemetry = os.path.join(tools, "bm_telemetry.py")
     bash_audit = os.path.join(tools, "bm_bash_audit.py")
     lead = os.path.join(tools, "bm_lead.py")
+    view = os.path.join(tools, "bm_view.py")
     inner = (
         'p=$(cat); printf %s "$p" | python3 ' + _q(autosave) + ' precompact; '
         'printf %s "$p" | python3 ' + _q(telemetry) + ' precompact-brief'
@@ -172,9 +178,15 @@ def hook_commands(target):
     # through this script would have got NO watchdog while the plugin manifest
     # promised one, which would have made "on by default" false for exactly the
     # people who never read the manifest.
+    # L05: two further programs on the same payload, the page rewrite (silent
+    # unless the fingerprint moved) and the alert tick (at most one NEEDS YOU
+    # object per tick). Same four-copy law as the L04 note above: hooks.json
+    # moved first and this function must move in the same change.
     stop_inner = (
         'p=$(cat); printf %s "$p" | python3 ' + _q(telemetry) + ' stop-warn; '
-        'printf %s "$p" | python3 ' + _q(lead) + ' watchdog --tick'
+        'printf %s "$p" | python3 ' + _q(lead) + ' watchdog --tick; '
+        'printf %s "$p" | python3 ' + _q(view) + ' render --if-stale; '
+        'printf %s "$p" | python3 ' + _q(view) + ' alert --tick'
     )
     return {
         "SessionStart": "sh " + _q(os.path.join(tools, "bm_sessionstart.sh")),

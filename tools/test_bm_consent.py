@@ -418,14 +418,16 @@ class TelemetryEveryHookProgramPreConsentCase(unittest.TestCase):
 
     # Two different counts, kept apart on purpose, because conflating them is
     # how the count in the docs went wrong twice already: hooks/hooks.json
-    # holds SEVEN command strings and those strings invoke NINE programs,
-    # since the PreCompact line and the Stop line are each one `sh -c`
-    # script running two. The program floor moved from 8 to 9 on 2026-08-05
-    # when the Stop line gained the half hour catch-up check beside the
-    # unfinished-work warning; raising a floor is the only direction this
-    # number is ever allowed to move.
+    # holds SEVEN command strings and those strings invoke ELEVEN programs,
+    # since the PreCompact line is one `sh -c` script running two and the
+    # Stop line is one running four. The program floor moved from 8 to 9 on
+    # 2026-08-05 when the Stop line gained the half hour catch-up check
+    # beside the unfinished-work warning, and from 9 to 11 in the same
+    # day's L05 loop when it gained the page rewrite (bm_view.py render
+    # --if-stale) and the alert tick (bm_view.py alert --tick); raising a
+    # floor is the only direction this number is ever allowed to move.
     MIN_WIRED_COMMAND_STRINGS = 7
-    MIN_WIRED_PROGRAMS = 9
+    MIN_WIRED_PROGRAMS = 11
     _PROGRAM_RE = re.compile(
         r"(?:python3|sh)\s+\S*?(?:tools|scripts)/\S+\.(?:py|sh)")
 
@@ -605,6 +607,14 @@ class TelemetryEveryHookProgramPreConsentCase(unittest.TestCase):
         "bm_autosave.py": ("per-command", "_consented()"),
         "bm_bash_audit.py": ("per-command", "_consented()"),
         "bm_lead.py": ("one-door", "_consent_state()"),
+        # L05 (2026-08-05): the view CLI copies bm_lead.py's one-door
+        # shape verbatim. Its two hook-wired invocations (render
+        # --if-stale and alert --tick) print nothing and write nothing
+        # before consent; doorway alone is exempt from the gate, and it
+        # opens no store and writes no file, which
+        # tools/test_bm_view.py's TestConsentIsTheOnlyDoorForTheView
+        # proves as behaviour.
+        "bm_view.py": ("one-door", "_consent_state()"),
     }
 
     def test_every_hook_wired_command_of_every_module_checks_consent(self):
