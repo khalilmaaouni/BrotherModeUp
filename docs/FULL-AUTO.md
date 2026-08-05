@@ -79,10 +79,22 @@ One run holds exactly one of these states at a time:
   outright rather than un-pausing the run as a side effect of writing a
   unit graph. Only `bm-controller resume` leaves that state. A result that
   arrives during a pause is RECORDED AND HELD, never rejected: the answer
-  is durable and the meter is charged, but nothing is judged and no
-  rollback command touches your files, so a pause never destroys real work.
-  `bm-controller resume` plus one `step` then verifies the held answer on
-  its own merits.
+  is durable, nothing is judged and no rollback command touches your files,
+  so a pause never destroys real work. `bm-autonomy resume` (the contract)
+  and then one `bm-controller step` verifies the held answer on its own
+  merits.
+
+  The meter is the one thing a pause cannot keep whole. Spend is only
+  recordable against a live authorisation, so a cost reported while the
+  contract is paused CANNOT be charged, and it is not carried on the
+  recorded result either, so it cannot be charged later. It is disclosed
+  instead: a checkpoint records the exact tokens and minutes, and a founder
+  step in the reserved lane `spend-reconciliation` names them, names the
+  `bm-autonomy spend` command that charges them, and names the
+  `bm-autonomy human-steps --resolve` command that closes it. **The run
+  will not be declared `DELIVERABLE_READY` while any of those steps is
+  open**, so a ceiling can never be met on paper by spend that was never
+  counted. That lane holds no units, so it blocks no work.
 - `STOPPING` then `STOPPED`: draining in flight work, then done for this
   run. Terminal once `STOPPED`; a fresh contract and a fresh run are what
   restart work, never a reopened `STOPPED` row.
@@ -158,6 +170,24 @@ That matters because in full auto the unit graph, including each unit's
 done-check and verifier, is written by the orchestrating model, not by you.
 Stopping the contract has to stop those, and it does.
 
+A kill that lands WHILE a command is running is handled too, and honestly.
+If you stop or revoke the contract during a unit's done-check, that check
+had already started under a live authorisation, so it finishes; the
+authorisation it ran under is gone by the time its exit code is read, so
+the result is REJECTED exactly as a stale one is, the fence is parked, and
+a founder step says so. The controller never tells you nothing ran when
+something did.
+
+**Your spend ceiling is the second brake, and it stops commands too.** Once
+`bm-autonomy gate-check` answers `REFUSED-BREAKER`, the controller runs
+nothing further for that project: not a done-check, not a verifier, not a
+rollback, and not your whole done-definition, which is the most expensive
+command in the system. The one exception is stated rather than hidden: if
+the unit whose result is in hand is itself what pushed the meter over, that
+one already-paid unit is still judged, because refusing to read an answer
+you have already paid for destroys it without saving a token. Nothing new
+starts, the run drains on the next `step`, and no deliverable is declared.
+
 Pausing is the reversible version and behaves differently on purpose. A
 result arriving while the contract is paused is HELD: recorded, nothing
 judged, nothing rolled back, no retry burned, the fence still held. When
@@ -165,6 +195,32 @@ you resume, that same answer is judged on its own merits rather than thrown
 away. Pausing and resuming does not count as your authorisation changing,
 so a held answer is not rejected as stale for it; a real amend to the
 contract still is.
+
+## What a write scope may be, and what is refused
+
+A unit's `write_scope` is the single most consequential field in a unit
+graph, because three separate things read it: the file claim that fences
+the unit, the brief the worker is authorised by, and the `git restore`
+rollback the controller runs when the unit is rejected. So it is held to
+one narrow rule, and `bm-controller plan` refuses anything else BEFORE it
+writes a thing, leaving the run exactly where it was:
+
+- it must be a LIST of paths. A bare string like `"a.py"` is refused rather
+  than walked character by character, and a number or an object is refused
+  rather than crashing;
+- every entry must be a plain relative path inside the project. No
+  patterns (`*`, `?`, `[`), nothing absolute, nothing starting with `~` or
+  `-`, and in particular **nothing starting with a colon**: git reads a
+  leading colon as pathspec magic rather than as a file name, so `:/` means
+  the whole repository and `:!x` means everything except `x`. A rollback
+  built from either would have restored files the unit never named,
+  destroying uncommitted work elsewhere in your tree.
+
+The refusal names the unit, the entry and the reason, and the fix is
+always the same: name the files, or name the directory they live in, which
+grants its whole subtree. The same check runs a second time at dispatch,
+on the row as the engine actually reads it, so a unit graph that reached
+the store by some other route is refused there too rather than acted on.
 
 ## The harness and the seam, stated honestly
 
@@ -278,7 +334,10 @@ prints which one happened:
   for it. That lane gate is what stops a stopped or delivered run from
   growing new selectable work; re-planning or a fresh run is what attempts
   the unit again. Spend is charged for the work that really happened,
-  whether the result was accepted or not.
+  accepted or not, WHENEVER the contract is live enough to charge it: if
+  the contract was paused, stopped or revoked when the result arrived, the
+  charge cannot be recorded at all and is disclosed as described under
+  `PAUSED` above.
 - **held**, when the run is `PAUSED`. Nothing is judged, nothing is rolled
   back, the file claim stays held; `bm-controller resume` plus one `step`
   verifies it.

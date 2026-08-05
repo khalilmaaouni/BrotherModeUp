@@ -463,6 +463,177 @@ _NOTE_DISPATCH_OPEN_UNMOVABLE = (
     "lists it). bm-controller resume only moves a PAUSED run and "
     "bm-controller complete is refused from here")
 
+#: The SETTLE path's own sentence (REFUTATION-5 S3, second half). It used
+#: to reuse _NOTE_CONTRACT_NOT_LIVE, whose text hard-codes "the result was
+#: recorded and rejected and NO command was executed". On the settle path
+#: that is a statement about a DIFFERENT branch: by the time a wave
+#: settles, this engine may well have run the unit's done_check under a
+#: contract that was live when the command started and dead when it
+#: returned. One note constant serving two branches whose facts differ is
+#: how a founder was told, in the same command, that nothing ran and that
+#: their unit was accepted.
+_NOTE_SETTLE_CONTRACT_NOT_LIVE = (
+    "the contract is %s, not live: this wave was not settled and nothing "
+    "was delivered. Whatever this wave already judged keeps its own "
+    "verdict, and a founder step names any unit that was rejected; the "
+    "next bm-controller step drains the run")
+
+#: The founder pulled the kill switch WHILE a command was running
+#: (REFUTATION-5 S3). Round 5 read a stop or a revoke as an
+#: authorisation-preserving lifecycle change, so a unit was accepted under
+#: a killed contract. It is now rejected exactly as a stale one is, and
+#: this sentence is deliberately the one note in this file that says a
+#: command DID run.
+_NOTE_CONTRACT_DIED_MIDCOMMAND = (
+    "the contract became %s WHILE this unit was being checked. The check "
+    "had already started under a live authorisation, so it ran; the "
+    "authorisation it ran under no longer exists, so the result is "
+    "rejected exactly as a stale one is, the fence is parked and the "
+    "unit's write_scope needs manual inspection")
+
+#: The founder's SECOND brake (REFUTATION-5 S2). Round 5 gated every
+#: command on the contract's LIVENESS and on nothing else, so after
+#: `bm-autonomy gate-check` answered REFUSED-BREAKER one `bm-controller
+#: record-result` still ran the unit's model-authored done_check AND the
+#: founder's whole done_definition, accepted the unit and declared the run
+#: DELIVERABLE_READY.
+_NOTE_SPEND_BREAKER = (
+    "the founder's SPEND CEILING has tripped, so nothing is authorised and "
+    "NO command was run for this result: not the unit's done_check, not "
+    "its verifier, not the rollback and not the whole done-definition (%s). "
+    "Raise the ceiling with bm-autonomy sign --supersede, or accept the "
+    "stop; the run drains on the next bm-controller step")
+
+#: A run whose meter never saw an accepted unit's cost is not a
+#: deliverable (REFUTATION-5 S7). See _unreconciled_uncharged_spend.
+_NOTE_SPEND_UNRECONCILED = (
+    "the done-definition was not run and nothing was delivered: %d "
+    "accepted unit(s) cost spend this engine could NOT charge, so the "
+    "breaker reads LOW and a ceiling cannot mean anything until that is "
+    "fixed. bm-autonomy human-steps --project %s --open names each gap, "
+    "the exact numbers and the two commands that close it")
+
+#: The lane the uncharged-spend disclosure is queued into. Deliberately a
+#: lane NO unit is ever planned into: Store.select_ready_units skips a
+#: whole lane that holds an open human step, and round 5 chose a
+#: checkpoint over a founder step for exactly that reason ("disclosing a
+#: bookkeeping gap that way would block the very lane the founder is about
+#: to resume"). A reserved lane keeps the founder-visible, enumerable,
+#: resolvable step AND blocks no work: _reconcile_lane_blocks only ever
+#: writes lanes that units are actually in.
+SPEND_RECONCILE_LANE = "spend-reconciliation"
+
+#: git reads a LEADING COLON as pathspec MAGIC, not as a file name
+#: (gitglossary(7), "pathspec"): ':/' is the repository root, ':!x' and
+#: ':(exclude)x' are "everything except x", ':(icase)X' is a
+#: case-insensitive match. None of those characters is a glob character,
+#: so the round-5 literal-write-scope rule (which tested only '*', '?' and
+#: '[') let them through, and `git restore -- :/` then restored the WHOLE
+#: working tree and EXITED 0, so the engine read the rollback as a success
+#: and queued no dirty-write-scope warning (REFUTATION-5 S1, the round-6
+#: push blocker). ':(literal)' is git's own escape for the whole family;
+#: verified against git 2.50.1 in a real repository, where every magic
+#: spelling under it becomes a non-existent literal path (exit 1, both
+#: tracked files left untouched) and a plain path under it behaves exactly
+#: as it did before.
+_PATHSPEC_MAGIC_PREFIX = ":"
+_PATHSPEC_LITERAL_PREFIX = ":(literal)"
+
+
+def _pathspec_literal(path):
+    """`path` in a form git cannot read as pathspec magic.
+
+    ONLY an entry that could be read as magic is escaped, and that is a
+    deliberate choice rather than laziness: a path with no leading colon
+    is not magic under any git version, so escaping it would change the
+    founder-facing rollback command for every ordinary unit in the product
+    (and every reader of it, this repository's own test fixtures included)
+    to buy nothing. What is bought by escaping the rest is that the
+    composed command is safe by CONSTRUCTION, independently of the
+    refusals in _unsafe_scope_entry: if a future edit ever weakened those,
+    git would still be handed a file name."""
+    if path.startswith(_PATHSPEC_MAGIC_PREFIX):
+        return _PATHSPEC_LITERAL_PREFIX + path
+    return path
+
+
+def _unsafe_scope_entry(entry):
+    """None when `entry` is a plain relative path this engine may hand to
+    git, to the fence store and to a worker's brief, or a SHORT PHRASE
+    naming what is wrong with it, for a founder-facing refusal to quote.
+
+    A phrase rather than a raise, because this is asked in three places
+    with three different consequences: `plan` turns it into an
+    OwnershipRefused before anything is written, `_authorise_dispatch`
+    turns it into a failed unit plus a founder step, and `_rollback_plan`
+    turns it into "no rollback was composed at all, and here is why".
+
+    The order of the tests is the order of the damage. Pathspec magic
+    first, because that is the one that destroys founder data rather than
+    merely misbehaving.
+
+    This is the EXECUTION side of a defence tools/bm_store.py also mounts
+    at the DECLARATION side (literal_scope_entry). The duplication is
+    deliberate: the store refuses what enters it, and this refuses what
+    this engine ACTS on, so a row that reached the engine by any other
+    route (a store written by an older version, a hand-written row, an SDK
+    caller that never ran `bm-controller plan`) still cannot become a
+    `git restore` over the founder's whole working tree."""
+    if not isinstance(entry, str):
+        return ("is a %s, not a string; a scope entry is one path"
+                % type(entry).__name__)
+    if not entry.strip():
+        return "is empty"
+    if entry.startswith(_PATHSPEC_MAGIC_PREFIX):
+        return ("begins with %r, which git reads as PATHSPEC MAGIC rather "
+                "than as a file name (%r is the repository root and ':!x' "
+                "is 'everything except x'), so a rollback naming it would "
+                "restore files this unit never declared"
+                % (_PATHSPEC_MAGIC_PREFIX, _PATHSPEC_MAGIC_PREFIX + "/"))
+    if entry.startswith("-"):
+        return "begins with '-', which a command line reads as an option"
+    if entry.startswith("~"):
+        return "begins with '~', which a shell expands to a home directory"
+    if entry.startswith("/") or entry.startswith("\\") or os.path.isabs(entry):
+        return "is an absolute path, not a path inside this project"
+    if any(ch in entry for ch in ("\0", "\n", "\r")):
+        return "contains a NUL byte or a line break"
+    try:
+        bs.literal_scope_entry(entry)
+    except bs.OwnershipRefused as exc:
+        return "is refused by the store's own write-scope rule (%s)" % (exc,)
+    except (ValueError, TypeError) as exc:
+        return "cannot be read as a path (%s: %s)" % (type(exc).__name__, exc)
+    return None
+
+
+def _unsafe_scope_container(field, value):
+    """None when `value` is a shape this engine may ITERATE as a list of
+    paths, or a founder-facing sentence.
+
+    REFUTATION-5 S4 and S6. A Python string is iterable, so a scope emitted
+    as a bare JSON string was walked CHARACTER BY CHARACTER: "a.py" became
+    ['a', '.', 'p', 'y'], '.' canonicalises to the project ROOT, the brief
+    handed the worker the whole project and the unit's fence held it. A
+    scalar was not iterable at all and left an uncaught TypeError out of
+    the shipped `plan`. Both are ordinary malformed-output shapes from a
+    model that authors the unit graph."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return ("%s is the bare string %r. A bare string is ONE path, not "
+                "an iterable of characters: iterating it would fence and "
+                "roll back one character at a time, and '.' is the whole "
+                "project root. Write it as a list of one path."
+                % (field, value))
+    if isinstance(value, (bytes, bytearray)):
+        return ("%s is a %s, not a list of paths"
+                % (field, type(value).__name__))
+    if not isinstance(value, (list, tuple)):
+        return ("%s is a %s, not a list of paths"
+                % (field, type(value).__name__))
+    return None
+
 #: This file's OWN verdict word, never one gate_check returns: the
 #: per-path loop could not judge the whole write_scope under one stable
 #: contract revision, because an amend landed inside it twice (design step
@@ -593,10 +764,140 @@ class ControllerEngine(object):
     def _contract_is_live(self, project_id):
         return self._contract_state(project_id) == "live"
 
-    def _run_command(self, project_id, command):
+    def _breaker_is_this_results_own_cost(self, totals, charged):
+        """True when the ONLY reason the breaker reads hard-stop is the
+        spend row THIS result-handling call just wrote for the unit being
+        judged, that is, when subtracting it puts both meters back under
+        their ceilings.
+
+        This is the one carve-out in _authorisation_refusal, and it is a
+        computation rather than a switch, which matters: `charged` is never
+        a caller's opinion, it is what Store.record_spend DURABLY WROTE a
+        few statements earlier for this unit's own already-authorised work
+        (see _record_spend's return value). Nobody can pass a number to
+        loosen the gate without the meter carrying that same number.
+
+        Why it is right rather than convenient: the founder's ceiling is a
+        limit on what may be SPENT, and this money is already spent. The
+        unit was dispatched under a verdict that was ALLOWED, it did the
+        work, and its answer is in hand. Refusing to read that answer
+        destroys it and burns a retry without saving a single token, and
+        the spend row is what stops the run anyway: step()'s own step-3
+        breaker gate drains the whole run on the very next call, and
+        _deliver_or_hold will not declare a deliverable. So exactly ONE
+        already-paid unit is judged past the ceiling, its cost is on the
+        meter where a founder can see it, and no NEW work starts.
+
+        The refuted sequence is unaffected, which is the point: in
+        REFUTATION-5 S2 the ceiling was blown by a separate
+        `bm-autonomy spend` BEFORE `bm-controller record-result` was run,
+        and the record-result supplied no cost at all, so there is nothing
+        to subtract and the refusal stands.
+
+        Round-6 disclosure, stated rather than hidden: a caller that
+        self-reports an enormous cost therefore buys the judgement of the
+        one unit already in flight. It buys nothing else, and it pays the
+        meter in full to do it."""
+        if not charged:
+            return False
+        token_ceiling = totals.get("token_ceiling")
+        minutes_ceiling = totals.get("minutes_ceiling")
+        tokens = totals["tokens"] - int(charged.get("tokens") or 0)
+        minutes = totals["minutes"] - int(charged.get("minutes") or 0)
+        if token_ceiling is not None and tokens >= token_ceiling:
+            return False
+        if minutes_ceiling is not None and minutes >= minutes_ceiling:
+            return False
+        return True
+
+    def _authorisation_refusal(self, project_id, unit=None, charged=None):
+        """None when EVERY question the founder's authorisation asks is
+        answered ALLOWED right now, or the refusing verdict dict.
+
+        REFUTATION-5 S2 (HIGH). Round 5 asked ONE of gate_check's eight
+        questions, "is the contract row live", and called that the gate. So
+        after the founder's SPEND CEILING tripped, and `bm-autonomy
+        gate-check` answered REFUSED-BREAKER in the founder's own terminal,
+        one `bm-controller record-result` still ran the unit's
+        model-authored done_check AND the founder's whole done_definition,
+        accepted the unit and declared the run DELIVERABLE_READY. The
+        second of the founder's two brakes stopped no command at all, and
+        the most expensive command in the system was the one it left
+        ungated.
+
+        The three questions asked here are exactly the three gate_check
+        would refuse for at this moment:
+
+          STATE    no contract, or one that is paused, stopped or revoked.
+                   Same answer as round 5, reached through the same read.
+          BREAKER  spend at or over 100 percent of either ceiling. This is
+                   gate_check's own check 7, and _spend_totals_from is the
+                   same computation, so the engine and the founder's
+                   `gate-check` cannot disagree.
+          SCOPE    when a UNIT is in hand, its whole write_scope under one
+                   contract revision, through the SAME
+                   _gate_check_write_scope the dispatch route uses. A
+                   command run for a unit whose paths the live contract no
+                   longer admits is a command run outside the contract,
+                   whichever direction it writes in.
+
+        CLASS and FLOOR are deliberately NOT re-asked without a unit: they
+        are per-unit questions, already asked and answered at dispatch, and
+        the founder's own done_definition is not a model action bounded by
+        the risk classes the founder granted the model. Asking them of the
+        done_definition would refuse delivery on contracts that are
+        perfectly valid.
+
+        A READ, never a write: this must be safe to call immediately before
+        every command without changing anything it is judging."""
+        contract = self.store.latest_contract(project_id, raw=True)
+        if contract is None:
+            return {"verdict": "REFUSED-NO-CONTRACT", "floor": None,
+                    "revision": None, "contract_id": None,
+                    "reason": "project %r has no contract at all; nothing "
+                              "is authorised." % (project_id,)}
+        if contract["state"] != "live":
+            return {"verdict": "REFUSED-STATE", "floor": None,
+                    "revision": contract["revision"],
+                    "contract_id": contract["contract_id"],
+                    "reason": "project %r contract is %s (revision %s); "
+                              "nothing is authorised while it is not live."
+                              % (project_id, contract["state"],
+                                 contract["revision"])}
+        totals = self.store.spend_totals(project_id)
+        breaker_exempt = self._breaker_is_this_results_own_cost(totals,
+                                                                charged)
+        if totals["verdict"] == "hard-stop" and not breaker_exempt:
+            return {"verdict": "REFUSED-BREAKER", "floor": None,
+                    "revision": contract["revision"],
+                    "contract_id": contract["contract_id"],
+                    "reason": "spend is at or over 100 percent of a ceiling "
+                              "(%s token(s) of %s, %s minute(s) of %s); the "
+                              "breaker has tripped."
+                              % (totals["tokens"], totals["token_ceiling"],
+                                 totals["minutes"],
+                                 totals["minutes_ceiling"])}
+        if unit is not None:
+            verdict, _refused_path = self._gate_check_write_scope(
+                project_id, unit)
+            # gate_check asks the breaker LAST (its own check 7, after the
+            # path check at 5), so a REFUSED-BREAKER verdict here means
+            # every path already passed and the breaker is the only
+            # objection left. That objection was answered three statements
+            # above, exemption included, so honouring it again here would
+            # re-impose the carve-out's opposite through the back door.
+            if (verdict["verdict"] != "ALLOWED"
+                    and not (verdict["verdict"] == "REFUSED-BREAKER"
+                             and breaker_exempt)):
+                return verdict
+        return None
+
+    def _run_command(self, project_id, command, unit=None, charged=None):
         """THE ONE place this engine hands a founder-authored or
         model-authored command to the CheckRunner, and it refuses to run
-        one at all unless the contract is LIVE at this instant.
+        one at all unless the WHOLE authorisation allows it at this
+        instant (_authorisation_refusal above), not merely the contract
+        row's liveness.
 
         REFUTATION-4 AZ F5 (HIGH, SAFETY). After the 3am kill switch
         (`bm-autonomy stop`, or `revoke`), one `bm-controller record-result`
@@ -609,19 +910,30 @@ class ControllerEngine(object):
         stop, and `git restore` mutates the founder's working tree. Round
         4's section 10.6 is what added the rollback to that branch.
 
+        `unit` is the unit row this command belongs to, when there is one,
+        so the SCOPE half of the verdict is asked as well. Only the
+        founder's own done_definition passes None, and only because it
+        belongs to no unit.
+
         Returns the CheckOutcome, or None meaning NOTHING RAN. Every
         caller must treat None as "no command was executed" and must not
-        invent an exit code for it: an unrun check has no verdict.
+        invent an exit code for it: an unrun check has no verdict. That
+        rule is UNCHANGED by the wider gate; what changed is how many
+        reasons there now are for None.
 
         The gate is deliberately here, at the call site, rather than only
         at the branch points that route into it, so a command site added
         later is gated by construction. The structural half of the same
-        property is
-        tools/test_bm_controller.py's
-        test_every_checker_call_sits_behind_one_gated_call_site, which
-        parses this file and asserts this is the only enclosing function of
-        any self.checker.run call."""
-        if not self._contract_is_live(project_id):
+        property is tools/test_bm_controller.py's
+        test_every_checker_call_sits_behind_one_gated_call_site and, since
+        round 6, _execution_primitive_offences beside it, which asserts
+        that no subprocess primitive is called anywhere in this module
+        outside SubprocessCheckRunner.run and that `self.checker` is bound
+        once and called once (REFUTATION-5 S5: the round-5 guard passed
+        with `subprocess.run`, `os.system`, `getattr(self.checker, "run")`
+        and an aliased `runner = self.checker` added inline)."""
+        if self._authorisation_refusal(project_id, unit,
+                                       charged) is not None:
             return None
         return self.checker.run(command, cwd=self.store.root)
 
@@ -830,6 +1142,25 @@ class ControllerEngine(object):
         write_scope path uses are used here, so the two scopes cannot
         drift apart in what they accept.
 
+        THREE, both scopes must be a LIST of paths, and every write_scope
+        entry must be a plain relative path (REFUTATION-5 S1, S4 and S6).
+        A scope emitted as a bare JSON string was iterated CHARACTER BY
+        CHARACTER, so `"a.py"` became `['a', '.', 'p', 'y']`, '.' is the
+        project ROOT, and the brief handed the worker the whole project
+        while the unit's fence held it; a scalar was not iterable at all
+        and left an uncaught TypeError out of the shipped `plan`; and an
+        entry that is a git PATHSPEC (`:/`, `:!x`, `:(exclude)x`) survived
+        every check round 5 had and turned the engine's own rollback into
+        a `git restore` over the founder's whole working tree.
+
+        REFUSING HERE, BEFORE THE ORIENTING WALK, IS THE POINT. The store
+        refuses all three too (that is the declaration side, and it is the
+        store writer's), but it refuses INSIDE upsert_units, which this
+        method's own AZ F6 paragraph above explains is one state walk too
+        late: the run is left in PLANNING with nothing planned. Refused
+        here, nothing is written and the run has not moved, so `plan`
+        again is a real recovery rather than a wedge.
+
         read_scope is still deliberately NOT gate-checked against
         allowed_paths; see _gate_check_write_scope's docstring for why that
         remains right. Canonicalising it and keeping it inside the project
@@ -855,6 +1186,7 @@ class ControllerEngine(object):
                         details={"unit_id": unit_id,
                                  "fence_name": self.UNIT_FENCE_PREFIX
                                  + str(unit_id)})
+            self._refuse_bad_scopes(unit, unit_id)
             read_scope = unit.get("read_scope")
             if read_scope:
                 canonical = [
@@ -865,6 +1197,39 @@ class ControllerEngine(object):
                 unit["read_scope"] = canonical
             out.append(unit)
         return out
+
+    def _refuse_bad_scopes(self, unit, unit_id):
+        """Both of `unit`'s scopes, or an OwnershipRefused naming the field,
+        the value and what is wrong with it. Returns None; it exists to
+        raise (REFUTATION-5 S1, S4, S6).
+
+        The write scope is held to the stricter rule of the two, because
+        it is the one three more readers act on: the fence claim, the
+        brief handed to a worker, and the engine's `git restore --`
+        rollback. The read scope is held to the container rule only, since
+        _validated_units canonicalises its entries two lines below and a
+        read boundary is deliberately not gate-checked."""
+        for field in ("write_scope", "read_scope"):
+            problem = _unsafe_scope_container(field, unit.get(field))
+            if problem is not None:
+                raise bs.OwnershipRefused(
+                    "bad-scope",
+                    "unit %r cannot be planned: %s Nothing was written and "
+                    "the run has not moved; fix the unit graph and plan "
+                    "again." % (unit_id, problem),
+                    details={"unit_id": unit_id, "field": field})
+        for entry in unit.get("write_scope") or []:
+            problem = _unsafe_scope_entry(entry)
+            if problem is not None:
+                raise bs.OwnershipRefused(
+                    "bad-scope",
+                    "unit %r cannot be planned: its write_scope entry %r %s. "
+                    "Nothing was written and the run has not moved; name "
+                    "the files, or name the directory they live in, which "
+                    "grants its whole subtree." % (unit_id, entry, problem),
+                    details={"unit_id": unit_id, "field": "write_scope",
+                             "entry": bs._safe_repr(entry)})
+            bs.canonicalize_path(self.store.root, entry)
 
     # -- the resumable step -------------------------------------------------
 
@@ -1279,11 +1644,12 @@ class ControllerEngine(object):
         # the late-result return, so every late result silently dropped its
         # spend and the circuit breaker under-counted by exactly that
         # amount, reachable with four shipped commands and no re-plan).
-        self._record_spend(project_id, unit_id, cost)
+        charged = self._record_spend(project_id, unit_id, cost)
         state = self.store.get_run(project_id, raw=True)["state"]
         if state not in _RESULT_WALKABLE_STATES:
             return self._handle_late_result(
-                project_id, run_id, dispatch_id, unit, state, summary)
+                project_id, run_id, dispatch_id, unit, state, summary,
+                charged)
         # The SAME state walk _handle_worker_result performs on the
         # synchronous path, and the RESULT_IN resume branch of
         # _resume_result_in_and_orphans performs on the crash-resume path
@@ -1308,7 +1674,7 @@ class ControllerEngine(object):
                   "fence_uuid": unit["fence_uuid"],
                   "contract_revision": dispatch["contract_revision"]}
         outcome = self._verify_and_finish(claimed, project_id, run_id,
-                                          summary)
+                                          summary, charged)
         self._settle_after_wave(project_id, run_id, summary)
         return outcome
 
@@ -1332,9 +1698,14 @@ class ControllerEngine(object):
             self._disclose_uncharged_spend(project_id, unit_id, tokens,
                                            minutes, contract_now)
             return None
-        return self.store.record_spend(
+        self.store.record_spend(
             project_id, tokens, minutes, "unit %s" % unit_id,
             self.session_id, self.actor)
+        # The amounts DURABLY CHARGED, for _breaker_is_this_results_own_cost
+        # (REFUTATION-5 S2). Returned rather than remembered on self,
+        # because this engine holds no state across a call; the value
+        # travels down the ONE call chain that judges this one result.
+        return {"tokens": tokens, "minutes": minutes}
 
     def _disclose_uncharged_spend(self, project_id, unit_id, tokens,
                                   minutes, contract_now):
@@ -1360,10 +1731,26 @@ class ControllerEngine(object):
         file alone, because Store.record_result carries no cost column, so
         the number is gone by the time the held answer is judged. See
         docs/KNOWN-LIMITS.md and this round's report for the exact store
-        change that would close it."""
+        change that would close it.
+
+        WHAT ROUND 6 ADDED (REFUTATION-5 S7). The checkpoint alone was a
+        disclosure nobody had to read, and the reachable magnitude was not
+        "one unit's cost": pause, record-result, resume, step, once per
+        unit, drove a whole run to DELIVERABLE_READY with 270 claimed
+        tokens against a 100 token ceiling, metered 0, verdict `ok`, and
+        ZERO open founder steps. A founder step is queued beside the
+        checkpoint now, and _deliver_or_hold refuses to declare a
+        deliverable while one is open, so a breaker that reads low cannot
+        be reached through the shipped commands at all.
+
+        The step goes in SPEND_RECONCILE_LANE, a lane no unit is ever
+        planned into, which is what answers the objection above: it is
+        founder-visible, enumerable and resolvable through
+        `bm-autonomy human-steps`, and it gates no lane the founder is
+        about to resume."""
         if contract_now is None:
             return None
-        return self.store.record_checkpoint(
+        checkpoint_id = self.store.record_checkpoint(
             project_id, self.controller_id, "spend-uncharged",
             "unit %s cost %d token(s) and %d minute(s) that could NOT be "
             "charged: the contract is %s, and spend is only recordable "
@@ -1371,9 +1758,39 @@ class ControllerEngine(object):
             "exactly this much until a founder reconciles it."
             % (unit_id, tokens, minutes, contract_now["state"]),
             self.session_id, self.actor)
+        self.store.queue_human_step(
+            project_id, "", SPEND_RECONCILE_LANE,
+            "unit %s cost %d token(s) and %d minute(s) that could NOT be "
+            "charged: the contract was %s when the answer arrived, and "
+            "spend is only recordable against a live authorisation, so the "
+            "breaker reads LOW by exactly this much. This run will NOT be "
+            "declared deliverable until it is reconciled. Charge it with "
+            "`bm-autonomy spend --project %s --tokens %d --minutes %d`, "
+            "then close this with `bm-autonomy human-steps --project %s "
+            "--resolve <this step id> --resolution reconciled` "
+            "(`bm-autonomy human-steps --project %s --open` lists the id). "
+            "Disclosure checkpoint: %s."
+            % (unit_id, tokens, minutes, contract_now["state"], project_id,
+               tokens, minutes, project_id, project_id, checkpoint_id),
+            "", [], self.session_id, self.actor)
+        return checkpoint_id
+
+    def _unreconciled_uncharged_spend(self, project_id):
+        """Every OPEN uncharged-spend disclosure for this project, oldest
+        first (REFUTATION-5 S7).
+
+        Read through list_human_steps rather than through the checkpoint
+        trail on purpose: list_human_steps takes no LIMIT, so this answer
+        cannot go wrong on a long run, while Store.recent_checkpoints has a
+        window a run with enough heartbeats would push an old disclosure
+        out of. A question whose answer decides whether a founder's
+        ceiling means anything is not a question to answer through a
+        window."""
+        return self.store.list_human_steps(
+            project_id, lane=SPEND_RECONCILE_LANE, resolved=False, raw=True)
 
     def _handle_late_result(self, project_id, run_id, dispatch_id, unit,
-                            state, summary=None):
+                            state, summary=None, charged=None):
         """A result whose run state cannot be walked to a judgeable
         position (see _RESULT_WALKABLE_STATES). Every consequence a
         rejection owes the founder is delivered HERE, in this order, and
@@ -1436,13 +1853,16 @@ class ControllerEngine(object):
             "it is open."
             % (unit_id, state, state, breaker, unit["lane"]),
             "", [], self.session_id, self.actor)
-        rollback_cmd = self._rollback_command(run_id, unit_id)
-        if rollback_cmd is not None:
+        rollback_cmd, rb_refusal = self._rollback_plan(run_id, unit_id)
+        if rb_refusal is not None:
+            self._warn_unrollbackable_scope(project_id, rb_refusal,
+                                            unit["lane"])
+        elif rollback_cmd is not None:
             # Gated: a rollback is a real mutation of the founder's working
             # tree, and the kill switch stops it like every other command
             # (REFUTATION-4 AZ F5). None means nothing ran, which is not an
             # exit code and must never be read as one.
-            rb = self._run_command(project_id, rollback_cmd)
+            rb = self._run_command(project_id, rollback_cmd, unit, charged)
             if rb is not None and rb["exit_code"] != 0:
                 self._warn_dirty_write_scope(project_id, unit_id,
                                              rb["exit_code"], unit["lane"])
@@ -1973,7 +2393,20 @@ class ControllerEngine(object):
         is the same deferral for contention rather than for an overlap, and
         a REFUSED-STATE or REFUSED-BREAKER verdict starts the whole-run
         drain, matching step 2's "a revoke that lands between check and
-        act"."""
+        act".
+
+        BEFORE ANY OF THAT, the unit's write_scope must be a list of plain
+        relative paths (REFUTATION-5 S1). gate_check judges a path against
+        the founder's boundary; it does not ask whether the string is a
+        path at all, and `:!keep.txt` is inside `allowed_paths ['.']` by
+        every check the store makes while being 'everything except
+        keep.txt' to git. So the shape is asked here, on the row as the
+        engine actually reads it, and a bad one is a NAMED founder-visible
+        refusal rather than a silent skip."""
+        scope_problem = self._unsafe_write_scope(unit)
+        if scope_problem is not None:
+            return None, self._refuse_unsafe_scope(
+                project_id, unit, scope_problem, open_dispatch)
         verdict, refused_path = self._gate_check_write_scope(
             project_id, unit)
         if verdict["verdict"] == _DEFERRED_CONTENTION:
@@ -2122,6 +2555,63 @@ class ControllerEngine(object):
                 "fence_uuid": record.lifecycle_uuid, "brief": brief,
                 "contract_revision": verdict["revision"]}, None
 
+    def _unsafe_write_scope(self, unit):
+        """None when every entry of `unit`'s STORED write_scope is a plain
+        relative path, or a phrase naming the first one that is not.
+
+        Asked of the row the engine actually holds, not of the graph a
+        founder typed, so it covers a row that arrived by any route."""
+        scope = unit.get("write_scope")
+        problem = _unsafe_scope_container("write_scope", scope)
+        if problem is not None:
+            return problem
+        for entry in scope or []:
+            problem = _unsafe_scope_entry(entry)
+            if problem is not None:
+                return "its write_scope entry %r %s" % (entry, problem)
+        return None
+
+    def _refuse_unsafe_scope(self, project_id, unit, problem,
+                             open_dispatch=None):
+        """Fail one unit whose write_scope this engine may not act on, and
+        TELL THE FOUNDER. Returns the outcome word _authorise_dispatch's
+        caller reads.
+
+        The founder step is what makes this a refusal rather than a skip:
+        it names the unit and the offending entry verbatim, and (because
+        Store.select_ready_units skips a lane holding an open step) it also
+        stops the same unit being re-selected and re-refused on every
+        later wave. An in-flight dispatch is closed and its fence parked
+        first, for the same reason the REFUSED-SCOPE branch below closes
+        one: neither may be left open over paths this engine has just said
+        it cannot act on."""
+        unit_id = unit["unit_id"]
+        reason = ("unit %s cannot be dispatched: %s. Nothing was claimed, "
+                  "nothing was handed to a worker and no rollback can be "
+                  "composed for it." % (unit_id, problem))
+        if open_dispatch is not None:
+            self.store.record_verification(
+                open_dispatch["dispatch_id"], None, reason, False,
+                self.actor, project_id=project_id)
+            self._release_fence(
+                unit["fence_uuid"], "parked",
+                "the unit's write_scope is not a list of plain relative "
+                "paths")
+        self.store.mark_unit_failed(unit_id, self.actor, reason,
+                                    project_id=project_id)
+        self.store.queue_human_step(
+            project_id, "", unit.get("lane") or "default",
+            "%s A write scope is what a fence claims, what a worker's brief "
+            "authorises and what `git restore --` names, so this engine "
+            "will not act on it. Re-plan the unit with a list of plain "
+            "relative paths inside the project, then resolve this step."
+            % (reason,), "", [], self.session_id, self.actor)
+        self._record_interruption(
+            project_id, "hard-gate-collision",
+            "unit %s declares a write_scope this engine cannot act on: %s"
+            % (unit_id, problem))
+        return "REFUSED"
+
     def _fence_no_longer_holds(self, record, unit):
         """None when `record` is still THIS controller's active fence over
         EVERY path in the unit's write_scope, or a short phrase naming what
@@ -2221,11 +2711,14 @@ class ControllerEngine(object):
         self.store.record_result(dispatch_id, worker_claim, artifacts,
                                  self.actor, project_id=project_id)
         self._ensure_verifying(project_id, run_id)
-        self._record_spend(project_id, unit_id, result.get("cost"))
-        return (self._verify_and_finish(claimed, project_id, run_id, summary),
+        charged = self._record_spend(project_id, unit_id,
+                                     result.get("cost"))
+        return (self._verify_and_finish(claimed, project_id, run_id, summary,
+                                        charged),
                 None)
 
-    def _verify_and_finish(self, claimed, project_id, run_id, summary=None):
+    def _verify_and_finish(self, claimed, project_id, run_id, summary=None,
+                           charged=None):
         """Steps 12 to 15: the controller's OWN done-check (INDEPENDENT of
         the worker: a worker that lies about tests is caught here because
         the real exit code is re-read, never the worker's claim), the
@@ -2241,62 +2734,84 @@ class ControllerEngine(object):
         (probe p11), both of which executed the unit's own model-authored
         done_check and then a `git restore` over the founder's files. A
         contract that is not live authorises nothing, and judging is a
-        store read and a verdict, not a subprocess."""
+        store read and a verdict, not a subprocess.
+
+        THE WHOLE AUTHORISATION IS READ, NOT ONLY THE CONTRACT ROW'S STATE
+        (REFUTATION-5 S2). See _authorisation_refusal: a tripped spend
+        breaker, and a write scope the live contract no longer admits, now
+        stop every command here exactly as a stopped contract does.
+
+        AND IT IS READ AGAIN AFTER THE COMMAND (REFUTATION-5 S3). The
+        window between the read and the verdict is exactly as long as the
+        founder's done_check, which in production is a test suite. A stop
+        or a revoke landing inside it was classified by
+        _authorisation_moved as an authorisation-PRESERVING lifecycle
+        change, so the staleness branch was skipped and the unit was
+        accepted under a contract the founder had already killed. Round 4
+        rejected that same sequence; the re-read below restores that, and
+        keeps _LIFECYCLE_CHANGE_KINDS exactly as it is, because the
+        question "did the authorisation CHANGE" and the question "is there
+        still an authorisation" are different questions and this method
+        now asks both."""
         unit_id = claimed["unit_id"]
         dispatch_id = claimed["dispatch_id"]
         unit = self._unit_row(run_id, unit_id)
 
-        contract_state = self._contract_state(project_id)
-        if contract_state != "live":
-            return self._close_without_running(
-                project_id, run_id, claimed, unit, contract_state, summary)
-
-        outcome = self._run_command(project_id, unit["done_check"] or "true")
-        if outcome is None:
-            # The contract died between the read above and this call. The
-            # same answer as the branch above, reached one statement later.
+        refusal = self._authorisation_refusal(project_id, unit, charged)
+        if refusal is not None:
             return self._close_without_running(
                 project_id, run_id, claimed, unit,
-                self._contract_state(project_id), summary)
+                self._contract_state(project_id), summary, refusal=refusal)
+
+        outcome = self._run_command(project_id, unit["done_check"] or "true",
+                                    unit, charged)
+        if outcome is None:
+            # The authorisation died between the read above and this call.
+            # The same answer as the branch above, reached one statement
+            # later.
+            return self._close_without_running(
+                project_id, run_id, claimed, unit,
+                self._contract_state(project_id), summary,
+                refusal=self._authorisation_refusal(project_id, unit,
+                                                    charged))
         exit_ok = outcome["exit_code"] == unit["done_check_expect_exit"]
+
+        # -- S3: the kill switch can land DURING the command above.
+        after = self._authorisation_refusal(project_id, unit, charged)
+        if after is not None:
+            state_word = self._contract_state(project_id) or "missing"
+            return self._reject_as_stale(
+                claimed, project_id, run_id, unit, outcome["exit_code"],
+                "the contract became %s while unit %s was being checked: "
+                "the check had already started under a live authorisation "
+                "so it RAN, and the authorisation it ran under no longer "
+                "exists, so the result is rejected rather than accepted"
+                % (state_word, unit_id),
+                summary,
+                stop_reason="CONTRACT_NOT_LIVE",
+                note=_NOTE_CONTRACT_DIED_MIDCOMMAND % (state_word,),
+                charged=charged)
 
         moved, latest_revision = self._authorisation_moved(
             project_id, claimed["contract_revision"])
         if moved:
-            self.store.record_verification(
-                dispatch_id, outcome["exit_code"],
+            return self._reject_as_stale(
+                claimed, project_id, run_id, unit, outcome["exit_code"],
                 "stale: contract moved from revision %s to %s between "
                 "dispatch and verification"
                 % (claimed["contract_revision"], latest_revision),
-                False, self.actor, project_id=project_id)
-            self.store.mark_unit_failed(
-                unit_id, self.actor,
-                "contract revision moved mid-unit; re-queued rather than "
-                "accepted under authorisation that no longer holds",
-                project_id=project_id)
-            # The staleness rejection ALSO rolls back and warns, like every
-            # other rejection path (REFUTATION-3 SM observation 3): this
-            # branch used to park the fence and return, so a founder whose
-            # contract moved mid-unit was the one founder who got no
-            # warning about a half-written write scope. The fence park and
-            # the return value are unchanged.
-            rollback_cmd = self._rollback_command(run_id, unit_id)
-            if rollback_cmd is not None:
-                rb = self._run_command(project_id, rollback_cmd)
-                if rb is not None and rb["exit_code"] != 0:
-                    self._warn_dirty_write_scope(
-                        project_id, unit_id, rb["exit_code"], unit["lane"])
-            self._release_fence(claimed["fence_uuid"], "parked",
-                               "stale contract revision")
-            return "rejected"
+                summary, charged=charged)
 
         verifier_ok = True
         if unit["verifier"]:
-            v_outcome = self._run_command(project_id, unit["verifier"])
+            v_outcome = self._run_command(project_id, unit["verifier"],
+                                          unit, charged)
             if v_outcome is None:
                 return self._close_without_running(
                     project_id, run_id, claimed, unit,
-                    self._contract_state(project_id), summary)
+                    self._contract_state(project_id), summary,
+                    refusal=self._authorisation_refusal(project_id, unit,
+                                                        charged))
             verifier_ok = v_outcome["exit_code"] == 0
         accepted = exit_ok and verifier_ok
         verdict_text = ("pass" if accepted else
@@ -2320,11 +2835,74 @@ class ControllerEngine(object):
                            unit["done_check_expect_exit"]))
             return unit_id
 
-        self._reject(claimed, project_id, run_id, verdict_text)
+        self._reject(claimed, project_id, run_id, verdict_text, charged)
+        return "rejected"
+
+    def _reject_as_stale(self, claimed, project_id, run_id, unit, exit_code,
+                         reason, summary=None, stop_reason=None, note=None,
+                         charged=None):
+        """The staleness rejection, factored so the round-6 mid-command
+        kill (REFUTATION-5 S3) rejects through the IDENTICAL sequence
+        rather than a lookalike of it: record the rejected verification
+        carrying the real exit code, return the unit through the circuit
+        breaker, roll back and warn, park the fence.
+
+        The rollback here is gated like every other command, so under a
+        contract that has just died it composes and then runs NOTHING,
+        which is the kill switch still working. The founder learns about
+        the half-written write scope from the note and the step instead.
+
+        `stop_reason`/`note` are written into the caller's summary only
+        when given: the ORDINARY staleness path deliberately leaves the
+        summary to the settle path, exactly as it did in round 5."""
+        self.store.record_verification(
+            claimed["dispatch_id"], exit_code, reason, False, self.actor,
+            project_id=project_id)
+        self.store.mark_unit_failed(
+            claimed["unit_id"], self.actor,
+            "authorisation no longer holds mid-unit (%s); re-queued rather "
+            "than accepted" % reason, project_id=project_id)
+        # The staleness rejection ALSO rolls back and warns, like every
+        # other rejection path (REFUTATION-3 SM observation 3): this branch
+        # used to park the fence and return, so a founder whose contract
+        # moved mid-unit was the one founder who got no warning about a
+        # half-written write scope.
+        rollback_cmd, rb_refusal = self._rollback_plan(run_id,
+                                                       claimed["unit_id"])
+        lane = (unit or {}).get("lane") or "default"
+        if rb_refusal is not None:
+            self._warn_unrollbackable_scope(project_id, rb_refusal, lane)
+        elif rollback_cmd is not None:
+            rb = self._run_command(project_id, rollback_cmd, unit, charged)
+            if rb is not None and rb["exit_code"] != 0:
+                self._warn_dirty_write_scope(
+                    project_id, claimed["unit_id"], rb["exit_code"], lane)
+        self._release_fence(claimed["fence_uuid"], "parked",
+                           "authorisation no longer holds: %s" % reason)
+        if stop_reason is not None:
+            # The founder step is owed whether or not a caller passed a
+            # summary to write into: a summary is a REPORTING channel and
+            # a queued step is a durable one, and round 5's own defect
+            # class (REFUTATION-3 SM D) was exactly a founder step put
+            # behind a condition that was sometimes false. The ORDINARY
+            # staleness path passes no stop_reason and queues nothing,
+            # which is round 5's behaviour unchanged.
+            self.store.queue_human_step(
+                project_id, "", lane,
+                "unit %s answered, its done_check RAN, and the "
+                "authorisation it ran under was gone by the time the "
+                "verdict was read (%s). The result is recorded and "
+                "rejected and its write_scope is in whatever state the "
+                "check left it, so it needs manual inspection. Sign a "
+                "fresh contract and re-plan to attempt it again, then "
+                "resolve this step." % (claimed["unit_id"], reason),
+                "", [], self.session_id, self.actor)
+            if summary is not None:
+                self._set_reason(summary, stop_reason, note)
         return "rejected"
 
     def _close_without_running(self, project_id, run_id, claimed, unit,
-                               contract_state, summary=None):
+                               contract_state, summary=None, refusal=None):
         """A result that arrived under a contract that is not live, closed
         with ZERO commands executed (REFUTATION-4 AZ F5). Two answers,
         because the two conditions are not the same thing:
@@ -2346,39 +2924,80 @@ class ControllerEngine(object):
         the kill switch mid-unit is owed the sentence "u1 answered after
         you stopped, and nothing was run".
 
+        A THIRD ANSWER JOINED THEM IN ROUND 6 (REFUTATION-5 S2): the
+        contract can be perfectly live and the FOUNDER'S OTHER BRAKE, the
+        spend ceiling, can be what refuses. `refusal` carries the verdict
+        _authorisation_refusal returned, so the sentence the founder reads
+        names the brake that actually stopped the work rather than the one
+        that did not. A breaker refusal is treated like the dead-contract
+        branch, not like the pause: `step` already drains a run whose
+        breaker has tripped, so holding an answer for a run that is about
+        to drain would be a hold nothing ever collects.
+
         The verification text keeps the word "stale": the authorisation the
         dispatch carried is exactly that."""
         unit_id = claimed["unit_id"]
-        if contract_state == "paused":
+        verdict = (refusal or {}).get("verdict")
+        if contract_state == "paused" and verdict != "REFUSED-BREAKER":
             if summary is not None:
                 self._set_reason(summary, "CONTRACT_PAUSED",
                                  _NOTE_CONTRACT_PAUSED)
             return "held"
         state_word = contract_state or "missing"
-        reason = (
-            "the contract is %s, not live: the authorisation this dispatch "
-            "was stamped under (revision %s) is stale, so the result was "
-            "recorded and rejected and NO command was executed (no "
-            "done_check, no verifier, no rollback)"
-            % (state_word, claimed.get("contract_revision")))
+        nothing_ran = ("so the result was recorded and rejected and NO "
+                       "command was executed (no done_check, no verifier, "
+                       "no rollback)")
+        if verdict == "REFUSED-BREAKER":
+            reason = ("the founder's spend ceiling has tripped (%s), so the "
+                      "authorisation this dispatch was stamped under "
+                      "(revision %s) permits nothing further, %s"
+                      % (refusal["reason"],
+                         claimed.get("contract_revision"), nothing_ran))
+            stop_reason = "SPEND_STOP"
+            note = _NOTE_SPEND_BREAKER % (refusal["reason"],)
+            step_cause = ("the founder's spend ceiling had tripped (%s)"
+                          % (refusal["reason"],))
+            fence_note = ("the spend breaker has tripped; nothing was "
+                          "judged and nothing was run")
+        elif contract_state == "live" and refusal is not None:
+            reason = ("the live contract no longer authorises this unit's "
+                      "write scope (%s), %s" % (refusal["reason"],
+                                                nothing_ran))
+            stop_reason = "FOUNDER_WAITING"
+            note = ("the done_check was not run and nothing was accepted: "
+                    "the live contract no longer authorises this unit's "
+                    "write scope (%s). Widen the contract or re-plan the "
+                    "unit" % (refusal["reason"],))
+            step_cause = ("the live contract no longer authorised its write "
+                          "scope (%s)" % (refusal["reason"],))
+            fence_note = ("the contract no longer authorises this unit's "
+                          "write scope")
+        else:
+            reason = (
+                "the contract is %s, not live: the authorisation this "
+                "dispatch was stamped under (revision %s) is stale, %s"
+                % (state_word, claimed.get("contract_revision"),
+                   nothing_ran))
+            stop_reason = "CONTRACT_NOT_LIVE"
+            note = _NOTE_CONTRACT_NOT_LIVE % (state_word,)
+            step_cause = "the contract was %s" % (state_word,)
+            fence_note = ("the contract is %s; nothing was judged and "
+                          "nothing was run" % state_word)
         self.store.record_verification(
             claimed["dispatch_id"], None, reason, False, self.actor,
             project_id=project_id)
         self.store.mark_unit_failed(unit_id, self.actor, reason,
                                     project_id=project_id)
-        self._release_fence(
-            claimed["fence_uuid"], "parked",
-            "the contract is %s; nothing was judged and nothing was run"
-            % state_word)
+        self._release_fence(claimed["fence_uuid"], "parked", fence_note)
         self.store.queue_human_step(
             project_id, "", (unit or {}).get("lane") or "default",
-            "unit %s returned a result after the contract was %s. Nothing "
+            "unit %s returned a result and %s. Nothing "
             "was executed for it: not its done_check, not its verifier and "
             "not its rollback, so its write_scope is in whatever state the "
             "worker left it and needs manual inspection. The result is "
             "recorded and rejected and the fence is parked. Sign a fresh "
             "contract and re-plan to attempt it again, then resolve this "
-            "step." % (unit_id, state_word),
+            "step." % (unit_id, step_cause),
             "", [], self.session_id, self.actor)
         # NO reconcile here, deliberately, unlike _handle_late_result: the
         # founder step in the unit's own lane IS the mechanism
@@ -2388,11 +3007,10 @@ class ControllerEngine(object):
         # unit BLOCKED on a run whose very next step drains it, which is a
         # status nobody reverses.
         if summary is not None:
-            self._set_reason(summary, "CONTRACT_NOT_LIVE",
-                             _NOTE_CONTRACT_NOT_LIVE % (state_word,))
+            self._set_reason(summary, stop_reason, note)
         return "rejected"
 
-    def _reject(self, claimed, project_id, run_id, reason):
+    def _reject(self, claimed, project_id, run_id, reason, charged=None):
         """Step 15's rejection branch and step 17 (the circuit breaker):
         mark_unit_failed decides retry-or-escalate on its own
         (retry_ceiling), and a partial write in the unit's write_scope is
@@ -2416,12 +3034,19 @@ class ControllerEngine(object):
         unit_id = claimed["unit_id"]
         outcome = self.store.mark_unit_failed(unit_id, self.actor, reason,
                                               project_id=project_id)
-        rollback_cmd = self._rollback_command(run_id, unit_id)
-        if rollback_cmd is not None:
+        rollback_cmd, rb_refusal = self._rollback_plan(run_id, unit_id)
+        if rb_refusal is not None:
+            unit = self._unit_row(run_id, unit_id)
+            self._warn_unrollbackable_scope(
+                project_id, rb_refusal,
+                unit["lane"] if unit else "default")
+        elif rollback_cmd is not None:
             # Gated like every other command (REFUTATION-4 AZ F5): None
-            # means the contract is not live and NOTHING ran, which is not
-            # a failed rollback and must not be reported as one.
-            rb = self._run_command(project_id, rollback_cmd)
+            # means the authorisation does not allow it and NOTHING ran,
+            # which is not a failed rollback and must not be reported as
+            # one.
+            rb = self._run_command(project_id, rollback_cmd,
+                                   self._unit_row(run_id, unit_id), charged)
             if rb is not None and rb["exit_code"] != 0:
                 unit = self._unit_row(run_id, unit_id)
                 self._warn_dirty_write_scope(
@@ -2521,13 +3146,54 @@ class ControllerEngine(object):
             session_id=record.session_id, note=note,
             evidence=evidence or note)
 
-    def _rollback_command(self, run_id, unit_id):
+    def _rollback_plan(self, run_id, unit_id):
+        """(command, refusal) for ONE unit's rollback.
+
+          command  the `git restore` this engine will run, or None when
+                   there is nothing to roll back or nothing safe to
+                   compose
+          refusal  None, or a founder-facing phrase naming the entry that
+                   stopped a rollback from being composed at all
+
+        REFUTATION-5 S1 (PUSH BLOCKER). `shlex.quote` protects the SHELL
+        and does nothing about GIT: `git restore -- ':/'` is a perfectly
+        quoted command that restores the WHOLE working tree and exits 0,
+        so every uncommitted founder edit in the project was destroyed and
+        the zero exit meant no dirty-write-scope warning was ever queued.
+        Two independent defences, either of which is enough:
+
+          1. every emitted path goes through _pathspec_literal, so a magic
+             spelling reaches git as a file name (and, being a file name
+             nothing matches, exits 1, which IS the warning path);
+          2. a scope this engine may not act on composes no command at
+             all, and says so, so the founder learns the write scope was
+             left exactly as the worker left it instead of being told
+             nothing.
+
+        The command emitted for an ordinary plain-path unit is byte for
+        byte the one this engine has always composed."""
         unit = self._unit_row(run_id, unit_id)
         write_scope = unit["write_scope"] if unit else []
         if not write_scope:
-            return None
+            return None, None
+        problem = self._unsafe_write_scope(unit)
+        if problem is not None:
+            return None, ("unit %s was NOT rolled back: %s"
+                          % (unit_id, problem))
         return "git restore -- " + " ".join(
-            shlex.quote(p) for p in write_scope)
+            shlex.quote(_pathspec_literal(p)) for p in write_scope), None
+
+    def _warn_unrollbackable_scope(self, project_id, refusal, lane):
+        """The founder step for a rollback that was never composed. A
+        sibling of _warn_dirty_write_scope, and separate from it on
+        purpose: "the rollback failed" and "there was no rollback to run"
+        are different facts, and rounds 3 and 5 both landed a defect that
+        was one note constant describing two branches."""
+        return self.store.queue_human_step(
+            project_id, "", lane or "default",
+            "%s, so whatever it wrote is still there and needs manual "
+            "inspection before any further work in that scope."
+            % (refusal,), "", [], self.session_id, self.actor)
 
     # -- internal: run-level bookkeeping ----------------------------------
 
@@ -2611,20 +3277,31 @@ class ControllerEngine(object):
         run = self.store.get_run(project_id, raw=True)
         if run["state"] != "CHECKPOINTED":
             return  # PAUSED/STOPPING/FAILED_* already claimed this run
-        contract_state = self._contract_state(project_id)
-        if contract_state != "live":
-            # Nothing to settle TOWARD: delivery is refused under a dead or
-            # suspended authorisation, and step 2 drains or pauses the run
-            # on the next call. Saying which of the two it is beats
-            # overwriting it with a founder-gating verdict computed under
-            # an authorisation that no longer applies (REFUTATION-4 AZ F5).
-            if contract_state == "paused":
+        refusal = self._authorisation_refusal(project_id)
+        if refusal is not None:
+            # Nothing to settle TOWARD: delivery is refused under a dead,
+            # suspended or over-spent authorisation, and step 2 or step 3
+            # drains or pauses the run on the next call. Saying WHICH of
+            # the three it is beats overwriting it with a founder-gating
+            # verdict computed under an authorisation that no longer
+            # applies (REFUTATION-4 AZ F5, REFUTATION-5 S2).
+            contract_state = self._contract_state(project_id)
+            if refusal["verdict"] == "REFUSED-BREAKER":
+                self._set_reason(summary, "SPEND_STOP",
+                                 _NOTE_SPEND_BREAKER % (refusal["reason"],))
+            elif contract_state == "paused":
                 self._set_reason(summary, "CONTRACT_PAUSED",
                                  _NOTE_CONTRACT_PAUSED)
             else:
+                # NOT _NOTE_CONTRACT_NOT_LIVE (REFUTATION-5 S3, second
+                # half): that constant's text hard-codes "NO command was
+                # executed", which is a statement about a DIFFERENT
+                # branch. By the time a wave settles, this engine may have
+                # run a done_check that was authorised when it started.
                 self._set_reason(
                     summary, "CONTRACT_NOT_LIVE",
-                    _NOTE_CONTRACT_NOT_LIVE % (contract_state or "missing",))
+                    _NOTE_SETTLE_CONTRACT_NOT_LIVE
+                    % (contract_state or "missing",))
             return
         ready = self.store.select_ready_units(run_id)
         if ready:
@@ -2982,14 +3659,21 @@ class ControllerEngine(object):
             # production SubprocessCheckRunner.
             self._set_reason(summary, "DELIVERED", "deliverable ready")
             return
-        contract_state = self._contract_state(project_id)
-        if contract_state != "live":
+        refusal = self._authorisation_refusal(project_id)
+        if refusal is not None:
             # The founder's own done-definition is a command like any
             # other, and a deliverable declared ready under an
-            # authorisation that is stopped, revoked or paused would be a
-            # claim nothing stands behind (REFUTATION-4 AZ F5). Nothing is
-            # written and nothing is run.
-            if contract_state == "paused":
+            # authorisation that is stopped, revoked, paused or over its
+            # ceiling would be a claim nothing stands behind (REFUTATION-4
+            # AZ F5, REFUTATION-5 S2: this line, `_deliver_or_hold`'s call
+            # to the founder's WHOLE test suite, is the most expensive
+            # command in the system and was the one the spend breaker left
+            # ungated). Nothing is written and nothing is run.
+            contract_state = self._contract_state(project_id)
+            if refusal["verdict"] == "REFUSED-BREAKER":
+                self._set_reason(summary, "SPEND_STOP",
+                                 _NOTE_SPEND_BREAKER % (refusal["reason"],))
+            elif contract_state == "paused":
                 self._set_reason(summary, "CONTRACT_PAUSED",
                                  _NOTE_CONTRACT_PAUSED)
             else:
@@ -2998,6 +3682,16 @@ class ControllerEngine(object):
                     "the done-definition was not run and nothing was "
                     "delivered: the contract is %s, not live"
                     % (contract_state or "missing",))
+            return
+        # -- REFUTATION-5 S7. A run whose meter never saw an accepted
+        # unit's cost cannot be declared a deliverable. See
+        # _unreconciled_uncharged_spend for why this is the half of the
+        # choice that is implementable from this file.
+        outstanding = self._unreconciled_uncharged_spend(project_id)
+        if outstanding:
+            self._set_reason(
+                summary, "SPEND_STOP",
+                _NOTE_SPEND_UNRECONCILED % (len(outstanding), project_id))
             return
         if cur not in _DELIVERY_SOURCE_STATES:
             self._set_reason(
@@ -3009,6 +3703,11 @@ class ControllerEngine(object):
         run = self.store.get_run(project_id, raw=True)
         done_definition = run["done_definition"]
         if done_definition:
+            # unit=None on purpose: the founder's own done-definition
+            # belongs to no unit, so there is no write scope to judge it
+            # against, and it is not a model action bounded by the risk
+            # classes the founder granted the model. State and breaker are
+            # asked, and they are the two that apply.
             outcome = self._run_command(project_id, done_definition)
             if outcome is None:
                 self._set_reason(
