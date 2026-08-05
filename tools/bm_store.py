@@ -792,6 +792,31 @@ def _coerce_path_entry(f):
     return p
 
 
+#: GIT PATHSPEC MAGIC always begins with a colon, in every spelling git
+#: has: the long form ':(magic)path', the two short forms ':!' and ':^' for
+#: exclude, and ':/' for the repository root (gitglossary(7), "pathspec").
+#: Nothing else in that language introduces magic, which is what lets a
+#: one-character PREFIX test be the WHOLE rule instead of a list of
+#: spellings that has to be kept up to date as git grows more of them.
+_PATHSPEC_MAGIC_PREFIX = ":"
+
+
+def _is_absolute_scope(p):
+    """True for every ABSOLUTE spelling this project can be HANDED, not only
+    the ones this process's os.path happens to recognise. A plan file is
+    DATA: it can be authored on one platform and executed on another, so
+    asking os.path.isabs alone would read 'C:/Windows' on POSIX as a
+    relative directory named 'C:' and hand it to the fence. Both separator
+    forms and the drive-qualified form are absolute here, on every
+    platform, and os.path.isabs is kept as the trailing case so a platform
+    rule this function has not thought of still lands on a refusal."""
+    if p[:1] in ("/", "\\"):
+        return True
+    if len(p) >= 2 and p[1] == ":" and p[0].isascii() and p[0].isalpha():
+        return True
+    return os.path.isabs(p)
+
+
 def literal_scope_entry(f, unit_id=None):
     """The ONE gate a declared WRITE SCOPE entry passes through: the total
     coercion above, and then the rule that a write scope is a LITERAL PATH,
@@ -823,6 +848,51 @@ def literal_scope_entry(f, unit_id=None):
     itself. A pattern cannot be declared at all now, so there is no second
     spelling to find.
 
+    ROUND 6 (fix round 2026-08-05, REFUTATION-5-safety.md S1, a
+    PUSH-BLOCKER with two end to end reproductions that destroyed every
+    uncommitted founder edit in a project). Refusing three METACHARACTERS
+    was refusing a spelling, not stating the rule. Git has a SECOND way to
+    mean more than one file and it uses none of those characters: PATHSPEC
+    MAGIC, which always begins with a colon. Every spelling below survived
+    the round-5 gate, was canonicalised as an ordinary relative name,
+    stored, fenced, and handed to the engine's own
+    `git restore -- <entry>`, and each is refused here for the reason
+    beside it (behaviour measured against the system git, not assumed):
+
+      ':'                  what ':/' CANONICALISES TO, and the spelling git
+                           reads as the whole repository. The rollback
+                           restored every tracked file and exited 0, so the
+                           engine read it as SUCCESS and queued no
+                           dirty-write-scope warning at all
+      ':/'  ':(top)'       the repository root, short and long form: the
+                           rollback reverts the whole working tree
+      ':!x' ':^x'          exclude, short forms: the rollback reverts
+      ':(exclude)x'        everything EXCEPT x, which is the exact opposite
+                           of what a founder reading the plan sees named
+      ':(icase)X'          matches a file this entry does not spell, so the
+                           fence and the rollback disagree with the text
+      ':(literal)x'        still MAGIC, not a path: the prefix has to go,
+                           not just the dangerous-looking spellings
+      ':(glob)x'           glob magic with no metacharacter in the string,
+                           so the round-5 rule never sees it
+      ':(attr:...)'        names a SET of files by attribute, no path in it
+      '::'                 empty magic plus an empty path
+
+    Two more shapes go with it, for the same reason (the string is read
+    again by three readers that are not this one). An ABSOLUTE path either
+    names another machine's tree or re-spells one inside this project:
+    accepted before, and silently rewritten to its relative form, so the
+    plan the founder wrote and the plan the store held were different
+    strings. An EMPTY or whitespace-only entry names no file and used to
+    reach canonicalize_path as a bare ValueError('empty path'), with no
+    reason code, no unit id and no remedy.
+
+    What is deliberately NOT refused: a colon anywhere other than the
+    start. Pathspec magic is a PREFIX, so 'src/a:b.py' is an ordinary
+    filename and refusing it would be this round over-reaching. And the
+    ALLOWANCE side (a contract's allowed_paths) is untouched here as it was
+    in round 5: that is a recorded founder decision.
+
     Public, not private, on purpose: any other caller that stores what a
     worker will WRITE (a fence claim built from a brief, a future scope
     field) should share this gate rather than grow a second copy of it.
@@ -831,6 +901,46 @@ def literal_scope_entry(f, unit_id=None):
     name the same file", where a glob is meaningful and where
     tools/test_bm_store.py's own glob-claim test pins the behaviour."""
     p = _coerce_path_entry(f)
+    where = "" if unit_id is None else " on unit %r" % (unit_id,)
+    # The other three rules read the STRIPPED string, because _to_posix
+    # strips before anything downstream sees it: without this, ' :/' is a
+    # second spelling of ':/' that the colon test would miss.
+    s = p.strip()
+    if not s:
+        raise OwnershipRefused(
+            "empty-write-scope",
+            "write scope entry %r%s is empty or whitespace only, so it "
+            "names no file. An entry that names nothing cannot be fenced, "
+            "cannot be covered and cannot be rolled back: name the file, "
+            "or remove the entry."
+            % (p, where),
+            details={"entry": p, "unit_id": unit_id})
+    if s.startswith(_PATHSPEC_MAGIC_PREFIX):
+        raise OwnershipRefused(
+            "pathspec-write-scope",
+            "write scope entry %r%s begins with %r, which git reads as "
+            "PATHSPEC MAGIC rather than as a path: ':/' and ':(top)' mean "
+            "the whole repository, ':!x' and ':(exclude)x' mean everything "
+            "EXCEPT x, ':(icase)' matches a name the entry does not spell. "
+            "This string is handed to `git restore --` by the engine's own "
+            "rollback, so a magic spelling reverts files the unit never "
+            "declared, while the fence claims a path that does not exist "
+            "and therefore protects nothing. Name a plain relative path "
+            "inside the project, one entry per path."
+            % (p, where, _PATHSPEC_MAGIC_PREFIX),
+            details={"entry": p, "unit_id": unit_id})
+    if _is_absolute_scope(s):
+        raise OwnershipRefused(
+            "absolute-write-scope",
+            "write scope entry %r%s is an ABSOLUTE path. A write scope is "
+            "read as relative to the project root by all three of its "
+            "readers (the fence claim, the coverage check and the "
+            "rollback), so an absolute entry either names another "
+            "machine's tree or re-spells a path inside this one, which is "
+            "a declaration the founder cannot check by reading it. Name it "
+            "relative to the project root."
+            % (p, where),
+            details={"entry": p, "unit_id": unit_id})
     if _has_glob(p):
         raise OwnershipRefused(
             "glob-write-scope",
@@ -840,10 +950,181 @@ def literal_scope_entry(f, unit_id=None):
             "the directory they live in, which grants its whole subtree. "
             "Patterns stay legal in a contract's allowed_paths, where the "
             "founder draws the boundary."
-            % (p, "" if unit_id is None else " on unit %r" % (unit_id,),
-               " ".join(sorted(_GLOB_CHARS))),
+            % (p, where, " ".join(sorted(_GLOB_CHARS))),
             details={"entry": p, "unit_id": unit_id})
     return p
+
+
+def canonical_write_scope_entry(root, f, unit_id=None, cwd=None):
+    """The WHOLE write-scope boundary, in one place: the declaration rules
+    above, then canonicalize_path, then the promise that binds them
+    (round 6, item 3 of the brief). TOTAL: for ANY declared entry this
+    returns the canonical root-relative string that will be stored, or
+    raises OwnershipRefused. No other exception type crosses it.
+
+    Why the catch-all is not paranoia. canonicalize_path ends in
+    os.path.realpath, which is a SYSCALL: it can raise OSError (a volume
+    unmounted mid-plan, a permission wall, ELOOP on some platforms),
+    ValueError (an embedded NUL, platform dependent) or anything a hostile
+    os.PathLike proxy chooses. Every one of those used to leave
+    upsert_units as itself, straight past the ValueError-and-BMStoreError
+    handler in `bm-controller plan`'s main(), as a traceback, out of a
+    method whose whole contract is that it validates a plan BEFORE writing
+    any of it. AZ F11 made the same argument for _coerce_path_entry one
+    round earlier; this is the same rule applied to the resolver.
+
+    An OwnershipRefused from inside is re-raised UNCHANGED, deliberately:
+    'path-escape' is already a named refusal carrying the root it was
+    measured against, and re-labelling it would cost the founder the one
+    fact that tells them what to do.
+
+    THE SECOND LOOK, and it is not belt and braces: it closes a bypass of
+    this round's own fix, found by attacking the fix rather than the defect
+    (the same shape F3 had one round earlier). The declaration rules read
+    what the caller WROTE, which is right, because that is the string the
+    refusal has to quote back. canonicalize_path then resolves '.' and
+    '..' segments lexically and strips the string as a whole, so a
+    DECLARATION the rules refuse can be re-spelled as one they accept:
+    './:!keep.txt' is stored as ':!keep.txt', the git exclude spelling that
+    reverts every file except the one it names; 'sub/../:' is stored as
+    ':', the whole-repository one; './a:b' is stored as 'a:b', which a
+    Windows caller reads as drive-qualified; './ /' is stored as ' ',
+    whitespace only. A property sweep over 2954 generated spellings found
+    those families and is pinned as a test, because reading
+    canonicalize_path does not predict them. The stored string is what the
+    fence, the coverage check and `git restore --` actually read, so it
+    goes through the SAME rules, and the refusal names both forms: what
+    was declared, and what it resolves to."""
+    where = "" if unit_id is None else " on unit %r" % (unit_id,)
+    p = literal_scope_entry(f, unit_id=unit_id)
+    try:
+        stored = canonicalize_path(root, p, cwd=cwd)
+    except OwnershipRefused:
+        raise
+    except Exception as exc:
+        raise OwnershipRefused(
+            "unreadable-scope-path",
+            "write scope entry %r%s could not be resolved to a path inside "
+            "the project (%s: %s). A path this store cannot resolve is a "
+            "REFUSAL, never an exception out of a method that validates a "
+            "whole plan before writing any of it: nothing was written. "
+            "Name a plain relative path inside the project."
+            % (p, where, type(exc).__name__, exc),
+            details={"entry": p, "unit_id": unit_id,
+                     "error_type": type(exc).__name__})
+    if stored != p:
+        # The SAME rules, re-asked of the resolved string, by calling the
+        # one function that holds them rather than restating its
+        # predicates here: a second copy of a rule is a rule that drifts.
+        # A property sweep over 2954 generated spellings (pinned as a test)
+        # found THREE families that survive canonicalisation, none of them
+        # predictable by reading it:
+        #   './:!x' -> ':!x'   git exclude magic, the tree-destroying one
+        #   './a:b' -> 'a:b'   drive-qualified once a Windows caller reads it
+        #   './ /'  -> ' '     whitespace only, because _to_posix strips the
+        #                      WHOLE string and not each segment
+        # The reason code is re-raised as a LITERAL per family, never
+        # forwarded from exc.reason: tools/test_bm_store.py's structural
+        # guard requires every refusal to name a greppable literal, and a
+        # forwarded code would also let a family added to
+        # literal_scope_entry later through under a name this branch never
+        # considered. That last case lands on the total reason instead.
+        try:
+            literal_scope_entry(stored, unit_id=unit_id)
+        except OwnershipRefused as exc:
+            head = ("write scope entry %r%s resolves to %r, and the "
+                    "resolved string is the one that gets stored, fenced "
+                    "and handed to `git restore --`. "
+                    % (p, where, stored))
+            detail = {"entry": p, "resolved": stored, "unit_id": unit_id}
+            if exc.reason == "pathspec-write-scope":
+                raise OwnershipRefused("pathspec-write-scope",
+                                       head + str(exc), details=detail)
+            if exc.reason == "absolute-write-scope":
+                raise OwnershipRefused("absolute-write-scope",
+                                       head + str(exc), details=detail)
+            if exc.reason == "empty-write-scope":
+                raise OwnershipRefused("empty-write-scope",
+                                       head + str(exc), details=detail)
+            if exc.reason == "glob-write-scope":
+                raise OwnershipRefused("glob-write-scope",
+                                       head + str(exc), details=detail)
+            raise OwnershipRefused("unreadable-scope-path",
+                                   head + str(exc), details=detail)
+    return stored
+
+
+#: The two container shapes a declared scope may have. A list is what JSON
+#: decodes an array to; a tuple is what a Python caller building a plan
+#: naturally writes. Everything else is refused by declared_scope_list.
+_SCOPE_CONTAINER_TYPES = (list, tuple)
+
+
+def declared_scope_list(value, field, unit_id=None):
+    """The CONTAINER gate, asked BEFORE a single entry is read (round 6,
+    REFUTATION-5-safety.md S4 and S6). Returns a list, or refuses
+    'bad-scope-container' naming the field, the actual type and what the
+    old behaviour would have done with it.
+
+    The defect this closes is one missing question. `for p in (scope or
+    [])` asks the value to be ITERABLE and asks nothing else, so:
+
+      S4, and it fails SILENTLY, which is why it is the dangerous one: a
+      bare JSON string is iterable, so 'write_scope': 'a.py' declared FOUR
+      scopes, 'a', '.', 'p' and 'y'. One of them is '.', the PROJECT ROOT.
+      The brief handed to the worker said it could write the whole project,
+      and the unit's fence held '.', which makes every other writer's write
+      anywhere in the project refusable from one unit. Nothing refused and
+      nothing warned.
+
+      S6, and it fails LOUDLY: 'write_scope': 7 is not iterable at all, so
+      it left the shipped `bm-controller plan` as an uncaught TypeError.
+
+    The store has carried this exact defence on the FENCE side since
+    fix-round 2: _normalize_files says 'A bare string is ONE path, not an
+    iterable of characters, the same defensive rule bm_registry's
+    _safe_path_list enforces'. The two sides differ on the REMEDY, though,
+    and deliberately: a fence claim is a Python call where files='a.py' is
+    an obvious convenience, so it wraps; a scope is a DECLARATION a founder
+    reads and a hash is taken over, so it refuses and says how to spell it.
+    Guessing at a declaration is how S4's reproduction ended with a unit's
+    fence holding four one-character paths, one of them the project root,
+    and every command in that run reporting success.
+
+    A set and a generator are iterable and are still refused: a scope with
+    no defined ORDER, or one that can only be read once, is not something a
+    founder can check by reading it or a store can hash twice."""
+    if isinstance(value, _SCOPE_CONTAINER_TYPES):
+        return list(value)
+    type_name = type(value).__name__
+    if isinstance(value, str):
+        exploded = list(value)
+        consequence = (
+            "a Python string is iterable, so iterating it declares one "
+            "scope per character (%s becomes %r%s), and a '.' anywhere in "
+            "the name is the whole project"
+            % (_safe_repr(value), exploded[:6],
+               " and so on" if len(exploded) > 6 else ""))
+    elif isinstance(value, (bytes, bytearray)):
+        consequence = ("iterating it yields integers, not paths")
+    elif isinstance(value, dict):
+        consequence = ("iterating it yields its KEYS, which are not the "
+                       "paths anyone wrote")
+    elif isinstance(value, (set, frozenset)):
+        consequence = ("a set has no order, so the same declaration hashes "
+                       "and reads differently from one run to the next")
+    else:
+        consequence = ("it is not iterable at all, which reached the "
+                       "shipped plan command as an uncaught TypeError")
+    raise OwnershipRefused(
+        "bad-scope-container",
+        "%s%s is %s (type %s), and a scope must be a LIST (or a tuple) of "
+        "path strings: %s. Write it as a list, one path per entry, or [] "
+        "to declare no scope at all."
+        % (field, "" if unit_id is None else " on unit %r" % (unit_id,),
+           _safe_repr(value), type_name, consequence),
+        details={"field": field, "type": type_name, "unit_id": unit_id,
+                 "entry": _safe_repr(value)})
 
 
 def _normalize_files(files, root, cwd=None):
@@ -13052,10 +13333,19 @@ class Store(object):
         else OwnershipRefused 'dangling-dependency'; the whole new set is
         acyclic by a topological check over its own internal edges, else
         'dependency-cycle' (the adversarial probe named in the design's
-        section 5 coverage map); every `write_scope` entry passes
-        literal_scope_entry (a LITERAL path, never a pattern, else
-        'glob-write-scope') and is then canonicalised via
-        canonicalize_path, the same call sign_contract uses.
+        section 5 coverage map); `write_scope` and `read_scope` are each a
+        LIST (or tuple) of path strings, checked as a CONTAINER before
+        anything is iterated, else 'bad-scope-container' naming the field
+        and the actual type; and every `write_scope` entry passes
+        canonical_write_scope_entry, which is the literal-path rule
+        ('glob-write-scope'), the git-pathspec rule
+        ('pathspec-write-scope'), the relative-path rule
+        ('absolute-write-scope'), the non-empty rule ('empty-write-scope'),
+        and then canonicalize_path, the same call sign_contract uses, with
+        every other exception from path handling turned into a named
+        refusal ('unreadable-scope-path'). The declaration rules are asked
+        again of the RESOLVED string, because '.' and '..' segments
+        collapse and can re-spell a refused entry as an accepted one.
 
         `project_id`, when given, is the project the caller BELIEVES this
         run belongs to, and a disagreement refuses 'run-not-in-project'
@@ -13147,24 +13437,50 @@ class Store(object):
                             "in this call and no already-persisted unit "
                             "of run %r." % (uid, dep, run_id))
                 edges[uid] = [d for d in deps if d in new_ids]
-                # literal_scope_entry FIRST, and it is the WHOLE glob fix
-                # (fix round 2026-08-05, REFUTATION-4 AZ F1 and F3): it
-                # carries _coerce_path_entry's total coercion (REFUTATION-3
-                # AZ F-A8: a JSON number, array, object or boolean in
-                # write_scope used to reach _to_posix's (p or "").strip()
-                # and raise an uncaught AttributeError straight through the
-                # shipped `bm-controller plan`) and then refuses a PATTERN,
-                # because this string goes on to be a fence claim, a
-                # coverage key and a `git restore --` pathspec, none of
-                # which read it depth-exactly. Before canonicalize_path,
-                # deliberately: the check is on what the caller DECLARED,
-                # so the refusal quotes the founder's own spelling.
-                write_scope = [canonicalize_path(
-                                   self.root,
-                                   literal_scope_entry(p, unit_id=uid),
-                                   cwd=None)
-                               for p in (u.get("write_scope") or [])]
+                # THE CONTAINER FIRST, then each entry (fix round
+                # 2026-08-05 round 6, REFUTATION-5-safety.md S4 and S6).
+                # This loop used to read `(u.get("write_scope") or [])`,
+                # which asks the value to be ITERABLE and asks nothing
+                # else: a bare JSON string is iterable, so 'a.py' silently
+                # declared four scopes, one per character, one of them '.',
+                # the project ROOT (S4); a JSON number is not iterable at
+                # all, so it left the shipped `bm-controller plan` as an
+                # uncaught TypeError (S6). u.get(field, []) and NOT
+                # `or []`, deliberately: an ABSENT key is not a declaration
+                # and still means "no scope", while an explicit null IS a
+                # declaration, of the wrong type, and refuses by name.
+                #
+                # canonical_write_scope_entry is the WHOLE entry gate: the
+                # total coercion (REFUTATION-3 AZ F-A8), the literal-path
+                # rule (REFUTATION-4 AZ F1 and F3), the pathspec, absolute
+                # and empty rules (REFUTATION-5 S1), then canonicalize_path
+                # with any exception from the resolver turned into a named
+                # refusal. The declaration rules run BEFORE canonicalisation
+                # so the refusal quotes the founder's own spelling, and all
+                # of it runs before a single row is written.
+                write_scope = [
+                    canonical_write_scope_entry(self.root, p, unit_id=uid)
+                    for p in declared_scope_list(
+                        u.get("write_scope", []), "write_scope",
+                        unit_id=uid)]
                 u["write_scope"] = write_scope
+                # read_scope gets the CONTAINER rule and the total path
+                # coercion, and deliberately NOT the literal-path rule. It
+                # had no check of any kind: it was json.dumps'd straight
+                # into the row, so a bare string was stored as a JSON
+                # string and every reader downstream iterated it character
+                # by character (S4's second half), and a pathlib.Path in it
+                # was an uncaught TypeError out of json.dumps. What it does
+                # NOT get is the write-scope refusals: a read scope never
+                # reaches `git restore --`, and the engine canonicalises it
+                # separately, where a founder-authored pattern over files
+                # to READ is a reasonable thing to write. Only the key that
+                # is PRESENT is rewritten, so a unit that omits read_scope
+                # hashes exactly as it did before this round.
+                if "read_scope" in u:
+                    u["read_scope"] = [
+                        _coerce_path_entry(p) for p in declared_scope_list(
+                            u["read_scope"], "read_scope", unit_id=uid)]
                 hashes[uid] = self._unit_definition_hash(u)
 
             # -- acyclic check over the NEW units' own internal edges ----

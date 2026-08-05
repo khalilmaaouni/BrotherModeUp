@@ -1259,13 +1259,29 @@ file. Nothing above this heading was edited to add it.
   Spend is only recordable against a live authorisation, which is the right
   rule for a revoked contract and the wrong one for a reversible pause, and
   the cost is not carried on the recorded result, so it cannot be charged
-  later either. The drop is no longer silent: a checkpoint records the exact
-  uncharged tokens and minutes and says the breaker under-counts by that
-  much. Closing it properly needs a store change (either spend recordable
-  against a paused contract, or the cost stored with the result so the
-  charge can be deferred to the resume), and that is not this file's to
-  make. Until then, a run that is paused mid-flight and resumed has a
-  breaker reading low by one unit's cost, visible in the checkpoint trail.
+  later either. Closing it properly needs a store change (either spend
+  recordable against a paused contract, or the cost stored with the result
+  so the charge can be deferred to the resume), and that is still not this
+  file's to make.
+
+  **Round 6 corrects the size of this and blocks its consequence.** The
+  earlier wording here, "a breaker reading low by one unit's cost", was
+  wrong: the sequence is `bm-autonomy pause`, `bm-controller record-result
+  --tokens N`, `bm-autonomy resume`, `bm-controller resume`,
+  `bm-controller step`, and it repeats once per unit, so the under-count is
+  EVERY result recorded during a pause, without limit. A whole run was
+  driven to `DELIVERABLE_READY` with 270 claimed tokens against a 100 token
+  ceiling, metered 0, verdict `ok`, and zero open founder steps.
+
+  What is fixed is the consequence rather than the charge. Each uncharged
+  disclosure now also queues a founder step in the reserved lane
+  `spend-reconciliation`, naming the exact tokens and minutes, the
+  `bm-autonomy spend` command that charges them and the `bm-autonomy
+  human-steps --resolve` command that closes it, and **no run reaches
+  `DELIVERABLE_READY` while one of those steps is open**. So the meter can
+  still read low mid-run, and a run whose meter reads low can no longer be
+  declared deliverable. The reserved lane holds no units, so it gates no
+  work; the way out is the two shipped commands, not a wedge.
 - **A unit with NO write scope is still dispatched and fences nothing.**
   Unchanged from the store half's disclosure above, and it is a contract
   layer decision rather than a controller one. Give every unit a write
@@ -1283,6 +1299,39 @@ file. Nothing above this heading was edited to add it.
   and was never adjusted for it. The retirement is recorded in the file with
   its argument, so nothing is silently missing, but a later round reading
   that floor literally would flag the number.
+
+### Bounds round 6's own fixes introduce
+
+- **The spend breaker judges one already-paid unit past the ceiling.** Once
+  the breaker trips, no command runs: not a done-check, not a verifier, not
+  a rollback, not the founder's whole done-definition. The single carve-out
+  is the unit whose OWN reported cost is what pushed the meter over: the
+  engine charges the meter before it judges a result, so refusing that unit
+  its own check would destroy an answer already paid for without saving a
+  token. Subtracting the spend row just written puts the meters back under
+  their ceilings, and only then is the command allowed. The bound, stated
+  plainly: a caller that self-reports an enormous cost buys the judgement
+  of the one unit already in flight. It buys nothing else, it pays the
+  meter in full to do it, the run drains on the next step, and no
+  deliverable is declared.
+- **A rollback is now refused rather than run when the write scope is not a
+  list of plain relative paths.** That is the point (a `git restore` built
+  from a git pathspec restored the whole working tree), but it means the
+  write scope is left exactly as the worker left it. A founder step says so
+  in those words and names the unit; nothing cleans it up automatically.
+- **The engine's write-scope rule duplicates the store's on purpose.** The
+  store refuses a bad entry where it ENTERS the store, and the engine
+  refuses one where it ACTS on it. Two refusals for one bad unit graph is
+  the intended cost of the fix holding even for a row that reached the
+  engine by another route.
+- **The uncharged-spend founder step uses a reserved lane name,
+  `spend-reconciliation`.** A unit graph that plans units into a lane of
+  that name would have them gated by the disclosure. No shipped fixture
+  does; do not name a lane that.
+- **The mid-command kill re-reads the authorisation after every command.**
+  That is three extra store reads per judged result (contract, spend
+  totals, and the unit's own gate check) and it is deliberate: the read is
+  what makes the moment of execution the moment of authorisation.
 
 ### Bounds this round's own fixes introduce
 
@@ -1303,3 +1352,97 @@ file. Nothing above this heading was edited to add it.
   that unit's lane.** That is the intended mechanism, and on a run that is
   about to drain it costs nothing, but it is a real gate: the lane stays
   unselectable until the step is resolved.
+
+## L03 round 6, the STORE half (DECLARATION side): what the fifth adversarial pass closed here, and the four things it did not (2026-08-05)
+
+This section is written by the store writer of round 6 and covers ONLY the
+store (`tools/bm_store.py`). The EXECUTION side of the same finding, what the
+engine does with an entry once it is stored, is closed in the same round by
+the writer who owns `tools/bm_controller.py` and is disclosed separately.
+Nothing above this heading was edited to add it.
+
+### Closed in this round
+
+- **A write scope entry is now a plain relative path inside the project, and
+  git pathspec magic is refused by name.** Round 5 made a write scope a
+  literal path by refusing three pattern characters. Git has a second way to
+  mean more than one file and it uses none of them: pathspec magic, which
+  always begins with a colon. `:/` and `:(top)` mean the whole repository,
+  `:!x` and `:(exclude)x` mean everything EXCEPT x, `:(icase)` matches a name
+  the entry does not spell. Those spellings passed the round-5 gate, were
+  stored, were fenced, and were handed to the engine's own
+  `git restore -- <entry>`, which reverted files the unit never declared;
+  with `:/` the rollback exited 0, so the founder was told only that a
+  dispatch was rejected. Every spelling now refuses `pathspec-write-scope`,
+  naming the entry, the unit and the remedy. Two shapes go with it for the
+  same reason: an ABSOLUTE entry refuses `absolute-write-scope` (it used to
+  be accepted and silently rewritten to its relative form, so the plan the
+  founder wrote and the plan the store held were different strings), and an
+  EMPTY or whitespace-only entry refuses `empty-write-scope` (it used to
+  reach the resolver as a bare `ValueError('empty path')`, with no reason
+  code, no unit id and no remedy).
+- **A refused spelling can no longer be re-spelled past the gate.** The
+  declaration rules read what the caller wrote, and the resolver then
+  collapses `.` and `..` segments, so `./:!keep.txt` was stored as
+  `:!keep.txt` and `sub/../:` as `:`. The gate now looks twice, at what was
+  declared and at what will actually be stored, and the refusal names both
+  forms. A property sweep over 2954 generated spellings is pinned as a test;
+  it is what found this, and two further families with it (`./a:b` stored as
+  `a:b`, which a Windows caller reads as drive-qualified, and `./ /` stored
+  as a single space).
+- **A scope is a LIST of path strings, and the container is checked before
+  anything is iterated.** `write_scope: "a.py"` used to declare four scopes,
+  one per character, one of them `.`, the project root: the worker's brief
+  said it could write the whole project and the unit's fence held the root,
+  silently. `write_scope: 7` used to leave the shipped `plan` command as an
+  uncaught `TypeError`. Both now refuse `bad-scope-container`, naming the
+  field, the actual type and what the old behaviour would have done with it.
+  `read_scope` gets the same container check, where it previously had none
+  at all.
+- **Every exception from path handling at that boundary is now a named
+  refusal.** The resolver ends in a syscall, so it can raise `OSError`,
+  `ValueError` or whatever a hostile path proxy chooses, and each of those
+  used to leave the method that validates a whole plan as itself, past the
+  command line's handler, as a traceback. They land on
+  `unreadable-scope-path` now; a refusal that already has a name, such as
+  `path-escape`, is passed through unchanged.
+
+### Not closed, and what stands in the way
+
+- **A read scope ENTRY is still not put through the literal-path rule in the
+  store.** The store checks the container and that each entry is a path
+  string; it does not refuse a pattern, a pathspec or an absolute path there,
+  and it does not canonicalise. That is deliberate rather than forgotten: a
+  read scope never reaches `git restore --`, the engine canonicalises it
+  separately, and a founder-authored pattern over files to READ is a
+  reasonable thing to write. The consequence to know is that the store alone
+  does not keep a read scope inside the project; the controller's own check
+  does.
+- **A bare-string read scope can still be exploded by the CALLER before the
+  store sees it.** The store refuses `read_scope: "src"` from a direct
+  caller, but the engine canonicalises a read scope before it calls the
+  store, and a bare string iterated there arrives as a list of single
+  characters that the store's container check cannot tell from a real
+  declaration. Closing that is the controller half's item, in the same
+  round, by design: neither half assumes the other landed.
+- **`expected_artifacts` has no container check at all.** A bare string is
+  stored as a bare string and a number is stored as a number. It is not a
+  path the fence, the coverage check or the rollback ever reads, so the
+  damage of the scope defect does not follow, but it is the same shape and
+  this round did not take it. (`dependencies` has the same missing check and
+  fails LOUDLY instead: a bare string becomes one dependency per character
+  and refuses `dangling-dependency`.)
+- **A path containing a NUL byte is still accepted, and `.` is still a legal
+  write scope.** Both are unchanged from earlier sections of this page. A
+  write scope of `.` grants and fences the whole project, which is the same
+  disclosure as a unit with no write scope at all.
+
+### One bound this round's own fix introduces
+
+- **An explicit `null` scope now refuses where it used to mean "none".** An
+  ABSENT `write_scope` or `read_scope` key still means "no scope" and hashes
+  exactly as it did before, so no persisted unit is redefined by the upgrade.
+  A key that is PRESENT and null is a declaration of the wrong type and
+  refuses `bad-scope-container` naming `NoneType`, with `[]` given as the
+  spelling for "no scope on purpose". A plan file that wrote `null` there
+  gets a refusal it can act on rather than a silent empty scope.

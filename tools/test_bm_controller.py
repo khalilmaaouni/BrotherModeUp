@@ -3667,6 +3667,162 @@ def _checker_call_site_functions():
     return names
 
 
+# ---------------------------------------------------------------------------
+# ROUND 6 / REFUTATION-5-safety.md S5: the structural control the round-5
+# guard above only claimed to be. That one matched a SINGLE AST shape,
+# `self.checker.run`, so four ungated command sites walked past it. This
+# one asks the question the claim actually makes: can any subprocess
+# execution primitive be reached from anywhere in tools/bm_controller.py
+# except the one runner method, and can the checker object be reached by
+# any spelling other than the one gated call?
+#
+# The two names below are the ONLY places in that module where an
+# execution primitive is allowed to appear, by qualified name.
+# ---------------------------------------------------------------------------
+
+#: `subprocess.*` is legal in exactly one method: the production
+#: CheckRunner, whose whole job is to be the one process boundary.
+_EXEC_PRIMITIVE_HOME = "SubprocessCheckRunner.run"
+
+#: `self.checker` is legal in exactly two places: bound once in the
+#: engine's constructor, and called once behind the authorisation gate.
+_CHECKER_BIND_SITE = "ControllerEngine.__init__"
+_CHECKER_CALL_SITE = "ControllerEngine._run_command"
+
+#: Dotted calls that start a process without going through the CheckRunner
+#: at all. `os.system` needs no import bm_controller.py does not already
+#: have, which is what made it the cheapest of the refuter's four
+#: bypasses.
+_BANNED_DOTTED_CALLS = frozenset((
+    "os.system", "os.popen", "os.execv", "os.execve", "os.execvp",
+    "os.execvpe", "os.execl", "os.execle", "os.execlp", "os.execlpe",
+    "os.spawnv", "os.spawnve", "os.spawnvp", "os.spawnvpe", "os.spawnl",
+    "os.spawnle", "os.spawnlp", "os.spawnlpe", "os.posix_spawn",
+    "os.posix_spawnp", "os.fork", "os.forkpty", "os.openpty",
+    "os.startfile", "pty.spawn", "pty.fork", "platform.popen",
+    "commands.getoutput", "commands.getstatusoutput",
+    "asyncio.create_subprocess_exec", "asyncio.create_subprocess_shell",
+))
+
+#: Bare builtins that turn a name into an object at runtime, which is how
+#: a gated attribute is reached without ever writing its name. Banning
+#: them outright is cheap here: the shipped module uses none of them.
+_BANNED_BARE_CALLS = frozenset((
+    "getattr", "setattr", "delattr", "vars", "globals", "locals",
+    "eval", "exec", "compile", "__import__",
+))
+
+#: Attribute names that reach an object's own namespace, the second way to
+#: get at a gated attribute without naming it.
+_BANNED_ATTRIBUTE_NAMES = frozenset((
+    "__dict__", "__getattribute__", "__class__", "__globals__",
+))
+
+
+def _dotted_name(node):
+    """'os.system' for `os.system`, 'self.checker.run' for
+    `self.checker.run`, or None for anything that is not a plain dotted
+    chain of names."""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return None
+    parts.append(node.id)
+    return ".".join(reversed(parts))
+
+
+def _execution_primitive_offences(source):
+    """[(lineno, message), ...] for every place in `source` where a
+    subprocess execution primitive is reachable outside
+    _EXEC_PRIMITIVE_HOME, or where the checker object is reached by any
+    spelling other than the one gated call.
+
+    Takes SOURCE rather than reading the file, so the calibration test can
+    hand it a mutated copy held in memory. Nothing is written and nothing
+    is executed."""
+    tree = ast.parse(source, filename="bm_controller.py")
+    parent = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parent[child] = node
+    offences = []
+    stack = []
+
+    def _qualname():
+        return ".".join(stack)
+
+    class _Visitor(ast.NodeVisitor):
+        def visit_ClassDef(self, node):
+            stack.append(node.name)
+            self.generic_visit(node)
+            stack.pop()
+
+        def visit_FunctionDef(self, node):
+            stack.append(node.name)
+            self.generic_visit(node)
+            stack.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_Call(self, node):
+            where = _qualname()
+            dotted = _dotted_name(node.func)
+            if dotted is not None:
+                root = dotted.split(".")[0]
+                if root == "subprocess" and where != _EXEC_PRIMITIVE_HOME:
+                    offences.append(
+                        (node.lineno,
+                         "%s() is called in %s; the only place this module "
+                         "may start a process is %s"
+                         % (dotted, where or "<module>",
+                            _EXEC_PRIMITIVE_HOME)))
+                if dotted in _BANNED_DOTTED_CALLS:
+                    offences.append(
+                        (node.lineno,
+                         "%s() starts a process outside the CheckRunner "
+                         "entirely (in %s)" % (dotted, where or "<module>")))
+            if (isinstance(node.func, ast.Name)
+                    and node.func.id in _BANNED_BARE_CALLS):
+                offences.append(
+                    (node.lineno,
+                     "%s() in %s can reach a gated attribute without naming "
+                     "it" % (node.func.id, where or "<module>")))
+            self.generic_visit(node)
+
+        def visit_Attribute(self, node):
+            where = _qualname()
+            if node.attr in _BANNED_ATTRIBUTE_NAMES:
+                offences.append(
+                    (node.lineno,
+                     "%s in %s reaches an object's own namespace"
+                     % (node.attr, where or "<module>")))
+            if (node.attr == "checker"
+                    and isinstance(node.value, ast.Name)
+                    and node.value.id == "self"):
+                up = parent.get(node)
+                bound = (where == _CHECKER_BIND_SITE
+                         and isinstance(up, ast.Assign)
+                         and node in up.targets)
+                called = (where == _CHECKER_CALL_SITE
+                          and isinstance(up, ast.Attribute)
+                          and up.attr == "run"
+                          and isinstance(parent.get(up), ast.Call)
+                          and parent[up].func is up)
+                if not (bound or called):
+                    offences.append(
+                        (node.lineno,
+                         "self.checker is reached in %s; it may only be "
+                         "bound in %s and called as self.checker.run(...) "
+                         "in %s" % (where or "<module>", _CHECKER_BIND_SITE,
+                                    _CHECKER_CALL_SITE)))
+            self.generic_visit(node)
+
+    _Visitor().visit(tree)
+    return sorted(offences)
+
+
 class TestR5NoCommandRunsUnderADeadContract(unittest.TestCase):
     """REFUTATION-4 AZ F5 (HIGH, SAFETY). After the 3am kill switch
     (`bm-autonomy stop`, or `revoke`), one `bm-controller record-result`
@@ -4397,6 +4553,580 @@ class TestR5FounderNotesStateWhatActuallyHappened(unittest.TestCase):
                     "repeats", note,
                     "and the note says what a fence nobody is coming back "
                     "for looks like: %r" % (note,))
+
+
+# ---------------------------------------------------------------------------
+# ROUND 6: the findings a FIFTH adversarial pass raised against the round-5
+# fixes above (report
+# docs/program/absolute-lead/evidence/L03/REFUTATION-5-safety.md,
+# 2026-08-05). Every class below is one of that report's own probe
+# sequences restated as a permanent regression test, and every one of them
+# FAILED on the tree that report attacked (evidence:
+# docs/program/absolute-lead/evidence/L03/RED-round6-controller.txt).
+# ---------------------------------------------------------------------------
+
+class _ScopePoisoningStore(object):
+    """A pass-through proxy over a REAL Store that hands the engine one
+    poisoned `write_scope`, and nothing else.
+
+    It exists because this round splits one defect across two writers. The
+    DECLARATION side (refusing a git pathspec, a bare string and a scalar
+    container where a write scope ENTERS the store) belongs to
+    tools/bm_store.py and to its own writer. The EXECUTION side, which is
+    what this file tests, is the engine's promise that a bad entry which
+    reached it by SOME OTHER ROUTE (a hand-written row, a store written by
+    an older version, an SDK caller that never went through
+    `bm-controller plan`) still cannot become a `git restore` over the
+    founder's whole working tree. Proving that needs a unit row the shipped
+    plan would refuse, so this proxy manufactures exactly one.
+
+    `poison` is mutable on purpose: set it after a dispatch to model the
+    row going bad between the claim and the rollback."""
+
+    def __init__(self, store, poison=None):
+        self._store = store
+        self.poison = poison
+
+    def __getattr__(self, name):
+        return getattr(self._store, name)
+
+    def _poisoned(self, row):
+        if self.poison is None:
+            return row
+        out = dict(row)
+        out["write_scope"] = list(self.poison)
+        return out
+
+    def select_ready_units(self, run_id):
+        return [self._poisoned(u)
+                for u in self._store.select_ready_units(run_id)]
+
+    def list_units(self, run_id, raw=False):
+        return [self._poisoned(u)
+                for u in self._store.list_units(run_id, raw=raw)]
+
+
+#: The four bypass spellings REFUTATION-5-safety.md S5 walked past the
+#: round-5 AST guard, as (label, source fragment) pairs. Each one is
+#: inserted into a COPY of tools/bm_controller.py held in memory; the repo
+#: file is never written and none of this code is ever executed.
+#:
+#: SECURITY NOTE, because these fragments LOOK like the thing they are
+#: defending against: they are inert TEXT. They are never compiled, never
+#: exec'd and never written to disk; the only thing done with them is
+#: ast.parse, so the guard can be shown to reject each one. A calibration
+#: corpus of the exact spellings an attacker would use is what makes the
+#: guard evidence rather than a claim, which is precisely what round 5's
+#: version lacked.
+_S5_BYPASS_MUTATIONS = (
+    ("subprocess.run() added inline in _verify_and_finish",
+     "        subprocess.run('echo pwned', shell=True)\n"),
+    ("os.system() added inline in _verify_and_finish",
+     "        os.system('echo pwned')\n"),
+    ("getattr(self.checker, 'run') in _verify_and_finish",
+     "        getattr(self.checker, 'run')('echo pwned', cwd='.')\n"),
+    ("runner = self.checker; runner.run(...) in _verify_and_finish",
+     "        runner = self.checker\n"
+     "        runner.run('echo pwned', cwd='.')\n"),
+)
+
+_S5_ANCHOR = "    def _verify_and_finish("
+
+
+def _mutated_controller_source(fragment):
+    """tools/bm_controller.py's source with `fragment` spliced in as the
+    first statement of _verify_and_finish's body, after its docstring.
+    Returned as a STRING; nothing is written and nothing is executed.
+
+    The anchor is the def LINE PREFIX, not the whole signature, so a
+    future argument added to that method does not silently turn this
+    calibration into a no-op."""
+    with io.open(CONTROLLER_FILE, encoding="utf-8") as fh:
+        lines = fh.read().split("\n")
+    starts = [i for i, line in enumerate(lines)
+              if line.startswith(_S5_ANCHOR)]
+    assert len(starts) == 1, "the anchor moved; fix _S5_ANCHOR"
+    # Walk to the end of the method's docstring, so the splice lands on a
+    # syntactically valid statement boundary.
+    end = starts[0]
+    for i in range(starts[0] + 1, len(lines)):
+        if lines[i].rstrip().endswith('"""'):
+            end = i
+            break
+    assert end > starts[0], "no docstring found under the anchor"
+    return "\n".join(lines[:end + 1] + [fragment.rstrip("\n")]
+                      + lines[end + 1:])
+
+
+class TestR6WriteScopePathspecMagicCannotReachGit(unittest.TestCase):
+    """REFUTATION-5-safety.md S1 (HIGH, PUSH-BLOCKER, DATA DESTRUCTION).
+
+    A `write_scope` entry that is a git PATHSPEC (`:/`, `:!x`,
+    `:(exclude)x`) passed the round-5 literal-write-scope rule, whose only
+    test was the three glob characters `* ? [`, and the engine's own
+    rollback then ran `git restore -- :/`, which restores the WHOLE working
+    tree. Every uncommitted founder edit in the project was destroyed, and
+    because `:/` exits 0 the engine read the rollback as a SUCCESS and
+    queued no dirty-write-scope warning at all.
+
+    Two halves, both tested here:
+      (a) the composed command can never hand git a magic pathspec;
+      (b) a write scope entry that is not a plain relative path inside the
+          root is REFUSED, at plan time and again at dispatch, and is never
+          rolled back, with a named founder-visible refusal each time."""
+
+    _MAGIC = (":/", ":", ":!keep.txt", ":^keep.txt", ":(exclude)keep.txt",
+              ":(icase)KEEP.TXT", ":(top)")
+
+    def test_the_rollback_never_hands_git_a_magic_pathspec(self):
+        """The pure half: git reads a leading colon as pathspec magic, and
+        `:(literal)` is git's own escape for it (verified against git
+        2.50.1 in a real repo; see the round-6 report)."""
+        for entry in self._MAGIC:
+            self.assertEqual(
+                bc._pathspec_literal(entry), ":(literal)" + entry,
+                "%r must reach git as a literal path" % (entry,))
+
+    def test_a_plain_path_is_emitted_byte_for_byte_unchanged(self):
+        """THE CONTROL, and a deliberate compatibility pin: a path that
+        cannot be read as magic is emitted exactly as it always was, so
+        the founder-facing rollback command for ordinary work is
+        unchanged."""
+        for entry in ("a.py", "src/app.py", ".", "docs/notes.md"):
+            self.assertEqual(bc._pathspec_literal(entry), entry)
+
+    def test_plan_refuses_a_pathspec_write_scope_and_writes_nothing(self):
+        for entry in self._MAGIC:
+            with tempfile.TemporaryDirectory() as d:
+                with bs.Store(d) as store:
+                    _seed(store)
+                    _sign(store)
+                    engine = _engine(store, FakeWorker({}),
+                                     FakeCheckRunner())
+                    run = engine.begin("p1", "ship it", "echo done")
+                    with self.assertRaises(bc.bs.OwnershipRefused) as caught:
+                        engine.plan("p1", run["run_id"],
+                                    [_unit("u1", write_scope=[entry])])
+                    self.assertIn(entry, str(caught.exception))
+                    self.assertEqual(
+                        store.get_run("p1", raw=True)["state"], "NEW",
+                        "nothing is written and the run has not moved")
+
+    def test_a_poisoned_write_scope_is_never_dispatched(self):
+        """The EXECUTION side. The row reaches the engine already bad; no
+        worker is handed a brief, no fence is claimed, and a founder step
+        names the unit and the entry."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({"u1": _worker_result()})
+                checker = FakeCheckRunner()
+                proxy = _ScopePoisoningStore(store)
+                engine = _engine(proxy, worker, checker)
+                run = _begin_and_plan(engine, store, "p1",
+                                      [_unit("u1", write_scope=["a.py"])])
+                proxy.poison = [":!keep.txt"]
+
+                summary = engine.step("p1")
+
+                self.assertEqual(summary["dispatched"], [])
+                self.assertEqual(worker.call_log, [],
+                                 "no worker is handed a poisoned scope")
+                self.assertEqual(checker.calls, [])
+                steps = [s["what"] for s in store.list_human_steps(
+                    "p1", resolved=False, raw=True)]
+                self.assertTrue(
+                    any("u1" in s and ":!keep.txt" in s for s in steps),
+                    "a NAMED founder-visible refusal, never a silent skip: "
+                    "%r" % (steps,))
+                self.assertEqual(
+                    _dispatch_count(store, "u1"), 0,
+                    "nothing was dispatched for run %s" % run["run_id"])
+
+    def test_a_scope_that_goes_bad_after_dispatch_is_never_rolled_back(self):
+        """The second execution site. The unit dispatched under a clean
+        scope, its done_check then fails, and the row the rollback reads is
+        the poisoned one. No `git restore` is composed at all, and the
+        founder is told the scope was NOT cleaned."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                checker = FakeCheckRunner(
+                    {"true": {"exit_code": 1, "stdout": "", "stderr": "no"}})
+                proxy = _ScopePoisoningStore(store)
+                engine, run, dispatch_ids = _park_one_async_unit(
+                    self, proxy, checker)
+                proxy.poison = [":/"]
+
+                engine.receive_result("p1", dispatch_ids["u1"],
+                                      "claims done", ["a.py"])
+
+                self.assertEqual(
+                    [c for c in checker.calls if "git restore" in c], [],
+                    "no rollback is composed from a poisoned scope: %r"
+                    % (checker.calls,))
+                steps = [s["what"] for s in store.list_human_steps(
+                    "p1", resolved=False, raw=True)]
+                self.assertTrue(
+                    any("u1" in s and "NOT rolled back" in s
+                        for s in steps),
+                    "the founder is told the write scope was left as the "
+                    "worker left it: %r" % (steps,))
+
+
+class TestR6EngineRefusesMalformedScopeContainers(unittest.TestCase):
+    """REFUTATION-5-safety.md S4 and S6, the ENGINE half. `write_scope: 7`
+    raised an uncaught TypeError out of the shipped `plan`, and a
+    `write_scope` (or `read_scope`) emitted as a bare JSON STRING was
+    iterated character by character, so `"a.py"` became `['a', '.', 'p',
+    'y']`, the brief handed the worker `.` (the whole project) and the
+    unit's fence held the project root. The store writer refuses these
+    where they enter the store; the engine refuses them before it writes
+    anything at all."""
+
+    def _refusal(self, unit):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine = _engine(store, FakeWorker({}), FakeCheckRunner())
+                run = engine.begin("p1", "ship it", "echo done")
+                with self.assertRaises(bc.bs.OwnershipRefused) as caught:
+                    engine.plan("p1", run["run_id"], [unit])
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "NEW", "nothing written, run not moved")
+                return caught.exception
+
+    def test_a_scalar_write_scope_is_a_named_refusal_not_a_typeerror(self):
+        exc = self._refusal(dict(_unit("u1"), write_scope=7))
+        self.assertIn("write_scope", str(exc))
+        self.assertIn("int", str(exc))
+
+    def test_a_bare_string_write_scope_is_refused_not_shredded(self):
+        exc = self._refusal(dict(_unit("u1"), write_scope="a.py"))
+        self.assertIn("a.py", str(exc))
+        self.assertIn("one path", str(exc))
+
+    def test_a_bare_string_read_scope_is_refused_not_shredded(self):
+        exc = self._refusal(dict(_unit("u1"), read_scope="src"))
+        self.assertIn("read_scope", str(exc))
+
+    def test_a_dict_read_scope_is_refused_rather_than_reduced_to_keys(self):
+        exc = self._refusal(dict(_unit("u1"), read_scope={"a.py": 1}))
+        self.assertIn("read_scope", str(exc))
+
+
+class TestR6TheSpendBreakerStopsEveryCommand(unittest.TestCase):
+    """REFUTATION-5-safety.md S2 (HIGH). After the founder's SPEND CEILING
+    tripped and `bm-autonomy gate-check` answered REFUSED-BREAKER, one
+    `bm-controller record-result` still ran the unit's own model-authored
+    done_check AND the founder's whole done_definition, accepted the unit
+    and declared the run DELIVERABLE_READY. Round 5 gated commands on the
+    contract's LIVENESS and on nothing else, so the second of the founder's
+    two brakes stopped no command at all."""
+
+    def _blown_ceiling(self, store, checker, done_check="true"):
+        _seed(store)
+        _sign(store, token_ceiling=100, minutes_ceiling=100)
+        engine, run, dispatch_ids = _park_one_async_unit(
+            self, store, checker,
+            units=[_unit("u1", write_scope=["a.py"],
+                         done_check=done_check)])
+        store.record_spend("p1", 500, 500, "the founder's ceiling is blown",
+                           "sess1", _actor())
+        self.assertEqual(store.spend_totals("p1")["verdict"], "hard-stop")
+        self.assertEqual(
+            store.gate_check("p1", "file-create")["verdict"],
+            "REFUSED-BREAKER")
+        return engine, run, dispatch_ids
+
+    def test_record_result_after_the_breaker_trips_runs_no_command(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                checker = FakeCheckRunner()
+                engine, run, dispatch_ids = self._blown_ceiling(store,
+                                                                checker)
+                before = list(checker.calls)
+
+                outcome = engine.receive_result(
+                    "p1", dispatch_ids["u1"], "claims done", ["a.py"])
+
+                self.assertEqual(
+                    checker.calls, before,
+                    "the spend breaker stops EVERY command, the unit's own "
+                    "done_check and the founder's whole done_definition "
+                    "included: %r" % (checker.calls,))
+                self.assertNotEqual(outcome, "u1",
+                                    "no unit is accepted under a tripped "
+                                    "breaker")
+                self.assertNotEqual(
+                    store.get_run("p1", raw=True)["state"],
+                    "DELIVERABLE_READY",
+                    "no deliverable is declared under a tripped breaker")
+
+    def test_the_founder_is_told_the_breaker_is_what_stopped_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                checker = FakeCheckRunner()
+                engine, run, dispatch_ids = self._blown_ceiling(store,
+                                                                checker)
+                summary = {}
+
+                engine.receive_result("p1", dispatch_ids["u1"],
+                                      "claims done", ["a.py"],
+                                      summary=summary)
+
+                self.assertEqual(summary.get("stop_reason"), "SPEND_STOP")
+                self.assertIn("ceiling", (summary.get("note") or ""))
+                steps = [s["what"] for s in store.list_human_steps(
+                    "p1", resolved=False, raw=True)]
+                self.assertTrue(any("u1" in s for s in steps),
+                                "a founder step names the unit: %r"
+                                % (steps,))
+
+    def test_the_rollback_leg_runs_no_command_either(self):
+        """The refuter's second sequence: the unit FAILS its done_check, so
+        round 5 ran the done_check and then a `git restore` in the
+        founder's working tree, both under a tripped ceiling."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                checker = FakeCheckRunner(
+                    {"true": {"exit_code": 1, "stdout": "", "stderr": "no"}})
+                engine, run, dispatch_ids = self._blown_ceiling(store,
+                                                                checker)
+
+                engine.receive_result("p1", dispatch_ids["u1"],
+                                      "claims done", ["a.py"])
+
+                self.assertEqual(checker.calls, [],
+                                 "zero commands, done_check and rollback "
+                                 "alike: %r" % (checker.calls,))
+
+
+class TestR6AKillLandingDuringACommandRejects(unittest.TestCase):
+    """REFUTATION-5-safety.md S3 (MEDIUM). A stop or a revoke landing
+    DURING the done_check was classified as a NON-move by
+    _authorisation_moved (both are lifecycle change kinds), so the
+    staleness branch was skipped and the unit was ACCEPTED under a killed
+    contract, with its fence released as complete and no founder step
+    naming any of it. Round 4 rejected that same sequence as stale, so
+    round 5 was strictly weaker. The founder was also told, in the same
+    command, that the result was rejected and that NO command was
+    executed. Both sentences were false."""
+
+    def _kill_during_the_done_check(self, store, killed_state):
+        """The unit's own done_check IS the kill switch, which is what the
+        founder pulling it in another terminal looks like from here."""
+        def _kill(_call_number):
+            _set_contract(store, killed_state, reason="3am kill switch")
+            return {"exit_code": 0, "stdout": "", "stderr": ""}
+        return FakeCheckRunner({"true": _kill})
+
+    def _drive(self, store, killed_state):
+        _seed(store)
+        _sign(store)
+        checker = self._kill_during_the_done_check(store, killed_state)
+        engine, run, dispatch_ids = _park_one_async_unit(self, store, checker)
+        summary = {}
+        outcome = engine.receive_result("p1", dispatch_ids["u1"],
+                                        "claims done", ["a.py"],
+                                        summary=summary)
+        return engine, run, checker, summary, outcome
+
+    def test_a_revoke_during_the_done_check_rejects_the_unit(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine, run, checker, summary, outcome = self._drive(
+                    store, "revoked")
+
+                self.assertEqual(outcome, "rejected")
+                unit = _unit_row(store, run["run_id"], "u1")
+                self.assertNotEqual(unit["status"], "DONE",
+                                    "no unit is accepted under a contract "
+                                    "the founder killed mid-command")
+                dispatch = store.list_dispatches("u1", raw=True)[0]
+                self.assertNotEqual(dispatch["status"], "VERIFIED")
+                self.assertEqual(store.get(unit["fence_uuid"]).state,
+                                 "parked")
+
+    def test_a_stop_during_the_done_check_rejects_the_unit(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine, run, checker, summary, outcome = self._drive(
+                    store, "stopped")
+
+                self.assertEqual(outcome, "rejected")
+                self.assertNotEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "DONE")
+
+    def test_the_founder_note_does_not_claim_nothing_ran(self):
+        """S3's second half: one note constant served two branches whose
+        facts differ, so a founder was told 'NO command was executed'
+        about a command that had just executed."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine, run, checker, summary, outcome = self._drive(
+                    store, "revoked")
+
+                self.assertEqual(checker.calls, ["true"],
+                                 "the done_check really did run: %r"
+                                 % (checker.calls,))
+                note = summary.get("note") or ""
+                self.assertIn("revoked", note)
+                self.assertNotIn(
+                    "NO command was executed", note,
+                    "the note must not deny the command it just ran: %r"
+                    % (note,))
+
+
+class TestR6TheExecutionPrimitiveGuardIsStructural(unittest.TestCase):
+    """REFUTATION-5-safety.md S5 (LOW). Round 5's AST guard matched ONE
+    shape, `self.checker.run`, so it passed with `subprocess.run`,
+    `os.system`, `getattr(self.checker, "run")` and an aliased
+    `runner = self.checker` added inline in `_verify_and_finish`. It was
+    the guard's CLAIM ("a command site added OUTSIDE the gate fails that
+    test") that was overstated, not the shipped file.
+
+    The guard is now a real structural control: no subprocess execution
+    primitive may be called anywhere in the module outside the single
+    runner method, the checker object may not be aliased or reached by
+    getattr, and the calibration test below proves each of the refuter's
+    four spellings now FAILS it."""
+
+    def test_the_shipped_file_passes_the_guard(self):
+        with io.open(CONTROLLER_FILE, encoding="utf-8") as fh:
+            source = fh.read()
+        self.assertEqual(_execution_primitive_offences(source), [],
+                         "the shipped tools/bm_controller.py is clean")
+
+    def test_each_of_the_four_bypass_spellings_fails_the_guard(self):
+        """THE CALIBRATION. Without this, a guard that never fails proves
+        nothing, which is exactly how the round-5 one survived. The repo
+        file is never written and none of the mutant code is executed."""
+        for label, fragment in _S5_BYPASS_MUTATIONS:
+            offences = _execution_primitive_offences(
+                _mutated_controller_source(fragment))
+            self.assertNotEqual(
+                offences, [],
+                "the guard must FAIL for: %s" % (label,))
+
+    def test_the_one_checker_call_site_is_still_the_gated_one(self):
+        """The round-5 property is kept, not replaced."""
+        self.assertEqual(_checker_call_site_functions(), {"_run_command"})
+
+
+class TestR6TheMeterCannotReadLowOnADeliveredRun(unittest.TestCase):
+    """REFUTATION-5-safety.md S7. docs/KNOWN-LIMITS.md disclosed the
+    uncharged meter as "a breaker reading low by one unit's cost". The
+    reachable magnitude is the WHOLE RUN's: pause, record-result, resume,
+    step, once per unit, and a run reached DELIVERABLE_READY with 270
+    claimed tokens against a 100 token ceiling, metered 0, verdict `ok`,
+    with zero open founder steps.
+
+    The rule this class pins: a run cannot deliver while any accepted
+    unit's cost was never metered."""
+
+    def _hold_and_resume_with_an_uncharged_cost(self, store, checker):
+        _seed(store)
+        _sign(store, token_ceiling=100, minutes_ceiling=100)
+        engine, run, dispatch_ids = _park_one_async_unit(self, store, checker)
+        _set_contract(store, "paused", reason="founder pressed pause")
+        engine.step("p1")
+        outcome = engine.receive_result("p1", dispatch_ids["u1"],
+                                        "claims done", ["a.py"],
+                                        cost={"tokens": 90, "minutes": 5})
+        self.assertEqual(outcome, "held")
+        self.assertEqual(store.spend_totals("p1")["tokens"], 0,
+                         "record_spend refuses without a live contract, "
+                         "which is the gap being closed")
+        _set_contract(store, "live", reason="founder resumed")
+        _resume_the_run(store, run)
+        return engine, run
+
+    def test_the_run_does_not_deliver_while_a_cost_was_never_metered(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                checker = FakeCheckRunner()
+                engine, run = self._hold_and_resume_with_an_uncharged_cost(
+                    store, checker)
+
+                summary = engine.step("p1")
+
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "DONE",
+                    "the held answer is still accepted on its own merits")
+                self.assertNotEqual(
+                    store.get_run("p1", raw=True)["state"],
+                    "DELIVERABLE_READY",
+                    "a run whose meter never saw 90 tokens against a 100 "
+                    "token ceiling is not a deliverable: %r" % (summary,))
+                self.assertEqual(summary["stop_reason"], "SPEND_STOP")
+                self.assertNotIn("echo done", checker.calls,
+                                 "the founder's own done_definition is not "
+                                 "run for a run that cannot deliver")
+
+    def test_a_founder_step_names_the_gap_and_the_command_that_clears_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                checker = FakeCheckRunner()
+                engine, run = self._hold_and_resume_with_an_uncharged_cost(
+                    store, checker)
+
+                engine.step("p1")
+
+                steps = store.list_human_steps(
+                    "p1", lane=bc.SPEND_RECONCILE_LANE, resolved=False,
+                    raw=True)
+                self.assertEqual(
+                    len(steps), 1,
+                    "one founder step per uncharged disclosure: %r"
+                    % ([s["what"] for s in steps],))
+                self.assertIn("90", steps[0]["what"])
+                self.assertIn("bm-autonomy spend", steps[0]["what"])
+                self.assertIn("human-steps", steps[0]["what"])
+
+    def test_the_reserved_lane_blocks_no_unit_of_the_run(self):
+        """Round 5 chose a checkpoint over a founder step precisely because
+        `queue_human_step` gates a LANE. The reserved lane holds no unit,
+        so `select_ready_units` skips nothing and the held unit is still
+        judged and accepted after the resume."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                checker = FakeCheckRunner()
+                engine, run = self._hold_and_resume_with_an_uncharged_cost(
+                    store, checker)
+
+                engine.step("p1")
+
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "DONE")
+                self.assertEqual(
+                    [u["unit_id"] for u in store.select_ready_units(
+                        run["run_id"])], [])
+
+    def test_reconciling_the_gap_lets_the_run_deliver(self):
+        """The way out is a SHIPPED command pair, not a wedge: charge the
+        spend the disclosure names, resolve the step it queued."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                checker = FakeCheckRunner()
+                engine, run = self._hold_and_resume_with_an_uncharged_cost(
+                    store, checker)
+                engine.step("p1")
+                steps = store.list_human_steps(
+                    "p1", lane=bc.SPEND_RECONCILE_LANE, resolved=False,
+                    raw=True)
+                store.resolve_human_step(steps[0]["step_id"], "p1",
+                                         "charged by hand", _actor())
+
+                summary = engine.step("p1")
+
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "DELIVERABLE_READY",
+                                 "the run delivers once the founder has "
+                                 "reconciled the meter: %r" % (summary,))
 
 
 # ---------------------------------------------------------------------------
