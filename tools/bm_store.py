@@ -59,6 +59,7 @@ No em or en dashes anywhere in this file, its comments, or its output.
 import contextlib
 import weakref
 import datetime
+import fnmatch
 import hashlib
 import io
 import json
@@ -73,7 +74,7 @@ import sys
 import unicodedata
 import uuid
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
@@ -561,6 +562,75 @@ def paths_overlap(a, b):
     return _prefix_contains(ka, kb) or _prefix_contains(kb, ka)
 
 
+def path_within_allowed(allowed, candidate):
+    """True when `candidate` falls INSIDE the boundary `allowed` names:
+    equal to it, or strictly under it at a separator boundary.
+
+    NOT paths_overlap, and the difference is the whole point (fix round
+    2026-08-05, REFUTATION-2 F2). paths_overlap answers "can these two
+    declared claims name the same file", which is symmetric, and that is
+    the right question for a FENCE, where either side touching the other's
+    files is a conflict. An authorisation boundary is not a fence: the only
+    question allowed_paths asks is whether the thing being checked falls
+    inside it. Asked symmetrically, a caller declaring the PARENT of an
+    allowed path overlapped it and was ALLOWED, so it received
+    authorisation over every sibling the same contract refuses when that
+    sibling is named directly. Containment is one-directional and cannot be
+    widened that way. paths_overlap keeps its own semantics untouched; this
+    is a second, narrower question, not a replacement.
+
+    '.' is the canonical whole root (see _to_posix and canonicalize_path).
+    On the ALLOWED side it still contains everything, which is exactly what
+    a whole-project contract grants. On the CANDIDATE side it is contained
+    by nothing except '.' itself, so a request to write the whole project
+    is authorised only by a contract that granted the whole project.
+
+    A glob on the ALLOWED side is DEPTH EXACT and is matched segment by
+    segment (fix round 2026-08-05, REFUTATION-3 AZ F-A2). It used to reduce
+    to its coverage key, the literal prefix directory it claims, which is
+    the right reduction for a FENCE (paths_overlap still uses it) and much
+    too wide for a boundary: ['api/*.py'] then admitted the directory 'api'
+    itself, every file under it at ANY depth ('api/sub/deep/secrets.env'),
+    and, because a leading wildcard reduces to the EMPTY prefix which
+    _prefix_contains treats as the root, ['*.py'] admitted the WHOLE
+    project, terraform state and env file included. Under the rule below a
+    glob grants exactly what it matches at its own depth: same segment
+    count, every segment matching its own pattern segment. The recursive
+    spelling is the plain directory, which the containment branch above
+    already handles, so '**' is not recursive here and 'api/**' admits only
+    the direct children of 'api'. The teachable one-liner: a plain path
+    grants its subtree, a glob grants exactly what it matches at its own
+    depth.
+
+    fnmatch.fnmatchCASE, never fnmatch.fnmatch: the latter applies
+    os.path.normcase itself, which on win32 IS ntpath.normcase and rewrites
+    '/' to '\\', the exact defect _normcase's GATE 2 comment documents
+    above. Both sides arrive already folded by _normcase, so case handling
+    stays in one place and stays platform-correct.
+
+    The candidate side is NEVER reduced: reducing it is exactly the
+    widening this function exists to refuse."""
+    na = _normcase(_to_posix(allowed))
+    nb = _normcase(_to_posix(candidate))
+    if not na or not nb:
+        return False
+    if na == ".":
+        return True
+    if nb == ".":
+        return False
+    if not _has_glob(na):
+        # UNCHANGED containment: for a non-glob na, _coverage_key(na) IS na
+        # (see _coverage_key), so this is the same expression this function
+        # has always evaluated, and the 6682-triple containment property
+        # AZ proved over it is untouched.
+        return _prefix_contains(na, nb)
+    a_segs = na.split("/")
+    b_segs = nb.split("/")
+    if len(a_segs) != len(b_segs):
+        return False
+    return all(fnmatch.fnmatchcase(b, a) for a, b in zip(a_segs, b_segs))
+
+
 def _join_relative(a, b):
     """Join two already root-relative POSIX components, treating '.' (the
     whole root) as the identity element rather than a literal segment."""
@@ -648,6 +718,21 @@ def canonicalize_path(root, p, cwd=None):
     return resolved
 
 
+def _safe_repr(f):
+    """repr() that cannot itself raise (fix round 2026-08-05, REFUTATION-4
+    AZ F11). Every refusal below formats the offending entry with %r, and
+    an object hostile enough to be worth refusing is an object whose
+    __repr__ may be the thing that raises, which turned a REFUSAL into an
+    uncaught exception out of a method documented as TOTAL. When repr
+    fails, the TYPE still names itself, because the founder-facing sentence
+    has to say what arrived even when the object refuses to describe
+    itself."""
+    try:
+        return repr(f)
+    except Exception:
+        return "<%s object whose repr() raised>" % (type(f).__name__,)
+
+
 def _coerce_path_entry(f):
     """The ONE gate any single claimed-file entry passes through before it
     can become a stored path (fix-round 2, 2026-07-26: a claim() that
@@ -659,7 +744,18 @@ def _coerce_path_entry(f):
     never returns anything silently skippable: a fence entry that cannot be
     read as a path is a refusal, not a gap in the fence (this project's own
     recorded lesson: a write whose return value is ignored eventually
-    reports success it did not earn)."""
+    reports success it did not earn).
+
+    TOTAL MEANS TOTAL (fix round 2026-08-05, REFUTATION-4 AZ F11): this
+    caught TypeError from os.fspath ONLY, so an object whose __fspath__
+    raised anything else (a RuntimeError from a lazy path proxy, an OSError
+    from something that consults the filesystem to answer) escaped as
+    itself, and so did an object whose __repr__ raised while the refusal
+    was being FORMATTED. Both now land on the refusal, because the whole
+    point of a total coercion is that its caller never has to wonder
+    whether a path can be trusted to a try block of its own: gate_check
+    (12611) is a diagnostic the controller runs in a bare loop, and
+    upsert_units (12897) validates a whole plan before writing any of it."""
     if isinstance(f, str):
         return f
     try:
@@ -667,24 +763,86 @@ def _coerce_path_entry(f):
     except TypeError:
         raise OwnershipRefused(
             "bad-path",
-            "file entry %r (type %s) is not a string or os.PathLike and "
-            "cannot be used as a claim path" % (f, type(f).__name__),
-            details={"entry": repr(f), "type": type(f).__name__})
+            "file entry %s (type %s) is not a string or os.PathLike and "
+            "cannot be used as a claim path" % (_safe_repr(f),
+                                                type(f).__name__),
+            details={"entry": _safe_repr(f), "type": type(f).__name__})
+    except Exception as e:
+        raise OwnershipRefused(
+            "bad-path",
+            "file entry %s (type %s) raised %s from __fspath__ (%s) and "
+            "cannot be used as a claim path"
+            % (_safe_repr(f), type(f).__name__, type(e).__name__, e),
+            details={"entry": _safe_repr(f), "type": type(f).__name__})
     if isinstance(p, bytes):
         try:
             p = os.fsdecode(p)
         except Exception as e:
             raise OwnershipRefused(
                 "bad-path",
-                "file entry %r (type %s) could not be decoded as a path (%s)"
-                % (f, type(f).__name__, e),
-                details={"entry": repr(f), "type": type(f).__name__})
+                "file entry %s (type %s) could not be decoded as a path (%s)"
+                % (_safe_repr(f), type(f).__name__, e),
+                details={"entry": _safe_repr(f), "type": type(f).__name__})
     if not isinstance(p, str):
         raise OwnershipRefused(
             "bad-path",
-            "file entry %r (type %s) did not canonicalize to a string"
-            % (f, type(f).__name__),
-            details={"entry": repr(f), "type": type(f).__name__})
+            "file entry %s (type %s) did not canonicalize to a string"
+            % (_safe_repr(f), type(f).__name__),
+            details={"entry": _safe_repr(f), "type": type(f).__name__})
+    return p
+
+
+def literal_scope_entry(f, unit_id=None):
+    """The ONE gate a declared WRITE SCOPE entry passes through: the total
+    coercion above, and then the rule that a write scope is a LITERAL PATH,
+    never a pattern (fix round 2026-08-05, REFUTATION-4 AZ F1 and F3).
+
+    Why the declaration side and not the matching side. The two sides of an
+    authorisation are not symmetric. `allowed_paths` is the FOUNDER drawing
+    a boundary, and a pattern is a reasonable way to draw one, so
+    'api/*.py' keeps working there and path_within_allowed keeps matching
+    it depth-exactly. `write_scope` is a WORKER naming what it is about to
+    change, and the same string is read three more times afterwards by
+    machinery that reduces it to its literal prefix directory: the fence
+    claim, tools/bm_fence_hook.py's covering check (through paths_overlap
+    and _coverage_key), and the engine's `git restore --` rollback, where
+    git's own pathspec globbing is recursive. Round 4 narrowed the FIRST
+    reader and left the other three, so a unit that declared '*.py' was
+    authorised, fenced and rolled back over the WHOLE project (the literal
+    prefix of a leading wildcard is the empty string, which
+    _prefix_contains treats as the root). Narrowing one reader and leaving
+    the rest is what produced the hole; refusing the pattern where it
+    ENTERS the store closes it for every reader at once, and does it in a
+    way a founder can act on: name the files.
+
+    The same refusal also removes F3's bypass primitive. canonicalize_path
+    resolves only the literal prefix of a glob, so nothing under a wildcard
+    is ever realpath'd; 'src/[a]pp' matches exactly one path, 'src/app',
+    and was ALLOWED where naming that path refuses 'path-escape'. Any
+    refused path could be re-spelled as a character class matching only
+    itself. A pattern cannot be declared at all now, so there is no second
+    spelling to find.
+
+    Public, not private, on purpose: any other caller that stores what a
+    worker will WRITE (a fence claim built from a brief, a future scope
+    field) should share this gate rather than grow a second copy of it.
+    Store.claim's own `files` argument deliberately does NOT go through
+    here: a fence claim is the symmetric question "can these two claims
+    name the same file", where a glob is meaningful and where
+    tools/test_bm_store.py's own glob-claim test pins the behaviour."""
+    p = _coerce_path_entry(f)
+    if _has_glob(p):
+        raise OwnershipRefused(
+            "glob-write-scope",
+            "write scope entry %r%s contains a pattern character (one of "
+            "%s). A write scope is what a fence claims and what a rollback "
+            "names, so it must be a literal path: name the files, or name "
+            "the directory they live in, which grants its whole subtree. "
+            "Patterns stay legal in a contract's allowed_paths, where the "
+            "founder draws the boundary."
+            % (p, "" if unit_id is None else " on unit %r" % (unit_id,),
+               " ".join(sorted(_GLOB_CHARS))),
+            details={"entry": p, "unit_id": unit_id})
     return p
 
 
@@ -1394,11 +1552,30 @@ _TABLES_AUTONOMY = ("autonomy_contracts", "autonomy_spend",
 
 _TABLES_V14 = _TABLES_V13 + _TABLES_AUTONOMY
 
+# Schema 15 (U2, the durable Full-Auto controller, 2026-08-05, design
+# docs/superpowers/specs/2026-08-05-l03-controller-design.md section 2.2)
+# adds three tables: the run-level state machine (controller_runs), the
+# durable unit graph (controller_units), and the dispatch ledger
+# (controller_dispatches). Everything else the controller needs (green
+# checkpoints, file claims, founder-gated steps, forcing-condition
+# questions, spend and the breaker) is REUSED from schema 14's own tables;
+# see section 2.2 of the design for the full accounting of what has no new
+# table and why. Its own tuple for the same reason every schema above got
+# one: a healthy schema-14 store must be checked against schema 14's table
+# list, or the version check never runs and a store whose only fault is
+# predating this upgrade gets quarantined. The DDL text itself
+# (_CONTROLLER_DDL) is defined further down, after _split_ddl exists; this
+# tuple only needs the table NAMES, which cost nothing to name this early.
+_TABLES_CONTROLLER = ("controller_runs", "controller_units",
+                      "controller_dispatches")
+
+_TABLES_V15 = _TABLES_V14 + _TABLES_CONTROLLER
+
 _TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3,
                       4: _TABLES_V4, 5: _TABLES_V5, 6: _TABLES_V6,
                       7: _TABLES_V7, 8: _TABLES_V8, 9: _TABLES_V9,
                       10: _TABLES_V10, 11: _TABLES_V11, 12: _TABLES_V12,
-                      13: _TABLES_V13, 14: _TABLES_V14}
+                      13: _TABLES_V13, 14: _TABLES_V14, 15: _TABLES_V15}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -2375,6 +2552,160 @@ CREATE INDEX IF NOT EXISTS autonomy_checkpoints_project_idx
 _AUTONOMY_DDL_STATEMENTS = _split_ddl(_AUTONOMY_DDL)
 _AUTONOMY_INDEX_STATEMENTS = _split_ddl(_AUTONOMY_INDEX_DDL)
 
+# Schema 15 (U2, the durable Full-Auto controller, design
+# docs/superpowers/specs/2026-08-05-l03-controller-design.md section 2.2).
+# Three tables, beside the autonomy block for the same reason every prior
+# schema addition sits beside the one before it: one place to read the
+# whole DDL history in order.
+#
+# controller_runs carries workflow_version and a denormalised outcome/
+# done_definition (copied from the contract at open_run time) so a run's
+# own record answers "what was I building" without a join back through a
+# contract revision that may itself have moved since.
+#
+# controller_units.dependencies/read_scope/write_scope/expected_artifacts
+# are JSON lists, the same convention autonomy_contracts.allowed_paths
+# uses; definition_hash is the sha256 the design's fault 8 (workflow-
+# version reuse) keys off, so a unit whose immutable definition fields are
+# unchanged across a restart is never re-run.
+#
+# controller_dispatches.UNIQUE(unit_id, attempt) is the exactly-once
+# spine (section 2.2): a re-dispatch at an attempt already recorded
+# collides and refuses, so a crash-and-replay dispatch cannot open a
+# second live dispatch for the same attempt.
+_CONTROLLER_DDL = """
+CREATE TABLE IF NOT EXISTS controller_runs (
+  run_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(project_id),
+  contract_id TEXT NOT NULL REFERENCES autonomy_contracts(contract_id),
+  controller_id TEXT NOT NULL,
+  fence_uuid TEXT NOT NULL,
+  state TEXT NOT NULL,
+  workflow_version INTEGER NOT NULL,
+  outcome TEXT NOT NULL DEFAULT '',
+  done_definition TEXT NOT NULL DEFAULT '',
+  session_id TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS controller_units (
+  unit_id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES controller_runs(run_id),
+  project_id TEXT NOT NULL REFERENCES projects(project_id),
+  objective TEXT NOT NULL,
+  dependencies TEXT NOT NULL DEFAULT '[]',
+  read_scope TEXT NOT NULL DEFAULT '[]',
+  write_scope TEXT NOT NULL DEFAULT '[]',
+  role TEXT NOT NULL,
+  model_class TEXT NOT NULL DEFAULT '',
+  risk_class TEXT NOT NULL,
+  lane TEXT NOT NULL DEFAULT 'default',
+  token_budget INTEGER,
+  minute_budget INTEGER,
+  expected_artifacts TEXT NOT NULL DEFAULT '[]',
+  done_check TEXT NOT NULL DEFAULT '',
+  done_check_expect_exit INTEGER NOT NULL DEFAULT 0,
+  verifier TEXT NOT NULL DEFAULT '',
+  definition_hash TEXT NOT NULL,
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  retry_ceiling INTEGER NOT NULL DEFAULT 1,
+  status TEXT NOT NULL,
+  checkpoint_ref TEXT,
+  fence_uuid TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS controller_dispatches (
+  dispatch_id TEXT PRIMARY KEY,
+  unit_id TEXT NOT NULL REFERENCES controller_units(unit_id),
+  run_id TEXT NOT NULL REFERENCES controller_runs(run_id),
+  project_id TEXT NOT NULL REFERENCES projects(project_id),
+  attempt INTEGER NOT NULL,
+  contract_revision INTEGER NOT NULL,
+  fence_uuid TEXT NOT NULL,
+  status TEXT NOT NULL,
+  worker_claim TEXT NOT NULL DEFAULT '',
+  result_artifacts TEXT NOT NULL DEFAULT '[]',
+  done_check_exit INTEGER,
+  verifier_verdict TEXT NOT NULL DEFAULT '',
+  session_id TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  resulted_at TEXT,
+  UNIQUE(unit_id, attempt)
+);
+"""
+
+_CONTROLLER_INDEX_DDL = """
+CREATE INDEX IF NOT EXISTS controller_runs_project_idx
+  ON controller_runs(project_id, state);
+CREATE INDEX IF NOT EXISTS controller_units_run_idx
+  ON controller_units(run_id, status, lane);
+CREATE INDEX IF NOT EXISTS controller_dispatches_unit_idx
+  ON controller_dispatches(unit_id, status);
+"""
+
+_CONTROLLER_DDL_STATEMENTS = _split_ddl(_CONTROLLER_DDL)
+_CONTROLLER_INDEX_STATEMENTS = _split_ddl(_CONTROLLER_INDEX_DDL)
+
+# The run-level state machine (design section 1). A terminal state maps to
+# an EMPTY tuple, same convention as AUTONOMY_STATE_TRANSITIONS above and
+# brotherme/core/schema.py's LEGAL_TRANSITIONS, so "terminal" is checkable
+# rather than remembered.
+CONTROLLER_STATES = ("NEW", "ORIENTING", "PLANNING", "READY", "EXECUTING",
+                     "VERIFYING", "CHECKPOINTED", "WAITING_HUMAN",
+                     "DELIVERABLE_READY", "COMPLETE", "PAUSED", "STOPPING",
+                     "STOPPED", "FAILED_RECOVERABLE", "FAILED_TERMINAL")
+
+CONTROLLER_STATE_TRANSITIONS = {
+    "NEW":               ("ORIENTING", "STOPPING", "PAUSED"),
+    "ORIENTING":         ("PLANNING", "STOPPING", "PAUSED",
+                          "FAILED_RECOVERABLE"),
+    "PLANNING":          ("READY", "STOPPING", "PAUSED",
+                          "FAILED_RECOVERABLE"),
+    "READY":             ("EXECUTING", "WAITING_HUMAN", "DELIVERABLE_READY",
+                          "STOPPING", "PAUSED", "FAILED_RECOVERABLE"),
+    "EXECUTING":         ("VERIFYING", "STOPPING", "PAUSED",
+                          "FAILED_RECOVERABLE"),
+    "VERIFYING":         ("CHECKPOINTED", "READY", "STOPPING", "PAUSED",
+                          "FAILED_RECOVERABLE", "FAILED_TERMINAL"),
+    "CHECKPOINTED":      ("READY", "WAITING_HUMAN", "DELIVERABLE_READY",
+                          "STOPPING", "PAUSED"),
+    "WAITING_HUMAN":     ("READY", "STOPPING", "PAUSED"),
+    "DELIVERABLE_READY": ("COMPLETE", "READY", "STOPPING", "PAUSED"),
+    "PAUSED":            ("READY", "ORIENTING", "PLANNING", "EXECUTING",
+                          "VERIFYING", "STOPPING"),
+    "STOPPING":          ("STOPPED",),
+    "COMPLETE":          (),
+    "STOPPED":           (),
+    "FAILED_RECOVERABLE":("READY", "STOPPING", "FAILED_TERMINAL"),
+    "FAILED_TERMINAL":   (),
+}
+
+# The unit-level status machine (design section 2.1), a separate, finer
+# machine from the run state above. PENDING has unmet dependencies; READY
+# is selectable; CLAIMED holds a fence; DISPATCHED has an open dispatch;
+# RESULT_IN is a worker result awaiting the controller's own verification;
+# DONE is green with a checkpoint_ref; FAILED exhausted retries; BLOCKED is
+# in a lane with an open human step; SKIPPED was made unnecessary by an
+# upstream redesign.
+CONTROLLER_UNIT_STATES = ("PENDING", "READY", "CLAIMED", "DISPATCHED",
+                          "RESULT_IN", "VERIFYING", "DONE", "FAILED",
+                          "BLOCKED", "SKIPPED")
+
+# The dispatch-row statuses, as a closed set for the same reason every
+# other enum in this file has one: controller_dispatches.status is a bare
+# TEXT NOT NULL with no CHECK (SQLite cannot alter one without a full table
+# rebuild), so the set lives here. DISPATCHED and RESULT_IN are the two
+# OPEN statuses, the ones the engine's single definition of "work is in
+# flight" reads. VERIFIED, REJECTED and CANCELLED are terminal. CANCELLED
+# was added 2026-08-05 (REFUTATION-3 LV finding 4): a re-plan that drops a
+# unit closes that unit's open dispatch at the source, so a late result can
+# no longer mark a dropped unit DONE, and so check_timeouts correctly stops
+# seeing it. No DDL change and no SCHEMA_VERSION bump: it is a new value in
+# an unconstrained TEXT column.
+CONTROLLER_DISPATCH_STATUSES = ("DISPATCHED", "RESULT_IN", "VERIFIED",
+                                "REJECTED", "CANCELLED")
+
 # The closed sets the autonomy Store methods refuse against. Same discipline
 # as SENTINEL_KNOWLEDGE_KINDS and friends above: no CHECK constraint on any
 # of these columns (SQLite cannot alter a CHECK without a full table
@@ -3087,6 +3418,33 @@ def _migrate_13_to_14(conn):
         conn.execute(statement)
 
 
+def _migrate_14_to_15(conn):
+    """Schema 14 to 15 (U2, the durable Full-Auto controller, design
+    docs/superpowers/specs/2026-08-05-l03-controller-design.md section
+    2.2): three tables (controller_runs, controller_units,
+    controller_dispatches) plus three indexes. ADDITIVE ONLY: no existing
+    table gains, loses or changes a column here.
+
+    Same contract as _migrate_13_to_14, the last table-only migration:
+    every statement is CREATE TABLE IF NOT EXISTS or CREATE INDEX IF NOT
+    EXISTS, safe whether this runs against a genuinely old schema-14 store
+    or, via _ensure_schema, against a brand new one that already has all
+    three tables. Runs inside the caller's BEGIN EXCLUSIVE, so it must
+    never commit, roll back, or open a transaction of its own.
+
+    What this deliberately does NOT do: it does not backfill a single row,
+    and in particular it does not manufacture a run for a project that
+    already has a contract. There is no prior run history anywhere to
+    backfill FROM: nothing before this schema ever tracked a controller
+    run. Every project that predates schema 15 therefore has no run until
+    somebody calls open_run, which is the correct and safe reading of
+    "no controller has ever driven this project"."""
+    for statement in _CONTROLLER_DDL_STATEMENTS:
+        conn.execute(statement)
+    for statement in _CONTROLLER_INDEX_STATEMENTS:
+        conn.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_1_to_2,
     2: _migrate_2_to_3,
@@ -3101,6 +3459,7 @@ _MIGRATIONS = {
     11: _migrate_11_to_12,
     12: _migrate_12_to_13,
     13: _migrate_13_to_14,
+    14: _migrate_14_to_15,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -3755,6 +4114,38 @@ _DUMP_SAFE_COLUMNS = frozenset((
     ("autonomy_checkpoints", "project_id"),
     ("autonomy_checkpoints", "contract_id"),
     ("autonomy_checkpoints", "created_at"),
+    # Schema 15 (U2, the durable Full-Auto controller). Same discipline as
+    # every list above: identifiers, schema-constrained enums, integers,
+    # hashes and timestamps only. objective, dependencies, read_scope,
+    # write_scope, done_check, verifier, expected_artifacts, worker_claim,
+    # result_artifacts, outcome, done_definition, and both fence_uuid
+    # columns are DELIBERATELY ABSENT and stay withheld: a path or a
+    # command is not safe to dump in cleartext, and worker_claim/
+    # result_artifacts are untrusted model prose, exactly the
+    # transitions.note class the comment above this block describes.
+    ("controller_runs", "run_id"), ("controller_runs", "project_id"),
+    ("controller_runs", "contract_id"), ("controller_runs", "controller_id"),
+    ("controller_runs", "state"), ("controller_runs", "workflow_version"),
+    ("controller_runs", "created_at"), ("controller_runs", "updated_at"),
+    ("controller_units", "unit_id"), ("controller_units", "run_id"),
+    ("controller_units", "project_id"), ("controller_units", "role"),
+    ("controller_units", "model_class"), ("controller_units", "risk_class"),
+    ("controller_units", "lane"), ("controller_units", "status"),
+    ("controller_units", "definition_hash"),
+    ("controller_units", "retry_count"), ("controller_units", "retry_ceiling"),
+    ("controller_units", "checkpoint_ref"),
+    ("controller_units", "created_at"), ("controller_units", "updated_at"),
+    ("controller_dispatches", "dispatch_id"),
+    ("controller_dispatches", "unit_id"),
+    ("controller_dispatches", "run_id"),
+    ("controller_dispatches", "project_id"),
+    ("controller_dispatches", "attempt"),
+    ("controller_dispatches", "contract_revision"),
+    ("controller_dispatches", "status"),
+    ("controller_dispatches", "verifier_verdict"),
+    ("controller_dispatches", "done_check_exit"),
+    ("controller_dispatches", "created_at"),
+    ("controller_dispatches", "resulted_at"),
 ))
 
 
@@ -4926,6 +5317,12 @@ class Store(object):
             # this call is safe on a store that was just created with all
             # six autonomy tables already present.
             _migrate_13_to_14(self.conn)
+        if SCHEMA_VERSION >= 15:
+            # Same rule again. Every statement in _migrate_14_to_15 is
+            # CREATE TABLE IF NOT EXISTS or CREATE INDEX IF NOT EXISTS, so
+            # this call is safe on a store that was just created with all
+            # three controller tables already present.
+            _migrate_14_to_15(self.conn)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -11100,6 +11497,27 @@ class Store(object):
                 self, "DELETE FROM tasks WHERE project_id=?",
                 (project_id,)).rowcount
 
+            # U2 extension: the three controller tables all carry a
+            # REFERENCES projects(project_id) FK, and controller_runs also
+            # references autonomy_contracts(contract_id), so these must be
+            # removed BEFORE the autonomy_contracts deletion below or the FK
+            # (foreign_keys=ON, see Store.__init__) refuses the delete.
+            # Children first: controller_dispatches references both
+            # controller_units and controller_runs; controller_units
+            # references controller_runs; controller_runs is last of the
+            # three. Like every other table here, the attribution trail
+            # these rows left behind is kept; purge_project never touches
+            # attribution except to append.
+            removed["controller_dispatches"] = _exec(
+                self, "DELETE FROM controller_dispatches WHERE project_id=?",
+                (project_id,)).rowcount
+            removed["controller_units"] = _exec(
+                self, "DELETE FROM controller_units WHERE project_id=?",
+                (project_id,)).rowcount
+            removed["controller_runs"] = _exec(
+                self, "DELETE FROM controller_runs WHERE project_id=?",
+                (project_id,)).rowcount
+
             # U1 extension: the six autonomy tables all carry a REFERENCES
             # projects(project_id) FK (unlike attribution, which deliberately
             # has none), so a purge that stopped above would leave every one
@@ -12199,7 +12617,19 @@ class Store(object):
         'minutes_ceiling': int or None, 'token_pct': float or None,
         'minutes_pct': float or None, 'verdict': 'ok'|'soft-stop'|
         'hard-stop'|'no-data'}. See _spend_verdict for the NO-DATA rule."""
-        latest = _latest_contract_row(self, project_id)
+        return self._spend_totals_from(
+            project_id, _latest_contract_row(self, project_id))
+
+    def _spend_totals_from(self, project_id, latest):
+        """spend_totals against an ALREADY-READ contract row, so a caller
+        that has one does not take a second, racing read (fix round
+        2026-08-05, REFUTATION-3 AZ F-A9: gate_check read the contract for
+        its class and path halves and then called spend_totals, which took
+        its OWN read for the ceilings, so a supersede landing between the
+        two produced ONE verdict assembled from TWO revisions and stamped
+        with the older one). `latest` is a raw contract row or None; the
+        public spend_totals above passes its own fresh read, so its
+        signature, its behaviour and its return shape are unchanged."""
         token_ceiling = latest["token_ceiling"] if latest is not None else None
         minutes_ceiling = (latest["minutes_ceiling"]
                            if latest is not None else None)
@@ -12285,8 +12715,19 @@ class Store(object):
              (invariant I5).
           3. action_class is not a recognised risk class at all.
           4. action_class is not one THIS contract grants.
-          5. path given and not covered by allowed_paths (paths_overlap,
-             the store's own path law, never restated here).
+          5. path given and not CONTAINED by one of allowed_paths
+             (path_within_allowed: equal to an allowed path, or strictly
+             under an allowed directory, never merely overlapping one).
+             The property this establishes, stated so a reader can hold
+             the code to it: a path this check ALLOWS can never name a
+             file that a directly named path would be REFUSED for. An
+             overlap test could not say that, because declaring the parent
+             of an allowed path overlaps it (REFUTATION-2 F2). A path that
+             cannot be READ as a path at all (non-string, empty, or
+             resolving outside the root, including through a symlink
+             created after the plan was written) is the same REFUSED-SCOPE
+             verdict, never a raise: this method is a diagnostic its
+             callers run in a loop (REFUTATION-3 AZ F-A5).
           6. surface given and not in allowed_surfaces.
           7. spend at or over 100 percent of either ceiling: REFUSED-BREAKER.
           8. otherwise ALLOWED, with revision set so the caller can prove
@@ -12331,8 +12772,39 @@ class Store(object):
                     "revision": latest["revision"]}
         if path is not None:
             declared_paths = json.loads(latest["allowed_paths"] or "[]")
-            candidate = canonicalize_path(self.root, path, cwd=None)
-            if not any(paths_overlap(d, candidate) for d in declared_paths):
+            try:
+                candidate = canonicalize_path(
+                    self.root, _coerce_path_entry(path), cwd=None)
+            except (OwnershipRefused, ValueError) as exc:
+                # A path that cannot be READ as a path is a REFUSAL, never
+                # a raise out of a diagnostic (fix round 2026-08-05,
+                # REFUTATION-3 AZ F-A5: canonicalize_path raises
+                # 'path-escape' for anything resolving outside the root,
+                # including through a symlink created after the plan was
+                # written, and ValueError for an empty one, and
+                # _gate_check_one_pass calls this in a bare loop, so the
+                # raise wedged a whole controller run in EXECUTING).
+                # _coerce_path_entry is the store's own TOTAL path coercion
+                # (string or 'bad-path'), so a non-string path lands here
+                # too with no new primitive invented. The word stays
+                # REFUSED-SCOPE: the verdict set is a founder-facing closed
+                # vocabulary that docs/AUTONOMY.md enumerates and that
+                # three call sites branch on, and the controller's existing
+                # REFUSED-SCOPE handling (fail the unit through the circuit
+                # breaker) is exactly right for an unresolvable path.
+                # _safe_repr, not %r (fix round 2026-08-05, REFUTATION-4 AZ
+                # F11): the object being refused is by definition an object
+                # this method could not read, and formatting ITS repr is
+                # the last place a diagnostic that promises never to raise
+                # may raise.
+                return {"verdict": "REFUSED-SCOPE", "floor": None,
+                        "reason": "%s cannot be read as a path inside this "
+                                  "project (%s), so nothing about it can be "
+                                  "authorised." % (_safe_repr(path), exc),
+                        "contract_id": latest["contract_id"],
+                        "revision": latest["revision"]}
+            if not any(path_within_allowed(d, candidate)
+                       for d in declared_paths):
                 return {"verdict": "REFUSED-SCOPE", "floor": None,
                         "reason": "%r is outside this contract's allowed "
                                   "paths." % (candidate,),
@@ -12346,7 +12818,11 @@ class Store(object):
                                   "allowed surfaces." % (surface,),
                         "contract_id": latest["contract_id"],
                         "revision": latest["revision"]}
-        totals = self.spend_totals(project_id)
+        # The row read at the top of this method, NOT a second read: every
+        # field of one verdict comes from ONE contract revision, which is
+        # what the docstring above already promises the caller can prove
+        # later (AZ F-A9, see _spend_totals_from).
+        totals = self._spend_totals_from(project_id, latest)
         if totals["verdict"] == "hard-stop":
             return {"verdict": "REFUSED-BREAKER", "floor": None,
                     "reason": "spend is at or over 100 percent of a "
@@ -12358,6 +12834,1033 @@ class Store(object):
                           % (action_class,),
                 "contract_id": latest["contract_id"],
                 "revision": latest["revision"]}
+
+    # ------------------------------------------------------------------
+    # U2: the durable Full-Auto controller (2026-08-05, design
+    # docs/superpowers/specs/2026-08-05-l03-controller-design.md). The
+    # controller engine (tools/bm_controller.py) issues NO SQL of its own;
+    # every persistence call it makes goes through one of the methods
+    # below, each opening exactly one self._transaction() and writing a
+    # _write_attribution row inside it, same discipline as the U1 block
+    # above. Every refusal raises OwnershipRefused(reason, message) with a
+    # literal kebab-case reason, or ValueError when the caller passed a
+    # malformed argument rather than attempted an illegal move.
+    #
+    # UNLIKE autonomy_contracts, controller_runs and controller_units are
+    # NOT immutable revision chains: a run is the durable CURSOR the
+    # resumable loop reads back at step 1 of every invocation (design
+    # section 3), so it is one row per run, UPDATEd in place as the state
+    # machine advances. Green checkpoints, file claims, founder-gated
+    # steps, forcing-condition questions, spend and the breaker are all
+    # REUSED from schema 14 (record_checkpoint, claim/transition,
+    # queue_human_step, record_interruption, record_spend); nothing below
+    # duplicates them.
+    # ------------------------------------------------------------------
+
+    def open_run(self, project_id, controller_id, workflow_version, outcome,
+                 done_definition, fence_uuid, session_id, actor):
+        """Begin ONE controller run for `project_id`, state NEW, against
+        the project's live contract. Returns {'run_id', 'state'}.
+
+        Refuses (OwnershipRefused 'no-live-contract') when the project has
+        no contract at all, or the latest one is not live: a run driven
+        under no live authorisation has nothing to gate_check against.
+        Refuses ('run-exists') when a non-terminal run (state not in
+        COMPLETE, STOPPED, FAILED_TERMINAL) already exists for the
+        project: two live runs for one project is not representable, the
+        same "exactly one answer to what is running" invariant
+        sign_contract's live-contract-exists enforces for contracts.
+
+        Design section 8: the engine claims the controller:<project_id>
+        fence BEFORE calling this and passes the resulting fence_uuid in;
+        this method only records the linkage, it never claims a fence of
+        its own, the same split claim_unit below draws for a unit's own
+        fence."""
+        if not isinstance(controller_id, str) or not controller_id.strip():
+            raise ValueError("controller_id must be a non-empty string")
+        if (isinstance(workflow_version, bool)
+                or not isinstance(workflow_version, int)
+                or workflow_version < 1):
+            raise ValueError(
+                "workflow_version must be a positive whole number, got %r"
+                % (workflow_version,))
+        if not isinstance(fence_uuid, str) or not fence_uuid.strip():
+            raise ValueError("fence_uuid must be a non-empty string")
+        run_id = uuid.uuid4().hex
+        ts = now_iso()
+        with self._transaction():
+            latest = _latest_contract_row(self, project_id)
+            if latest is None or latest["state"] != "live":
+                raise OwnershipRefused(
+                    "no-live-contract",
+                    "project %r has no live contract (%s); a controller "
+                    "run needs a live authorisation to gate_check against."
+                    % (project_id,
+                       "no contract" if latest is None else latest["state"]))
+            existing = _exec(self,
+                "SELECT run_id, state FROM controller_runs WHERE "
+                "project_id=? AND state NOT IN "
+                "('COMPLETE','STOPPED','FAILED_TERMINAL') "
+                "ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                (project_id,)).fetchone()
+            if existing is not None:
+                raise OwnershipRefused(
+                    "run-exists",
+                    "project %r already has a non-terminal run %r (state "
+                    "%s). Two live runs for one project is not "
+                    "representable: stop or complete it first, or resume "
+                    "it instead of starting a new one."
+                    % (project_id, existing["run_id"], existing["state"]))
+            _exec(self,
+                  "INSERT INTO controller_runs (run_id, project_id, "
+                  "contract_id, controller_id, fence_uuid, state, "
+                  "workflow_version, outcome, done_definition, "
+                  "session_id, created_at, updated_at) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (run_id, project_id, latest["contract_id"], controller_id,
+                   fence_uuid, "NEW", workflow_version, outcome or "",
+                   done_definition or "", session_id or "", ts, ts))
+            self._write_attribution(
+                project_id, None, "controller.run.opened", actor,
+                action="open_run", evidence_ref=run_id)
+        return {"run_id": run_id, "state": "NEW"}
+
+    def _refuse_foreign_run(self, row, project_id, what, subject):
+        """Refuse 'run-not-in-project' unless `row` (any controller_runs,
+        controller_units or controller_dispatches row: all three carry
+        project_id and run_id) belongs to the project the CALLER named.
+
+        The defect this closes (fix round 2026-08-05, REFUTATION-4 AZ F2):
+        `bm-controller plan --project p1 --run <p2's run id>` checked its
+        PAUSED guard against p1's current run and then wrote p2's, so a
+        command naming one project un-paused another project's run (law L1
+        says only `resume` leaves PAUSED), cancelled its open dispatches,
+        parked its fences and replaced its unit graph. Every write below
+        took the id as an INDEPENDENT argument and had nothing to compare
+        it against, so nothing in the store could refuse. The store cannot
+        infer which project a caller means; it can insist the caller say,
+        and check. AZ F-A3 and SM K were the same defect on the dispatch
+        side, closed in round 4 at the engine; this is the store-side
+        version, which cannot be skipped by a caller that forgets.
+
+        `project_id=None` means the caller did not say, which is exactly
+        the behaviour every existing caller and test already has, so this
+        is additive: passing it is what makes a caller's own belief
+        checkable at the one place that writes."""
+        if project_id is None or row["project_id"] == project_id:
+            return
+        raise OwnershipRefused(
+            "run-not-in-project",
+            "%s was called for project %r, but %s belongs to project %r "
+            "(run %r). A run id is not a capability: name that project's "
+            "own run, or omit the project and let the caller's own lookup "
+            "stand." % (what, project_id, subject, row["project_id"],
+                        row["run_id"]),
+            details={"named_project_id": project_id,
+                     "owner_project_id": row["project_id"],
+                     "owner_run_id": row["run_id"]})
+
+    def _set_run_state_locked(self, row, new_state, reason, actor, ts):
+        """The UPDATE half of set_run_state, factored out so upsert_units
+        can flip PLANNING -> READY inside its OWN already-open transaction
+        (sqlite refuses a nested BEGIN, the same reason
+        _raise_breaker_alert exists beside record_spend above). Caller has
+        already validated legality; this only writes."""
+        _exec(self, "UPDATE controller_runs SET state=?, updated_at=? "
+              "WHERE run_id=?", (new_state, ts, row["run_id"]))
+        self._write_attribution(
+            row["project_id"], None, "controller.run.state_changed", actor,
+            action="set_run_state", reason=reason or "",
+            evidence_ref=row["run_id"])
+
+    def set_run_state(self, run_id, new_state, actor, reason, session_id,
+                      project_id=None):
+        """Move `run_id` along CONTROLLER_STATE_TRANSITIONS, UPDATing the
+        one controller_runs row in place. Returns {'state', 'changed'}
+        where 'changed' is False for the idempotent no-op, the same shape
+        set_contract_state uses: calling this with the state the run is
+        ALREADY in writes nothing and still returns success, not a
+        refusal. Legality otherwise comes entirely from
+        CONTROLLER_STATE_TRANSITIONS, never restated here.
+
+        `project_id`, when given, is the project the caller BELIEVES this
+        run belongs to, and a disagreement refuses 'run-not-in-project'
+        BEFORE the idempotent no-op above (see _refuse_foreign_run). That
+        ordering is the sharp end of AZ F2: moving a foreign PAUSED run to
+        PAUSED wrote nothing and returned a SUCCESS shape, so a caller
+        acting on the wrong project was told it had succeeded."""
+        _autonomy_enum("controller run state", new_state, CONTROLLER_STATES)
+        ts = now_iso()
+        with self._transaction():
+            row = _exec(self, "SELECT * FROM controller_runs WHERE run_id=?",
+                        (run_id,)).fetchone()
+            if row is None:
+                raise OwnershipRefused(
+                    "not-found", "no controller run %r" % (run_id,))
+            self._refuse_foreign_run(row, project_id, "set_run_state",
+                                     "run %r" % (run_id,))
+            current = row["state"]
+            if current == new_state:
+                return {"state": current, "changed": False}
+            legal = CONTROLLER_STATE_TRANSITIONS.get(current, ())
+            if new_state not in legal:
+                raise OwnershipRefused(
+                    "illegal-state-move",
+                    "run %r is %s; moving it to %s is not legal from "
+                    "there. Legal moves from %s: %s."
+                    % (run_id, current, new_state, current,
+                       ", ".join(legal) or "(none, terminal)"))
+            self._set_run_state_locked(row, new_state, reason, actor, ts)
+        return {"state": new_state, "changed": True}
+
+    #: Fields upsert_units treats as the unit's IMMUTABLE DEFINITION: the
+    #: sha256 of this tuple's values is definition_hash, the key fault 8
+    #: (workflow-version reuse) compares across a re-plan. Runtime fields
+    #: (status, retry_count, checkpoint_ref, fence_uuid) are deliberately
+    #: excluded: they change as the unit is WORKED, not as it is DEFINED.
+    _UNIT_DEFINITION_FIELDS = (
+        "objective", "dependencies", "read_scope", "write_scope", "role",
+        "risk_class", "done_check", "done_check_expect_exit", "verifier",
+        "expected_artifacts")
+
+    def _unit_definition_hash(self, unit):
+        """sha256 hex digest of `unit`'s immutable definition fields, as a
+        canonical (sorted-key) JSON document, so field ORDER in the
+        caller's dict can never change the hash and a byte-identical
+        redefinition always hashes identically."""
+        payload = {f: unit.get(f) for f in self._UNIT_DEFINITION_FIELDS}
+        blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+    def upsert_units(self, run_id, units, actor, project_id=None):
+        """Write the WHOLE unit graph for `run_id` in ONE transaction, and
+        flip the run PLANNING -> READY in the same transaction (so a crash
+        during planning leaves either no graph, resume re-plans, or a
+        complete graph, never a half graph). Returns {'count', 'skipped',
+        'cancelled_dispatches', 'orphaned_fences'}: 'count' is the number
+        of units in THIS call (unchanged), 'skipped' the unit ids this call
+        dropped, 'cancelled_dispatches' the dispatch ids it closed on their
+        behalf, and 'orphaned_fences' [(unit_id, fence_uuid), ...] for the
+        dropped units still holding one, which the CALLER must park (see
+        the SKIPPED block below for why this method cannot).
+
+        Validates, before any write: every `risk_class` is a granted-shape
+        class (a floor id refuses 'risk-class-is-floor' before the generic
+        enum check, mirroring sign_contract; an unrecognised class raises
+        ValueError via _autonomy_enum); every `dependencies` entry names a
+        unit in THIS same call or an already-persisted unit of this run,
+        else OwnershipRefused 'dangling-dependency'; the whole new set is
+        acyclic by a topological check over its own internal edges, else
+        'dependency-cycle' (the adversarial probe named in the design's
+        section 5 coverage map); every `write_scope` entry passes
+        literal_scope_entry (a LITERAL path, never a pattern, else
+        'glob-write-scope') and is then canonicalised via
+        canonicalize_path, the same call sign_contract uses.
+
+        `project_id`, when given, is the project the caller BELIEVES this
+        run belongs to, and a disagreement refuses 'run-not-in-project'
+        before anything is written (AZ F2: a plan aimed at p1 and carrying
+        p2's run id replaced p2's unit graph, cancelled its dispatches,
+        parked its fences and un-paused it). See _refuse_foreign_run.
+
+        UPSERT semantics (design section 5 fault 8, "resume does not
+        repeat completed work across a version change"): a unit_id already
+        persisted for this run whose newly computed definition_hash
+        EQUALS the stored one is left completely untouched, status
+        included, whatever it is (including DONE): it is REUSED, never
+        re-run. A unit_id already persisted whose hash DIFFERS is
+        redefined in place (its status is recomputed by dependency
+        satisfaction and its retry_count resets to 0: a changed definition
+        is a new attempt, not a continuation of the old one's retry
+        count). A unit_id from a PRIOR call that is absent from THIS call
+        is marked SKIPPED, unless it is already DONE, which is left alone
+        (upstream redesign should never silently discard completed,
+        still-valid work), and its open dispatches are CANCELLED with it.
+        A SKIPPED unit that a later call RE-ADDS byte-identically is
+        REVIVED (status only), because the founder re-adding it is the
+        founder undoing the drop. A unit_id never seen before is inserted
+        PENDING or READY by dependency satisfaction against the run's
+        CURRENT persisted state, unless another PROJECT already holds that
+        id, which refuses 'unit-id-taken' rather than raising sqlite's own
+        IntegrityError.
+
+        CASCADE (design section 5 fault 3, "a final edit invalidates
+        prior evidence"): after every unit above is written, a second
+        fixed-point pass walks the WHOLE run and resets any DONE unit
+        whose dependency chain now includes a non-DONE unit (directly
+        redefined above, or transitively downstream of one that was):
+        status recomputed by dependency satisfaction, checkpoint_ref and
+        fence_uuid cleared, retry_count reset to 0. A downstream unit's
+        prior green checkpoint proved something about an upstream
+        artifact that no longer exists once the upstream unit's own
+        definition changes; carrying that checkpoint forward would let a
+        stale H1-based verification stand in for the H2 that actually
+        ships."""
+        units = list(units or [])
+        new_ids = set()
+        for u in units:
+            uid = u.get("unit_id")
+            if not isinstance(uid, str) or not uid.strip():
+                raise ValueError(
+                    "every unit must carry a non-empty string unit_id")
+            new_ids.add(uid)
+        ts = now_iso()
+        with self._transaction():
+            run = _exec(self, "SELECT * FROM controller_runs WHERE run_id=?",
+                       (run_id,)).fetchone()
+            if run is None:
+                raise OwnershipRefused(
+                    "not-found", "no controller run %r" % (run_id,))
+            self._refuse_foreign_run(run, project_id, "upsert_units",
+                                     "run %r" % (run_id,))
+            # NOT the parameter: the parameter is what the caller BELIEVES
+            # (checked one line above), this is what the run actually is,
+            # and every row written below carries the latter.
+            owner_project_id = run["project_id"]
+            existing_rows = _exec(self,
+                "SELECT * FROM controller_units WHERE run_id=?",
+                (run_id,)).fetchall()
+            existing_by_id = {r["unit_id"]: r for r in existing_rows}
+            known_ids = set(existing_by_id) | new_ids
+
+            # -- validate every unit before writing any of them ----------
+            hashes = {}
+            edges = {}
+            for u in units:
+                uid = u["unit_id"]
+                risk_class = u.get("risk_class")
+                if risk_class in AUTONOMY_FLOOR_IDS:
+                    raise OwnershipRefused(
+                        "risk-class-is-floor",
+                        "unit %r requests %r, one of the five safety "
+                        "floors (%s), not a risk class. No unit can be "
+                        "dispatched under it."
+                        % (uid, risk_class,
+                           AUTONOMY_FLOOR_DESCRIPTIONS[risk_class]))
+                _autonomy_enum("risk class", risk_class, AUTONOMY_RISK_CLASSES)
+                deps = list(u.get("dependencies") or [])
+                for dep in deps:
+                    if dep not in known_ids:
+                        raise OwnershipRefused(
+                            "dangling-dependency",
+                            "unit %r depends on %r, which names no unit "
+                            "in this call and no already-persisted unit "
+                            "of run %r." % (uid, dep, run_id))
+                edges[uid] = [d for d in deps if d in new_ids]
+                # literal_scope_entry FIRST, and it is the WHOLE glob fix
+                # (fix round 2026-08-05, REFUTATION-4 AZ F1 and F3): it
+                # carries _coerce_path_entry's total coercion (REFUTATION-3
+                # AZ F-A8: a JSON number, array, object or boolean in
+                # write_scope used to reach _to_posix's (p or "").strip()
+                # and raise an uncaught AttributeError straight through the
+                # shipped `bm-controller plan`) and then refuses a PATTERN,
+                # because this string goes on to be a fence claim, a
+                # coverage key and a `git restore --` pathspec, none of
+                # which read it depth-exactly. Before canonicalize_path,
+                # deliberately: the check is on what the caller DECLARED,
+                # so the refusal quotes the founder's own spelling.
+                write_scope = [canonicalize_path(
+                                   self.root,
+                                   literal_scope_entry(p, unit_id=uid),
+                                   cwd=None)
+                               for p in (u.get("write_scope") or [])]
+                u["write_scope"] = write_scope
+                hashes[uid] = self._unit_definition_hash(u)
+
+            # -- acyclic check over the NEW units' own internal edges ----
+            # (Kahn's algorithm: repeatedly remove a zero-in-degree node;
+            # anything left when no more can be removed is on a cycle.)
+            indegree = {uid: 0 for uid in new_ids}
+            for uid, deps in edges.items():
+                for dep in deps:
+                    indegree[uid] = indegree.get(uid, 0) + 1
+            queue = [uid for uid in new_ids if indegree.get(uid, 0) == 0]
+            visited = 0
+            dependents = {uid: [] for uid in new_ids}
+            for uid, deps in edges.items():
+                for dep in deps:
+                    dependents.setdefault(dep, []).append(uid)
+            while queue:
+                node = queue.pop()
+                visited += 1
+                for child in dependents.get(node, ()):
+                    indegree[child] -= 1
+                    if indegree[child] == 0:
+                        queue.append(child)
+            if visited != len(new_ids):
+                raise OwnershipRefused(
+                    "dependency-cycle",
+                    "the unit graph for run %r contains a dependency "
+                    "cycle among %s; a unit cannot (directly or "
+                    "transitively) depend on itself."
+                    % (run_id, sorted(new_ids)))
+
+            def _status_for(uid, deps):
+                if not deps:
+                    return "READY"
+                for dep in deps:
+                    dep_row = existing_by_id.get(dep)
+                    if dep_row is None:
+                        # dep is a sibling in THIS same call; not yet
+                        # persisted, so it cannot be DONE yet.
+                        return "PENDING"
+                    if dep_row["status"] != "DONE":
+                        return "PENDING"
+                return "READY"
+
+            # -- write: reuse unchanged, revive skipped, redefine changed,
+            #    insert new ------------------------------------------------
+            for u in units:
+                uid = u["unit_id"]
+                deps = list(u.get("dependencies") or [])
+                prior = existing_by_id.get(uid)
+                if prior is not None and prior["definition_hash"] == hashes[uid]:
+                    if prior["status"] != "SKIPPED":
+                        continue  # byte-identical: reuse, untouched
+                    # REVIVAL (fix round 2026-08-05, REFUTATION-3 LV 2): the
+                    # reuse-untouched rule above exists to protect COMPLETED
+                    # work across a workflow-version change (fault 8), and
+                    # SKIPPED is neither completed work nor a fact about the
+                    # definition: it is the record of a founder DROPPING the
+                    # unit. Re-adding it is the founder undoing exactly that,
+                    # and the identical hash is what makes it the SAME unit
+                    # rather than an argument for ignoring the request. Left
+                    # untouched: definition_hash (genuinely unchanged),
+                    # retry_count (those attempts really happened) and
+                    # created_at. Only the status is written, recomputed by
+                    # dependency satisfaction. Without this, the re-plan the
+                    # unreachability escalation itself tells the founder to
+                    # make could not bring the unit back, which is what made
+                    # a drop irreversible.
+                    _exec(self, "UPDATE controller_units SET status=?, "
+                          "updated_at=? WHERE unit_id=?",
+                          (_status_for(uid, deps), ts, uid))
+                    continue
+                status = _status_for(uid, deps)
+                if prior is not None:
+                    _exec(self,
+                          "UPDATE controller_units SET objective=?, "
+                          "dependencies=?, read_scope=?, write_scope=?, "
+                          "role=?, model_class=?, risk_class=?, lane=?, "
+                          "token_budget=?, minute_budget=?, "
+                          "expected_artifacts=?, done_check=?, "
+                          "done_check_expect_exit=?, verifier=?, "
+                          "definition_hash=?, retry_count=0, "
+                          "retry_ceiling=?, status=?, checkpoint_ref=NULL, "
+                          "fence_uuid=NULL, updated_at=? WHERE unit_id=?",
+                          (u.get("objective") or "", json.dumps(deps),
+                           json.dumps(u.get("read_scope") or []),
+                           json.dumps(u.get("write_scope") or []),
+                           u.get("role") or "", u.get("model_class") or "",
+                           u["risk_class"], u.get("lane") or "default",
+                           u.get("token_budget"), u.get("minute_budget"),
+                           json.dumps(u.get("expected_artifacts") or []),
+                           u.get("done_check") or "",
+                           u.get("done_check_expect_exit") or 0,
+                           u.get("verifier") or "", hashes[uid],
+                           u.get("retry_ceiling", 1), status, ts, uid))
+                else:
+                    try:
+                        _exec(self,
+                              "INSERT INTO controller_units (unit_id, run_id, "
+                              "project_id, objective, dependencies, "
+                              "read_scope, write_scope, role, model_class, "
+                              "risk_class, lane, token_budget, minute_budget, "
+                              "expected_artifacts, done_check, "
+                              "done_check_expect_exit, verifier, "
+                              "definition_hash, retry_count, retry_ceiling, "
+                              "status, checkpoint_ref, fence_uuid, "
+                              "created_at, updated_at) "
+                              "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,"
+                              "?,NULL,NULL,?,?)",
+                              (uid, run_id, owner_project_id,
+                               u.get("objective") or "",
+                               json.dumps(deps),
+                               json.dumps(u.get("read_scope") or []),
+                               json.dumps(u.get("write_scope") or []),
+                               u.get("role") or "", u.get("model_class") or "",
+                               u["risk_class"], u.get("lane") or "default",
+                               u.get("token_budget"), u.get("minute_budget"),
+                               json.dumps(u.get("expected_artifacts") or []),
+                               u.get("done_check") or "",
+                               u.get("done_check_expect_exit") or 0,
+                               u.get("verifier") or "", hashes[uid],
+                               u.get("retry_ceiling", 1), status, ts, ts))
+                    except sqlite3.IntegrityError:
+                        # controller_units.unit_id is a GLOBAL primary key,
+                        # so a unit id another PROJECT already used raised a
+                        # raw sqlite3.IntegrityError out of this INSERT and
+                        # straight out of `bm-controller plan` (fix round
+                        # 2026-08-05, REFUTATION-3 AZ F-A4). The
+                        # single-namespace limit itself is a composite-key
+                        # table rebuild, which is not an additive change;
+                        # the SYMPTOM is closed here, naming the id, its
+                        # owner and the fix. The transaction rolls back
+                        # whole, so the run is left with zero units and a
+                        # re-plan with fresh ids recovers.
+                        owner = _exec(self,
+                            "SELECT project_id, run_id FROM controller_units "
+                            "WHERE unit_id=?", (uid,)).fetchone()
+                        if owner is None:
+                            raise
+                        raise OwnershipRefused(
+                            "unit-id-taken",
+                            "unit id %r is already held by project %r (run "
+                            "%r): controller unit ids are one global "
+                            "namespace, so prefix them per project (e.g. "
+                            "%r) and plan again."
+                            % (uid, owner["project_id"], owner["run_id"],
+                               "%s-%s" % (owner_project_id, uid)),
+                            details={"unit_id": uid,
+                                     "owner_project_id": owner["project_id"],
+                                     "owner_run_id": owner["run_id"]})
+
+            # -- units from a PRIOR call absent from this one: SKIPPED,
+            # unless already DONE, which is left alone. A dropped unit is
+            # closed AT THE SOURCE (fix round 2026-08-05, REFUTATION-3 LV
+            # finding 4): round 3 marked it SKIPPED and left everything
+            # else about it alive, so its dispatch stayed DISPATCHED and a
+            # late result marked the dead unit DONE, and its fence stayed
+            # active with nothing naming it. Its open dispatches become
+            # CANCELLED here, in this same transaction; its still-held
+            # fence is REPORTED to the caller rather than released, because
+            # releasing one means Store.transition, which opens its own
+            # _transaction() and SQLite refuses a nested BEGIN (the same
+            # reason _set_run_state_locked exists beside set_run_state).
+            skipped = []
+            cancelled_dispatches = []
+            orphaned_fences = []
+            for uid, row2 in existing_by_id.items():
+                if uid in new_ids:
+                    continue
+                if row2["status"] == "DONE":
+                    continue
+                _exec(self, "UPDATE controller_units SET status='SKIPPED', "
+                      "updated_at=? WHERE unit_id=?", (ts, uid))
+                skipped.append(uid)
+                for drow in _exec(self,
+                        "SELECT dispatch_id FROM controller_dispatches "
+                        "WHERE unit_id=? AND status IN "
+                        "('DISPATCHED','RESULT_IN') ORDER BY attempt ASC, "
+                        "rowid ASC", (uid,)).fetchall():
+                    cancelled_dispatches.append(drow["dispatch_id"])
+                _exec(self, "UPDATE controller_dispatches SET "
+                      "status='CANCELLED' WHERE unit_id=? AND status IN "
+                      "('DISPATCHED','RESULT_IN')", (uid,))
+                if row2["fence_uuid"]:
+                    orphaned_fences.append((uid, row2["fence_uuid"]))
+
+            # -- cascade (fault 3): a DONE unit downstream of a unit that
+            # was just redefined or inserted fresh is no longer valid
+            # evidence. Fixed point: resetting one DONE unit can itself
+            # invalidate a THIRD unit that depended on it, so this
+            # repeats until a full pass changes nothing.
+            all_rows = {r["unit_id"]: dict(r) for r in _exec(self,
+                "SELECT unit_id, status, dependencies FROM "
+                "controller_units WHERE run_id=?", (run_id,)).fetchall()}
+            changed = True
+            while changed:
+                changed = False
+                for uid, row3 in list(all_rows.items()):
+                    if row3["status"] != "DONE":
+                        continue
+                    deps = json.loads(row3["dependencies"] or "[]")
+                    if all(all_rows.get(d, {}).get("status") == "DONE"
+                          for d in deps):
+                        continue
+                    # deps is non-empty and at least one is not DONE (the
+                    # guard above already handled "all satisfied" and the
+                    # vacuous empty-deps case), so this unit is always
+                    # PENDING, never READY, at this point.
+                    new_status = "PENDING"
+                    _exec(self,
+                          "UPDATE controller_units SET status=?, "
+                          "checkpoint_ref=NULL, fence_uuid=NULL, "
+                          "retry_count=0, updated_at=? WHERE unit_id=?",
+                          (new_status, ts, uid))
+                    all_rows[uid] = {"unit_id": uid, "status": new_status,
+                                     "dependencies": row3["dependencies"]}
+                    changed = True
+
+            self._write_attribution(
+                owner_project_id, None, "controller.units.upserted", actor,
+                action="upsert_units", evidence_ref=run_id)
+
+            legal = CONTROLLER_STATE_TRANSITIONS.get(run["state"], ())
+            if run["state"] != "READY":
+                if "READY" not in legal:
+                    raise OwnershipRefused(
+                        "illegal-state-move",
+                        "run %r is %s; upsert_units always flips a run to "
+                        "READY, but that move is not legal from there. "
+                        "Legal moves from %s: %s."
+                        % (run_id, run["state"], run["state"],
+                           ", ".join(legal) or "(none, terminal)"))
+                self._set_run_state_locked(run, "READY", "units upserted",
+                                           actor, ts)
+        # ADDITIVE return (fix round 2026-08-05): 'count' keeps its exact
+        # meaning and its existing reader (cmd_plan), and the three new
+        # keys are what the engine needs to finish the drop it cannot
+        # finish inside this transaction: park the fences named in
+        # orphaned_fences, and tell the founder what was closed.
+        return {"count": len(units), "skipped": skipped,
+                "cancelled_dispatches": cancelled_dispatches,
+                "orphaned_fences": orphaned_fences}
+
+    def select_ready_units(self, run_id):
+        """READ only, deterministic. Units of `run_id` whose status is
+        PENDING or READY, every dependency is DONE, and whose lane has no
+        open (unresolved) human step, ordered created_at ASC, rowid ASC
+        (the store's existing list convention, e.g. list_assumptions
+        above). A PENDING unit whose dependencies are now all DONE is
+        reported ready here; the engine flips it to READY on claim via
+        claim_unit.
+
+        UNLIKE list_units/get_run/list_dispatches, this carries no `raw`
+        parameter and always returns the FULL row: it has exactly one
+        caller in practice, the engine's own dispatch pipeline (design
+        step 4, feeding step 6's file claim), which needs the REAL
+        write_scope, objective, done_check and verifier to do its job.
+        Withholding them by default the way the D-2 read accessors do for
+        a founder-facing status display would make this method unusable
+        for the one thing it exists to do."""
+        run = _exec(self, "SELECT project_id FROM controller_runs WHERE "
+                   "run_id=?", (run_id,)).fetchone()
+        if run is None:
+            raise OwnershipRefused(
+                "not-found", "no controller run %r" % (run_id,))
+        project_id = run["project_id"]
+        blocked_lanes = {
+            r["lane"] for r in _exec(self,
+                "SELECT DISTINCT lane FROM autonomy_human_steps WHERE "
+                "project_id=? AND resolved_at IS NULL AND lane != ''",
+                (project_id,)).fetchall()}
+        rows = _exec(self,
+            "SELECT * FROM controller_units WHERE run_id=? AND status IN "
+            "('PENDING','READY') ORDER BY created_at ASC, rowid ASC",
+            (run_id,)).fetchall()
+        status_by_id = {r["unit_id"]: r["status"] for r in _exec(self,
+            "SELECT unit_id, status FROM controller_units WHERE run_id=?",
+            (run_id,)).fetchall()}
+        out = []
+        for row in rows:
+            if row["lane"] in blocked_lanes:
+                continue
+            deps = json.loads(row["dependencies"] or "[]")
+            if any(status_by_id.get(d) != "DONE" for d in deps):
+                continue
+            out.append(_export_row(
+                self.conn, "controller_units", dict(row),
+                list_fields=("dependencies", "read_scope", "write_scope",
+                            "expected_artifacts"), raw=True))
+        return out
+
+    def claim_unit(self, unit_id, fence_uuid, actor, project_id=None):
+        """Record the fence linkage for a unit the engine has ALREADY
+        claimed via self.claim(...): sets status CLAIMED and stores
+        fence_uuid. This method never claims a fence itself (see
+        open_run's own docstring for the same split). `project_id`, when
+        given, refuses 'run-not-in-project' for a unit of another
+        project's run before any write (see _refuse_foreign_run)."""
+        if not isinstance(fence_uuid, str) or not fence_uuid.strip():
+            raise ValueError("fence_uuid must be a non-empty string")
+        ts = now_iso()
+        with self._transaction():
+            row = _exec(self, "SELECT * FROM controller_units WHERE "
+                       "unit_id=?", (unit_id,)).fetchone()
+            if row is None:
+                raise OwnershipRefused(
+                    "not-found", "no controller unit %r" % (unit_id,))
+            self._refuse_foreign_run(row, project_id, "claim_unit",
+                                     "unit %r" % (unit_id,))
+            _exec(self, "UPDATE controller_units SET status='CLAIMED', "
+                  "fence_uuid=?, updated_at=? WHERE unit_id=?",
+                  (fence_uuid, ts, unit_id))
+            self._write_attribution(
+                row["project_id"], None, "controller.unit.claimed", actor,
+                action="claim_unit", evidence_ref=unit_id)
+        return {"unit_id": unit_id, "status": "CLAIMED"}
+
+    def record_dispatch(self, unit_id, attempt, contract_revision,
+                        fence_uuid, session_id, actor, project_id=None):
+        """Durable dispatch intent, written BEFORE the worker runs (design
+        step 8). Returns dispatch_id. INSERT with UNIQUE(unit_id, attempt):
+        a duplicate attempt (a crash-and-replay dispatch) collides and
+        refuses (OwnershipRefused 'dispatch-exists'), the at-most-once
+        dispatch spine. Sets the unit DISPATCHED. `project_id`, when given,
+        refuses 'run-not-in-project' for a unit of another project's run
+        before any write (see _refuse_foreign_run)."""
+        if (isinstance(attempt, bool) or not isinstance(attempt, int)
+                or attempt < 1):
+            raise ValueError(
+                "attempt must be a positive whole number, got %r"
+                % (attempt,))
+        dispatch_id = uuid.uuid4().hex
+        ts = now_iso()
+        with self._transaction():
+            row = _exec(self, "SELECT * FROM controller_units WHERE "
+                       "unit_id=?", (unit_id,)).fetchone()
+            if row is None:
+                raise OwnershipRefused(
+                    "not-found", "no controller unit %r" % (unit_id,))
+            self._refuse_foreign_run(row, project_id, "record_dispatch",
+                                     "unit %r" % (unit_id,))
+            try:
+                _exec(self,
+                      "INSERT INTO controller_dispatches (dispatch_id, "
+                      "unit_id, run_id, project_id, attempt, "
+                      "contract_revision, fence_uuid, status, "
+                      "worker_claim, result_artifacts, done_check_exit, "
+                      "verifier_verdict, session_id, created_at, "
+                      "resulted_at) "
+                      "VALUES (?,?,?,?,?,?,?,'DISPATCHED','','[]',NULL,"
+                      "'',?,?,NULL)",
+                      (dispatch_id, unit_id, row["run_id"],
+                       row["project_id"], attempt, contract_revision,
+                       fence_uuid, session_id or "", ts))
+            except sqlite3.IntegrityError:
+                raise OwnershipRefused(
+                    "dispatch-exists",
+                    "unit %r already has a dispatch at attempt %d; a "
+                    "crash-and-replay dispatch must await the existing "
+                    "one, never open a second." % (unit_id, attempt))
+            _exec(self, "UPDATE controller_units SET status='DISPATCHED', "
+                  "updated_at=? WHERE unit_id=?", (ts, unit_id))
+            self._write_attribution(
+                row["project_id"], None, "controller.unit.dispatched",
+                actor, action="record_dispatch", evidence_ref=dispatch_id)
+        return dispatch_id
+
+    def record_result(self, dispatch_id, worker_claim, result_artifacts,
+                      actor, project_id=None):
+        """Record the worker's UNTRUSTED result claim. Refuses
+        (OwnershipRefused 'already-resulted') if the dispatch is not
+        DISPATCHED: a second record-result for the same dispatch is a
+        duplicate result, never a second acceptance, the same resolve-once
+        shape answer_interruption uses. Sets the dispatch and the unit
+        both RESULT_IN. This claim is never itself the acceptance signal:
+        the controller's own done-check (record_verification) decides
+        that independently. `project_id`, when given, refuses
+        'run-not-in-project' for a dispatch of another project's run before
+        any write: the store-side half of the engine's own foreign-dispatch
+        guard (AZ F-A3, SM K), which a caller cannot forget to run."""
+        ts = now_iso()
+        with self._transaction():
+            row = _exec(self, "SELECT * FROM controller_dispatches WHERE "
+                       "dispatch_id=?", (dispatch_id,)).fetchone()
+            if row is None:
+                raise OwnershipRefused(
+                    "not-found", "no dispatch %r" % (dispatch_id,))
+            self._refuse_foreign_run(row, project_id, "record_result",
+                                     "dispatch %r" % (dispatch_id,))
+            if row["status"] == "CANCELLED":
+                # Its OWN refusal and its own sentence (fix round
+                # 2026-08-05, REFUTATION-3 LV finding 4): "a result was
+                # already recorded for it" would be a false statement about
+                # a dispatch nothing ever answered. A re-plan dropped the
+                # unit, so there is no unit left for this answer to be
+                # about, and the engine's main() turns this into exit 1
+                # with a clear line rather than a traceback.
+                raise OwnershipRefused(
+                    "dispatch-cancelled",
+                    "dispatch %r is CANCELLED: a re-plan dropped unit %r "
+                    "from the unit graph, so this dispatch was cancelled "
+                    "and the result cannot be recorded against it."
+                    % (dispatch_id, row["unit_id"]))
+            if row["status"] != "DISPATCHED":
+                raise OwnershipRefused(
+                    "already-resulted",
+                    "dispatch %r is %s, not DISPATCHED; a result was "
+                    "already recorded for it (duplicate result)."
+                    % (dispatch_id, row["status"]))
+            _exec(self, "UPDATE controller_dispatches SET "
+                  "status='RESULT_IN', worker_claim=?, "
+                  "result_artifacts=?, resulted_at=? WHERE dispatch_id=?",
+                  (worker_claim or "", json.dumps(result_artifacts or []),
+                   ts, dispatch_id))
+            _exec(self, "UPDATE controller_units SET status='RESULT_IN', "
+                  "updated_at=? WHERE unit_id=?", (ts, row["unit_id"]))
+            self._write_attribution(
+                row["project_id"], None, "controller.dispatch.resulted",
+                actor, action="record_result", evidence_ref=dispatch_id)
+        return {"dispatch_id": dispatch_id, "unit_id": row["unit_id"],
+                "status": "RESULT_IN"}
+
+    def record_verification(self, dispatch_id, done_check_exit,
+                            verifier_verdict, accepted, actor,
+                            project_id=None):
+        """Record the controller's OWN independent verification of a
+        result (design step 12/14: the done-check and the verifier run
+        via CheckRunner, never through the worker). Sets the dispatch
+        VERIFIED or REJECTED. Does NOT itself mark the unit done or
+        failed: the engine calls mark_unit_done (on acceptance, after its
+        own record_checkpoint) or mark_unit_failed (on rejection) next,
+        exactly the two-step split the design's step 15 states.
+        `project_id`, when given, refuses 'run-not-in-project' for a
+        dispatch of another project's run before any write."""
+        ts = now_iso()
+        with self._transaction():
+            row = _exec(self, "SELECT * FROM controller_dispatches WHERE "
+                       "dispatch_id=?", (dispatch_id,)).fetchone()
+            if row is None:
+                raise OwnershipRefused(
+                    "not-found", "no dispatch %r" % (dispatch_id,))
+            self._refuse_foreign_run(row, project_id, "record_verification",
+                                     "dispatch %r" % (dispatch_id,))
+            new_status = "VERIFIED" if accepted else "REJECTED"
+            _exec(self, "UPDATE controller_dispatches SET status=?, "
+                  "done_check_exit=?, verifier_verdict=? WHERE "
+                  "dispatch_id=?",
+                  (new_status, done_check_exit, verifier_verdict or "",
+                   dispatch_id))
+            self._write_attribution(
+                row["project_id"], None, "controller.dispatch.verified",
+                actor, action="record_verification",
+                reason=verifier_verdict or "", evidence_ref=dispatch_id)
+        return {"dispatch_id": dispatch_id, "status": new_status}
+
+    def mark_unit_done(self, unit_id, checkpoint_ref, actor,
+                       project_id=None):
+        """Status DONE with the green checkpoint id. Refuses
+        (OwnershipRefused 'unit-not-verifiable') if the unit is not
+        RESULT_IN or VERIFYING: a unit cannot be marked done twice, and
+        cannot be marked done before a result was ever recorded.
+        `project_id`, when given, refuses 'run-not-in-project' for a unit
+        of another project's run before any write."""
+        if not isinstance(checkpoint_ref, str) or not checkpoint_ref.strip():
+            raise ValueError("checkpoint_ref must be a non-empty string")
+        ts = now_iso()
+        with self._transaction():
+            row = _exec(self, "SELECT * FROM controller_units WHERE "
+                       "unit_id=?", (unit_id,)).fetchone()
+            if row is None:
+                raise OwnershipRefused(
+                    "not-found", "no controller unit %r" % (unit_id,))
+            self._refuse_foreign_run(row, project_id, "mark_unit_done",
+                                     "unit %r" % (unit_id,))
+            if row["status"] not in ("RESULT_IN", "VERIFYING"):
+                raise OwnershipRefused(
+                    "unit-not-verifiable",
+                    "unit %r is %s, not RESULT_IN or VERIFYING; it cannot "
+                    "be marked done from there (guards a double accept)."
+                    % (unit_id, row["status"]))
+            _exec(self, "UPDATE controller_units SET status='DONE', "
+                  "checkpoint_ref=?, updated_at=? WHERE unit_id=?",
+                  (checkpoint_ref, ts, unit_id))
+            self._write_attribution(
+                row["project_id"], None, "controller.unit.done", actor,
+                action="mark_unit_done", evidence_ref=checkpoint_ref)
+        return {"unit_id": unit_id, "status": "DONE"}
+
+    def mark_unit_failed(self, unit_id, actor, reason, project_id=None):
+        """Increments retry_count. Sets the unit back to READY if
+        retry_count <= retry_ceiling (one more attempt, with a DIFFERENT
+        approach the engine records in the next brief, per the circuit
+        breaker, design step 17); otherwise FAILED, and the engine
+        escalates rather than retrying a third time. Returns {'status',
+        'retry_count'}. `project_id`, when given, refuses
+        'run-not-in-project' for a unit of another project's run before any
+        write: a foreign call here burns a retry the unit never earned."""
+        ts = now_iso()
+        with self._transaction():
+            row = _exec(self, "SELECT * FROM controller_units WHERE "
+                       "unit_id=?", (unit_id,)).fetchone()
+            if row is None:
+                raise OwnershipRefused(
+                    "not-found", "no controller unit %r" % (unit_id,))
+            self._refuse_foreign_run(row, project_id, "mark_unit_failed",
+                                     "unit %r" % (unit_id,))
+            new_count = row["retry_count"] + 1
+            new_status = "READY" if new_count <= row["retry_ceiling"] else "FAILED"
+            _exec(self, "UPDATE controller_units SET retry_count=?, "
+                  "status=?, updated_at=? WHERE unit_id=?",
+                  (new_count, new_status, ts, unit_id))
+            self._write_attribution(
+                row["project_id"], None, "controller.unit.failed", actor,
+                action="mark_unit_failed", reason=reason or "",
+                evidence_ref=unit_id)
+        return {"unit_id": unit_id, "status": new_status,
+                "retry_count": new_count}
+
+    def release_claimed_unit(self, unit_id, actor, project_id=None):
+        """Return a CLAIMED unit to PENDING or READY by dependency
+        satisfaction and clear its fence linkage. Returns {'unit_id',
+        'status'}. Refuses 'unit-not-claimed' for any other status,
+        'not-found' for an unknown id, and 'run-not-in-project' when
+        `project_id` is given and names a different project.
+
+        The crash window this exists for (fix round 2026-08-05,
+        REFUTATION-3 LV 7): claim_unit above and record_dispatch below are
+        two transactions, so a crash between them leaves a unit CLAIMED,
+        holding an ACTIVE fence, with NO dispatch row, which no timeout can
+        see (a timeout is a dispatch-row fact) and no founder step names.
+        The recovery is deliberately NOT mark_unit_failed: nothing was ever
+        dispatched, so there was no attempt to fail, and burning a retry
+        the unit never earned would walk it toward FAILED for a crash. The
+        status is recomputed the same way unblock_lane_units recomputes it,
+        so a unit whose dependencies are not DONE comes back PENDING rather
+        than becoming spuriously selectable. The fence itself is released
+        by the ENGINE (Store.transition opens its own transaction), exactly
+        as with upsert_units' orphaned_fences."""
+        ts = now_iso()
+        with self._transaction():
+            row = _exec(self, "SELECT * FROM controller_units WHERE "
+                       "unit_id=?", (unit_id,)).fetchone()
+            if row is None:
+                raise OwnershipRefused(
+                    "not-found", "no controller unit %r" % (unit_id,))
+            self._refuse_foreign_run(row, project_id, "release_claimed_unit",
+                                     "unit %r" % (unit_id,))
+            if row["status"] != "CLAIMED":
+                raise OwnershipRefused(
+                    "unit-not-claimed",
+                    "unit %r is %s, not CLAIMED; only a claim that never "
+                    "became a dispatch is released this way (a DISPATCHED "
+                    "unit has a real dispatch row to resolve, and every "
+                    "other status is already settled)."
+                    % (unit_id, row["status"]))
+            status_by_id = {r["unit_id"]: r["status"] for r in _exec(self,
+                "SELECT unit_id, status FROM controller_units WHERE "
+                "run_id=?", (row["run_id"],)).fetchall()}
+            deps = json.loads(row["dependencies"] or "[]")
+            new_status = ("READY" if not deps or all(
+                status_by_id.get(d) == "DONE" for d in deps) else "PENDING")
+            _exec(self, "UPDATE controller_units SET status=?, "
+                  "fence_uuid=NULL, updated_at=? WHERE unit_id=?",
+                  (new_status, ts, unit_id))
+            self._write_attribution(
+                row["project_id"], None, "controller.unit.claim_released",
+                actor, action="release_claimed_unit",
+                evidence_ref=unit_id)
+        return {"unit_id": unit_id, "status": new_status}
+
+    def block_lane_units(self, run_id, lane, actor, project_id=None):
+        """Flip every PENDING or READY unit of `lane` in `run_id` to
+        BLOCKED (paired with queue_human_step: only the named lane is
+        marked BLOCKED, so select_ready_units skips it while every other
+        lane keeps running, design step 18). Returns {'count'}.
+        `project_id`, when given, refuses 'run-not-in-project' for another
+        project's run before any write."""
+        ts = now_iso()
+        with self._transaction():
+            run = _exec(self, "SELECT project_id, run_id FROM "
+                       "controller_runs WHERE run_id=?", (run_id,)).fetchone()
+            if run is None:
+                raise OwnershipRefused(
+                    "not-found", "no controller run %r" % (run_id,))
+            self._refuse_foreign_run(run, project_id, "block_lane_units",
+                                     "run %r" % (run_id,))
+            cur = _exec(self, "UPDATE controller_units SET "
+                       "status='BLOCKED', updated_at=? WHERE run_id=? AND "
+                       "lane=? AND status IN ('PENDING','READY')",
+                       (ts, run_id, lane))
+            self._write_attribution(
+                run["project_id"], None, "controller.lane.blocked", actor,
+                action="block_lane_units", reason=lane, evidence_ref=run_id)
+        return {"count": cur.rowcount}
+
+    def unblock_lane_units(self, run_id, lane, actor, project_id=None):
+        """Flip every BLOCKED unit of `lane` in `run_id` back to PENDING or
+        READY by dependency satisfaction (paired with resolve_human_step).
+        Returns {'count'}. `project_id`, when given, refuses
+        'run-not-in-project' for another project's run before any write."""
+        ts = now_iso()
+        with self._transaction():
+            run = _exec(self, "SELECT project_id, run_id FROM "
+                       "controller_runs WHERE run_id=?", (run_id,)).fetchone()
+            if run is None:
+                raise OwnershipRefused(
+                    "not-found", "no controller run %r" % (run_id,))
+            self._refuse_foreign_run(run, project_id, "unblock_lane_units",
+                                     "run %r" % (run_id,))
+            status_by_id = {r["unit_id"]: r["status"] for r in _exec(self,
+                "SELECT unit_id, status FROM controller_units WHERE "
+                "run_id=?", (run_id,)).fetchall()}
+            blocked = _exec(self,
+                "SELECT unit_id, dependencies FROM controller_units WHERE "
+                "run_id=? AND lane=? AND status='BLOCKED'",
+                (run_id, lane)).fetchall()
+            count = 0
+            for row in blocked:
+                deps = json.loads(row["dependencies"] or "[]")
+                new_status = ("READY" if not deps or all(
+                    status_by_id.get(d) == "DONE" for d in deps)
+                    else "PENDING")
+                _exec(self, "UPDATE controller_units SET status=?, "
+                      "updated_at=? WHERE unit_id=?",
+                      (new_status, ts, row["unit_id"]))
+                count += 1
+            self._write_attribution(
+                run["project_id"], None, "controller.lane.unblocked",
+                actor, action="unblock_lane_units", reason=lane,
+                evidence_ref=run_id)
+        return {"count": count}
+
+    # -- reads (no transaction, no attribution) ----------------------------
+
+    def get_run(self, project_id, raw=False):
+        """The MOST RECENT controller run for `project_id` (a project can
+        accumulate several terminal runs across its life; only the newest
+        is the resume cursor), or None if it has never had one. This is
+        the FIRST read the resumable loop makes on every invocation
+        (design step 1)."""
+        row = _exec(self,
+            "SELECT * FROM controller_runs WHERE project_id=? ORDER BY "
+            "created_at DESC, rowid DESC LIMIT 1", (project_id,)).fetchone()
+        if row is None:
+            return None
+        return _export_row(self.conn, "controller_runs", dict(row), raw=raw)
+
+    def list_units(self, run_id, status=None, lane=None, raw=False):
+        """Every unit of `run_id`, oldest first. `status` narrows to one
+        CONTROLLER_UNIT_STATES value; `lane` narrows to one lane."""
+        sql = "SELECT * FROM controller_units WHERE run_id=?"
+        params = [run_id]
+        if status is not None:
+            sql += " AND status=?"
+            params.append(status)
+        if lane is not None:
+            sql += " AND lane=?"
+            params.append(lane)
+        sql += " ORDER BY created_at ASC, rowid ASC"
+        rows = _exec(self, sql, tuple(params)).fetchall()
+        return [_export_row(
+                    self.conn, "controller_units", dict(r),
+                    list_fields=("dependencies", "read_scope",
+                                "write_scope", "expected_artifacts"),
+                    raw=raw)
+                for r in rows]
+
+    def get_dispatch(self, dispatch_id, raw=False):
+        """ONE dispatch row by its id, or None. Same redaction and the same
+        list decoding as list_dispatches below.
+
+        Added 2026-08-05 (REFUTATION-3 SM K and AZ F-A3, the same defect
+        from two angles): receive_result takes project_id and dispatch_id
+        as INDEPENDENT arguments and never checked that the dispatch
+        belongs to the named project's current run, so a dispatch id from
+        another project (or from an earlier terminal run of the same one)
+        recorded a result and charged spend against a contract that never
+        authorised the work, and only THEN reached an uncaught TypeError.
+        The row already carries run_id and project_id, so the check the
+        caller needs is a READ, not a schema change."""
+        row = _exec(self,
+            "SELECT * FROM controller_dispatches WHERE dispatch_id=?",
+            (dispatch_id,)).fetchone()
+        if row is None:
+            return None
+        return _export_row(self.conn, "controller_dispatches", dict(row),
+                           list_fields=("result_artifacts",), raw=raw)
+
+    def list_dispatches(self, unit_id, raw=False):
+        """Every dispatch of `unit_id`, attempt order (the same order a
+        crash-and-replay must reason about): oldest first."""
+        rows = _exec(self,
+            "SELECT * FROM controller_dispatches WHERE unit_id=? ORDER "
+            "BY attempt ASC, rowid ASC", (unit_id,)).fetchall()
+        return [_export_row(self.conn, "controller_dispatches", dict(r),
+                            list_fields=("result_artifacts",), raw=raw)
+                for r in rows]
 
     def dump(self, raw=False):
         """Full JSON-serializable export of every table.
@@ -12646,6 +14149,17 @@ class ReadOnlyStore(object):
     def spend_totals(self, project_id):
         return Store.spend_totals(self, project_id)
 
+    def _spend_totals_from(self, project_id, latest):
+        # PRIVATE, and here for the same reason _latest_contract_row is a
+        # module-level function: Store.spend_totals and Store.gate_check
+        # both reach it through self, and this class does not inherit from
+        # Store, so without this pass-through a read-only spend_totals or
+        # gate_check would AttributeError (caught by
+        # TestAutonomyConcurrencyReadOnlyAndClock the moment gate_check
+        # stopped taking its own second contract read, 2026-08-05). It only
+        # SELECTs, so it is safe on a query_only connection.
+        return Store._spend_totals_from(self, project_id, latest)
+
     def list_assumptions(self, project_id, limit=200, raw=False):
         return Store.list_assumptions(self, project_id, limit=limit,
                                       raw=raw)
@@ -12666,6 +14180,32 @@ class ReadOnlyStore(object):
     def gate_check(self, project_id, action_class, path=None, surface=None):
         return Store.gate_check(self, project_id, action_class, path=path,
                                 surface=surface)
+
+    # -- U2: the durable Full-Auto controller (read-only surface) ---------
+    # Same reuse, same reason as the U1 block above: each of these only
+    # ever SELECTs through _exec and redacts through _export_row, so
+    # Store's implementation works unchanged against a read-only
+    # connection. No write method (open_run, set_run_state, upsert_units,
+    # claim_unit, record_dispatch, record_result, record_verification,
+    # mark_unit_done, mark_unit_failed, release_claimed_unit,
+    # block_lane_units, unblock_lane_units) is defined anywhere on this
+    # class.
+
+    def select_ready_units(self, run_id):
+        return Store.select_ready_units(self, run_id)
+
+    def get_run(self, project_id, raw=False):
+        return Store.get_run(self, project_id, raw=raw)
+
+    def list_units(self, run_id, status=None, lane=None, raw=False):
+        return Store.list_units(self, run_id, status=status, lane=lane,
+                                raw=raw)
+
+    def get_dispatch(self, dispatch_id, raw=False):
+        return Store.get_dispatch(self, dispatch_id, raw=raw)
+
+    def list_dispatches(self, unit_id, raw=False):
+        return Store.list_dispatches(self, unit_id, raw=raw)
 
     def close(self):
         """Idempotent, same contract as Store.close()."""

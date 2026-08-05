@@ -1150,7 +1150,12 @@ class TestProjectSecurityClaims(unittest.TestCase):
         # push, enforced by the shell-and-git half of this test below plus its own
         # suite). The exception is per FILE and per MODULE NAME, so a second file
         # cannot quietly inherit it, and subprocess remains banned everywhere else.
-        allowed = {"bm_autosave.py": {"subprocess"}}
+        allowed = {"bm_autosave.py": {"subprocess"},
+                   # bm_controller.py (L03) runs each unit's deterministic
+                   # done-check as a LOCAL command through subprocess, the same
+                   # local-only posture as bm_autosave driving git. It makes no
+                   # network call; SECURITY.md documents this beside the git one.
+                   "bm_controller.py": {"subprocess"}}
         for n in sorted(os.listdir(tools)):
             if not n.endswith(".py") or n.startswith("test_"):
                 continue
@@ -5673,17 +5678,23 @@ class TestTheSeventhCommandAndTheDeepTourAreWired(unittest.TestCase):
         return _read(path)
 
     def test_exactly_seven_brotherme_commands_ship(self):
+        # Named for the original seven beginner commands. L03 added the three
+        # Full-Auto controller commands (auto, auto-status, stop), a deliberate
+        # new family, so the pinned set is now ten. The test still catches
+        # accidental drift: a command file nobody meant to ship fails it.
         found = sorted(os.path.basename(p) for p in
                        __import__("glob").glob(
                            os.path.join(self.ROOT, "commands",
                                         "brotherme-*.md")))
-        expected = ["brotherme-deliver.md", "brotherme-help.md",
+        expected = ["brotherme-auto-status.md", "brotherme-auto.md",
+                    "brotherme-deliver.md", "brotherme-help.md",
                     "brotherme-next.md", "brotherme-review.md",
                     "brotherme-start.md", "brotherme-status.md",
-                    "brotherme-update.md"]
+                    "brotherme-stop.md", "brotherme-update.md"]
         self.assertEqual(expected, found,
-                         "the shipped command set drifted from the seven "
-                         "this release documents: %r" % found)
+                         "the shipped command set drifted from the ten this "
+                         "release documents (seven beginner plus three "
+                         "controller): %r" % found)
 
     def test_the_five_store_backed_commands_name_the_mechanical_command(self):
         """Loop 2 WP-C, decision D-3 (docs/superpowers/specs/2026-08-01-

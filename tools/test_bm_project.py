@@ -1375,7 +1375,18 @@ class TestExportAndPurge(unittest.TestCase):
                           "autonomy_assumptions": 0,
                           "autonomy_interruptions": 0,
                           "autonomy_human_steps": 0,
-                          "autonomy_checkpoints": 0})
+                          "autonomy_checkpoints": 0,
+                          # L03 (schema 15) put the three controller tables
+                          # under the same purge, children first for the FK
+                          # order (dispatches, units, runs). Same rule as the
+                          # six above: this fixture seeds none, so each is 0,
+                          # and a table the purge touches is reported rather
+                          # than hidden. A schema that adds a purged table
+                          # without adding its key here turns this red, which
+                          # is the point of pinning the WHOLE dict.
+                          "controller_dispatches": 0,
+                          "controller_units": 0,
+                          "controller_runs": 0})
 
             after = _raw_dump(root)
             self.assertEqual(
