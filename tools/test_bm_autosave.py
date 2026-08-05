@@ -17,6 +17,7 @@ Every test is self-contained under tempfile.TemporaryDirectory() and never
 touches this repo's own git state, BROTHERMODE_VAULT, or the real home
 directory.
 """
+import ast
 import contextlib
 import io
 import json
@@ -1785,6 +1786,330 @@ class TestCalibratedI1PreConsentNoWrite(unittest.TestCase):
                     os.environ.pop("BROTHERMODE_AUTOSAVE_EVERY", None)
                 else:
                     os.environ["BROTHERMODE_AUTOSAVE_EVERY"] = old_every
+
+
+# ---------------------------------------------------------------------------
+# CROSS-FAMILY REFUTATION finding 3 (HIGH, DATA DESTRUCTION), at THIS module.
+#
+# tools/bm_controller.py closed this for the commands it runs. The same hole
+# was open here, and this module is the one whose entire job is not losing
+# work. Every git call in bm_autosave.py carries `-C <toplevel>`, and
+# `git -C` does NOT beat GIT_DIR or GIT_WORK_TREE. Measured on this machine
+# (git 2.50.1, Apple Git-155) in two throwaway repositories P and Q:
+#
+#     plain:    git -C P rev-parse --show-toplevel  ->  .../P
+#     poisoned: GIT_DIR=.../Q/.git GIT_WORK_TREE=.../Q
+#               git -C P rev-parse --show-toplevel  ->  .../Q
+#
+# So an autosave fired from an environment carrying those names (a git hook,
+# a wrapper script, another repository's tooling) resolved a DIFFERENT
+# repository as its toplevel and then ran the entire pipeline against it:
+# the founder's unsaved work in P was never captured, Q's working tree was
+# committed into refs nobody asked for, Q's own snapshot refs became
+# eligible for this run's retention prune, and the receipt recorded success.
+# ---------------------------------------------------------------------------
+
+#: The environment names that REDIRECT git (they move where it reads, where
+#: it writes, or which config it obeys, which is the same thing once
+#: core.worktree can be injected). Enumerated against git 2.50.1 as the
+#: union of git(1)'s ENVIRONMENT VARIABLES section, git-config(1)'s
+#: environment section, and `strings` over the shipped binary; the same
+#: enumeration tools/test_bm_controller.py carries, repeated here rather
+#: than imported so this suite still stands alone. Thirteen of these appear
+#: in NO git(1) environment section, which is why the shipped rule is a
+#: PREFIX and not a list.
+_GIT_REDIRECTION_ENV = (
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR",
+    "GIT_CEILING_DIRECTORIES", "GIT_NAMESPACE", "GIT_CONFIG",
+    "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_NOSYSTEM", "GIT_ATTR_GLOBAL", "GIT_ATTR_SYSTEM",
+    "GIT_ATTR_SOURCE", "GIT_GRAFT_FILE", "GIT_SHALLOW_FILE",
+    "GIT_QUARANTINE_PATH", "GIT_IMPLICIT_WORK_TREE", "GIT_EXEC_PATH",
+    "GIT_TEMPLATE_DIR", "GIT_REPLACE_REF_BASE", "GIT_PREFIX",
+    "GIT_DISCOVERY_ACROSS_FILESYSTEM", "GIT_INDEX_VERSION",
+)
+
+_P_WIP = "THE FOUNDER'S UNSAVED WORK IN P\n"
+_COMMITTED = "committed\n"
+_Q_EDIT = "AN UNRELATED FOUNDER EDIT IN Q\n"
+
+
+def _unpoisoned_git(repo, *args):
+    """The harness's OWN git, deliberately not the product's helper: every
+    fixture and every assertion in this section must be unaffected by
+    whatever the machine running the suite exports, or a poisoned CI
+    environment would build the fixtures somewhere else and these tests
+    would pass while proving nothing."""
+    return subprocess.run(
+        ["git", "-C", repo] + list(args), capture_output=True, text=True,
+        env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
+
+
+class _PoisonedGitEnvironment(object):
+    """`with _PoisonedGitEnvironment({...}):` exports those names for the
+    duration and restores the exact prior state afterwards, including names
+    that were not set at all. This is what an autosave fired from a git
+    hook, a wrapper script, or another repository's tooling really
+    inherits."""
+
+    def __init__(self, mapping):
+        self.mapping = dict(mapping)
+        self.saved = {}
+
+    def __enter__(self):
+        for key, value in self.mapping.items():
+            self.saved[key] = os.environ.get(key)
+            os.environ[key] = value
+        return self
+
+    def __exit__(self, *exc):
+        for key, prior in self.saved.items():
+            if prior is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = prior
+        return False
+
+
+def _poison(q):
+    return {"GIT_DIR": os.path.join(q, ".git"), "GIT_WORK_TREE": q}
+
+
+def _pq_repos(base):
+    """Repositories P and Q, side by side, both real. P is the project the
+    founder is actually working in and carries unsaved work; Q is the
+    unrelated repository the inherited variables point at, carrying an
+    uncommitted edit of its own.
+
+    The whole fixture is built OUTSIDE the poisoned window, and every call
+    it makes itself is scrubbed. `init` and the throwaway identity go
+    through this suite's shared _init_repo, which is not: on a machine that
+    already exports GIT_DIR that step would build the repository somewhere
+    else, and the scrubbed calls under it would then fail to find one, so
+    the tests below fail loudly rather than passing vacuously."""
+    p = os.path.join(base, "P")
+    q = os.path.join(base, "Q")
+    for path in (p, q):
+        os.makedirs(path)
+        _init_repo(path)
+        _write(os.path.join(path, "a.txt"), _COMMITTED)
+        _unpoisoned_git(path, "add", "-A")
+        _unpoisoned_git(path, "commit", "-qm", "init")
+    _write(os.path.join(p, "p_wip.txt"), _P_WIP)
+    _write(os.path.join(q, "a.txt"), _Q_EDIT)
+    return p, q
+
+
+def _dotted_name(node):
+    """'subprocess.run' for `subprocess.run`, or None for anything that is
+    not a plain dotted chain of names."""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return None
+    parts.append(node.id)
+    return ".".join(reversed(parts))
+
+
+#: Every way this module could start a process. Wider than what the file
+#: uses today on purpose: the structural test below is what stops a second,
+#: unsanitised execution site from being added later.
+_EXECUTION_PRIMITIVES = (
+    "subprocess.run", "subprocess.Popen", "subprocess.call",
+    "subprocess.check_call", "subprocess.check_output", "subprocess.getoutput",
+    "subprocess.getstatusoutput", "os.system", "os.popen", "os.execv",
+    "os.execve", "os.execvp", "os.spawnv", "os.spawnve", "os.posix_spawn",
+)
+
+
+def _execution_sites():
+    """[(enclosing function name, sorted keyword names)] for every process
+    this module can start. Source only: nothing is imported, nothing runs."""
+    with io.open(os.path.join(HERE, "bm_autosave.py"), encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename="bm_autosave.py")
+    found = []
+    stack = []
+
+    class _Visitor(ast.NodeVisitor):
+        def visit_FunctionDef(self, node):
+            stack.append(node.name)
+            self.generic_visit(node)
+            stack.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_Call(self, node):
+            if _dotted_name(node.func) in _EXECUTION_PRIMITIVES:
+                found.append((stack[-1] if stack else "<module>",
+                              sorted(kw.arg for kw in node.keywords)))
+            self.generic_visit(node)
+
+    _Visitor().visit(tree)
+    return found
+
+
+class TestCrossFamilyF3InheritedGitEnvironment(unittest.TestCase):
+    """The finding, proved against real git in real repositories, plus the
+    two properties the fix must not break (the pipeline's own GIT_INDEX_FILE
+    override, and the ordinary environment a legitimate call needs)."""
+
+    def test_the_toplevel_resolved_is_the_repository_the_caller_named(self):
+        """THE reproduction, at the first git call the module makes.
+        resolve_toplevel decides which repository EVERY later call touches,
+        so redirecting this one redirects the whole pipeline."""
+        with tempfile.TemporaryDirectory() as base:
+            p, q = _pq_repos(base)
+            with _PoisonedGitEnvironment(_poison(q)):
+                top = autosave.resolve_toplevel(p)
+            self.assertEqual(
+                top, os.path.realpath(p),
+                "resolve_toplevel returned an UNRELATED repository: git "
+                "honoured the inherited GIT_DIR and GIT_WORK_TREE over the "
+                "`-C %s` this module passes, so every later call in the "
+                "snapshot pipeline would run there too" % p)
+
+            # CALIBRATION: reinject the old shape (the child inherits the
+            # caller's environment whole) by patching the PRODUCT function
+            # responsible, and confirm the SAME check now fails for the
+            # SAME reason the finding describes.
+            original = autosave._sanitised_env
+            autosave._sanitised_env = lambda environ=None: dict(
+                os.environ if environ is None else environ)
+            try:
+                with _PoisonedGitEnvironment(_poison(q)):
+                    redirected = autosave.resolve_toplevel(p)
+                self.assertEqual(
+                    redirected, os.path.realpath(q),
+                    "REINJECTION CHECK: with the inherited environment put "
+                    "back, resolve_toplevel must land in the unrelated "
+                    "repository Q (this is the finding); if this assertion "
+                    "fails, the test above is not calibrated to the defect "
+                    "it claims to catch")
+            finally:
+                autosave._sanitised_env = original
+
+    def test_a_snapshot_never_runs_against_the_unrelated_repository(self):
+        """End to end, through the real snapshot pipeline with the poison
+        live for the whole call: P must be saved, and Q must be untouched."""
+        with tempfile.TemporaryDirectory() as base:
+            p, q = _pq_repos(base)
+            q_before = _read(os.path.join(q, "a.txt"))
+            with _PoisonedGitEnvironment(_poison(q)):
+                top = autosave.resolve_toplevel(p)
+                with contextlib.redirect_stderr(io.StringIO()):
+                    res = autosave.snapshot(top, "s-poisoned", "test")
+            self.assertTrue(res["ok"], res)
+
+            wtid = autosave.worktree_id_for(os.path.realpath(p))
+            sha = _unpoisoned_git(
+                p, "rev-parse", "-q", "--verify",
+                autosave.latest_ref(wtid)).stdout.strip()
+            self.assertTrue(
+                sha,
+                "the founder's own repository has no autosave at all: the "
+                "snapshot ran somewhere else and reported ok=%r" % (res,))
+            names = _unpoisoned_git(
+                p, "ls-tree", "-r", "--name-only", sha).stdout.split()
+            self.assertIn(
+                "p_wip.txt", names,
+                "the snapshot published for P does not contain P's unsaved "
+                "work; it contains %r" % (names,))
+
+            q_refs = _unpoisoned_git(
+                q, "for-each-ref", "--format=%(refname)",
+                autosave.REF_NAMESPACE).stdout.strip()
+            self.assertEqual(
+                q_refs, "",
+                "the snapshot wrote refs into an UNRELATED repository "
+                "(%s): its own snapshots are now this run's to prune, and "
+                "its working tree was committed into them" % q_refs)
+            self.assertEqual(
+                _read(os.path.join(q, "a.txt")), q_before,
+                "the unrelated repository's uncommitted edit did not "
+                "survive an autosave that was never about it")
+
+    def test_an_injected_config_variable_cannot_reach_the_child(self):
+        """Not GIT_DIR alone: the config class redirects too. GIT_CONFIG_*
+        injects configuration that git then obeys, and core.worktree is one
+        of the things it can inject, which is why the shipped rule covers
+        the whole GIT_ prefix rather than two names."""
+        with tempfile.TemporaryDirectory() as base:
+            _repo, toplevel, _wtid = _repo_with_commit(base)
+            poison = {"GIT_CONFIG_COUNT": "1",
+                      "GIT_CONFIG_KEY_0": "injected.marker",
+                      "GIT_CONFIG_VALUE_0": "poisoned"}
+            with _PoisonedGitEnvironment(poison):
+                got = autosave._run_git(
+                    toplevel, "config", "--get", "injected.marker")
+            self.assertEqual(
+                got.stdout.strip(), "",
+                "a git call this module makes obeyed configuration injected "
+                "by the environment it inherited")
+            self.assertNotEqual(
+                got.returncode, 0,
+                "git found an injected config key it should never have seen")
+
+    def test_every_documented_redirecting_name_is_stripped(self):
+        """The enumeration above is evidence, so it is checked against the
+        shipped rule rather than left as a comment."""
+        for name in _GIT_REDIRECTION_ENV:
+            self.assertNotIn(
+                name, autosave._sanitised_env({name: "x", "PATH": "/usr/bin"}),
+                "%s can redirect where git operates and must be stripped"
+                % name)
+
+    def test_the_environment_a_legitimate_call_needs_survives(self):
+        """The strip is a scalpel, not an empty environment: git with no
+        PATH and no HOME fails for reasons that have nothing to do with
+        safety, and a founder would read that as autosave being broken."""
+        kept = autosave._sanitised_env()
+        for needed in ("PATH", "HOME"):
+            if needed in os.environ:
+                self.assertEqual(kept.get(needed), os.environ[needed],
+                                 "%s must survive the strip" % needed)
+
+    def test_the_pipelines_own_index_override_survives_the_strip(self):
+        """The strip must not eat the override the module passes itself:
+        GIT_INDEX_FILE is how a snapshot stages onto a throwaway index
+        instead of the founder's real one. Stripping it would stage the
+        founder's working tree into their live index behind their back."""
+        with tempfile.TemporaryDirectory() as base:
+            repo, toplevel, _wtid = _repo_with_commit(base)
+            _write(os.path.join(repo, "wip.txt"), "unsaved")
+            index_path = os.path.join(base, "throwaway-index")
+            r = autosave._run_git(toplevel, "add", "-A", "--", ".",
+                                  env={"GIT_INDEX_FILE": index_path})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(
+                os.path.exists(index_path),
+                "the deliberate GIT_INDEX_FILE override was stripped along "
+                "with the inherited ones; the snapshot would stage onto the "
+                "founder's real index")
+            self.assertEqual(
+                _unpoisoned_git(repo, "diff", "--cached",
+                                "--name-only").stdout.strip(), "",
+                "the founder's real index was staged onto: the override did "
+                "not take effect")
+
+    def test_the_module_has_one_execution_site_and_it_names_its_env(self):
+        """Structural, so the property cannot rot back: one process-starting
+        call in the shipped module, in the git wrapper, passing an explicit
+        env=. A second site added later would inherit the whole poisoned
+        environment again, and no behavioural test would necessarily cover
+        the command it runs."""
+        found = _execution_sites()
+        self.assertEqual(
+            [where for where, _kw in found], ["_run_git"],
+            "every process this module starts must go through the one git "
+            "wrapper; found %r" % (found,))
+        self.assertIn(
+            "env", found[0][1],
+            "the one execution site must pass an explicit env=; without it "
+            "the child inherits every git redirection the parent has")
 
 
 if __name__ == "__main__":
