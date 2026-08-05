@@ -94,7 +94,11 @@ One run holds exactly one of these states at a time:
   `bm-autonomy human-steps --resolve` command that closes it. **The run
   will not be declared `DELIVERABLE_READY` while any of those steps is
   open**, so a ceiling can never be met on paper by spend that was never
-  counted. That lane holds no units, so it blocks no work.
+  counted. That lane holds no units, so it blocks no work: `bm-controller
+  plan` refuses a unit whose lane is that name, by name, before anything is
+  written, and the delivery block reads only the steps the disclosure
+  itself wrote, so an unrelated step that happens to sit in that lane
+  blocks nothing.
 - `STOPPING` then `STOPPED`: draining in flight work, then done for this
   run. Terminal once `STOPPED`; a fresh contract and a fresh run are what
   restart work, never a reopened `STOPPED` row.
@@ -175,8 +179,21 @@ If you stop or revoke the contract during a unit's done-check, that check
 had already started under a live authorisation, so it finishes; the
 authorisation it ran under is gone by the time its exit code is read, so
 the result is REJECTED exactly as a stale one is, the fence is parked, and
-a founder step says so. The controller never tells you nothing ran when
-something did.
+a founder step says so.
+
+That holds at every point where a command can be running, not just the
+first one. The authorisation is re-asked after the unit's done-check, after
+its verifier, once more immediately before anything is written about
+whether the unit passed, and again after your whole done-definition and
+before the run is called `DELIVERABLE_READY`. So a stop pressed while your
+test suite is running does not end with the run declared ready a second
+later. **Pressing stop is never followed by work quietly completing.**
+
+The controller never tells you nothing ran when something did. Every
+sentence it writes about what did or did not run is built from the list of
+commands it actually executed in that call, not from which rule stopped it,
+so it names them: the unit's done-check, its verifier, the rollback, your
+done-definition, whichever of them really ran.
 
 **Your spend ceiling is the second brake, and it stops commands too.** Once
 `bm-autonomy gate-check` answers `REFUSED-BREAKER`, the controller runs
@@ -396,11 +413,18 @@ all of them are also recorded, with the rest of this loop's residuals, in
   claim that every external side effect a worker could ever take is
   made exactly-once by this project.
 - **A plain path in `allowed_paths` grants its whole subtree; a pattern
-  grants exactly what it matches at its own depth.** `api` authorises
-  `api/pay.py` and `api/sub/deep/secrets.env`. `api/*.py` authorises
-  `api/pay.py` and nothing else: not `api/notes.md`, not `api` itself, not
-  anything deeper. `**` is not recursive; the recursive spelling is the
-  plain directory. Write the plain directory when you mean the subtree.
+  grants the FILES it matches at its own depth, and no directory.** `api`
+  authorises `api/pay.py` and `api/sub/deep/secrets.env`. `api/*.py`
+  authorises `api/pay.py` and nothing else: not `api/notes.md`, not `api`
+  itself, not anything deeper. A pattern will not authorise a DIRECTORY
+  either, even one it matches: `src/*` does not authorise `src/app`,
+  because claiming a directory fences its whole subtree, and that would
+  hand out `src/app/deep/keys.pem`, which the same contract refuses when
+  you name it. A name carrying an extension is read as a file and an
+  extensionless name as a directory, so a pattern also skips `Makefile`
+  and `.env`. `**` is not recursive; the recursive spelling is the plain
+  directory. Write the plain directory when you mean the subtree, and
+  write the file's own name when you mean one file.
 - **`allowed_paths` has no floor.** A contract signed with `.` authorises
   the whole project, including `.git/`, `.claude/` and BrotherMode's own
   `.brothermode/store.db`. Grant the directories the work actually needs.

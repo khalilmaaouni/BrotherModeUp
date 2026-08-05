@@ -1,0 +1,305 @@
+RED capture, ROUND 7 (REFUTATION-6-pushgate.md F1 to F5)
+===========================================================================
+Captured BEFORE any edit to tools/bm_controller.py this round, against the
+round-6 file as shipped at HEAD 1e40b8e. The only files changed at capture
+time were tools/test_bm_controller.py (the new classes) and this file.
+
+$ cd /Users/khalil.maaouni/Documents/BrotherModeUp/tools
+$ python3 -m unittest -v \
+    test_bm_controller.TestR7EveryCommandTheJudgingPathRunsIsInventoried \
+    test_bm_controller.TestR7TheKillSwitchIsAskedAtEveryWindow \
+    test_bm_controller.TestR7TheFounderNoteNamesWhatActuallyRan \
+    test_bm_controller.TestR7TheJudgingGateRefusesAMalformedScopeContainer \
+    test_bm_controller.TestR7TheReservedLaneIsMechanicallyReserved \
+    test_bm_controller.TestR7TheGuardCoversAliasedExecutionPrimitives
+
+test_every_command_site_names_itself_to_the_ledger (test_bm_controller.TestR7EveryCommandTheJudgingPathRunsIsInventoried)
+F2's drift guard. The founder-facing 'what ran' sentence is ... FAIL
+test_the_command_sites_are_exactly_the_inventoried_ones (test_bm_controller.TestR7EveryCommandTheJudgingPathRunsIsInventoried) ... ok
+test_a_ceiling_blown_by_the_done_definition_declares_no_deliverable (test_bm_controller.TestR7TheKillSwitchIsAskedAtEveryWindow)
+The same window, the founder's OTHER brake: the suite itself is ... FAIL
+test_a_kill_during_the_verifier_owes_the_founder_a_step (test_bm_controller.TestR7TheKillSwitchIsAskedAtEveryWindow)
+The refuter's sharpest line: 'the founder pulled the switch, the ... FAIL
+test_a_live_contract_still_accepts_and_still_delivers (test_bm_controller.TestR7TheKillSwitchIsAskedAtEveryWindow)
+THE CONTROL, and it is the one that matters: every window above ... ok
+test_a_revoke_during_the_done_definition_declares_no_deliverable (test_bm_controller.TestR7TheKillSwitchIsAskedAtEveryWindow)
+The last window: the founder's WHOLE test suite is the longest ... FAIL
+test_a_revoke_during_the_verifier_is_not_an_acceptance (test_bm_controller.TestR7TheKillSwitchIsAskedAtEveryWindow) ... FAIL
+test_a_stop_during_the_verifier_is_not_an_acceptance (test_bm_controller.TestR7TheKillSwitchIsAskedAtEveryWindow) ... FAIL
+test_the_carve_out_note_does_not_deny_the_command_it_ran (test_bm_controller.TestR7TheFounderNoteNamesWhatActuallyRan) ... FAIL
+test_the_delivery_note_names_the_suite_it_just_ran (test_bm_controller.TestR7TheFounderNoteNamesWhatActuallyRan)
+The third use site of the same sentence: `_deliver_or_hold`, ... FAIL
+test_the_rejection_sentence_is_derived_too (test_bm_controller.TestR7TheFounderNoteNamesWhatActuallyRan)
+The verification row and the founder step _close_without_running ... ok
+test_the_same_note_still_says_nothing_ran_when_nothing_ran (test_bm_controller.TestR7TheFounderNoteNamesWhatActuallyRan)
+THE CONTROL. The fix is not "delete the sentence": on the leg ... ok
+test_a_bare_string_write_scope_is_refused_not_shredded (test_bm_controller.TestR7TheJudgingGateRefusesAMalformedScopeContainer)
+The same gate, walked character by character: 'a.py' becomes ... FAIL
+test_a_clean_list_is_judged_exactly_as_before (test_bm_controller.TestR7TheJudgingGateRefusesAMalformedScopeContainer)
+THE CONTROL: the container question refuses shapes, never ... ok
+test_a_non_iterable_write_scope_is_a_named_refusal (test_bm_controller.TestR7TheJudgingGateRefusesAMalformedScopeContainer) ... ERROR
+test_a_real_disclosure_still_blocks_delivery (test_bm_controller.TestR7TheReservedLaneIsMechanicallyReserved)
+THE CONTROL, and it is round 6's own property: the marker is a ... ok
+test_a_step_that_is_not_a_spend_disclosure_blocks_no_delivery (test_bm_controller.TestR7TheReservedLaneIsMechanicallyReserved)
+The refuter's probe D2 in its general form: an ordinary founder ... FAIL
+test_plan_refuses_a_unit_in_the_reserved_lane (test_bm_controller.TestR7TheReservedLaneIsMechanicallyReserved) ... FAIL
+test_each_of_the_five_surviving_spellings_now_fails (test_bm_controller.TestR7TheGuardCoversAliasedExecutionPrimitives) ... FAIL
+test_the_import_list_is_pinned_by_name (test_bm_controller.TestR7TheGuardCoversAliasedExecutionPrimitives)
+The cheapest half of the fix, and the most total: an execution ... ok
+test_the_round_six_four_still_fail (test_bm_controller.TestR7TheGuardCoversAliasedExecutionPrimitives)
+The old calibration is KEPT, never replaced: a guard rebuilt to ... ok
+test_the_shipped_file_still_passes_the_guard (test_bm_controller.TestR7TheGuardCoversAliasedExecutionPrimitives) ... ok
+test_the_tenth_spelling_hunt_fails_too (test_bm_controller.TestR7TheGuardCoversAliasedExecutionPrimitives)
+Attacking the NEW guard rather than the old one, which is the ... FAIL
+
+======================================================================
+ERROR: test_a_non_iterable_write_scope_is_a_named_refusal (test_bm_controller.TestR7TheJudgingGateRefusesAMalformedScopeContainer)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 5614, in test_a_non_iterable_write_scope_is_a_named_refusal
+    self._judge_a_poisoned_shape(store, 7)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 5605, in _judge_a_poisoned_shape
+    outcome = engine.receive_result("p1", dispatch_ids["u1"],
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_controller.py", line 1676, in receive_result
+    outcome = self._verify_and_finish(claimed, project_id, run_id,
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_controller.py", line 2760, in _verify_and_finish
+    refusal = self._authorisation_refusal(project_id, unit, charged)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_controller.py", line 881, in _authorisation_refusal
+    verdict, _refused_path = self._gate_check_write_scope(
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_controller.py", line 2323, in _gate_check_write_scope
+    for path in unit["write_scope"] or []:
+TypeError: 'int' object is not iterable
+
+======================================================================
+FAIL: test_every_command_site_names_itself_to_the_ledger (test_bm_controller.TestR7EveryCommandTheJudgingPathRunsIsInventoried)
+F2's drift guard. The founder-facing 'what ran' sentence is
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 5282, in test_every_command_site_names_itself_to_the_ledger
+    self.assertEqual(
+AssertionError: Lists differ: ['_deliver_or_hold', '_handle_late_result'[49 chars]ish'] != []
+
+First list contains 5 additional elements.
+First extra element 0:
+'_deliver_or_hold'
+
++ []
+- ['_deliver_or_hold',
+-  '_handle_late_result',
+-  '_reject',
+-  '_reject_as_stale',
+-  '_verify_and_finish'] : every self._run_command call must pass an explicit label=, or the note that says what ran cannot name it
+
+======================================================================
+FAIL: test_a_ceiling_blown_by_the_done_definition_declares_no_deliverable (test_bm_controller.TestR7TheKillSwitchIsAskedAtEveryWindow)
+The same window, the founder's OTHER brake: the suite itself is
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 5427, in test_a_ceiling_blown_by_the_done_definition_declares_no_deliverable
+    self.assertNotEqual(
+AssertionError: 'DELIVERABLE_READY' == 'DELIVERABLE_READY' : no deliverable is declared over a blown ceiling: {'founder_gated': {'human_steps': [], 'failed_units': []}, 'stop_reason': 'DELIVERED', 'note': 'deliverable ready'}
+
+======================================================================
+FAIL: test_a_kill_during_the_verifier_owes_the_founder_a_step (test_bm_controller.TestR7TheKillSwitchIsAskedAtEveryWindow)
+The refuter's sharpest line: 'the founder pulled the switch, the
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 5368, in test_a_kill_during_the_verifier_owes_the_founder_a_step
+    self.assertTrue(
+AssertionError: False is not true : a founder step names the unit: []
+
+======================================================================
+FAIL: test_a_revoke_during_the_done_definition_declares_no_deliverable (test_bm_controller.TestR7TheKillSwitchIsAskedAtEveryWindow)
+The last window: the founder's WHOLE test suite is the longest
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 5396, in test_a_revoke_during_the_done_definition_declares_no_deliverable
+    self.assertNotEqual(
+AssertionError: 'DELIVERABLE_READY' == 'DELIVERABLE_READY' : a deliverable declared under a contract the founder revoked mid-suite stands behind nothing: {'founder_gated': {'human_steps': [], 'failed_units': []}, 'stop_reason': 'DELIVERED', 'note': 'deliverable ready'}
+
+======================================================================
+FAIL: test_a_revoke_during_the_verifier_is_not_an_acceptance (test_bm_controller.TestR7TheKillSwitchIsAskedAtEveryWindow)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 5335, in test_a_revoke_during_the_verifier_is_not_an_acceptance
+    self.assertEqual(outcome, "rejected")
+AssertionError: 'u1' != 'rejected'
+- u1
++ rejected
+
+
+======================================================================
+FAIL: test_a_stop_during_the_verifier_is_not_an_acceptance (test_bm_controller.TestR7TheKillSwitchIsAskedAtEveryWindow)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 5354, in test_a_stop_during_the_verifier_is_not_an_acceptance
+    self.assertEqual(outcome, "rejected")
+AssertionError: 'u1' != 'rejected'
+- u1
++ rejected
+
+
+======================================================================
+FAIL: test_the_carve_out_note_does_not_deny_the_command_it_ran (test_bm_controller.TestR7TheFounderNoteNamesWhatActuallyRan)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 5499, in test_the_carve_out_note_does_not_deny_the_command_it_ran
+    self.assertNotIn(
+AssertionError: 'NO command was run' unexpectedly found in "the founder's SPEND CEILING has tripped, so nothing is authorised and NO command was run for this result: not the unit's done_check, not its verifier, not the rollback and not the whole done-definition (spend is at or over 100 percent of a ceiling (104 token(s) of 100, 0 minute(s) of 100); the breaker has tripped.). Raise the ceiling with bm-autonomy sign --supersede, or accept the stop; the run drains on the next bm-controller step" : the note must not deny the command it just ran: "the founder's SPEND CEILING has tripped, so nothing is authorised and NO command was run for this result: not the unit's done_check, not its verifier, not the rollback and not the whole done-definition (spend is at or over 100 percent of a ceiling (104 token(s) of 100, 0 minute(s) of 100); the breaker has tripped.). Raise the ceiling with bm-autonomy sign --supersede, or accept the stop; the run drains on the next bm-controller step"
+
+======================================================================
+FAIL: test_the_delivery_note_names_the_suite_it_just_ran (test_bm_controller.TestR7TheFounderNoteNamesWhatActuallyRan)
+The third use site of the same sentence: `_deliver_or_hold`,
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 5556, in test_the_delivery_note_names_the_suite_it_just_ran
+    self.assertIn("done-definition", note)
+AssertionError: 'done-definition' not found in 'deliverable ready'
+
+======================================================================
+FAIL: test_a_bare_string_write_scope_is_refused_not_shredded (test_bm_controller.TestR7TheJudgingGateRefusesAMalformedScopeContainer)
+The same gate, walked character by character: 'a.py' becomes
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 5635, in test_a_bare_string_write_scope_is_refused_not_shredded
+    self.assertEqual(outcome, "rejected")
+AssertionError: 'u1' != 'rejected'
+- u1
++ rejected
+
+
+======================================================================
+FAIL: test_a_step_that_is_not_a_spend_disclosure_blocks_no_delivery (test_bm_controller.TestR7TheReservedLaneIsMechanicallyReserved)
+The refuter's probe D2 in its general form: an ordinary founder
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 5705, in test_a_step_that_is_not_a_spend_disclosure_blocks_no_delivery
+    self.assertEqual(
+AssertionError: 'CHECKPOINTED' != 'DELIVERABLE_READY'
+- CHECKPOINTED
++ DELIVERABLE_READY
+ : no spend was ever uncharged, so nothing may block delivery citing uncharged spend: {'stop_reason': 'SPEND_STOP', 'note': 'the done-definition was not run and nothing was delivered: 1 accepted unit(s) cost spend this engine could NOT charge, so the breaker reads LOW and a ceiling cannot mean anything until that is fixed. bm-autonomy human-steps --project p1 --open names each gap, the exact numbers and the two commands that close it'}
+
+======================================================================
+FAIL: test_plan_refuses_a_unit_in_the_reserved_lane (test_bm_controller.TestR7TheReservedLaneIsMechanicallyReserved)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 5674, in test_plan_refuses_a_unit_in_the_reserved_lane
+    engine.plan("p1", run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_each_of_the_five_surviving_spellings_now_fails (test_bm_controller.TestR7TheGuardCoversAliasedExecutionPrimitives)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 5845, in test_each_of_the_five_surviving_spellings_now_fails
+    self.assertNotEqual(
+AssertionError: [] == [] : the guard must FAIL for: NEW-A  from subprocess import run as X; X(cmd, shell=True)
+
+======================================================================
+FAIL: test_the_tenth_spelling_hunt_fails_too (test_bm_controller.TestR7TheGuardCoversAliasedExecutionPrimitives)
+Attacking the NEW guard rather than the old one, which is the
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 5854, in test_the_tenth_spelling_hunt_fails_too
+    self.assertNotEqual(
+AssertionError: [] == [] : the guard must FAIL for: HUNT-1 an alias of SELF, not of the checker
+
+----------------------------------------------------------------------
+Ran 23 tests in 0.521s
+
+FAILED (failures=13, errors=1)
+EXIT=1
+
+===========================================================================
+ADDENDUM, F3: the mutation evidence, generated AFTER the guard fix landed
+===========================================================================
+The round-6 guard is not a description here: it is extracted from git at
+1e40b8e and exec'd, so every 'round6=PASSES' below is that guard's own
+verdict. Each spelling is spliced into a SCRATCH COPY of
+tools/bm_controller.py held in memory; the repo file is never written and
+none of the mutant code is ever executed (ast.parse only).
+
+HUNT-1 to HUNT-14 are this writer's own attack on the ROUND 7 guard, not
+the refuter's. HUNT-6, HUNT-7 and HUNT-14 PASSED the first version of it
+and are the reason _BANNED_MODULE_ATTRIBUTE_NAMES and _RUNNER_CLASS
+exist. What is still NOT covered is in the report and in KNOWN-LIMITS.
+
+$ python3 r7_guard_table.py
+==========================================================================
+F3 MUTATION TABLE. Each spelling spliced into a SCRATCH COPY of
+tools/bm_controller.py held in memory; the repo file is never
+written and none of the mutant code is ever executed.
+==========================================================================
+
+subprocess.run() added inline in _verify_and_finish             round6=FAILS   round7=FAILS
+os.system() added inline in _verify_and_finish                  round6=FAILS   round7=FAILS
+getattr(self.checker, 'run') in _verify_and_finish              round6=FAILS   round7=FAILS
+runner = self.checker; runner.run(...) in _verify_and_finish    round6=FAILS   round7=FAILS
+NEW-A  from subprocess import run as X; X(cmd, shell=True)      round6=PASSES  round7=FAILS
+NEW-B  import subprocess as sp; sp.run(cmd, ...)                round6=PASSES  round7=FAILS
+NEW-C  from os import system as X; X(cmd)                       round6=PASSES  round7=FAILS
+NEW-D  operator.attrgetter('checker')(self).run(cmd, ...)       round6=PASSES  round7=FAILS
+NEW-E  import subprocess as _sp; _sp.Popen(cmd, ...)            round6=PASSES  round7=FAILS
+HUNT-1 an alias of SELF, not of the checker                     round6=PASSES  round7=FAILS
+HUNT-2 the builtins namespace, subscripted                      round6=PASSES  round7=FAILS
+HUNT-3 importlib.import_module, which needs no new import name  round6=PASSES  round7=FAILS
+HUNT-4 a banned primitive bound WITHOUT being called            round6=PASSES  round7=FAILS
+HUNT-5 the gated object handed back out of the gate             round6=FAILS   round7=FAILS
+HUNT-6 subprocess borrowed from the loaded sibling module's namespace  round6=PASSES  round7=FAILS
+HUNT-7 os.system borrowed the same way, which really works      round6=PASSES  round7=FAILS
+HUNT-8 a SECOND class in the module, calling subprocess directly  round6=FAILS   round7=FAILS
+HUNT-9 self.__dict__ to reach the checker without naming it     round6=FAILS   round7=FAILS
+HUNT-14 a second SubprocessCheckRunner, built outside the gate  round6=PASSES  round7=FAILS
+
+==========================================================================
+EVERY ROUND 7 FAILURE, verbatim, for the spellings round 6 passed
+==========================================================================
+
+NEW-A  from subprocess import run as X; X(cmd, shell=True)
+    line 3011  from subprocess import ... rebinds a module member under a local name, which is exactly how `from subprocess import run as X` walked past the round-6 guard; this module imports whole modules only
+    line 3012  X (which really names subprocess.run) is reached in ControllerEngine._verify_and_finish; the only place this module may start a process is SubprocessCheckRunner.run
+
+NEW-B  import subprocess as sp; sp.run(cmd, ...)
+    line 3011  import subprocess as sp is not one of this module's pinned imports (datetime, importlib.util, json, os, shlex, subprocess, sys, uuid); an execution primitive that needs an import may not have one
+    line 3012  sp.run (which really names subprocess.run) is reached in ControllerEngine._verify_and_finish; the only place this module may start a process is SubprocessCheckRunner.run
+
+NEW-C  from os import system as X; X(cmd)
+    line 3011  from os import ... rebinds a module member under a local name, which is exactly how `from subprocess import run as X` walked past the round-6 guard; this module imports whole modules only
+    line 3012  X (which really names os.system) starts a process, or turns a name into one, outside the CheckRunner entirely (in ControllerEngine._verify_and_finish)
+
+NEW-D  operator.attrgetter('checker')(self).run(cmd, ...)
+    line 3011  import operator is not one of this module's pinned imports (datetime, importlib.util, json, os, shlex, subprocess, sys, uuid); an execution primitive that needs an import may not have one
+    line 3012  operator.attrgetter (which really names operator.attrgetter) starts a process, or turns a name into one, outside the CheckRunner entirely (in ControllerEngine._verify_and_finish)
+
+NEW-E  import subprocess as _sp; _sp.Popen(cmd, ...)
+    line 3011  import subprocess as _sp is not one of this module's pinned imports (datetime, importlib.util, json, os, shlex, subprocess, sys, uuid); an execution primitive that needs an import may not have one
+    line 3012  _sp.Popen (which really names subprocess.Popen) is reached in ControllerEngine._verify_and_finish; the only place this module may start a process is SubprocessCheckRunner.run
+
+HUNT-1 an alias of SELF, not of the checker
+    line 3012  the checker attribute is reached in ControllerEngine._verify_and_finish; it may only be bound as self.checker in ControllerEngine.__init__ and called as self.checker.run(...) in ControllerEngine._run_command
+
+HUNT-2 the builtins namespace, subscripted
+    line 3011  __builtins__ in ControllerEngine._verify_and_finish IS a namespace: it hands back every builtin without naming any of them
+
+HUNT-3 importlib.import_module, which needs no new import name
+    line 3011  importlib.import_module (which really names importlib.import_module) starts a process, or turns a name into one, outside the CheckRunner entirely (in ControllerEngine._verify_and_finish)
+
+HUNT-4 a banned primitive bound WITHOUT being called
+    line 3011  os.system (which really names os.system) starts a process, or turns a name into one, outside the CheckRunner entirely (in ControllerEngine._verify_and_finish)
+
+HUNT-6 subprocess borrowed from the loaded sibling module's namespace
+    line 3011  the module 'subprocess' is reached as an ATTRIBUTE in ControllerEngine._verify_and_finish, which borrows another module's import of it and resolves through no import in this file
+
+HUNT-7 os.system borrowed the same way, which really works
+    line 3011  the module 'os' is reached as an ATTRIBUTE in ControllerEngine._verify_and_finish, which borrows another module's import of it and resolves through no import in this file
+
+HUNT-14 a second SubprocessCheckRunner, built outside the gate
+    line 3011  SubprocessCheckRunner is named in ControllerEngine._verify_and_finish; a second runner built anywhere but _engine has no authorisation gate in front of it
+
+==========================================================================
+THE CONTROL: the shipped file, unmutated
+==========================================================================
+round 6 guard -> []
+round 7 guard -> []
+pinned import list -> ['datetime', 'importlib.util', 'json', 'os', 'shlex', 'subprocess', 'sys', 'uuid']
