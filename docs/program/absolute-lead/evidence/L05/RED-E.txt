@@ -1,0 +1,83 @@
+================================================================
+BLOCK 1: view (tools/test_bm_view.py against the untouched tree,
+before tools/bm_view.py exists). Captured 2026-08-05 by Writer E.
+================================================================
+FAIL: test_a_needs_you_prints_one_json_object_with_a_bell (__main__.TestAlertHookEmitsWellFormedJson)
+FAIL: test_silence_when_nothing_needs_the_founder (__main__.TestAlertHookEmitsWellFormedJson)
+FAIL: test_the_bell_is_omitted_when_asked (__main__.TestAlertHookEmitsWellFormedJson)
+FAIL: test_the_stop_hook_wires_render_then_alert_last (__main__.TestAlertHookEmitsWellFormedJson)
+FAIL: test_no_render_clock_appears_anywhere (__main__.TestByteStableAndHonestlyStale)
+FAIL: test_the_fingerprint_moves_with_the_rows_and_only_with_them (__main__.TestByteStableAndHonestlyStale)
+FAIL: test_the_newest_record_time_shown_is_the_newest_row_read (__main__.TestByteStableAndHonestlyStale)
+FAIL: test_two_renders_with_no_intervening_write_are_identical (__main__.TestByteStableAndHonestlyStale)
+FAIL: test_doorway_needs_no_store_and_writes_nothing (__main__.TestConsentIsTheOnlyDoorForTheView)
+FAIL: test_every_subcommand_pre_consent_creates_zero_files (__main__.TestConsentIsTheOnlyDoorForTheView)
+FAIL: test_main_computes_consent_before_the_dispatch_lookup (__main__.TestConsentIsTheOnlyDoorForTheView)
+FAIL: test_no_write_primitive_appears_outside_the_funnel (__main__.TestConsentIsTheOnlyDoorForTheView)
+FAIL: test_store_constructors_live_in_exactly_one_function (__main__.TestConsentIsTheOnlyDoorForTheView)
+FAIL: test_bodies_are_one_sentence_of_at_most_140_characters (__main__.TestEmptyStatesAreDesigned)
+FAIL: test_every_action_command_is_in_the_offered_set (__main__.TestEmptyStatesAreDesigned)
+FAIL: test_every_empty_state_key_has_an_entry_with_four_fields (__main__.TestEmptyStatesAreDesigned)
+FAIL: test_exactly_one_action_per_rendered_empty_state (__main__.TestEmptyStatesAreDesigned)
+FAIL: test_no_internal_term_appears_in_any_empty_state (__main__.TestEmptyStatesAreDesigned)
+FAIL: test_titles_are_positive_statements (__main__.TestEmptyStatesAreDesigned)
+FAIL: test_anchors_are_unique (__main__.TestEverySectionRenders)
+FAIL: test_every_anchor_appears_in_the_document (__main__.TestEverySectionRenders)
+FAIL: test_no_section_renders_blank (__main__.TestEverySectionRenders)
+FAIL: test_view_sections_has_twelve_entries_in_the_designed_order (__main__.TestEverySectionRenders)
+FAIL: test_exactly_one_on_a_busy_project_and_byte_equal_to_bl (__main__.TestExactlyOneNextActionOnThePage)
+FAIL: test_exactly_one_on_the_empty_project (__main__.TestExactlyOneNextActionOnThePage)
+FAIL: test_the_counter_can_see_a_second_action (__main__.TestExactlyOneNextActionOnThePage)
+FAIL: test_at_most_three_commands_are_offered_before_first_completion (__main__.TestFirstFifteenMinutes)
+FAIL: test_every_counter_increment_traces_to_a_row (__main__.TestFirstFifteenMinutes)
+FAIL: test_the_doorway_answers_the_three_minute_zero_questions (__main__.TestFirstFifteenMinutes)
+FAIL: test_the_first_render_happens_after_consent_and_not_before (__main__.TestFirstFifteenMinutes)
+FAIL: test_the_setup_counter_reads_2_of_8_at_minute_4 (__main__.TestFirstFifteenMinutes)
+FAIL: test_neither_new_module_speaks_sql_or_imports_sqlite3 (__main__.TestNoSQLGuardAndNoSecondCollector)
+FAIL: test_no_format_string_names_a_bare_duration_unit (__main__.TestNoSQLGuardAndNoSecondCollector)
+FAIL: test_the_view_module_defines_no_collect_function (__main__.TestNoSQLGuardAndNoSecondCollector)
+FAIL: test_a_reasoned_row_is_labelled_by_the_renderer (__main__.TestPageTracesToRows)
+FAIL: test_decisions_forward_and_backward (__main__.TestPageTracesToRows)
+FAIL: test_insights_forward_and_backward (__main__.TestPageTracesToRows)
+FAIL: test_the_gate_counts_on_the_page_match_the_rows (__main__.TestPageTracesToRows)
+FAIL: test_timeline_forward_and_backward (__main__.TestPageTracesToRows)
+FAIL: test_timeline_replays_oldest_first (__main__.TestPageTracesToRows)
+FAIL: test_no_internal_term_reaches_the_founder_page (__main__.TestPlainLanguageHoldsOnThePage)
+FAIL: test_the_developer_brief_page_may_carry_them (__main__.TestPlainLanguageHoldsOnThePage)
+FAIL: test_a_large_fixture_stays_under_the_size_cap (__main__.TestSelfContained)
+FAIL: test_every_href_is_an_in_page_anchor_that_resolves (__main__.TestSelfContained)
+FAIL: test_no_external_reference_of_any_kind (__main__.TestSelfContained)
+FAIL: test_no_script_element_at_all (__main__.TestSelfContained)
+FAIL: test_wide_elements_sit_in_scroll_containers (__main__.TestSelfContained)
+FAIL: test_the_copy_as_prompt_block_names_the_decision_id (__main__.TestTheHandbackIsAlwaysVisible)
+FAIL: test_the_fork_ends_in_the_handback_for_all_five_classes (__main__.TestTheHandbackIsAlwaysVisible)
+FAIL: test_the_option_text_is_on_every_page (__main__.TestTheHandbackIsAlwaysVisible)
+FAIL: test_your_move_exists_on_the_empty_project (__main__.TestTheHandbackIsAlwaysVisible)
+FAIL: test_a_new_markdown_section_would_be_seen (__main__.TestTheHtmlBriefMatchesTheMarkdown)
+FAIL: test_section_headings_are_set_equal (__main__.TestTheHtmlBriefMatchesTheMarkdown)
+FAIL: test_trace_tags_are_set_equal (__main__.TestTheHtmlBriefMatchesTheMarkdown)
+FAIL: test_every_token_used_is_defined_in_both_themes (__main__.TestThemeAware)
+FAIL: test_the_data_theme_overrides_come_after_the_media_query (__main__.TestThemeAware)
+FAIL: test_the_media_query_and_the_root_block_both_exist (__main__.TestThemeAware)
+FAIL: test_shared_values_are_byte_identical_across_all_three (__main__.TestThreeRenderersOneCollector)
+FAIL: test_the_page_reads_the_eight_fields_from_bl (__main__.TestThreeRenderersOneCollector)
+FAIL: test_the_view_module_defines_no_collector (__main__.TestThreeRenderersOneCollector)
+FAIL: test_disclosure_depth_is_at_most_one (__main__.TestTwoLevelsAndOneExpander)
+FAIL: test_no_details_contains_another (__main__.TestTwoLevelsAndOneExpander)
+FAIL: test_the_raw_log_lives_only_inside_the_failure_expander (__main__.TestTwoLevelsAndOneExpander)
+Ran 64 tests in 0.013s
+FAILED (failures=63)
+
+================================================================
+BLOCK 2: consent (tools/test_bm_consent.py inventory class, after
+hooks/hooks.json names bm-view and with a deliberately UNGATED
+stub bm_view.py in the tree, design section 17 step 1).
+================================================================
+FAIL: test_every_hook_wired_command_of_every_module_checks_consent (test_bm_consent.TelemetryEveryHookProgramPreConsentCase)
+AssertionError: Lists differ: ['bm_view.py: no consent gate is declared [225 chars]ted'] != []
+FAIL: test_every_hook_wired_module_is_classified (test_bm_consent.TelemetryEveryHookProgramPreConsentCase)
+AssertionError: Lists differ: [] != ['bm_view.py']
+FAIL: test_no_wired_command_of_any_module_writes_before_consent (test_bm_consent.TelemetryEveryHookProgramPreConsentCase)
+AssertionError: 1 != 0 : Stop: sh -c 'p=$(cat); printf %s "$p" | python3 "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_telemetry.py" stop-warn; printf %s "$p" | python3 "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_lead.py" watchdog --tick; printf %s "$p" | python3 "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_view.py" render --if-stale; printf %s "$p" | python3 "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_view.py" alert --tick' exited 1
+Ran 9 tests in 2.481s
+FAILED (failures=3)

@@ -4775,7 +4775,19 @@ class TestNoDashes(unittest.TestCase):
                                        os.path.join("tools", "bm_packs.py"),
                                        os.path.join("tools", "bm_docs.py"),
                                        os.path.join("tools", "bm_docs_export.py"),
-                                       os.path.join("tools", "test_bm_docs.py")]
+                                       os.path.join("tools", "test_bm_docs.py"),
+                                       os.path.join("references", "visual-surface.md"),
+                                       os.path.join("tools", "bm_visual.py"),
+                                       os.path.join("tools", "bm_view.py"),
+                                       os.path.join("tools", "test_bm_visual.py"),
+                                       os.path.join("tools", "test_bm_view.py")]
+        # The L05 visual surface design (docs/program/absolute-lead/
+        # DESIGN-visual-surface.md, section 13.4) puts five files in this list:
+        # the register, which shipped with the design, plus the four L05 tools
+        # files, added 2026-08-06 when Writers D and E landed them. All four
+        # are verified pure ASCII with hostile fixture characters written as
+        # backslash-u escapes, which is what lets this guard and those
+        # fixtures hold at once.
         for rel in targets:
             for i, line in enumerate(read(rel).split("\n"), 1):
                 if "\u2013" in line or "\u2014" in line:

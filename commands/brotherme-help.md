@@ -2,14 +2,39 @@
 description: Explain what BrotherME does and how to use it, in plain language
 ---
 
-Outcome to produce: a short, plain-language orientation. No setup steps that involve editing files, and no internal machinery.
+Outcome to produce: a short, plain-language orientation that ends in ONE question, not a list of everything the product can do. No setup steps that involve editing files, and no internal machinery.
 
-Tell the user, briefly and in this order:
+## What to say first, and it is three sentences
 
 1. What BrotherME does: it turns an idea into a verified result, with a guided start, honest time and cost ranges, clear status, and a checked delivery.
-2. The nine things they can say: /brotherme-start (begin a project), /brotherme-status (where things stand), /brotherme-next (best next step), /brotherme-decisions (what is waiting on them to decide), /brotherme-handback (take a decision and the work under it back into their own hands), /brotherme-review (check the work), /brotherme-deliver (package the result), /brotherme-update (get the latest version), /brotherme-help (this message). Normal use rarely needs any command after start; plain conversation works. Two more exist that the coordinator normally runs on their behalf rather than the other way round: /brotherme-brief, which prints the short catch-up on where the work stands, and /brotherme-handover-pack, which writes the pages another person would take the project over from.
-3. What is verified: BrotherME is verified on Claude Code. This plugin install path is new and has been installed exactly once, on the author's machine from a local copy of the repository; the git-clone install described in the repository README is the verified path. The honest list of what is and is not proven is docs/KNOWN-LIMITS.md inside the installed BrotherME folder, readable right here without visiting the repository.
-4. What is true: your project's records are the one place a project's real status lives; CANVAS.md and the delivery packet are pages generated from those records for reading, never edited by hand and never the source of truth themselves.
-5. Your data is yours: ask for an export and BrotherME writes everything it has recorded about your project to one file you can keep. Ask for a purge and BrotherME permanently erases the project's data, keeping only the record that a purge happened, so a deletion can never hide itself.
+2. What it will want from them: their goal in their own words, and a decision now and then. Everything else it does itself and reports back.
+3. That normal use is plain conversation. Commands exist, and each one introduces itself at the moment it becomes useful, so nobody has to memorise a list.
 
-Then close with exactly one question that folds both paths into a single ask: mention the deep tour as the recommended option for a user who wants to see where everything stands (one page laying out project progress, decisions taken, process diagrams, the data model, and the code map, with a section for developers who want to help build), then ask whether they would like that tour or would rather just say what they want to accomplish. On the deep-tour answer, enter the deep tour flow in the brotherme skill. Honest limit either way: a project with no BrotherME record yet gets a static tour of the product instead of the live view, and the page it builds says plainly which one it is showing.
+Then ask exactly ONE question, and stop. Offer the deep tour as the recommended option for a user who wants to see where everything stands (one page laying out project progress, the decisions taken, the process drawings, and, for anyone who wants to help build, how this project is put together), then ask whether they would like that tour or would rather just say what they want to accomplish. On the deep-tour answer, enter the deep tour flow in the brotherme skill. Honest limit either way: a project with no BrotherME record yet gets a static tour of the product instead of the live view, and the page it builds says plainly which one it is showing.
+
+Do not print the command list unless they ask for it. That is the whole change to this command: a list of fourteen things at minute zero is what people bounce off, and the three below are all anyone needs to begin.
+
+## The three to name, if they ask what they can say right now
+
+- `/brotherme-start` to begin a project.
+- `/brotherme-status` for where things stand.
+- `/brotherme-next` for the best next step.
+
+Each of the others introduces itself when it becomes useful: the one for decisions and the one for taking a decision back appear the first time a decision is waiting on them; the one that writes the page appears once there is a page; the catch-up, the review, the delivery and the handover pages appear when there is something to catch up on, review, deliver or hand over.
+
+## The reference answer, when they ask to see everything
+
+Only when they ask for the full list, give it, grouped so it reads as four small sets rather than one wall:
+
+- **Getting going:** `/brotherme-start`, `/brotherme-status`, `/brotherme-next`, `/brotherme-help`.
+- **Deciding, and taking over:** `/brotherme-decisions` (what is waiting on them to decide), `/brotherme-handback` (take a decision and the work under it back into their own hands).
+- **Looking at it:** `/brotherme-view` (write the page that shows where the project stands), `/brotherme-brief` (the short catch-up on where the work stands), `/brotherme-review` (check the work), `/brotherme-deliver` (package the result), `/brotherme-handover-pack` (the pages another person would take the project over from).
+- **Running it, and updating:** `/brotherme-auto`, `/brotherme-auto-status` and `/brotherme-stop` belong to the flows that own them, and `/brotherme-update` gets the latest version.
+
+Say in the same breath that the catch-up and the handover pages are normally run on their behalf rather than the other way round.
+
+## The honesty answers, unchanged, and one question away
+
+- What is verified: BrotherME is verified on Claude Code. This plugin install path is new and has been installed exactly once, on the author's machine from a local copy of the repository; the git-clone install described in the repository README is the verified path. The honest list of what is and is not proven is docs/KNOWN-LIMITS.md inside the installed BrotherME folder, readable right here without visiting the repository.
+- What is true about their records: your project's records are the one place a project's real status lives; CANVAS.md, the page that shows where the project stands, and the delivery packet are all generated from those records for reading, never edited by hand and never the source of truth themselves.
+- Your data is yours: ask for an export and BrotherME writes everything it has recorded about your project to one file you can keep. Ask for a purge and BrotherME permanently erases the project's data, keeping only the record that a purge happened, so a deletion can never hide itself.

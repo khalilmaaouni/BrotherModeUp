@@ -25,6 +25,8 @@
     "scripts/bm_shell.py": 3,
     "tools/bm_autonomy.py": 2,
     "tools/bm_controller.py": 2,
-    "tools/bm_lead.py": 3
+    "tools/bm_lead.py": 3,
+    "tools/bm_view.py": 3,
+    "scripts/benchmark_comparative.py": 9
   }
 }
