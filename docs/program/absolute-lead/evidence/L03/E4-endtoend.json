@@ -27,22 +27,22 @@
   },
   "units": [
     {
-      "checkpoint_ref": "1e96724444354ee387aa0fa06453d6ad",
+      "checkpoint_ref": "6bcb7637f3bf493891960cc94839a0b8",
       "status": "DONE",
       "unit_id": "u1"
     },
     {
-      "checkpoint_ref": "fe8f42000a9a4f77a28d731029fe3467",
+      "checkpoint_ref": "0417b2a2e37e448fae1b06409577ff6f",
       "status": "DONE",
       "unit_id": "u2"
     },
     {
-      "checkpoint_ref": "669beebca31d4671801afd04048c3e05",
+      "checkpoint_ref": "62abd9dee709447fb1c28d60f9ecc8a4",
       "status": "DONE",
       "unit_id": "u3"
     },
     {
-      "checkpoint_ref": "a342ccf9b42549b784ed8c8fea065e49",
+      "checkpoint_ref": "9df03a7e975c435eb0ed88a0a71ca87d",
       "status": "DONE",
       "unit_id": "u4"
     }

@@ -562,6 +562,24 @@ def paths_overlap(a, b):
     return _prefix_contains(ka, kb) or _prefix_contains(kb, ka)
 
 
+def _names_a_file(segment):
+    """True when a path's FINAL segment carries an EXTENSION, which is the
+    only signal a lexical boundary has that the name is a file rather than
+    a directory (founder decision 2026-08-05, see path_within_allowed).
+
+    'a.py' and 'keys.pem' name files. 'src', 'app' and 'Makefile' do not:
+    an extensionless name is read as a directory. So is a DOTFILE such as
+    '.env', which has nothing in front of its dot to carry an extension,
+    and so is a trailing dot such as 'a.', which has nothing behind it.
+    Every one of those readings errs the same way on purpose, because the
+    two errors do not cost the same: reading a directory as a file hands
+    out a fence over its whole subtree, and reading a file as a directory
+    costs a refusal the founder answers by naming the path literally. The
+    asymmetry is deliberate and it always narrows."""
+    dot = segment.rfind(".")
+    return 0 < dot < len(segment) - 1
+
+
 def path_within_allowed(allowed, candidate):
     """True when `candidate` falls INSIDE the boundary `allowed` names:
     equal to it, or strictly under it at a separator boundary.
@@ -598,9 +616,38 @@ def path_within_allowed(allowed, candidate):
     count, every segment matching its own pattern segment. The recursive
     spelling is the plain directory, which the containment branch above
     already handles, so '**' is not recursive here and 'api/**' admits only
-    the direct children of 'api'. The teachable one-liner: a plain path
-    grants its subtree, a glob grants exactly what it matches at its own
-    depth.
+    the direct children of 'api'.
+
+    AND IT MUST ALSO GRANT WHAT A FENCE OVER THE MATCH WOULD COVER
+    (FOUNDER DECISION, 2026-08-05). Depth-exact matching alone left the
+    hole AZ reproduced fourth: ['src/*'] matched the plain DIRECTORY
+    'src/app' at its own depth, and a fence over a directory covers its
+    whole SUBTREE (paths_overlap and _coverage_key, which the fence hook
+    calls), so 'src/app/deep/keys.pem' became writable through the fence
+    although this very function REFUSES it when it is named directly. An
+    authorisation that grants a name whose fence reaches further than the
+    grant is not a boundary. So the rule gained its second half: an entry
+    grants a candidate ONLY IF it also grants everything a fence over that
+    candidate would cover. A pattern grants nothing below its own depth,
+    therefore a pattern may grant only a candidate with no subtree,
+    therefore a pattern may grant only a FILE, and the only file signal a
+    lexical boundary has is the extension the final segment carries (see
+    _names_a_file). 'src/*' still grants 'src/a.py' and no longer grants
+    'src/app'; 'api/*.py' is untouched, because every name it can match
+    carries '.py'.
+
+    The two rejected alternatives, both measured, both in
+    docs/program/absolute-lead/evidence/L03/FIX-round5-store-report.md
+    section 3 with their verbatim failures: a pattern granting the SUBTREE
+    of everything it matches reinstates the whole-project grant (['*']
+    authorises every file at every depth again), and a pattern granting
+    NOTHING breaks ['api/*.py'], which is a legitimate founder allowance.
+    This rule only ever narrows: every path it refuses today was granted
+    yesterday, and nothing it grants today was refused yesterday.
+
+    The teachable one-liner: a plain path grants its subtree, a pattern
+    grants the FILES it matches at its own depth. Name the directory
+    literally when the subtree is what you mean.
 
     fnmatch.fnmatchCASE, never fnmatch.fnmatch: the latter applies
     os.path.normcase itself, which on win32 IS ntpath.normcase and rewrites
@@ -628,7 +675,13 @@ def path_within_allowed(allowed, candidate):
     b_segs = nb.split("/")
     if len(a_segs) != len(b_segs):
         return False
-    return all(fnmatch.fnmatchcase(b, a) for a, b in zip(a_segs, b_segs))
+    if not all(fnmatch.fnmatchcase(b, a) for a, b in zip(a_segs, b_segs)):
+        return False
+    # The second half of the rule (founder decision 2026-08-05), and the
+    # reason it is HERE rather than in the caller: gate_check is not the
+    # only reader of this function, and a boundary that says yes to a
+    # directory has already lost by the time anyone claims a fence over it.
+    return _names_a_file(b_segs[-1])
 
 
 def _join_relative(a, b):
@@ -12998,12 +13051,20 @@ class Store(object):
           4. action_class is not one THIS contract grants.
           5. path given and not CONTAINED by one of allowed_paths
              (path_within_allowed: equal to an allowed path, or strictly
-             under an allowed directory, never merely overlapping one).
+             under an allowed directory, never merely overlapping one; a
+             PATTERN entry grants the files it matches at its own depth
+             and no directory, founder decision 2026-08-05).
              The property this establishes, stated so a reader can hold
              the code to it: a path this check ALLOWS can never name a
              file that a directly named path would be REFUSED for. An
              overlap test could not say that, because declaring the parent
-             of an allowed path overlaps it (REFUTATION-2 F2). A path that
+             of an allowed path overlaps it (REFUTATION-2 F2), and
+             neither could depth-exact glob matching alone, because a
+             fence over an admitted DIRECTORY covers a subtree the
+             pattern does not match. That last one is the 2026-08-05
+             decision, and the property is swept over 5840400 triples by
+             TestAPatternGrantsOnlyWhatAFenceOverItWouldAlsoGrant in
+             tools/test_bm_store.py. A path that
              cannot be READ as a path at all (non-string, empty, or
              resolving outside the root, including through a symlink
              created after the plan was written) is the same REFUSED-SCOPE

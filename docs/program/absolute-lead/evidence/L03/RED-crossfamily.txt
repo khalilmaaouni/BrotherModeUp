@@ -1,0 +1,195 @@
+RED, CROSS-FAMILY REFUTATION fixes, captured 2026-08-05T04:24:24Z BEFORE any change to tools/bm_controller.py.
+Command: python3 -m unittest test_bm_controller.TestCrossFamilyF2NonDictWorkerResult test_bm_controller.TestCrossFamilyF3InheritedGitEnvironment test_bm_controller.TestCrossFamilyF3ShippedRecordResultCannotBeRedirected -v
+git 2.50.1 (Apple Git-155), Python 3.9.6, darwin.
+
+test_a_list_result_is_recorded_as_malformed (test_bm_controller.TestCrossFamilyF2NonDictWorkerResult) ... FAIL
+test_a_none_result_is_recorded_as_malformed (test_bm_controller.TestCrossFamilyF2NonDictWorkerResult) ... FAIL
+test_a_string_result_is_recorded_as_malformed (test_bm_controller.TestCrossFamilyF2NonDictWorkerResult) ... FAIL
+test_an_int_result_is_recorded_as_malformed (test_bm_controller.TestCrossFamilyF2NonDictWorkerResult) ... FAIL
+test_the_shape_check_precedes_every_read_of_the_result (test_bm_controller.TestCrossFamilyF2NonDictWorkerResult)
+The behavioural tests above prove the four shapes this refuter ... FAIL
+test_every_redirecting_variable_is_stripped_from_the_child (test_bm_controller.TestCrossFamilyF3InheritedGitEnvironment)
+Not one variable, the whole class: the child sees NO GIT_ name ... FAIL
+test_the_documented_redirection_names_are_all_covered (test_bm_controller.TestCrossFamilyF3InheritedGitEnvironment)
+The enumeration above is evidence, so it is checked against the ... ERROR
+test_the_environment_a_legitimate_command_needs_survives (test_bm_controller.TestCrossFamilyF3InheritedGitEnvironment)
+The strip is a scalpel, not an empty environment: a done_check ... ok
+test_the_named_repository_beats_an_unstripped_variable (test_bm_controller.TestCrossFamilyF3InheritedGitEnvironment)
+Defence 2 ALONE, with defence 1 deliberately switched off: the ... FAIL
+test_the_only_subprocess_site_passes_an_explicit_environment (test_bm_controller.TestCrossFamilyF3InheritedGitEnvironment)
+Structural, so the property cannot rot back: there is exactly ... FAIL
+test_the_orchestrators_P_and_Q_sequence_leaves_Q_untouched (test_bm_controller.TestCrossFamilyF3InheritedGitEnvironment)
+THE reproduction, at the shipped runner, with real git. ... FAIL
+test_the_rollback_keeps_its_plain_shape_with_no_repository_to_name (test_bm_controller.TestCrossFamilyF3InheritedGitEnvironment)
+The fallback, pinned so it cannot drift silently: with no ... ok
+test_the_rollback_names_its_repository_when_there_is_one (test_bm_controller.TestCrossFamilyF3InheritedGitEnvironment)
+Defence 2, at the composition site: the command says WHICH ... FAIL
+test_record_result_rolls_back_in_its_own_project_only (test_bm_controller.TestCrossFamilyF3ShippedRecordResultCannotBeRedirected) ... FAIL
+
+======================================================================
+ERROR: test_the_documented_redirection_names_are_all_covered (test_bm_controller.TestCrossFamilyF3InheritedGitEnvironment)
+The enumeration above is evidence, so it is checked against the
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6943, in test_the_documented_redirection_names_are_all_covered
+    name, bc._sanitised_env({name: "x", "PATH": "/usr/bin"}),
+AttributeError: module 'bm_controller' has no attribute '_sanitised_env'
+
+======================================================================
+FAIL: test_a_list_result_is_recorded_as_malformed (test_bm_controller.TestCrossFamilyF2NonDictWorkerResult)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6115, in _assert_same_as_a_malformed_dict
+    _outcome, row, dispatches, state = self._drive(payload)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6108, in _drive
+    outcome = engine.step("p1")
+AttributeError: 'list' object has no attribute 'get'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6138, in test_a_list_result_is_recorded_as_malformed
+    self._assert_same_as_a_malformed_dict(["artifacts"])
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6117, in _assert_same_as_a_malformed_dict
+    self.fail("a worker result of %r crashed the controller with "
+AssertionError: a worker result of ['artifacts'] crashed the controller with AttributeError("'list' object has no attribute 'get'") instead of being recorded as a malformed result; the unit is left DISPATCHED, the run EXECUTING and the fence active
+
+======================================================================
+FAIL: test_a_none_result_is_recorded_as_malformed (test_bm_controller.TestCrossFamilyF2NonDictWorkerResult)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6115, in _assert_same_as_a_malformed_dict
+    _outcome, row, dispatches, state = self._drive(payload)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6108, in _drive
+    outcome = engine.step("p1")
+AttributeError: 'NoneType' object has no attribute 'get'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6135, in test_a_none_result_is_recorded_as_malformed
+    self._assert_same_as_a_malformed_dict(None)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6117, in _assert_same_as_a_malformed_dict
+    self.fail("a worker result of %r crashed the controller with "
+AssertionError: a worker result of None crashed the controller with AttributeError("'NoneType' object has no attribute 'get'") instead of being recorded as a malformed result; the unit is left DISPATCHED, the run EXECUTING and the fence active
+
+======================================================================
+FAIL: test_a_string_result_is_recorded_as_malformed (test_bm_controller.TestCrossFamilyF2NonDictWorkerResult)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6115, in _assert_same_as_a_malformed_dict
+    _outcome, row, dispatches, state = self._drive(payload)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6108, in _drive
+    outcome = engine.step("p1")
+AttributeError: 'str' object has no attribute 'get'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6141, in test_a_string_result_is_recorded_as_malformed
+    self._assert_same_as_a_malformed_dict("done")
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6117, in _assert_same_as_a_malformed_dict
+    self.fail("a worker result of %r crashed the controller with "
+AssertionError: a worker result of 'done' crashed the controller with AttributeError("'str' object has no attribute 'get'") instead of being recorded as a malformed result; the unit is left DISPATCHED, the run EXECUTING and the fence active
+
+======================================================================
+FAIL: test_an_int_result_is_recorded_as_malformed (test_bm_controller.TestCrossFamilyF2NonDictWorkerResult)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6115, in _assert_same_as_a_malformed_dict
+    _outcome, row, dispatches, state = self._drive(payload)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6108, in _drive
+    outcome = engine.step("p1")
+AttributeError: 'int' object has no attribute 'get'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6144, in test_an_int_result_is_recorded_as_malformed
+    self._assert_same_as_a_malformed_dict(7)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6117, in _assert_same_as_a_malformed_dict
+    self.fail("a worker result of %r crashed the controller with "
+AssertionError: a worker result of 7 crashed the controller with AttributeError("'int' object has no attribute 'get'") instead of being recorded as a malformed result; the unit is left DISPATCHED, the run EXECUTING and the fence active
+
+======================================================================
+FAIL: test_the_shape_check_precedes_every_read_of_the_result (test_bm_controller.TestCrossFamilyF2NonDictWorkerResult)
+The behavioural tests above prove the four shapes this refuter
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6152, in test_the_shape_check_precedes_every_read_of_the_result
+    self.assertIsNotNone(
+AssertionError: unexpectedly None : _handle_worker_result must ask isinstance(result, ...) before it reads anything off the result
+
+======================================================================
+FAIL: test_every_redirecting_variable_is_stripped_from_the_child (test_bm_controller.TestCrossFamilyF3InheritedGitEnvironment)
+Not one variable, the whole class: the child sees NO GIT_ name
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6838, in test_every_redirecting_variable_is_stripped_from_the_child
+    self.assertEqual(
+AssertionError: Lists differ: ['GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_[576 chars]REE'] != []
+
+First list contains 30 additional elements.
+First extra element 0:
+'GIT_ALTERNATE_OBJECT_DIRECTORIES'
+
+Diff is 718 characters long. Set self.maxDiff to None to see it. : a command this engine runs still inherits git variables that can redirect where git operates
+
+======================================================================
+FAIL: test_the_named_repository_beats_an_unstripped_variable (test_bm_controller.TestCrossFamilyF3InheritedGitEnvironment)
+Defence 2 ALONE, with defence 1 deliberately switched off: the
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6918, in test_the_named_repository_beats_an_unstripped_variable
+    self.assertEqual(
+AssertionError: 'committed\n' != 'FOUNDER EDIT\n'
+- committed
++ FOUNDER EDIT
+ : the composed rollback command must name its own repository, so an environment variable that survived the strip still cannot move it
+
+======================================================================
+FAIL: test_the_only_subprocess_site_passes_an_explicit_environment (test_bm_controller.TestCrossFamilyF3InheritedGitEnvironment)
+Structural, so the property cannot rot back: there is exactly
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6933, in test_the_only_subprocess_site_passes_an_explicit_environment
+    self.assertIn(
+AssertionError: 'env' not found in ['capture_output', 'cwd', 'shell', 'text'] : the one subprocess site must pass an explicit env=; without it the child inherits every git redirection the parent has
+
+======================================================================
+FAIL: test_the_orchestrators_P_and_Q_sequence_leaves_Q_untouched (test_bm_controller.TestCrossFamilyF3InheritedGitEnvironment)
+THE reproduction, at the shipped runner, with real git.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6810, in test_the_orchestrators_P_and_Q_sequence_leaves_Q_untouched
+    self.assertEqual(
+AssertionError: 'committed\n' != 'FOUNDER EDIT\n'
+- committed
++ FOUNDER EDIT
+ : the rollback destroyed an uncommitted edit in an UNRELATED repository: git honoured the inherited GIT_DIR and GIT_WORK_TREE over cwd, and exit 0 made the engine read that as a successful rollback
+
+======================================================================
+FAIL: test_the_rollback_names_its_repository_when_there_is_one (test_bm_controller.TestCrossFamilyF3InheritedGitEnvironment)
+Defence 2, at the composition site: the command says WHICH
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6876, in test_the_rollback_names_its_repository_when_there_is_one
+    self.assertIn("--git-dir=%s" % os.path.join(root, ".git"),
+AssertionError: '--git-dir=/private/var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/tmpi66x4y5r/P/.git' not found in 'git restore -- a.py'
+
+======================================================================
+FAIL: test_record_result_rolls_back_in_its_own_project_only (test_bm_controller.TestCrossFamilyF3ShippedRecordResultCannotBeRedirected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 6999, in test_record_result_rolls_back_in_its_own_project_only
+    self.assertEqual(
+AssertionError: 'committed\n' != 'FOUNDER EDIT\n'
+- committed
++ FOUNDER EDIT
+ : the shipped record-result destroyed an uncommitted edit in an unrelated repository: dispatch 564989d2c77745b9b8168137fc7378bb rejected; the unit re-queues for one retry or escalates, per the circuit breaker
+
+
+----------------------------------------------------------------------
+Ran 14 tests in 1.743s
+
+FAILED (failures=11, errors=1)
