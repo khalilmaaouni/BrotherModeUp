@@ -1524,3 +1524,83 @@ Nothing above this heading was edited to add it.
   refuses `bad-scope-container` naming `NoneType`, with `[]` given as the
   spelling for "no scope on purpose". A plan file that wrote `null` there
   gets a refusal it can act on rather than a silent empty scope.
+
+## Cross-family refuter, the STORE half: what closed, and what it costs (2026-08-05)
+
+Findings 1, 4, 5 and 6 of
+`BrotherModeUp-handovers/2026-08-05-codex-crossfamily-findings.md`, raised by a
+different model family against the shipped tools. Findings 2 and 3 were the
+controller writer's and are recorded separately.
+
+### Closed in this round
+
+- **A unit's numeric fields are type-checked where they enter the store.**
+  `retry_ceiling`, `token_budget`, `minute_budget` and `done_check_expect_exit`
+  each refuse `bad-numeric-field`, naming the field, the type that arrived and
+  what is required, before a single row is written. Nothing is coerced, so a
+  well-typed graph hashes exactly as it did before.
+- **The read-only store opens the database file read-only.** It used to open a
+  read-WRITE connection and set `PRAGMA query_only=ON` afterwards, which left
+  the OPEN itself able to write: measured, a plain connect to a cleanly-closed
+  WAL store whose sidecars had been removed created both `-wal` and `-shm` and
+  left them behind, and in a directory that forbids that it reported a
+  perfectly healthy store as `StoreCorrupt`.
+- **A claim cannot land on a unit whose status has moved.** `claim_unit`
+  refuses `unit-not-claimable` rather than overwriting a concurrent re-plan's
+  decision, and the controller treats that refusal as it treats a fence
+  overlap: deferred to a later wave, no retry burned, no drain, the fence
+  released.
+- **A dispatch gets at most one verdict.** `record_verification` refuses
+  `already-verified` for a dispatch that already carries one, so the loser of
+  two concurrent verifications can no longer re-open a unit the winner
+  completed.
+
+### Bounds this round's own fixes introduce
+
+- **A read-only open of a store with NO write-ahead log uses sqlite's
+  `immutable=1`, and there is a race it does not close.** With no `-wal` there
+  is nothing pending, so `immutable=1` is accurate and is the only open that
+  creates no file at all. A writer that appears between the check and the open
+  is caught by re-checking for the `-wal` and retaking the connection
+  WAL-aware; the window that survives is a writer that opens, commits,
+  checkpoints AND closes inside it, which would leave that one read seeing a
+  file changing underneath it. Closing that from this side means taking the
+  write lock a read-only diagnostic must not take.
+- **A store whose `-wal` exists but whose directory forbids the `-shm` cannot
+  be read at all**, and now says so by name (`store-unreadable`) rather than
+  being reported as corrupt. Reading it with `immutable=1` was rejected
+  deliberately: that ignores the log, so the diagnostic would report a stale
+  snapshot of a live store as healthy.
+- **An explicit `null` `retry_ceiling` now refuses.** An ABSENT key still means
+  the documented default of 1. A key present and null used to reach sqlite as
+  an `IntegrityError` out of the shipped CLI, so this replaces a traceback with
+  a refusal; the three nullable numeric fields still accept null.
+- **`claim_unit`'s predicate is `READY` or `PENDING`, not `READY` alone.** That
+  is the set `select_ready_units` hands out (a PENDING unit whose dependencies
+  are all DONE is selectable, and the claim is what flips it), so the literal
+  `status='READY'` predicate the finding proposed would have refused every
+  dependent unit in the product. Measured before shipping.
+
+### Not closed, and what stands in the way
+
+- **SQLite STRICT tables were considered and not used.** STRICT would enforce
+  column types in the engine rather than in Python, but it requires a full
+  table rebuild for every existing store (SQLite cannot make a table STRICT
+  in place) and a schema-version bump, which is not an additive migration.
+  Boundary validation gives the same protection with a founder-readable
+  refusal instead of an `sqlite3.IntegrityError`, and STRICT remains the right
+  answer for the next migration that rebuilds these tables anyway.
+- **Only the numeric columns of `controller_units` are type-checked at their
+  boundary.** `controller_dispatches.contract_revision` and `done_check_exit`
+  are engine-supplied and never compared (only formatted into messages), so
+  they cannot reproduce the defect today, and they were left alone rather than
+  widened into.
+- **`records.version` and `learning_rules.current_version` still compare a
+  caller's `expected_version` untyped.** A wrong-typed one fails the
+  optimistic-concurrency check and refuses `StaleIdentity`, so the failure
+  direction is safe (a refusal, never a wrong accept) and the sweep left it
+  listed rather than changed.
+- **Everything here was measured on darwin, Python 3.9.6, sqlite 3.51.0.**
+  sqlite's read-only WAL behaviour is not documented as platform specific, but
+  the sidecar creation, the `immutable=1` behaviour and the non-writable
+  directory results were observed on this machine only.

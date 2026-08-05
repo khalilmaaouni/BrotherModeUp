@@ -1,0 +1,577 @@
+RED, CROSS-FAMILY refuter, STORE side (findings 1, 4, 5, 6).
+Captured 2026-08-05 BEFORE any change to tools/bm_store.py or
+tools/bm_controller.py this round. Python 3.9.6, sqlite 3.51.0, darwin.
+Findings 2 and 3 belong to the controller writer and are not restated here.
+
+===============================================================
+### python3 -m unittest test_bm_store.TestCrossFamilyF1UnitNumberTypes
+###   test_bm_store.TestCrossFamilyF4ReadOnlyOpensReadOnly
+###   test_bm_store.TestCrossFamilyF5ClaimCannotResurrectARemovedUnit
+###   test_bm_store.TestCrossFamilyF6VerdictIsAtMostOnce
+===============================================================
+test_a_well_typed_graph_still_plans_exactly_as_before (test_bm_store.TestCrossFamilyF1UnitNumberTypes)
+The CONTROL. Nothing is coerced, so a well-typed unit stores the ... ok
+test_an_explicit_null_refuses_only_where_the_column_forbids_it (test_bm_store.TestCrossFamilyF1UnitNumberTypes) ... test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) ... test_the_comparison_that_crashed_is_reached_with_integers_only (test_bm_store.TestCrossFamilyF1UnitNumberTypes)
+mark_unit_failed's own arithmetic, exercised for real: a spent ... ok
+test_the_refuters_own_retry_ceiling_one_is_refused_by_name (test_bm_store.TestCrossFamilyF1UnitNumberTypes) ... FAIL
+test_the_shipped_failure_path_never_reaches_a_typeerror (test_bm_store.TestCrossFamilyF1UnitNumberTypes)
+The refuter's own sequence, end to end. Either the plan is ... ERROR
+test_a_path_full_of_uri_metacharacters_still_opens_its_own_database (test_bm_store.TestCrossFamilyF4ReadOnlyOpensReadOnly)
+GATE A said "no sqlite URI, ever" because a URI whose query ... ok
+test_a_pending_wal_is_read_through_and_not_ignored (test_bm_store.TestCrossFamilyF4ReadOnlyOpensReadOnly)
+The honesty control on the fix. An open connection whose newest ... ok
+test_a_read_only_open_creates_nothing_in_the_store_directory (test_bm_store.TestCrossFamilyF4ReadOnlyOpensReadOnly) ... FAIL
+test_a_read_only_open_in_a_non_writable_directory_neither_creates_nor_raises (test_bm_store.TestCrossFamilyF4ReadOnlyOpensReadOnly)
+The sharp half. Measured before the fix, the shipped read-only ... ERROR
+test_the_open_asks_for_read_only_before_it_connects (test_bm_store.TestCrossFamilyF4ReadOnlyOpensReadOnly)
+Structural. The defect this closes was one of ORDER: the ... FAIL
+test_the_read_only_connection_still_refuses_a_write (test_bm_store.TestCrossFamilyF4ReadOnlyOpensReadOnly)
+GATE A's own property, restated against the new spelling: the ... ok
+test_a_claim_cannot_land_on_a_unit_a_concurrent_replan_skipped (test_bm_store.TestCrossFamilyF5ClaimCannotResurrectARemovedUnit) ... FAIL
+test_a_foreign_project_still_refuses_run_not_in_project_first (test_bm_store.TestCrossFamilyF5ClaimCannotResurrectARemovedUnit)
+Ordering control: the ownership refusal must keep coming before ... ok
+test_a_pending_unit_whose_dependencies_are_done_still_claims (test_bm_store.TestCrossFamilyF5ClaimCannotResurrectARemovedUnit)
+THE CONTROL THAT SHAPES THE PREDICATE. select_ready_units ... ok
+test_an_unknown_unit_still_refuses_not_found (test_bm_store.TestCrossFamilyF5ClaimCannotResurrectARemovedUnit) ... ok
+test_the_claim_refuses_rather_than_silently_no_opping (test_bm_store.TestCrossFamilyF5ClaimCannotResurrectARemovedUnit)
+A silent no-op would leave the caller believing it holds a unit ... FAIL
+test_the_update_itself_carries_the_status_predicate (test_bm_store.TestCrossFamilyF5ClaimCannotResurrectARemovedUnit)
+Structural, because a read-then-write check is a DIFFERENT ... FAIL
+test_a_cancelled_dispatch_gets_its_own_sentence (test_bm_store.TestCrossFamilyF6VerdictIsAtMostOnce)
+A re-plan that drops a unit CANCELS its open dispatches. Telling ... FAIL
+test_a_dispatched_dispatch_may_still_be_verified (test_bm_store.TestCrossFamilyF6VerdictIsAtMostOnce)
+THE CONTROL. Two shipped routes verify a dispatch that never ... ok
+test_a_repeated_verdict_of_the_same_shape_is_still_refused (test_bm_store.TestCrossFamilyF6VerdictIsAtMostOnce)
+At-most-once, not last-write-wins and not first-write-wins- ... FAIL
+test_a_second_verdict_cannot_overwrite_the_first (test_bm_store.TestCrossFamilyF6VerdictIsAtMostOnce) ... FAIL
+test_an_unknown_dispatch_still_refuses_not_found (test_bm_store.TestCrossFamilyF6VerdictIsAtMostOnce) ... ok
+test_the_losers_rejection_cannot_roll_back_the_winners_work (test_bm_store.TestCrossFamilyF6VerdictIsAtMostOnce)
+The consequence the finding is actually about, walked whole: the ... FAIL
+test_the_update_carries_the_expected_status_predicate (test_bm_store.TestCrossFamilyF6VerdictIsAtMostOnce) ... FAIL
+
+======================================================================
+ERROR: test_an_explicit_null_refuses_only_where_the_column_forbids_it (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='retry_ceiling')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19271, in test_an_explicit_null_refuses_only_where_the_column_forbids_it
+    exc = self._refusal(**{field: None})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13641, in upsert_units
+    _exec(self,
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 5390, in _exec
+    return store.conn.execute(sql, params)
+sqlite3.IntegrityError: NOT NULL constraint failed: controller_units.retry_ceiling
+
+======================================================================
+ERROR: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='retry_ceiling', value=['1'])
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13641, in upsert_units
+    _exec(self,
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 5390, in _exec
+    return store.conn.execute(sql, params)
+sqlite3.InterfaceError: Error binding parameter 18 - probably unsupported type.
+
+======================================================================
+ERROR: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='retry_ceiling', value={'n': 1})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13641, in upsert_units
+    _exec(self,
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 5390, in _exec
+    return store.conn.execute(sql, params)
+sqlite3.InterfaceError: Error binding parameter 18 - probably unsupported type.
+
+======================================================================
+ERROR: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='token_budget', value=['1'])
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13641, in upsert_units
+    _exec(self,
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 5390, in _exec
+    return store.conn.execute(sql, params)
+sqlite3.InterfaceError: Error binding parameter 11 - probably unsupported type.
+
+======================================================================
+ERROR: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='token_budget', value={'n': 1})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13641, in upsert_units
+    _exec(self,
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 5390, in _exec
+    return store.conn.execute(sql, params)
+sqlite3.InterfaceError: Error binding parameter 11 - probably unsupported type.
+
+======================================================================
+ERROR: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='minute_budget', value=['1'])
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13641, in upsert_units
+    _exec(self,
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 5390, in _exec
+    return store.conn.execute(sql, params)
+sqlite3.InterfaceError: Error binding parameter 12 - probably unsupported type.
+
+======================================================================
+ERROR: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='minute_budget', value={'n': 1})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13641, in upsert_units
+    _exec(self,
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 5390, in _exec
+    return store.conn.execute(sql, params)
+sqlite3.InterfaceError: Error binding parameter 12 - probably unsupported type.
+
+======================================================================
+ERROR: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='done_check_expect_exit', value=['1'])
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13641, in upsert_units
+    _exec(self,
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 5390, in _exec
+    return store.conn.execute(sql, params)
+sqlite3.InterfaceError: Error binding parameter 15 - probably unsupported type.
+
+======================================================================
+ERROR: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='done_check_expect_exit', value={'n': 1})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13641, in upsert_units
+    _exec(self,
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 5390, in _exec
+    return store.conn.execute(sql, params)
+sqlite3.InterfaceError: Error binding parameter 15 - probably unsupported type.
+
+======================================================================
+ERROR: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='done_check_expect_exit', value=b'1')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13545, in upsert_units
+    hashes[uid] = self._unit_definition_hash(u)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13374, in _unit_definition_hash
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/encoder.py", line 179, in default
+    raise TypeError(f'Object of type {o.__class__.__name__} '
+TypeError: Object of type bytes is not JSON serializable
+
+======================================================================
+ERROR: test_the_shipped_failure_path_never_reaches_a_typeerror (test_bm_store.TestCrossFamilyF1UnitNumberTypes)
+The refuter's own sequence, end to end. Either the plan is
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19296, in test_the_shipped_failure_path_never_reaches_a_typeerror
+    store.mark_unit_failed("u1", actor, "the check did not pass")
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 14051, in mark_unit_failed
+    new_status = "READY" if new_count <= row["retry_ceiling"] else "FAILED"
+TypeError: '<=' not supported between instances of 'int' and 'str'
+
+======================================================================
+ERROR: test_a_read_only_open_in_a_non_writable_directory_neither_creates_nor_raises (test_bm_store.TestCrossFamilyF4ReadOnlyOpensReadOnly)
+The sharp half. Measured before the fix, the shipped read-only
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 14385, in __init__
+    self._verify_schema_or_raise()
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 14440, in _verify_schema_or_raise
+    return Store._verify_schema_or_raise(self)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 6124, in _verify_schema_or_raise
+    found = {r["name"] for r in self.conn.execute(
+sqlite3.OperationalError: attempt to write a readonly database
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19399, in test_a_read_only_open_in_a_non_writable_directory_neither_creates_nor_raises
+    ro = bs.ReadOnlyStore(root)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 14389, in __init__
+    self._quarantine_and_raise(e)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 14428, in _quarantine_and_raise
+    raise StoreCorrupt(
+bm_store.StoreCorrupt: /private/var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/tmp34ch1_e6/.brothermode/store.sqlite3 could not be read as a SQLite database (attempt to write a readonly database). This was a READ-ONLY diagnostic, which has no authority to write: nothing was moved, renamed, copied or deleted, and the file is still at its original path with its original bytes. Inspect it by hand; if it really is damaged, a writable command is the only thing that may quarantine it.
+
+======================================================================
+FAIL: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='retry_ceiling', value='one')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='retry_ceiling', value=1.5)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='retry_ceiling', value=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='retry_ceiling', value=b'1')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='token_budget', value='one')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='token_budget', value=1.5)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='token_budget', value=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='token_budget', value=b'1')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='minute_budget', value='one')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='minute_budget', value=1.5)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='minute_budget', value=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='minute_budget', value=b'1')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='done_check_expect_exit', value='one')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='done_check_expect_exit', value=1.5)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_every_numeric_unit_field_refuses_every_wrong_type (test_bm_store.TestCrossFamilyF1UnitNumberTypes) (field='done_check_expect_exit', value=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19250, in test_every_numeric_unit_field_refuses_every_wrong_type
+    exc = self._refusal(**{field: value})
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_the_refuters_own_retry_ceiling_one_is_refused_by_name (test_bm_store.TestCrossFamilyF1UnitNumberTypes)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19240, in test_the_refuters_own_retry_ceiling_one_is_refused_by_name
+    exc = self._refusal(retry_ceiling="one")
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19230, in _refusal
+    store.upsert_units(run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_a_read_only_open_creates_nothing_in_the_store_directory (test_bm_store.TestCrossFamilyF4ReadOnlyOpensReadOnly)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19382, in test_a_read_only_open_creates_nothing_in_the_store_directory
+    self.assertEqual(
+AssertionError: Lists differ: ['store.sqlite3', 'store.sqlite3-shm', 'store.sqlite3-wal'] != ['store.sqlite3']
+
+First list contains 2 additional elements.
+First extra element 1:
+'store.sqlite3-shm'
+
+- ['store.sqlite3', 'store.sqlite3-shm', 'store.sqlite3-wal']
++ ['store.sqlite3'] : a READ-ONLY diagnostic created ['store.sqlite3-shm', 'store.sqlite3-wal'] in the store directory
+
+======================================================================
+FAIL: test_the_open_asks_for_read_only_before_it_connects (test_bm_store.TestCrossFamilyF4ReadOnlyOpensReadOnly)
+Structural. The defect this closes was one of ORDER: the
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19482, in test_the_open_asks_for_read_only_before_it_connects
+    self.assertIn("mode=ro", body)
+AssertionError: 'mode=ro' not found in 'def _connect_read_only(path, timeout=5.0):\n    """Open an EXISTING file read-only, without ever building a sqlite URI\n    (GATE A, VERIFIED BY ORCHESTRATOR). A URI\'s query string only escapes\n    \'?\' and \'#\'; sqlite itself percent-DECODES everything else in the\n    filename, so a project path containing \'%\' (e.g. p%41) silently\n    resolved to a COMPLETELY DIFFERENT file, and every read-only command\n    opened another project\'s database, reported it healthy, and never saw\n    the caller\'s own data. Escaping \'%\' too would still leave a\n    pattern-language bug waiting for the next special character; deleting\n    URIs removes the whole class. The caller has already proven the file\n    exists (os.path.isfile), so a plain sqlite3.connect(path) is\n    unambiguous: no escaping, no decoding, no URI grammar. Read-only is\n    enforced at the SQL level with PRAGMA query_only=ON, the FIRST\n    statement on the connection, which makes any write raise\n    sqlite3.OperationalError rather than silently succeed."""\n    conn = sqlite3.connect(path, timeout=timeout, isolation_level=None)\n    try:\n        conn.row_factory = sqlite3.Row\n        conn.execute("PRAGMA query_only = ON")\n        conn.execute("PRAGMA busy_timeout=5000")\n    except Exception:\n        try:\n            conn.close()\n        except Exception:\n            pass\n        raise\n    return conn\n\n'
+
+======================================================================
+FAIL: test_a_claim_cannot_land_on_a_unit_a_concurrent_replan_skipped (test_bm_store.TestCrossFamilyF5ClaimCannotResurrectARemovedUnit)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19512, in test_a_claim_cannot_land_on_a_unit_a_concurrent_replan_skipped
+    store.claim_unit("u1", "fence-u1", actor)
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_the_claim_refuses_rather_than_silently_no_opping (test_bm_store.TestCrossFamilyF5ClaimCannotResurrectARemovedUnit)
+A silent no-op would leave the caller believing it holds a unit
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19534, in test_the_claim_refuses_rather_than_silently_no_opping
+    store.claim_unit("u1", "f2", actor)
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_the_update_itself_carries_the_status_predicate (test_bm_store.TestCrossFamilyF5ClaimCannotResurrectARemovedUnit)
+Structural, because a read-then-write check is a DIFFERENT
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19576, in test_the_update_itself_carries_the_status_predicate
+    self.assertIn("WHERE unit_id=? AND status IN", body)
+AssertionError: 'WHERE unit_id=? AND status IN' not found in '    def claim_unit(self, unit_id, fence_uuid, actor, project_id=None):\n        """Record the fence linkage for a unit the engine has ALREADY\n        claimed via self.claim(...): sets status CLAIMED and stores\n        fence_uuid. This method never claims a fence itself (see\n        open_run\'s own docstring for the same split). `project_id`, when\n        given, refuses \'run-not-in-project\' for a unit of another\n        project\'s run before any write (see _refuse_foreign_run)."""\n        if not isinstance(fence_uuid, str) or not fence_uuid.strip():\n            raise ValueError("fence_uuid must be a non-empty string")\n        ts = now_iso()\n        with self._transaction():\n            row = _exec(self, "SELECT * FROM controller_units WHERE "\n                       "unit_id=?", (unit_id,)).fetchone()\n            if row is None:\n                raise OwnershipRefused(\n                    "not-found", "no controller unit %r" % (unit_id,))\n            self._refuse_foreign_run(row, project_id, "claim_unit",\n                                     "unit %r" % (unit_id,))\n            _exec(self, "UPDATE controller_units SET status=\'CLAIMED\', "\n                  "fence_uuid=?, updated_at=? WHERE unit_id=?",\n                  (fence_uuid, ts, unit_id))\n            self._write_attribution(\n                row["project_id"], None, "controller.unit.claimed", actor,\n                action="claim_unit", evidence_ref=unit_id)\n        return {"unit_id": unit_id, "status": "CLAIMED"}\n'
+
+======================================================================
+FAIL: test_a_cancelled_dispatch_gets_its_own_sentence (test_bm_store.TestCrossFamilyF6VerdictIsAtMostOnce)
+A re-plan that drops a unit CANCELS its open dispatches. Telling
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19705, in test_a_cancelled_dispatch_gets_its_own_sentence
+    store.record_verification(did, 0, "pass", True, actor)
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_a_repeated_verdict_of_the_same_shape_is_still_refused (test_bm_store.TestCrossFamilyF6VerdictIsAtMostOnce)
+At-most-once, not last-write-wins and not first-write-wins-
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19641, in test_a_repeated_verdict_of_the_same_shape_is_still_refused
+    store.record_verification(did, 0, "pass", True, actor)
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_a_second_verdict_cannot_overwrite_the_first (test_bm_store.TestCrossFamilyF6VerdictIsAtMostOnce)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19624, in test_a_second_verdict_cannot_overwrite_the_first
+    store.record_verification(did, 1, "fail", False, actor)
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_the_losers_rejection_cannot_roll_back_the_winners_work (test_bm_store.TestCrossFamilyF6VerdictIsAtMostOnce)
+The consequence the finding is actually about, walked whole: the
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19657, in test_the_losers_rejection_cannot_roll_back_the_winners_work
+    store.record_verification(
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_the_update_carries_the_expected_status_predicate (test_bm_store.TestCrossFamilyF6VerdictIsAtMostOnce)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19710, in test_the_update_carries_the_expected_status_predicate
+    self.assertIn("WHERE dispatch_id=? AND status=?", body)
+AssertionError: 'WHERE dispatch_id=? AND status=?' not found in '    def record_verification(self, dispatch_id, done_check_exit,\n                            verifier_verdict, accepted, actor,\n                            project_id=None):\n        """Record the controller\'s OWN independent verification of a\n        result (design step 12/14: the done-check and the verifier run\n        via CheckRunner, never through the worker). Sets the dispatch\n        VERIFIED or REJECTED. Does NOT itself mark the unit done or\n        failed: the engine calls mark_unit_done (on acceptance, after its\n        own record_checkpoint) or mark_unit_failed (on rejection) next,\n        exactly the two-step split the design\'s step 15 states.\n        `project_id`, when given, refuses \'run-not-in-project\' for a\n        dispatch of another project\'s run before any write."""\n        ts = now_iso()\n        with self._transaction():\n            row = _exec(self, "SELECT * FROM controller_dispatches WHERE "\n                       "dispatch_id=?", (dispatch_id,)).fetchone()\n            if row is None:\n                raise OwnershipRefused(\n                    "not-found", "no dispatch %r" % (dispatch_id,))\n            self._refuse_foreign_run(row, project_id, "record_verification",\n                                     "dispatch %r" % (dispatch_id,))\n            new_status = "VERIFIED" if accepted else "REJECTED"\n            _exec(self, "UPDATE controller_dispatches SET status=?, "\n                  "done_check_exit=?, verifier_verdict=? WHERE "\n                  "dispatch_id=?",\n                  (new_status, done_check_exit, verifier_verdict or "",\n                   dispatch_id))\n            self._write_attribution(\n                row["project_id"], None, "controller.dispatch.verified",\n                actor, action="record_verification",\n                reason=verifier_verdict or "", evidence_ref=dispatch_id)\n        return {"dispatch_id": dispatch_id, "status": new_status}\n'
+
+----------------------------------------------------------------------
+Ran 25 tests in 0.617s
+
+FAILED (failures=26, errors=12)
+
+EXIT=1
+
+===============================================================
+### python3 -m unittest test_bm_controller.TestCrossFamilyF5StaleSelectionIsDeferred
+###   test_bm_controller.TestCrossFamilyF1ShippedPlanRefusesABadNumber
+###   test_bm_controller.TestCrossFamilyF4ShippedStatusNeverWritesTheStoreDirectory
+===============================================================
+test_a_unit_a_concurrent_replan_removed_is_never_dispatched (test_bm_controller.TestCrossFamilyF5StaleSelectionIsDeferred) ... FAIL
+test_the_deferral_burns_no_retry_and_drains_nothing (test_bm_controller.TestCrossFamilyF5StaleSelectionIsDeferred) ... FAIL
+test_the_fence_claimed_for_the_deferred_unit_is_not_left_active (test_bm_controller.TestCrossFamilyF5StaleSelectionIsDeferred)
+The claim of the FILES happens before the claim of the UNIT, so ... ok
+test_the_next_wave_makes_progress_on_the_replanned_graph (test_bm_controller.TestCrossFamilyF5StaleSelectionIsDeferred)
+Deferral means "try again later", so the loop must not be stuck: ... FAIL
+test_plan_refuses_a_string_retry_ceiling_without_a_traceback (test_bm_controller.TestCrossFamilyF1ShippedPlanRefusesABadNumber) ... FAIL
+test_plan_still_accepts_a_well_typed_retry_ceiling (test_bm_controller.TestCrossFamilyF1ShippedPlanRefusesABadNumber) ... ok
+test_status_against_a_non_writable_store_directory_still_reports (test_bm_controller.TestCrossFamilyF4ShippedStatusNeverWritesTheStoreDirectory) ... FAIL
+test_status_against_a_writable_store_directory_creates_no_sidecar (test_bm_controller.TestCrossFamilyF4ShippedStatusNeverWritesTheStoreDirectory) ... FAIL
+
+======================================================================
+FAIL: test_a_unit_a_concurrent_replan_removed_is_never_dispatched (test_bm_controller.TestCrossFamilyF5StaleSelectionIsDeferred)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 7089, in test_a_unit_a_concurrent_replan_removed_is_never_dispatched
+    self.assertEqual(
+AssertionError: 'DONE' != 'SKIPPED'
+- DONE
++ SKIPPED
+ : the claim overwrote a unit the re-plan had removed
+
+======================================================================
+FAIL: test_the_deferral_burns_no_retry_and_drains_nothing (test_bm_controller.TestCrossFamilyF5StaleSelectionIsDeferred)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 7105, in test_the_deferral_burns_no_retry_and_drains_nothing
+    self.assertEqual(
+AssertionError: None != 'CONTENTION' : a stale selection is contention, the same word a fence overlap gets, never a drain: {'run_id': 'b91cd5b56d4946348ab2650fbf67b94d', 'state': 'READY', 'dispatched': ['u1'], 'completed': ['u1'], 'note': 'no spend ceiling on file (no-data); starting units and saying so', 'stop_reason': None}
+
+======================================================================
+FAIL: test_the_next_wave_makes_progress_on_the_replanned_graph (test_bm_controller.TestCrossFamilyF5StaleSelectionIsDeferred)
+Deferral means "try again later", so the loop must not be stuck:
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 7135, in test_the_next_wave_makes_progress_on_the_replanned_graph
+    self.assertEqual(_dispatch_count(store, "u1"), 0)
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_plan_refuses_a_string_retry_ceiling_without_a_traceback (test_bm_controller.TestCrossFamilyF1ShippedPlanRefusesABadNumber)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 7156, in test_plan_refuses_a_string_retry_ceiling_without_a_traceback
+    self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+AssertionError: 0 != 1 : planned 1 unit(s) for run ed4e67f2f2d24055aa3b1399c0cad26f
+
+
+======================================================================
+FAIL: test_status_against_a_non_writable_store_directory_still_reports (test_bm_controller.TestCrossFamilyF4ShippedStatusNeverWritesTheStoreDirectory)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 7198, in test_status_against_a_non_writable_store_directory_still_reports
+    self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+AssertionError: 1 != 0 : bm_controller: refused: /private/var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/tmphtselk9x/.brothermode/store.sqlite3 could not be read as a SQLite database (attempt to write a readonly database). This was a READ-ONLY diagnostic, which has no authority to write: nothing was moved, renamed, copied or deleted, and the file is still at its original path with its original bytes. Inspect it by hand; if it really is damaged, a writable command is the only thing that may quarantine it.
+
+
+======================================================================
+FAIL: test_status_against_a_writable_store_directory_creates_no_sidecar (test_bm_controller.TestCrossFamilyF4ShippedStatusNeverWritesTheStoreDirectory)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 7214, in test_status_against_a_writable_store_directory_creates_no_sidecar
+    self.assertEqual(
+AssertionError: Lists differ: ['store.sqlite3', 'store.sqlite3-shm', 'store.sqlite3-wal'] != ['store.sqlite3']
+
+First list contains 2 additional elements.
+First extra element 1:
+'store.sqlite3-shm'
+
+- ['store.sqlite3', 'store.sqlite3-shm', 'store.sqlite3-wal']
++ ['store.sqlite3'] : a read-only command created ['store.sqlite3-shm', 'store.sqlite3-wal'] in the store directory
+
+----------------------------------------------------------------------
+Ran 8 tests in 2.306s
+
+FAILED (failures=6)
+
+EXIT=1

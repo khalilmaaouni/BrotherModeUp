@@ -64,6 +64,10 @@ import hashlib
 import io
 import json
 import os
+# Added for the read-only open (cross-family refuter, finding 4): Path.as_uri
+# percent-encodes a WHOLE path for the file: URI mode=ro needs, which is the
+# total rule GATE A's partial escape was missing. See _read_only_uri.
+import pathlib
 import posixpath
 import re
 import secrets
@@ -1176,6 +1180,81 @@ def declared_scope_list(value, field, unit_id=None):
         "to declare no scope at all."
         % (field, "" if unit_id is None else " on unit %r" % (unit_id,),
            _safe_repr(value), type_name, consequence),
+        details={"field": field, "type": type_name, "unit_id": unit_id,
+                 "entry": _safe_repr(value)})
+
+
+#: Every NUMERIC field of a controller unit, with the one question that
+#: differs between them: whether an explicit null is a legal declaration.
+#: (field, allows_null). token_budget and minute_budget are nullable INTEGER
+#: columns whose NULL means "no budget", and done_check_expect_exit is
+#: written as `value or 0`, so a null there has always meant "expect 0";
+#: retry_ceiling is NOT NULL with a default of 1, so a null for it is a
+#: declaration of a value the column cannot hold and refuses by name rather
+#: than reaching sqlite as an IntegrityError out of the shipped CLI.
+#:
+#: The list is the CLASS, not the one field the refuter happened to name.
+#: Anything added to controller_units with INTEGER affinity belongs here on
+#: the same line as the column, or the defect below comes straight back.
+UNIT_NUMBER_FIELDS = (("retry_ceiling", False), ("token_budget", True),
+                      ("minute_budget", True),
+                      ("done_check_expect_exit", True))
+
+
+def declared_unit_number(value, field, unit_id=None, allows_null=False):
+    """The TYPE gate for a unit's numeric fields, asked where the value
+    ENTERS the store and before a single row is written (cross-family
+    refuter, finding 1). Returns the value unchanged, or refuses
+    'bad-numeric-field' naming the field, the type that arrived and what is
+    required.
+
+    THE DEFECT THIS CLOSES, and why it is at the boundary rather than at
+    the comparison. SQLite's controller_units table is not STRICT, and
+    column AFFINITY is a conversion preference, not a constraint: INTEGER
+    affinity converts a numeric-looking TEXT value and stores anything else
+    exactly as handed over. So `"retry_ceiling": "one"` from
+    `bm-controller plan --units-json` was stored as the TEXT 'one', and
+    mark_unit_failed then evaluated `new_count <= row["retry_ceiling"]`,
+    which in Python 3 is `1 <= 'one'`, a TypeError. It escaped the shipped
+    CLI as a traceback with the unit left RESULT_IN, its fence ACTIVE and
+    the run VERIFYING, and a retry met the same orphaned dispatch.
+
+    Guarding the comparison instead would have left the bad value in the
+    column for every OTHER reader (the engine's own
+    `outcome["exit_code"] == unit["done_check_expect_exit"]` silently never
+    matches against TEXT, so a done-check that passed would read as
+    failed), and would have had to be repeated at each one. One question at
+    the boundary is the whole class.
+
+    NOTHING IS COERCED. int('1') would change a unit's definition_hash for
+    a graph the founder believes is unchanged, and a value silently
+    corrected is a value nobody can audit: the same reasoning
+    _autonomy_enum states for enums and declared_scope_list states for
+    scopes. bool is refused despite being an int subclass, the same
+    exclusion record_dispatch already applies to `attempt` and
+    sign_contract applies to its ceilings: True is not a retry ceiling of
+    one, it is a founder who wrote the wrong thing."""
+    if value is None:
+        if allows_null:
+            return value
+        type_name = "NoneType"
+        requirement = ("a whole number (this column is NOT NULL, so null is "
+                       "not a way to say 'default'; omit the key instead)")
+    elif isinstance(value, bool) or not isinstance(value, int):
+        type_name = type(value).__name__
+        requirement = ("a whole number%s"
+                       % (" or null" if allows_null else ""))
+    else:
+        return value
+    raise OwnershipRefused(
+        "bad-numeric-field",
+        "%s%s is %s (type %s), and %s is required. SQLite stores this "
+        "column with INTEGER affinity and no STRICT constraint, so a value "
+        "of the wrong type is kept verbatim and only fails later, in a "
+        "comparison, as a crash rather than as a refusal. Nothing was "
+        "written."
+        % (field, "" if unit_id is None else " on unit %r" % (unit_id,),
+           _safe_repr(value), type_name, requirement),
         details={"field": field, "type": type_name, "unit_id": unit_id,
                  "entry": _safe_repr(value)})
 
@@ -13542,6 +13621,23 @@ class Store(object):
                     u["read_scope"] = [
                         _coerce_path_entry(p) for p in declared_scope_list(
                             u["read_scope"], "read_scope", unit_id=uid)]
+                # The NUMERIC fields get the same treatment the scope
+                # fields get, and for the same reason (cross-family
+                # refuter, finding 1): a column's AFFINITY is a preference,
+                # not a constraint, so an unvalidated value of the wrong
+                # type is stored verbatim and surfaces later as a TypeError
+                # inside mark_unit_failed's `new_count <= retry_ceiling`,
+                # out of the shipped CLI, with the unit RESULT_IN, its
+                # fence ACTIVE and the run VERIFYING. Only a key that is
+                # PRESENT is asked about, exactly as with read_scope: an
+                # absent key is not a declaration and still takes the
+                # column's documented default. Nothing is coerced, so a
+                # well-typed unit hashes precisely as it did before this
+                # round.
+                for field, allows_null in UNIT_NUMBER_FIELDS:
+                    if field in u:
+                        declared_unit_number(u[field], field, unit_id=uid,
+                                             allows_null=allows_null)
                 hashes[uid] = self._unit_definition_hash(u)
 
             # -- acyclic check over the NEW units' own internal edges ----
@@ -13838,7 +13934,34 @@ class Store(object):
         fence_uuid. This method never claims a fence itself (see
         open_run's own docstring for the same split). `project_id`, when
         given, refuses 'run-not-in-project' for a unit of another
-        project's run before any write (see _refuse_foreign_run)."""
+        project's run before any write (see _refuse_foreign_run).
+
+        REFUSES 'unit-not-claimable' when the unit's status is not one
+        select_ready_units would hand out (cross-family refuter, finding
+        5). The update used to be unconditional, by unit id alone, so a
+        claim built on a selection taken BEFORE a concurrent re-plan
+        overwrote whatever the re-plan had decided: process A selects u1
+        while the run is READY, process B plans without u1 and commits it
+        SKIPPED, A resumes with its stale list and turns SKIPPED into
+        CLAIMED, and work the founder explicitly removed is dispatched.
+        The same hole let a CLAIMED unit be re-claimed under a second
+        fence, silently orphaning the first.
+
+        THE PREDICATE IS THE SET select_ready_units SELECTS, NOT LITERALLY
+        'READY'. That method returns units that are PENDING or READY ("a
+        PENDING unit whose dependencies are now all DONE is reported ready
+        here; the engine flips it to READY on claim via claim_unit"), so a
+        literal status='READY' predicate would refuse every dependent unit
+        in the product: measured, a two-unit graph leaves u2 PENDING right
+        through u1 completing, and the claim is what moves it. It refuses
+        rather than no-opping, because a silent no-op leaves the caller
+        believing it holds a unit it does not, which is how the dispatch
+        got written in the first place.
+
+        Both halves of the guard are kept deliberately. _transaction opens
+        BEGIN IMMEDIATE, which serialises the read against another process,
+        and the UPDATE carries the predicate anyway with its rowcount
+        checked, so the WRITE ITSELF cannot land on a status that moved."""
         if not isinstance(fence_uuid, str) or not fence_uuid.strip():
             raise ValueError("fence_uuid must be a non-empty string")
         ts = now_iso()
@@ -13850,9 +13973,22 @@ class Store(object):
                     "not-found", "no controller unit %r" % (unit_id,))
             self._refuse_foreign_run(row, project_id, "claim_unit",
                                      "unit %r" % (unit_id,))
-            _exec(self, "UPDATE controller_units SET status='CLAIMED', "
-                  "fence_uuid=?, updated_at=? WHERE unit_id=?",
-                  (fence_uuid, ts, unit_id))
+            cur = _exec(self, "UPDATE controller_units SET status='CLAIMED', "
+                        "fence_uuid=?, updated_at=? WHERE unit_id=? AND "
+                        "status IN ('READY','PENDING')",
+                        (fence_uuid, ts, unit_id))
+            if cur.rowcount != 1:
+                raise OwnershipRefused(
+                    "unit-not-claimable",
+                    "unit %r is %s, not READY or PENDING; a claim may only "
+                    "land on a unit select_ready_units would hand out. Its "
+                    "status moved after this claim's selection was taken "
+                    "(a concurrent re-plan, or a claim that already "
+                    "succeeded), so nothing was claimed and no dispatch may "
+                    "be opened against it. Re-read the unit graph and "
+                    "select again." % (unit_id, row["status"]),
+                    details={"unit_id": unit_id, "status": row["status"],
+                             "fence_uuid": fence_uuid})
             self._write_attribution(
                 row["project_id"], None, "controller.unit.claimed", actor,
                 action="claim_unit", evidence_ref=unit_id)
@@ -13974,7 +14110,30 @@ class Store(object):
         own record_checkpoint) or mark_unit_failed (on rejection) next,
         exactly the two-step split the design's step 15 states.
         `project_id`, when given, refuses 'run-not-in-project' for a
-        dispatch of another project's run before any write."""
+        dispatch of another project's run before any write.
+
+        AT MOST ONE VERDICT PER DISPATCH (cross-family refuter, finding 6).
+        The update used to be unconditional, by dispatch id alone, and did
+        not require the dispatch to still be awaiting a verdict, so two
+        processes verifying the same result concurrently could overwrite
+        VERIFIED with REJECTED or the reverse. The sharp end is what
+        happens next rather than the row itself: the loser's rejection then
+        reached mark_unit_failed, which marked an already completed unit
+        retryable and rolled back work the winner had accepted. This is the
+        same resolve-once shape record_result and answer_interruption use,
+        and a REPEATED verdict of the same shape is refused too, because
+        "first write wins quietly" is indistinguishable from "the second
+        caller's check never ran".
+
+        THE PREDICATE IS "NO VERDICT YET", NOT LITERALLY 'RESULT_IN'. Two
+        shipped routes verify a dispatch that never reached RESULT_IN: the
+        re-await route, when the live contract stops authorising a unit in
+        flight, and the unsafe-write-scope refusal, both of which close a
+        DISPATCHED dispatch. A literal RESULT_IN predicate would break
+        both. A CANCELLED dispatch gets its OWN refusal for the reason
+        record_result states: a re-plan dropped the unit, so telling that
+        caller "a verdict was already recorded" would be a false statement
+        about a dispatch nothing ever judged."""
         ts = now_iso()
         with self._transaction():
             row = _exec(self, "SELECT * FROM controller_dispatches WHERE "
@@ -13984,12 +14143,40 @@ class Store(object):
                     "not-found", "no dispatch %r" % (dispatch_id,))
             self._refuse_foreign_run(row, project_id, "record_verification",
                                      "dispatch %r" % (dispatch_id,))
+            if row["status"] == "CANCELLED":
+                raise OwnershipRefused(
+                    "dispatch-cancelled",
+                    "dispatch %r is CANCELLED: a re-plan dropped unit %r "
+                    "from the unit graph, so this dispatch was cancelled "
+                    "and no verdict can be recorded against it."
+                    % (dispatch_id, row["unit_id"]))
+            if row["status"] not in ("DISPATCHED", "RESULT_IN"):
+                raise OwnershipRefused(
+                    "already-verified",
+                    "dispatch %r is %s: a verdict was already recorded for "
+                    "it, and a second one would overwrite a terminal "
+                    "judgement (and could re-open a unit the first verdict "
+                    "already completed). A verdict is at most once per "
+                    "dispatch; a fresh attempt needs a fresh dispatch."
+                    % (dispatch_id, row["status"]),
+                    details={"dispatch_id": dispatch_id,
+                             "status": row["status"],
+                             "unit_id": row["unit_id"]})
             new_status = "VERIFIED" if accepted else "REJECTED"
-            _exec(self, "UPDATE controller_dispatches SET status=?, "
-                  "done_check_exit=?, verifier_verdict=? WHERE "
-                  "dispatch_id=?",
-                  (new_status, done_check_exit, verifier_verdict or "",
-                   dispatch_id))
+            cur = _exec(self, "UPDATE controller_dispatches SET status=?, "
+                        "done_check_exit=?, verifier_verdict=? WHERE "
+                        "dispatch_id=? AND status=?",
+                        (new_status, done_check_exit, verifier_verdict or "",
+                         dispatch_id, row["status"]))
+            if cur.rowcount != 1:
+                raise OwnershipRefused(
+                    "already-verified",
+                    "dispatch %r stopped being %s between this verdict's "
+                    "check and its write, so nothing was written."
+                    % (dispatch_id, row["status"]),
+                    details={"dispatch_id": dispatch_id,
+                             "status": row["status"],
+                             "unit_id": row["unit_id"]})
             self._write_attribution(
                 row["project_id"], None, "controller.dispatch.verified",
                 actor, action="record_verification",
@@ -14295,38 +14482,165 @@ class Store(object):
 # are diagnostics. A diagnostic that can write is a diagnostic that can
 # silently CREATE the very thing it claims to be checking, and then report
 # health about the empty shell it just made. This class never creates a
-# directory, a file, or a WAL sidecar, never runs schema DDL, and enforces
-# read-only with PRAGMA query_only=ON on a PLAIN connection (GATE A,
-# fix-round 6, 2026-07-26: no sqlite URI, ever; see _connect_read_only).
+# directory, a file, or a WAL sidecar, never runs schema DDL, and opens the
+# database file itself READ-ONLY, with PRAGMA query_only=ON kept as a
+# second, independent defence (cross-family refuter finding 4, which
+# reopened GATE A of fix-round 6; see _connect_read_only for what changed
+# and what did not).
 # ---------------------------------------------------------------------------
 
+def _read_only_uri(path, query):
+    """`path` as a sqlite file: URI carrying `query`, with the WHOLE path
+    percent-encoded by pathlib rather than by hand.
+
+    GATE A (fix-round 6) deleted URIs from this file because the URI in use
+    then escaped only '?' and '#' while sqlite percent-DECODES the rest of
+    the filename, so a project at p%41 silently resolved to pA and every
+    read-only command reported another project's database as this one's.
+    That reasoning was about a PARTIAL escape, and the conclusion drawn
+    from it, "escaping '%' too would still leave a pattern-language bug
+    waiting for the next special character", is answered by not escaping
+    characters one at a time: Path.as_uri() percent-encodes every byte
+    outside the unreserved set, which is a total rule rather than a list.
+    Verified on this machine (Python 3.9.6, sqlite 3.51.0, darwin) against
+    pA, p%41, p[1], p#q, p?x, p a, p'q, pe, p+q, p&q, p=q and p%2Fq: each
+    one opened its OWN database, and test_a_path_full_of_uri_
+    metacharacters_still_opens_its_own_database is that property as a test
+    rather than as this paragraph.
+
+    A URI is unavoidable here: mode=ro is the only way sqlite3 will open
+    the database file itself read-only, and sqlite3.connect exposes it
+    through the URI form alone."""
+    if not os.path.isabs(path):
+        path = os.path.abspath(path)
+    return pathlib.Path(path).as_uri() + query
+
+
 def _connect_read_only(path, timeout=5.0):
-    """Open an EXISTING file read-only, without ever building a sqlite URI
-    (GATE A, VERIFIED BY ORCHESTRATOR). A URI's query string only escapes
-    '?' and '#'; sqlite itself percent-DECODES everything else in the
-    filename, so a project path containing '%' (e.g. p%41) silently
-    resolved to a COMPLETELY DIFFERENT file, and every read-only command
-    opened another project's database, reported it healthy, and never saw
-    the caller's own data. Escaping '%' too would still leave a
-    pattern-language bug waiting for the next special character; deleting
-    URIs removes the whole class. The caller has already proven the file
-    exists (os.path.isfile), so a plain sqlite3.connect(path) is
-    unambiguous: no escaping, no decoding, no URI grammar. Read-only is
-    enforced at the SQL level with PRAGMA query_only=ON, the FIRST
-    statement on the connection, which makes any write raise
-    sqlite3.OperationalError rather than silently succeed."""
-    conn = sqlite3.connect(path, timeout=timeout, isolation_level=None)
-    try:
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA query_only = ON")
-        conn.execute("PRAGMA busy_timeout=5000")
-    except Exception:
+    """Open an EXISTING file GENUINELY read-only.
+
+    WHAT WAS WRONG (cross-family refuter, finding 4). This opened an
+    ordinary read-WRITE sqlite3.connect(path) and only afterwards executed
+    PRAGMA query_only=ON. query_only stops SQL statements from writing; it
+    does not stop the OPEN itself from writing, and for a WAL database the
+    open is a write: measured on this machine, a plain connect to a
+    cleanly-closed WAL store whose sidecars had been removed CREATED both
+    store.sqlite3-wal and store.sqlite3-shm and left them behind, so a
+    purely diagnostic `bm-controller status` mutated the store directory.
+    Where the directory forbids that, it was worse than a mutation: the
+    open raised 'attempt to write a readonly database', which is not a
+    transient-busy error, so ReadOnlyStore.__init__ quarantine-classified
+    it and reported a PERFECTLY HEALTHY store as StoreCorrupt.
+
+    THE LADDER, and why it is a ladder rather than one spelling. sqlite has
+    two read-only modes and neither covers both cases alone:
+
+      mode=ro           opens the database file O_RDONLY, reads THROUGH the
+                        WAL with real locks, and is therefore the honest
+                        answer whenever a WAL exists. It still needs the
+                        -shm (sqlite's shared-memory bookkeeping, not the
+                        database), and it cannot CREATE the -wal, so
+                        against a store with no -wal at all it fails with
+                        'unable to open database file'.
+
+      mode=ro&immutable=1
+                        creates nothing whatsoever and works in a
+                        directory with no write permission, because it
+                        tells sqlite the file is not changing and so no
+                        WAL, no -shm and no locking are needed.
+
+    So: with a -wal present, mode=ro, always, and never immutable, because
+    immutable IGNORES the WAL and a diagnostic that silently reports the
+    pre-WAL state of a live store is the same class of lie fix-round 4
+    exists to prevent (test_a_pending_wal_is_read_through_and_not_ignored
+    pins that). With NO -wal there is nothing pending by definition, and
+    immutable is both the accurate description of the file and the only
+    open that touches nothing.
+
+    THE RACE THIS LEAVES, stated rather than buried. A writer can create a
+    -wal between the stat and the open, which would leave an immutable
+    connection reading a file that is being checkpointed underneath it. The
+    -wal is re-checked immediately after the open and the connection is
+    thrown away and retaken WAL-aware if one appeared, so the residual
+    window is a writer that opens, commits, checkpoints AND closes inside
+    it. That is not closed, and cannot be from this side without taking the
+    write lock a read-only diagnostic must not take.
+
+    PRAGMA query_only=ON is kept, as a second defence that does not share a
+    failure mode with the first: mode=ro is enforced by the OS on the file
+    handle, query_only by sqlite on the statement.
+
+    The whole ladder lives in THIS function, including both PRAGMA calls,
+    rather than in an opening helper beside it. That is deliberate: GATE 4
+    (test_structural_gate4_bare_execute_sites_are_all_named_exceptions)
+    holds every bare .execute() site to a closed, named set, and
+    _connect_read_only is already in it as "the one place a read-only
+    connection is opened, before self.conn exists". Splitting the open out
+    would have meant widening that set, and one exempt site is a smaller
+    surface than two."""
+    wal_path = path + "-wal"
+    attempts = ["?mode=ro"]
+    if not os.path.exists(wal_path):
+        # No pending log, so nothing can be missed by not reading one, and
+        # this is the only spelling that creates no sidecar at all. The
+        # WAL-aware open stays behind it as the retry for the race the
+        # docstring names.
+        attempts.insert(0, "?mode=ro&immutable=1")
+    conn = None
+    for index, query in enumerate(attempts):
+        try:
+            conn = sqlite3.connect(_read_only_uri(path, query), uri=True,
+                                   timeout=timeout, isolation_level=None)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA query_only = ON")
+            conn.execute("PRAGMA busy_timeout=5000")
+        except sqlite3.OperationalError as e:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            if _is_transient_busy_error(e):
+                raise
+            raise _read_only_refusal(path, e)
+        except Exception:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            raise
+        if index == len(attempts) - 1 or not os.path.exists(wal_path):
+            return conn
+        # A writer created a WAL between the stat above and this open, so
+        # the immutable view is no longer the whole truth. Throw it away
+        # and take the WAL-aware one.
         try:
             conn.close()
         except Exception:
             pass
-        raise
-    return conn
+        conn = None
+    raise AssertionError("unreachable: the attempt ladder always returns")
+
+
+def _read_only_refusal(path, cause):
+    """'store-unreadable', never StoreCorrupt: the file may be in perfect
+    health and simply live somewhere a read-only connection cannot keep its
+    WAL bookkeeping. Saying "corrupt" about that is a false diagnosis of
+    the founder's data, which is the whole reason ReadOnlyStore stopped
+    being allowed to quarantine anything."""
+    return OwnershipRefused(
+        "store-unreadable",
+        "the store at %s could not be opened read-only (%s). The file "
+        "itself is not implicated and nothing was written, moved or "
+        "renamed: a WAL-mode database needs its %s sidecar, and a "
+        "read-only connection can neither create one nor use the write-"
+        "ahead log without it. Either make the directory writable for one "
+        "run of a writable command (which checkpoints the log away), or "
+        "copy the store, its -wal and its -shm together to somewhere "
+        "writable and inspect it there."
+        % (path, cause, os.path.basename(path) + "-shm"),
+        details={"path": path, "cause": str(cause)})
 
 
 class ReadOnlyStore(object):

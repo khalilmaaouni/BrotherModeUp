@@ -7,6 +7,10 @@ step, and one concrete piece of evidence at the end, see `docs/QUICKSTART.md`.
 This page is the reference: the full hook explanation and the first-week
 checklist that QUICKSTART.md points back to.
 
+This whole page describes a Claude Code install. If you drive another runtime,
+read "Other runtimes" near the bottom: the store and the retrieval commands work
+there, the hooks do not, and the install is a file you copy by hand.
+
 ## Prerequisites
 
 - Claude Code (CLI or desktop app) with skills enabled
@@ -307,6 +311,49 @@ tail -1 ~/BrotherModeVault/99-System/telemetry/outcomes.jsonl
 2. Read `RUBRIC.md` with whoever plays the founder role, adjust the baselines to your reality, then freeze it. A rubric that drifts cannot measure drift.
 3. Work normally for a week. Let the ledger fill.
 4. Run the weekly review (`tools/WEEKLY-REVIEW.md`). Your first review will be mostly NO-DATA. The second one is where the loop starts to pay.
+
+## Other runtimes
+
+BrotherMode's engine is standard library Python driven from a shell, so it runs
+in any runtime that can run a shell command: OpenAI Codex CLI, GitHub Copilot,
+Qwen Code, iFlow, Antigravity, or a plain terminal with no agent at all. The
+hooks are the part that does not travel. They parse Claude Code's hook JSON
+contract, and Claude Code is the only runtime where BrotherMode's own hooks are
+verified to run.
+
+What ships for the others is a generated instruction file per runtime, committed
+under `docs/runtimes/`, plus the generator that produced them:
+
+```bash
+python3 tools/bm_runtimes.py list                    # what is supported, and how far
+python3 tools/bm_runtimes.py emit --runtime codex    # regenerate one adapter
+```
+
+`emit` stages the file and prints where it goes. It does not install it. The
+copy is yours to make, because the destination (`AGENTS.md` at a repository
+root, for example) usually already has content in it and a generator that
+overwrote it would be a data loss bug:
+
+```bash
+cp docs/runtimes/codex.AGENTS.md /path/to/your/project/AGENTS.md
+cp docs/runtimes/codex.AGENTS.md "${CODEX_HOME:-$HOME/.codex}/AGENTS.md"
+```
+
+Two things to know before you rely on it, both measured on 2026-08-05 against
+codex-cli 0.146.0:
+
+- The commands need the ABSOLUTE path to this checkout when your project is not
+  this repository, and Codex needs a writable sandbox (`-s workspace-write`) for
+  the store to be created at all. Run `bm_store.py init` in the project first.
+- The one-writer fence does not transfer. Codex reports file writes as Bash
+  commands running `apply_patch`, so the matcher that guards writes in Claude
+  Code never fires. The enforcement primitive exists there (a PreToolUse deny
+  really does block a command), but BrotherMode does not ship a Codex hook
+  adapter and you should not hand wire one: a fence that fails open while
+  looking installed is worse than no fence.
+
+`RUNTIMES.md` carries the full capability table, the vendor documentation URL
+behind every claim, and the measured findings per runtime.
 
 ## Sharing with a teammate
 
