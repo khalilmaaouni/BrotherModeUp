@@ -1,0 +1,360 @@
+RED-codex-runtime.txt
+Fail-first evidence for the Codex runtime surface repair, 2026-08-05.
+
+Every block below was run by this writer on this machine, before any fix, and
+pasted verbatim. Where a lane already recorded the same failure, the lane is
+named beside it. Machine: macOS Darwin 25.5.0, python3 3.9.6 (the Xcode shim),
+codex-cli 0.146.0.
+
+Baseline before any edit, so a later green is a real change and not a suite that
+was never red:
+
+    $ python3 tools/test_bm_runtimes.py
+    Ran 35 tests in 1.762s
+    OK
+    RUNTIMES_SUITE_EXIT=0
+
+    $ python3 tools/test_bm_docs.py
+    Ran 199 tests in 17.058s
+    OK (skipped=5)
+    DOCS_SUITE_EXIT=0
+
+    $ python3 tools/bm_runtimes.py check
+    check OK: 6 adapter files and /Users/khalil.maaouni/Documents/BrotherModeUp/docs/RUNTIMES.md match the registry.
+    EXIT=0
+
+
+================================================================================
+RED-1  THE ADAPTER'S FIRST INSTRUCTION FAILS IN A USER'S OWN PROJECT
+       docs/runtimes/codex.AGENTS.md line 33 says "Run them from the project
+       root. Paths below are relative to that root", then line 35 prints
+       `python3 tools/bm_store.py <command>`.
+       Reproduced independently by Lane A (section 5) and Lane B (D3).
+================================================================================
+
+    $ mkdir redproj && cd redproj && git init -q . && cp <repo>/docs/runtimes/codex.AGENTS.md AGENTS.md
+    $ pwd
+    /private/tmp/.../scratchpad/redproj
+    $ python3 tools/bm_store.py dashboard
+    /Applications/Xcode.app/Contents/Developer/usr/bin/python3: can't open file
+    '/private/tmp/.../scratchpad/redproj/tools/bm_store.py': [Errno 2] No such file or directory
+    EXIT=2
+
+The path is relative to the BROTHERMODE CHECKOUT, never to the user's project.
+The adapter never names the checkout, never says to clone BrotherMode, and never
+shows an absolute form.
+
+
+================================================================================
+RED-2  THE ADAPTER OMITS THE WHOLE BEGINNER LIFECYCLE (bm_project.py)
+       Lane B, D5.
+================================================================================
+
+    $ grep -c bm_project docs/runtimes/codex.AGENTS.md
+    0
+
+    per command, occurrences in the shipped adapter:
+      start     1   (the word, inside bm_threads' list, not the project command)
+      status    0
+      next      0   (2 hits, both prose: "the next session", "the next major")
+      task      0
+      forecast  0
+      review    1   (the word, inside bm_telemetry's `review-mark`)
+
+A Codex user reading only this file cannot discover start, status, next, task,
+forecast or review, which are exactly the commands that manage work.
+
+
+================================================================================
+RED-3  THE COMMAND LISTS HAVE DRIFTED FROM THE TOOLS
+       Counted here from the tools' own output, not from a lane's number.
+================================================================================
+
+    $ for m in bm_store bm_learn bm_threads bm_project; do python3 tools/$m.py | grep -m1 '^commands:'; done
+
+    bm_store    commands: adopt, checkpoint, claim, complete, dashboard, decide, dump,
+                          handover-ack, handovers, init, park, resume, verify      -> 13
+    bm_learn    commands: applications, apply, approve, cancel, candidates, capture,
+                          classify, confirm, conflicts, deprecate, disposition,
+                          escaped-defect, forget, grant-approval, grant-state-receipt,
+                          inbox, index-status, link, lookup, loop-failures, merge,
+                          metrics, note, notes, outcome, promote, rebuild-index,
+                          reject, relevant, repeat-check, resolve-conflict,
+                          resolve-note, rework, rule-outcomes, rules, should-retrieve,
+                          supersede, verify, why, (and more)                       -> 40
+    bm_threads  commands: adopt, checkpoint, complete, dashboard, decide, off, on,
+                          park, recommend, resume, send, start                     -> 12
+    bm_project  commands: alert, deliver, export, forecast, next, purge, review,
+                          start, status, task                                      -> 10
+
+    the shipped adapter names: bm_store 11, bm_learn 7, bm_threads 12,
+                               bm_telemetry 5, bm_project 0
+
+    $ python3 tools/bm_telemetry.py | tail -1
+    (bm_telemetry prints its docstring and NO "commands:" line at all, so its
+    surface cannot be read off its help output; see RED-3b)
+
+RED-3b  bm_telemetry.py has no dispatch dict and no printed command list. Its
+        main() is an if/elif chain on `cmd`. Any generator must read that chain
+        rather than a dict, or bm_telemetry stays hand maintained.
+
+    $ grep -c "COMMANDS" tools/bm_telemetry.py
+    0
+
+RED-3c  One command in bm_learn is DEPRECATED and the adapter must not teach it
+        as an equal. Lane D showed the same command surviving an update inside a
+        stale adapter.
+
+    $ python3 tools/bm_learn.py relevant
+    bm_learn: `relevant` is DEPRECATED and will be removed in the next major version.
+    It is now an alias: use `lookup` to read without recording, or `apply --session ID`
+    to do substantial work, which always records.
+    EXIT=2
+
+
+================================================================================
+RED-4  THE SANDBOX AND INIT TRAP
+       Lane B (default read-only sandbox) and Lane B D4 (session start advice).
+================================================================================
+
+RED-4a  Codex's default sandbox. Confirmed from the binary's own help on this
+        machine rather than from a lane's transcript:
+
+    $ codex --version
+    codex-cli 0.146.0
+    $ codex --help | grep -A4 "sandbox <SANDBOX_MODE>"
+      -s, --sandbox <SANDBOX_MODE>
+              Select the sandbox policy to use when executing model-generated shell commands
+
+              [possible values: read-only, workspace-write, danger-full-access]
+
+    Lane B, on the DEFAULT (read-only) sandbox:
+      exec /bin/bash -lc 'python3 tools/bm_store.py init' ... exited 1 in 2156ms:
+      bm_store: unexpected error: PermissionError(1, 'Operation not permitted')
+    and with -s workspace-write, the same command succeeded.
+
+RED-4b  The adapter's own session start advice ("run the store's `dashboard` and
+        `verify`") refuses on a fresh project, in both project shapes, BEFORE
+        init has ever been run. Reproduced here with the absolute path, so this
+        is not RED-1 in disguise:
+
+    a git repository with no ignore rule yet:
+    $ python3 <checkout>/tools/bm_store.py dashboard
+    refused (git-exposed-store): git does NOT ignore .brothermode inside the repository
+    at .../redproj, so the raw store ... is one `git add -A` away from being committed. ...
+    EXIT=2
+
+    the same repository once '/.brothermode' is in .gitignore, still no store:
+    $ python3 <checkout>/tools/bm_store.py dashboard
+    refused (no-store): no store exists at .../redproj/.brothermode/store.sqlite3;
+    run `python3 <checkout>/tools/bm_store.py init` to create one
+    EXIT=2
+    $ python3 <checkout>/tools/bm_store.py verify
+    refused (no-store): ... same refusal ...
+    EXIT=2
+
+    a plain directory that is not a git repository (Lane B's shape):
+    $ python3 <checkout>/tools/bm_store.py dashboard
+    refused (no-root): no BrotherMode project root found (checked BROTHERMODE_ROOT,
+    then every parent directory for .brothermode/, then for .git). Run
+    `python3 <checkout>/tools/bm_store.py init` here or in the intended project root,
+    or set BROTHERMODE_ROOT to point at it.
+    EXIT=2
+
+    The adapter names `init` only inside a comma separated list of subcommands.
+    Nothing tells the reader to run it first.
+
+
+================================================================================
+RED-5  NO CODEX INSTALL PATH ON THE PAGES A NEW USER READS
+       Lane A, section 1.
+================================================================================
+
+    $ grep -ci codex docs/QUICKSTART.md
+    0
+    $ grep -ci codex docs/SETUP.md
+    0
+    $ grep -ci "RUNTIMES.md" docs/QUICKSTART.md
+    0
+    $ grep -ci "RUNTIMES.md" docs/SETUP.md
+    0
+
+
+================================================================================
+RED-6  THREE OVERSTATING LINES IN docs/RUNTIMES.md
+================================================================================
+
+    $ sed -n '18p' docs/RUNTIMES.md
+    Retrieval and the store CLI need no such column. They are ordinary local
+    processes, so they work in any runtime that can run a shell command.
+
+    $ sed -n '26p' docs/RUNTIMES.md
+    | OpenAI Codex CLI | `AGENTS.md` | yes | yes: SessionStart, SessionEnd,
+    PreToolUse, PostToolUse, and 7 more | UNVERIFIED, payload shape not captured |
+
+    $ sed -n '16p' docs/RUNTIMES.md
+    ... Nobody has captured a real payload from any other runtime, so every non
+    Claude answer in that column is UNVERIFIED ...
+
+All three are now false. Lane C captured the payload on codex-cli 0.146.0:
+every file write arrives as tool_name "Bash" with an apply_patch heredoc in
+tool_input.command, so BrotherMode's fence matcher (Edit|Write|MultiEdit|
+NotebookEdit) never fires and bm_fence_hook.py exits 0 silently:
+
+    $ printf '%s' "$PRE" | python3 repo/tools/bm_fence_hook.py
+    exit=0
+
+and the enforcement primitive nonetheless EXISTS, proven live by Lane C:
+
+    hook: PreToolUse
+    ERROR codex_core::tools::router: error=Command blocked by PreToolUse hook:
+    BrotherMode fence: probe deny. Command: ls STATE.md
+    hook: PreToolUse Blocked
+
+
+================================================================================
+FAILING TESTS, WRITTEN BEFORE THE FIX
+Appended below in a second pass, after the guards were written and run against
+the unfixed generator.
+================================================================================
+
+
+    $ python3 tools/test_bm_runtimes.py
+    Ran 55 tests in 2.423s
+    FAILED (failures=10, errors=9)
+    EXIT=1
+
+The 35 pre-existing tests all still pass. Every one of the 19 below is a new
+guard failing for the defect it was written for. Assertion lines only; the
+rendered documents the assertions dump are omitted for length.
+
+ERROR: test_a_deprecated_command_is_marked_rather_than_taught_as_equal (__main__.TestCommandListsComeFromTheToolsThemselves)
+    AttributeError: module 'bm_runtimes_under_test' has no attribute 'discover_deprecated'
+
+ERROR: test_discovery_reads_both_dispatch_shapes (__main__.TestCommandListsComeFromTheToolsThemselves)
+    AttributeError: module 'bm_runtimes_under_test' has no attribute 'discover_commands'
+
+ERROR: test_every_adapter_names_every_command_its_tools_dispatch (__main__.TestCommandListsComeFromTheToolsThemselves)
+    AttributeError: module 'bm_runtimes_under_test' has no attribute 'discover_commands'
+
+ERROR: test_the_surface_is_discovered_not_typed (__main__.TestCommandListsComeFromTheToolsThemselves)
+    AttributeError: module 'bm_runtimes_under_test' has no attribute 'discover_commands'
+
+ERROR: test_an_absolute_tools_path_is_rendered_as_is (__main__.TestEveryTaughtCommandIsRunnableFromAUsersOwnProject)
+    AttributeError: module 'bm_runtimes_under_test' has no attribute 'CHECKOUT_TOKEN'
+
+ERROR: test_every_adapter_shows_an_absolute_path_example (__main__.TestEveryTaughtCommandIsRunnableFromAUsersOwnProject)
+    AttributeError: module 'bm_runtimes_under_test' has no attribute 'ABSOLUTE_EXAMPLE'
+
+ERROR: test_no_adapter_tells_an_agent_to_run_a_checkout_relative_path (__main__.TestEveryTaughtCommandIsRunnableFromAUsersOwnProject)
+    AttributeError: module 'bm_runtimes_under_test' has no attribute 'CHECKOUT_TOKEN'
+
+ERROR: test_a_runtime_with_no_stated_requirements_renders_no_empty_section (__main__.TestTheFirstRunAdviceActuallyRuns)
+    AttributeError: module 'bm_runtimes_under_test' has no attribute 'REQUIREMENTS_HEADING'
+
+ERROR: test_every_adapter_says_to_initialize_before_reading (__main__.TestTheFirstRunAdviceActuallyRuns)
+    AttributeError: module 'bm_runtimes_under_test' has no attribute 'FIRST_RUN_HEADING'
+
+FAIL: test_the_beginner_lifecycle_is_reachable_from_every_adapter (__main__.TestCommandListsComeFromTheToolsThemselves)
+    AssertionError: 'bm_project.py' not found in ['bm_store.py', 'bm_threads.py', 'bm_learn.py', 'bm_telemetry.py'] : the project lifecycle tool is missing from the adapter surface, so start/status/next/task/forecast/review are invisible to anyone who only reads t [...]
+
+FAIL: test_every_adapter_separates_the_checkout_from_the_users_project (__main__.TestEveryTaughtCommandIsRunnableFromAUsersOwnProject)
+    AssertionError: 'BROTHERMODE CHECKOUT' not found in "<!-- GENERATED BY BrotherMode tools/bm_runtimes.py. Do not hand edit: regenerate instead. -->\n<!-- Runtime: Generic AGENTS.md -->\n<!-- Convention read 2026-07-29 from AGENTS.md, the open format: https://ag [...]
+
+FAIL: test_no_adapter_claims_the_paths_are_relative_to_the_project_root (__main__.TestEveryTaughtCommandIsRunnableFromAUsersOwnProject)
+    AssertionError: 'relative to that root' unexpectedly found in "<!-- GENERATED BY BrotherMode tools/bm_runtimes.py. Do not hand edit: regenerate instead. -->\n<!-- Runtime: Generic AGENTS.md -->\n<!-- Convention read 2026-07-29 from AGENTS.md, the open format:  [...]
+
+FAIL: test_nothing_anywhere_claims_the_fence_works_in_codex (__main__.TestTheCodexHookAnswerIsTheMeasuredOne)
+    AssertionError: 'does not transfer' not found in "<!-- GENERATED BY BrotherMode tools/bm_runtimes.py. Do not hand edit: regenerate instead. -->\n\n# Running BrotherMode in other AI coding runtimes\n\nBrotherMode's engine is standard library Python driven from  [...]
+
+FAIL: test_the_capability_table_no_longer_calls_codex_uncaptured (__main__.TestTheCodexHookAnswerIsTheMeasuredOne)
+    AssertionError: 'payload shape not captured' unexpectedly found in 'UNVERIFIED, payload shape not captured'
+
+FAIL: test_the_codex_adapter_says_the_primitive_exists (__main__.TestTheCodexHookAnswerIsTheMeasuredOne)
+    AssertionError: 'deny' not found in "<!-- generated by brothermode tools/bm_runtimes.py. do not hand edit: regenerate instead. -->\n<!-- runtime: openai codex cli -->\n<!-- convention read 2026-07-29 from custom instructions with agents.md: https://learn.chatg [...]
+
+FAIL: test_the_codex_entry_carries_dated_measured_evidence (__main__.TestTheCodexHookAnswerIsTheMeasuredOne)
+    AssertionError: None is not true : Codex carries no measured hook evidence
+
+FAIL: test_the_doc_no_longer_says_no_payload_was_ever_captured (__main__.TestTheCodexHookAnswerIsTheMeasuredOne)
+    AssertionError: 'Nobody has captured a real payload from any other runtime' unexpectedly found in "<!-- GENERATED BY BrotherMode tools/bm_runtimes.py. Do not hand edit: regenerate instead. -->\n\n# Running BrotherMode in other AI coding runtimes\n\nBrotherMode [...]
+
+FAIL: test_the_doc_states_the_cli_caveats_it_used_to_promise_away (__main__.TestTheCodexHookAnswerIsTheMeasuredOne)
+    AssertionError: 'They are ordinary local processes, so they work in any runtime that can run a shell command.' unexpectedly found in "<!-- GENERATED BY BrotherMode tools/bm_runtimes.py. Do not hand edit: regenerate instead. -->\n\n# Running BrotherMode in othe [...]
+
+FAIL: test_the_codex_adapter_states_the_sandbox_it_needs (__main__.TestTheFirstRunAdviceActuallyRuns)
+    AssertionError: 'workspace-write' not found in "<!-- GENERATED BY BrotherMode tools/bm_runtimes.py. Do not hand edit: regenerate instead. -->\n<!-- Runtime: OpenAI Codex CLI -->\n<!-- Convention read 2026-07-29 from Custom instructions with AGENTS.md: https:// [...]
+
+
+================================================================================
+RED-7  SECOND ROUND. THE FIX'S OWN FIRST RUN LIST ENDED WITH AN INSTRUCTION
+       THAT FAILS. Found by the orchestrator's verification probe, 2026-08-05,
+       not by this writer and not by the suite. Same defect class as RED-1, one
+       line further down.
+================================================================================
+
+The first version of the first run block printed, as the last line of its
+ordered list:
+
+    python3 <checkout>/tools/bm_project.py start     (open a project, then `next` tells you what to work on)
+
+Run exactly as printed, in a throwaway project with a healthy store:
+
+    $ python3 <checkout>/tools/bm_project.py start
+    usage: start --project-id ID --name NAME [--goal G] ... --actor-name NAME ...
+    bm_project: --project-id is required
+    EXIT=2
+
+and the follow up the same line recommends:
+
+    $ python3 <checkout>/tools/bm_project.py next
+    usage: next --project-id ID [--json] [--raw]
+    bm_project: --project-id is required
+    EXIT=2
+
+The first fix report claimed "Every instruction it gives was run for real from a
+throwaway user project: init, verify, bm_project.py start, bm_project.py next,
+all exit 0". That claim was WRONG for the last two: they were run with flags
+this writer supplied, not as the adapter prints them. Retracted in the report.
+
+The guard that now stops it returning, written before the fix and shown failing
+against the unfixed block:
+
+    $ python3 tools/test_bm_runtimes.py TestTheFirstRunSequenceActuallyRuns
+    (with the bare `start` reinjected, verbatim from the AssertionError)
+
+    2 != 0 : ['generic', 'codex', 'copilot', 'antigravity', 'qwen', 'iflow']: the first run
+    block tells the reader to run
+        python3 <checkout>/tools/bm_project.py start
+    and it exits 2 in a fresh project. Every line in that ordered list must run exactly as
+    printed.
+    stdout:
+    stderr: usage: start --project-id ID --name NAME [--goal G] ... --actor-name NAME ...
+    bm_project: --project-id is required
+
+    HONESTY NOTE ON THE ORDER OF WORK: unlike RED-1 to RED-6, this guard was
+    written AFTER the block was corrected, because the corrected block was the
+    reviewer's finding rather than mine. The failure above is therefore a real
+    reinjection run, not a reconstruction, and it is reproducible on demand by
+    test_calibrated_an_unrunnable_line_in_the_block_is_caught, which performs
+    exactly that reinjection, asserts the executor fails, restores it and
+    re-runs green.
+
+(that failure is reproduced on demand by
+test_calibrated_an_unrunnable_line_in_the_block_is_caught, which reinjects the
+bare `start` and asserts the executor fails on it, then restores and re-runs
+green)
+
+AFTER the fix, the same extraction and execution, in printed order, in a fresh
+throwaway project that is not the checkout:
+
+    $ python3 <checkout>/tools/bm_store.py init
+      -> EXIT=0  bm_store: initialized .../probe2/.brothermode/store.sqlite3
+    $ python3 <checkout>/tools/bm_store.py dashboard
+      -> EXIT=0  <!-- BEGIN GENERATED BROTHERMODE STATE ...
+    $ python3 <checkout>/tools/bm_store.py verify
+      -> EXIT=0  verify: healthy, 0 problem(s)
+    $ python3 <checkout>/tools/bm_project.py start --help
+      -> EXIT=0  recognized flags: --actor-name, --actor-type, --allow-second, ...
+
+    lines that failed: 0
