@@ -264,9 +264,25 @@ this project stops being able to promise anything".
   a session. Read "program" strictly: one hook line can run more than one
   program (PreCompact runs two), and each one carries its own check. The
   gated set is `bm_sessionstart.sh`, `bm_autosave.py`, the Bash audit's
-  two phases, and all three hook-wired `bm_telemetry.py` commands
-  (`outcomes-append`, `precompact-brief`, `stop-warn`). A test reads
-  `hooks/hooks.json` and fails if a wired command lacks the check.
+  two phases, all three hook-wired `bm_telemetry.py` commands
+  (`outcomes-append`, `precompact-brief`, `stop-warn`), and
+  `bm_lead.py watchdog`. A test reads `hooks/hooks.json` and fails if a
+  wired command lacks the check, and since 2026-08-05 that test reads
+  every module named on a hook line rather than `bm_telemetry.py` alone,
+  which is the widening the incident at the end of this entry argues for.
+  THE WATCHDOG, added 2026-08-05 and disclosed here because it ships ON BY
+  DEFAULT: it is the half-hour catch-up, and it is a due check rather than
+  a background process. Nothing schedules it and nothing runs between your
+  turns; it runs on the Stop hook, once per model turn, alongside the
+  telemetry warning already on that line. Its first statement reads the
+  consent record, so before setup has been run it prints nothing and
+  writes nothing at all, in the same one-door sense as the programs above.
+  After consent it reads a few rows to ask whether a catch-up is due. When
+  the answer is no, which is the ordinary case, it writes nothing and
+  prints nothing. When the answer is yes it writes exactly one row into
+  your own project store, the record of the catch-up you were shown, and
+  prints that catch-up. It writes nothing into the vault, nothing outside
+  your project, and it makes no network call.
   One narrow exception, named so this claim stays true: the fence hook
   does not check consent, and on first use it mints its own session token
   file (a machine-generated 64-hex value, no founder data) under

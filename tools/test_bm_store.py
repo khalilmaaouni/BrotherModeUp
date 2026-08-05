@@ -968,6 +968,19 @@ class TestFixRoundGates(unittest.TestCase):
                                  "CREATE TABLE failing mid-migration must "
                                  "roll the caller's transaction back, not "
                                  "move the founder's store aside",
+            "_migrate_15_to_16": "a schema migration step, run INSIDE the "
+                                 "caller's BEGIN EXCLUSIVE (L04, the insight "
+                                 "ledger and the briefings: insights, "
+                                 "briefings). Same exemption and same reason "
+                                 "as every migration above it: a CREATE TABLE "
+                                 "failing mid-migration must roll the "
+                                 "caller's transaction back, not move the "
+                                 "founder's store aside. Added by the "
+                                 "orchestrator on 2026-08-05 because this "
+                                 "guard caught the new migration, which is "
+                                 "the guard working: an exemption here is a "
+                                 "sentence somebody had to write, not a "
+                                 "default a new migration inherits",
         }
         with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
             source = f.read()
@@ -14921,7 +14934,14 @@ class TestPurgeProject(unittest.TestCase):
                               # U2: no controller rows in this fixture either,
                               # so all three new tables remove zero.
                               "controller_runs": 0, "controller_units": 0,
-                              "controller_dispatches": 0})
+                              "controller_dispatches": 0,
+                              # L04: the insight ledger and the briefings, same
+                              # rule as every block above. The WHOLE dict is
+                              # pinned on purpose, so a schema that adds a
+                              # purged table without adding its key here turns
+                              # this red rather than quietly leaving rows
+                              # behind under a deleted project.
+                              "insights": 0, "briefings": 0})
                 # Every entity row this project owned is gone.
                 self.assertIsNone(store.get_project("proj1"))
                 self.assertEqual(store.list_tasks("proj1"), [])
@@ -19858,6 +19878,1121 @@ class TestCrossFamilyF6VerdictIsAtMostOnce(unittest.TestCase):
                     store.record_verification("ghost", 0, "pass", True,
                                               _controller_actor())
                 self.assertEqual(ctx.exception.reason, "not-found")
+
+
+# ======================================================================
+# L04, schema 16: the insight ledger and the briefing timeline.
+# docs/program/absolute-lead/DESIGN-L04.md sections 5, 6, 14 and 17.3.
+#
+# Every class below was written and run against the UNTOUCHED tree first;
+# the failures are recorded in
+# docs/program/absolute-lead/evidence/L04/RED-L04-store.txt.
+# ======================================================================
+
+
+def _lead_actor(name="coordinator"):
+    """The actor an insight or a briefing is written under. Carries a
+    session_id, unlike _controller_actor, because record_insight fills the
+    row's session_id column from it the way _write_attribution already
+    does (tools/bm_store.py:11354 to 11369)."""
+    return {"actor_type": "model", "actor_name": name,
+            "session_id": "sess-lead"}
+
+
+def _insight(**kw):
+    """A minimally VALID insight dict. Every refusal test starts from this
+    and breaks exactly ONE field, so a red test names the field it broke
+    rather than a required column somebody forgot."""
+    d = {"kind": "LEARNING", "subject": "the store",
+         "claim": "the ledger is append only",
+         "evidence": "python3 tools/test_bm_store.py",
+         "evidence_class": "EXECUTED", "confidence": "high"}
+    d.update(kw)
+    return d
+
+
+def _decision(**kw):
+    """A valid ordinary DECISION row: it carries a flip condition (R6) but
+    no decision_class, so it is not a KEY decision and never reaches the
+    founder queue."""
+    d = _insight(kind="DECISION", subject="the migration",
+                 claim="schema 16 is additive",
+                 flip_condition="a schema-15 store that fails to migrate",
+                 evidence_class="READ",
+                 evidence="tools/bm_store.py:81", confidence="moderate")
+    d.update(kw)
+    return d
+
+
+def _key_decision(**kw):
+    """A valid KEY decision: a decision_class, the handback offered (R7)
+    and at least one alternative (R9)."""
+    d = _decision(decision_class="RULE", control_offered=1,
+                  alternatives=[{"option": "JSON inside an existing table",
+                                 "why_not": "the purge pin needs a table "
+                                            "name"}])
+    d.update(kw)
+    return d
+
+
+def _briefing(**kw):
+    d = {"trigger": "REQUESTED", "where_we_are": "two units accepted"}
+    d.update(kw)
+    return d
+
+
+def _ledger_count(store, table="insights"):
+    return store.conn.execute(
+        "SELECT COUNT(*) c FROM %s" % table).fetchone()["c"]
+
+
+class TestSchema16IsAdditive(unittest.TestCase):
+    """Schema 15 to 16 (L04): two tables (insights, briefings) plus four
+    indexes. Same discipline as TestSchema15Migration above: the 'old
+    store' fixture is a REAL store reverted to look like schema 15, never
+    hand-written DDL, so the fixture cannot drift from the schema anyone
+    actually has, and ADDITIVE ONLY is proven against a store that already
+    holds rows rather than only against a fresh one."""
+
+    _EXPECTED_COLUMNS = {
+        "insights": {
+            "insight_id", "project_id", "created_at", "kind", "subject",
+            "claim", "evidence", "evidence_class", "alternatives",
+            "flip_condition", "confidence", "confidence_basis", "mutation",
+            "observed", "decision_class", "control_offered",
+            "control_taken", "supersedes", "work_record", "run_id",
+            "unit_id", "session_id", "actor_type", "actor_name"},
+        "briefings": {
+            "briefing_id", "project_id", "created_at", "trigger",
+            "active_minutes", "event_count", "skipped_events",
+            "since_briefing", "run_state", "open_steps", "where_we_are",
+            "what_changed", "what_it_cost", "decision_insight",
+            "risk_insight", "session_id", "actor_type", "actor_name"},
+    }
+
+    def _schema15_store(self, d):
+        with bs.Store(d):
+            pass
+        path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            for t in bs._TABLES_LEAD:
+                conn.execute("DROP TABLE IF EXISTS %s" % t)
+            conn.execute(
+                "UPDATE meta SET value='15' WHERE key='schema_version'")
+            conn.execute("COMMIT")
+        finally:
+            conn.close()
+        return path
+
+    def _tables(self, path):
+        conn = sqlite3.connect(path)
+        try:
+            return {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            conn.close()
+
+    def _table_info(self, path, table):
+        conn = sqlite3.connect(path)
+        try:
+            return [tuple(r) for r in
+                    conn.execute("PRAGMA table_info(%s)" % table)]
+        finally:
+            conn.close()
+
+    def _row_count(self, path, table):
+        conn = sqlite3.connect(path)
+        try:
+            return conn.execute(
+                "SELECT COUNT(*) FROM %s" % table).fetchone()[0]
+        finally:
+            conn.close()
+
+    def test_schema_version_moves_from_15_to_16_and_the_step_is_registered(
+            self):
+        # Pin the FLOOR, not the exact number, exactly as
+        # test_schema_version_moves_from_14_to_15 above does: pinning 16
+        # exactly breaks on every later migration while proving nothing
+        # extra.
+        self.assertGreaterEqual(
+            bs.SCHEMA_VERSION, 16,
+            "DESIGN-L04 section 5.3: SCHEMA_VERSION moved from 15 to at "
+            "least 16")
+        self.assertIn(15, bs._MIGRATIONS)
+        self.assertIs(bs._MIGRATIONS[15], bs._migrate_15_to_16)
+
+    def test_a_brand_new_store_has_both_lead_tables_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                row = store.conn.execute(
+                    "SELECT value FROM meta WHERE key='schema_version'"
+                ).fetchone()
+                self.assertEqual(row["value"], str(bs.SCHEMA_VERSION))
+            path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+            found = self._tables(path)
+            for table, expected in self._EXPECTED_COLUMNS.items():
+                self.assertIn(table, found)
+                self.assertEqual(
+                    {c[1] for c in self._table_info(path, table)}, expected,
+                    "%s must have exactly the stated columns" % table)
+                self.assertEqual(self._row_count(path, table), 0,
+                                 "section 5.3: no backfill, created empty")
+
+    def test_migration_from_a_real_schema15_fixture_survives_every_row(self):
+        """A REAL schema-15 fixture (a genuine store, opened and written
+        to, then reverted; never hand-written DDL), carrying rows in
+        tables that predate schema 16, so ADDITIVE ONLY is proven against
+        real data. This is the design's own requirement that an EXISTING
+        store stays openable, not only that a fresh one is born correct."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _actor()
+                store.upsert_project(_project("proj1"), actor)
+                _sign(store, project_id="proj1")
+            path = self._schema15_store(d)
+            conn = sqlite3.connect(path)
+            conn.row_factory = sqlite3.Row
+            try:
+                before = {
+                    t: [dict(r) for r in conn.execute("SELECT * FROM %s" % t)]
+                    for t in ("projects", "autonomy_contracts")}
+            finally:
+                conn.close()
+            self.assertEqual(len(before["projects"]), 1)
+            self.assertEqual(len(before["autonomy_contracts"]), 1)
+
+            with bs.Store(d) as store:
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT value FROM meta WHERE key='schema_version'"
+                    ).fetchone()["value"], str(bs.SCHEMA_VERSION))
+
+            conn = sqlite3.connect(path)
+            conn.row_factory = sqlite3.Row
+            try:
+                after = {
+                    t: [dict(r) for r in conn.execute("SELECT * FROM %s" % t)]
+                    for t in ("projects", "autonomy_contracts")}
+            finally:
+                conn.close()
+            self.assertEqual(before, after,
+                             "an additive-only migration must not touch a "
+                             "pre-existing row")
+            found = self._tables(path)
+            for table in bs._TABLES_LEAD:
+                self.assertIn(table, found)
+                self.assertEqual(self._row_count(path, table), 0)
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")),
+                [], "a healthy schema-15 store must MIGRATE, never be "
+                    "quarantined")
+
+    def test_the_fresh_and_migrated_paths_produce_identical_table_info(self):
+        """_ensure_schema and _migrate_15_to_16 must run the SAME DDL
+        text, the rule every step from schema 4 onwards states: a store
+        born at 16 and a store migrated to 16 cannot be allowed to drift
+        in a column name, a type or a default."""
+        with tempfile.TemporaryDirectory() as fresh_dir, \
+                tempfile.TemporaryDirectory() as old_dir:
+            with bs.Store(fresh_dir):
+                pass
+            fresh_path = os.path.join(fresh_dir, bs.STORE_DIRNAME,
+                                      bs.STORE_FILENAME)
+            migrated_path = self._schema15_store(old_dir)
+            with bs.Store(old_dir):
+                pass
+            for table in bs._TABLES_LEAD:
+                self.assertEqual(self._table_info(fresh_path, table),
+                                 self._table_info(migrated_path, table),
+                                 "%s differs between the fresh and the "
+                                 "migrated path" % table)
+
+    def test_the_schema15_table_list_is_unchanged(self):
+        """C1: additive. A schema-15 store must still be verified against
+        schema 15's OWN table list before it is migrated, so the new
+        tables may not leak backwards into _TABLES_BY_VERSION[15]."""
+        self.assertEqual(bs._TABLES_BY_VERSION[15], bs._TABLES_V15)
+        for t in bs._TABLES_LEAD:
+            self.assertNotIn(t, bs._TABLES_BY_VERSION[15])
+            self.assertIn(t, bs._TABLES_BY_VERSION[16])
+        self.assertEqual(bs._TABLES_V16,
+                         bs._TABLES_V15 + bs._TABLES_LEAD)
+
+
+class TestRecordInsightRefusals(unittest.TestCase):
+    """One test per refusal R1 to R16 of DESIGN-L04 section 6.2. Each
+    asserts the reason code (or the ValueError) AND that nothing was
+    written: a refusal that half-wrote a row is the failure mode the
+    whole transaction shape exists to prevent."""
+
+    def _store(self, d):
+        store = bs.Store(d)
+        _seed(store, "p1")
+        return store
+
+    def _refuse(self, store, insight, exc, reason=None, message=None):
+        with self.assertRaises(exc) as ctx:
+            store.record_insight("p1", insight, _lead_actor())
+        if reason is not None:
+            self.assertEqual(ctx.exception.reason, reason)
+        if message is not None:
+            self.assertIn(message, str(ctx.exception))
+        self.assertEqual(_ledger_count(store), 0,
+                         "a refusal must write nothing")
+        return ctx.exception
+
+    def test_r1_an_unknown_kind_names_the_whole_allowed_set(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                e = self._refuse(store, _insight(kind="NARRATION"),
+                                 ValueError)
+                for k in bs.INSIGHT_KINDS:
+                    self.assertIn(k, str(e))
+
+    def test_r2_an_unknown_evidence_class_names_the_whole_allowed_set(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                e = self._refuse(store, _insight(evidence_class="GUESSED"),
+                                 ValueError)
+                for c in bs.EVIDENCE_CLASSES:
+                    self.assertIn(c, str(e))
+
+    def test_r3_an_insight_with_no_claim_is_narration(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                self._refuse(store, _insight(claim=""), ValueError,
+                             message="narration")
+                self._refuse(store, _insight(claim=None), ValueError)
+
+    def test_r4_executed_or_measured_with_no_evidence_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                for cls in ("EXECUTED", "MEASURED"):
+                    self._refuse(store,
+                                 _insight(evidence_class=cls, evidence=""),
+                                 bs.OwnershipRefused, "evidence-missing")
+
+    def test_r5_a_calibration_must_name_its_mutation_and_its_count(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                base = _insight(kind="CALIBRATION", mutation="", observed="")
+                self._refuse(store, base, bs.OwnershipRefused,
+                             "calibration-incomplete")
+                self._refuse(store,
+                             _insight(kind="CALIBRATION",
+                                      mutation="dropped the pin",
+                                      observed=""),
+                             bs.OwnershipRefused, "calibration-incomplete")
+                self._refuse(store,
+                             _insight(kind="CALIBRATION", mutation="",
+                                      observed="3 tests went red"),
+                             bs.OwnershipRefused, "calibration-incomplete")
+
+    def test_r6_a_decision_nothing_could_change_is_not_a_decision(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                self._refuse(store, _decision(flip_condition=""),
+                             bs.OwnershipRefused, "no-flip-condition")
+
+    def test_r7_a_key_decision_that_offers_no_handback_cannot_be_written(
+            self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                self._refuse(store, _key_decision(control_offered=0),
+                             bs.OwnershipRefused, "handback-not-offered")
+
+    def test_r8_an_unknown_decision_class_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                e = self._refuse(store, _key_decision(decision_class="VIBE"),
+                                 ValueError)
+                for c in bs.INSIGHT_DECISION_CLASSES:
+                    self.assertIn(c, str(e))
+
+    def test_r9_a_key_decision_with_no_alternative_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                self._refuse(store, _key_decision(alternatives=[]),
+                             bs.OwnershipRefused, "no-alternative")
+
+    def test_r10_alternatives_must_be_option_and_why_not_pairs(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                for bad in ("not a list", [{"option": "a"}],
+                            [{"why_not": "b"}], [{"option": 1,
+                                                  "why_not": "b"}],
+                            ["a string"], [{"option": "a", "why_not": "b",
+                                            "extra": "c"}]):
+                    self._refuse(store, _key_decision(alternatives=bad),
+                                 ValueError, message="bad-alternatives")
+
+    def test_r11_an_unknown_confidence_names_the_whole_allowed_set(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                e = self._refuse(store, _insight(confidence="certain"),
+                                 ValueError)
+                for c in bs.INSIGHT_CONFIDENCE:
+                    self.assertIn(c, str(e))
+
+    def test_r12_a_handback_must_name_the_decision_it_answers(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                self._refuse(store,
+                             _insight(kind="HANDBACK", supersedes="",
+                                      control_offered=1, control_taken=1),
+                             bs.OwnershipRefused, "handback-without-decision")
+
+    def test_r13_supersedes_must_name_an_insight_of_this_project(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                _seed(store, "p2")
+                self._refuse(store,
+                             _insight(kind="HANDBACK", supersedes="ghost",
+                                      control_offered=1, control_taken=1),
+                             bs.OwnershipRefused, "not-found")
+                foreign = store.record_insight(
+                    "p2", _key_decision(), _lead_actor())["insight_id"]
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.record_insight(
+                        "p1",
+                        _insight(kind="HANDBACK", supersedes=foreign,
+                                 control_offered=1, control_taken=1),
+                        _lead_actor())
+                self.assertEqual(ctx.exception.reason, "foreign-insight")
+                self.assertEqual(_ledger_count(store), 1,
+                                 "only p2's own decision may survive")
+
+    def test_r14_a_second_handback_on_one_decision_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                did = store.record_insight(
+                    "p1", _key_decision(), _lead_actor())["insight_id"]
+                handback = _insight(kind="HANDBACK", supersedes=did,
+                                    control_offered=1, control_taken=1)
+                store.record_insight("p1", handback, _lead_actor())
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.record_insight("p1", handback, _lead_actor())
+                self.assertEqual(ctx.exception.reason,
+                                 "handback-already-taken")
+                self.assertEqual(_ledger_count(store), 2,
+                                 "the refused second handback wrote nothing")
+
+    def test_r15_an_unknown_project_refuses_before_the_foreign_key_can_raise(
+            self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.record_insight("ghost", _insight(), _lead_actor())
+                self.assertEqual(ctx.exception.reason, "not-found")
+                self.assertEqual(_ledger_count(store), 0)
+
+    def test_r16_an_unknown_key_is_a_refusal_not_a_silent_drop(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                e = self._refuse(store, _insight(clam="typo"), ValueError)
+                self.assertIn("clam", str(e))
+                # The store's OWN columns are not caller-settable either:
+                # insight_id, created_at and the actor columns are filled
+                # by the store, so naming one is the same typo class.
+                for owned in ("insight_id", "created_at", "session_id",
+                              "actor_type", "actor_name"):
+                    self._refuse(store, _insight(**{owned: "x"}), ValueError,
+                                 message=owned)
+
+
+class TestRecordBriefingRefusals(unittest.TestCase):
+    """The briefing half of section 6.2's last paragraph."""
+
+    def _store(self, d):
+        store = bs.Store(d)
+        _seed(store, "p1")
+        return store
+
+    def test_an_unknown_trigger_names_the_whole_allowed_set(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                with self.assertRaises(ValueError) as ctx:
+                    store.record_briefing("p1", _briefing(trigger="BECAUSE"),
+                                          _lead_actor())
+                for t in bs.BRIEFING_TRIGGERS:
+                    self.assertIn(t, str(ctx.exception))
+                self.assertEqual(_ledger_count(store, "briefings"), 0)
+
+    def test_active_minutes_must_be_a_whole_number_that_is_not_negative(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                for bad in (-1, "30", 1.5, True):
+                    with self.assertRaises(ValueError):
+                        store.record_briefing(
+                            "p1", _briefing(active_minutes=bad),
+                            _lead_actor())
+                self.assertEqual(_ledger_count(store, "briefings"), 0)
+
+    def test_a_briefing_with_nothing_to_say_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                with self.assertRaises(ValueError):
+                    store.record_briefing("p1", _briefing(where_we_are=""),
+                                          _lead_actor())
+                self.assertEqual(_ledger_count(store, "briefings"), 0)
+
+    def test_since_briefing_must_name_a_briefing_of_this_project(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                _seed(store, "p2")
+                foreign = store.record_briefing(
+                    "p2", _briefing(), _lead_actor())["briefing_id"]
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.record_briefing(
+                        "p1", _briefing(since_briefing=foreign),
+                        _lead_actor())
+                self.assertEqual(ctx.exception.reason, "foreign-briefing")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.record_briefing(
+                        "p1", _briefing(since_briefing="ghost"),
+                        _lead_actor())
+                self.assertEqual(ctx.exception.reason, "not-found")
+                self.assertEqual(_ledger_count(store, "briefings"), 1)
+
+    def test_an_unknown_project_and_an_unknown_key_are_both_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.record_briefing("ghost", _briefing(),
+                                          _lead_actor())
+                self.assertEqual(ctx.exception.reason, "not-found")
+                with self.assertRaises(ValueError) as vctx:
+                    store.record_briefing("p1", _briefing(trigered="typo"),
+                                          _lead_actor())
+                self.assertIn("trigered", str(vctx.exception))
+                self.assertEqual(_ledger_count(store, "briefings"), 0)
+
+    def test_a_valid_briefing_returns_its_id_trigger_and_minutes(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                out = store.record_briefing(
+                    "p1", _briefing(trigger="ACTIVE_MINUTES",
+                                    active_minutes=31), _lead_actor())
+                self.assertEqual(sorted(out),
+                                 ["active_minutes", "briefing_id", "trigger"])
+                self.assertEqual(out["trigger"], "ACTIVE_MINUTES")
+                self.assertEqual(out["active_minutes"], 31)
+                row = store.latest_briefing("p1", raw=True)
+                self.assertEqual(row["briefing_id"], out["briefing_id"])
+                self.assertEqual(row["actor_name"], "coordinator")
+                self.assertEqual(row["session_id"], "sess-lead")
+
+
+class TestKeyDecisionCannotSkipTheHandback(unittest.TestCase):
+    """Law L3, DESIGN-L04 section 9.3: the handback is a STORE refusal, so
+    a key decision that did not offer it cannot exist to be rendered."""
+
+    def test_r7_fires_for_every_one_of_the_five_decision_classes(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                for cls in bs.INSIGHT_DECISION_CLASSES:
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        store.record_insight(
+                            "p1",
+                            _key_decision(decision_class=cls,
+                                          control_offered=0),
+                            _lead_actor())
+                    self.assertEqual(ctx.exception.reason,
+                                     "handback-not-offered")
+                self.assertEqual(_ledger_count(store), 0)
+
+    def test_the_rule_is_narrow_an_ordinary_decision_needs_no_handback(self):
+        """R7 must not become a blanket: a row with NO decision_class is
+        not a key decision, never reaches the founder queue, and is
+        accepted with control_offered 0."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                out = store.record_insight("p1", _decision(), _lead_actor())
+                self.assertEqual(out["kind"], "DECISION")
+                self.assertEqual(out["decision_class"], "")
+                row = store.get_insight(out["insight_id"], raw=True)
+                self.assertEqual(row["control_offered"], 0)
+                self.assertEqual(store.open_key_decisions("p1"), [])
+
+
+def _ledger_mutation_offenders(source):
+    """Every (line, function, literal) in `source` where an UPDATE or a
+    DELETE names insights or briefings outside purge_project. Shape copied
+    verbatim from
+    test_structural_no_service_method_updates_an_autonomy_contract_row
+    above, extracted as a function so the calibration test below can run
+    the SAME scanner against code that SHOULD be flagged: a guard nobody
+    has ever seen fire is a guard nobody knows works."""
+    tree = ast.parse(source)
+
+    class _Visitor(ast.NodeVisitor):
+        def __init__(self):
+            self.func_stack = ["<module>"]
+            self.offenders = []
+
+        def visit_FunctionDef(self, node):
+            self.func_stack.append(node.name)
+            self.generic_visit(node)
+            self.func_stack.pop()
+
+        def visit_Constant(self, node):
+            if not isinstance(node.value, str):
+                return
+            if not any(t in node.value for t in ("insights", "briefings")):
+                return
+            up = node.value.upper()
+            enclosing = self.func_stack[-1]
+            if (enclosing != "purge_project"
+                    and ("UPDATE " in up or "DELETE FROM" in up)):
+                self.offenders.append((node.lineno, enclosing, node.value))
+
+    v = _Visitor()
+    v.visit(tree)
+    return v.offenders
+
+
+class TestTheLedgerIsAppendOnly(unittest.TestCase):
+    """Law L2. Proven the same way autonomy_contracts' own immutability is
+    (test_structural_no_service_method_updates_an_autonomy_contract_row
+    above): an ast guard over the shipped module, plus the behaviour."""
+
+    def test_structural_no_update_or_delete_names_the_ledger(self):
+        offenders = _ledger_mutation_offenders(_store_source())
+        self.assertEqual(
+            offenders, [],
+            "an UPDATE or DELETE names the ledger outside purge_project: %s"
+            % (offenders,))
+
+    def test_the_guard_actually_catches_the_shape_it_bans(self):
+        """Calibration. The assertion above is a set equality against an
+        empty list, which a scanner that finds nothing at all also
+        satisfies. This drives the same scanner over source that MUST be
+        flagged, so an empty result upstairs means the law holds rather
+        than that the scanner is broken."""
+        bad = (
+            'def edit_an_insight(self):\n'
+            '    self.conn.execute("UPDATE insights SET claim=?", (x,))\n'
+            'def forget_a_briefing(self):\n'
+            '    self.conn.execute("DELETE FROM briefings WHERE b=?", (b,))\n'
+            'def purge_project(self):\n'
+            '    self.conn.execute("DELETE FROM insights WHERE p=?", (p,))\n')
+        found = {name for _line, name, _sql in
+                 _ledger_mutation_offenders(bad)}
+        self.assertEqual(found, {"edit_an_insight", "forget_a_briefing"},
+                         "the scanner must flag both mutations and must "
+                         "exempt purge_project alone")
+
+    def test_a_correction_appends_and_leaves_the_corrected_row_untouched(
+            self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                first = store.record_insight(
+                    "p1", _key_decision(), _lead_actor())["insight_id"]
+                before = dict(store.conn.execute(
+                    "SELECT * FROM insights WHERE insight_id=?",
+                    (first,)).fetchone())
+                second = store.record_insight(
+                    "p1",
+                    _key_decision(claim="schema 16 is additive, corrected",
+                                  supersedes=first),
+                    _lead_actor())["insight_id"]
+                after = dict(store.conn.execute(
+                    "SELECT * FROM insights WHERE insight_id=?",
+                    (first,)).fetchone())
+                self.assertEqual(before, after,
+                                 "a correction may not edit the row it "
+                                 "corrects")
+                self.assertEqual(_ledger_count(store), 2)
+                self.assertEqual(
+                    store.get_insight(second, raw=True)["supersedes"], first)
+
+    def test_supersedes_is_written_at_insert_and_never_set_later(self):
+        body = _method_source("record_insight")
+        self.assertIn("INSERT INTO insights", body)
+        self.assertIn("supersedes", body,
+                      "supersedes must be a column of the one INSERT, not a "
+                      "later UPDATE")
+        src = _store_source()
+        for forbidden in ("UPDATE insights", "UPDATE briefings",
+                          "SET supersedes"):
+            self.assertNotIn(forbidden, src)
+
+
+class TestOpenKeyDecisions(unittest.TestCase):
+    """Section 6.3: 'open' is the ABSENCE of a superseding row, never a
+    status column, so nothing has to be UPDATEd for a decision to leave
+    the founder's queue."""
+
+    def _seeded(self, d):
+        store = bs.Store(d)
+        _seed(store, "p1")
+        return store
+
+    def test_a_key_decision_with_nothing_superseding_it_is_open(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._seeded(d) as store:
+                did = store.record_insight(
+                    "p1", _key_decision(), _lead_actor())["insight_id"]
+                open_rows = store.open_key_decisions("p1")
+                self.assertEqual([r["insight_id"] for r in open_rows], [did])
+                self.assertEqual(open_rows[0]["decision_class"], "RULE")
+
+    def test_a_handback_closes_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._seeded(d) as store:
+                did = store.record_insight(
+                    "p1", _key_decision(), _lead_actor())["insight_id"]
+                store.record_insight(
+                    "p1",
+                    _insight(kind="HANDBACK", supersedes=did,
+                             control_offered=1, control_taken=1),
+                    _lead_actor())
+                self.assertEqual(store.open_key_decisions("p1"), [])
+
+    def test_a_later_decision_closes_it_too(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._seeded(d) as store:
+                did = store.record_insight(
+                    "p1", _key_decision(), _lead_actor())["insight_id"]
+                second = store.record_insight(
+                    "p1", _key_decision(subject="the pick", supersedes=did),
+                    _lead_actor())["insight_id"]
+                self.assertEqual(
+                    [r["insight_id"] for r in store.open_key_decisions("p1")],
+                    [second],
+                    "the founder's pick supersedes the question and becomes "
+                    "the new open row")
+
+    def test_a_non_key_decision_and_another_project_never_appear(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._seeded(d) as store:
+                _seed(store, "p2")
+                store.record_insight("p1", _decision(), _lead_actor())
+                store.record_insight("p1", _insight(kind="RISK"),
+                                     _lead_actor())
+                store.record_insight("p2", _key_decision(), _lead_actor())
+                self.assertEqual(store.open_key_decisions("p1"), [])
+                self.assertEqual(len(store.open_key_decisions("p2")), 1)
+
+
+class TestActiveMinutesSince(unittest.TestCase):
+    """Section 7.1's clock, store side. The activity signal is the
+    attribution table, so these plant attribution rows at chosen
+    timestamps directly, the same way
+    test_structural_gateC_every_text_column_redacted_by_default plants
+    values the public API cannot reach."""
+
+    _BASE = "2026-01-01T00:00:00Z"
+
+    def _plant(self, store, stamps, project_id="p1"):
+        store.conn.execute("BEGIN IMMEDIATE")
+        for i, ts in enumerate(stamps):
+            store.conn.execute(
+                "INSERT INTO attribution (event_id, project_id, task_id, "
+                "event_type, actor_type, actor_name, runtime, model, "
+                "session_id, action, reason, input_artifacts, "
+                "output_artifacts, evidence_ref, timestamp) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                ("planted%d" % i, project_id, None, "planted.event",
+                 "model", "planter", "", "", "s", "plant", "", "[]", "[]",
+                 "", ts))
+        store.conn.execute("COMMIT")
+
+    def _at(self, seconds):
+        base = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+        return (base + datetime.timedelta(seconds=seconds)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ")
+
+    def test_a_dense_series_reaches_thirty_minutes_in_thirty_wall_minutes(
+            self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                self._plant(store,
+                            [self._at(30 * (i + 1)) for i in range(60)])
+                out = store.active_minutes_since("p1", self._BASE,
+                                                 now=self._at(1800))
+                self.assertEqual(out["active_minutes"],
+                                 bs.BRIEFING_ACTIVE_MINUTES)
+                self.assertEqual(out["events"], 60)
+                self.assertEqual(out["skipped"], 0)
+
+    def test_a_sparse_series_accrues_only_the_ceiling_per_gap(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                self._plant(store, [self._at(3600), self._at(7200),
+                                    self._at(10800)])
+                out = store.active_minutes_since("p1", self._BASE,
+                                                 now=self._at(10800))
+                self.assertEqual(
+                    out["active_minutes"],
+                    3 * bs.ACTIVE_GAP_CEILING_SECONDS // 60,
+                    "three hours of wall clock with three events is three "
+                    "capped gaps, not three hours")
+                self.assertLess(out["active_minutes"],
+                                bs.BRIEFING_ACTIVE_MINUTES)
+                # The ceiling is honoured EXACTLY at the boundary: a gap of
+                # exactly ACTIVE_GAP_CEILING_SECONDS counts in full.
+                out2 = store.active_minutes_since(
+                    "p1", self._at(3600 - bs.ACTIVE_GAP_CEILING_SECONDS),
+                    now=self._at(3600))
+                self.assertEqual(out2["active_minutes"],
+                                 bs.ACTIVE_GAP_CEILING_SECONDS // 60)
+
+    def test_an_open_ended_idle_tail_accrues_nothing_and_no_events_is_zero(
+            self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                self._plant(store, [self._at(60), self._at(120)])
+                out = store.active_minutes_since("p1", self._BASE,
+                                                 now=self._at(14400))
+                self.assertEqual(out["active_minutes"], 2,
+                                 "now is never appended to the series: a "
+                                 "session that stops working stops accruing")
+                self.assertEqual(out["events"], 2)
+                empty = store.active_minutes_since("p1", self._at(20000),
+                                                   now=self._at(30000))
+                self.assertEqual(empty["active_minutes"], 0)
+                self.assertEqual(empty["events"], 0)
+
+    def test_an_unparseable_timestamp_is_skipped_and_counted(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                self._plant(store, [self._at(60), "not a timestamp",
+                                    self._at(120)])
+                out = store.active_minutes_since("p1", self._BASE,
+                                                 now=self._at(600))
+                self.assertEqual(out["skipped"], 1,
+                                 "a row that cannot be placed is disclosed, "
+                                 "never guessed at")
+                self.assertEqual(out["events"], 2)
+                self.assertEqual(out["active_minutes"], 2)
+
+
+class TestLeadPurgeLeavesNoOrphans(unittest.TestCase):
+    """Section 5.5, the sibling of TestControllerPurgeLeavesNoOrphans and
+    TestAutonomyPurgeLeavesNoOrphans above: purge_project must remove
+    every row in both new tables, counted like every other table's, so no
+    orphan survives a purge."""
+
+    def test_purge_removes_every_ledger_row_across_both_tables(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                actor = _lead_actor()
+                store.record_insight("p1", _key_decision(), actor)
+                store.record_insight("p1", _insight(kind="RISK"), actor)
+                store.record_briefing("p1", _briefing(), actor)
+
+                for t in bs._TABLES_LEAD:
+                    count = store.conn.execute(
+                        "SELECT COUNT(*) c FROM %s WHERE project_id='p1'"
+                        % t).fetchone()["c"]
+                    self.assertGreater(count, 0,
+                                       "%s must be seeded before the purge "
+                                       "proves it empties" % t)
+
+                removed = store.purge_project("p1", actor, "p1")
+                for t in bs._TABLES_LEAD:
+                    self.assertIn(t, removed)
+                    self.assertGreater(removed[t], 0)
+                    count = store.conn.execute(
+                        "SELECT COUNT(*) c FROM %s WHERE project_id='p1'"
+                        % t).fetchone()["c"]
+                    self.assertEqual(count, 0,
+                                     "%s still holds a row for a purged "
+                                     "project" % t)
+
+    def test_another_projects_ledger_survives_the_purge(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                _seed(store, "p2")
+                actor = _lead_actor()
+                store.record_insight("p1", _key_decision(), actor)
+                kept = store.record_insight("p2", _key_decision(),
+                                            actor)["insight_id"]
+                store.record_briefing("p2", _briefing(), actor)
+                store.purge_project("p1", actor, "p1")
+                self.assertEqual(_ledger_count(store), 1)
+                self.assertIsNotNone(store.get_insight(kept))
+                self.assertEqual(len(store.list_briefings("p2")), 1)
+
+
+class TestInsightsAreWithheldByDefaultInADump(unittest.TestCase):
+    """Section 5.4. A dump shows that a decision EXISTS and withholds what
+    it says, the same accounting the notes block at _DUMP_SAFE_COLUMNS
+    makes for author, anchor_key, body, resolution and override_reason."""
+
+    def test_the_insight_prose_columns_come_back_as_length_markers(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                out = store.record_insight(
+                    "p1",
+                    _key_decision(subject="the founder's own words",
+                                  claim="a claim nobody else may read",
+                                  evidence="tools/bm_store.py:81",
+                                  confidence_basis="two independent reads",
+                                  flip_condition="a store that will not "
+                                                 "migrate"),
+                    _lead_actor())
+                row = store.dump()["insights"][0]
+                for col in ("subject", "claim", "evidence", "alternatives",
+                            "flip_condition", "confidence_basis",
+                            "actor_type", "actor_name"):
+                    self.assertIn("WITHHELD", str(row[col]),
+                                  "%s must not reach a dump in cleartext"
+                                  % col)
+                self.assertEqual(row["insight_id"], out["insight_id"])
+                self.assertEqual(row["kind"], "DECISION")
+                self.assertEqual(row["evidence_class"], "READ")
+                self.assertEqual(row["decision_class"], "RULE")
+                self.assertEqual(row["confidence"], "moderate")
+                self.assertEqual(row["project_id"], "p1")
+
+    def test_the_briefing_prose_columns_come_back_as_length_markers(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                out = store.record_briefing(
+                    "p1",
+                    _briefing(trigger="ACTIVE_MINUTES", active_minutes=30,
+                              event_count=7, where_we_are="two units in",
+                              what_changed="a unit was accepted",
+                              what_it_cost="12k tokens"),
+                    _lead_actor())
+                row = store.dump()["briefings"][0]
+                for col in ("where_we_are", "what_changed", "what_it_cost",
+                            "actor_type", "actor_name"):
+                    self.assertIn("WITHHELD", str(row[col]),
+                                  "%s must not reach a dump in cleartext"
+                                  % col)
+                self.assertEqual(row["briefing_id"], out["briefing_id"])
+                self.assertEqual(row["trigger"], "ACTIVE_MINUTES")
+                self.assertEqual(row["active_minutes"], 30)
+                self.assertEqual(row["event_count"], 7)
+
+
+class TestLeadReadAccessors(unittest.TestCase):
+    """The six read accessors of section 6.3, including the `until` cut
+    that is what makes a regenerated page byte identical a week later."""
+
+    def test_list_insights_filters_by_kind_and_returns_newest_first(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                _seed(store, "p2")
+                actor = _lead_actor()
+                a = store.record_insight("p1", _insight(kind="RISK"),
+                                         actor)["insight_id"]
+                b = store.record_insight("p1", _decision(),
+                                         actor)["insight_id"]
+                c = store.record_insight("p1", _insight(kind="RISK"),
+                                         actor)["insight_id"]
+                store.record_insight("p2", _insight(kind="RISK"), actor)
+                self.assertEqual(
+                    [r["insight_id"] for r in store.list_insights("p1")],
+                    [c, b, a])
+                self.assertEqual(
+                    [r["insight_id"]
+                     for r in store.list_insights("p1", kind="RISK")],
+                    [c, a])
+                self.assertEqual(
+                    [r["insight_id"]
+                     for r in store.list_insights("p1", limit=1)], [c])
+                with self.assertRaises(ValueError):
+                    store.list_insights("p1", kind="NARRATION")
+
+    def test_the_until_cut_holds_and_since_is_exclusive(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                actor = _lead_actor()
+                first = store.record_insight("p1", _insight(), actor)
+                cut = store.get_insight(first["insight_id"],
+                                        raw=True)["created_at"]
+                rows_at_cut = store.list_insights("p1", until=cut)
+                self.assertEqual([r["insight_id"] for r in rows_at_cut],
+                                 [first["insight_id"]],
+                                 "until is INCLUSIVE: the row written at "
+                                 "the cut belongs to the page")
+                self.assertEqual(store.list_insights("p1", since=cut), [],
+                                 "since is EXCLUSIVE: the anchor row is not "
+                                 "counted twice")
+
+    def test_get_insight_and_latest_briefing_degrade_to_none(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                self.assertIsNone(store.get_insight("ghost"))
+                self.assertIsNone(store.latest_briefing("p1"))
+                self.assertEqual(store.list_briefings("p1"), [])
+                self.assertEqual(store.list_insights("ghost"), [])
+
+    def test_a_read_only_store_carries_every_accessor_and_no_writer(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                actor = _lead_actor()
+                did = store.record_insight("p1", _key_decision(),
+                                           actor)["insight_id"]
+                store.record_briefing("p1", _briefing(), actor)
+            with bs.ReadOnlyStore(d) as ro:
+                self.assertEqual(len(ro.list_insights("p1")), 1)
+                self.assertEqual(ro.get_insight(did)["insight_id"], did)
+                self.assertEqual(len(ro.list_briefings("p1")), 1)
+                self.assertIsNotNone(ro.latest_briefing("p1"))
+                self.assertEqual(len(ro.open_key_decisions("p1")), 1)
+                self.assertEqual(
+                    ro.active_minutes_since("p1", "2026-01-01T00:00:00Z",
+                                            now="2026-01-01T01:00:00Z"),
+                    {"active_minutes": 0, "events": 0, "skipped": 0})
+                for writer in ("record_insight", "record_briefing"):
+                    self.assertFalse(
+                        hasattr(bs.ReadOnlyStore, writer),
+                        "ReadOnlyStore must define no write method for the "
+                        "ledger, the rule its U1 and U2 blocks already "
+                        "state")
+
+    def test_raw_follows_the_shipped_split(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                out = store.record_insight(
+                    "p1", _key_decision(claim="a claim nobody may read"),
+                    _lead_actor())
+                redacted = store.get_insight(out["insight_id"])
+                raw = store.get_insight(out["insight_id"], raw=True)
+                self.assertIn("WITHHELD", redacted["claim"])
+                self.assertEqual(raw["claim"], "a claim nobody may read")
+                self.assertEqual(raw["alternatives"][0]["option"],
+                                 "JSON inside an existing table")
+
+
+class TestControllerEventsReplayFromAttribution(unittest.TestCase):
+    """DESIGN-L04 section 14. MirrorForge MF-L02 asked for an append-only
+    controller_events table; this design DEFERS the table and lands the
+    test that decides whether it is needed at all.
+
+    The question: can a controller run be replayed from the `attribution`
+    rows the store already writes (tools/bm_store.py:2700 to 2716, written
+    by _write_attribution from inside every controller service method's
+    own transaction), or does replay need a second table?
+
+    Both tests below drive a REAL run to DELIVERABLE_READY and then try to
+    reconstruct, from attribution rows ALONE, what the entity rows
+    actually did. Whatever they assert is the verdict section 14 item 4
+    says must be recorded either way."""
+
+    def _drive(self, store):
+        actor = _controller_actor()
+        run = _open_and_plan(store)
+        store.upsert_units(run["run_id"], [_unit("u1")], actor)
+        states = ["NEW", "ORIENTING", "PLANNING", "READY"]
+        store.claim_unit("u1", "fence-u1", actor)
+        did = store.record_dispatch("u1", 1, 1, "fence-u1", "s", actor)
+        store.record_result(did, "done", [], actor)
+        store.record_verification(did, 0, "pass", True, actor)
+        cp = store.record_checkpoint("p1", "ctrl1", "unit-green", "u1", "s",
+                                     actor)
+        store.mark_unit_done("u1", cp, actor)
+        for nxt in ("EXECUTING", "VERIFYING", "CHECKPOINTED",
+                    "DELIVERABLE_READY"):
+            store.set_run_state(run["run_id"], nxt, actor, "step", "s")
+            states.append(nxt)
+        return run, states
+
+    def _events(self, store, prefix="controller."):
+        return [dict(r) for r in store.conn.execute(
+            "SELECT * FROM attribution WHERE project_id='p1' AND "
+            "event_type LIKE ? ORDER BY rowid ASC", (prefix + "%",))]
+
+    def test_the_run_state_sequence_does_not_reconstruct_from_events_alone(
+            self):
+        """VERDICT, recorded: it does NOT. Every run transition DOES leave
+        an event (`controller.run.state_changed`), so nothing is missing
+        at the event level; what is missing is the STATE the run moved
+        TO. The event carries event_type, action, reason and an
+        evidence_ref naming the run, and no column of it names the target
+        state, so a replayer can count the transitions and cannot name
+        them. That is the specification for a controller_events table,
+        sized in columns: a `to_state` (and a `from_state`) on the run
+        transition event.
+
+        Red-by-design if the gap closes: the day the target state is
+        written into the event, this test fails and section 16.1's
+        deferral must be re-decided rather than silently outlived."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                run, states = self._drive(store)
+                moves = [e for e in self._events(store)
+                         if e["event_type"] == "controller.run.state_changed"]
+                self.assertEqual(
+                    len(moves), len(states) - 1,
+                    "every run transition must at least leave an event")
+                self.assertEqual(
+                    store.get_run("p1", raw=True)["state"],
+                    "DELIVERABLE_READY")
+                unnamed = [s for s in states[1:]
+                           if not any(s in (e["reason"] or "")
+                                      or s in (e["action"] or "")
+                                      or s in (e["evidence_ref"] or "")
+                                      or s in (e["event_type"] or "")
+                                      for e in moves)]
+                self.assertEqual(
+                    unnamed, states[1:],
+                    "VERDICT: no run-transition event names the state it "
+                    "moved to, so the sequence cannot be replayed from "
+                    "attribution alone. If this list has shrunk, an event "
+                    "now carries the state and the deferral must be "
+                    "re-decided.")
+
+    def test_the_unit_status_sequence_needs_the_entity_rows_to_resolve(self):
+        """The calibration half: the reconstruction must genuinely read
+        EVENTS, not the entity rows. It cannot. Three of the six
+        unit-scoped events name a DISPATCH id and one names a CHECKPOINT
+        ref, so resolving them back to a unit requires SELECTing
+        controller_dispatches, an entity table. Only claimed, failed and
+        claim_released name the unit itself.
+
+        Second half of the same specification: a `unit_id` column on every
+        unit-scoped event."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                run, _states = self._drive(store)
+                events = {e["event_type"]: e for e in self._events(store)}
+                names_the_unit = {t for t, e in events.items()
+                                  if e["evidence_ref"] == "u1"}
+                self.assertEqual(
+                    names_the_unit, {"controller.unit.claimed"},
+                    "VERDICT: of the events this drive produced, only the "
+                    "claim names the unit in a column of its own")
+                for et in ("controller.unit.dispatched",
+                           "controller.dispatch.resulted",
+                           "controller.dispatch.verified"):
+                    ref = events[et]["evidence_ref"]
+                    self.assertNotEqual(ref, "u1")
+                    resolved = store.conn.execute(
+                        "SELECT unit_id FROM controller_dispatches WHERE "
+                        "dispatch_id=?", (ref,)).fetchone()
+                    self.assertEqual(
+                        resolved["unit_id"], "u1",
+                        "%s resolves to its unit ONLY through the entity "
+                        "table" % et)
+                done_ref = events["controller.unit.done"]["evidence_ref"]
+                self.assertNotEqual(
+                    done_ref, "u1",
+                    "controller.unit.done names its checkpoint, not its "
+                    "unit")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,348 @@
+RED-L04-store.txt
+Writer A (the store), DESIGN-L04 sections 5, 6, 14, 15.1, 17.3, 18.1.
+Every class below was run against the UNTOUCHED production tree:
+tools/bm_store.py and tools/bm_project.py were not edited at this point.
+Captured 2026-08-05T09:14:11Z on Python 3.9.6.
+
+BASELINE BEFORE ANY EDIT
+  python3 tools/test_bm_store.py    -> Ran 908 tests   OK
+  python3 tools/test_bm_project.py  -> Ran 40 tests    OK
+
+======================================================================
+BLOCK: test_bm_store.TestSchema16IsAdditive
+COMMAND: python3 -m unittest test_bm_store.TestSchema16IsAdditive
+======================================================================
+AttributeError: module 'bm_store' has no attribute '_TABLES_LEAD'
+
+======================================================================
+FAIL: test_a_brand_new_store_has_both_lead_tables_empty (test_bm_store.TestSchema16IsAdditive)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20016, in test_a_brand_new_store_has_both_lead_tables_empty
+    self.assertIn(table, found)
+AssertionError: 'insights' not found in {'sqlite_sequence', 'learning_retrieval_membership', 'notes', 'learning_state_change_receipts', 'alerts', 'handovers', 'directives', 'attribution', 'controller_dispatches', 'autonomy_contracts', 'claims', 'meta', 'learning_rule_versions', 'sentinel_procedural', 'records', 'controller_runs', 'decisions', 'digests', 'tasks', 'learning_approval_receipts', 'projects', 'controller_units', 'autosave_receipts', 'learning_rules', 'runtime_runs', 'learning_edges', 'forecasts', 'autonomy_assumptions', 'learning_candidates', 'dependencies', 'autonomy_human_steps', 'learning_evidence', 'learning_retrieval_runs', 'transitions', 'provisional_records', 'sentinel_interventions', 'evidence', 'sentinel_knowledge', 'autonomy_spend', 'autonomy_checkpoints', 'autonomy_interruptions', 'learning_applications', 'sentinel_status'}
+
+======================================================================
+FAIL: test_schema_version_moves_from_15_to_16_and_the_step_is_registered (test_bm_store.TestSchema16IsAdditive)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19999, in test_schema_version_moves_from_15_to_16_and_the_step_is_registered
+    self.assertGreaterEqual(
+AssertionError: 15 not greater than or equal to 16 : DESIGN-L04 section 5.3: SCHEMA_VERSION moved from 15 to at least 16
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.062s
+
+FAILED (failures=2, errors=3)
+
+======================================================================
+BLOCK: test_bm_store.TestRecordInsightRefusals
+COMMAND: python3 -m unittest test_bm_store.TestRecordInsightRefusals
+======================================================================
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20189, in test_r8_an_unknown_decision_class_is_refused
+    e = self._refuse(store, _key_decision(decision_class="VIBE"),
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20117, in _refuse
+    store.record_insight("p1", insight, _lead_actor())
+AttributeError: 'Store' object has no attribute 'record_insight'
+
+======================================================================
+ERROR: test_r9_a_key_decision_with_no_alternative_is_refused (test_bm_store.TestRecordInsightRefusals)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20197, in test_r9_a_key_decision_with_no_alternative_is_refused
+    self._refuse(store, _key_decision(alternatives=[]),
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20117, in _refuse
+    store.record_insight("p1", insight, _lead_actor())
+AttributeError: 'Store' object has no attribute 'record_insight'
+
+----------------------------------------------------------------------
+Ran 16 tests in 0.159s
+
+FAILED (errors=16)
+
+======================================================================
+BLOCK: test_bm_store.TestRecordBriefingRefusals
+COMMAND: python3 -m unittest test_bm_store.TestRecordBriefingRefusals
+======================================================================
+AttributeError: 'Store' object has no attribute 'record_briefing'
+
+======================================================================
+ERROR: test_an_unknown_trigger_names_the_whole_allowed_set (test_bm_store.TestRecordBriefingRefusals)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20297, in test_an_unknown_trigger_names_the_whole_allowed_set
+    store.record_briefing("p1", _briefing(trigger="BECAUSE"),
+AttributeError: 'Store' object has no attribute 'record_briefing'
+
+======================================================================
+ERROR: test_since_briefing_must_name_a_briefing_of_this_project (test_bm_store.TestRecordBriefingRefusals)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20325, in test_since_briefing_must_name_a_briefing_of_this_project
+    foreign = store.record_briefing(
+AttributeError: 'Store' object has no attribute 'record_briefing'
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.064s
+
+FAILED (errors=6)
+
+======================================================================
+BLOCK: test_bm_store.TestKeyDecisionCannotSkipTheHandback
+COMMAND: python3 -m unittest test_bm_store.TestKeyDecisionCannotSkipTheHandback
+======================================================================
+EE
+======================================================================
+ERROR: test_r7_fires_for_every_one_of_the_five_decision_classes (test_bm_store.TestKeyDecisionCannotSkipTheHandback)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20376, in test_r7_fires_for_every_one_of_the_five_decision_classes
+    for cls in bs.INSIGHT_DECISION_CLASSES:
+AttributeError: module 'bm_store' has no attribute 'INSIGHT_DECISION_CLASSES'
+
+======================================================================
+ERROR: test_the_rule_is_narrow_an_ordinary_decision_needs_no_handback (test_bm_store.TestKeyDecisionCannotSkipTheHandback)
+R7 must not become a blanket: a row with NO decision_class is
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20394, in test_the_rule_is_narrow_an_ordinary_decision_needs_no_handback
+    out = store.record_insight("p1", _decision(), _lead_actor())
+AttributeError: 'Store' object has no attribute 'record_insight'
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.179s
+
+FAILED (errors=2)
+
+======================================================================
+BLOCK: test_bm_store.TestTheLedgerIsAppendOnly
+COMMAND: python3 -m unittest test_bm_store.TestTheLedgerIsAppendOnly
+======================================================================
+======================================================================
+ERROR: test_a_correction_appends_and_leaves_the_corrected_row_untouched (test_bm_store.TestTheLedgerIsAppendOnly)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20474, in test_a_correction_appends_and_leaves_the_corrected_row_untouched
+    first = store.record_insight(
+AttributeError: 'Store' object has no attribute 'record_insight'
+
+======================================================================
+ERROR: test_supersedes_is_written_at_insert_and_never_set_later (test_bm_store.TestTheLedgerIsAppendOnly)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20495, in test_supersedes_is_written_at_insert_and_never_set_later
+    body = _method_source("record_insight")
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19271, in _method_source
+    start = src.index("\n    def %s(" % name)
+ValueError: substring not found
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.105s
+
+FAILED (errors=2)
+
+======================================================================
+BLOCK: test_bm_store.TestOpenKeyDecisions
+COMMAND: python3 -m unittest test_bm_store.TestOpenKeyDecisions
+======================================================================
+AttributeError: 'Store' object has no attribute 'record_insight'
+
+======================================================================
+ERROR: test_a_later_decision_closes_it_too (test_bm_store.TestOpenKeyDecisions)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20540, in test_a_later_decision_closes_it_too
+    did = store.record_insight(
+AttributeError: 'Store' object has no attribute 'record_insight'
+
+======================================================================
+ERROR: test_a_non_key_decision_and_another_project_never_appear (test_bm_store.TestOpenKeyDecisions)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20555, in test_a_non_key_decision_and_another_project_never_appear
+    store.record_insight("p1", _decision(), _lead_actor())
+AttributeError: 'Store' object has no attribute 'record_insight'
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.048s
+
+FAILED (errors=4)
+
+======================================================================
+BLOCK: test_bm_store.TestActiveMinutesSince
+COMMAND: python3 -m unittest test_bm_store.TestActiveMinutesSince
+======================================================================
+AttributeError: 'Store' object has no attribute 'active_minutes_since'
+
+======================================================================
+ERROR: test_an_open_ended_idle_tail_accrues_nothing_and_no_events_is_zero (test_bm_store.TestActiveMinutesSince)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20634, in test_an_open_ended_idle_tail_accrues_nothing_and_no_events_is_zero
+    out = store.active_minutes_since("p1", self._BASE,
+AttributeError: 'Store' object has no attribute 'active_minutes_since'
+
+======================================================================
+ERROR: test_an_unparseable_timestamp_is_skipped_and_counted (test_bm_store.TestActiveMinutesSince)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20651, in test_an_unparseable_timestamp_is_skipped_and_counted
+    out = store.active_minutes_since("p1", self._BASE,
+AttributeError: 'Store' object has no attribute 'active_minutes_since'
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.048s
+
+FAILED (errors=4)
+
+======================================================================
+BLOCK: test_bm_store.TestLeadPurgeLeavesNoOrphans
+COMMAND: python3 -m unittest test_bm_store.TestLeadPurgeLeavesNoOrphans
+======================================================================
+EE
+======================================================================
+ERROR: test_another_projects_ledger_survives_the_purge (test_bm_store.TestLeadPurgeLeavesNoOrphans)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20700, in test_another_projects_ledger_survives_the_purge
+    store.record_insight("p1", _key_decision(), actor)
+AttributeError: 'Store' object has no attribute 'record_insight'
+
+======================================================================
+ERROR: test_purge_removes_every_ledger_row_across_both_tables (test_bm_store.TestLeadPurgeLeavesNoOrphans)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20671, in test_purge_removes_every_ledger_row_across_both_tables
+    store.record_insight("p1", _key_decision(), actor)
+AttributeError: 'Store' object has no attribute 'record_insight'
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.027s
+
+FAILED (errors=2)
+
+======================================================================
+BLOCK: test_bm_store.TestInsightsAreWithheldByDefaultInADump
+COMMAND: python3 -m unittest test_bm_store.TestInsightsAreWithheldByDefaultInADump
+======================================================================
+EE
+======================================================================
+ERROR: test_the_briefing_prose_columns_come_back_as_length_markers (test_bm_store.TestInsightsAreWithheldByDefaultInADump)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20746, in test_the_briefing_prose_columns_come_back_as_length_markers
+    out = store.record_briefing(
+AttributeError: 'Store' object has no attribute 'record_briefing'
+
+======================================================================
+ERROR: test_the_insight_prose_columns_come_back_as_length_markers (test_bm_store.TestInsightsAreWithheldByDefaultInADump)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20719, in test_the_insight_prose_columns_come_back_as_length_markers
+    out = store.record_insight(
+AttributeError: 'Store' object has no attribute 'record_insight'
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.026s
+
+FAILED (errors=2)
+
+======================================================================
+BLOCK: test_bm_store.TestLeadReadAccessors
+COMMAND: python3 -m unittest test_bm_store.TestLeadReadAccessors
+======================================================================
+AttributeError: 'Store' object has no attribute 'record_insight'
+
+======================================================================
+ERROR: test_raw_follows_the_shipped_split (test_bm_store.TestLeadReadAccessors)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20850, in test_raw_follows_the_shipped_split
+    out = store.record_insight(
+AttributeError: 'Store' object has no attribute 'record_insight'
+
+======================================================================
+ERROR: test_the_until_cut_holds_and_since_is_exclusive (test_bm_store.TestLeadReadAccessors)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 20800, in test_the_until_cut_holds_and_since_is_exclusive
+    first = store.record_insight("p1", _insight(), actor)
+AttributeError: 'Store' object has no attribute 'record_insight'
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.056s
+
+FAILED (errors=5)
+
+======================================================================
+BLOCK: test_bm_store.TestControllerEventsReplayFromAttribution
+COMMAND: python3 -m unittest test_bm_store.TestControllerEventsReplayFromAttribution
+======================================================================
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.031s
+
+OK
+
+======================================================================
+BLOCK: test_bm_project.TestPurgeProject (DESIGN-L04 section 18.1)
+COMMAND: python3 -m unittest test_bm_project.TestPurge.test_purge_with_confirm_removes_rows_attribution_trail_survives
+The pinned removed dict at tools/test_bm_project.py:1365 gained the two
+new keys FIRST, so the pin goes red until purge_project removes them.
+======================================================================
+FAIL: test_purge_with_confirm_removes_rows_attribution_trail_survives (test_bm_project.TestExportAndPurge)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_project.py", line 1365, in test_purge_with_confirm_removes_rows_attribution_trail_survives
+    self.assertEqual(
+AssertionError: {'alerts': 1, 'alerts_skipped': [], 'autono[328 chars]': 2} != {'dependencies': 1, 'evidence': 2, 'alerts'[359 chars]': 0}
+  {'alerts': 1,
+   'alerts_skipped': [],
+   'autonomy_assumptions': 0,
+   'autonomy_checkpoints': 0,
+   'autonomy_contracts': 0,
+   'autonomy_human_steps': 0,
+   'autonomy_interruptions': 0,
+   'autonomy_spend': 0,
++  'briefings': 0,
+   'controller_dispatches': 0,
+   'controller_runs': 0,
+   'controller_units': 0,
+   'cross_project_edges_removed': [],
+   'dependencies': 1,
+   'evidence': 2,
+   'forecasts': 1,
++  'insights': 0,
+   'projects': 1,
+   'tasks': 2}
+
+----------------------------------------------------------------------
+Ran 1 test in 0.690s
+
+FAILED (failures=1)
+
+======================================================================
+ONE STATED EXCEPTION TO THE FAIL-FIRST RULE
+======================================================================
+Section 17's preamble says a class that PASSES on the untouched tree is
+not evidence. One class passes, deliberately, and here is why it is not
+an exemption smuggled past the rule:
+
+  test_bm_store.TestControllerEventsReplayFromAttribution
+
+Its subject is NOT schema 16. It is the attribution stream the CONTROLLER
+already writes today (DESIGN-L04 section 14, MirrorForge MF-L02), and its
+job is to return a verdict on whether a controller run replays from those
+existing rows. It touches nothing this loop adds, so it can only ever run
+against an untouched controller. It passing means its verdict is recorded,
+not that it proves nothing.
+
+The verdict it records is NEGATIVE for replay: a run's state sequence and
+a unit's status sequence do NOT reconstruct from attribution alone. See
+the report's "Section 14 verdict" for the two named gaps, which are the
+specification for a controller_events table in columns.
+
+Ten of the eleven store classes, and the section 18.1 pin in
+tools/test_bm_project.py, are red above.
