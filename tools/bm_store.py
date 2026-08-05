@@ -3422,8 +3422,24 @@ AUTONOMY_RISK_CLASSES = ("file-edit", "file-create", "file-move", "build",
                          "test-run", "local-commit", "local-branch",
                          "read-only-inspect", "app-drive", "browser-read")
 
-# The five floors. NEVER grantable by any contract. Keyed by id so a refusal
+# The subset of AUTONOMY_RISK_CLASSES whose definition contains no write
+# of any kind. This is the schema's ONLY way to express read-only work
+# (there is no explicit read-only marker column), and it is what makes an
+# empty allowed_paths expressible after the L09 narrowing: a contract
+# granting only these classes bounds no writes because it authorises
+# none. Everything else (file-edit through app-drive) changes SOMETHING,
+# so granting it with no declared write scope is refused at sign time
+# (sign_contract, reason 'no-write-scope', founder decision 2026-08-05).
+AUTONOMY_READ_ONLY_RISK_CLASSES = ("read-only-inspect", "browser-read")
+
+# The six floors. NEVER grantable by any contract. Keyed by id so a refusal
 # can name WHICH floor without restating its sentence at the call site.
+# governance-write landed 2026-08-06 (L09, founder decision 2026-08-05,
+# closing the KNOWN-LIMITS disclosure): a contract whose allowed_paths
+# included '.' authorised writes to the store's own database directory,
+# to .git (config included) and to the assistant's settings file. Those
+# three surfaces are the machinery the OTHER checks stand on, so a write
+# there is un-authorisable by construction, whatever the contract says.
 AUTONOMY_FLOORS = (
     ("credential-entry",
      "typing credentials, passwords or 2FA codes"),
@@ -3435,9 +3451,88 @@ AUTONOMY_FLOORS = (
      "permanent deletion, or any write to production state"),
     ("publish-release",
      "publishing or releasing"),
+    ("governance-write",
+     "writing to the authorisation machinery itself: the project's own "
+     ".brothermode store, its .git directory, or a .claude settings file "
+     "(.claude/settings.json or .claude/settings.local.json)"),
 )
 AUTONOMY_FLOOR_IDS = tuple(f[0] for f in AUTONOMY_FLOORS)
 AUTONOMY_FLOOR_DESCRIPTIONS = dict(AUTONOMY_FLOORS)
+
+# The DIRECTORY surfaces behind the governance-write floor, root-relative
+# canonical POSIX names: the store's own database directory (writing there
+# edits the very rows every refusal in this file reads) and the git
+# directory (.git/config can rewrite hooksPath and core settings; objects
+# and refs are the founder's history). A LEGITIMATE git write
+# (local-commit, local-branch) goes through git's own porcelain as an
+# ACTION class; this floor refuses the path-scoped grant, a unit or
+# contract naming these files as a write surface. The Claude settings
+# FILES are floored by _is_claude_settings_path below, not here, because
+# they are a name family rather than a subtree.
+AUTONOMY_FLOOR_PATHS = (STORE_DIRNAME, ".git")
+
+# The directory Claude Code keeps its per-project settings in, and the one
+# stem those settings files share. Two settings files exist in THIS
+# codebase and both carry the same permissions/hooks power: the shared
+# ".claude/settings.json" (cited in scripts/doctor.py, scripts/uninstall.py,
+# scripts/rehearse_fresh_install.py) and the higher-precedence,
+# git-ignored ".claude/settings.local.json" (cited in scripts/install.py
+# and the 2026-08-04 handovers under docs/closure/). A grep of scripts/
+# and docs/ for "managed-settings"/"enterprise" found NO managed or
+# enterprise settings FILE in this tree (the "enterprise" hits are about
+# Claude subscription plans), and an enterprise managed-settings file
+# lives at an ABSOLUTE system path outside any project root, so it is
+# unreachable through a project-relative write scope regardless. The floor
+# therefore covers the settings STEM family (settings.json,
+# settings.local.json, and any same-power settings.<qualifier>.json),
+# which is robust against a variant spelling without inventing a path that
+# is not cited: every name it floors is one of the two cited files or a
+# same-shaped local/scoped variant of them.
+AUTONOMY_CLAUDE_DIR = ".claude"
+_CLAUDE_SETTINGS_STEM = "settings."
+
+
+def _is_claude_settings_path(normalized):
+    """True when `normalized` (already _to_posix'd and _normcase'd) names a
+    Claude Code settings file directly under .claude: settings.json,
+    settings.local.json, or a same-power settings.<qualifier>.json. NOT
+    .claude itself, NOT a file deeper than .claude's own level, and NOT a
+    non-settings file such as .claude/other.json or .claude/mysettings.json
+    (the stem must START the final component, so 'mysettings.json' does not
+    match)."""
+    prefix = _normcase(AUTONOMY_CLAUDE_DIR) + "/"
+    if not normalized.startswith(prefix):
+        return False
+    tail = normalized[len(prefix):]
+    if not tail or "/" in tail:
+        return False
+    return (tail.startswith(_normcase(_CLAUDE_SETTINGS_STEM))
+            and tail.endswith(".json"))
+
+
+def _governance_floor_hit(candidate):
+    """True when `candidate` (a canonical root-relative path, glob
+    tolerated) names, or falls inside, a governance-write surface: one of
+    the AUTONOMY_FLOOR_PATHS directories, or a Claude settings file
+    (_is_claude_settings_path).
+
+    The candidate is reduced to its _coverage_key first, which for a
+    literal path is the path itself and for a glob is its literal prefix
+    directory: reducing the CANDIDATE side is the safe direction here,
+    because it can only ever widen the REFUSAL ('.git/*' reduces to
+    '.git' and is refused; '*' reduces to the empty prefix and falls
+    through to the ordinary scope rules, same as '.'). Containment is
+    _prefix_contains at a separator boundary, so .gitignore and .github
+    stay outside .git. '.' and the empty string are NOT hits: a broad
+    allowance stays signable (the founder's own whole-project contract);
+    the floor bites the protected candidate at gate time and the
+    protected NAME at sign time."""
+    nb = _coverage_key(_normcase(_to_posix(candidate)))
+    if not nb or nb == ".":
+        return False
+    if any(_prefix_contains(_normcase(p), nb) for p in AUTONOMY_FLOOR_PATHS):
+        return True
+    return _is_claude_settings_path(nb)
 
 # The legal state moves. Same shape as brotherme/core/schema.py's
 # LEGAL_TRANSITIONS: a terminal state maps to an EMPTY tuple, which is what
@@ -13115,15 +13210,63 @@ class Store(object):
             if rc in AUTONOMY_FLOOR_IDS:
                 raise OwnershipRefused(
                     "risk-class-is-floor",
-                    "%r is one of the five safety floors (%s), not a risk "
+                    "%r is one of the six safety floors (%s), not a risk "
                     "class. No contract can grant it, and a contract that "
                     "tries is a finding worth telling the founder about "
                     "rather than a permission to honour. Remove it and "
                     "sign again."
                     % (rc, AUTONOMY_FLOOR_DESCRIPTIONS[rc]))
             _autonomy_enum("risk class", rc, AUTONOMY_RISK_CLASSES)
-        allowed_paths = [canonicalize_path(self.root, p, cwd=None)
-                         for p in (allowed_paths or [])]
+        canonical_paths = []
+        for p in (allowed_paths or []):
+            entry = canonicalize_path(self.root, p, cwd=None)
+            # The governance-write floor at SIGN time (L09 GAP 1, founder
+            # decision 2026-08-05), the same early loudness the
+            # risk-class-is-floor refusal above gives a floor id: an
+            # allowance that NAMES a protected surface (literally, or as
+            # a glob whose literal prefix sits inside one) refuses before
+            # anything is written. A broad allowance ('.', '*', '**')
+            # stays signable; for those spellings the floor holds at
+            # gate time instead, where the protected CANDIDATE is
+            # refused whatever the contract granted.
+            if _governance_floor_hit(entry):
+                raise OwnershipRefused(
+                    "path-is-floor",
+                    "allowed_paths entry %r names a surface of "
+                    "'governance-write' (%s), one of the six safety "
+                    "floors. No contract wording can grant it, and a "
+                    "contract that tries is a finding worth telling the "
+                    "founder about rather than a permission to honour. "
+                    "Remove the entry and sign again."
+                    % (entry,
+                       AUTONOMY_FLOOR_DESCRIPTIONS["governance-write"]))
+            canonical_paths.append(entry)
+        allowed_paths = canonical_paths
+        if not allowed_paths:
+            # L09 GAP 3 (founder decision 2026-08-05): a unit with no
+            # declared write scope used to be judged on risk class
+            # alone. Risk class alone is not a boundary, so a contract
+            # granting any WRITING class with no allowed_paths refuses
+            # at signing. The one edge kept expressible, stated in
+            # AUTONOMY_READ_ONLY_RISK_CLASSES' own comment: the schema
+            # has no explicit read-only marker, so genuinely read-only
+            # work is expressed by granting only the read-only classes,
+            # and THAT contract signs with an empty scope.
+            writing = [rc for rc in risk_classes
+                       if rc not in AUTONOMY_READ_ONLY_RISK_CLASSES]
+            if writing:
+                raise OwnershipRefused(
+                    "no-write-scope",
+                    "this contract grants %s but declares no "
+                    "allowed_paths, so nothing bounds WHERE that work may "
+                    "write: risk class alone is not a boundary. Declare "
+                    "the paths the work may touch in allowed_paths (a "
+                    "directory grants its whole subtree, '.' grants the "
+                    "whole project), or, for genuinely read-only work, "
+                    "grant only the read-only classes (%s), which need "
+                    "no write scope."
+                    % (", ".join(sorted(writing)),
+                       ", ".join(AUTONOMY_READ_ONLY_RISK_CLASSES)))
         allowed_surfaces = [str(s) for s in (allowed_surfaces or [])]
         for name, ceiling in (("token_ceiling", token_ceiling),
                               ("minutes_ceiling", minutes_ceiling)):
@@ -13461,7 +13604,7 @@ class Store(object):
     def queue_human_step(self, project_id, floor, lane, what, click_path,
                          blocks, session_id, actor):
         """Queue ONE human-only step. `floor`, when given, must be one of
-        the five AUTONOMY_FLOOR_IDS. `lane` defaults to 'default'. Every id
+        the six AUTONOMY_FLOOR_IDS. `lane` defaults to 'default'. Every id
         in `blocks` must name a real task in THIS project, or refuses
         'not-found': a step that claims to block a task that does not exist
         blocks nothing and looks like it blocks something. Needs SOME
@@ -13701,7 +13844,13 @@ class Store(object):
              (invariant I5).
           3. action_class is not a recognised risk class at all.
           4. action_class is not one THIS contract grants.
-          5. path given and not CONTAINED by one of allowed_paths
+          5. path given and falling inside a governance-write surface
+             (AUTONOMY_FLOOR_PATHS: the .brothermode store, .git, or
+             .claude/settings.json): REFUSED-FLOOR, without consulting
+             allowed_paths at all, for the same reason check 2 never
+             consults risk_classes (L09 GAP 1, founder decision
+             2026-08-05).
+          6. path given and not CONTAINED by one of allowed_paths
              (path_within_allowed: equal to an allowed path, or strictly
              under an allowed directory, never merely overlapping one; a
              PATTERN entry grants the files it matches at its own depth
@@ -13722,9 +13871,9 @@ class Store(object):
              created after the plan was written) is the same REFUSED-SCOPE
              verdict, never a raise: this method is a diagnostic its
              callers run in a loop (REFUTATION-3 AZ F-A5).
-          6. surface given and not in allowed_surfaces.
-          7. spend at or over 100 percent of either ceiling: REFUSED-BREAKER.
-          8. otherwise ALLOWED, with revision set so the caller can prove
+          7. surface given and not in allowed_surfaces.
+          8. spend at or over 100 percent of either ceiling: REFUSED-BREAKER.
+          9. otherwise ALLOWED, with revision set so the caller can prove
              later which authorisation it acted on (see U2's staleness
              protocol in the design's section 6)."""
         latest = _latest_contract_row(self, project_id)
@@ -13743,7 +13892,7 @@ class Store(object):
                     "revision": latest["revision"]}
         if action_class in AUTONOMY_FLOOR_IDS:
             return {"verdict": "REFUSED-FLOOR", "floor": action_class,
-                    "reason": "%r (%s) is one of the five safety floors. No "
+                    "reason": "%r (%s) is one of the six safety floors. No "
                               "contract, ever, can authorise it."
                               % (action_class,
                                  AUTONOMY_FLOOR_DESCRIPTIONS[action_class]),
@@ -13795,6 +13944,29 @@ class Store(object):
                         "reason": "%s cannot be read as a path inside this "
                                   "project (%s), so nothing about it can be "
                                   "authorised." % (_safe_repr(path), exc),
+                        "contract_id": latest["contract_id"],
+                        "revision": latest["revision"]}
+            # The governance-write floor at GATE time (L09 GAP 1, founder
+            # decision 2026-08-05), checked BEFORE the allowance loop
+            # below for the same reason check 2 above runs before the
+            # contract's risk_classes are read: a floor is not the
+            # contract's to grant, so the declared paths are not even
+            # consulted. This is what makes the floor hold under EVERY
+            # spelling of a broad allowance ('.', '*', '**', a covering
+            # glob, or the literal protected path, had sign_contract's
+            # own path-is-floor refusal been bypassed by a hand-written
+            # row).
+            if _governance_floor_hit(candidate):
+                return {"verdict": "REFUSED-FLOOR",
+                        "floor": "governance-write",
+                        "reason": "%r falls inside a surface of "
+                                  "'governance-write' (%s), one of the six "
+                                  "safety floors. No contract, ever, can "
+                                  "authorise a write there; this "
+                                  "contract's allowed_paths were not "
+                                  "consulted."
+                                  % (candidate, AUTONOMY_FLOOR_DESCRIPTIONS[
+                                      "governance-write"]),
                         "contract_id": latest["contract_id"],
                         "revision": latest["revision"]}
             if not any(path_within_allowed(d, candidate)
@@ -14007,6 +14179,71 @@ class Store(object):
             self._set_run_state_locked(row, new_state, reason, actor, ts)
         return {"state": new_state, "changed": True}
 
+    def adopt_run(self, project_id, session_id, actor, note=""):
+        """Make `session_id` the recorded driver of `project_id`'s current
+        run, the ONE deliberate takeover path the engine's not-driver
+        refusal names (L09 GAP 2, founder decision 2026-08-05). Returns
+        {'run_id', 'previous_session_id', 'session_id', 'adopted'} where
+        'adopted' is False for the idempotent no-op (the caller already
+        drives the run), the same success-not-refusal shape
+        set_contract_state gives its own no-op.
+
+        Rhymes with the fence store's cmd_adopt on purpose: adoption is
+        EXPLICIT (never a side effect of step or stop), it DISPLACES the
+        previous driver by name, and the handover is recorded durably in
+        the same transaction (attribution event 'controller.run.adopted',
+        its reason naming both sessions and the caller's note), so "who
+        drove this run when" stays answerable forever. Unlike a fence
+        record there is no liveness signal for a controller session, so
+        there is no adopt_from_live_session split here: EVERY adoption of
+        another session's run is treated as the deliberate displacement
+        and recorded as one.
+
+        Refuses 'no-run' when the project has no controller run at all,
+        and 'run-terminal' when the current run is finished: a terminal
+        run has no driver to take over (the same reason ownership guards
+        only ACTIVE records in the fence store), and the engine's own
+        entry points answer a terminal run without consulting the driver
+        at all."""
+        if not isinstance(session_id, str) or not session_id.strip():
+            raise ValueError("session_id must be a non-empty string")
+        ts = now_iso()
+        with self._transaction():
+            row = _exec(self,
+                "SELECT * FROM controller_runs WHERE project_id=? "
+                "ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                (project_id,)).fetchone()
+            if row is None:
+                raise OwnershipRefused(
+                    "no-run",
+                    "project %r has no controller run; there is nothing "
+                    "to adopt. begin() starts one." % (project_id,))
+            if not CONTROLLER_STATE_TRANSITIONS.get(row["state"], ()):
+                raise OwnershipRefused(
+                    "run-terminal",
+                    "project %r's controller run %r is %s, which is "
+                    "terminal: a finished run has no driver to take "
+                    "over. Start a new run instead."
+                    % (project_id, row["run_id"], row["state"]))
+            previous = row["session_id"] or ""
+            if previous == session_id:
+                return {"run_id": row["run_id"],
+                        "previous_session_id": previous,
+                        "session_id": session_id, "adopted": False}
+            _exec(self,
+                  "UPDATE controller_runs SET session_id=?, updated_at=? "
+                  "WHERE run_id=?", (session_id, ts, row["run_id"]))
+            reason = ("run driver handover: session %r adopted the run "
+                      "from session %r" % (session_id, previous))
+            if note:
+                reason = "%s (%s)" % (reason, note)
+            self._write_attribution(
+                project_id, None, "controller.run.adopted", actor,
+                action="adopt_run", reason=reason,
+                evidence_ref=row["run_id"])
+        return {"run_id": row["run_id"], "previous_session_id": previous,
+                "session_id": session_id, "adopted": True}
+
     #: Fields upsert_units treats as the unit's IMMUTABLE DEFINITION: the
     #: sha256 of this tuple's values is definition_hash, the key fault 8
     #: (workflow-version reuse) compares across a re-plan. Runtime fields
@@ -14135,7 +14372,7 @@ class Store(object):
                 if risk_class in AUTONOMY_FLOOR_IDS:
                     raise OwnershipRefused(
                         "risk-class-is-floor",
-                        "unit %r requests %r, one of the five safety "
+                        "unit %r requests %r, one of the six safety "
                         "floors (%s), not a risk class. No unit can be "
                         "dispatched under it."
                         % (uid, risk_class,
@@ -14176,6 +14413,30 @@ class Store(object):
                     for p in declared_scope_list(
                         u.get("write_scope", []), "write_scope",
                         unit_id=uid)]
+                # The governance-write floor at PLAN time (L09 refute round
+                # 2, finding A2, defense in depth). gate_check already
+                # floors a floor-naming write_scope on the DISPATCH route
+                # (bm_controller.py's _gate_check_write_scope refuses
+                # REFUSED-FLOOR before any fence is claimed), so this is
+                # belt and suspenders, not the only wall. But a unit row
+                # whose write_scope names .git/config, the store directory
+                # or a .claude settings file has no legitimate reason to be
+                # persisted at all: refusing it here means a floor-naming
+                # unit never reaches the graph, so no later reader (a fence
+                # claim, a hand-run gate, an SDK caller) has to be the one
+                # that catches it. The entry is already canonicalised, so
+                # _governance_floor_hit sees the same resolved path
+                # gate_check would.
+                for entry in write_scope:
+                    if _governance_floor_hit(entry):
+                        raise OwnershipRefused(
+                            "write-scope-is-floor",
+                            "unit %r declares write_scope entry %r, which "
+                            "names a surface of 'governance-write' (%s), "
+                            "one of the six safety floors. No unit may be "
+                            "planned to write there. Remove the entry."
+                            % (uid, entry, AUTONOMY_FLOOR_DESCRIPTIONS[
+                                "governance-write"]))
                 u["write_scope"] = write_scope
                 # read_scope gets the CONTAINER rule and the total path
                 # coercion, and deliberately NOT the literal-path rule. It

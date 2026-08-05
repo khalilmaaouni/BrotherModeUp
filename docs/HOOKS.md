@@ -117,7 +117,7 @@ scope). Use the absolute path to your checkout.
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
         "hooks": [
           {
             "type": "command",
@@ -312,8 +312,11 @@ These are real, and listing them is better than implying coverage that does not 
 - **Bash is still not gated. Since 2026-08-01 (Loop 6, D-1) it is DETECTED.**
   `rm`, `sed -i`, `>`, `tee`, `git checkout` and a hundred other shell forms write
   files, and no reliable parse of arbitrary shell exists, so `tools/bm_bash_audit.py`
-  cannot and does not block any of them: `Edit|Write|MultiEdit|NotebookEdit` is still
-  the only matcher that can refuse a call before it runs. What changed is that a
+  cannot and does not block any of them. Since L06 (2026-08-06) the fence matcher is
+  `Edit|Write|MultiEdit|NotebookEdit|Bash`, and the one Bash shape that is a
+  structured write in a shell costume, an apply_patch envelope, is parsed and
+  refused before it runs; every other shell form still cannot be refused up
+  front, only detected after the fact. What changed on 2026-08-05 is that a
   fenced file changed BY a Bash call FROM a session that does not own that fence is no
   longer invisible: see "The Bash-write detection hook" below for what it actually
   proves and what it still cannot see. The policy for shell writes in general is in
@@ -533,7 +536,8 @@ Both install paths wire both entrypoints today. The Claude Code plugin manifest,
 `hooks/hooks.json`, and `scripts/install.py`'s clone-install path (the one
 QUICKSTART documents, and the one `tools/test_install.py` exercises end to end)
 carry the same shape: `PreToolUse` holds two matcher groups (the fence hook at
-`Edit|Write|MultiEdit|NotebookEdit`, and this audit's `pre` phase at `Bash`), and
+`Edit|Write|MultiEdit|NotebookEdit|Bash`, which since L06 also reads apply_patch
+envelopes out of Bash payloads, and this audit's `pre` phase at `Bash`), and
 a `PostToolUse` key wires the `post` entrypoint. That is six wired events and
 seven hook commands, and `tools/test_install.py` hard-asserts exactly that shape,
 so removing either entrypoint turns the suite red.

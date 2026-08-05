@@ -289,7 +289,7 @@ ceiling. Only a founder action, `bm-controller complete`, moves a run from
 `DELIVERABLE_READY` to `COMPLETE`; the controller never makes that move on
 its own.
 
-## The eight commands, one example each
+## The nine commands, one example each
 
 Every mutating command needs `--actor-name` and takes an optional
 `--actor-type human|model` (default `model`) and `--session-id`. Exit
@@ -393,6 +393,18 @@ controller self-move.
 ```
 python3 tools/bm_controller.py complete --project my-app \
   --actor-name founder
+```
+
+**adopt** (L09, 2026-08-06): the one deliberate takeover of a run another
+session drives. Since L09, `step`, `record-result` and `stop` refuse a
+caller whose session is not the run's recorded driver (`not-driver`);
+adopt records the handover durably (attribution event
+`controller.run.adopted`) and makes this session the driver. Refused on a
+run that is already finished, and a no-op when you already drive it.
+
+```
+python3 tools/bm_controller.py adopt --project my-app \
+  --actor-name founder --note "night orchestrator taking over"
 ```
 
 ## What this page does not claim

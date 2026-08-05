@@ -117,10 +117,15 @@ def _warn(s):
 # ---------------------------------------------------------------------------
 
 #: Tools that write a file through a structured, parseable path argument.
-#: Bash is DELIBERATELY ABSENT: a shell command can write any file, and no
-#: reliable parse of arbitrary shell exists, so pretending to gate it would
-#: be a guarantee this file cannot keep (stated as a known gap in
-#: docs/HOOKS.md rather than papered over here).
+#: Bash is DELIBERATELY ABSENT from this set: a shell command can write any
+#: file, and no reliable parse of arbitrary shell exists, so pretending to
+#: gate it would be a guarantee this file cannot keep (stated as a known gap
+#: in docs/HOOKS.md rather than papered over here). ONE Bash shape is gated
+#: anyway, in decide() rather than here: the apply_patch envelope, a
+#: structured write wearing a Bash costume, which is how EVERY file write
+#: arrives under the OpenAI Codex CLI (measured 2026-08-05 on codex-cli
+#: 0.146.0, recorded in docs/RUNTIMES.md). Arbitrary shell that writes files
+#: any other way remains the stated gap.
 WRITE_TOOLS = frozenset((
     "Edit",
     "Write",
@@ -129,6 +134,57 @@ WRITE_TOOLS = frozenset((
     "CreateDirectory",
     "Delete",
 ))
+
+#: The apply_patch envelope grammar this hook reads, and all of it. Between
+#: "*** Begin Patch" and "*** End Patch", file directives are lines
+#: "*** Add File: <path>", "*** Update File: <path>", "*** Delete File:
+#: <path>", and a rename's "*** Move to: <path>", whose TARGET is also a
+#: written path. Grammar taken from the payload captured off a real Codex
+#: 0.146 session on 2026-08-05, not from memory. Codex fires PreToolUse and
+#: never PostToolUse for apply_patch (measured twice), so the decision made
+#: here is the WHOLE decision: there is no second look after the write.
+#:
+#: TWO STRUCTURAL FACTS the parser must respect, both found by an adversarial
+#: refuter on 2026-08-06 (docs/program/absolute-lead/evidence/L06):
+#:   1. A real directive sits at COLUMN 0. A line that begins with a space,
+#:      "+" or "-" is hunk body (context, added, removed), i.e. CONTENT of
+#:      the file being written, NEVER a directive. Stripping leading
+#:      whitespace before matching turned a context line that quotes the
+#:      grammar into a phantom directive and fenced a file the patch never
+#:      touched. So directives are matched at column 0 only.
+#:   2. The envelope is a WRITE only when apply_patch is the program that
+#:      actually receives it. The marker text appears at the start of lines
+#:      inside "cat > doc <<EOF ...", inside a "git commit" message, inside
+#:      this very file: none of those invoke apply_patch. So the parser reads
+#:      the heredoc that carries the envelope and only treats it as a write
+#:      when the command owning that heredoc is apply_patch.
+APPLY_PATCH_BEGIN = "*** Begin Patch"
+APPLY_PATCH_DIRECTIVES = (
+    "*** Add File:",
+    "*** Update File:",
+    "*** Delete File:",
+    "*** Move to:",
+)
+#: The one token that has to be present for any of the heredoc work to run.
+#: A command without it cannot be an apply_patch write, so this is the fast
+#: path out taken before any parsing, on EVERY Bash call under Claude Code
+#: once the matcher widens.
+APPLY_PATCH_CMD = "apply_patch"
+#: Hunk-body line openers: a line starting with any of these is content, not
+#: a directive. Column 0 is the whole rule; these are named for the reader.
+_HUNK_BODY_OPENERS = (" ", "+", "-")
+
+#: The deny for an envelope whose file directives could not be read. A
+#: LITERAL, same rule as _FAIL_REASONS: at the moment it is emitted nothing
+#: has been verified, so it quotes no payload content.
+_UNREADABLE_PATCH_REASON = (
+    "BrotherMode fence: this Bash command carries an apply_patch envelope "
+    "but none of its file directives could be read, so the fence cannot "
+    "certify which files it would write. The write is refused: a fence that "
+    "shrugs at an unreadable patch is no fence at all. Re-issue the patch "
+    "with well formed directive lines (Add File, Update File, Delete File, "
+    "Move to), or make the change through a structured write tool such as "
+    "Edit or Write.")
 
 #: Keys inside tool_input that carry a filesystem path. Collected across the
 #: built-in write tools listed in the hooks documentation. Unknown keys are
@@ -346,6 +402,160 @@ def extract_targets(tool_input):
 
     visit(tool_input, 0)
     return out
+
+
+def extract_patch_targets(body):
+    """Every path an apply_patch envelope BODY names, in input order,
+    de-duplicated, plus whether an envelope marker opened a line at all.
+    Returns (targets, envelope_seen).
+
+    `body` is the text apply_patch actually receives (a heredoc body, tabs
+    already stripped for the "<<-" form by the caller). Directives are
+    matched at COLUMN 0 and nowhere else: a line beginning with a space, "+"
+    or "-" is hunk body, i.e. content of the file being written, and is
+    skipped. This is the FD-1 fix; the old code stripped leading whitespace
+    first and harvested a context line as a phantom directive. Directives are
+    honored wherever they open a line, inside a well formed Begin/End pair or
+    not, because a malformed patch that still names its files must be checked
+    on what it names: the parseable part is authoritative. The caller treats
+    an envelope with NO readable directive as a write whose targets are
+    unknowable and refuses to certify it."""
+    targets = []
+    seen = set()
+    envelope_seen = False
+    for line in body.split("\n"):
+        if line.startswith(_HUNK_BODY_OPENERS):
+            # Hunk body (context / added / removed). Never a directive, even
+            # when it quotes the grammar verbatim. This one guard is the FD-1
+            # fix, stated once.
+            continue
+        if line.startswith(APPLY_PATCH_BEGIN):
+            envelope_seen = True
+            continue
+        for prefix in APPLY_PATCH_DIRECTIVES:
+            if line.startswith(prefix):
+                path = line[len(prefix):].strip()
+                if path and path not in seen:
+                    seen.add(path)
+                    targets.append(path)
+                break
+    return targets, envelope_seen
+
+
+def _is_shell_identifier(s):
+    """True for a bash name that could precede '=' in an environment
+    assignment (FOO=bar), so the command-word finder can skip it."""
+    if not s or (s[0].isdigit()):
+        return False
+    return all(c.isalnum() or c == "_" for c in s)
+
+
+def _command_word(prefix):
+    """The program word of the simple command that a heredoc on this line
+    belongs to. `prefix` is the text on the operator line BEFORE the '<<'.
+
+    Isolates the segment after the last shell separator (';', '&', '|', which
+    together cover ';', '&', '|', '&&', '||' and pipelines), then returns the
+    basename of the first token that is not a leading NAME=value environment
+    assignment. So 'apply_patch ' gives apply_patch, 'FOO=bar apply_patch '
+    skips the assignment and gives apply_patch, 'cat > doc ' gives cat, and
+    'true | apply_patch ' gives apply_patch. An empty or unparseable prefix
+    gives '', which matches no gated command and therefore allows."""
+    cut = 0
+    for i, ch in enumerate(prefix):
+        if ch in ";&|":
+            cut = i + 1
+    for tok in prefix[cut:].split():
+        eq = tok.find("=")
+        if eq > 0 and _is_shell_identifier(tok[:eq]):
+            continue
+        return os.path.basename(tok)
+    return ""
+
+
+def _find_heredoc_ops(line):
+    """Every heredoc operator on one physical line, in order, as
+    (command_word, strips_tabs, delimiter).
+
+    Recognizes '<<DELIM', '<< DELIM', '<<-DELIM', "<<'DELIM'", '<<"DELIM"'
+    and the tab-stripping '<<-' variants. Skips the '<<<' here-string
+    operator, which is not a heredoc. Hand-written rather than via re, to keep
+    this file's imports unchanged; the grammar is small and fixed."""
+    ops = []
+    n = len(line)
+    idx = 0
+    while True:
+        pos = line.find("<<", idx)
+        if pos == -1:
+            break
+        # '<<<' is a here-string, not a heredoc: skip the whole run of '<'.
+        if pos > 0 and line[pos - 1] == "<":
+            idx = pos + 1
+            continue
+        after = pos + 2
+        if after < n and line[after] == "<":
+            idx = after + 1
+            continue
+        j = after
+        strips_tabs = False
+        if j < n and line[j] == "-":
+            strips_tabs = True
+            j += 1
+        while j < n and line[j] in " \t":
+            j += 1
+        quote = ""
+        if j < n and line[j] in "'\"":
+            quote = line[j]
+            j += 1
+        start = j
+        while j < n and (line[j].isalnum() or line[j] == "_"):
+            j += 1
+        delim = line[start:j]
+        if quote:
+            if j < n and line[j] == quote:
+                j += 1
+            else:
+                # Unbalanced quote: not a heredoc operator we can trust.
+                idx = after
+                continue
+        if delim:
+            ops.append((_command_word(line[:pos]), strips_tabs, delim))
+        idx = j if j > pos else pos + 2
+    return ops
+
+
+def apply_patch_bodies(command):
+    """Every heredoc body in `command` that is fed to an apply_patch command,
+    in order, as a list of strings.
+
+    This is the heredoc-aware half of the FD-2 / FD-3 fix: the envelope is a
+    write only when apply_patch is the program receiving it. A heredoc owned
+    by cat, tee, git or anything else, even one whose body quotes the whole
+    grammar, is not an apply_patch write and never appears here. Bodies are
+    returned with leading tabs stripped for the '<<-' form, exactly as the
+    shell would hand them to apply_patch, so a tab-indented directive under
+    '<<-' is seen at column 0 while a space-indented line under a plain '<<'
+    stays hunk body."""
+    lines = command.split("\n")
+    n = len(lines)
+    bodies = []
+    i = 0
+    while i < n:
+        ops = _find_heredoc_ops(lines[i])
+        i += 1
+        for cmdword, strips_tabs, delim in ops:
+            collected = []
+            while i < n:
+                raw = lines[i]
+                probe = raw.lstrip("\t") if strips_tabs else raw
+                if probe == delim:
+                    i += 1
+                    break
+                collected.append(probe)
+                i += 1
+            if os.path.basename(cmdword) == APPLY_PATCH_CMD:
+                bodies.append("\n".join(collected))
+    return bodies
 
 
 # ---------------------------------------------------------------------------
@@ -585,11 +795,55 @@ def decide(payload):
         if not isinstance(payload, dict):
             raise _FailOpen("hook payload was not a JSON object", "bad-payload")
         tool_name = payload.get("tool_name")
-        if not isinstance(tool_name, str) or tool_name not in WRITE_TOOLS:
+        if not isinstance(tool_name, str) or (
+                tool_name not in WRITE_TOOLS and tool_name != "Bash"):
             # Not a file-writing tool. Silent, not loud: this is the common
             # case, and a stderr line per Read or Grep would be noise.
             return None, []
         tool_input = payload.get("tool_input")
+        raw_targets = None
+        if tool_name == "Bash":
+            # Bash is gated for exactly one shape: an apply_patch heredoc,
+            # which is how every file write arrives under the Codex CLI. The
+            # token test is the fast path out, taken BEFORE identity and store
+            # work: this branch runs in front of EVERY shell command once the
+            # matcher widens, and a plain command must leave as fast and
+            # silently as it did when Bash was not matched at all. A command
+            # that does not even mention apply_patch cannot be one.
+            command = tool_input.get("command") if isinstance(tool_input, dict) else None
+            if not isinstance(command, str) or APPLY_PATCH_CMD not in command:
+                return None, []
+            # Only heredocs OWNED by apply_patch count. A cat/tee/git heredoc
+            # that merely quotes the grammar, or the word apply_patch sitting
+            # in a comment or a commit message, yields no bodies here and is
+            # allowed. This is the FD-2 / FD-3 fix.
+            bodies = apply_patch_bodies(command)
+            if not bodies:
+                return None, []
+            raw_targets = []
+            envelope_seen = False
+            for body in bodies:
+                found, seen = extract_patch_targets(body)
+                envelope_seen = envelope_seen or seen
+                for path in found:
+                    if path not in raw_targets:
+                        raw_targets.append(path)
+            if not raw_targets:
+                if envelope_seen:
+                    # An apply_patch heredoc with an envelope marker but no
+                    # readable file directive. DENIED, not failed open, and
+                    # unconditionally, before any store or identity work: the
+                    # write is real, its targets are unknowable, and a fence
+                    # that shrugs at an unparseable write is the silent no-op
+                    # this matcher exists to end.
+                    notes.append(
+                        "bm_fence_hook: DENY, an apply_patch envelope was "
+                        "present but no file directive could be read from it")
+                    return deny_payload(_UNREADABLE_PATCH_REASON), notes
+                # apply_patch received a heredoc, but its body carried no
+                # envelope at all (for example a here-doc of plain data): not
+                # a patch we can read as a write, and not one to refuse.
+                return None, []
         if not isinstance(tool_input, dict):
             raise _FailOpen("tool_input for %s was not a JSON object" % tool_name, "bad-payload")
         session_id = payload.get("session_id")
@@ -598,10 +852,11 @@ def decide(payload):
                             "session has no verifiable identity", "no-session-id")
         session_id = session_id.strip()
 
-        raw_targets = extract_targets(tool_input)
-        if not raw_targets:
-            raise _FailOpen("no target path found in tool_input for %s "
-                            "(keys: %s)" % (tool_name, ", ".join(sorted(tool_input))), "no-target-path")
+        if raw_targets is None:
+            raw_targets = extract_targets(tool_input)
+            if not raw_targets:
+                raise _FailOpen("no target path found in tool_input for %s "
+                                "(keys: %s)" % (tool_name, ", ".join(sorted(tool_input))), "no-target-path")
 
         bs = _load_store_module()
         if bs is None:
