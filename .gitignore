@@ -33,6 +33,12 @@ Documentation/
 /DELIVERY-PACKET.md
 /CANVAS-*.md
 /DELIVERY-PACKET-*.md
+# L05 visual surface: PROJECT-VIEW.html (bm-view render) and the Handover/
+# brief pages (bm-view brief-page) are generated views of one machine's live
+# project rows, same reason as the CANVAS and Documentation entries above.
+/PROJECT-VIEW.html
+/Handover/
+/Handover-*/
 # An export is every row the store holds for one project, and with --raw it
 # is the unredacted prose. It is written for its owner, never for a shared
 # repository, so the generated name is ignored the same way.

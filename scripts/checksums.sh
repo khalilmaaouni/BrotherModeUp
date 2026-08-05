@@ -172,6 +172,10 @@ else
         ! -path './Documentation/*' \
         ! -path './.claude' \
         ! -path './.claude/*' \
+        ! -path './Handover' \
+        ! -path './Handover/*' \
+        ! -path './Handover-*' \
+        ! -path './Handover-*/*' \
         ! -name '.DS_Store' \
         ! -name '*.bak*' \
         ! -name 'STATE.md' \
@@ -179,6 +183,7 @@ else
         ! -name 'CANVAS-*.md' \
         ! -name 'DELIVERY-PACKET.md' \
         ! -name 'DELIVERY-PACKET-*.md' \
+        ! -name 'PROJECT-VIEW.html' \
         | sed 's|^\./||' > "$WORKDIR/filelist"
 fi
 
