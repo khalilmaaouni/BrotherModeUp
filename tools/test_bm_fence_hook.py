@@ -15,7 +15,11 @@ without, stated as the thing that must NOT happen:
   3. presenting another session's PUBLIC label as your own must not grant
      ownership, whether you pass it on the wire or write it into the store;
   4. a broken, missing or empty store must not turn into a refusal, because
-     this hook sits in front of every edit the founder makes.
+     this hook sits in front of every edit the founder makes;
+  5. a file write that arrives dressed as Bash (the Codex CLI's apply_patch
+     heredoc, captured 2026-08-05) must go through the SAME fence check as
+     an Edit, and a plain shell command must stay exactly as silent and
+     cheap as it was before Bash was matched at all.
 """
 import io
 import json
@@ -741,6 +745,474 @@ class ToolSurface(FenceHookBase):
         self.assertEqual(got, [], "depth must be bounded")
         wide = {"edits": [{"file_path": "f%d.py" % i} for i in range(500)]}
         self.assertLessEqual(len(fh.extract_targets(wide)), 64)
+
+
+# ---------------------------------------------------------------------------
+# Codex apply_patch: the file write that arrives dressed as Bash (L06).
+# ---------------------------------------------------------------------------
+
+#: Captured from a real Codex 0.146 session on 2026-08-05 (docs/RUNTIMES.md):
+#: under the Codex CLI every file write reaches hooks as tool_name Bash whose
+#: tool_input.command holds an apply_patch heredoc. This is the measured
+#: command, verbatim. The tests below are written from THIS capture.
+CAPTURED_APPLY_PATCH_COMMAND = (
+    "apply_patch <<'PATCH'\n"
+    "*** Begin Patch\n"
+    "*** Add File: probe_written_by_codex.txt\n"
+    "+hello from apply_patch\n"
+    "*** End Patch\n"
+    "PATCH")
+
+
+def apply_patch_command(*body_lines):
+    """A well formed apply_patch heredoc around the given envelope body."""
+    return ("apply_patch <<'PATCH'\n*** Begin Patch\n"
+            + "\n".join(body_lines)
+            + "\n*** End Patch\nPATCH")
+
+
+class CodexApplyPatch(FenceHookBase):
+    """The one-writer fence under the Codex CLI, where PreToolUse is the
+    WHOLE decision: apply_patch fires PreToolUse and never PostToolUse
+    (measured twice, recorded in docs/RUNTIMES.md), so nothing here may lean
+    on a second look after the write.
+
+    Calibrated both ways, like the Edit path above: the captured payload is
+    denied when its path is fenced to another owner and allowed when it is
+    not; an envelope whose directives cannot be read is refused rather than
+    shrugged at; and a plain shell command passes exactly as silently as it
+    did when Bash was not matched at all, because this branch runs in front
+    of EVERY Bash call once the matcher widens."""
+
+    def bash(self, session_id, command):
+        return payload(session_id, self.root, tool_name="Bash",
+                       tool_input={"command": command},
+                       tool_use_id="call_fake_1")
+
+    # -- the captured payload, both ways ---------------------------------
+
+    def test_calibrated_captured_payload_denied_when_fenced_to_another_owner(self):
+        mine = self.label(self.VICTIM)
+        rec = self.claim("probe", ["probe_written_by_codex.txt"], mine)
+        decision, _n = self.decide(
+            self.bash(self.OTHER, CAPTURED_APPLY_PATCH_COMMAND))
+        reason = self.assertDenied(decision)
+        # Same actionability bar as the Edit deny: the path, the record, the
+        # owner, and the exact takeover command.
+        self.assertIn("probe_written_by_codex.txt", reason)
+        self.assertIn(rec.lifecycle_uuid, reason)
+        self.assertIn(mine, reason)
+        self.assertIn("--adopt-from-live-session", reason)
+
+    def test_calibrated_captured_payload_allowed_when_unfenced(self):
+        # A live fence exists, just not over the patch's target: the allow
+        # must be a real pass, not a fail-open in disguise.
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        decision, notes = self.decide(
+            self.bash(self.OTHER, CAPTURED_APPLY_PATCH_COMMAND))
+        self.assertAllowed(decision)
+        self.assertEqual(notes, [], "an unfenced apply_patch must pass "
+                                    "silently: %r" % (notes,))
+
+    def test_calibrated_owner_may_run_the_captured_patch(self):
+        mine = self.label(self.VICTIM)
+        self.claim("probe", ["probe_written_by_codex.txt"], mine)
+        decision, notes = self.decide(
+            self.bash(self.VICTIM, CAPTURED_APPLY_PATCH_COMMAND))
+        self.assertAllowed(decision)
+        self.assertEqual(notes, [], notes)
+
+    # -- every directive form is a checked write --------------------------
+
+    def test_multi_file_patch_denies_naming_the_second_file(self):
+        mine = self.label(self.VICTIM)
+        self.claim("second", ["src/other.py"], mine)
+        cmd = apply_patch_command(
+            "*** Update File: README.md",
+            "@@",
+            "-old",
+            "+new",
+            "*** Update File: src/other.py",
+            "@@",
+            "-old",
+            "+new")
+        decision, _n = self.decide(self.bash(self.OTHER, cmd))
+        reason = self.assertDenied(decision)
+        self.assertIn("src/other.py", reason)
+        self.assertNotIn("README.md", reason,
+                         "the deny must name the FENCED file, not the first")
+
+    def test_update_file_directive_is_checked(self):
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        cmd = apply_patch_command("*** Update File: src/app.py", "@@",
+                                  "-# app.py", "+# changed")
+        decision, _n = self.decide(self.bash(self.OTHER, cmd))
+        self.assertIn("src/app.py", self.assertDenied(decision))
+
+    def test_delete_file_directive_is_checked(self):
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        cmd = apply_patch_command("*** Delete File: src/app.py")
+        decision, _n = self.decide(self.bash(self.OTHER, cmd))
+        self.assertIn("src/app.py", self.assertDenied(decision))
+
+    def test_move_to_target_is_checked(self):
+        """A rename's Move to TARGET is also a written path: a fence that
+        checked only the source would be bypassed by renaming onto the
+        fenced file."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        cmd = apply_patch_command("*** Update File: src/free.py",
+                                  "*** Move to: src/app.py")
+        decision, _n = self.decide(self.bash(self.OTHER, cmd))
+        self.assertIn("src/app.py", self.assertDenied(decision))
+
+    # -- what must NOT match ----------------------------------------------
+
+    def test_echo_apply_patch_is_not_matched(self):
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        decision, notes = self.decide(self.bash(self.OTHER, "echo apply_patch"))
+        self.assertAllowed(decision)
+        self.assertEqual(notes, [], "a plain command must stay silent")
+
+    def test_marker_inside_a_quoted_argument_is_not_an_envelope(self):
+        """DOCUMENTED CHOICE: an envelope is recognized only when the marker
+        OPENS a line. apply_patch is itself a line-based parser, so a marker
+        buried mid-line (here, a grep pattern) can never reach a real write,
+        and denying it would fence the founder off from searching their own
+        notes. Allowed, silently."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        decision, notes = self.decide(
+            self.bash(self.OTHER, 'grep "*** Begin Patch" notes.md'))
+        self.assertAllowed(decision)
+        self.assertEqual(notes, [], notes)
+
+    def test_a_heredoc_that_is_not_apply_patch_is_not_matched(self):
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        cmd = "cat <<'EOF' > notes.md\nplain notes, nothing patch shaped\nEOF"
+        decision, notes = self.decide(self.bash(self.OTHER, cmd))
+        self.assertAllowed(decision)
+        self.assertEqual(notes, [], notes)
+
+    def test_plain_bash_is_silent_even_with_no_session_id(self):
+        """The fast path out must run BEFORE identity: a plain shell command
+        is not the fence's business, and it must not start costing a token
+        derivation or a stderr line per command once the matcher widens."""
+        p = self.bash(self.OTHER, "ls -la")
+        del p["session_id"]
+        decision, notes = self.decide(p)
+        self.assertAllowed(decision)
+        self.assertEqual(notes, [], notes)
+
+    # -- malformed envelopes: parseable part is authoritative -------------
+
+    def test_begin_without_end_and_no_directives_is_denied_as_unreadable(self):
+        """An envelope with no readable file directive is a write whose
+        targets are unknowable. Refused, not failed open: a fence that
+        shrugs at an unparseable write is the silent no-op again."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        cmd = "apply_patch <<'PATCH'\n*** Begin Patch\nPATCH"
+        decision, notes = self.decide(self.bash(self.OTHER, cmd))
+        reason = self.assertDenied(decision)
+        self.assertIn("cannot certify", reason)
+        self.assertTrue(any("apply_patch envelope" in n for n in notes),
+                        "the unreadable refusal must be loud on stderr: %r"
+                        % (notes,))
+
+    def test_begin_without_end_with_a_readable_directive_checks_it(self):
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        cmd = ("apply_patch <<'PATCH'\n*** Begin Patch\n"
+               "*** Update File: src/app.py\n+x\nPATCH")
+        decision, _n = self.decide(self.bash(self.OTHER, cmd))
+        self.assertIn("src/app.py", self.assertDenied(decision))
+
+    def test_empty_directive_path_alone_is_denied_as_unreadable(self):
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        cmd = apply_patch_command("*** Add File: ")
+        decision, _n = self.decide(self.bash(self.OTHER, cmd))
+        self.assertIn("cannot certify", self.assertDenied(decision))
+
+    def test_directive_outside_the_envelope_is_still_checked(self):
+        """A directive that escaped the Begin/End pair still names a file the
+        patch intends to touch: the parseable part is authoritative."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        cmd = ("apply_patch <<'PATCH'\n*** Begin Patch\n*** End Patch\n"
+               "*** Update File: src/app.py\nPATCH")
+        decision, _n = self.decide(self.bash(self.OTHER, cmd))
+        self.assertIn("src/app.py", self.assertDenied(decision))
+
+    # -- the wire, and the capture fed verbatim ---------------------------
+
+    def test_apply_patch_deny_uses_the_documented_wire_shape(self):
+        self.claim("probe", ["probe_written_by_codex.txt"],
+                   self.label(self.VICTIM))
+        r = self.run_hook(self.bash(self.OTHER, CAPTURED_APPLY_PATCH_COMMAND))
+        self.assertEqual(r.returncode, 0,
+                         "deny is exit 0 with JSON on stdout, never exit 2")
+        obj = json.loads(r.stdout)
+        hso = obj["hookSpecificOutput"]
+        self.assertEqual(hso["hookEventName"], "PreToolUse")
+        self.assertEqual(hso["permissionDecision"], "deny")
+        self.assertIn("probe_written_by_codex.txt",
+                      hso["permissionDecisionReason"])
+
+    def test_captured_payload_verbatim_shape_without_session_id(self):
+        """The capture carries ONLY tool_name, tool_input and tool_use_id:
+        no session_id, no cwd. Fed verbatim, the hook treats it exactly as it
+        treats an Edit with no session id, because the SAME code path decides
+        both: advisory fails open LOUDLY, enforced refuses. Recorded so the
+        wiring decision (what Codex sends beside tool_input) is made on
+        evidence, not assumption."""
+        self.claim("probe", ["probe_written_by_codex.txt"],
+                   self.label(self.VICTIM))
+        verbatim = {
+            "tool_name": "Bash",
+            "tool_input": {"command": CAPTURED_APPLY_PATCH_COMMAND},
+            "tool_use_id": "call_fake_1",
+        }
+        r = self.run_hook(verbatim, env={"BM_FENCE_MODE": ""})
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(r.stdout, "", "advisory must fail open on a payload "
+                                       "with no session id")
+        self.assertIn("no verifiable identity", r.stderr)
+        r2 = self.run_hook(verbatim, env={"BM_FENCE_MODE": "enforced"})
+        self.assertEqual(r2.returncode, 0)
+        obj = json.loads(r2.stdout)
+        self.assertEqual(
+            obj["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    # -- hostile characters, and the parser itself ------------------------
+
+    def test_hostile_directive_path_is_parsed_and_fenced(self):
+        # Accented and CJK characters, as escapes so this file stays ASCII.
+        name = "src/caf\u00e9_\u65e5\u672c.py"
+        with io.open(os.path.join(self.root, name), "w",
+                     encoding="utf-8") as f:
+            f.write("ORIG\n")
+        self.claim("uni", [name], self.label(self.VICTIM))
+        cmd = apply_patch_command("*** Update File: " + name, "+x")
+        decision, notes = self.decide(self.bash(self.OTHER, cmd))
+        self.assertIsNotNone(
+            decision, "a non-ASCII directive path crossed the fence "
+                      "unchecked (notes: %r)" % (notes,))
+
+    def test_extract_patch_targets_reads_all_four_directive_forms(self):
+        cmd = apply_patch_command(
+            "*** Add File: a.txt",
+            "*** Update File: b/c.py",
+            "*** Move to: b/d.py",
+            "*** Delete File: e.txt",
+            "*** Update File: b/c.py")
+        got, envelope_seen = fh.extract_patch_targets(cmd)
+        self.assertTrue(envelope_seen)
+        # In input order, de-duplicated, move TARGET included.
+        self.assertEqual(got, ["a.txt", "b/c.py", "b/d.py", "e.txt"])
+
+    def test_extract_patch_targets_sees_no_envelope_in_a_quoted_marker(self):
+        got, envelope_seen = fh.extract_patch_targets(
+            'grep "*** Begin Patch" notes.md')
+        self.assertFalse(envelope_seen)
+        self.assertEqual(got, [])
+
+
+# ---------------------------------------------------------------------------
+# Codex apply_patch, refute round 2 (L06): the matcher must know which
+# program runs and where the heredoc body is, not just scan text.
+# ---------------------------------------------------------------------------
+
+class CodexApplyPatchRefuteRound2(FenceHookBase):
+    """An adversarial refuter confirmed three FALSE-denies, all one defect:
+    the round-1 matcher was a pure textual line scan. It stripped leading
+    whitespace before testing for a directive (so an apply_patch hunk CONTEXT
+    line, which begins with a space, was harvested as a phantom directive),
+    and it entered the apply_patch branch on the mere SUBSTRING of the
+    envelope marker (so any heredoc to any command, or any command whose text
+    quoted the grammar, was treated as an apply_patch write). In THIS project,
+    whose docs and tests are saturated with the grammar, those false denies
+    are the common case, not a corner. Each test below pairs the false-deny
+    reproduction with the behavior it must now have, and every genuine fenced
+    apply_patch write must still DENY."""
+
+    def bash(self, session_id, command):
+        return payload(session_id, self.root, tool_name="Bash",
+                       tool_input={"command": command},
+                       tool_use_id="call_fake_1")
+
+    # -- FD-1: a hunk CONTEXT line is content, never a directive ----------
+
+    FD1 = ("apply_patch <<'PATCH'\n"
+           "*** Begin Patch\n"
+           "*** Update File: notes.md\n"
+           "@@\n"
+           " *** Update File: src/secret.py\n"
+           "-plain notes\n"
+           "+z\n"
+           "*** End Patch\nPATCH")
+
+    def test_fd1_context_line_quoting_a_directive_is_not_a_write(self):
+        """The only real target is notes.md (unfenced). The line
+        ' *** Update File: src/secret.py' has a LEADING SPACE: it is an
+        apply_patch context line, i.e. CONTENT written into notes.md, and
+        apply_patch never touches src/secret.py. The round-1 hook stripped
+        the space and fenced src/secret.py. It must now ALLOW."""
+        self.claim("secret", ["src/secret.py"], self.label(self.VICTIM))
+        decision, notes = self.decide(self.bash(self.OTHER, self.FD1))
+        self.assertAllowed(decision)
+        self.assertEqual(notes, [], "an unfenced apply_patch must pass "
+                                    "silently: %r" % (notes,))
+
+    def test_fd1_real_column_zero_directive_to_fenced_file_still_denies(self):
+        """The other half: a genuine directive at column 0 to the fenced file
+        must still DENY, so the FD-1 fix narrows nothing it should not."""
+        self.claim("secret", ["src/secret.py"], self.label(self.VICTIM))
+        cmd = apply_patch_command("*** Update File: src/secret.py", "@@",
+                                  "-a", "+b")
+        decision, _n = self.decide(self.bash(self.OTHER, cmd))
+        self.assertIn("src/secret.py", self.assertDenied(decision))
+
+    def test_fd1_added_and_removed_lines_are_not_directives(self):
+        """The '+' and '-' prefixes are added / removed hunk lines, also
+        never directives. Round 1 happened to survive these because it did
+        not strip '+'/'-'; asserted here so the fix keeps surviving them."""
+        self.claim("secret", ["src/secret.py"], self.label(self.VICTIM))
+        cmd = apply_patch_command(
+            "*** Update File: notes.md", "@@",
+            "+*** Add File: src/secret.py",
+            "-*** Update File: src/secret.py")
+        decision, notes = self.decide(self.bash(self.OTHER, cmd))
+        self.assertAllowed(decision)
+        self.assertEqual(notes, [], notes)
+
+    # -- FD-2 and FD-3: only apply_patch's OWN heredoc is a patch ----------
+
+    FD2A = ("cat > howto.md <<'EOF'\n"
+            "*** Begin Patch\n"
+            "*** Update File: src/app.py\n"
+            "*** End Patch\nEOF")
+
+    def test_fd2a_cat_heredoc_documenting_the_grammar_is_not_a_write(self):
+        """This writes howto.md with cat and never invokes apply_patch. The
+        round-1 hook entered the patch branch on the marker substring alone
+        and fenced src/app.py. It must now ALLOW."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        decision, notes = self.decide(self.bash(self.OTHER, self.FD2A))
+        self.assertAllowed(decision)
+        self.assertEqual(notes, [], notes)
+
+    FD2B = ("cat > howto.md <<'EOF'\n"
+            "To patch, run apply_patch like this:\n"
+            "*** Begin Patch\n"
+            "*** Update File: src/app.py\n"
+            "*** End Patch\nEOF")
+
+    def test_fd2b_non_apply_patch_heredoc_whose_body_names_apply_patch(self):
+        """Harder than FD2A: the body literally contains the token
+        apply_patch, so a fast substring gate on 'apply_patch' would still
+        wrongly fire. The heredoc is OWNED by cat, so it is not a patch. Must
+        ALLOW, which proves the owner check, not just the marker fast path."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        decision, notes = self.decide(self.bash(self.OTHER, self.FD2B))
+        self.assertAllowed(decision)
+        self.assertEqual(notes, [], notes)
+
+    FD3 = ("git commit -F - <<'EOF'\n"
+           "Document apply_patch grammar\n"
+           "\n"
+           "*** Begin Patch\n"
+           "*** Update File: src/app.py\n"
+           "*** End Patch\nEOF")
+
+    def test_fd3_git_commit_heredoc_writes_no_file_and_is_allowed(self):
+        """A commit message that documents the grammar writes no file at all.
+        The heredoc is owned by git, not apply_patch. Must ALLOW."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        decision, notes = self.decide(self.bash(self.OTHER, self.FD3))
+        self.assertAllowed(decision)
+        self.assertEqual(notes, [], notes)
+
+    # -- the floor from section 3: real apply_patch heredocs still DENY ---
+
+    def test_apply_patch_heredoc_still_denies_the_fenced_write(self):
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        cmd = apply_patch_command("*** Update File: src/app.py", "@@", "-a", "+b")
+        decision, _n = self.decide(self.bash(self.OTHER, cmd))
+        self.assertIn("src/app.py", self.assertDenied(decision))
+
+    def test_dash_heredoc_with_tab_indented_directives_still_denies(self):
+        """A '<<-' heredoc: the shell strips leading TABS from the body
+        before apply_patch sees it, so a tab-indented directive is a real
+        column-0 directive to apply_patch. Must still DENY. This is why the
+        fix must strip tabs for '<<-' specifically, not strip all whitespace
+        for everything."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        cmd = ("apply_patch <<-'PATCH'\n"
+               "\t*** Begin Patch\n"
+               "\t*** Update File: src/app.py\n"
+               "\t*** End Patch\n"
+               "\tPATCH")
+        decision, _n = self.decide(self.bash(self.OTHER, cmd))
+        self.assertIn("src/app.py", self.assertDenied(decision))
+
+    def test_env_assignment_prefix_before_apply_patch_still_denies(self):
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        cmd = ("FOO=bar apply_patch <<'PATCH'\n"
+               "*** Begin Patch\n*** Update File: src/app.py\n"
+               "*** End Patch\nPATCH")
+        decision, _n = self.decide(self.bash(self.OTHER, cmd))
+        self.assertIn("src/app.py", self.assertDenied(decision))
+
+    def test_unquoted_and_double_quoted_delimiters_still_deny(self):
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        for op in ("<<PATCH", '<<"PATCH"'):
+            cmd = ("apply_patch %s\n*** Begin Patch\n"
+                   "*** Update File: src/app.py\n*** End Patch\nPATCH" % op)
+            decision, _n = self.decide(self.bash(self.OTHER, cmd))
+            self.assertIn("src/app.py", self.assertDenied(decision),
+                          "delimiter %r must still DENY" % op)
+
+    def test_apply_patch_owned_heredoc_in_a_pipeline_still_denies(self):
+        """foo | apply_patch <<PATCH: the heredoc feeds apply_patch even
+        though a pipe precedes it. The owner is the segment nearest the '<<'.
+        Must DENY."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        cmd = ("true | apply_patch <<'PATCH'\n*** Begin Patch\n"
+               "*** Update File: src/app.py\n*** End Patch\nPATCH")
+        decision, _n = self.decide(self.bash(self.OTHER, cmd))
+        self.assertIn("src/app.py", self.assertDenied(decision))
+
+    def test_unreadable_apply_patch_heredoc_still_denies(self):
+        """An apply_patch heredoc with an envelope marker but no readable
+        directive is still refused: targets unknowable, and this hook does
+        not certify a write it cannot read."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        cmd = "apply_patch <<'PATCH'\n*** Begin Patch\nPATCH"
+        decision, notes = self.decide(self.bash(self.OTHER, cmd))
+        self.assertIn("cannot certify", self.assertDenied(decision))
+        self.assertTrue(any("apply_patch envelope" in n for n in notes), notes)
+
+    # -- SUS-1: the named residual, recorded not hidden -------------------
+
+    def test_sus1_printf_piped_to_apply_patch_is_a_recorded_residual(self):
+        """SUS-1 from the refute report. The '\\n' inside printf are backslash
+        escapes, not real newlines, so the whole command is one physical line
+        with no heredoc: there is no heredoc body to read. This is a
+        hand-crafted evasion, not what codex-cli emits (Codex emits the
+        heredoc form, which IS gated), and it lives inside the arbitrary-shell
+        gap docs/HOOKS.md already declares open. Recorded here as an explicit
+        ALLOW so the residual is on record, not silently swallowed. If the
+        arbitrary-shell gap is ever closed, this test is the tripwire that
+        says so."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        cmd = ("printf '*** Begin Patch\\n*** Update File: src/app.py\\n@@\\n"
+               "-# app.py\\n+x\\n*** End Patch\\n' | apply_patch")
+        decision, _n = self.decide(self.bash(self.OTHER, cmd))
+        self.assertAllowed(decision)
+
+    def test_owner_may_run_a_real_apply_patch_heredoc(self):
+        owner = self.label(self.VICTIM)
+        self.claim("api", ["src/app.py"], owner)
+        cmd = apply_patch_command("*** Update File: src/app.py", "@@", "-a", "+b")
+        decision, notes = self.decide(self.bash(self.VICTIM, cmd))
+        self.assertAllowed(decision)
+        self.assertEqual(notes, [], notes)
 
 
 # ---------------------------------------------------------------------------

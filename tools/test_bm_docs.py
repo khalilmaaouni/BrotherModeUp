@@ -249,7 +249,7 @@ class TestNoStaleCurrentNumbers(unittest.TestCase):
             text = read(rel)
             self.assertIn("bm_fence_hook.py", text,
                           "%s: the copy-paste hook block has no fence command" % rel)
-            self.assertIn("Edit|Write|MultiEdit|NotebookEdit", text,
+            self.assertIn("Edit|Write|MultiEdit|NotebookEdit|Bash", text,
                           "%s: the fence entry has no matcher, so writes through "
                           "the unlisted tools are ungated" % rel)
 

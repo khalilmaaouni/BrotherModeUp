@@ -34,7 +34,7 @@ The states are `live`, `paused`, `stopped` and `revoked`. `paused` can go
 back to `live`. `stopped` can only be revoked. `revoked` is the end: the
 only way back is a brand new `sign`.
 
-## The five floors, never grantable by any contract
+## The six floors, never grantable by any contract
 
 No contract, ever, no matter what its risk classes say, can authorise:
 
@@ -43,11 +43,29 @@ No contract, ever, no matter what its risk classes say, can authorise:
 - `account-signin`: creating an account or completing a sign-in
 - `permanent-delete`: permanent deletion, or any write to production state
 - `publish-release`: publishing or releasing
+- `governance-write`: writing to the authorisation machinery itself:
+  the project's own `.brothermode` store, its `.git` directory, or
+  `.claude/settings.json`
 
 `gate-check` refuses a floor WITHOUT even reading the contract. That
 matters: if somebody edited the store file directly and slipped a floor
 id into a contract's granted classes, `gate-check` still refuses it,
 because the floor check runs before the contract is ever consulted.
+
+`governance-write` is the one PATH-shaped floor (landed 2026-08-06,
+founder decision 2026-08-05). It is enforced twice: `sign` refuses an
+`allowed_paths` entry that names one of the three surfaces, and
+`gate-check` refuses any candidate path inside one before the contract's
+`allowed_paths` are consulted, so no spelling of a broad allowance
+(`.`, `*`, `**`, a covering glob) can reach them. A legitimate
+`local-commit` or `local-branch` is unaffected: those are ACTION classes
+going through git's own porcelain, not path grants over `.git`.
+
+`sign` also refuses a contract that grants any writing risk class while
+declaring no `--allowed-path` (`no-write-scope`): risk class alone is
+not a boundary. Genuinely read-only work signs with no paths by granting
+only `read-only-inspect` and/or `browser-read`, which is the schema's
+one way to say read-only.
 
 ## The signer check is a denylist, not an authentication check
 
@@ -72,6 +90,17 @@ The only real answer to "did a human actually sign this" is a human-held
 signing secret, and U1 does not have one. Treat the signer check as a
 speed bump against the accidental case, never as proof of who actually
 typed the name. The full limit is repeated in `docs/KNOWN-LIMITS.md`.
+
+The controller's driver-ownership check has the same shape and the same
+boundary. `step`, `plan`, `record-result` and `stop` refuse a caller
+whose `--session-id` does not match the run's recorded driver
+(`not-driver`), and `adopt` is the one audited takeover. But the session
+id is self-asserted and readable (`status --json --raw` prints it), so it
+keeps two COOPERATING sessions from colliding and records who did what; it
+is not a defence against a hostile local process, which already holds the
+founder's filesystem. A real trust boundary is a separate OS account or
+machine, not a separate session. `docs/KNOWN-LIMITS.md` states this in
+full beside the closed L09 items.
 
 ## The fourteen commands, one example each
 

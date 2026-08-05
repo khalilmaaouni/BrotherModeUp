@@ -401,14 +401,19 @@ RUNTIMES = (
         "measured": {
             "captured_on": "2026-08-05",
             "runtime_version": "codex-cli 0.146.0",
-            "cell": ("MEASURED 2026-08-05 on codex-cli 0.146.0, and the answer "
-                     "is no. Payloads are Claude shaped and a PreToolUse deny "
-                     "really does block, so the primitive exists; but the one "
-                     "writer fence does not transfer, because every write "
-                     "arrives as tool_name Bash running apply_patch, so the "
-                     "Edit/Write matcher never fires. Hooks are also inert "
-                     "until the project is trusted, and SessionEnd is clamped "
-                     "to 3s. Do not wire them."),
+            "cell": ("MEASURED 2026-08-05 on codex-cli 0.146.0, updated L06 "
+                     "2026-08-06. Payloads are Claude shaped and a PreToolUse "
+                     "deny really does block, so the primitive exists. As "
+                     "measured, the one writer fence did not transfer: every "
+                     "write arrives as tool_name Bash running apply_patch, "
+                     "and the old Edit/Write matcher never fired. L06 widened "
+                     "the matcher to Bash and bm_fence_hook.py now parses "
+                     "apply_patch envelopes through the same fence path, "
+                     "proven in process against the captured payload; a live "
+                     "wired rehearsal has not run, so the live half stays "
+                     "UNVERIFIED. Hooks are also inert until the project is "
+                     "trusted, and SessionEnd is clamped to 3s. Wire with "
+                     "absolute paths, and rehearse before trusting."),
             "findings": (
                 "THE PRIMITIVE EXISTS. Codex accepts Claude Code's hook "
                 "configuration shape and Claude Code's output object. A hook "
@@ -417,14 +422,19 @@ RUNTIMES = (
                 "by PreToolUse hook: BrotherMode fence: probe deny`. deny is "
                 "the only permission decision Codex honours, and it is the "
                 "only one BrotherMode ever emits.",
-                "THE ONE WRITER FENCE DOES NOT TRANSFER. Codex has no Edit, "
-                "Write, MultiEdit or NotebookEdit tool. File writes arrive as "
-                "tool_name Bash with an apply_patch heredoc inside "
-                "tool_input.command, so BrotherMode's matcher never fires; the "
-                "label PreToolUse_EDIT_MATCHER appeared in no capture. Fed a "
-                "real Codex payload directly, bm_fence_hook.py exits 0 in "
-                "silence, because the tool name is not in its write set and "
-                "the paths it looks for live inside the patch body.",
+                "THE ONE WRITER FENCE DID NOT TRANSFER AS MEASURED, AND L06 "
+                "CLOSED THE MATCHER HALF. Codex has no Edit, Write, MultiEdit "
+                "or NotebookEdit tool. File writes arrive as tool_name Bash "
+                "with an apply_patch heredoc inside tool_input.command, so "
+                "the matcher shipped on 2026-08-05 never fired and "
+                "bm_fence_hook.py exited 0 in silence. On 2026-08-06 (L06) "
+                "the matcher widened to Bash and the hook now parses "
+                "apply_patch envelopes, checking every named path through "
+                "the same fence code the Edit tools use; the captured "
+                "payload, fed through the real executable entry against a "
+                "foreign fence, is denied. That proof is in process: no "
+                "live wired Codex session has rehearsed the deny since the "
+                "widening, so the end to end claim stays UNVERIFIED.",
                 "HOOKS ARE SILENTLY INERT UNTIL THE PROJECT IS TRUSTED. With a "
                 "valid hooks file and no trust record, no hook ran, no warning "
                 "printed, and the command executed unguarded. How a trust is "
@@ -846,13 +856,20 @@ def _measured_hook_block(rt):
              "on the tool vocabulary underneath it, which is enough to break "
              "the one thing BrotherMode most needs.")
     L.append("")
-    L.append("SO: do not wire BrotherMode's hooks here. The one writer fence "
-             "does not transfer to this runtime today. The gate is buildable "
-             "and it is not built. In this runtime the fence is ADVISORY: the "
-             "store still refuses an overlapping claim, so two sessions cannot "
-             "both be recorded as owning a file, and nothing refuses an actual "
-             "write. Claim before you edit anyway. The law is the point; the "
-             "hook was only ever the enforcement of it.")
+    L.append("SO: wiring here is possible since L06 (2026-08-06) and it is "
+             "not yet rehearsed. The matcher half is built: the fence hook "
+             "parses apply_patch envelopes out of Bash payloads and refuses a "
+             "foreign-fenced path through the same code the Edit tools use, "
+             "proven in process against the captured payload. What has not "
+             "happened is one live wired Codex session showing that deny end "
+             "to end, so treat the wiring as UNVERIFIED until you rehearse "
+             "it: hooks file with ABSOLUTE paths, a trusted project, then one "
+             "throwaway apply_patch against a fenced file must be blocked "
+             "before you rely on it. Until your own rehearsal passes, treat "
+             "the fence here as ADVISORY: the store still refuses an "
+             "overlapping claim, so two sessions cannot both be recorded as "
+             "owning a file. Claim before you edit anyway. The law is the "
+             "point; the hook is the enforcement of it.")
     L.append("")
     L.append("Evidence: %s" % m["evidence"])
     L.append("")
