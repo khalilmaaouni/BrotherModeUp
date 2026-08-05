@@ -1,0 +1,140 @@
+RED-L04-lead.txt: Writer B (the lead surface).
+DESIGN-L04 sections 3, 4, 7, 8, 9, 10, 11, 12, 15.2, 17.1, 17.2,
+17.4's consent half, 18.2, 18.4 and 18.5.
+
+Captured 2026-08-05, against the tree BEFORE tools/bm_lead.py existed.
+Every class below was written FIRST and run against that tree. A class
+that PASSES on the untouched tree is not evidence; none of these did.
+
+The two blocks are the two halves of the founder decision this loop
+implements: the lead surface does not exist yet (block 1), and the
+moment hooks/hooks.json names the watchdog with no gate behind it, the
+SHIPPED pre-consent test goes red (block 2). Block 2 is the important
+one: it is the test this project already owned, reproducing the exact
+class of defect that shipped twice before.
+
+No em or en dashes anywhere in this file.
+
+==========================================================================
+BLOCK 1: tools/test_bm_lead.py (NEW), 19 classes, 77 tests, all RED
+==========================================================================
+
+$ cd /Users/khalil.maaouni/Documents/BrotherModeUp/tools
+$ python3 test_bm_lead.py
+
+Per class, failures on the untouched tree:
+
+  TestBriefingDue                                       5
+  TestConsentIsTheOnlyDoor                              6
+  TestEveryKeyDecisionCardEndsInTheHandbackOption       3
+  TestExactlyOneNextAction                              9
+  TestHandbackIsIdempotentlyRefused                     2
+  TestHandbackTakesFiveActsInOrder                      6
+  TestHandoverPackTracesToRows                          6
+  TestICModeAndFounderModeShareOneCollector             3
+  TestNoSQLGuard                                        1
+  TestOneBriefingPerDueWindow                           2
+  TestPlainLanguageHoldsInFounderMode                   2
+  TestQuietStretchWritesNothing                         3
+  TestRangesNeverPoints                                 3
+  TestReasonedIsNeverBare                               3
+  TestRunStatePlainCoversEveryState                     2
+  TestSevenConversationShapes                           7
+  TestTheActiveWorkClock                                6
+  TestTheDeveloperBriefIsComplete                       3
+  TestTheEightFieldsAreComputedNotNarrated              5
+
+  TOTAL                                                77
+
+Every one fails on the same sentence, which is the point: the module
+under test does not exist, so nothing in the file can run. The load is
+deliberately tolerant (_load_optional) rather than a bare import, so
+the RED is a count PER CLASS instead of one collapsed import error.
+
+First failure verbatim:
+
+======================================================================
+FAIL: test_a_boundary_does_not_fire_twice (__main__.TestBriefingDue)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_lead.py", line 1254, in setUp
+    LeadCase.setUp(self)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_lead.py", line 191, in setUp
+    self.assertIsNotNone(
+AssertionError: unexpectedly None : tools/bm_lead.py does not exist yet, so nothing in this file can run. That is the failing-first state DESIGN-L04 section 17 asks every new class to reproduce.
+
+Tail verbatim:
+
+
+----------------------------------------------------------------------
+Ran 77 tests in 0.002s
+
+FAILED (failures=77)
+LEAD EXIT: 1
+
+==========================================================================
+BLOCK 2: tools/test_bm_consent.py, the two tests that go RED the moment
+the watchdog is wired with no gate behind it
+==========================================================================
+
+$ cd /Users/khalil.maaouni/Documents/BrotherModeUp/tools
+$ python3 test_bm_consent.py
+
+............................F.F...........
+======================================================================
+FAIL: test_every_hook_wired_command_of_every_module_checks_consent (__main__.TelemetryEveryHookProgramPreConsentCase)
+The durable half: an inventory test rather than one test per
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_consent.py", line 686, in test_every_hook_wired_command_of_every_module_checks_consent
+    self.assertEqual(
+AssertionError: Lists differ: ['bm_lead.py: not in tools/'] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+'bm_lead.py: not in tools/'
+
+- ['bm_lead.py: not in tools/']
++ [] : a hook-wired command of some module writes before consent is checked (bm_lead.py: not in tools/). Every program on a hook line needs its own gate; gating the line's first program does not gate the second.
+
+======================================================================
+FAIL: test_no_wired_command_of_any_module_writes_before_consent (__main__.TelemetryEveryHookProgramPreConsentCase)
+Drives EVERY command hooks/hooks.json wires, whatever module it
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_consent.py", line 522, in test_no_wired_command_of_any_module_writes_before_consent
+    self.assertEqual(r.returncode, 0,
+AssertionError: 2 != 0 : Stop: sh -c 'p=$(cat); printf %s "$p" | python3 "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_telemetry.py" stop-warn; printf %s "$p" | python3 "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_lead.py" watchdog --tick' exited 2
+/Applications/Xcode.app/Contents/Developer/usr/bin/python3: can't open file '/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_lead.py': [Errno 2] No such file or directory
+
+
+----------------------------------------------------------------------
+Ran 42 tests in 24.668s
+
+FAILED (failures=2)
+CONSENT EXIT: 1
+
+Reading of block 2, and it is the whole of DESIGN-L04 section 8.4's
+failing-first argument:
+
+  * test_no_wired_command_of_any_module_writes_before_consent is
+    SHIPPED and UNCHANGED. It drives every command string in
+    hooks/hooks.json against a fresh HOME and asserts no file appears
+    in either tree. Adding the watchdog to the Stop line turned it red
+    immediately, on the exit code, because the program it now names is
+    not there. That is the RED section 8 had to produce, and it comes
+    from a test nobody edited.
+
+  * test_every_hook_wired_command_of_every_module_checks_consent is the
+    WIDENING of section 18.2: the old name was
+    test_every_hook_wired_telemetry_command_checks_consent and it
+    covered exactly one module. Every assertion it made about
+    bm_telemetry.py survives verbatim, because that module's commands
+    are a subset of the widened set. What it gains is the defect class
+    this project has already suffered twice: a hook line whose SECOND
+    program was never gated.
+
+  * The remaining 40 tests of that suite were green before this change
+    and stayed green, so the two reds above are the change and nothing
+    else.
+

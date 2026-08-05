@@ -4402,11 +4402,26 @@ class TestVerifyDocsIsOneEntryPoint(_DocsCLI, unittest.TestCase):
 #: reviewer's own words (docs/craft/FABLE-PRODUCT-CRAFT-RESEARCH-REVIEW.md
 #: writes "BrotherModeUp itself has no frontend" and names BrotherME twice),
 #: and editing a quotation of a reviewer is not a naming fix.
+#: WIDENED 2026-08-05, and the narrower entry it replaces is the reason. The
+#: list held docs/program/absolute-lead/EVIDENCE but not the program designs
+#: that sit BESIDE it, so DESIGN-L04.md was read as a page a user lands on and
+#: the naming rule fired on the repository slug in its own "Target tree:" line.
+#: A design document is program record material of exactly the same class as
+#: the evidence it produces: it states what was decided on a date, and
+#: rewriting a name inside it falsifies that record. The whole
+#: docs/program/absolute-lead tree therefore joins the list, which subsumes the
+#: evidence entry, and docs/program/mirrorforge joins for the same reason (it
+#: archives an outside program's own words plus the review of it).
+#: Deliberately NOT docs/program as a whole: enumerating the subtrees keeps a
+#: future user-facing page placed under docs/program covered by the rule
+#: instead of silently exempt, which is the failure mode a blanket exemption
+#: would create.
 RECORD_DIRS = (os.path.join("docs", "closure"),
                os.path.join("docs", "evidence"),
                os.path.join("docs", "superpowers"),
                os.path.join("docs", "craft"),
-               os.path.join("docs", "program", "absolute-lead", "evidence"),
+               os.path.join("docs", "program", "absolute-lead"),
+               os.path.join("docs", "program", "mirrorforge"),
                os.path.join("docs", "program", "solo-founder-ic"))
 
 #: Pages this check does NOT read, each with the reason it is out. EMPTY since

@@ -1,0 +1,25 @@
+{
+  "contradicted_row_survives": true,
+  "error_card_sections": [
+    "What happened",
+    "Impact",
+    "Recommended action",
+    "What remains safe"
+  ],
+  "records_win": true,
+  "report_transcript": [
+    "What happened",
+    "verified by inspection: an earlier note disagrees with the recorded outcome",
+    "",
+    "Impact",
+    "the outcome is affected, and the records above are what I work from until you say otherwise.",
+    "",
+    "Recommended action",
+    "the founder restates the outcome",
+    "",
+    "What remains safe",
+    "Nothing was edited and nothing was deleted: the earlier note is still there, and this is a new record beside it."
+  ],
+  "risk_rows": 2,
+  "shape": "an insight's claim disagrees with a record, and the founder must be told"
+}

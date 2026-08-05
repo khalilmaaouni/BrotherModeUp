@@ -1,0 +1,19 @@
+{
+  "contract_state": "paused",
+  "decision_still_open": false,
+  "developer_brief_sections": [
+    "What you are taking over",
+    "The decision that was in front of us",
+    "What BrotherMode would have chosen, and why",
+    "The open question",
+    "The files",
+    "The reproduction",
+    "Work that was in flight",
+    "Where to pick up"
+  ],
+  "handback_rows": 1,
+  "record_state": "parked",
+  "revision_moved_by": 1,
+  "second_handback_refused_with": "handback-already-taken",
+  "shape": "the founder hands control back"
+}

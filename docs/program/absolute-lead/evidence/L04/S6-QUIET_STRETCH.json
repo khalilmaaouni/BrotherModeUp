@@ -1,0 +1,21 @@
+{
+  "active_minutes": 0,
+  "brief_transcript": [
+    "Nothing new has happened, so I am not writing a new catch-up. The one that still stands, from 2 hours ago:",
+    "",
+    "Where we are: the booking form is being wired",
+    "What changed: ",
+    "What it cost: ",
+    "What I am unsure of: nothing new is open",
+    "Your options: Hand this back to me: I take this decision and the work under it, and BrotherMode records where it stopped and what it would have done.",
+    "",
+    "Next step: agree what I am allowed to do on your behalf",
+    "  why: the outcome is recorded, and nothing can run until you authorise it",
+    "  run: bm-autonomy sign --project-id p1"
+  ],
+  "rows_after": 1,
+  "rows_before": 1,
+  "shape": "two hours pass with nothing happening",
+  "threshold": 30,
+  "watchdog_printed": ""
+}

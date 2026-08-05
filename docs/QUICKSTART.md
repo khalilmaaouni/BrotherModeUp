@@ -262,7 +262,7 @@ space breaks the unquoted form.
       { "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py outcomes-append", "timeout": 30 } ] }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py stop-warn", "timeout": 15 } ] }
+      { "hooks": [ { "type": "command", "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py stop-warn; printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_lead.py watchdog --tick'", "timeout": 30 } ] }
     ],
     "PreCompact": [
       { "hooks": [ { "type": "command", "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_autosave.py precompact; printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py precompact-brief' ", "timeout": 60 } ] }
