@@ -14,6 +14,7 @@ import gc
 import glob
 import hashlib
 import io
+import itertools
 import json
 import ntpath
 import os
@@ -18358,6 +18359,620 @@ class TestCoercePathEntryIsTotalForAnyObject(unittest.TestCase):
                         actor)
                 self.assertEqual(ctx.exception.reason, "bad-path")
                 self.assertEqual(store.list_units(run["run_id"]), [])
+
+
+#: GIT PATHSPEC MAGIC, every spelling that survived the round-5 literal
+#: rule, with the damage each one does when the engine composes
+#: `git restore -- <entry>` from a unit's own write scope. Measured against
+#: the system git in REFUTATION-5-safety.md's probe table, not assumed:
+#: every magic row exited 0, so the engine read the rollback as a SUCCESS
+#: and queued no dirty-write-scope warning either.
+_PATHSPEC_SCOPE_SPELLINGS = (
+    ":",                   # the bare magic signature. canonicalize_path
+                           # stores ':/' AS ':', so this is the spelling the
+                           # store actually held: git restores the WHOLE tree
+    ":/",                  # 'top' magic, short form: every file in the repo
+    ":(top)",              # the same thing, long form
+    ":(top)src",           # and its rooted form
+    ":!keep.txt",          # 'exclude' magic: restores everything EXCEPT the
+                           # one file the founder reading the plan sees named
+    ":^keep.txt",          # the ^ spelling of exclude
+    ":(exclude)keep.txt",  # the long spelling of exclude
+    ":(icase)KEEP.TXT",    # matches a file this entry does not spell
+    ":(literal)keep.txt",  # 'literal' magic is still magic, not a path
+    ":(glob)keep",         # glob magic with no metacharacter in it, so the
+                           # round-5 glob rule never sees it
+    ":(attr:binary)",      # attribute magic: a set of files, named by no path
+    "::",                  # empty magic followed by an empty path
+    " :/",                 # _to_posix strips first, so leading whitespace is
+                           # not a second spelling: it is the same one
+)
+
+#: Absolute spellings, on every platform this project can be handed a plan
+#: from, not only the one the tests run on. '/etc/passwd' refused
+#: 'path-escape' before this round (it resolves outside the root) but an
+#: absolute path INSIDE the root was accepted and silently rewritten
+#: relative, which is a declaration the founder never wrote.
+_ABSOLUTE_SCOPE_SPELLINGS = ("/", "/etc/passwd", "//srv/share",
+                             "\\\\srv\\share", "C:/Windows", "C:\\Windows",
+                             "c:", "/tmp")
+
+_EMPTY_SCOPE_SPELLINGS = ("", " ", "\t", "\n", "   \t  ")
+
+
+class TestWriteScopeEntriesAreNotGitPathspecs(unittest.TestCase):
+    """S1 (REFUTATION-5-safety.md, PUSH-BLOCKER, data destruction).
+
+    Round 5 made a write scope a LITERAL PATH by refusing the three glob
+    metacharacters, and its docstring names the three readers that rule
+    protects: the fence claim, bm_fence_hook's covering check, and the
+    engine's `git restore --` rollback. Git's pathspec language has a
+    SECOND way to mean more than one file, and none of its characters is a
+    glob character: every magic spelling begins with a colon. ':/' and
+    ':(top)' mean the whole repository, ':!x' and ':(exclude)x' mean
+    everything EXCEPT x, ':(icase)' matches a name the entry does not
+    spell. canonicalize_path treats all of them as ordinary relative names
+    inside the root, so they were stored, fenced, and handed to
+    `git restore --`, which restored files the unit never declared. Two end
+    to end reproductions through the shipped CLI destroyed every uncommitted
+    founder edit in the project; with ':/' the rollback exited 0, so the
+    founder was told only 'dispatch rejected'.
+
+    The rule these tests pin, one step stricter than round 5 and stated as
+    a shape rather than as a list of dangerous characters: a write scope
+    entry is a PLAIN RELATIVE PATH INSIDE THE PROJECT ROOT. Anything
+    beginning with ':' is git pathspec magic and refuses. Anything absolute
+    refuses. Anything empty or whitespace only refuses. The glob rule is
+    unchanged and the ALLOWANCE side (a contract's allowed_paths, where the
+    founder draws the boundary) is deliberately untouched: that is a
+    recorded founder decision, not this round's to move."""
+
+    def test_every_git_pathspec_spelling_is_refused_at_declaration(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                for spelling in _PATHSPEC_SCOPE_SPELLINGS:
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        store.upsert_units(
+                            run["run_id"],
+                            [_unit("u1", write_scope=[spelling])], actor)
+                    self.assertEqual(
+                        ctx.exception.reason, "pathspec-write-scope",
+                        "write_scope %r is git pathspec magic, not a path, "
+                        "and the engine hands it to `git restore --`"
+                        % (spelling,))
+                    self.assertEqual(
+                        store.list_units(run["run_id"]), [],
+                        "and nothing is written: the whole plan rolls back")
+
+    def test_the_root_spelling_the_silent_one_never_reaches_a_rollback(self):
+        """Reproduction 2 of S1, at the store's own gate. ':/' is the row
+        that destroyed every uncommitted file in the project AND exited 0,
+        so no dirty-write-scope warning was ever queued. It is also the row
+        canonicalize_path rewrote to ':', the spelling git reads as the
+        whole repository."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.upsert_units(
+                        run["run_id"], [_unit("u1", write_scope=[":/"])],
+                        actor)
+                msg = str(ctx.exception)
+                self.assertEqual(ctx.exception.reason, "pathspec-write-scope")
+                self.assertIn(":/", msg, "the refusal quotes the entry")
+                self.assertIn("u1", msg, "and names the unit")
+                self.assertIn("relative", msg,
+                              "and says what to write instead: a refusal a "
+                              "founder cannot act on gets worked around")
+                self.assertEqual(ctx.exception.details.get("entry"), ":/")
+                self.assertEqual(ctx.exception.details.get("unit_id"), "u1")
+
+    def test_the_exclude_spelling_that_reads_as_one_file_is_refused(self):
+        """Reproduction 1 of S1. ':!keep.txt' is the sharpest one for a
+        READER: the founder reviewing the plan sees one file named, and the
+        rollback restores every file except that one."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                for spelling in (":!keep.txt", ":^keep.txt",
+                                 ":(exclude)keep.txt"):
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        store.upsert_units(
+                            run["run_id"],
+                            [_unit("u1", write_scope=[spelling])], actor)
+                    self.assertEqual(ctx.exception.reason,
+                                     "pathspec-write-scope")
+                    self.assertIn("exclude", str(ctx.exception).lower(),
+                                  "the message explains what git does with "
+                                  "it, because the spelling reads as its "
+                                  "opposite")
+
+    def test_every_absolute_spelling_is_refused_by_name(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                for spelling in _ABSOLUTE_SCOPE_SPELLINGS:
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        store.upsert_units(
+                            run["run_id"],
+                            [_unit("u1", write_scope=[spelling])], actor)
+                    self.assertEqual(
+                        ctx.exception.reason, "absolute-write-scope",
+                        "write_scope %r is absolute, so it is not a path "
+                        "inside this project" % (spelling,))
+                    self.assertEqual(store.list_units(run["run_id"]), [])
+
+    def test_an_absolute_path_inside_the_project_refuses_rather_than_being_rewritten(self):
+        """The quiet half. An absolute path that happens to resolve inside
+        the root was ACCEPTED and stored as its relative form, so the plan
+        the founder wrote and the plan the store holds were different
+        strings, and the same declaration on another machine (or with the
+        store rooted one directory up) would have meant something else."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                inside = os.path.join(d, "a.py")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.upsert_units(
+                        run["run_id"], [_unit("u1", write_scope=[inside])],
+                        actor)
+                self.assertEqual(ctx.exception.reason, "absolute-write-scope")
+                self.assertEqual(store.list_units(run["run_id"]), [])
+
+    def test_an_empty_or_whitespace_entry_refuses_by_name(self):
+        """Before this round an empty entry reached canonicalize_path and
+        raised a bare ValueError('empty path'): a message with no reason
+        code, no unit id and no remedy, out of a method whose whole job is
+        to validate a plan before writing it."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                for spelling in _EMPTY_SCOPE_SPELLINGS:
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        store.upsert_units(
+                            run["run_id"],
+                            [_unit("u1", write_scope=["a.py", spelling])],
+                            actor)
+                    self.assertEqual(ctx.exception.reason,
+                                     "empty-write-scope",
+                                     "write_scope %r names no file"
+                                     % (spelling,))
+                    self.assertIn("u1", str(ctx.exception))
+                    self.assertEqual(store.list_units(run["run_id"]), [])
+
+    def test_a_relative_escape_still_refuses_path_escape(self):
+        """CONTROL over the round-1 rule. '../outside.py' is not a
+        pathspec, not absolute and not empty, so it must still reach
+        canonicalize_path and refuse with the reason that has always named
+        it. A new gate that swallowed this one would be a regression
+        wearing a fix's clothes."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.upsert_units(
+                        run["run_id"],
+                        [_unit("u1", write_scope=["../outside.py"])], actor)
+                self.assertEqual(ctx.exception.reason, "path-escape")
+
+    def test_literal_entries_are_accepted_exactly_as_before(self):
+        """The CONTROL for this round. Every spelling here is a plain
+        relative path and must reach the store unchanged, including one
+        with a colon that is not in the leading position: git pathspec
+        magic is a PREFIX, so 'src/a:b.py' is an ordinary filename and
+        refusing it would be this round's own over-reach."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                store.upsert_units(
+                    run["run_id"],
+                    [_unit("u1", write_scope=["src/app/main.py", "docs",
+                                              "./api/pay.py", "a.py", ".",
+                                              "src/a:b.py", " spaced.py"])],
+                    actor)
+                unit = {u["unit_id"]: u for u in
+                        store.list_units(run["run_id"], raw=True)}["u1"]
+                self.assertEqual(
+                    unit["write_scope"],
+                    ["src/app/main.py", "docs", "api/pay.py", "a.py", ".",
+                     "src/a:b.py", "spaced.py"],
+                    "canonicalize_path still converges './api/pay.py' and "
+                    "still strips surrounding whitespace, and nothing else "
+                    "about a literal entry moved")
+
+    def test_a_pathspec_cannot_be_re_spelled_through_a_relative_prefix(self):
+        """Found by attacking THIS round's own fix rather than the round it
+        replaces, and it is the same shape as F3 one round earlier: the
+        declaration check reads what the caller WROTE, and canonicalize_path
+        then resolves '.' and '..' segments lexically, so './:!keep.txt'
+        passes a leading-colon test and is STORED as ':!keep.txt', the
+        exclude spelling that reverts every file except the one it names.
+        'sub/../:' is the same trick landing on ':', the whole-repository
+        spelling. The gate therefore has to look TWICE: once at what was
+        declared, so the refusal quotes the founder's own spelling, and
+        once at what will actually be stored, because that is the string
+        the fence, the coverage check and `git restore --` all read."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                for spelling in ("./:!keep.txt", "a/../:!keep.txt", "./:/",
+                                 "sub/../:", "./:(exclude)keep.txt"):
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        store.upsert_units(
+                            run["run_id"],
+                            [_unit("u1", write_scope=[spelling])], actor)
+                    self.assertEqual(
+                        ctx.exception.reason, "pathspec-write-scope",
+                        "%r resolves to git pathspec magic" % (spelling,))
+                    msg = str(ctx.exception)
+                    self.assertIn(spelling, msg,
+                                  "the refusal quotes what was declared")
+                    self.assertIn("resolves", msg,
+                                  "and says that the STORED form is the "
+                                  "problem, which is not visible from the "
+                                  "declaration alone")
+                    self.assertEqual(store.list_units(run["run_id"]), [])
+
+    def test_no_generated_spelling_is_stored_as_a_path_the_rule_refuses(self):
+        """The property, swept rather than sampled, and it is what found
+        the second and third families this round: for EVERY spelling built
+        from the dangerous tokens, whatever the gate accepts must be a
+        string the gate would also accept if it had been DECLARED that way.
+        A rule that refuses ':!x' but stores it when it is written
+        './:!x' is not a rule, it is a spelling test.
+
+        The three families the sweep proved reachable, none of them
+        predictable from reading canonicalize_path:
+          './:!x'  resolves to ':!x'  (git exclude magic)
+          './a:b'  resolves to 'a:b'  (drive-qualified on Windows)
+          './ /'   resolves to ' '    (whitespace only: _to_posix strips
+                                       the whole string, not each segment)
+        """
+        tokens = ["", ".", "..", "a", ":", ":!x", ":/", "(exclude)x", "/",
+                  "\\", " ", "a:b", "C:", "*"]
+        checked = 0
+        accepted = 0
+        violations = []
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "a"), exist_ok=True)
+            for n in (1, 2, 3):
+                for combo in itertools.product(tokens, repeat=n):
+                    spelling = "/".join(combo)
+                    checked += 1
+                    try:
+                        got = bs.canonical_write_scope_entry(d, spelling,
+                                                             unit_id="u1")
+                    except bs.OwnershipRefused:
+                        continue
+                    accepted += 1
+                    try:
+                        bs.literal_scope_entry(got, unit_id="u1")
+                    except bs.OwnershipRefused as exc:
+                        violations.append((spelling, got, exc.reason))
+        self.assertGreater(checked, 2000,
+                           "the sweep must be exhaustive, not a sample")
+        self.assertGreater(accepted, 100,
+                           "and it must still ACCEPT things, or it proves "
+                           "nothing about a rule that refuses everything")
+        self.assertEqual(
+            violations, [],
+            "every stored write scope must be a string this gate would "
+            "accept as a declaration; these were not: %s" % (violations[:5],))
+
+    def test_a_legitimate_relative_prefix_still_resolves_and_is_stored(self):
+        """CONTROL for the second look: resolving '.' and '..' is what
+        makes two spellings of one path converge, and that behaviour is
+        pinned by round 1. Only a resolved form that is itself refusable
+        may refuse."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                store.upsert_units(
+                    run["run_id"],
+                    [_unit("u1", write_scope=["./a.py", "sub/../b.py"])],
+                    actor)
+                unit = {u["unit_id"]: u for u in
+                        store.list_units(run["run_id"], raw=True)}["u1"]
+                self.assertEqual(unit["write_scope"], ["a.py", "b.py"])
+
+    def test_literal_scope_entry_refuses_each_family_directly(self):
+        """The same three rules at the function, not through a store, so a
+        future caller that shares this gate (the docstring invites one) is
+        pinned to the same answers."""
+        for spelling in _PATHSPEC_SCOPE_SPELLINGS:
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.literal_scope_entry(spelling, unit_id="u1")
+            self.assertEqual(ctx.exception.reason, "pathspec-write-scope")
+        for spelling in _ABSOLUTE_SCOPE_SPELLINGS:
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.literal_scope_entry(spelling, unit_id="u1")
+            self.assertEqual(ctx.exception.reason, "absolute-write-scope")
+        for spelling in _EMPTY_SCOPE_SPELLINGS:
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.literal_scope_entry(spelling, unit_id="u1")
+            self.assertEqual(ctx.exception.reason, "empty-write-scope")
+        for spelling in _GLOB_SCOPE_SPELLINGS:
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.literal_scope_entry(spelling, unit_id="u1")
+            self.assertEqual(ctx.exception.reason, "glob-write-scope",
+                             "round 5's rule is unchanged by round 6")
+        for ok in ("src", "src/app", "src/app/main.py", "a.py", ".",
+                   "src/a:b.py"):
+            self.assertEqual(bs.literal_scope_entry(ok, unit_id="u1"), ok)
+
+
+class TestScopeContainersAreValidatedBeforeIteration(unittest.TestCase):
+    """S4 (HIGH) and S6 (LOW), REFUTATION-5-safety.md: one root cause on
+    the CONTAINER rather than on an entry.
+
+    upsert_units iterated `u.get('write_scope') or []` directly. A Python
+    string is iterable, so a unit declaring the JSON scalar 'a.py' declared
+    FOUR scopes, 'a', '.', 'p' and 'y', and one of them is '.', the project
+    ROOT: the brief handed to the worker said it could write the whole
+    project, and the unit's fence held '.', which makes every other
+    writer's write anywhere in the project refusable from one unit. Nothing
+    refused, nothing warned. That is S4, and it fails SILENTLY, which is
+    why it is pinned first and hardest below. S6 is the same missing check
+    seen from the other side: `'write_scope': 7` is not iterable at all, so
+    it left the shipped `bm-controller plan` as an uncaught TypeError,
+    which main() does not catch.
+
+    The store's own _normalize_files (the FENCE side) has carried the
+    defence since fix-round 2: 'A bare string is ONE path, not an iterable
+    of characters, the same defensive rule bm_registry's _safe_path_list
+    enforces'. The rule these tests pin is that same one, on the
+    DECLARATION side, stated for the container: a scope is a list or a
+    tuple of path strings, checked BEFORE a single entry is read, and
+    anything else refuses by name and by type."""
+
+    def _plan(self, store, unit):
+        run = _open_and_plan(store)
+        return run, unit
+
+    def test_a_bare_string_write_scope_is_not_exploded_into_characters(self):
+        """S4's reproduction, at the store. The assertion that matters is
+        not only that it refuses: it is that no unit is EVER stored holding
+        a one-character scope, because the failure this closes reported
+        success."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.upsert_units(
+                        run["run_id"], [_unit("u1", write_scope="a.py")],
+                        actor)
+                self.assertEqual(ctx.exception.reason, "bad-scope-container")
+                self.assertEqual(
+                    store.list_units(run["run_id"]), [],
+                    "nothing is written: no unit holds ['a', '.', 'p', 'y'], "
+                    "and in particular none holds '.', the project root")
+
+    def test_the_refusal_names_the_field_the_type_and_the_remedy(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.upsert_units(
+                        run["run_id"], [_unit("u1", write_scope="a.py")],
+                        actor)
+                msg = str(ctx.exception)
+                self.assertIn("write_scope", msg)
+                self.assertIn("u1", msg)
+                self.assertIn("str", msg, "the message names the ACTUAL type")
+                self.assertIn("character", msg,
+                              "and says what would have happened, because "
+                              "the defect was silent")
+                self.assertEqual(ctx.exception.details.get("type"), "str")
+                self.assertEqual(ctx.exception.details.get("field"),
+                                 "write_scope")
+                self.assertEqual(ctx.exception.details.get("unit_id"), "u1")
+
+    def test_every_non_list_container_refuses_naming_its_type(self):
+        """S6's class, widened to every shape a JSON document or an SDK
+        caller can put there. A set and a generator are iterable and are
+        still refused: a scope with no defined ORDER, or one that can only
+        be read once, is not a declaration."""
+        cases = [(7, "int"), (7.5, "float"), (True, "bool"), (None, "NoneType"),
+                 ({}, "dict"), ({"p": "a.py"}, "dict"), (b"a.py", "bytes"),
+                 ({"a.py"}, "set"), ((x for x in ["a.py"]), "generator")]
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                for value, type_name in cases:
+                    unit = _unit("u1")
+                    unit["write_scope"] = value
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        store.upsert_units(run["run_id"], [unit], actor)
+                    self.assertEqual(
+                        ctx.exception.reason, "bad-scope-container",
+                        "write_scope %r must refuse, never traceback"
+                        % (type_name,))
+                    self.assertEqual(ctx.exception.details.get("type"),
+                                     type_name)
+                    self.assertIn(type_name, str(ctx.exception))
+                    self.assertEqual(store.list_units(run["run_id"]), [])
+
+    def test_read_scope_gets_the_same_container_check(self):
+        """S4's second half. read_scope is the store's other declared scope
+        and it had no check of any kind: it was json.dumps'd straight into
+        the row, so a bare string was stored as a JSON string and every
+        reader downstream iterated it character by character."""
+        cases = [("src", "str"), (7, "int"), (None, "NoneType"),
+                 ({"p": "src"}, "dict")]
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                for value, type_name in cases:
+                    unit = _unit("u1")
+                    unit["read_scope"] = value
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        store.upsert_units(run["run_id"], [unit], actor)
+                    self.assertEqual(ctx.exception.reason,
+                                     "bad-scope-container")
+                    self.assertEqual(ctx.exception.details.get("field"),
+                                     "read_scope")
+                    self.assertEqual(ctx.exception.details.get("type"),
+                                     type_name)
+                    self.assertEqual(store.list_units(run["run_id"]), [])
+
+    def test_a_read_scope_entry_that_is_not_a_path_refuses_bad_path(self):
+        """A list whose ENTRIES are not strings is the container's other
+        half, and it lands on the store's existing total path coercion, so
+        the reason a caller already knows ('bad-path', naming the entry and
+        its type) is the one they get here too."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                for bad in ([5], [["src"]], [{"p": "src"}], [None]):
+                    unit = _unit("u1")
+                    unit["read_scope"] = bad
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        store.upsert_units(run["run_id"], [unit], actor)
+                    self.assertEqual(ctx.exception.reason, "bad-path",
+                                     "read_scope %r must refuse" % (bad,))
+                    self.assertEqual(store.list_units(run["run_id"]), [])
+
+    def test_a_list_or_a_tuple_of_strings_is_accepted_and_stored_verbatim(self):
+        """CONTROL. Both container shapes a JSON decoder and a Python
+        caller can produce still work, and read_scope is stored exactly as
+        declared: the store checks its shape, it does not canonicalise it
+        (see this round's KNOWN-LIMITS note for why that stays with the
+        controller)."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                unit = _unit("u1", write_scope=("a.py", "src"),
+                             read_scope=["docs", "api/pay.py"])
+                store.upsert_units(run["run_id"], [unit], actor)
+                got = {u["unit_id"]: u for u in
+                       store.list_units(run["run_id"], raw=True)}["u1"]
+                self.assertEqual(got["write_scope"], ["a.py", "src"])
+                self.assertEqual(got["read_scope"], ["docs", "api/pay.py"])
+
+    def test_a_unit_that_omits_its_scopes_is_unchanged(self):
+        """CONTROL, and the one that decides where the None rule bites. An
+        ABSENT key is not a declaration, so it keeps meaning 'no scope',
+        exactly as before; an EXPLICIT null IS a declaration, of the wrong
+        type, and refuses. The second upsert proves the definition hash did
+        not move either: a byte-identical re-plan still REUSES the unit
+        rather than redefining it."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                unit = _unit("u1")
+                del unit["write_scope"]
+                del unit["read_scope"]
+                store.upsert_units(run["run_id"], [dict(unit)], actor)
+                got = {u["unit_id"]: u for u in
+                       store.list_units(run["run_id"], raw=True)}["u1"]
+                self.assertEqual(got["write_scope"], [])
+                self.assertEqual(got["read_scope"], [])
+                first_hash = got["definition_hash"]
+                store.upsert_units(run["run_id"], [dict(unit)], actor)
+                again = {u["unit_id"]: u for u in
+                         store.list_units(run["run_id"], raw=True)}["u1"]
+                self.assertEqual(again["definition_hash"], first_hash,
+                                 "an absent scope hashes the same before and "
+                                 "after this round, so no persisted unit is "
+                                 "silently redefined by the upgrade")
+
+
+class TestScopePathHandlingRefusesTotally(unittest.TestCase):
+    """The third item of this round's brief, and the same discipline AZ F11
+    applied to _coerce_path_entry one round earlier: the write-scope
+    boundary is TOTAL. For ANY declared entry it returns a canonical stored
+    path or raises OwnershipRefused, and no other exception type crosses
+    it. os.path.realpath is a SYSCALL: it can raise OSError (a filesystem
+    that is gone mid-plan, ELOOP, a permission wall), ValueError (an
+    embedded NUL on some platforms) or RuntimeError from a hostile
+    os.PathLike, and every one of those used to leave upsert_units as
+    itself, past main()'s two-exception handler, as a traceback."""
+
+    def test_an_exception_from_path_resolution_becomes_a_named_refusal(self):
+        for exc in (OSError("gone"), ValueError("embedded null byte"),
+                    RuntimeError("proxy blew up"), RecursionError("deep")):
+            with tempfile.TemporaryDirectory() as d:
+                with mock.patch.object(bs, "_resolve_against_root",
+                                       side_effect=exc):
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        bs.canonical_write_scope_entry(d, "a.py",
+                                                       unit_id="u1")
+                self.assertEqual(ctx.exception.reason, "unreadable-scope-path",
+                                 "%s must land on a refusal" % type(exc).__name__)
+                msg = str(ctx.exception)
+                self.assertIn("a.py", msg)
+                self.assertIn("u1", msg)
+                self.assertIn(type(exc).__name__, msg,
+                              "and the refusal says what actually went wrong")
+
+    def test_the_same_holds_through_the_shipped_plan_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                with mock.patch.object(bs, "_resolve_against_root",
+                                       side_effect=OSError("gone")):
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        store.upsert_units(
+                            run["run_id"],
+                            [_unit("u1", write_scope=["a.py"])], actor)
+                self.assertEqual(ctx.exception.reason, "unreadable-scope-path")
+                self.assertEqual(store.list_units(run["run_id"]), [],
+                                 "and the plan rolled back whole")
+
+    def test_a_refusal_from_path_resolution_passes_through_unchanged(self):
+        """The catch-all must not swallow the refusals that already work:
+        'path-escape' is a REFUSAL with its own reason and details, and
+        re-labelling it would lose the one fact a founder needs."""
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.canonical_write_scope_entry(d, "../outside.py",
+                                               unit_id="u1")
+            self.assertEqual(ctx.exception.reason, "path-escape")
+
+    def test_no_declared_entry_escapes_as_an_exception(self):
+        """The property, swept: for every hostile entry, the boundary
+        either returns a string or refuses. Nothing else."""
+        hostile = [_RaisesFromBothDunders(), 5, None, ["a.py"], {"p": 1},
+                   True, b"a.py", "", "  ", ":/", ":!x", "/etc/passwd",
+                   "*.py", "../x", "a\x00b", "a.py", ".", pathlib.Path("a.py")]
+        with tempfile.TemporaryDirectory() as d:
+            for entry in hostile:
+                try:
+                    got = bs.canonical_write_scope_entry(d, entry,
+                                                         unit_id="u1")
+                except bs.OwnershipRefused:
+                    continue
+                except Exception as exc:      # pragma: no cover - the defect
+                    # _safe_repr, not %r: one of the hostile entries is the
+                    # object whose __repr__ raises, and a failure message
+                    # that cannot be formatted hides the failure it reports.
+                    self.fail("entry %s escaped as %s: %s"
+                              % (bs._safe_repr(entry), type(exc).__name__,
+                                 exc))
+                self.assertIsInstance(
+                    got, str,
+                    "a boundary documented TOTAL returns a string or "
+                    "refuses; %s returned %r"
+                    % (bs._safe_repr(entry), got))
 
 
 if __name__ == "__main__":
