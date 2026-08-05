@@ -122,7 +122,7 @@ OWNED_TOOLS = (
 # is self-contained on purpose and there is no shared file to hold it once.
 COPY_EXCLUDE_NAMES = (
     ".git", ".brothermode", "__pycache__", "threads", ".superpowers",
-    ".DS_Store", "STATE.md",
+    ".DS_Store", "STATE.md", "PROJECT-VIEW.html", "Handover",
 )
 
 RECORD_NAME = "brothermode-install.json"

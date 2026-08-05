@@ -167,6 +167,10 @@ find "$TARGET" ! -type d \
     ! -path "$TARGET/Documentation/*" \
     ! -path "$TARGET/.claude" \
     ! -path "$TARGET/.claude/*" \
+    ! -path "$TARGET/Handover" \
+    ! -path "$TARGET/Handover/*" \
+    ! -path "$TARGET/Handover-*" \
+    ! -path "$TARGET/Handover-*/*" \
     ! -name '.DS_Store' \
     ! -name '*.bak*' \
     ! -name 'STATE.md' \
@@ -174,6 +178,7 @@ find "$TARGET" ! -type d \
     ! -name 'CANVAS-*.md' \
     ! -name 'DELIVERY-PACKET.md' \
     ! -name 'DELIVERY-PACKET-*.md' \
+    ! -name 'PROJECT-VIEW.html' \
     > "$WORKDIR/installed_raw"
 
 EXTRA=0

@@ -6102,7 +6102,8 @@ class TestGitignoreCoversGeneratedProjectViews(unittest.TestCase):
                      encoding="utf-8") as fh:
             lines = {line.strip() for line in fh}
         for pattern in ("/CANVAS.md", "/DELIVERY-PACKET.md",
-                        "/CANVAS-*.md", "/DELIVERY-PACKET-*.md"):
+                        "/CANVAS-*.md", "/DELIVERY-PACKET-*.md",
+                        "/PROJECT-VIEW.html", "/Handover/", "/Handover-*/"):
             self.assertIn(
                 pattern, lines,
                 ".gitignore lost the generated-view pattern %r; a "
@@ -6123,13 +6124,20 @@ class TestGitignoreCoversGeneratedProjectViews(unittest.TestCase):
                          encoding="utf-8") as fh:
                 src = fh.read()
             for name in ("CANVAS.md", "CANVAS-*.md",
-                         "DELIVERY-PACKET.md", "DELIVERY-PACKET-*.md"):
+                         "DELIVERY-PACKET.md", "DELIVERY-PACKET-*.md",
+                         "PROJECT-VIEW.html"):
                 self.assertIn(
                     "! -name '%s'" % name, src,
                     "%s no longer excludes the generated view %r; any "
                     "machine with a generated project view at the root "
                     "fails its own integrity check with an EXTRA "
                     "warning" % (script, name))
+            # The L05 brief pages land in a Handover/ directory, pruned by
+            # path rather than by name; both scripts must prune it or a
+            # generated brief page fails verify-install the same way.
+            self.assertIn("Handover", src,
+                          "%s no longer prunes the Handover/ brief "
+                          "directory" % script)
 
 
 class TestScorecardSurvivesANullTokenField(unittest.TestCase):
