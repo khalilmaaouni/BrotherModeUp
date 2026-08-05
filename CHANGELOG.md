@@ -1,5 +1,49 @@
 # Changelog
 
+## 2.1.0, unreleased (development identity 2.1.0.dev1, opened 2026-08-06)
+
+The 2.1 line. `VERSION` names `2.1.0.dev1`, a development identity: the
+`v2.1.0` tag is founder-gated and has not been cut, so nothing here is
+installable by tag yet. This entry describes what has landed on `main` since
+`v2.0.0`.
+
+Gate after the last edit, on a quiet machine: `test_all: 2442 tests across 20
+suites, 6 skipped, 352.2s wall. ALL GREEN`, exit 0, with the checksum manifest
+and `verify-install` clean on the same tree.
+
+WHAT IS NEW FOR YOU
+
+A live project view. BrotherMode can now generate one self-contained HTML page
+that shows where your project stands, drawn from the project's own records:
+the pipeline, the gates, who holds which work, the open decision, and a
+standing offer to take the work back into your own hands. It is a snapshot, not
+a live dashboard, it makes no network call when it opens, and publishing it as
+a private page is a separate step that needs a signed-in session; every one of
+those limits is stated in `docs/KNOWN-LIMITS.md`. The onboarding flow was
+rewritten around it: a first run now shows something to look at at each step
+instead of a wall of text.
+
+The one-writer fence now bites Codex writes. Under the Codex CLI every file
+write arrives as a Bash `apply_patch` command, which the old fence never saw;
+it now parses those and refuses a write to a file another session owns, the
+same as it does for an Edit. This was hardened against an adversary who found
+three ways it wrongly refused legitimate work, all fixed. Enforcement is proven
+in process; a live wired Codex rehearsal is still owed and is marked so.
+
+Three doors closed in the autonomy contract. A contract can no longer authorise
+a write to BrotherMode's own machinery (its store, `.git`, or your `.claude`
+settings files); the controller refuses a session that tries to drive a run it
+does not own; and signing refuses work that declares no place it is allowed to
+write. Each was reproduced by an adversarial refuter before and after the fix.
+Driver ownership, like the fence, is coordination between cooperating sessions,
+not a defence against a hostile local process, and `docs/KNOWN-LIMITS.md` now
+says that plainly.
+
+A comparative benchmark harness ships, frozen before any run. It is not yet run:
+the numbers are the founder's to produce in an authenticated session, and the
+protocol in `docs/BENCHMARK-COMPARATIVE.md` says every result it produces is
+internal evidence, never a market claim.
+
 ## 2.0.0, 2026-08-04: the first public release, from one clean branch
 
 The release-closure program is complete. Records were corrected against the
