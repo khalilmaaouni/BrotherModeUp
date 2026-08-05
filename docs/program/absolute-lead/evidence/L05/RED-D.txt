@@ -1,0 +1,148 @@
+RED evidence, Writer D (the store and the vocabulary).
+DESIGN-visual-surface.md sections 13.1 and 13.3, written FIRST and run
+against the untouched tree. Captured 2026-08-05.
+
+Tree state at capture: git rev c59dd2a, SCHEMA_VERSION 16,
+tools/bm_visual.py absent, Store.record_view absent.
+
+================================================================
+BLOCK 1 of 3: visual   python3 tools/test_bm_visual.py
+================================================================
+     1 FAIL: test_a_cleared_condition_removes_its_alert_with_no_dismissal_call (__main__.TestAlertsNowIsDerivedAndCapped)
+     1 FAIL: test_a_condition_with_no_query_behind_it_cannot_become_an_alert (__main__.TestAlertsNowIsDerivedAndCapped)
+     1 FAIL: test_a_count_rows_numbers_are_identical_in_both_media (__main__.TestTextAndHtmlCarryTheSameFacts)
+     1 FAIL: test_a_five_slot_render_fails_rather_than_shortening_the_box (__main__.TestInsightBoxHasSixSlots)
+     1 FAIL: test_a_label_with_syntax_characters_survives_both_emitters (__main__.TestDiagramEscaping)
+     1 FAIL: test_a_reasoned_row_carries_no_rung_bar (__main__.TestInsightBoxHasSixSlots)
+     1 FAIL: test_a_reasoned_row_renders_the_prefix_and_the_words_not_tested (__main__.TestInsightBoxHasSixSlots)
+     1 FAIL: test_a_record_named_dash_h_renders_as_a_label_not_as_syntax (__main__.TestDiagramEscaping)
+     1 FAIL: test_a_rendered_body_survives_the_stylesheet_being_removed (__main__.TestColourIsNeverAlone)
+     1 FAIL: test_a_shape_outside_the_five_raises_at_construction (__main__.TestDiagramCaps)
+     1 FAIL: test_an_ampersand_is_escaped_exactly_once (__main__.TestDiagramEscaping)
+     1 FAIL: test_an_at_risk_never_promotes_by_age (__main__.TestAlertsNowIsDerivedAndCapped)
+     1 FAIL: test_at_most_two_rungs_reach_one_chat_message (__main__.TestAlertsNowIsDerivedAndCapped)
+     1 FAIL: test_branch_five_anything_left_over_is_not_shown (__main__.TestSurfaceRouter)
+     1 FAIL: test_branch_four_a_picture_goes_to_the_page_only (__main__.TestSurfaceRouter)
+     1 FAIL: test_branch_one_an_item_he_must_act_on_reaches_all_three (__main__.TestSurfaceRouter)
+     1 FAIL: test_branch_three_state_worth_returning_to_goes_to_the_page (__main__.TestSurfaceRouter)
+     1 FAIL: test_branch_two_an_answer_to_a_question_goes_to_the_chat (__main__.TestSurfaceRouter)
+     1 FAIL: test_each_shape_carries_the_same_status_words_in_both_emitters (__main__.TestTextAndHtmlCarryTheSameFacts)
+     1 FAIL: test_every_drawing_has_role_img_with_a_title_and_a_desc (__main__.TestSvgAccessibilityPair)
+     1 FAIL: test_every_measured_pair_clears_its_floor_with_no_rounding (__main__.TestContrastTokens)
+     1 FAIL: test_every_reason_code_the_store_can_emit_has_an_entry (__main__.TestEveryRefusalIsRewritten)
+     1 FAIL: test_every_slot_is_non_empty_in_both_media (__main__.TestInsightBoxHasSixSlots)
+     1 FAIL: test_every_status_bearing_node_carries_a_word_from_the_lexicon (__main__.TestColourIsNeverAlone)
+     1 FAIL: test_every_text_medium_path_emits_ascii_only (__main__.TestNoNonAsciiInTerminalOutput)
+     1 FAIL: test_more_gates_than_the_cap_aggregate_and_the_caption_says_so (__main__.TestDiagramCaps)
+     1 FAIL: test_never_more_than_one_needs_you_is_shown (__main__.TestAlertsNowIsDerivedAndCapped)
+     1 FAIL: test_settled_is_silent_and_carries_no_colour (__main__.TestAlertsNowIsDerivedAndCapped)
+     1 FAIL: test_slot_six_is_byte_equal_to_the_handback_promise (__main__.TestInsightBoxHasSixSlots)
+     1 FAIL: test_the_branches_are_disjoint_so_first_match_is_deterministic (__main__.TestSurfaceRouter)
+     1 FAIL: test_the_caption_is_non_empty_and_differs_from_the_title (__main__.TestSvgAccessibilityPair)
+     1 FAIL: test_the_dedupe_key_collapses_a_repeat_and_counts_it (__main__.TestAlertsNowIsDerivedAndCapped)
+     1 FAIL: test_the_failure_block_has_five_parts_and_exactly_one_expander (__main__.TestEveryRefusalIsRewritten)
+     1 FAIL: test_the_fork_outcome_cap_raises (__main__.TestDiagramCaps)
+     1 FAIL: test_the_formula_matches_two_known_reference_values (__main__.TestContrastTokens)
+     1 FAIL: test_the_four_rungs_are_distinguishable_with_the_stylesheet_gone (__main__.TestColourIsNeverAlone)
+     1 FAIL: test_the_gate_ladder_node_cap_raises (__main__.TestDiagramCaps)
+     1 FAIL: test_the_lane_map_lane_cap_raises (__main__.TestDiagramCaps)
+     1 FAIL: test_the_light_settled_rule_is_the_tight_pair_and_is_pinned (__main__.TestContrastTokens)
+     1 FAIL: test_the_order_is_stable_across_two_calls_on_the_same_rows (__main__.TestAlertsNowIsDerivedAndCapped)
+     1 FAIL: test_the_pipeline_node_and_edge_caps_raise (__main__.TestDiagramCaps)
+     1 FAIL: test_the_six_slot_values_are_identical_across_media (__main__.TestTextAndHtmlCarryTheSameFacts)
+     1 FAIL: test_the_svg_parses_as_xml_after_escaping (__main__.TestDiagramEscaping)
+     1 FAIL: test_the_title_and_desc_are_wired_by_aria (__main__.TestSvgAccessibilityPair)
+     1 FAIL: test_to_svg_emits_no_colour_attribute (__main__.TestColourIsNeverAlone)
+     1 FAILED (failures=45)
+     1 Ran 45 tests in 0.001s
+
+  per class:
+       8 TestAlertsNowIsDerivedAndCapped ... FAIL
+       3 TestColourIsNeverAlone ... FAIL
+       1 TestContrastTokens ... FAIL
+       6 TestDiagramCaps ... FAIL
+       4 TestDiagramEscaping ... FAIL
+       2 TestEveryRefusalIsRewritten ... FAIL
+       5 TestInsightBoxHasSixSlots ... FAIL
+       1 TestNoNonAsciiInTerminalOutput ... FAIL
+       6 TestSurfaceRouter ... FAIL
+       3 TestSvgAccessibilityPair ... FAIL
+       3 TestTextAndHtmlCarryTheSameFacts ... FAIL
+
+  tail:
+    AssertionError: unexpectedly None : tools/bm_visual.py does not exist yet, so nothing in this file can run. That is the failing-first state DESIGN-visual-surface section 17 step 1 asks every new class to reproduce.
+    
+    ----------------------------------------------------------------------
+    Ran 45 tests in 0.001s
+    
+    FAILED (failures=45)
+
+================================================================
+BLOCK 2 of 3: store   python3 -m unittest <the five new classes>
+================================================================
+  test_a_brand_new_store_has_the_views_table_empty (test_bm_store.TestSchema17IsAdditive) ... FAIL
+  test_migration_from_a_real_schema16_fixture_survives_every_row (test_bm_store.TestSchema17IsAdditive)
+  test_the_fresh_and_migrated_paths_produce_identical_table_info (test_bm_store.TestSchema17IsAdditive)
+  test_the_schema16_table_list_is_unchanged (test_bm_store.TestSchema17IsAdditive)
+  test_v1_an_unknown_project_refuses_not_found (test_bm_store.TestRecordViewRefusals) ... ERROR
+  test_v2_a_kind_outside_view_kinds_refuses (test_bm_store.TestRecordViewRefusals) ... ERROR
+  test_v3_a_rel_path_outside_the_project_root_refuses (test_bm_store.TestRecordViewRefusals) ... ERROR
+  test_v4_a_fingerprint_that_is_not_twelve_lowercase_hex_refuses (test_bm_store.TestRecordViewRefusals) ... ERROR
+  test_v5_a_non_https_artifact_url_refuses (test_bm_store.TestRecordViewRefusals) ... ERROR
+  test_v6_a_key_outside_view_fields_refuses (test_bm_store.TestRecordViewRefusals) ... ERROR
+  test_a_republish_appends_rather_than_editing_the_first_row (test_bm_store.TestViewsAreAppendOnly) ... ERROR
+  test_structural_no_update_or_delete_names_views (test_bm_store.TestViewsAreAppendOnly) ... ok
+  test_another_projects_views_survive_the_purge (test_bm_store.TestViewPurgeLeavesNoOrphans) ... ERROR
+  test_purge_removes_every_view_row (test_bm_store.TestViewPurgeLeavesNoOrphans) ... ERROR
+  test_a_symlinked_path_refuses_the_same_way (test_bm_store.TestViewPathsAreContained) ... /Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py:21400: ResourceWarning: unclosed file <_io.TextIOWrapper name='/var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/tmpnjwzjjye/elsewhere.html' mode='w' encoding='utf-8'>
+  test_an_absolute_or_traversing_rel_path_refuses (test_bm_store.TestViewPathsAreContained) ... ERROR
+  Ran 16 tests in 0.279s
+  FAILED (failures=1, errors=14)
+
+  first failure verbatim:
+      File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21112, in test_a_brand_new_store_has_the_views_table_empty
+        self.assertGreaterEqual(
+    AssertionError: 16 not greater than or equal to 17 : DESIGN-visual-surface section 11.2: SCHEMA_VERSION moved from 16 to at least 17
+    
+    ----------------------------------------------------------------------
+    Ran 4 tests in 0.055s
+    
+    FAILED (failures=1, errors=3)
+
+================================================================
+BLOCK 3 of 3: purge pin   python3 tools/test_bm_project.py
+================================================================
+  The pinned removed dict (tools/test_bm_project.py:1353) gained
+  "views": 0. It is pinned by exact equality precisely so a schema
+  that adds a purged table without adding its key turns red.
+
+     'insights': 0,
+     'projects': 1,
+  -  'tasks': 2}
+  ?            ^
+  
+  +  'tasks': 2,
+  ?            ^
+  
+  +  'views': 0}
+  
+  ----------------------------------------------------------------------
+  Ran 1 test in 0.731s
+  
+  FAILED (failures=1)
+
+================================================================
+SUMMARY
+================================================================
+  visual   45 tests, 45 failures, 0 passes across 11 new classes
+  store    16 tests,  1 failure and 14 errors across 5 new classes
+           (the one pass is TestViewsAreAppendOnly's ast guard, which
+           is green by construction on a tree with no views table at
+           all; its calibration half drives the same scanner over
+           source that MUST be flagged, and the class's other test
+           errors, so the class carries failing-first evidence)
+  project   1 test,   1 failure: the pinned purge dict has "views": 0
+           and purge_project does not return that key yet
+
+  Every one of the 11 visual classes and all 5 store classes appears
+  above with at least one failure or error.

@@ -79,3 +79,19 @@ Three rules, and the first one is what keeps this honest:
   IC mode and the advanced view are independent: `--ic` turns on no advanced
   item, `--advanced` turns on no IC block, and asking for one never implies the
   other.
+
+## The page is this view, not a second status
+
+The live project view (`PROJECT-VIEW.html`, written by `bm-view render`) does
+not introduce a second status. Its header and its next step are the same eight
+fields above, from the same collector, so a field that reads one way in the
+chat cannot read another way on the page. What the page ADDS is what a page is
+good at and a terminal is not: the drawings, the history of what was learned,
+the timeline of catch-ups, the standing offer to take the work back, and the
+short note in every section nothing has filled in yet. What it never does is
+answer the eight questions differently. If the page and this view ever disagree
+on a shared field, the page is the defect. The rules of this page (plain
+wording, ranges with confidence, exactly one recommended next action, advanced
+detail only on request) bind the page exactly as they bind the terminal, and
+`references/visual-surface.md` is the register for the parts that exist only
+there.

@@ -1395,7 +1395,17 @@ class TestExportAndPurge(unittest.TestCase):
                           # the pin did its designed job and turned red the
                           # moment purge_project started removing them.
                           "insights": 0,
-                          "briefings": 0})
+                          "briefings": 0,
+                          # L05 (schema 17) put the generated views under
+                          # the same purge. Same rule and same reason as
+                          # the three blocks above: this fixture seeds
+                          # none, so it is 0, and this key had to be added
+                          # here precisely because the pin did its designed
+                          # job and turned red the moment purge_project
+                          # started removing them. The non-zero case is
+                          # TestViewPurgeLeavesNoOrphans in
+                          # tools/test_bm_store.py.
+                          "views": 0})
 
             after = _raw_dump(root)
             self.assertEqual(

@@ -981,6 +981,17 @@ class TestFixRoundGates(unittest.TestCase):
                                  "the guard working: an exemption here is a "
                                  "sentence somebody had to write, not a "
                                  "default a new migration inherits",
+            "_migrate_16_to_17": "a schema migration step, run INSIDE the "
+                                 "caller's BEGIN EXCLUSIVE (L05, the visual "
+                                 "surface: views). Same exemption and same "
+                                 "reason as every migration above it: a "
+                                 "CREATE TABLE failing mid-migration must "
+                                 "roll the caller's transaction back, not "
+                                 "move the founder's store aside. Written "
+                                 "on 2026-08-05 because this guard caught "
+                                 "the new migration, which is the guard "
+                                 "working exactly as _migrate_15_to_16's "
+                                 "own entry above records",
         }
         with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
             source = f.read()
@@ -14941,7 +14952,13 @@ class TestPurgeProject(unittest.TestCase):
                               # purged table without adding its key here turns
                               # this red rather than quietly leaving rows
                               # behind under a deleted project.
-                              "insights": 0, "briefings": 0})
+                              "insights": 0, "briefings": 0,
+                              # L05: the generated views, same rule again.
+                              # This key had to be added the moment
+                              # purge_project started removing them, which
+                              # is the pin performing its designed
+                              # function rather than an inconvenience.
+                              "views": 0})
                 # Every entity row this project owned is gone.
                 self.assertIsNone(store.get_project("proj1"))
                 self.assertEqual(store.list_tasks("proj1"), [])
@@ -20993,6 +21010,417 @@ class TestControllerEventsReplayFromAttribution(unittest.TestCase):
                     done_ref, "u1",
                     "controller.unit.done names its checkpoint, not its "
                     "unit")
+
+
+# ---------------------------------------------------------------------------
+# L05 (the visual surface), schema 17: the views table.
+# docs/program/absolute-lead/DESIGN-visual-surface.md sections 11 and 13.3.
+# ---------------------------------------------------------------------------
+
+
+def _view(**kw):
+    """A minimally VALID view dict. Every refusal test starts from this and
+    breaks exactly ONE field, so a red test names the field it broke rather
+    than a required column somebody forgot."""
+    d = {"kind": "PROJECT_VIEW", "rel_path": "PROJECT-VIEW.html",
+         "fingerprint": "9f2c1a7b4d03"}
+    d.update(kw)
+    return d
+
+
+def _view_count(store):
+    return store.conn.execute(
+        "SELECT COUNT(*) c FROM views").fetchone()["c"]
+
+
+def _view_mutation_offenders(source):
+    """Every (line, function, literal) in `source` where an UPDATE or a
+    DELETE names the views table outside purge_project. Same scanner shape
+    as _ledger_mutation_offenders above, and a separate function for the
+    same reason that one is separate: the calibration test below drives it
+    over source that MUST be flagged, so an empty result upstairs means the
+    law holds rather than that the scanner is broken."""
+    tree = ast.parse(source)
+
+    class _Visitor(ast.NodeVisitor):
+        def __init__(self):
+            self.func_stack = ["<module>"]
+            self.offenders = []
+
+        def visit_FunctionDef(self, node):
+            self.func_stack.append(node.name)
+            self.generic_visit(node)
+            self.func_stack.pop()
+
+        def visit_Constant(self, node):
+            if not isinstance(node.value, str):
+                return
+            if not re.search(r"\bviews\b", node.value):
+                return
+            up = node.value.upper()
+            enclosing = self.func_stack[-1]
+            if (enclosing != "purge_project"
+                    and ("UPDATE " in up or "DELETE FROM" in up)):
+                self.offenders.append((node.lineno, enclosing, node.value))
+
+    v = _Visitor()
+    v.visit(tree)
+    return v.offenders
+
+
+class TestSchema17IsAdditive(unittest.TestCase):
+    """Schema 16 to 17 (L05, the live project view): ONE table (views) plus
+    one index. Same discipline as TestSchema16IsAdditive above: the 'old
+    store' fixture is a REAL store reverted to look like schema 16, never
+    hand-written DDL, so the fixture cannot drift from the schema anyone
+    actually has, and ADDITIVE ONLY is proven against a store that already
+    holds rows rather than only against a fresh one."""
+
+    _EXPECTED_COLUMNS = {
+        "views": {
+            "view_id", "project_id", "created_at", "kind", "rel_path",
+            "fingerprint", "artifact_url", "published_at", "subject",
+            "session_id", "actor_type", "actor_name"},
+    }
+
+    def _schema16_store(self, d):
+        with bs.Store(d):
+            pass
+        path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            for t in bs._TABLES_VIEW:
+                conn.execute("DROP TABLE IF EXISTS %s" % t)
+            conn.execute(
+                "UPDATE meta SET value='16' WHERE key='schema_version'")
+            conn.execute("COMMIT")
+        finally:
+            conn.close()
+        return path
+
+    def _tables(self, path):
+        conn = sqlite3.connect(path)
+        try:
+            return {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            conn.close()
+
+    def _table_info(self, path, table):
+        conn = sqlite3.connect(path)
+        try:
+            return [tuple(r) for r in
+                    conn.execute("PRAGMA table_info(%s)" % table)]
+        finally:
+            conn.close()
+
+    def _row_count(self, path, table):
+        conn = sqlite3.connect(path)
+        try:
+            return conn.execute(
+                "SELECT COUNT(*) FROM %s" % table).fetchone()[0]
+        finally:
+            conn.close()
+
+    def test_a_brand_new_store_has_the_views_table_empty(self):
+        # Pin the FLOOR, not the exact number, exactly as
+        # test_schema_version_moves_from_15_to_16 above does.
+        self.assertGreaterEqual(
+            bs.SCHEMA_VERSION, 17,
+            "DESIGN-visual-surface section 11.2: SCHEMA_VERSION moved from "
+            "16 to at least 17")
+        self.assertIn(16, bs._MIGRATIONS)
+        self.assertIs(bs._MIGRATIONS[16], bs._migrate_16_to_17)
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d):
+                pass
+            path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+            found = self._tables(path)
+            for table, expected in self._EXPECTED_COLUMNS.items():
+                self.assertIn(table, found)
+                self.assertEqual(
+                    {c[1] for c in self._table_info(path, table)}, expected,
+                    "%s must have exactly the stated columns" % table)
+                self.assertEqual(self._row_count(path, table), 0,
+                                 "section 11.2: no backfill, created empty")
+
+    def test_migration_from_a_real_schema16_fixture_survives_every_row(self):
+        """A REAL schema-16 fixture (a genuine store, opened and written to,
+        then reverted; never hand-written DDL), carrying rows in tables that
+        predate schema 17, so ADDITIVE ONLY is proven against real data.
+        This is the design's own requirement that an EXISTING store stays
+        openable, not only that a fresh one is born correct."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                _sign(store, project_id="p1")
+                store.record_insight("p1", _key_decision(), _lead_actor())
+                store.record_briefing("p1", _briefing(), _lead_actor())
+            path = self._schema16_store(d)
+            conn = sqlite3.connect(path)
+            conn.row_factory = sqlite3.Row
+            try:
+                before = {
+                    t: [dict(r) for r in conn.execute("SELECT * FROM %s" % t)]
+                    for t in ("projects", "autonomy_contracts", "insights",
+                              "briefings")}
+            finally:
+                conn.close()
+            self.assertEqual(len(before["insights"]), 1)
+            self.assertEqual(len(before["briefings"]), 1)
+
+            with bs.Store(d) as store:
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT value FROM meta WHERE key='schema_version'"
+                    ).fetchone()["value"], str(bs.SCHEMA_VERSION))
+
+            conn = sqlite3.connect(path)
+            conn.row_factory = sqlite3.Row
+            try:
+                after = {
+                    t: [dict(r) for r in conn.execute("SELECT * FROM %s" % t)]
+                    for t in ("projects", "autonomy_contracts", "insights",
+                              "briefings")}
+            finally:
+                conn.close()
+            self.assertEqual(before, after,
+                             "an additive-only migration must not touch a "
+                             "pre-existing row")
+            for table in bs._TABLES_VIEW:
+                self.assertIn(table, self._tables(path))
+                self.assertEqual(self._row_count(path, table), 0)
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")),
+                [], "a healthy schema-16 store must MIGRATE, never be "
+                    "quarantined")
+
+    def test_the_fresh_and_migrated_paths_produce_identical_table_info(self):
+        """_ensure_schema and _migrate_16_to_17 must run the SAME DDL text,
+        the rule every step from schema 4 onwards states: a store born at 17
+        and a store migrated to 17 cannot be allowed to drift in a column
+        name, a type or a default."""
+        with tempfile.TemporaryDirectory() as fresh_dir, \
+                tempfile.TemporaryDirectory() as old_dir:
+            with bs.Store(fresh_dir):
+                pass
+            fresh_path = os.path.join(fresh_dir, bs.STORE_DIRNAME,
+                                      bs.STORE_FILENAME)
+            migrated_path = self._schema16_store(old_dir)
+            with bs.Store(old_dir):
+                pass
+            for table in bs._TABLES_VIEW:
+                self.assertEqual(self._table_info(fresh_path, table),
+                                 self._table_info(migrated_path, table),
+                                 "%s differs between the fresh and the "
+                                 "migrated path" % table)
+
+    def test_the_schema16_table_list_is_unchanged(self):
+        """Additive. A schema-16 store must still be verified against schema
+        16's OWN table list before it is migrated, so the new table may not
+        leak backwards into _TABLES_BY_VERSION[16]."""
+        self.assertEqual(bs._TABLES_BY_VERSION[16], bs._TABLES_V16)
+        for t in bs._TABLES_VIEW:
+            self.assertNotIn(t, bs._TABLES_BY_VERSION[16])
+            self.assertIn(t, bs._TABLES_BY_VERSION[17])
+        self.assertEqual(bs._TABLES_V17,
+                         bs._TABLES_V16 + bs._TABLES_VIEW)
+
+
+class TestRecordViewRefusals(unittest.TestCase):
+    """One test per refusal V1 to V6 of DESIGN-visual-surface section 11.2.
+    Each asserts the reason code AND that nothing was written: a refusal
+    that half-wrote a row is the failure mode the whole transaction shape
+    exists to prevent."""
+
+    def _store(self, d):
+        store = bs.Store(d)
+        _seed(store, "p1")
+        return store
+
+    def _refuse(self, store, view, reason, project_id="p1"):
+        with self.assertRaises(bs.OwnershipRefused) as ctx:
+            store.record_view(project_id, view, _lead_actor())
+        self.assertEqual(ctx.exception.reason, reason)
+        self.assertEqual(_view_count(store), 0,
+                         "a refusal must write nothing")
+        return ctx.exception
+
+    def test_v1_an_unknown_project_refuses_not_found(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                e = self._refuse(store, _view(), "not-found",
+                                 project_id="nope")
+                self.assertIn("nope", str(e))
+
+    def test_v2_a_kind_outside_view_kinds_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                e = self._refuse(store, _view(kind="SCRATCH"),
+                                 "bad-view-kind")
+                for k in bs.VIEW_KINDS:
+                    self.assertIn(k, str(e))
+
+    def test_v3_a_rel_path_outside_the_project_root_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                self._refuse(store, _view(rel_path="../escaped.html"),
+                             "path-escape")
+
+    def test_v4_a_fingerprint_that_is_not_twelve_lowercase_hex_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                for bad in ("", "9F2C1A7B4D03", "9f2c1a7b4d0", "zzzzzzzzzzzz",
+                            "9f2c1a7b4d034"):
+                    self._refuse(store, _view(fingerprint=bad),
+                                 "bad-fingerprint")
+
+    def test_v5_a_non_https_artifact_url_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                for bad in ("http://claude.ai/x", "javascript:alert(1)",
+                            "claude.ai/x", "file:///etc/passwd"):
+                    self._refuse(store, _view(artifact_url=bad),
+                                 "bad-artifact-url")
+
+    def test_v6_a_key_outside_view_fields_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self._store(d) as store:
+                e = self._refuse(store, _view(view_id="mine"),
+                                 "unknown-field")
+                self.assertIn("view_id", str(e))
+
+
+class TestViewsAreAppendOnly(unittest.TestCase):
+    """Law L2 applied to the views table: a republish APPENDS, so 'which
+    URL did this page have last Tuesday' stays answerable. Proven the same
+    way the ledger's own immutability is (TestTheLedgerIsAppendOnly above):
+    an ast guard over the shipped module, plus the behaviour."""
+
+    def test_structural_no_update_or_delete_names_views(self):
+        offenders = _view_mutation_offenders(_store_source())
+        self.assertEqual(
+            offenders, [],
+            "an UPDATE or DELETE names the views table outside "
+            "purge_project: %s" % (offenders,))
+        # Calibration, same reason TestTheLedgerIsAppendOnly gives: an
+        # assertion against an empty list is also satisfied by a scanner
+        # that finds nothing at all, so drive the SAME scanner over source
+        # that MUST be flagged.
+        bad = (
+            'def edit_a_view(self):\n'
+            '    self.conn.execute("UPDATE views SET artifact_url=?", (u,))\n'
+            'def forget_a_view(self):\n'
+            '    self.conn.execute("DELETE FROM views WHERE v=?", (v,))\n'
+            'def purge_project(self):\n'
+            '    self.conn.execute("DELETE FROM views WHERE p=?", (p,))\n')
+        found = {name for _line, name, _sql in _view_mutation_offenders(bad)}
+        self.assertEqual(found, {"edit_a_view", "forget_a_view"},
+                         "the scanner must flag both mutations and must "
+                         "exempt purge_project alone")
+
+    def test_a_republish_appends_rather_than_editing_the_first_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                first = store.record_view(
+                    "p1", _view(), _lead_actor())["view_id"]
+                before = dict(store.conn.execute(
+                    "SELECT * FROM views WHERE view_id=?",
+                    (first,)).fetchone())
+                second = store.record_view(
+                    "p1",
+                    _view(fingerprint="000111222333",
+                          artifact_url="https://claude.ai/public/a/1"),
+                    _lead_actor())["view_id"]
+                after = dict(store.conn.execute(
+                    "SELECT * FROM views WHERE view_id=?",
+                    (first,)).fetchone())
+                self.assertEqual(before, after,
+                                 "a republish may not edit the row it "
+                                 "replaces")
+                self.assertEqual(_view_count(store), 2)
+                self.assertNotEqual(first, second)
+                latest = store.latest_view("p1", "PROJECT_VIEW", raw=True)
+                self.assertEqual(latest["view_id"], second)
+                self.assertEqual(latest["fingerprint"], "000111222333")
+                self.assertEqual(
+                    [r["view_id"] for r in
+                     store.list_views("p1", raw=True)], [second, first])
+                self.assertIsNone(store.latest_view("p1", "DEVELOPER_BRIEF"))
+
+
+class TestViewPurgeLeavesNoOrphans(unittest.TestCase):
+    """Section 11.3, the sibling of TestLeadPurgeLeavesNoOrphans and
+    TestControllerPurgeLeavesNoOrphans above: purge_project must remove
+    every views row, counted like every other table's, so no orphan
+    survives a purge."""
+
+    def test_purge_removes_every_view_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                actor = _lead_actor()
+                store.record_view("p1", _view(), actor)
+                store.record_view(
+                    "p1", _view(kind="DEVELOPER_BRIEF",
+                                rel_path="Handover/HANDBACK-x.html",
+                                subject="x"), actor)
+                self.assertEqual(_view_count(store), 2)
+                removed = store.purge_project("p1", actor, "p1")
+                self.assertIn("views", removed)
+                self.assertEqual(removed["views"], 2)
+                self.assertEqual(_view_count(store), 0)
+
+    def test_another_projects_views_survive_the_purge(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                _seed(store, "p2")
+                actor = _lead_actor()
+                store.record_view("p1", _view(), actor)
+                kept = store.record_view("p2", _view(), actor)["view_id"]
+                store.purge_project("p1", actor, "p1")
+                self.assertEqual(_view_count(store), 1)
+                self.assertEqual(
+                    store.latest_view("p2", "PROJECT_VIEW",
+                                      raw=True)["view_id"], kept)
+
+
+class TestViewPathsAreContained(unittest.TestCase):
+    """Section 11.2 V3: rel_path goes through bs.safe_project_path
+    (tools/bm_store.py:5072), the one path funnel, so a generated page
+    cannot be recorded at a path outside the project it belongs to."""
+
+    def test_an_absolute_or_traversing_rel_path_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                for bad in ("../../PROJECT-VIEW.html",
+                            os.path.join(os.path.realpath(d), "abs.html"),
+                            ""):
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        store.record_view("p1", _view(rel_path=bad),
+                                          _lead_actor())
+                    self.assertEqual(ctx.exception.reason, "path-escape")
+                    self.assertEqual(_view_count(store), 0)
+
+    @unittest.skipIf(sys.platform == "win32",
+                     "symlinks need elevation on Windows")
+    def test_a_symlinked_path_refuses_the_same_way(self):
+        with tempfile.TemporaryDirectory() as d, \
+                tempfile.TemporaryDirectory() as outside:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                target = os.path.join(outside, "elsewhere.html")
+                with io.open(target, "w", encoding="utf-8") as fh:
+                    fh.write("x")
+                os.symlink(target, os.path.join(d, "PROJECT-VIEW.html"))
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.record_view("p1", _view(), _lead_actor())
+                self.assertEqual(ctx.exception.reason, "path-escape")
+                self.assertEqual(_view_count(store), 0)
 
 
 if __name__ == "__main__":
