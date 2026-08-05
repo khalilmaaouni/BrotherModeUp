@@ -28,29 +28,79 @@ It is standard library Python 3.9. No network, no service, no API key. Everythin
 4. HONEST LIMITS. Anything unverified, sampled, or dropped for time gets said out loud, not omitted.
 5. NEVER PUSH without the founder asking. Commit locally, report the branch.
 
+## What this runtime needs before any BrotherMode command works
+
+- A WRITABLE SANDBOX. Codex runs model driven shell commands in a read-only sandbox by default, and BrotherMode's store has to CREATE `.brothermode/store.sqlite3`. On the default, `init` dies with `bm_store: unexpected error: PermissionError(1, 'Operation not permitted')`, and every command after it then reports no project root, which points you back at the command that just failed. Start Codex with `-s workspace-write`. That spelling was read off `codex --help` on codex-cli 0.146.0 on 2026-08-05, whose accepted values are read-only, workspace-write and danger-full-access. With that flag, everything below runs.
+- YOUR OWN OpenAI CREDENTIALS. Codex keeps them per user, in the Codex home directory. A fresh CODEX_HOME answers `401 Unauthorized` and exits 1 before any of this matters. BrotherMode itself needs no account and no network; the runtime carrying it does.
+
 ## Commands
 
-These work in any runtime that can run a shell command, which is why they carry no per runtime caveat. Run them from the project root. Paths below are relative to that root.
+These are ordinary local processes, so they run in any runtime that can run a shell command. What is NOT runtime neutral is where they live.
 
-`python3 tools/bm_store.py <command>` : the transactional store: ownership, fences, handover digests
+Two directories are involved, and confusing them is how a first run fails.
 
-    commands: init, claim, verify, dashboard, checkpoint, decide, complete, park, resume, adopt, dump
+- THE BROTHERMODE CHECKOUT is the directory BrotherMode itself was cloned into. It is the ONLY place these tools exist. If you followed the install page it is `~/.claude/skills/brothermode`, whatever runtime you use: that directory name is historical and does not mean Claude Code has to be installed or running.
+- YOUR PROJECT is the repository you are actually working in. It has no `tools/` directory of its own, and it does not need one.
 
-`python3 tools/bm_threads.py <command>` : thread mode: one persistent thread per feature, one chief coordinating
+Below, `<checkout>` stands for that checkout directory. Substitute the real path before running anything: it is the one thing in this file only you know.
 
-    commands: on, off, start, checkpoint, send, dashboard, park, resume, complete, adopt, decide, recommend
+Run the commands FROM your project, and call them BY the checkout's absolute path. The store finds your project by itself, from the working directory, so the only path you supply is the one to the tool.
 
-`python3 tools/bm_learn.py <command>` : correction learning: capture, approval, and retrieval of founder rules
+    WRONG in your own project:   python3 tools/bm_store.py dashboard
+    what that actually gives you: can't open file '<your project>/tools/bm_store.py': [Errno 2] No such file or directory
 
-    commands: lookup, apply, rules, candidates, approve, why, verify
+    RIGHT (substituting your own checkout path):
 
-`python3 tools/bm_telemetry.py <command>` : session telemetry and the nine metric scorecard
+        python3 /Users/you/code/brothermode/tools/bm_store.py dashboard
 
-    commands: scorecard, intent, fence-lint, check-update, review-mark
+So every command below reads `python3 <checkout>/tools/<tool> <command>`.
+
+`python3 <checkout>/tools/bm_store.py <command>` : the transactional store: ownership, fences, handover digests
+
+    commands: adopt, checkpoint, claim, complete, dashboard, decide, dump, handover-ack, handovers, init, park, resume, verify
+
+`python3 <checkout>/tools/bm_project.py <command>` : the project lifecycle: start a project, see status, be told what is next, move tasks, forecast, review
+
+    commands: alert, deliver, export, forecast, next, purge, review, start, status, task
+
+`python3 <checkout>/tools/bm_threads.py <command>` : thread mode: one persistent thread per feature, one chief coordinating
+
+    commands: adopt, checkpoint, complete, dashboard, decide, off, on, park, recommend, resume, send, start
+
+`python3 <checkout>/tools/bm_learn.py <command>` : correction learning: capture, approval, and retrieval of founder rules
+
+    commands: applications, apply, approve, cancel, candidates, capture, classify, confirm, conflicts, deprecate, disposition, escaped-defect, forget, grant-approval, grant-state-receipt, inbox, index-status, link, lookup, loop-failures, merge, metrics, note, notes, outcome, promote, rebuild-index, reject, relevant (deprecated), repeat-check, resolve-conflict, resolve-note, rework, rule-outcomes, rules, should-retrieve, show-candidate, supersede, verify, why
+
+`python3 <checkout>/tools/bm_telemetry.py <command>` : session telemetry and the nine metric scorecard
+
+    commands: check-update, compact-hint, dedup, escaped-defect, fence-lint, handoff, intent, migrate, outcomes-append, precompact-brief, prediction-audit, purge-corrections, rate, registry-check, review-mark, rework, scorecard, speed, startup-nags, stop-warn
+
+Those lists are GENERATED from the tools themselves, so they cannot drift away from what the tools dispatch. Anything marked deprecated still runs today and will be removed; use what its own message points you at instead.
 
 FLAGS ARE NOT LISTED HERE ON PURPOSE. Run the command with `--help` and read the real flags off the tool. An instruction file that lists flags is an instruction file that teaches a flag that got renamed six months ago.
 
-Start of session, every runtime: run the store's `dashboard` and `verify` to see what is owned and whether the store is healthy. Before acting on anything the founder has corrected you on before, run bm_learn.py `lookup` to read the rules without recording anything, or `apply` when the work is substantial enough that the retrieval itself should be recorded (it needs a work identity; run it with `--help` for the exact form).
+Once the project is initialized, start every session by running the store's `dashboard` and `verify` to see what is owned and whether the store is healthy. Before acting on anything the founder has corrected you on before, run bm_learn.py `lookup` to read the rules without recording anything, or `apply` when the work is substantial enough that the retrieval itself should be recorded (it needs a work identity; run it with `--help` for the exact form).
+
+## The first command in a new project
+
+Run `init` FIRST. The dashboard and verify commands read the store, and a project that has never been initialized has no store to read, so they refuse rather than inventing one:
+
+    refused (no-store): no store exists at <project>/.brothermode/store.sqlite3; run `python3 <checkout>/tools/bm_store.py init` to create one
+
+In a directory that is not a git repository the refusal is `refused (no-root): no BrotherMode project root found` instead. Both exit 2, and both were measured on 2026-08-05.
+
+So, in order, from inside your project:
+
+    python3 <checkout>/tools/bm_store.py init        (once per project)
+    python3 <checkout>/tools/bm_store.py dashboard   (what is owned right now)
+    python3 <checkout>/tools/bm_store.py verify      (is the store healthy)
+    python3 <checkout>/tools/bm_project.py start --help   (the flags `start` needs, printed by the tool itself)
+
+EVERY line above runs exactly as printed, in that order, with nothing added and nothing substituted except the checkout path. That is a gate rather than a hope: BrotherMode's own suite extracts this list and runs it in a throwaway project, and fails if any line exits nonzero.
+
+The last line ends in `--help` on purpose. `start` takes required flags (a project id, a name, and who is acting), and typing `start` bare gets you its usage line and exit 2, which is the tool being careful rather than the tool being broken. This file names no flag but `--help`, because a flag copied into an instruction file is a flag that goes stale, and the tool's own output cannot. Read the flags off it, run `start` with them, then `next` tells you what to work on.
+
+One more refusal worth recognizing, because it is the other thing a first run hits: `refused (git-exposed-store)` means git does not ignore `.brothermode`, so the store could be committed in cleartext. The refusal names the exact line to add and the command to confirm it with. Do what it says and run `init` again.
 
 ## Hooks in this runtime
 
@@ -62,17 +112,30 @@ Events: SessionStart, SessionEnd, PreToolUse, PostToolUse, PermissionRequest, Pr
 
 Verified 2026-07-29 from Codex hooks <https://learn.chatgpt.com/docs/hooks>.
 
-WHAT THAT DOES NOT MEAN. BrotherMode's hook targets (tools/bm_fence_hook.py, and the telemetry hook subcommands) parse Claude Code's hook JSON contract, documented in docs/HOOKS.md. A runtime that has an event with the same NAME is not known to hand that event the same JSON, or to read the same decision object back off stdout. Nobody has run BrotherMode's hooks against this runtime and recorded the payload, so compatibility is UNVERIFIED. Wiring them blind risks a gate that fails OPEN while looking installed, which is worse than no gate, because a fence you believe in is the one you stop double checking.
+MEASURED 2026-08-05, on codex-cli 0.146.0. Somebody did run BrotherMode's hooks against this runtime and captured every payload. The answer is neither yes nor unknown, and both halves matter:
 
-If you want to close that: capture one real payload from each event, compare it against docs/HOOKS.md, and write the adapter. Until that evidence exists, run the commands above by hand and treat the fence as advisory.
+- THE PRIMITIVE EXISTS. Codex accepts Claude Code's hook configuration shape and Claude Code's output object. A hook returning permissionDecision deny, in BrotherMode's exact JSON shape, blocked the command live: `error=Command blocked by PreToolUse hook: BrotherMode fence: probe deny`. deny is the only permission decision Codex honours, and it is the only one BrotherMode ever emits.
+- THE ONE WRITER FENCE DOES NOT TRANSFER. Codex has no Edit, Write, MultiEdit or NotebookEdit tool. File writes arrive as tool_name Bash with an apply_patch heredoc inside tool_input.command, so BrotherMode's matcher never fires; the label PreToolUse_EDIT_MATCHER appeared in no capture. Fed a real Codex payload directly, bm_fence_hook.py exits 0 in silence, because the tool name is not in its write set and the paths it looks for live inside the patch body.
+- HOOKS ARE SILENTLY INERT UNTIL THE PROJECT IS TRUSTED. With a valid hooks file and no trust record, no hook ran, no warning printed, and the command executed unguarded. How a trust is granted was never reached, so that flow stays UNVERIFIED.
+- ${CLAUDE_PLUGIN_ROOT} EXPANDS TO EMPTY. Codex runs hook commands through the shell, so every command in BrotherMode's shipped hooks file becomes a path starting at the filesystem root and fails. A hand installed hooks file needs absolute paths.
+- SESSION TELEMETRY RECORDS NOTHING, SILENTLY. Codex's rollout JSONL is not Claude Code's transcript format, so outcomes-append parses zero messages and drops the session under its activity floor, exit 0. A session that looks recorded and is not.
+- THE SessionEnd TIMEOUT IS CLAMPED TO 3 SECONDS whatever the configuration says. BrotherMode declares 30. It fits on an empty store (0.061s measured) and nobody has measured a loaded one.
+- FIVE OF THE ELEVEN EVENTS were never observed firing: PermissionRequest, PreCompact, PostCompact, SubagentStart and SubagentStop. Their shapes are known from the binary's own embedded schemas; their live behaviour stays UNVERIFIED.
+
+BrotherMode's hook targets (tools/bm_fence_hook.py, and the telemetry hook subcommands) parse Claude Code's hook JSON contract, documented in docs/HOOKS.md. This runtime matches that contract on field names and on the decision object, and diverges on the tool vocabulary underneath it, which is enough to break the one thing BrotherMode most needs.
+
+SO: do not wire BrotherMode's hooks here. The one writer fence does not transfer to this runtime today. The gate is buildable and it is not built. In this runtime the fence is ADVISORY: the store still refuses an overlapping claim, so two sessions cannot both be recorded as owning a file, and nothing refuses an actual write. Claim before you edit anyway. The law is the point; the hook was only ever the enforcement of it.
+
+Evidence: Lane C of the 2026-08-05 Codex lifecycle rehearsal, which drove codex-cli 0.146.0 with a local stand-in model provider so Codex itself built every payload, and whose report is `BrotherModeUp-handovers/2026-08-05-codex-lifecycle/LANE-C-hooks.md`. No authenticated model turn was ever made, so whether a real model CHOOSES to obey the law is a different question and is still open.
 
 ## Notes specific to OpenAI Codex CLI
 
 - Codex builds its instruction chain once when it starts, so editing an AGENTS.md mid session does not reload it.
-- The event NAMES overlap heavily with Claude Code's, which is exactly the trap: an overlapping name is not a compatible payload. See the compatibility note below before wiring any hook.
+- The event NAMES overlap heavily with Claude Code's. The trap turned out to be subtler than expected: the names AND the payload fields AND the output contract all match, and the tool vocabulary underneath does not. See the measured findings in the hooks section above.
+- This file arrives as a user message, below Codex's own much larger system prompt. It is context, not policy, which is another way of saying an instruction file is persuasion.
 
 ## Regenerating
 
-    python3 tools/bm_runtimes.py emit --runtime codex
+    python3 <checkout>/tools/bm_runtimes.py emit --runtime codex
 
 This file is generated. Edits to it are lost on the next regeneration. Change the registry in tools/bm_runtimes.py instead, and change it only with a vendor documentation URL in hand.

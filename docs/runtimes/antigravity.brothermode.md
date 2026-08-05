@@ -29,27 +29,72 @@ It is standard library Python 3.9. No network, no service, no API key. Everythin
 
 ## Commands
 
-These work in any runtime that can run a shell command, which is why they carry no per runtime caveat. Run them from the project root. Paths below are relative to that root.
+These are ordinary local processes, so they run in any runtime that can run a shell command. What is NOT runtime neutral is where they live.
 
-`python3 tools/bm_store.py <command>` : the transactional store: ownership, fences, handover digests
+Two directories are involved, and confusing them is how a first run fails.
 
-    commands: init, claim, verify, dashboard, checkpoint, decide, complete, park, resume, adopt, dump
+- THE BROTHERMODE CHECKOUT is the directory BrotherMode itself was cloned into. It is the ONLY place these tools exist. If you followed the install page it is `~/.claude/skills/brothermode`, whatever runtime you use: that directory name is historical and does not mean Claude Code has to be installed or running.
+- YOUR PROJECT is the repository you are actually working in. It has no `tools/` directory of its own, and it does not need one.
 
-`python3 tools/bm_threads.py <command>` : thread mode: one persistent thread per feature, one chief coordinating
+Below, `<checkout>` stands for that checkout directory. Substitute the real path before running anything: it is the one thing in this file only you know.
 
-    commands: on, off, start, checkpoint, send, dashboard, park, resume, complete, adopt, decide, recommend
+Run the commands FROM your project, and call them BY the checkout's absolute path. The store finds your project by itself, from the working directory, so the only path you supply is the one to the tool.
 
-`python3 tools/bm_learn.py <command>` : correction learning: capture, approval, and retrieval of founder rules
+    WRONG in your own project:   python3 tools/bm_store.py dashboard
+    what that actually gives you: can't open file '<your project>/tools/bm_store.py': [Errno 2] No such file or directory
 
-    commands: lookup, apply, rules, candidates, approve, why, verify
+    RIGHT (substituting your own checkout path):
 
-`python3 tools/bm_telemetry.py <command>` : session telemetry and the nine metric scorecard
+        python3 /Users/you/code/brothermode/tools/bm_store.py dashboard
 
-    commands: scorecard, intent, fence-lint, check-update, review-mark
+So every command below reads `python3 <checkout>/tools/<tool> <command>`.
+
+`python3 <checkout>/tools/bm_store.py <command>` : the transactional store: ownership, fences, handover digests
+
+    commands: adopt, checkpoint, claim, complete, dashboard, decide, dump, handover-ack, handovers, init, park, resume, verify
+
+`python3 <checkout>/tools/bm_project.py <command>` : the project lifecycle: start a project, see status, be told what is next, move tasks, forecast, review
+
+    commands: alert, deliver, export, forecast, next, purge, review, start, status, task
+
+`python3 <checkout>/tools/bm_threads.py <command>` : thread mode: one persistent thread per feature, one chief coordinating
+
+    commands: adopt, checkpoint, complete, dashboard, decide, off, on, park, recommend, resume, send, start
+
+`python3 <checkout>/tools/bm_learn.py <command>` : correction learning: capture, approval, and retrieval of founder rules
+
+    commands: applications, apply, approve, cancel, candidates, capture, classify, confirm, conflicts, deprecate, disposition, escaped-defect, forget, grant-approval, grant-state-receipt, inbox, index-status, link, lookup, loop-failures, merge, metrics, note, notes, outcome, promote, rebuild-index, reject, relevant (deprecated), repeat-check, resolve-conflict, resolve-note, rework, rule-outcomes, rules, should-retrieve, show-candidate, supersede, verify, why
+
+`python3 <checkout>/tools/bm_telemetry.py <command>` : session telemetry and the nine metric scorecard
+
+    commands: check-update, compact-hint, dedup, escaped-defect, fence-lint, handoff, intent, migrate, outcomes-append, precompact-brief, prediction-audit, purge-corrections, rate, registry-check, review-mark, rework, scorecard, speed, startup-nags, stop-warn
+
+Those lists are GENERATED from the tools themselves, so they cannot drift away from what the tools dispatch. Anything marked deprecated still runs today and will be removed; use what its own message points you at instead.
 
 FLAGS ARE NOT LISTED HERE ON PURPOSE. Run the command with `--help` and read the real flags off the tool. An instruction file that lists flags is an instruction file that teaches a flag that got renamed six months ago.
 
-Start of session, every runtime: run the store's `dashboard` and `verify` to see what is owned and whether the store is healthy. Before acting on anything the founder has corrected you on before, run bm_learn.py `lookup` to read the rules without recording anything, or `apply` when the work is substantial enough that the retrieval itself should be recorded (it needs a work identity; run it with `--help` for the exact form).
+Once the project is initialized, start every session by running the store's `dashboard` and `verify` to see what is owned and whether the store is healthy. Before acting on anything the founder has corrected you on before, run bm_learn.py `lookup` to read the rules without recording anything, or `apply` when the work is substantial enough that the retrieval itself should be recorded (it needs a work identity; run it with `--help` for the exact form).
+
+## The first command in a new project
+
+Run `init` FIRST. The dashboard and verify commands read the store, and a project that has never been initialized has no store to read, so they refuse rather than inventing one:
+
+    refused (no-store): no store exists at <project>/.brothermode/store.sqlite3; run `python3 <checkout>/tools/bm_store.py init` to create one
+
+In a directory that is not a git repository the refusal is `refused (no-root): no BrotherMode project root found` instead. Both exit 2, and both were measured on 2026-08-05.
+
+So, in order, from inside your project:
+
+    python3 <checkout>/tools/bm_store.py init        (once per project)
+    python3 <checkout>/tools/bm_store.py dashboard   (what is owned right now)
+    python3 <checkout>/tools/bm_store.py verify      (is the store healthy)
+    python3 <checkout>/tools/bm_project.py start --help   (the flags `start` needs, printed by the tool itself)
+
+EVERY line above runs exactly as printed, in that order, with nothing added and nothing substituted except the checkout path. That is a gate rather than a hope: BrotherMode's own suite extracts this list and runs it in a throwaway project, and fails if any line exits nonzero.
+
+The last line ends in `--help` on purpose. `start` takes required flags (a project id, a name, and who is acting), and typing `start` bare gets you its usage line and exit 2, which is the tool being careful rather than the tool being broken. This file names no flag but `--help`, because a flag copied into an instruction file is a flag that goes stale, and the tool's own output cannot. Read the flags off it, run `start` with them, then `next` tells you what to work on.
+
+One more refusal worth recognizing, because it is the other thing a first run hits: `refused (git-exposed-store)` means git does not ignore `.brothermode`, so the store could be committed in cleartext. The refusal names the exact line to add and the command to confirm it with. Do what it says and run `init` again.
 
 ## Hooks in this runtime
 
@@ -73,6 +118,6 @@ If you want to close that: capture one real payload from each event, compare it 
 
 ## Regenerating
 
-    python3 tools/bm_runtimes.py emit --runtime antigravity
+    python3 <checkout>/tools/bm_runtimes.py emit --runtime antigravity
 
 This file is generated. Edits to it are lost on the next regeneration. Change the registry in tools/bm_runtimes.py instead, and change it only with a vendor documentation URL in hand.
