@@ -32,6 +32,8 @@ No em or en dashes anywhere in this file, its comments, or its output.
 import importlib.util
 import io
 import os
+import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -517,6 +519,438 @@ class TestListAndHelp(unittest.TestCase):
             r = _run(["install"], d)
             self.assertEqual(r.returncode, 2)
             self.assertIn("unknown command", r.stderr)
+
+
+class TestEveryTaughtCommandIsRunnableFromAUsersOwnProject(unittest.TestCase):
+    """GUARD 4, and the highest damage defect this generator ever shipped.
+
+    The adapter files are not documentation, they are the installed product: a
+    Codex agent reads one and obeys it. The shipped Codex adapter said "Run them
+    from the project root. Paths below are relative to that root" and then
+    printed `python3 tools/bm_store.py`. `tools/` is relative to the BROTHERMODE
+    CHECKOUT, never to the user's own project, so the first instruction the
+    agent followed failed:
+
+        $ python3 tools/bm_store.py dashboard
+        can't open file '<project>/tools/bm_store.py': [Errno 2] No such file or
+        directory
+
+    Reproduced independently by two lanes on 2026-08-05 and again in
+    docs/program/absolute-lead/evidence/RED-codex-runtime.txt before this guard
+    was written."""
+
+    # Only RUNNABLE instructions are gated. A prose reference to
+    # tools/bm_fence_hook.py is not something an agent types.
+    RUNNABLE = re.compile(r"python3 (\S*bm_\w+\.py)")
+    # The one place a bare relative path is allowed to appear is the labelled
+    # counterexample that teaches the agent to RECOGNIZE this failure.
+    COUNTEREXAMPLE_MARKERS = ("WRONG", "[Errno 2]")
+
+    def _lines(self, text):
+        for line in text.splitlines():
+            if any(m in line for m in self.COUNTEREXAMPLE_MARKERS):
+                continue
+            yield line
+
+    def test_no_adapter_tells_an_agent_to_run_a_checkout_relative_path(self):
+        for r in rt_mod.RUNTIMES:
+            text = rt_mod.render_runtime_file(r, "tools")
+            for line in self._lines(text):
+                for path in self.RUNNABLE.findall(line):
+                    self.assertTrue(
+                        path.startswith("/") or path.startswith(rt_mod.CHECKOUT_TOKEN),
+                        "%s tells the agent to run %r, which only resolves "
+                        "inside the BrotherMode checkout. In a user's own "
+                        "project it fails with [Errno 2]. Line: %s"
+                        % (r["key"], path, line.strip()))
+
+    def test_an_absolute_tools_path_is_rendered_as_is(self):
+        # When emit runs from a project that is NOT the checkout,
+        # tools_reference() already returns an absolute path, and the adapter
+        # must then be literally runnable rather than carrying a placeholder.
+        text = rt_mod.render_runtime_file(rt_mod.by_key("codex"),
+                                          "/opt/brothermode/tools")
+        self.assertIn("python3 /opt/brothermode/tools/bm_store.py", text)
+        self.assertNotIn(rt_mod.CHECKOUT_TOKEN, text,
+                         "an absolute tools path needs no placeholder")
+
+    def test_no_adapter_claims_the_paths_are_relative_to_the_project_root(self):
+        for r in rt_mod.RUNTIMES:
+            text = rt_mod.render_runtime_file(r, "tools")
+            self.assertNotIn("relative to that root", text,
+                             "%s repeats the sentence that caused the Errno 2"
+                             % r["key"])
+
+    def test_every_adapter_separates_the_checkout_from_the_users_project(self):
+        for r in rt_mod.RUNTIMES:
+            text = rt_mod.render_runtime_file(r, "tools")
+            self.assertIn("BROTHERMODE CHECKOUT", text,
+                          "%s never names the checkout, so a reader cannot "
+                          "tell which directory the paths belong to" % r["key"])
+            self.assertIn("YOUR PROJECT", text, r["key"])
+            self.assertIn("[Errno 2]", text,
+                          "%s should show the failure it is preventing, so an "
+                          "agent that hits it recognizes it" % r["key"])
+
+    def test_every_adapter_shows_an_absolute_path_example(self):
+        for r in rt_mod.RUNTIMES:
+            text = rt_mod.render_runtime_file(r, "tools")
+            self.assertIn(rt_mod.ABSOLUTE_EXAMPLE, text,
+                          "%s shows no absolute path example" % r["key"])
+
+
+class TestCommandListsComeFromTheToolsThemselves(unittest.TestCase):
+    """GUARD 5. The adapters used to carry HAND MAINTAINED command tuples, and
+    they drifted: on 2026-08-05 the Codex adapter named 11 bm_store commands
+    where the tool dispatches 13, 7 bm_learn commands where the tool dispatches
+    40, and did not mention bm_project.py at all, hiding the entire beginner
+    lifecycle (start, status, next, task, forecast, review).
+
+    Generating the lists is the fix. This class is what keeps it generated."""
+
+    def test_the_surface_is_discovered_not_typed(self):
+        for mod, _purpose, cmds in rt_mod.CLI_SURFACE:
+            discovered = rt_mod.discover_commands(os.path.join(HERE, mod))
+            self.assertEqual(
+                tuple(cmds), tuple(discovered),
+                "%s: CLI_SURFACE disagrees with the commands the module "
+                "actually dispatches" % mod)
+            self.assertTrue(discovered, "%s: nothing discovered" % mod)
+
+    def test_the_beginner_lifecycle_is_reachable_from_every_adapter(self):
+        mods = [m for m, _p, _c in rt_mod.CLI_SURFACE]
+        self.assertIn("bm_project.py", mods,
+                      "the project lifecycle tool is missing from the adapter "
+                      "surface, so start/status/next/task/forecast/review are "
+                      "invisible to anyone who only reads the adapter")
+        for r in rt_mod.RUNTIMES:
+            text = rt_mod.render_runtime_file(r, "tools")
+            listed = self._commands_for(text, "bm_project.py")
+            for c in ("start", "status", "next", "task", "forecast", "review"):
+                self.assertIn(c, listed, "%s: bm_project %s not named"
+                              % (r["key"], c))
+
+    @staticmethod
+    def _commands_for(text, module):
+        """The rendered `commands:` line that belongs to one module block."""
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            if module in line and line.startswith("`python3 "):
+                for follow in lines[i + 1:i + 5]:
+                    if follow.strip().startswith("commands:"):
+                        raw = follow.split("commands:", 1)[1]
+                        return [c.strip().split(" ")[0]
+                                for c in raw.split(",") if c.strip()]
+        return []
+
+    def test_every_adapter_names_every_command_its_tools_dispatch(self):
+        for r in rt_mod.RUNTIMES:
+            text = rt_mod.render_runtime_file(r, "tools")
+            for mod, _p, _c in rt_mod.CLI_SURFACE:
+                expected = set(rt_mod.discover_commands(os.path.join(HERE, mod)))
+                listed = set(self._commands_for(text, mod))
+                self.assertEqual(
+                    expected - listed, set(),
+                    "%s: the %s block does not name %s, which the tool "
+                    "dispatches" % (r["key"], mod, sorted(expected - listed)))
+
+    def test_a_deprecated_command_is_marked_rather_than_taught_as_equal(self):
+        # bm_learn.py `relevant` exits 2 with a DEPRECATED banner. An adapter
+        # that lists it beside `lookup` teaches a command that is on its way
+        # out, which is exactly the drift Lane D found surviving an update.
+        deprecated = rt_mod.discover_deprecated(
+            os.path.join(HERE, "bm_learn.py"))
+        self.assertIn("relevant", deprecated,
+                      "bm_learn.py `relevant` is deprecated in its own source "
+                      "and the discovery missed it")
+        text = rt_mod.render_runtime_file(rt_mod.by_key("codex"), "tools")
+        self.assertIn("relevant (deprecated)", text)
+
+    def test_calibrated_a_tool_that_grows_a_command_makes_the_adapters_stale(self):
+        # CALIBRATION: this is the whole point of generating. Grow the surface
+        # the way a new subcommand would, and prove the committed adapters are
+        # reported stale instead of quietly omitting it.
+        original = rt_mod.CLI_SURFACE
+        grown = []
+        for mod, purpose, cmds in original:
+            if mod == "bm_store.py":
+                cmds = tuple(cmds) + ("a-command-that-just-landed",)
+            grown.append((mod, purpose, tuple(cmds)))
+        rt_mod.CLI_SURFACE = tuple(grown)
+        try:
+            code = rt_mod.cmd_check(["--root", ROOT])
+        finally:
+            rt_mod.CLI_SURFACE = original
+        self.assertEqual(code, 1, "REINJECTION CHECK: a tool that grows a "
+                                  "command must make the committed adapters "
+                                  "stale, not silently omit it")
+        self.assertEqual(rt_mod.cmd_check(["--root", ROOT]), 0)
+
+    def test_discovery_reads_both_dispatch_shapes(self):
+        # bm_store, bm_learn, bm_threads and bm_project dispatch through a
+        # dict; bm_telemetry dispatches through an if/elif chain on `cmd`.
+        # Both shapes are real and both must be readable, or bm_telemetry
+        # silently falls back to a hand typed list.
+        with tempfile.TemporaryDirectory() as d:
+            dict_mod = os.path.join(d, "shape_dict.py")
+            with io.open(dict_mod, "w", encoding="utf-8") as f:
+                f.write("COMMANDS = {'beta': None, 'alpha': None}\n")
+            self.assertEqual(rt_mod.discover_commands(dict_mod),
+                             ("alpha", "beta"))
+            chain_mod = os.path.join(d, "shape_chain.py")
+            with io.open(chain_mod, "w", encoding="utf-8") as f:
+                f.write("def main():\n"
+                        "    cmd = 'x'\n"
+                        "    if cmd == 'zebra':\n"
+                        "        pass\n"
+                        "    elif cmd == 'ant':\n"
+                        "        pass\n")
+            self.assertEqual(rt_mod.discover_commands(chain_mod),
+                             ("ant", "zebra"))
+            empty = os.path.join(d, "shape_none.py")
+            with io.open(empty, "w", encoding="utf-8") as f:
+                f.write("x = 1\n")
+            with self.assertRaises(ValueError):
+                rt_mod.discover_commands(empty)
+
+
+class TestTheFirstRunAdviceActuallyRuns(unittest.TestCase):
+    """GUARD 6. The adapters told every runtime to start a session with the
+    store's `dashboard` and `verify`. On a fresh project both refuse, because
+    no store exists yet, and `init` was named only inside a comma separated
+    list. Reproduced in RED-codex-runtime.txt, exit 2 in all three project
+    shapes. Codex adds a second trap: its default sandbox is read-only, so
+    `init` itself dies with PermissionError."""
+
+    def test_every_adapter_says_to_initialize_before_reading(self):
+        for r in rt_mod.RUNTIMES:
+            text = rt_mod.render_runtime_file(r, "tools")
+            self.assertIn(rt_mod.FIRST_RUN_HEADING, text, r["key"])
+            block = text.split(rt_mod.FIRST_RUN_HEADING, 1)[1]
+            head = block[:1200]
+            self.assertIn("init", head,
+                          "%s: the first run block never names init" % r["key"])
+            self.assertIn("no-store", head,
+                          "%s: the first run block does not show the refusal "
+                          "the reader will otherwise hit" % r["key"])
+
+    def test_the_codex_adapter_states_the_sandbox_it_needs(self):
+        text = rt_mod.render_runtime_file(rt_mod.by_key("codex"), "tools")
+        self.assertIn("workspace-write", text,
+                      "the Codex adapter never says Codex must run with a "
+                      "writable sandbox; on the default read-only sandbox the "
+                      "store dies with PermissionError(1, 'Operation not "
+                      "permitted')")
+        self.assertIn("-s workspace-write", text)
+        self.assertIn("read-only", text)
+
+    def test_a_runtime_with_no_stated_requirements_renders_no_empty_section(self):
+        plain = rt_mod.by_key("generic")
+        self.assertEqual(plain.get("requirements", ()), ())
+        text = rt_mod.render_runtime_file(plain, "tools")
+        self.assertNotIn(rt_mod.REQUIREMENTS_HEADING, text)
+
+
+class TestTheFirstRunSequenceActuallyRuns(unittest.TestCase):
+    """GUARD 6b, and the reason it exists is worth keeping.
+
+    The first run block was written to fix instructions that could not run. Its
+    own ordered list then closed with `bm_project.py start`, which needs flags
+    and exits 2 without them:
+
+        usage: start --project-id ID --name NAME ... --actor-name NAME ...
+        bm_project: --project-id is required
+
+    So the block that fixes unrunnable instructions ended with an unrunnable
+    instruction. It was caught by a reviewer running the list by hand, not by
+    this suite, and "we ran it once" is not a property of the product. This
+    class makes it one: it extracts every command line the generator emits into
+    a first run block and EXECUTES them, in the printed order, in a throwaway
+    project that is not the checkout and has never been initialized."""
+
+    # Commands that legitimately cannot run inside the suite go here BY NAME,
+    # each with its reason, so a narrowing is a visible decision rather than a
+    # quietly shrinking scan. Empty today: everything the block prints runs
+    # offline, locally, and without a store. A candidate for this map would be
+    # anything interactive or network bound, for example a command that reaches
+    # a git remote.
+    NOT_RUNNABLE_IN_TEST = {}
+
+    # The whole point is that the list is not trivially short. If somebody
+    # empties the block, the execution loop would pass vacuously.
+    MINIMUM_COMMANDS = 4
+
+    @staticmethod
+    def _first_run_commands(text):
+        """Every runnable command line inside the first run block, in order,
+        with its trailing parenthetical comment removed.
+
+        Lines that merely QUOTE a command inside a refusal message do not
+        start with `python3`, so they are not picked up: the block's quoted
+        `refused (no-store): ...` line is prose about a command, not an
+        instruction to run one."""
+        block = text.split(rt_mod.FIRST_RUN_HEADING, 1)[1]
+        block = block.split("\n## ", 1)[0]
+        out = []
+        for line in block.splitlines():
+            s = line.strip()
+            if not s.startswith("python3 "):
+                continue
+            s = re.sub(r"\s{2,}\(.*$", "", s).strip()
+            out.append(s)
+        return out
+
+    def _fresh_project(self, d):
+        """A project that is NOT the BrotherMode checkout and has NEVER been
+        initialized, which is the state the block is written for. The ignore
+        rule goes in .git/info/exclude, the same way _new_project does it, so
+        the store's git containment check is satisfied without the test owning
+        a .gitignore the commands might rewrite."""
+        subprocess.run(["git", "init", "-q", "."], cwd=d, check=True)
+        with io.open(os.path.join(d, ".git", "info", "exclude"), "a") as f:
+            f.write("/.brothermode\n")
+
+    def test_every_first_run_command_runs_exactly_as_printed(self):
+        # Group by the SEQUENCE rather than by runtime: the block is shared, so
+        # six identical sequences are one thing to execute, and a runtime that
+        # ever diverges becomes its own group and gets executed too.
+        sequences = {}
+        for r in rt_mod.RUNTIMES:
+            cmds = tuple(self._first_run_commands(
+                rt_mod.render_runtime_file(r, "tools")))
+            sequences.setdefault(cmds, []).append(r["key"])
+        self.assertTrue(sequences, "no runtime rendered a first run block")
+
+        env = dict((k, v) for k, v in os.environ.items()
+                   if k != "BROTHERMODE_ROOT")
+        for cmds, keys in sorted(sequences.items(), key=lambda kv: kv[1]):
+            self.assertGreaterEqual(
+                len(cmds), self.MINIMUM_COMMANDS,
+                "the first run block for %s prints %d command(s); a block that "
+                "short means this guard is passing on nothing" % (keys, len(cmds)))
+            with tempfile.TemporaryDirectory() as d:
+                self._fresh_project(d)
+                for line in cmds:
+                    reason = self.NOT_RUNNABLE_IN_TEST.get(line)
+                    if reason:
+                        continue
+                    argv = shlex.split(line.replace(rt_mod.CHECKOUT_TOKEN, ROOT))
+                    self.assertEqual(argv[0], "python3", line)
+                    argv[0] = sys.executable
+                    proc = subprocess.run(argv, cwd=d, env=env,
+                                          stdout=subprocess.PIPE,
+                                          stderr=subprocess.PIPE,
+                                          universal_newlines=True)
+                    self.assertEqual(
+                        proc.returncode, 0,
+                        "%s: the first run block tells the reader to run\n"
+                        "    %s\nand it exits %d in a fresh project. Every line "
+                        "in that ordered list must run exactly as printed.\n"
+                        "stdout: %s\nstderr: %s"
+                        % (keys, line, proc.returncode,
+                           proc.stdout.strip()[:400], proc.stderr.strip()[:400]))
+
+    def test_calibrated_an_unrunnable_line_in_the_block_is_caught(self):
+        # CALIBRATION: reinject the exact defect a reviewer found, a bare
+        # `bm_project.py start`, and prove the executor fails on it. Without
+        # this, a scan that quietly matched nothing would pass forever.
+        original = rt_mod._first_run_block
+
+        def broken(tools_path):
+            lines = original(tools_path)
+            return [l.replace("bm_project.py start --help", "bm_project.py start")
+                    for l in lines]
+
+        rt_mod._first_run_block = broken
+        try:
+            with self.assertRaises(AssertionError) as cm:
+                self.test_every_first_run_command_runs_exactly_as_printed()
+            self.assertIn("must run exactly as printed", str(cm.exception))
+        finally:
+            rt_mod._first_run_block = original
+        # RESTORED, and passing again for the right reason.
+        self.test_every_first_run_command_runs_exactly_as_printed()
+
+    def test_an_excluded_command_must_carry_a_reason(self):
+        for line, reason in self.NOT_RUNNABLE_IN_TEST.items():
+            self.assertTrue(line.startswith("python3 "), line)
+            self.assertTrue(reason and reason.strip(),
+                            "%s is excluded with no reason" % line)
+
+    def test_the_block_ends_by_pointing_at_the_tools_own_flags(self):
+        # The adapters may name no flag but --help (see
+        # test_generated_files_teach_no_flag_names), so the ordered list closes
+        # on the command that makes the TOOL print the flags `start` needs.
+        for r in rt_mod.RUNTIMES:
+            cmds = self._first_run_commands(
+                rt_mod.render_runtime_file(r, "tools"))
+            self.assertTrue(cmds[-1].endswith("bm_project.py start --help"),
+                            "%s: %r" % (r["key"], cmds[-1]))
+
+
+class TestTheCodexHookAnswerIsTheMeasuredOne(unittest.TestCase):
+    """GUARD 7. `docs/RUNTIMES.md` said "UNVERIFIED, payload shape not
+    captured" for Codex. On 2026-08-05, on codex-cli 0.146.0, Lane C captured
+    every payload. The honest replacement is not "yes": Codex reports every
+    file write as tool_name "Bash" with an apply_patch heredoc, so
+    BrotherMode's Edit|Write|MultiEdit|NotebookEdit matcher never fires and
+    bm_fence_hook.py exits 0 silently. The same lane proved a PreToolUse deny
+    in the right shape DOES block a command, so the primitive exists."""
+
+    def test_the_codex_entry_carries_dated_measured_evidence(self):
+        m = rt_mod.by_key("codex").get("measured")
+        self.assertTrue(m, "Codex carries no measured hook evidence")
+        for field in ("captured_on", "runtime_version", "cell", "findings",
+                      "evidence"):
+            self.assertTrue(m.get(field), "measured.%s is empty" % field)
+        self.assertIn("0.146.0", m["runtime_version"])
+        self.assertNotIn("|", m["cell"],
+                         "the table cell would break the markdown table")
+
+    def test_the_capability_table_no_longer_calls_codex_uncaptured(self):
+        doc = rt_mod.render_runtimes_doc("tools")
+        row = [l for l in doc.splitlines()
+               if l.startswith("| OpenAI Codex CLI |")]
+        self.assertEqual(len(row), 1, doc)
+        cells = [c.strip() for c in row[0].strip("|").split("|")]
+        hooks_cell = cells[-1]
+        self.assertNotIn("payload shape not captured", hooks_cell)
+        self.assertIn("0.146.0", hooks_cell)
+        cli_cell = cells[2]
+        self.assertNotEqual(cli_cell, "yes",
+                            "the CLI cell hides that Codex needs an absolute "
+                            "path and a writable sandbox")
+        self.assertIn("absolute", cli_cell.lower())
+        self.assertIn("workspace-write", cli_cell)
+
+    def test_the_doc_no_longer_says_no_payload_was_ever_captured(self):
+        doc = rt_mod.render_runtimes_doc("tools")
+        self.assertNotIn("Nobody has captured a real payload from any other "
+                         "runtime", doc)
+
+    def test_the_doc_states_the_cli_caveats_it_used_to_promise_away(self):
+        doc = rt_mod.render_runtimes_doc("tools")
+        self.assertNotIn("They are ordinary local processes, so they work in "
+                         "any runtime that can run a shell command.", doc)
+        self.assertIn("PermissionError", doc)
+        self.assertIn("[Errno 2]", doc)
+
+    def test_nothing_anywhere_claims_the_fence_works_in_codex(self):
+        blobs = [rt_mod.render_runtimes_doc("tools"),
+                 rt_mod.render_runtime_file(rt_mod.by_key("codex"), "tools")]
+        for b in blobs:
+            self.assertIn("does not transfer", b)
+            self.assertIn("apply_patch", b)
+            for claim in ("fence is enforced", "fence works in Codex",
+                          "one writer promise holds"):
+                self.assertNotIn(claim, b)
+
+    def test_the_codex_adapter_says_the_primitive_exists(self):
+        text = rt_mod.render_runtime_file(rt_mod.by_key("codex"), "tools")
+        self.assertIn("deny", text.lower())
+        self.assertIn("UNVERIFIED", text,
+                      "five of the eleven events were never observed firing, "
+                      "so the file must still carry an unverified half")
 
 
 if __name__ == "__main__":
