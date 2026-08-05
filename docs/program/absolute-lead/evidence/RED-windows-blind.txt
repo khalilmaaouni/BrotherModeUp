@@ -1,0 +1,362 @@
+RED-windows-blind.txt
+=====================
+
+Executed probes behind docs/program/absolute-lead/evidence/FIX-windows-blind-report.md.
+
+Machine: darwin 25.5.0, Python 3.9.6 (Xcode toolchain), 2026-08-05.
+Repository: /Users/khalil.maaouni/Documents/BrotherModeUp
+
+THERE IS NO WINDOWS MACHINE IN THIS LOOP. Every "Windows" line below is one of:
+  (a) the SHIPPED function called with sys.platform forced to "win32", which is an
+      executed measurement of exact Windows LEXICAL semantics, since
+      _quote_path_for_local_shell, shlex and ntpath are pure Python; or
+  (b) a POSIX execution shown for contrast.
+Nothing below executes cmd.exe. What cmd.exe then does with a string is reasoning
+from its documented quoting rules and is labelled as such in the report, never as
+a measurement. CI is the instrument that settles the Windows side.
+
+Reproduce: the script is inlined at the end of this file.
+
+
+PART 1: the probe transcript
+============================
+
+========================================================================
+F1/F2/F3  _git_prefix composition, Windows branch, OLD vs NEW
+========================================================================
+
+root: C:\Users\RUNNER~1\AppData\Local\Temp\tmp8x1\P
+  OLD (shlex.quote)          : git --git-dir='C:\Users\RUNNER~1\AppData\Local\Temp\tmp8x1\P\.git' --work-tree='C:\Users\RUNNER~1\AppData\Local\Temp\tmp8x1\P' restore -- a.py
+  NEW (_quote_path_for_local_shell): git --git-dir=C:\Users\RUNNER~1\AppData\Local\Temp\tmp8x1\P\.git --work-tree=C:\Users\RUNNER~1\AppData\Local\Temp\tmp8x1\P restore -- a.py
+  OLD contains a single quote: True
+  NEW contains a single quote: False
+  test-as-was  assertIn('--git-dir=C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\tmp8x1\\P\\.git') on NEW command -> True
+  test-as-now  assertIn('--git-dir=C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\tmp8x1\\P\\.git') on NEW command -> True
+
+root: C:\Users\runneradmin\My Projects\tmp8x1\P
+  OLD (shlex.quote)          : git --git-dir='C:\Users\runneradmin\My Projects\tmp8x1\P\.git' --work-tree='C:\Users\runneradmin\My Projects\tmp8x1\P' restore -- a.py
+  NEW (_quote_path_for_local_shell): git --git-dir="C:\Users\runneradmin\My Projects\tmp8x1\P\.git" --work-tree="C:\Users\runneradmin\My Projects\tmp8x1\P" restore -- a.py
+  OLD contains a single quote: True
+  NEW contains a single quote: False
+  test-as-was  assertIn('--git-dir=C:\\Users\\runneradmin\\My Projects\\tmp8x1\\P\\.git') on NEW command -> False
+  test-as-now  assertIn('--git-dir="C:\\Users\\runneradmin\\My Projects\\tmp8x1\\P\\.git"') on NEW command -> True
+
+root: C:\R&D\tmp8x1\P
+  OLD (shlex.quote)          : git --git-dir='C:\R&D\tmp8x1\P\.git' --work-tree='C:\R&D\tmp8x1\P' restore -- a.py
+  NEW (_quote_path_for_local_shell): git --git-dir="C:\R&D\tmp8x1\P\.git" --work-tree="C:\R&D\tmp8x1\P" restore -- a.py
+  OLD contains a single quote: True
+  NEW contains a single quote: False
+  test-as-was  assertIn('--git-dir=C:\\R&D\\tmp8x1\\P\\.git') on NEW command -> False
+  test-as-now  assertIn('--git-dir="C:\\R&D\\tmp8x1\\P\\.git"') on NEW command -> True
+
+========================================================================
+F1  POSIX branch is byte for byte unchanged
+========================================================================
+  shlex.quote('/private/var/folders/ab/T/tmp8x1/P/.git') = '/private/var/folders/ab/T/tmp8x1/P/.git'
+  helper      ('/private/var/folders/ab/T/tmp8x1/P/.git') = '/private/var/folders/ab/T/tmp8x1/P/.git'
+  identical: True
+  shlex.quote('/tmp/a b/P/.git') = "'/tmp/a b/P/.git'"
+  helper      ('/tmp/a b/P/.git') = "'/tmp/a b/P/.git'"
+  identical: True
+
+========================================================================
+F2/F3  the write-scope half of the same command (line 3647, shlex.quote, NOT changed by this loop)
+========================================================================
+  shlex.quote('a.py') = 'a.py'   (Windows-safe: True)
+  shlex.quote('out.txt') = 'out.txt'   (Windows-safe: True)
+  shlex.quote('src/app/main.py') = 'src/app/main.py'   (Windows-safe: True)
+  shlex.quote('my file.py') = "'my file.py'"   (Windows-safe: False)
+
+========================================================================
+F4/F5  the env-dump command, OLD vs NEW, Windows branch
+========================================================================
+  OLD: 'C:\hostedtoolcache\windows\Python\3.9.13\x64\python.exe' -c 'import json, os, sys; sys.stdout.write(json.dumps(sorted(k for k in os.environ if k.startswith('"'"'GIT_'"'"'))))'
+  NEW: C:\hostedtoolcache\windows\Python\3.9.13\x64\python.exe C:\Users\RUNNER~1\AppData\Local\Temp\tmp8x1\env_dump.py
+  OLD first token starts with a quote character: True
+  NEW first token starts with a quote character: False
+
+========================================================================
+F4/F5  the same NEW command, executed for real on this Mac
+========================================================================
+  command  : /Applications/Xcode.app/Contents/Developer/usr/bin/python3 /var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/tmpwcrxms2c/env_dump.py
+  exit code: 0
+  stdout is json of 57 names
+
+========================================================================
+F9  done-check constants, executed on this Mac and composed for Windows
+========================================================================
+  PASSES /Applications/Xcode.app/Contents/Developer/usr/bin/python3 -c pass -> exit 0
+  FAILS  /Applications/Xcode.app/Contents/Developer/usr/bin/python3 -c "raise SystemExit(1)" -> exit 1
+  windows spelling PASSES: C:\hostedtoolcache\windows\Python\3.9.13\x64\python.exe -c pass
+  windows spelling FAILS : C:\hostedtoolcache\windows\Python\3.9.13\x64\python.exe -c "raise SystemExit(1)"
+  the OLD literal 'true' on THIS platform -> exit 0
+  the OLD literal 'false' on THIS platform -> exit 1
+
+========================================================================
+F6/F7  can chmod(dir, 0o500) deny a write here
+========================================================================
+  denied: PermissionError: [Errno 13] Permission denied: '/var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/tmp31xpq3a1/store/write_denial_probe.tmp'
+  this platform (darwin, euid 1598639508) denies the write: True
+  so the F6/F7 test bodies RUN here and the new skip does not fire
+
+========================================================================
+F8  what expanduser reads, POSIX rule vs Windows rule
+========================================================================
+  posixpath.expanduser('~') with HOME only          : /throwaway/home
+  ntpath.expanduser('~')    with HOME only          : ~
+  ntpath.expanduser('~')    with USERPROFILE set    : C:\throwaway\home
+
+========================================================================
+F11  shlex.split, substitute-then-split vs split-then-substitute
+========================================================================
+
+  ROOT 'C:\\a\\b\\checkout'
+    OLD argv: ['python3', 'C:abcheckout/tools/bm_store.py', 'init']
+    NEW argv: ['python3', 'C:\\a\\b\\checkout/tools/bm_store.py', 'init']
+    OLD kept every backslash: False
+    NEW kept every backslash: True
+
+  ROOT '/Users/k/checkout'
+    OLD argv: ['python3', '/Users/k/checkout/tools/bm_store.py', 'init']
+    NEW argv: ['python3', '/Users/k/checkout/tools/bm_store.py', 'init']
+    OLD kept every backslash: True
+    NEW kept every backslash: True
+
+
+
+PART 2: the sweeps that must stay at zero, re-run after the last edit
+====================================================================
+glob allowance sweep (TestGlobAllowancesGrantOnlyWhatTheyLiterallyMatch.test_no_declarable_path_names_a_file_its_contract_refuses)
+  allowed spellings swept : 132
+  candidate spellings     : 42
+  triples checked         : 55440
+  VIOLATIONS              : 0
+  violations under a NON-GLOB allowance: 0
+  assertGreater(triples, 20000) -> True
+  assertEqual(non-glob violations, []) -> True
+
+write-scope spelling sweep (test_no_generated_spelling_is_stored_as_a_path_the_rule_refuses)
+  checked=2954 accepted=422 violations=0
+
+
+PART 3: the suites, run after the last edit
+===========================================
+
+$ python3 tools/test_bm_controller.py
+Ran 191 tests in 16.142s
+OK
+
+$ python3 tools/test_bm_store.py
+Ran 908 tests in 30.994s
+OK
+
+$ python3 tools/test_bm_runtimes.py
+Ran 59 tests in 7.483s
+OK
+
+Baseline before any edit in this loop, same three commands, same machine:
+  test_bm_controller.py  Ran 191 tests  OK
+  test_bm_store.py       Ran 908 tests  OK
+  test_bm_runtimes.py    Ran 59 tests   OK
+Test COUNTS are unchanged by this loop: nothing was added, removed or skipped on
+this platform.
+
+
+PART 4: the probe script, verbatim
+==================================
+#!/usr/bin/env python3
+"""Windows-shaped probes, executed on macOS against the SHIPPED functions.
+
+sys.platform is forced to 'win32' around each call, so the branch that
+really runs on Windows is the branch measured here. This gives exact
+LEXICAL Windows semantics (the helper is pure Python); it does NOT
+execute cmd.exe, and every claim about what cmd.exe then does with the
+string is labelled as reasoning, not measurement.
+"""
+import importlib.util
+import io
+import ntpath
+import os
+import shlex
+import subprocess
+import sys
+import tempfile
+
+HERE = "/Users/khalil.maaouni/Documents/BrotherModeUp/tools"
+
+
+def _load(name):
+    spec = importlib.util.spec_from_file_location(
+        name, os.path.join(HERE, name + ".py"))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+bs = _load("bm_store")
+
+
+class _AsWindows(object):
+    def __enter__(self):
+        self.saved = sys.platform
+        sys.platform = "win32"
+
+    def __exit__(self, *exc):
+        sys.platform = self.saved
+        return False
+
+
+def q_win(path):
+    with _AsWindows():
+        return bs._quote_path_for_local_shell(path)
+
+
+def q_posix(path):
+    return bs._quote_path_for_local_shell(path)
+
+
+def head(title):
+    print("")
+    print("=" * 72)
+    print(title)
+    print("=" * 72)
+
+
+WIN_ROOTS = [
+    r"C:\Users\RUNNER~1\AppData\Local\Temp\tmp8x1\P",
+    r"C:\Users\runneradmin\My Projects\tmp8x1\P",   # a space
+    r"C:\R&D\tmp8x1\P",                             # a cmd metacharacter
+]
+
+head("F1/F2/F3  _git_prefix composition, Windows branch, OLD vs NEW")
+for root in WIN_ROOTS:
+    marker = ntpath.join(root, ".git")
+    old = "git --git-dir=%s --work-tree=%s " % (shlex.quote(marker),
+                                                shlex.quote(root))
+    new = "git --git-dir=%s --work-tree=%s " % (q_win(marker), q_win(root))
+    print("")
+    print("root: %s" % root)
+    print("  OLD (shlex.quote)          : %srestore -- a.py" % old)
+    print("  NEW (_quote_path_for_local_shell): %srestore -- a.py" % new)
+    print("  OLD contains a single quote: %s" % ("'" in old))
+    print("  NEW contains a single quote: %s" % ("'" in new))
+    # The assertion the F1 test makes, in the form it had and the form it
+    # now has.
+    bare = "--git-dir=%s" % marker
+    through = "--git-dir=%s" % q_win(marker)
+    print("  test-as-was  assertIn(%r) on NEW command -> %s"
+          % (bare, bare in new))
+    print("  test-as-now  assertIn(%r) on NEW command -> %s"
+          % (through, through in new))
+
+head("F1  POSIX branch is byte for byte unchanged")
+for root in ["/private/var/folders/ab/T/tmp8x1/P", "/tmp/a b/P"]:
+    marker = os.path.join(root, ".git")
+    print("  shlex.quote(%r) = %r" % (marker, shlex.quote(marker)))
+    print("  helper      (%r) = %r" % (marker, q_posix(marker)))
+    print("  identical: %s" % (shlex.quote(marker) == q_posix(marker),))
+
+head("F2/F3  the write-scope half of the same command (line 3647, "
+     "shlex.quote, NOT changed by this loop)")
+bc_src = io.open(os.path.join(HERE, "bm_controller.py"),
+                 encoding="utf-8").read()
+for entry in ["a.py", "out.txt", "src/app/main.py", "my file.py"]:
+    print("  shlex.quote(%r) = %r   (Windows-safe: %s)"
+          % (entry, shlex.quote(entry), "'" not in shlex.quote(entry)))
+
+head("F4/F5  the env-dump command, OLD vs NEW, Windows branch")
+WIN_PY = r"C:\hostedtoolcache\windows\Python\3.9.13\x64\python.exe"
+WIN_TMP = r"C:\Users\RUNNER~1\AppData\Local\Temp\tmp8x1"
+payload = ("import json, os, sys; sys.stdout.write(json.dumps(sorted("
+           "k for k in os.environ if k.startswith('GIT_'))))")
+print("  OLD: %s -c %s" % (shlex.quote(WIN_PY), shlex.quote(payload)))
+print("  NEW: %s %s" % (q_win(WIN_PY), q_win(ntpath.join(WIN_TMP,
+                                                         "env_dump.py"))))
+print("  OLD first token starts with a quote character: %s"
+      % (shlex.quote(WIN_PY).startswith("'"),))
+print("  NEW first token starts with a quote character: %s"
+      % (q_win(WIN_PY).startswith("'"),))
+
+head("F4/F5  the same NEW command, executed for real on this Mac")
+with tempfile.TemporaryDirectory() as tmp:
+    script = os.path.join(tmp, "env_dump.py")
+    with io.open(script, "w", encoding="utf-8") as fh:
+        fh.write("import json, os, sys\n"
+                 "sys.stdout.write(json.dumps(sorted(os.environ)))\n")
+    cmd = "%s %s" % (q_posix(sys.executable), q_posix(script))
+    proc = subprocess.run(cmd, shell=True, cwd=tmp, capture_output=True,
+                          text=True)
+    print("  command  : %s" % cmd)
+    print("  exit code: %d" % proc.returncode)
+    print("  stdout is json of %d names" % len(__import__("json").loads(
+        proc.stdout)))
+
+head("F9  done-check constants, executed on this Mac and composed for "
+     "Windows")
+passes = "%s -c pass" % q_posix(sys.executable)
+fails = '%s -c "raise SystemExit(1)"' % q_posix(sys.executable)
+for label, cmd in (("PASSES", passes), ("FAILS", fails)):
+    proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    print("  %-6s %s -> exit %d" % (label, cmd, proc.returncode))
+print("  windows spelling PASSES: %s -c pass" % q_win(WIN_PY))
+print('  windows spelling FAILS : %s -c "raise SystemExit(1)"' % q_win(WIN_PY))
+for name, cmd in (("true", "true"), ("false", "false")):
+    proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    print("  the OLD literal %-5r on THIS platform -> exit %d"
+          % (name, proc.returncode))
+
+head("F6/F7  can chmod(dir, 0o500) deny a write here")
+with tempfile.TemporaryDirectory() as tmp:
+    d = os.path.join(tmp, "store")
+    os.makedirs(d)
+    probe = os.path.join(d, "write_denial_probe.tmp")
+    os.chmod(d, 0o500)
+    denied = False
+    try:
+        with io.open(probe, "w", encoding="utf-8") as fh:
+            fh.write("probe")
+    except EnvironmentError as exc:
+        denied = True
+        print("  denied: %s: %s" % (type(exc).__name__, exc))
+    else:
+        os.remove(probe)
+    os.chmod(d, 0o700)
+    print("  this platform (%s, euid %s) denies the write: %s"
+          % (sys.platform, getattr(os, "geteuid", lambda: "n/a")(), denied))
+    print("  so the F6/F7 test bodies RUN here and the new skip does not "
+          "fire")
+
+head("F8  what expanduser reads, POSIX rule vs Windows rule")
+import posixpath
+env = {"HOME": "/throwaway/home"}
+saved = dict(os.environ)
+try:
+    os.environ.clear()
+    os.environ.update({"HOME": "/throwaway/home"})
+    print("  posixpath.expanduser('~') with HOME only          : %s"
+          % posixpath.expanduser("~"))
+    print("  ntpath.expanduser('~')    with HOME only          : %s"
+          % ntpath.expanduser("~"))
+    os.environ["USERPROFILE"] = r"C:\throwaway\home"
+    print("  ntpath.expanduser('~')    with USERPROFILE set    : %s"
+          % ntpath.expanduser("~"))
+finally:
+    os.environ.clear()
+    os.environ.update(saved)
+
+head("F11  shlex.split, substitute-then-split vs split-then-substitute")
+rt = _load("bm_runtimes")
+line = "python3 %s/tools/bm_store.py init" % rt.CHECKOUT_TOKEN
+for root in [r"C:\a\b\checkout", "/Users/k/checkout"]:
+    old = shlex.split(line.replace(rt.CHECKOUT_TOKEN, root))
+    new = [a.replace(rt.CHECKOUT_TOKEN, root) for a in shlex.split(line)]
+    print("")
+    print("  ROOT %r" % root)
+    print("    OLD argv: %r" % (old,))
+    print("    NEW argv: %r" % (new,))
+    print("    OLD kept every backslash: %s"
+          % (old[1] == "%s/tools/bm_store.py" % root,))
+    print("    NEW kept every backslash: %s"
+          % (new[1] == "%s/tools/bm_store.py" % root,))
+print("")

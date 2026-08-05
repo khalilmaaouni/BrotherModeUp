@@ -834,7 +834,23 @@ class TestTheFirstRunSequenceActuallyRuns(unittest.TestCase):
                     reason = self.NOT_RUNNABLE_IN_TEST.get(line)
                     if reason:
                         continue
-                    argv = shlex.split(line.replace(rt_mod.CHECKOUT_TOKEN, ROOT))
+                    # SPLIT first, substitute after (2026-08-05 Windows
+                    # audit, F11). shlex.split is POSIX-mode by default, so
+                    # substituting the checkout root FIRST handed it a
+                    # string full of backslashes on Windows and every one
+                    # of them was eaten as an escape, leaving a wrong argv.
+                    # The printed line itself carries only the <checkout>
+                    # placeholder, which has nothing shlex can misread, so
+                    # splitting first takes the platform out of the
+                    # question rather than branching on it. Fixed because
+                    # it is cheap; priority LOW by CI's own shape, since
+                    # the `suite` job that runs this file is ubuntu and
+                    # macos only (.github/workflows/tests.yml) and this
+                    # line has never had a Windows reader. It becomes a
+                    # push blocker the day this suite joins the `store`
+                    # job.
+                    argv = [a.replace(rt_mod.CHECKOUT_TOKEN, ROOT)
+                            for a in shlex.split(line)]
                     self.assertEqual(argv[0], "python3", line)
                     argv[0] = sys.executable
                     proc = subprocess.run(argv, cwd=d, env=env,

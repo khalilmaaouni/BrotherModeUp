@@ -732,8 +732,19 @@ def _git_prefix(root):
     marker = os.path.join(root, ".git")
     if not os.path.exists(marker):
         return "git "
-    return "git --git-dir=%s --work-tree=%s " % (shlex.quote(marker),
-                                                 shlex.quote(root))
+    # bs._quote_path_for_local_shell, NOT shlex.quote. shlex implements POSIX
+    # shell quoting and nothing else, and a Windows path is full of
+    # backslashes, none of which are in its safe set, so shlex.quote of
+    # C:\p\.git returns that path wrapped in SINGLE quotes. cmd.exe treats a
+    # single quote as part of the filename, so the rollback would run
+    # `git --git-dir='C:\p\.git'`, fail to find the repository, and RESTORE
+    # NOTHING on Windows while looking like an ordinary git error. This
+    # project already found and retired that pattern once (CI, Windows,
+    # 2026-07-31; the reason lives in that helper's own docstring). This call
+    # site reintroduced it and an audit caught it before it reached a user.
+    return "git --git-dir=%s --work-tree=%s " % (
+        bs._quote_path_for_local_shell(marker),
+        bs._quote_path_for_local_shell(root))
 
 
 def _unsafe_scope_entry(entry):
@@ -3632,8 +3643,18 @@ class ControllerEngine(object):
         if problem is not None:
             return None, ("unit %s was NOT rolled back: %s"
                           % (unit_id, problem))
+        # The SAME quoting rule the prefix above uses, and for the same
+        # reason: shlex is POSIX-only, so a write-scope entry carrying a
+        # space or a cmd.exe metacharacter would come back single-quoted and
+        # cmd.exe would read the quote as part of the filename, leaving the
+        # entry unrestored on Windows. Byte-identical to shlex.quote on
+        # POSIX, where the helper IS shlex.quote, so the green legs cannot
+        # move. Fixing the prefix and leaving this half would have made ONE
+        # command half-correct on one platform, which is worse than either
+        # end of the choice.
         return _git_prefix(self.store.root) + "restore -- " + " ".join(
-            shlex.quote(_pathspec_literal(p)) for p in write_scope), None
+            bs._quote_path_for_local_shell(_pathspec_literal(p))
+            for p in write_scope), None
 
     def _warn_unrollbackable_scope(self, project_id, refusal, lane):
         """The founder step for a rollback that was never composed. A
