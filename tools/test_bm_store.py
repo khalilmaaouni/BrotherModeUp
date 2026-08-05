@@ -958,6 +958,15 @@ class TestFixRoundGates(unittest.TestCase):
                                  "CREATE TABLE failing mid-migration must "
                                  "roll the caller's transaction back, not "
                                  "move the founder's store aside",
+            "_migrate_14_to_15": "a schema migration step, run INSIDE the "
+                                 "caller's BEGIN EXCLUSIVE (U2, the durable "
+                                 "Full-Auto controller: controller_runs, "
+                                 "controller_units, "
+                                 "controller_dispatches). Same exemption and "
+                                 "same reason as _migrate_13_to_14: a "
+                                 "CREATE TABLE failing mid-migration must "
+                                 "roll the caller's transaction back, not "
+                                 "move the founder's store aside",
         }
         with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
             source = f.read()
@@ -14889,7 +14898,11 @@ class TestPurgeProject(unittest.TestCase):
                               "autonomy_interruptions": 0,
                               "autonomy_human_steps": 0,
                               "autonomy_checkpoints": 0,
-                              "autonomy_contracts": 0})
+                              "autonomy_contracts": 0,
+                              # U2: no controller rows in this fixture either,
+                              # so all three new tables remove zero.
+                              "controller_runs": 0, "controller_units": 0,
+                              "controller_dispatches": 0})
                 # Every entity row this project owned is gone.
                 self.assertIsNone(store.get_project("proj1"))
                 self.assertEqual(store.list_tasks("proj1"), [])
@@ -15096,7 +15109,16 @@ class TestSchema14Migration(unittest.TestCase):
             conn.close()
 
     def test_schema_version_moves_from_13_to_14(self):
-        self.assertEqual(bs.SCHEMA_VERSION, 14)
+        # The U1 design moved the version from 13 to 14. Later loops may
+        # move it further (U2 took it to 15), so the guard pins the floor
+        # rather than the exact number, the same fix the sibling test
+        # tools/test_bm_sentinel.py:TestSchema13Migration already applies
+        # for schema 12 to 13: pinning 14 exactly made this test break on
+        # every later migration while proving nothing extra.
+        self.assertGreaterEqual(
+            bs.SCHEMA_VERSION, 14,
+            "U1 design section 1: SCHEMA_VERSION moved from 13 to at "
+            "least 14")
 
     def test_the_migrations_table_has_an_entry_for_schema_13(self):
         self.assertIn(13, bs._MIGRATIONS)
@@ -15107,7 +15129,13 @@ class TestSchema14Migration(unittest.TestCase):
             with bs.Store(d) as store:
                 row = store.conn.execute(
                     "SELECT value FROM meta WHERE key='schema_version'").fetchone()
-                self.assertEqual(row["value"], "14")
+                # A brand new store is created directly at the CURRENT
+                # SCHEMA_VERSION (14 when this test was written, 15 now
+                # that U2 landed), never frozen at 14: see the sibling
+                # floor-pin fix on test_schema_version_moves_from_13_to_14
+                # above for why this must track SCHEMA_VERSION rather than
+                # a literal.
+                self.assertEqual(row["value"], str(bs.SCHEMA_VERSION))
             path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
             found = self._tables(path)
             for table, expected in self._EXPECTED_COLUMNS.items():
@@ -15148,7 +15176,7 @@ class TestSchema14Migration(unittest.TestCase):
                 self.assertEqual(
                     store.conn.execute(
                         "SELECT value FROM meta WHERE key='schema_version'"
-                    ).fetchone()["value"], "14")
+                    ).fetchone()["value"], str(bs.SCHEMA_VERSION))
 
             conn = sqlite3.connect(path)
             conn.row_factory = sqlite3.Row
@@ -15256,7 +15284,13 @@ class TestSchema14Migration(unittest.TestCase):
                              "pre-existing rows must be byte identical "
                              "after a rolled-back migration")
 
-            backup_path = path + ".pre-schema14-migration"
+            # The backup captures the pre-migration-CHAIN state and is
+            # named for the CURRENT SCHEMA_VERSION the chain is running
+            # towards (see test_migration_writes_a_backup_before_touching_
+            # anything above), not the specific step that happened to
+            # fail: 14 when this test was written, 15 now that U2 added a
+            # further step onto the same schema-13 fixture.
+            backup_path = path + ".pre-schema%d-migration" % bs.SCHEMA_VERSION
             self.assertTrue(
                 os.path.isfile(backup_path),
                 "the pre-migration backup must exist at %s" % backup_path)
@@ -15286,8 +15320,14 @@ class TestSchema14Migration(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with bs.Store(d) as store:
                 store.conn.execute("BEGIN IMMEDIATE")
+                # One version AHEAD of whatever this repo currently ships
+                # (15 when this test was written, now 16 that U2 moved
+                # SCHEMA_VERSION to 15 itself): computed rather than a
+                # literal so this test keeps proving "ahead of current",
+                # not "ahead of 14 specifically", across later migrations.
                 store.conn.execute(
-                    "UPDATE meta SET value='15' WHERE key='schema_version'")
+                    "UPDATE meta SET value=? WHERE key='schema_version'",
+                    (str(bs.SCHEMA_VERSION + 1),))
                 store.conn.execute("COMMIT")
             with self.assertRaises(bs.OwnershipRefused) as ctx:
                 bs.Store(d)
@@ -15525,6 +15565,69 @@ class TestAutonomySignContract(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     _sign(store, token_ceiling=-1)
                 self.assertEqual(store.contract_revisions("p1"), [])
+
+
+class TestGateCheckPathIsContainmentNotOverlap(unittest.TestCase):
+    """REFUTATION-2 F2 (docs/program/absolute-lead/evidence/L03/
+    REFUTATION-2-fixes.md, 2026-08-05), probe_f2b_ancestor_scope.py.
+    gate_check's allowed_paths comparison used paths_overlap, which is
+    SYMMETRIC by design (it answers "can these two claims name the same
+    file", the right question for a fence). Asked as an authorisation
+    question it is the wrong one: a caller declaring the PARENT of an
+    allowed path, or '.', overlapped and was ALLOWED, so it received
+    authorisation over every sibling the same contract refuses by name.
+    allowed_paths is a BOUNDARY, so the question is containment: the
+    checked path must be equal to an allowed path or strictly under an
+    allowed directory. paths_overlap itself is untouched."""
+
+    def test_an_ancestor_of_an_allowed_path_is_refused_and_the_path_itself_is_allowed(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["src/app"],
+                      risk_classes=["file-edit"])
+                for path, want in (("src/app", "ALLOWED"),
+                                   ("src/app/main.py", "ALLOWED"),
+                                   ("src/app/deep/nested.py", "ALLOWED"),
+                                   ("src", "REFUSED-SCOPE"),
+                                   ("src/secrets.env", "REFUSED-SCOPE"),
+                                   (".", "REFUSED-SCOPE"),
+                                   ("secrets", "REFUSED-SCOPE")):
+                    gc = store.gate_check("p1", "file-edit", path=path)
+                    self.assertEqual(
+                        gc["verdict"], want,
+                        "%r under allowed_paths ['src/app'] must be %s, "
+                        "got %s" % (path, want, gc["verdict"]))
+
+    def test_a_whole_root_contract_still_allows_everything_including_dot(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["."],
+                      risk_classes=["file-edit"])
+                for path in (".", "src", "src/app/main.py", "secrets.env"):
+                    self.assertEqual(
+                        store.gate_check("p1", "file-edit",
+                                         path=path)["verdict"],
+                        "ALLOWED",
+                        "'.' in allowed_paths names every file in the "
+                        "project, so %r stays allowed" % (path,))
+
+    def test_a_sibling_sharing_a_name_prefix_is_still_out_of_scope(self):
+        """No regression on the boundary paths_overlap already got right:
+        containment must still respect the separator boundary."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["api"],
+                      risk_classes=["file-edit"])
+                self.assertEqual(
+                    store.gate_check("p1", "file-edit",
+                                     path="api_secrets/keys.py")["verdict"],
+                    "REFUSED-SCOPE")
+                self.assertEqual(
+                    store.gate_check("p1", "file-edit",
+                                     path="api/pay.py")["verdict"], "ALLOWED")
 
 
 class TestAutonomyStateTransitions(unittest.TestCase):
@@ -16208,6 +16311,2053 @@ class TestAutonomyPurgeLeavesNoOrphans(unittest.TestCase):
                     self.assertEqual(count, 0,
                                      "%s must have zero rows for 'p1' after "
                                      "purge" % t)
+
+
+# ---------------------------------------------------------------------------
+# U2, the durable Full-Auto controller (loop L03, design
+# docs/superpowers/specs/2026-08-05-l03-controller-design.md): schema 14 to
+# 15, the fifteen new Store methods (open_run, set_run_state, upsert_units,
+# select_ready_units, claim_unit, record_dispatch, record_result,
+# record_verification, mark_unit_done, mark_unit_failed, block_lane_units,
+# unblock_lane_units, get_run, list_units, list_dispatches) and the
+# store-side adversarial set (dependency cycle, dangling dependency, at-
+# most-once dispatch and result, purge extension). tools/bm_controller.py
+# (the engine) and its own fault-test suite belong to
+# tools/test_bm_controller.py.
+# ---------------------------------------------------------------------------
+
+def _controller_actor(name="controller"):
+    return {"actor_type": "model", "actor_name": name}
+
+
+def _open_and_plan(store, project_id="p1", risk_classes=None,
+                    workflow_version=1, actor=None):
+    """Seed a project, sign a contract, open a run and drive it to
+    PLANNING, the state upsert_units requires (it always flips PLANNING ->
+    READY in the same transaction). Returns the open_run() dict."""
+    actor = actor or _controller_actor()
+    _seed(store, project_id)
+    _sign(store, project_id=project_id, actor=actor,
+          risk_classes=risk_classes or ["file-edit", "file-create", "build",
+                                       "read-only-inspect"])
+    run = store.open_run(project_id, "ctrl1", workflow_version, "ship it",
+                         "tests green", "fence-ctrl-1", "sess1", actor)
+    store.set_run_state(run["run_id"], "ORIENTING", actor, "begin", "sess1")
+    store.set_run_state(run["run_id"], "PLANNING", actor, "planned", "sess1")
+    return run
+
+
+def _unit(unit_id, dependencies=None, write_scope=None, read_scope=None,
+          risk_class="file-edit", lane="default", role="builder", **kw):
+    d = {"unit_id": unit_id, "objective": "do the thing",
+         "dependencies": dependencies or [], "read_scope": read_scope or [],
+         "write_scope": write_scope or [], "role": role,
+         "risk_class": risk_class, "lane": lane, "done_check": "true",
+         "done_check_expect_exit": 0, "verifier": "true"}
+    d.update(kw)
+    return d
+
+
+class TestSchema15Migration(unittest.TestCase):
+    """Schema 14 to 15 (U2): three tables (controller_runs,
+    controller_units, controller_dispatches) plus three indexes. Same
+    discipline as TestSchema14Migration above: the 'old store' fixture is
+    a REAL store reverted to look like schema 14, never hand-written DDL,
+    so the fixture cannot drift from the schema anyone actually has."""
+
+    _EXPECTED_COLUMNS = {
+        "controller_runs": {
+            "run_id", "project_id", "contract_id", "controller_id",
+            "fence_uuid", "state", "workflow_version", "outcome",
+            "done_definition", "session_id", "created_at", "updated_at"},
+        "controller_units": {
+            "unit_id", "run_id", "project_id", "objective", "dependencies",
+            "read_scope", "write_scope", "role", "model_class",
+            "risk_class", "lane", "token_budget", "minute_budget",
+            "expected_artifacts", "done_check", "done_check_expect_exit",
+            "verifier", "definition_hash", "retry_count", "retry_ceiling",
+            "status", "checkpoint_ref", "fence_uuid", "created_at",
+            "updated_at"},
+        "controller_dispatches": {
+            "dispatch_id", "unit_id", "run_id", "project_id", "attempt",
+            "contract_revision", "fence_uuid", "status", "worker_claim",
+            "result_artifacts", "done_check_exit", "verifier_verdict",
+            "session_id", "created_at", "resulted_at"},
+    }
+
+    def _schema14_store(self, d):
+        with bs.Store(d):
+            pass
+        path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            for t in bs._TABLES_CONTROLLER:
+                conn.execute("DROP TABLE IF EXISTS %s" % t)
+            conn.execute("UPDATE meta SET value='14' WHERE key='schema_version'")
+            conn.execute("COMMIT")
+        finally:
+            conn.close()
+        return path
+
+    def _tables(self, path):
+        conn = sqlite3.connect(path)
+        try:
+            return {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            conn.close()
+
+    def _columns(self, path, table):
+        conn = sqlite3.connect(path)
+        try:
+            return {row[1] for row in
+                    conn.execute("PRAGMA table_info(%s)" % table)}
+        finally:
+            conn.close()
+
+    def _row_count(self, path, table):
+        conn = sqlite3.connect(path)
+        try:
+            return conn.execute("SELECT COUNT(*) FROM %s" % table).fetchone()[0]
+        finally:
+            conn.close()
+
+    def test_schema_version_moves_from_14_to_15(self):
+        # Pin the floor, not the exact number, the same fix applied above
+        # to test_schema_version_moves_from_13_to_14 and the precedent in
+        # tools/test_bm_sentinel.py: pinning 15 exactly makes this test
+        # break on every later migration while proving nothing extra.
+        self.assertGreaterEqual(
+            bs.SCHEMA_VERSION, 15,
+            "L03 design section 2.2: SCHEMA_VERSION moved from 14 to at "
+            "least 15")
+
+    def test_the_migrations_table_has_an_entry_for_schema_14(self):
+        self.assertIn(14, bs._MIGRATIONS)
+        self.assertIs(bs._MIGRATIONS[14], bs._migrate_14_to_15)
+
+    def test_a_brand_new_store_has_all_three_controller_tables_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                row = store.conn.execute(
+                    "SELECT value FROM meta WHERE key='schema_version'").fetchone()
+                self.assertEqual(row["value"], str(bs.SCHEMA_VERSION))
+            path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+            found = self._tables(path)
+            for table, expected in self._EXPECTED_COLUMNS.items():
+                self.assertIn(table, found)
+                self.assertEqual(self._columns(path, table), expected,
+                                 "%s must have exactly the stated columns"
+                                 % table)
+                self.assertEqual(self._row_count(path, table), 0,
+                                 "spec: no backfill, created empty")
+
+    def test_migration_from_a_real_schema14_fixture_survives_every_row(self):
+        """A REAL schema-14 fixture (a genuine store, opened and written
+        to, then reverted; never hand-written DDL), carrying rows in
+        tables that predate schema 15, so ADDITIVE ONLY is proven against
+        real data, not an empty database."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _actor()
+                store.upsert_project(_project("proj1"), actor)
+                _sign(store, project_id="proj1")
+            path = self._schema14_store(d)
+            conn = sqlite3.connect(path)
+            conn.row_factory = sqlite3.Row
+            try:
+                before = {
+                    t: [dict(r) for r in conn.execute("SELECT * FROM %s" % t)]
+                    for t in ("projects", "autonomy_contracts")}
+            finally:
+                conn.close()
+            self.assertEqual(len(before["projects"]), 1)
+            self.assertEqual(len(before["autonomy_contracts"]), 1)
+
+            with bs.Store(d) as store:
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT value FROM meta WHERE key='schema_version'"
+                    ).fetchone()["value"], str(bs.SCHEMA_VERSION))
+
+            conn = sqlite3.connect(path)
+            conn.row_factory = sqlite3.Row
+            try:
+                after = {
+                    t: [dict(r) for r in conn.execute("SELECT * FROM %s" % t)]
+                    for t in ("projects", "autonomy_contracts")}
+            finally:
+                conn.close()
+            self.assertEqual(before, after,
+                             "additive-only migration must not touch a "
+                             "pre-existing row")
+            found = self._tables(path)
+            for table in bs._TABLES_CONTROLLER:
+                self.assertIn(table, found)
+                self.assertEqual(self._row_count(path, table), 0)
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")), [],
+                "a healthy schema-14 store must MIGRATE, never be quarantined")
+
+    def test_migration_is_idempotent_through_a_second_store_open(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema14_store(d)
+            with bs.Store(d):
+                pass
+            first = {t: self._row_count(path, t) for t in bs._TABLES_CONTROLLER}
+            first_cols = {t: self._columns(path, t) for t in bs._TABLES_CONTROLLER}
+            with bs.Store(d):
+                pass
+            second = {t: self._row_count(path, t) for t in bs._TABLES_CONTROLLER}
+            second_cols = {t: self._columns(path, t) for t in bs._TABLES_CONTROLLER}
+            self.assertEqual(first, second)
+            self.assertEqual(first_cols, second_cols)
+
+    def test_migrate_14_to_15_is_idempotent_when_called_directly_twice(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema14_store(d)
+            conn = sqlite3.connect(path)
+            try:
+                conn.execute("BEGIN EXCLUSIVE")
+                bs._migrate_14_to_15(conn)
+                bs._migrate_14_to_15(conn)  # running it twice must not raise
+                conn.execute("COMMIT")
+            finally:
+                conn.close()
+            found = self._tables(path)
+            for table in bs._TABLES_CONTROLLER:
+                self.assertIn(table, found)
+
+    def test_calibrated_interrupted_schema15_migration_rolls_back_completely_and_reruns(self):
+        """The same technique
+        TestSchema14Migration.test_calibrated_interrupted_schema14_migration_rolls_back_completely_and_reruns
+        uses, applied at the 14/15 line: assert the version did not move,
+        none of the three tables exist, the pre-existing row is byte
+        identical, and the pre-migration backup file exists. Then restore
+        and reopen: an interrupted migration must be re-runnable, not
+        poisoned."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project("proj1"), _actor())
+            path = self._schema14_store(d)
+            conn = sqlite3.connect(path)
+            conn.row_factory = sqlite3.Row
+            try:
+                before = [dict(r) for r in conn.execute("SELECT * FROM projects")]
+            finally:
+                conn.close()
+
+            original_fn = bs._MIGRATIONS[14]
+
+            def _fail_after_one_statement(conn_):
+                conn_.execute(bs._CONTROLLER_DDL_STATEMENTS[0])
+                raise RuntimeError("simulated interruption mid-migration")
+
+            bs._MIGRATIONS[14] = _fail_after_one_statement
+            try:
+                with self.assertRaises(RuntimeError):
+                    bs.Store(d)
+            finally:
+                bs._MIGRATIONS[14] = original_fn
+
+            conn = sqlite3.connect(path)
+            try:
+                v = conn.execute(
+                    "SELECT value FROM meta WHERE key='schema_version'"
+                ).fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(v, "14",
+                             "an interrupted migration must not move the "
+                             "version")
+            found = self._tables(path)
+            for t in bs._TABLES_CONTROLLER:
+                self.assertNotIn(t, found)
+
+            conn = sqlite3.connect(path)
+            conn.row_factory = sqlite3.Row
+            try:
+                after = [dict(r) for r in conn.execute("SELECT * FROM projects")]
+            finally:
+                conn.close()
+            self.assertEqual(before, after,
+                             "pre-existing rows must be byte identical "
+                             "after a rolled-back migration")
+
+            backup_path = path + ".pre-schema%d-migration" % bs.SCHEMA_VERSION
+            self.assertTrue(
+                os.path.isfile(backup_path),
+                "the pre-migration backup must exist at %s" % backup_path)
+
+            # RECOVERABLE: reopening finishes the migration cleanly.
+            with bs.Store(d):
+                pass
+            self.assertTrue(set(bs._TABLES_CONTROLLER) <= self._tables(path))
+
+    def test_adversarial_an_old_schema14_store_refuses_schema_behind_reused_wording(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._schema14_store(d)
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.ReadOnlyStore(d)
+            self.assertEqual(ctx.exception.reason, "schema-behind")
+            msg = str(ctx.exception)
+            self.assertIn("migrates automatically", msg)
+            self.assertNotIn("CORRUPT", msg)
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")), [])
+
+    def test_adversarial_a_newer_schema16_store_refuses_schema_ahead_reused_wording(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.conn.execute("BEGIN IMMEDIATE")
+                store.conn.execute(
+                    "UPDATE meta SET value=? WHERE key='schema_version'",
+                    (str(bs.SCHEMA_VERSION + 1),))
+                store.conn.execute("COMMIT")
+            with self.assertRaises(bs.OwnershipRefused) as ctx:
+                bs.Store(d)
+            self.assertEqual(ctx.exception.reason, "schema-ahead")
+            self.assertNotIn("CORRUPT", str(ctx.exception))
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")), [])
+
+
+class TestControllerOpenRun(unittest.TestCase):
+    def test_open_run_returns_run_id_and_state_new(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                run = store.open_run("p1", "ctrl1", 1, "ship it",
+                                     "tests green", "fence1", "sess1",
+                                     _controller_actor())
+                self.assertTrue(run["run_id"])
+                self.assertEqual(run["state"], "NEW")
+                row = store.get_run("p1", raw=True)
+                self.assertEqual(row["run_id"], run["run_id"])
+                self.assertEqual(row["contract_id"],
+                                 store.latest_contract("p1", raw=True)["contract_id"])
+
+    def test_refuses_without_a_live_contract(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.open_run("p1", "ctrl1", 1, "o", "d", "fence1",
+                                   "sess1", _controller_actor())
+                self.assertEqual(ctx.exception.reason, "no-live-contract")
+
+    def test_refuses_a_second_run_while_the_first_is_non_terminal(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                store.open_run("p1", "ctrl1", 1, "o", "d", "fence1",
+                               "sess1", _controller_actor())
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.open_run("p1", "ctrl2", 1, "o", "d", "fence2",
+                                   "sess1", _controller_actor())
+                self.assertEqual(ctx.exception.reason, "run-exists")
+
+    def test_a_new_run_is_permitted_once_the_prior_one_is_terminal(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                r1 = store.open_run("p1", "ctrl1", 1, "o", "d", "fence1",
+                                    "sess1", _controller_actor())
+                # Drive it all the way to STOPPED (terminal).
+                a = _controller_actor()
+                for s in ("STOPPING", "STOPPED"):
+                    store.set_run_state(r1["run_id"], s, a, "drain", "sess1")
+                r2 = store.open_run("p1", "ctrl2", 1, "o", "d", "fence2",
+                                    "sess1", a)
+                self.assertNotEqual(r1["run_id"], r2["run_id"])
+
+    def test_writes_one_attribution_row_naming_the_actor(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                actor = _controller_actor("opener")
+                run = store.open_run("p1", "ctrl1", 1, "o", "d", "fence1",
+                                     "sess1", actor)
+                rows = store.conn.execute(
+                    "SELECT * FROM attribution WHERE project_id='p1' AND "
+                    "event_type='controller.run.opened'").fetchall()
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["actor_name"], "opener")
+                self.assertEqual(rows[0]["evidence_ref"], run["run_id"])
+
+
+class TestControllerSetRunState(unittest.TestCase):
+    def test_legal_move_writes_and_returns_changed_true(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                actor = _controller_actor()
+                run = store.open_run("p1", "ctrl1", 1, "o", "d", "fence1",
+                                     "sess1", actor)
+                out = store.set_run_state(run["run_id"], "ORIENTING", actor,
+                                          "begin", "sess1")
+                self.assertEqual(out, {"state": "ORIENTING", "changed": True})
+
+    def test_same_state_is_an_idempotent_no_op(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                actor = _controller_actor()
+                run = store.open_run("p1", "ctrl1", 1, "o", "d", "fence1",
+                                     "sess1", actor)
+                out = store.set_run_state(run["run_id"], "NEW", actor, "r",
+                                          "sess1")
+                self.assertEqual(out, {"state": "NEW", "changed": False})
+
+    def test_illegal_move_refuses_and_names_the_legal_set(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                actor = _controller_actor()
+                run = store.open_run("p1", "ctrl1", 1, "o", "d", "fence1",
+                                     "sess1", actor)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.set_run_state(run["run_id"], "COMPLETE", actor,
+                                        "r", "sess1")
+                self.assertEqual(ctx.exception.reason, "illegal-state-move")
+                self.assertIn("ORIENTING", str(ctx.exception))
+
+    def test_refuses_not_found(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.set_run_state("ghost", "ORIENTING",
+                                        _controller_actor(), "r", "sess1")
+                self.assertEqual(ctx.exception.reason, "not-found")
+
+    def test_unknown_state_raises_value_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                run = store.open_run("p1", "ctrl1", 1, "o", "d", "fence1",
+                                     "sess1", _controller_actor())
+                with self.assertRaises(ValueError):
+                    store.set_run_state(run["run_id"], "SIDEWAYS",
+                                        _controller_actor(), "r", "sess1")
+
+    def test_terminal_state_has_no_legal_moves_at_all(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                actor = _controller_actor()
+                run = store.open_run("p1", "ctrl1", 1, "o", "d", "fence1",
+                                     "sess1", actor)
+                for s in ("STOPPING", "STOPPED"):
+                    store.set_run_state(run["run_id"], s, actor, "r", "sess1")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.set_run_state(run["run_id"], "READY", actor, "r",
+                                        "sess1")
+                self.assertEqual(ctx.exception.reason, "illegal-state-move")
+                self.assertIn("none, terminal", str(ctx.exception))
+
+
+class TestControllerUpsertUnits(unittest.TestCase):
+    def test_writes_the_whole_graph_and_flips_the_run_to_ready(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                run = _open_and_plan(store)
+                out = store.upsert_units(
+                    run["run_id"],
+                    [_unit("u1", write_scope=["a.py"], risk_class="file-create"),
+                     _unit("u2", dependencies=["u1"], write_scope=["a.py"])],
+                    _controller_actor())
+                # Round 4 (design 8.1) added three keys to this return; the
+                # exact-whole-dict pin stays and now also pins that a plain
+                # plan drops nothing, cancels nothing and orphans nothing.
+                self.assertEqual(out, {"count": 2, "skipped": [],
+                                       "cancelled_dispatches": [],
+                                       "orphaned_fences": []})
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "READY")
+                units = store.list_units(run["run_id"])
+                self.assertEqual({u["unit_id"] for u in units}, {"u1", "u2"})
+
+    def test_a_unit_with_no_dependencies_is_ready_immediately(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                run = _open_and_plan(store)
+                store.upsert_units(run["run_id"], [_unit("u1")],
+                                   _controller_actor())
+                u1 = store.list_units(run["run_id"])[0]
+                self.assertEqual(u1["status"], "READY")
+
+    def test_a_unit_depending_on_an_unfinished_sibling_is_pending(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                run = _open_and_plan(store)
+                store.upsert_units(
+                    run["run_id"],
+                    [_unit("u1"), _unit("u2", dependencies=["u1"])],
+                    _controller_actor())
+                by_id = {u["unit_id"]: u for u in store.list_units(run["run_id"])}
+                self.assertEqual(by_id["u1"]["status"], "READY")
+                self.assertEqual(by_id["u2"]["status"], "PENDING")
+
+    def test_a_floor_id_as_risk_class_refuses_risk_class_is_floor(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                run = _open_and_plan(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.upsert_units(
+                        run["run_id"],
+                        [_unit("u1", risk_class="publish-release")],
+                        _controller_actor())
+                self.assertEqual(ctx.exception.reason, "risk-class-is-floor")
+
+    def test_an_unrecognised_risk_class_raises_value_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                run = _open_and_plan(store)
+                with self.assertRaises(ValueError):
+                    store.upsert_units(
+                        run["run_id"], [_unit("u1", risk_class="nope")],
+                        _controller_actor())
+
+    def test_a_dangling_dependency_refuses_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                run = _open_and_plan(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.upsert_units(
+                        run["run_id"],
+                        [_unit("u1", dependencies=["ghost"])],
+                        _controller_actor())
+                self.assertEqual(ctx.exception.reason, "dangling-dependency")
+                self.assertEqual(store.list_units(run["run_id"]), [])
+
+    def test_adversarial_a_two_cycle_refuses_dependency_cycle_and_writes_nothing(self):
+        """The adversarial probe the design's section 5 coverage map names
+        explicitly: 'dependency cycle -> upsert_units refuses
+        dependency-cycle'."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                run = _open_and_plan(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.upsert_units(
+                        run["run_id"],
+                        [_unit("u1", dependencies=["u2"]),
+                         _unit("u2", dependencies=["u1"])],
+                        _controller_actor())
+                self.assertEqual(ctx.exception.reason, "dependency-cycle")
+                self.assertEqual(store.list_units(run["run_id"]), [])
+
+    def test_adversarial_a_self_loop_refuses_dependency_cycle(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                run = _open_and_plan(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.upsert_units(
+                        run["run_id"], [_unit("u1", dependencies=["u1"])],
+                        _controller_actor())
+                self.assertEqual(ctx.exception.reason, "dependency-cycle")
+
+    def test_write_scope_is_canonicalised_through_canonicalize_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                run = _open_and_plan(store)
+                store.upsert_units(
+                    run["run_id"],
+                    [_unit("u1", write_scope=["./sub/../a.py"])],
+                    _controller_actor())
+                u1 = store.list_units(run["run_id"], raw=True)[0]
+                self.assertEqual(u1["write_scope"], ["a.py"])
+
+    def test_write_scope_escaping_the_root_refuses_path_escape(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                run = _open_and_plan(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.upsert_units(
+                        run["run_id"],
+                        [_unit("u1", write_scope=["../outside.py"])],
+                        _controller_actor())
+                self.assertEqual(ctx.exception.reason, "path-escape")
+
+    def test_a_second_call_with_an_identical_definition_reuses_a_done_unit_untouched(self):
+        """The store-level half of fault 8 (workflow-version reuse): a
+        unit whose definition_hash has not changed is left COMPLETELY
+        alone, status included, on a second upsert_units call for the
+        same run."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                u1 = _unit("u1")
+                store.upsert_units(run["run_id"], [u1], actor)
+                cu = store.claim_unit("u1", "fence-u1", actor)
+                did = store.record_dispatch("u1", 1, 1, "fence-u1", "s", actor)
+                store.record_result(did, "done", [], actor)
+                store.record_verification(did, 0, "pass", True, actor)
+                cp = store.record_checkpoint("p1", "ctrl1", "unit-green",
+                                             "u1", "s", actor)
+                store.mark_unit_done("u1", cp, actor)
+                before = store.list_units(run["run_id"], raw=True)[0]
+                self.assertEqual(before["status"], "DONE")
+
+                # Re-plan with the SAME unit definition: must be a no-op.
+                store.upsert_units(run["run_id"], [u1], actor)
+                after = store.list_units(run["run_id"], raw=True)[0]
+                self.assertEqual(after, before,
+                                 "an unchanged definition_hash must leave "
+                                 "a DONE unit completely untouched")
+
+    def test_a_second_call_with_a_changed_definition_resets_a_done_unit_for_rerun(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                u1 = _unit("u1")
+                store.upsert_units(run["run_id"], [u1], actor)
+                store.claim_unit("u1", "f1", actor)
+                did = store.record_dispatch("u1", 1, 1, "f1", "s", actor)
+                store.record_result(did, "done", [], actor)
+                store.record_verification(did, 0, "pass", True, actor)
+                cp = store.record_checkpoint("p1", "ctrl1", "unit-green",
+                                             "u1", "s", actor)
+                store.mark_unit_done("u1", cp, actor)
+                before_hash = store.list_units(
+                    run["run_id"], raw=True)[0]["definition_hash"]
+
+                changed = _unit("u1", objective="do a DIFFERENT thing")
+                store.upsert_units(run["run_id"], [changed], actor)
+                after = store.list_units(run["run_id"], raw=True)[0]
+                self.assertEqual(after["status"], "READY")
+                self.assertEqual(after["retry_count"], 0)
+                self.assertIsNone(after["checkpoint_ref"])
+                self.assertNotEqual(after["definition_hash"], before_hash)
+
+    def test_a_unit_dropped_from_a_replan_is_skipped_unless_already_done(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                store.upsert_units(run["run_id"],
+                                   [_unit("u1"), _unit("u2")], actor)
+                did = store.record_dispatch("u1", 1, 1, "f1", "s", actor)
+                store.record_result(did, "done", [], actor)
+                store.record_verification(did, 0, "pass", True, actor)
+                cp = store.record_checkpoint("p1", "ctrl1", "unit-green",
+                                             "u1", "s", actor)
+                store.mark_unit_done("u1", cp, actor)
+
+                # Re-plan with only u1: u2 is no longer part of the graph.
+                store.upsert_units(run["run_id"], [_unit("u1")], actor)
+                by_id = {u["unit_id"]: u
+                        for u in store.list_units(run["run_id"])}
+                self.assertEqual(by_id["u1"]["status"], "DONE",
+                                 "a DONE unit is never silently discarded")
+                self.assertEqual(by_id["u2"]["status"], "SKIPPED")
+
+    def test_refuses_not_found_for_an_unknown_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.upsert_units("ghost", [_unit("u1")],
+                                       _controller_actor())
+                self.assertEqual(ctx.exception.reason, "not-found")
+
+    def test_every_unit_needs_a_non_empty_unit_id(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                run = _open_and_plan(store)
+                with self.assertRaises(ValueError):
+                    store.upsert_units(run["run_id"], [_unit("")],
+                                       _controller_actor())
+
+
+class TestControllerSelectReadyUnits(unittest.TestCase):
+    def test_orders_created_at_then_rowid(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                run = _open_and_plan(store)
+                store.upsert_units(
+                    run["run_id"],
+                    [_unit("u1"), _unit("u2"), _unit("u3")],
+                    _controller_actor())
+                ready = store.select_ready_units(run["run_id"])
+                self.assertEqual([u["unit_id"] for u in ready],
+                                 ["u1", "u2", "u3"])
+
+    def test_a_pending_unit_whose_dependency_is_now_done_is_reported_ready(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                store.upsert_units(
+                    run["run_id"],
+                    [_unit("u1"), _unit("u2", dependencies=["u1"])], actor)
+                self.assertEqual(
+                    [u["unit_id"] for u in store.select_ready_units(run["run_id"])],
+                    ["u1"],
+                    "u2 is PENDING but its one dependency has no result "
+                    "yet, so at THIS point it should not be reported; see "
+                    "the assertion below after u1 goes DONE")
+                store.claim_unit("u1", "f1", actor)
+                did = store.record_dispatch("u1", 1, 1, "f1", "s", actor)
+                store.record_result(did, "done", [], actor)
+                store.record_verification(did, 0, "pass", True, actor)
+                cp = store.record_checkpoint("p1", "ctrl1", "unit-green",
+                                             "u1", "s", actor)
+                store.mark_unit_done("u1", cp, actor)
+                ready = store.select_ready_units(run["run_id"])
+                self.assertEqual([u["unit_id"] for u in ready], ["u2"])
+
+    def test_a_lane_with_an_open_human_step_is_excluded(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                store.upsert_units(
+                    run["run_id"],
+                    [_unit("u1", lane="release"), _unit("u2", lane="docs")],
+                    actor)
+                store.queue_human_step(
+                    "p1", "publish-release", "release", "click publish",
+                    "", [], "s", actor)
+                ready = store.select_ready_units(run["run_id"])
+                self.assertEqual([u["unit_id"] for u in ready], ["u2"],
+                                 "the release lane is blocked; docs keeps "
+                                 "running independently")
+
+    def test_refuses_not_found_for_an_unknown_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.select_ready_units("ghost")
+                self.assertEqual(ctx.exception.reason, "not-found")
+
+
+class TestControllerDispatchLifecycle(unittest.TestCase):
+    def _ready_unit(self, store, actor):
+        run = _open_and_plan(store)
+        store.upsert_units(run["run_id"], [_unit("u1")], actor)
+        return run
+
+    def test_claim_unit_sets_claimed_and_records_the_fence(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                self._ready_unit(store, actor)
+                out = store.claim_unit("u1", "fence-u1", actor)
+                self.assertEqual(out, {"unit_id": "u1", "status": "CLAIMED"})
+                u1 = store.list_units(
+                    store.get_run("p1", raw=True)["run_id"], raw=True)[0]
+                self.assertEqual(u1["fence_uuid"], "fence-u1")
+
+    def test_claim_unit_refuses_not_found(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.claim_unit("ghost", "f1", _controller_actor())
+                self.assertEqual(ctx.exception.reason, "not-found")
+
+    def test_record_dispatch_sets_dispatched_and_is_at_most_once_per_attempt(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                self._ready_unit(store, actor)
+                store.claim_unit("u1", "f1", actor)
+                did = store.record_dispatch("u1", 1, 1, "f1", "s", actor)
+                self.assertTrue(did)
+                u1 = store.list_units(
+                    store.get_run("p1", raw=True)["run_id"])[0]
+                self.assertEqual(u1["status"], "DISPATCHED")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.record_dispatch("u1", 1, 1, "f1", "s", actor)
+                self.assertEqual(ctx.exception.reason, "dispatch-exists")
+                # A DIFFERENT attempt number is not a duplicate.
+                did2 = store.record_dispatch("u1", 2, 1, "f1", "s", actor)
+                self.assertNotEqual(did, did2)
+
+    def test_record_dispatch_refuses_not_found(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.record_dispatch("ghost", 1, 1, "f1", "s",
+                                          _controller_actor())
+                self.assertEqual(ctx.exception.reason, "not-found")
+
+    def test_record_result_sets_result_in_and_refuses_a_duplicate(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                self._ready_unit(store, actor)
+                store.claim_unit("u1", "f1", actor)
+                did = store.record_dispatch("u1", 1, 1, "f1", "s", actor)
+                out = store.record_result(did, "done", ["a.py"], actor)
+                self.assertEqual(out["status"], "RESULT_IN")
+                u1 = store.list_units(
+                    store.get_run("p1", raw=True)["run_id"])[0]
+                self.assertEqual(u1["status"], "RESULT_IN")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.record_result(did, "done again", [], actor)
+                self.assertEqual(ctx.exception.reason, "already-resulted")
+
+    def test_record_result_refuses_not_found(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.record_result("ghost", "c", [],
+                                        _controller_actor())
+                self.assertEqual(ctx.exception.reason, "not-found")
+
+    def test_record_verification_sets_verified_or_rejected_without_touching_the_unit(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                self._ready_unit(store, actor)
+                store.claim_unit("u1", "f1", actor)
+                did = store.record_dispatch("u1", 1, 1, "f1", "s", actor)
+                store.record_result(did, "done", [], actor)
+                out = store.record_verification(did, 0, "pass", True, actor)
+                self.assertEqual(out["status"], "VERIFIED")
+                u1 = store.list_units(
+                    store.get_run("p1", raw=True)["run_id"])[0]
+                self.assertEqual(
+                    u1["status"], "RESULT_IN",
+                    "record_verification must NOT itself mark the unit "
+                    "done; the engine calls mark_unit_done separately")
+                d2 = store.list_dispatches("u1", raw=True)
+                self.assertEqual(d2[0]["status"], "VERIFIED")
+                self.assertEqual(d2[0]["done_check_exit"], 0)
+
+    def test_record_verification_rejected_sets_dispatch_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                self._ready_unit(store, actor)
+                store.claim_unit("u1", "f1", actor)
+                did = store.record_dispatch("u1", 1, 1, "f1", "s", actor)
+                store.record_result(did, "done", [], actor)
+                out = store.record_verification(did, 1, "fail", False, actor)
+                self.assertEqual(out["status"], "REJECTED")
+
+    def test_record_verification_refuses_not_found(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.record_verification("ghost", 0, "pass", True,
+                                              _controller_actor())
+                self.assertEqual(ctx.exception.reason, "not-found")
+
+    def test_mark_unit_done_requires_result_in_or_verifying_and_refuses_a_double_accept(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                self._ready_unit(store, actor)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.mark_unit_done("u1", "cp1", actor)
+                self.assertEqual(ctx.exception.reason, "unit-not-verifiable")
+
+                did = store.record_dispatch("u1", 1, 1, "f1", "s", actor)
+                store.record_result(did, "done", [], actor)
+                store.record_verification(did, 0, "pass", True, actor)
+                cp = store.record_checkpoint("p1", "ctrl1", "unit-green",
+                                             "u1", "s", actor)
+                out = store.mark_unit_done("u1", cp, actor)
+                self.assertEqual(out, {"unit_id": "u1", "status": "DONE"})
+
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.mark_unit_done("u1", cp, actor)
+                self.assertEqual(ctx.exception.reason, "unit-not-verifiable")
+
+    def test_mark_unit_done_refuses_not_found(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.mark_unit_done("ghost", "cp1", _controller_actor())
+                self.assertEqual(ctx.exception.reason, "not-found")
+
+    def test_mark_unit_failed_retries_once_then_escalates_to_failed(self):
+        """The circuit breaker's own store-level half (design step 17):
+        retry_ceiling defaults to 1, so a first failure returns to READY
+        and a SECOND failure on the same unit reaches FAILED, never a
+        third dispatch."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                self._ready_unit(store, actor)
+                out1 = store.mark_unit_failed("u1", actor, "attempt 1 failed")
+                self.assertEqual(out1, {"unit_id": "u1", "status": "READY",
+                                        "retry_count": 1})
+                out2 = store.mark_unit_failed("u1", actor, "attempt 2 failed")
+                self.assertEqual(out2, {"unit_id": "u1", "status": "FAILED",
+                                        "retry_count": 2})
+
+    def test_mark_unit_failed_refuses_not_found(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.mark_unit_failed("ghost", _controller_actor(), "r")
+                self.assertEqual(ctx.exception.reason, "not-found")
+
+
+class TestControllerLaneBlocking(unittest.TestCase):
+    def test_block_then_unblock_a_lane(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                store.upsert_units(
+                    run["run_id"],
+                    [_unit("u1", lane="release"),
+                     _unit("u2", lane="release", dependencies=["u1"])],
+                    actor)
+                out = store.block_lane_units(run["run_id"], "release", actor)
+                self.assertEqual(out, {"count": 2},
+                                 "u1 is READY and u2 is PENDING; both are "
+                                 "selectable statuses and both belong to "
+                                 "the release lane")
+                by_id = {u["unit_id"]: u for u in
+                        store.list_units(run["run_id"])}
+                self.assertEqual(by_id["u1"]["status"], "BLOCKED")
+                self.assertEqual(by_id["u2"]["status"], "BLOCKED")
+
+                out2 = store.unblock_lane_units(run["run_id"], "release",
+                                                actor)
+                self.assertEqual(out2, {"count": 2})
+                by_id2 = {u["unit_id"]: u for u in
+                         store.list_units(run["run_id"])}
+                self.assertEqual(by_id2["u1"]["status"], "READY")
+                self.assertEqual(by_id2["u2"]["status"], "PENDING",
+                                 "u2's dependency u1 is not DONE, so "
+                                 "unblocking recomputes it back to PENDING, "
+                                 "not READY")
+
+    def test_block_lane_units_refuses_not_found(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.block_lane_units("ghost", "release",
+                                           _controller_actor())
+                self.assertEqual(ctx.exception.reason, "not-found")
+
+    def test_unblock_lane_units_refuses_not_found(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.unblock_lane_units("ghost", "release",
+                                             _controller_actor())
+                self.assertEqual(ctx.exception.reason, "not-found")
+
+
+class TestControllerReads(unittest.TestCase):
+    def test_get_run_returns_the_most_recent_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                _seed(store)
+                _sign(store)
+                r1 = store.open_run("p1", "ctrl1", 1, "o", "d", "f1", "s",
+                                    actor)
+                for s in ("STOPPING", "STOPPED"):
+                    store.set_run_state(r1["run_id"], s, actor, "r", "s")
+                r2 = store.open_run("p1", "ctrl2", 1, "o", "d", "f2", "s",
+                                    actor)
+                got = store.get_run("p1", raw=True)
+                self.assertEqual(got["run_id"], r2["run_id"])
+
+    def test_get_run_returns_none_when_the_project_never_had_one(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                self.assertIsNone(store.get_run("p1"))
+
+    def test_list_units_narrows_by_status_and_lane(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                store.upsert_units(
+                    run["run_id"],
+                    [_unit("u1", lane="code"), _unit("u2", lane="docs")],
+                    actor)
+                self.assertEqual(
+                    {u["unit_id"] for u in
+                     store.list_units(run["run_id"], lane="docs")},
+                    {"u2"})
+                self.assertEqual(
+                    {u["unit_id"] for u in
+                     store.list_units(run["run_id"], status="READY")},
+                    {"u1", "u2"})
+
+    def test_list_dispatches_orders_by_attempt(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                store.upsert_units(run["run_id"], [_unit("u1")], actor)
+                store.claim_unit("u1", "f1", actor)
+                store.record_dispatch("u1", 1, 1, "f1", "s", actor)
+                store.mark_unit_failed("u1", actor, "no")
+                store.claim_unit("u1", "f1", actor)
+                store.record_dispatch("u1", 2, 1, "f1", "s", actor)
+                attempts = [d["attempt"] for d in
+                           store.list_dispatches("u1", raw=True)]
+                self.assertEqual(attempts, [1, 2])
+
+    def test_readonly_store_exposes_the_four_reads_and_no_write_method_at_all(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                store.upsert_units(run["run_id"], [_unit("u1")], actor)
+            with bs.ReadOnlyStore(d) as ro:
+                self.assertIsNotNone(ro.get_run("p1"))
+                self.assertEqual(len(ro.list_units(run["run_id"])), 1)
+                self.assertEqual(len(ro.select_ready_units(run["run_id"])), 1)
+                self.assertEqual(ro.list_dispatches("u1"), [])
+                for name in ("open_run", "set_run_state", "upsert_units",
+                            "claim_unit", "record_dispatch",
+                            "record_result", "record_verification",
+                            "mark_unit_done", "mark_unit_failed",
+                            "block_lane_units", "unblock_lane_units"):
+                    self.assertFalse(
+                        hasattr(ro, name),
+                        "%s must not be defined on ReadOnlyStore at all"
+                        % name)
+
+
+class TestControllerPurgeLeavesNoOrphans(unittest.TestCase):
+    def test_purge_removes_every_controller_row_across_all_three_tables(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                store.upsert_units(run["run_id"], [_unit("u1")], actor)
+                store.claim_unit("u1", "f1", actor)
+                store.record_dispatch("u1", 1, 1, "f1", "s", actor)
+
+                for t in bs._TABLES_CONTROLLER:
+                    count = store.conn.execute(
+                        "SELECT COUNT(*) c FROM %s WHERE project_id='p1'"
+                        % t).fetchone()["c"]
+                    self.assertGreater(count, 0,
+                                       "%s must be seeded before the "
+                                       "purge proves it empties" % t)
+
+                removed = store.purge_project("p1", actor, "p1")
+                for t in bs._TABLES_CONTROLLER:
+                    self.assertIn(t, removed)
+                    self.assertGreater(removed[t], 0)
+
+                for t in bs._TABLES_CONTROLLER:
+                    count = store.conn.execute(
+                        "SELECT COUNT(*) c FROM %s WHERE project_id='p1'"
+                        % t).fetchone()["c"]
+                    self.assertEqual(count, 0,
+                                     "%s must have zero rows for 'p1' "
+                                     "after purge" % t)
+
+
+# ---------------------------------------------------------------------------
+# L03 round 4, the STORE half (design docs/program/absolute-lead/evidence/
+# L03/DESIGN-round4.md sections 5, 8.1, 8.3, 12.2, 12.3, 12.4 and 15.2,
+# written against REFUTATION-3-authorization.md and
+# REFUTATION-3-liveness.md). Eight classes, every one of them written and
+# run against the UNTOUCHED store first, with the failing output captured
+# to docs/program/absolute-lead/evidence/L03/RED-round4-store.txt.
+#
+# One of the eight, TestGlobNarrowingBreaksNothingElse, is a CONTROL and is
+# green before AND after by design, the same role AZ's own C1b control
+# plays in the controller suite: its job is to fail if the glob narrowing
+# takes anything with it that it was not meant to take.
+# ---------------------------------------------------------------------------
+
+def _gate_verdicts(case, allowed, rows, project_id="p1"):
+    """Assert one gate_check verdict per (candidate, expected) row against
+    a freshly signed contract whose allowed_paths is `allowed`. gate_check
+    is the surface, not path_within_allowed, because gate_check is what
+    bm-autonomy gate-check prints and what the controller branches on
+    (design section 5.3: 'every row is a gate_check verdict')."""
+    with tempfile.TemporaryDirectory() as d:
+        with bs.Store(d) as store:
+            _seed(store, project_id)
+            _sign(store, project_id=project_id, allowed_paths=list(allowed),
+                  risk_classes=["file-edit"])
+            for path, want in rows:
+                got = store.gate_check(project_id, "file-edit", path=path)
+                case.assertEqual(
+                    got["verdict"], want,
+                    "allowed_paths %r, candidate %r must be %s, got %s (%s)"
+                    % (list(allowed), path, want, got["verdict"],
+                       got["reason"]))
+
+
+class TestGlobAllowedPathsAreDepthExact(unittest.TestCase):
+    """AZ F-A2 (REFUTATION-3-authorization.md, probe authz/
+    a2_glob_widening.py): a glob in allowed_paths reduced to its LITERAL
+    PREFIX DIRECTORY via _coverage_key, so ['api/*.py'] authorised the
+    directory itself, every file under it at any depth, and (because a
+    leading wildcard has the EMPTY prefix, tools/bm_store.py:510 to 517)
+    ['*.py'] authorised the entire project including the terraform state
+    and the env file. Design section 5.1: a glob is matched SEGMENT BY
+    SEGMENT with fnmatch.fnmatchcase and is DEPTH EXACT, so it grants
+    exactly what it matches at its own depth and nothing else. A plain
+    path still grants its whole subtree, which is the recursive spelling."""
+
+    def test_a_directory_glob_admits_only_its_own_directory_at_its_own_depth(self):
+        _gate_verdicts(self, ["api/*.py"], (
+            ("api/pay.py", "ALLOWED"),
+            # _to_posix already converges the spellings before the rule
+            # runs (design 5.3), so a trailing slash is the same candidate.
+            ("api/pay.py/", "ALLOWED"),
+            ("api/*.py", "ALLOWED"),
+            ("api/notes.md", "REFUSED-SCOPE"),
+            ("api", "REFUSED-SCOPE"),
+            ("api/sub/deep/secrets.env", "REFUSED-SCOPE"),
+            ("api/*", "REFUSED-SCOPE"),
+            # '**' is NOT recursive under this rule: the recursive
+            # spelling is the plain directory 'api'.
+            ("api/**", "REFUSED-SCOPE"),
+            ("other/x.py", "REFUSED-SCOPE"),
+            (".", "REFUSED-SCOPE")))
+
+    def test_a_leading_wildcard_does_not_escape_its_own_directory(self):
+        _gate_verdicts(self, ["*.py"], (
+            ("main.py", "ALLOWED"),
+            ("secrets.env", "REFUSED-SCOPE"),
+            ("src/prod/db.sql", "REFUSED-SCOPE"),
+            ("infra/terraform/prod.tfstate", "REFUSED-SCOPE"),
+            (".github/workflows/ci.yml", "REFUSED-SCOPE"),
+            (".", "REFUSED-SCOPE")))
+
+    def test_a_bare_star_is_one_segment_and_a_directory_glob_is_one_level(self):
+        _gate_verdicts(self, ["*"], (
+            ("main.py", "ALLOWED"),
+            ("src", "ALLOWED"),
+            ("src/a.py", "REFUSED-SCOPE")))
+        _gate_verdicts(self, ["src/*"], (
+            ("src/app", "ALLOWED"),
+            ("src/app/main.py", "REFUSED-SCOPE"),
+            ("src", "REFUSED-SCOPE")))
+
+    def test_a_wildcard_segment_matches_one_segment_character_for_character(self):
+        _gate_verdicts(self, ["src/*/main.py"], (
+            ("src/app/main.py", "ALLOWED"),
+            ("src/main.py", "REFUSED-SCOPE")))
+        _gate_verdicts(self, ["src/?.py"], (
+            ("src/a.py", "ALLOWED"),
+            ("src/ab.py", "REFUSED-SCOPE")))
+        _gate_verdicts(self, ["src/[ab].py"], (
+            ("src/a.py", "ALLOWED"),
+            ("src/c.py", "REFUSED-SCOPE")))
+
+
+class TestGlobNarrowingBreaksNothingElse(unittest.TestCase):
+    """The CONTROL for the class above, and the reason it is here is that
+    the containment property AZ proved over 6682 triples lives in the
+    NON-GLOB branch, which design section 5.1 leaves behaviourally
+    identical (for a non-glob na, _coverage_key(na) IS na). Green before
+    the change and green after it: a failure here means the glob narrowing
+    took a plain path with it. Rows come from design section 5.3 and from
+    the 18-spelling matrix LV ran (REFUTATION-3-liveness.md, p10)."""
+
+    def test_a_plain_allowed_path_still_grants_its_whole_subtree(self):
+        _gate_verdicts(self, ["src"], (
+            ("src", "ALLOWED"),
+            ("src/a.py", "ALLOWED"),
+            ("src/app/deep/x.py", "ALLOWED"),
+            (".", "REFUSED-SCOPE"),
+            ("srcx", "REFUSED-SCOPE"),
+            ("src_secrets/keys.py", "REFUSED-SCOPE")))
+        _gate_verdicts(self, ["src/app"], (
+            ("src/app", "ALLOWED"),
+            ("src/app/main.py", "ALLOWED"),
+            ("src", "REFUSED-SCOPE")))
+        _gate_verdicts(self, ["."], (
+            (".", "ALLOWED"),
+            ("src", "ALLOWED"),
+            ("src/app/main.py", "ALLOWED"),
+            ("secrets.env", "ALLOWED")))
+
+    def test_every_spelling_of_the_same_path_keeps_its_verdict(self):
+        for allowed in (["src"], ["src/"], ["./src"], ["src/."]):
+            _gate_verdicts(self, allowed, (
+                ("src/a.py", "ALLOWED"),
+                ("./src/a.py", "ALLOWED"),
+                ("src/./a.py", "ALLOWED"),
+                ("src//a.py", "ALLOWED"),
+                ("src/a.py/", "ALLOWED"),
+                ("src/sub/../a.py", "ALLOWED"),
+                ("other/a.py", "REFUSED-SCOPE")))
+        if sys.platform in bs._CASE_INSENSITIVE_PLATFORMS:
+            # _normcase folds case only where the filesystem does (GATE 2
+            # and GATE 3, tools/bm_store.py:462 to 485), so this row is
+            # asserted on exactly those platforms and nowhere else.
+            _gate_verdicts(self, ["SRC"], (("src/a.py", "ALLOWED"),))
+
+
+class TestGateCheckReturnsAVerdictInsteadOfRaising(unittest.TestCase):
+    """AZ F-A5 (REFUTATION-3-authorization.md): gate_check calls
+    canonicalize_path (tools/bm_store.py:12625), which RAISES
+    OwnershipRefused 'path-escape' for anything resolving outside the root
+    (including through a symlink created after the plan was written) and
+    ValueError('empty path') for an empty one. _gate_check_one_pass
+    (tools/bm_controller.py:995) calls it in a bare loop, so the raise
+    wedged a whole run in EXECUTING. Design section 5.4: the refusal
+    becomes a REFUSED-SCOPE VERDICT, using the store's own total path
+    coercion (_coerce_path_entry) and NOT a new verdict word, because the
+    verdict set is a founder-facing closed vocabulary that three call sites
+    branch on."""
+
+    def _refused(self, store, path):
+        gc = store.gate_check("p1", "file-edit", path=path)
+        self.assertEqual(
+            gc["verdict"], "REFUSED-SCOPE",
+            "an unreadable path is a refusal, never a raise: %r" % (path,))
+        self.assertIsNotNone(gc["contract_id"])
+        self.assertEqual(gc["revision"], 1)
+        return gc
+
+    def test_a_symlink_out_of_the_root_created_after_the_plan_is_a_refusal(self):
+        with tempfile.TemporaryDirectory() as d:
+            with tempfile.TemporaryDirectory() as outside:
+                with bs.Store(d) as store:
+                    _seed(store)
+                    _sign(store, allowed_paths=["."],
+                          risk_classes=["file-edit"])
+                    os.symlink(outside, os.path.join(d, "escape"))
+                    gc = self._refused(store, "escape/x.py")
+                    self.assertIn("escape", gc["reason"])
+
+    def test_a_non_string_path_is_a_refusal(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["."], risk_classes=["file-edit"])
+                self._refused(store, 5)
+
+    def test_an_empty_path_is_a_refusal(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["."], risk_classes=["file-edit"])
+                self._refused(store, "")
+
+
+class TestGateCheckVerdictComesFromOneContractRead(unittest.TestCase):
+    """AZ F-A9 (REFUTATION-3-authorization.md, probe authz/
+    d1_stamp_races.py D1.5): gate_check read the contract at
+    tools/bm_store.py:12586 and then called spend_totals, which took its
+    OWN _latest_contract_row read for the ceilings, so a supersede landing
+    between the two produced one verdict whose class and path halves came
+    from revision N and whose breaker half came from revision N+1, stamped
+    revision N. Design section 5.5: every field of a verdict comes from ONE
+    row, which is what the docstring at 12583 to 12585 already promises."""
+
+    def test_a_supersede_between_the_reads_cannot_mix_one_verdict(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _autonomy_actor()
+                _seed(store)
+                _sign(store, allowed_paths=["src"],
+                      risk_classes=["file-edit"], token_ceiling=10)
+                store.record_spend("p1", 50, 0, "burned", "sess1", actor)
+                baseline = store.gate_check("p1", "file-edit",
+                                            path="src/a.py")
+                self.assertEqual(
+                    baseline["verdict"], "REFUSED-BREAKER",
+                    "revision 1 alone (ceiling 10, spend 50) is a tripped "
+                    "breaker; that is the verdict the raced call must also "
+                    "produce")
+
+                real = bs._latest_contract_row
+                state = {"calls": 0, "fired": False}
+
+                def racing(store_arg, project_id):
+                    # The concurrent writer is injected into gate_check's
+                    # own SECOND contract read, exactly as AZ's D1.5 probe
+                    # does it. Once the verdict is formed from ONE read
+                    # there is no second read to race, so nothing fires.
+                    state["calls"] += 1
+                    if state["calls"] == 2 and not state["fired"]:
+                        state["fired"] = True
+                        _sign(store, allowed_paths=["src"],
+                              risk_classes=["file-edit"],
+                              token_ceiling=100000, supersede=True)
+                    return real(store_arg, project_id)
+
+                with mock.patch.object(bs, "_latest_contract_row", racing):
+                    raced = store.gate_check("p1", "file-edit",
+                                             path="src/a.py")
+                self.assertEqual(
+                    (raced["verdict"], raced["revision"]),
+                    ("REFUSED-BREAKER", 1),
+                    "a verdict stamped revision 1 must BE revision 1's "
+                    "verdict in every field, breaker included; got %r"
+                    % (raced,))
+
+
+class TestUpsertUnitsClosesTheSkippedLifecycle(unittest.TestCase):
+    """LV finding 4 and LV 2 (REFUTATION-3-liveness.md) plus AZ F-A4.
+    upsert_units marked a dropped unit SKIPPED and left everything else
+    about it alive: its dispatch stayed DISPATCHED, so a late result marked
+    the dead unit DONE, and its fence stayed active with nothing naming it.
+    A byte-identical re-plan, which is exactly what the escalation tells
+    the founder to do, did NOT bring the unit back, because the
+    reuse-untouched rule skipped it. Design sections 8.1, 8.3 and 12.3."""
+
+    def _run_with_two_units(self, store, actor):
+        run = _open_and_plan(store)
+        store.upsert_units(run["run_id"], [_unit("u1"), _unit("u2")], actor)
+        return run
+
+    def test_dropping_a_unit_cancels_its_open_dispatch_and_refuses_a_late_result(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = self._run_with_two_units(store, actor)
+                store.claim_unit("u1", "fence-u1", actor)
+                did = store.record_dispatch("u1", 1, 1, "fence-u1", "s",
+                                            actor)
+                out = store.upsert_units(run["run_id"], [_unit("u2")], actor)
+
+                by_id = {u["unit_id"]: u for u in
+                        store.list_units(run["run_id"])}
+                self.assertEqual(by_id["u1"]["status"], "SKIPPED")
+                self.assertEqual(out["skipped"], ["u1"])
+                self.assertEqual(out["cancelled_dispatches"], [did])
+                self.assertEqual(
+                    store.list_dispatches("u1", raw=True)[0]["status"],
+                    "CANCELLED",
+                    "a dropped unit's open dispatch is closed at the "
+                    "source, not left DISPATCHED for a late result to "
+                    "land on")
+                self.assertIn("CANCELLED", bs.CONTROLLER_DISPATCH_STATUSES)
+
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.record_result(did, "done", ["a.py"], actor)
+                self.assertEqual(ctx.exception.reason, "dispatch-cancelled")
+                self.assertEqual(
+                    by_id["u1"]["status"], "SKIPPED",
+                    "and the refusal changed nothing: the dropped unit is "
+                    "never marked DONE by a late result (LV finding 4)")
+
+    def test_the_dropped_units_still_held_fence_is_reported_to_the_caller(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = self._run_with_two_units(store, actor)
+                store.claim_unit("u1", "fence-u1", actor)
+                store.record_dispatch("u1", 1, 1, "fence-u1", "s", actor)
+                out = store.upsert_units(run["run_id"], [_unit("u2")], actor)
+                self.assertEqual(
+                    out["orphaned_fences"], [("u1", "fence-u1")],
+                    "releasing a fence means Store.transition, which opens "
+                    "its own transaction, so upsert_units REPORTS the "
+                    "orphan and the engine parks it (design 8.1)")
+                self.assertEqual(out["count"], 1)
+
+    def test_a_byte_identical_replan_revives_a_skipped_unit(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = self._run_with_two_units(store, actor)
+                store.mark_unit_failed("u1", actor, "attempt 1 failed")
+                before = {u["unit_id"]: u for u in
+                         store.list_units(run["run_id"], raw=True)}["u1"]
+                store.upsert_units(run["run_id"], [_unit("u2")], actor)
+                self.assertEqual(
+                    {u["unit_id"]: u for u in
+                     store.list_units(run["run_id"])}["u1"]["status"],
+                    "SKIPPED")
+
+                out = store.upsert_units(run["run_id"],
+                                         [_unit("u1"), _unit("u2")], actor)
+                u1 = {u["unit_id"]: u for u in
+                     store.list_units(run["run_id"], raw=True)}["u1"]
+                self.assertEqual(
+                    u1["status"], "READY",
+                    "a founder re-adding the unit is the founder undoing "
+                    "the drop; the identical definition hash is what makes "
+                    "it the SAME unit, not an argument for ignoring the "
+                    "request (LV 2)")
+                self.assertEqual(out["skipped"], [])
+                self.assertEqual(
+                    u1["retry_count"], before["retry_count"],
+                    "revival writes ONLY the status: those attempts really "
+                    "happened")
+                self.assertEqual(u1["definition_hash"],
+                                 before["definition_hash"])
+                self.assertEqual(u1["created_at"], before["created_at"])
+
+    def test_a_unit_id_another_project_already_holds_refuses_instead_of_raising(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run1 = _open_and_plan(store, project_id="p1")
+                store.upsert_units(run1["run_id"], [_unit("u1")], actor)
+                run2 = _open_and_plan(store, project_id="p2")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.upsert_units(run2["run_id"],
+                                       [_unit("u1"), _unit("u9")], actor)
+                self.assertEqual(ctx.exception.reason, "unit-id-taken")
+                self.assertIn("p1", str(ctx.exception))
+                self.assertEqual(
+                    store.list_units(run2["run_id"]), [],
+                    "the transaction rolls back whole: run 2 is left with "
+                    "zero units and a re-plan with fresh ids recovers")
+                self.assertEqual(store.get_run("p2", raw=True)["state"],
+                                 "PLANNING")
+
+
+class TestUpsertUnitsRefusesANonPathWriteScopeEntry(unittest.TestCase):
+    """AZ F-A8 (REFUTATION-3-authorization.md): upsert_units canonicalised
+    every write_scope entry at tools/bm_store.py:12897, and
+    canonicalize_path reaches _to_posix's (p or '').strip(), so a JSON
+    number, array, object or boolean raised an uncaught AttributeError
+    straight through the shipped `bm-controller plan`. Design section 12.4
+    routes the entry through _coerce_path_entry, the store's own TOTAL path
+    coercion, which already exists for exactly this class on the fence
+    side."""
+
+    def test_every_non_path_write_scope_entry_refuses_bad_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                for bad in ([5], [["a.py"]], [{"p": "a.py"}], [True]):
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        store.upsert_units(
+                            run["run_id"],
+                            [_unit("u1", write_scope=bad)], actor)
+                    self.assertEqual(
+                        ctx.exception.reason, "bad-path",
+                        "write_scope %r must refuse, never traceback"
+                        % (bad,))
+                    self.assertEqual(store.list_units(run["run_id"]), [],
+                                     "and nothing is written")
+
+
+class TestReleaseClaimedUnit(unittest.TestCase):
+    """LV 7 (REFUTATION-3-liveness.md, p13): a unit stranded between
+    claim_unit (tools/bm_store.py:13107) and record_dispatch (13129) held
+    an active fence with no dispatch row and no founder step naming it, and
+    the two round-3 in-flight helpers disagreed about whether it was in
+    flight at all. Design section 15.2 gives the engine the one store move
+    it needs to recover: back to PENDING or READY by dependency
+    satisfaction, fence linkage cleared, WITHOUT burning a retry the unit
+    never earned."""
+
+    def test_a_claimed_unit_returns_by_dependency_satisfaction_and_drops_its_fence(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                store.upsert_units(
+                    run["run_id"],
+                    [_unit("u1"), _unit("u2", dependencies=["u1"])], actor)
+                store.claim_unit("u1", "fence-u1", actor)
+                out = store.release_claimed_unit("u1", actor)
+                self.assertEqual(out, {"unit_id": "u1", "status": "READY"})
+                u1 = {u["unit_id"]: u for u in
+                     store.list_units(run["run_id"], raw=True)}["u1"]
+                self.assertIsNone(u1["fence_uuid"])
+                self.assertEqual(u1["retry_count"], 0,
+                                 "the unit never earned a retry: nothing "
+                                 "was ever dispatched")
+
+                store.claim_unit("u2", "fence-u2", actor)
+                self.assertEqual(
+                    store.release_claimed_unit("u2", actor)["status"],
+                    "PENDING",
+                    "u2's dependency u1 is not DONE, so it comes back "
+                    "PENDING, the same recomputation unblock_lane_units "
+                    "does")
+
+    def test_release_claimed_unit_refuses_a_unit_that_is_not_claimed(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                store.upsert_units(run["run_id"], [_unit("u1")], actor)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.release_claimed_unit("u1", actor)
+                self.assertEqual(ctx.exception.reason, "unit-not-claimed")
+                with self.assertRaises(bs.OwnershipRefused) as ctx2:
+                    store.release_claimed_unit("ghost", actor)
+                self.assertEqual(ctx2.exception.reason, "not-found")
+
+
+class TestGetDispatch(unittest.TestCase):
+    """SM K and AZ F-A3 (the same defect from two angles): receive_result
+    took project_id and dispatch_id as independent arguments and never
+    checked that the dispatch belonged to the named project's current run,
+    so a foreign id reached an uncaught TypeError AFTER the result and the
+    spend had already committed against the wrong contract. The dispatch
+    row already carries run_id and project_id (tools/bm_store.py:2502 to
+    2503), so the close is a READ, not a schema change (design 12.2)."""
+
+    def test_a_known_dispatch_id_returns_the_row_with_its_run_and_project(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                store.upsert_units(run["run_id"], [_unit("u1")], actor)
+                store.claim_unit("u1", "fence-u1", actor)
+                did = store.record_dispatch("u1", 1, 1, "fence-u1", "s",
+                                            actor)
+                row = store.get_dispatch(did, raw=True)
+                self.assertEqual(row["dispatch_id"], did)
+                self.assertEqual(row["unit_id"], "u1")
+                self.assertEqual(row["run_id"], run["run_id"])
+                self.assertEqual(row["project_id"], "p1")
+                self.assertEqual(row["status"], "DISPATCHED")
+                self.assertEqual(row["attempt"], 1)
+                self.assertEqual(row["result_artifacts"], [],
+                                 "decoded the same way list_dispatches "
+                                 "decodes it")
+
+    def test_an_unknown_dispatch_id_is_none_and_the_read_only_store_shares_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                self.assertIsNone(store.get_dispatch("ghost"))
+            with bs.ReadOnlyStore(d) as ro:
+                self.assertIsNone(ro.get_dispatch("ghost"))
+                self.assertFalse(
+                    hasattr(ro, "release_claimed_unit"),
+                    "release_claimed_unit is a WRITE and must not be "
+                    "defined on ReadOnlyStore at all")
+
+
+# ---------------------------------------------------------------------------
+# L03 round 5, the STORE half, written against
+# docs/program/absolute-lead/evidence/L03/REFUTATION-4-authorization.md
+# findings F1 and F3 (one root cause: a write scope that is a PATTERN), F2
+# (a run id used as an independent argument, so one project's command wrote
+# another project's run) and F11 (_coerce_path_entry documented TOTAL and
+# not). Every class below was written FIRST and run against the UNTOUCHED
+# tools/bm_store.py, with the failing output captured to
+# docs/program/absolute-lead/evidence/L03/RED-round5-store.txt.
+# ---------------------------------------------------------------------------
+
+#: Write-scope spellings that are PATTERNS, not paths. Every one of them was
+#: accepted by upsert_units before this round, and every one reduced, at the
+#: fence and at the hook, to its literal prefix directory.
+_GLOB_SCOPE_SPELLINGS = ("*.py", "*", "**", "src/*", "src/**", "api/*.py",
+                         "src/?pp", "src/[a]pp", "[ab].py", "?")
+
+
+class TestWriteScopeEntriesAreLiteralPaths(unittest.TestCase):
+    """AZ F1 and F3 (REFUTATION-4-authorization.md), one root cause.
+
+    Round 4 narrowed the glob rule on the side that ASKS (which candidate
+    strings path_within_allowed admits) and left every reader of the
+    admitted string on the coverage-key reduction. So a unit that DECLARED
+    the same glob its contract declares was ALLOWED, the engine claimed a
+    fence over that glob, and tools/bm_fence_hook.py:637 read the claim back
+    through paths_overlap, which reduces it to its LITERAL PREFIX: for
+    write_scope ['*.py'] that prefix is the EMPTY string, which
+    _prefix_contains treats as the root, so one fence covered the whole
+    project, terraform state and env file included. The damage is not
+    bookkeeping: _rollback_command composes `git restore -- '*.py'` from the
+    same list, and git pathspec globbing IS recursive, so the engine's own
+    rollback destroyed uncommitted work at depths the round-4 rule says the
+    glob never granted (F1, reproductions 2 and 3).
+
+    F3 is the same defect seen from the path resolver: canonicalize_path
+    resolves only the LITERAL PREFIX of a glob and appends the wildcard tail
+    verbatim, so _resolve_against_root (the ONLY caller of os.path.realpath)
+    never sees anything under a wildcard. 'src/[a]pp' matches exactly one
+    path, 'src/app', and was accepted where naming 'src/app' refuses
+    'path-escape'. Any refused path could be re-spelled as a character class
+    matching only itself.
+
+    The rule these tests pin: a WRITE SCOPE entry (what a unit declares it
+    will write, and therefore what its fence claims and what its rollback
+    names) is a LITERAL PATH. A pattern is refused where it ENTERS the
+    store, with the remedy in the sentence: name the files. The
+    founder-authored ALLOWANCE side is deliberately untouched: a contract
+    may still grant 'api/*.py', because that is the founder drawing a
+    boundary, not a worker naming its own."""
+
+    def test_every_glob_metacharacter_is_refused_at_declaration(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                for spelling in _GLOB_SCOPE_SPELLINGS:
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        store.upsert_units(
+                            run["run_id"],
+                            [_unit("u1", write_scope=[spelling])], actor)
+                    self.assertEqual(
+                        ctx.exception.reason, "glob-write-scope",
+                        "write_scope %r is a pattern, not a path, and must "
+                        "refuse at declaration" % (spelling,))
+                    self.assertEqual(
+                        store.list_units(run["run_id"]), [],
+                        "and nothing is written: the whole plan rolls back")
+
+    def test_the_refusal_names_the_entry_the_unit_and_the_remedy(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.upsert_units(
+                        run["run_id"],
+                        [_unit("u1", write_scope=["src/*.py"])], actor)
+                msg = str(ctx.exception)
+                self.assertIn("src/*.py", msg)
+                self.assertIn("u1", msg)
+                self.assertIn("name the files", msg,
+                              "a refusal a founder cannot act on is a "
+                              "refusal that gets worked around")
+                self.assertEqual(ctx.exception.details.get("entry"),
+                                 "src/*.py")
+
+    def test_a_literal_write_scope_is_accepted_exactly_as_before(self):
+        """The CONTROL. Every spelling here reaches the store unchanged, so
+        a failure means the pattern refusal took a real path with it."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                store.upsert_units(
+                    run["run_id"],
+                    [_unit("u1", write_scope=["src/app/main.py", "docs",
+                                              "./api/pay.py", "a.py"])],
+                    actor)
+                unit = {u["unit_id"]: u for u in
+                        store.list_units(run["run_id"], raw=True)}["u1"]
+                self.assertEqual(
+                    unit["write_scope"],
+                    ["src/app/main.py", "docs", "api/pay.py", "a.py"],
+                    "canonicalize_path still converges './api/pay.py' and "
+                    "'api/pay.py', and nothing else about a literal entry "
+                    "moved")
+
+    def test_a_character_class_can_no_longer_re_spell_a_path_that_escapes(self):
+        """F3's bypass primitive, closed at the source. 'src/app' is a
+        symlink out of the project; naming it refuses 'path-escape' because
+        _resolve_against_root realpaths it. 'src/[a]pp' matches that one
+        path and nothing else, and used to be accepted because the resolver
+        stops at the literal prefix. Both spellings now refuse; the
+        permissive one is gone rather than the strict one loosened."""
+        with tempfile.TemporaryDirectory() as outside:
+            with tempfile.TemporaryDirectory() as d:
+                os.makedirs(os.path.join(d, "src"))
+                os.symlink(outside, os.path.join(d, "src", "app"))
+                with bs.Store(d) as store:
+                    actor = _controller_actor()
+                    run = _open_and_plan(store)
+                    with self.assertRaises(bs.OwnershipRefused) as direct:
+                        store.upsert_units(
+                            run["run_id"],
+                            [_unit("u1", write_scope=["src/app"])], actor)
+                    self.assertEqual(direct.exception.reason, "path-escape")
+                    for respelling in ("src/[a]pp", "src/?pp", "src/*"):
+                        with self.assertRaises(bs.OwnershipRefused) as ctx:
+                            store.upsert_units(
+                                run["run_id"],
+                                [_unit("u1", write_scope=[respelling])],
+                                actor)
+                        self.assertEqual(
+                            ctx.exception.reason, "glob-write-scope",
+                            "%r names the escaping directory and must not "
+                            "be the permissive spelling of it" % respelling)
+                    self.assertEqual(store.list_units(run["run_id"]), [])
+
+    def test_the_whole_project_grant_needs_a_glob_no_unit_can_declare(self):
+        """AZ F1 reproduction 3, end to end in the store: contract
+        allowed_paths ['*.py'], one unit whose write_scope is the same
+        glob. The contract keeps its meaning (that is the founder's
+        boundary); the unit cannot spell its scope that way, so nothing
+        reaches a fence whose literal prefix is the empty string."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                _seed(store, "p1")
+                _sign(store, project_id="p1", allowed_paths=["*.py"],
+                      risk_classes=["file-edit", "file-create"], actor=actor)
+                run = store.open_run("p1", "ctrl1", 1, "ship it",
+                                     "tests green", "fence-ctrl-1", "sess1",
+                                     actor)
+                store.set_run_state(run["run_id"], "ORIENTING", actor, "b",
+                                    "sess1")
+                store.set_run_state(run["run_id"], "PLANNING", actor, "p",
+                                    "sess1")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.upsert_units(
+                        run["run_id"],
+                        [_unit("u1", write_scope=["*.py"])], actor)
+                self.assertEqual(ctx.exception.reason, "glob-write-scope")
+                # The literal spelling the contract really grants still
+                # works, and what it grants is one file, not the project.
+                store.upsert_units(
+                    run["run_id"],
+                    [_unit("u1", write_scope=["main.py"])], actor)
+                self.assertEqual(
+                    store.gate_check("p1", "file-edit",
+                                     path="main.py")["verdict"], "ALLOWED")
+                for outside in ("infra/terraform/prod.tfstate",
+                                ".git/config", "src/app/main.py",
+                                "secrets.env"):
+                    self.assertEqual(
+                        store.gate_check("p1", "file-edit",
+                                         path=outside)["verdict"],
+                        "REFUSED-SCOPE",
+                        "%r is not what the pattern literally matches"
+                        % outside)
+
+
+def _fence_covers(claim, f):
+    """Does a write-scope entry, once claimed as a fence, cover file `f`?
+
+    This is the DIRECTIONAL half of paths_overlap, which is what
+    tools/bm_fence_hook.py:637 is really asking when it decides whether a
+    write is inside a claim: the claim's coverage key contains the written
+    path. Written out of the store's own primitives rather than reimplemented,
+    so the property below measures the shipped semantics and not a model of
+    them."""
+    ka = bs._coverage_key(bs._normcase(bs._to_posix(claim)))
+    return bs._prefix_contains(ka, bs._normcase(bs._to_posix(f)))
+
+
+class TestGlobAllowancesGrantOnlyWhatTheyLiterallyMatch(unittest.TestCase):
+    """The round-3 property search, re-run against the rule this round
+    lands. gate_check's own docstring states the property a reader may hold
+    it to: a path this check ALLOWS can never name a file that a directly
+    named path would be REFUSED for. AZ's probe p9 found 5119 violations of
+    it over 23595 triples, every single one with a GLOB allowed path and
+    none with a non-glob one, and the violations divide in two:
+
+      1. the CANDIDATE is itself a glob ('*.py' admitted by ['*.py'], whose
+         fence claim then covers the whole project). Those are closed at
+         the source by this round: no unit can DECLARE a pattern any more,
+         so the sweep below runs over the declarable universe, literal
+         paths, and asserts separately that every glob spelling is refused.
+      2. the candidate is a plain DIRECTORY at the glob's own depth
+         ('src/app' admitted by ['src/*'], whose subtree the fence then
+         covers while gate_check refuses 'src/app/main.py' by name). This
+         one SURVIVES, because closing it means moving a verdict that
+         tools/test_bm_store.py's own round-4 matrix pins in both
+         directions, and an existing test is law. This class therefore
+         CHARACTERISES the residual instead of asserting it away: zero
+         violations under a non-glob allowance, and every surviving
+         violation is exactly that shape. It stays green if a later round
+         removes them all, and goes red the moment a violation of any OTHER
+         shape appears, which is the guard worth having."""
+
+    #: One and two segment paths built from these, on both sides.
+    _LITERAL_TOKENS = ("src", "app", "api", "a.py", "b.py", "secrets.env")
+    _GLOB_TOKENS = ("*", "?pp", "[ab]", "*.py", "**")
+    _FILES = ("src/app/main.py", "src/app/deep/keys.pem", "src/a.py",
+              "api/pay.py", "api/sub/deep/secrets.env", "a.py", "b.py",
+              "secrets.env", "app/b.py", "src")
+
+    def _paths(self, tokens):
+        out = list(tokens)
+        for a in tokens:
+            for b in tokens:
+                out.append("%s/%s" % (a, b))
+        return out
+
+    def test_no_declarable_path_names_a_file_its_contract_refuses(self):
+        allowed = self._paths(self._LITERAL_TOKENS + self._GLOB_TOKENS)
+        candidates = self._paths(self._LITERAL_TOKENS)
+        triples = 0
+        violations = []
+        for a in allowed:
+            for b in candidates:
+                if not bs.path_within_allowed(a, b):
+                    triples += len(self._FILES)
+                    continue
+                for f in self._FILES:
+                    triples += 1
+                    if (_fence_covers(b, f)
+                            and not bs.path_within_allowed(a, f)):
+                        violations.append((a, b, f))
+        self.assertGreater(triples, 20000,
+                           "the sweep must be exhaustive, not a sample")
+        self.assertEqual(
+            [v for v in violations if not bs._has_glob(v[0])], [],
+            "a NON-GLOB allowance still grants exactly its subtree: this is "
+            "the 6682-triple containment property AZ proved, and nothing in "
+            "this round may touch it")
+        for a, b, f in violations:
+            self.assertTrue(bs._has_glob(a))
+            self.assertEqual(
+                len(a.split("/")), len(b.split("/")),
+                "the residual is depth-exact admission (%r admits %r) "
+                "followed by subtree coverage; a violation at any other "
+                "depth is a NEW hole, not the disclosed one" % (a, b))
+            self.assertTrue(
+                bs._normcase(bs._to_posix(f)).startswith(
+                    bs._normcase(bs._to_posix(b)) + "/"),
+                "the file is strictly UNDER the admitted directory (%r, "
+                "%r, %r)" % (a, b, f))
+
+    def test_every_pattern_spelling_is_undeclarable_so_the_sweep_is_complete(self):
+        """The sweep above runs over literal candidates only. That is
+        legitimate exactly because a pattern can no longer be declared as a
+        write scope, which this test proves at the store's own entry gate
+        rather than assuming."""
+        for token in self._GLOB_TOKENS:
+            for spelling in (token, "src/%s" % token, "%s/app" % token):
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    bs.literal_scope_entry(spelling, unit_id="u1")
+                self.assertEqual(ctx.exception.reason, "glob-write-scope")
+        for ok in ("src", "src/app", "src/app/main.py", "a.py", "."):
+            self.assertEqual(bs.literal_scope_entry(ok, unit_id="u1"), ok)
+
+    def test_a_leading_wildcard_allowance_admits_only_its_own_depth(self):
+        """AZ F-A2's sentence, now true of everything that can reach a
+        fence: ['*.py'] admits a single-segment name the pattern matches,
+        and nothing else."""
+        admitted = [b for b in self._paths(self._LITERAL_TOKENS)
+                    if bs.path_within_allowed("*.py", b)]
+        self.assertEqual(sorted(admitted), ["a.py", "b.py"])
+        for b in admitted:
+            self.assertNotIn("/", b)
+            self.assertEqual(bs._coverage_key(b), b,
+                             "a literal claim's coverage key is the claim "
+                             "itself, never the empty root prefix")
+
+
+class TestRunScopedWritesRefuseAForeignProject(unittest.TestCase):
+    """AZ F2 (REFUTATION-4-authorization.md). `bm-controller plan --project
+    p1 --run <p2's run id>` checked its PAUSED guard against p1's current
+    run and then wrote p2's: the foreign run left PAUSED (law L1 says only
+    `resume` does that), its open dispatch was CANCELLED, its fence was
+    parked and its unit graph was replaced by another project's units. The
+    store could not have stopped it, because no store entry point took a
+    project id and a run id together and compared them.
+
+    The rule these tests pin: any store write that resolves a run from a
+    caller-supplied id accepts the project the caller BELIEVES it is
+    working on, and refuses 'run-not-in-project' before touching anything
+    when the two disagree. Omitting the project id keeps the previous
+    behaviour exactly, so this is additive; passing it is what makes the
+    engine's own belief checkable at the one place that writes."""
+
+    def _two_projects(self, store, actor):
+        run1 = _open_and_plan(store, project_id="p1")
+        run2 = _open_and_plan(store, project_id="p2")
+        store.upsert_units(run2["run_id"], [_unit("v1")], actor)
+        store.claim_unit("v1", "fence-v1", actor)
+        did = store.record_dispatch("v1", 1, 1, "fence-v1", "sess1", actor)
+        store.set_run_state(run2["run_id"], "EXECUTING", actor, "go", "s")
+        store.set_run_state(run2["run_id"], "PAUSED", actor, "founder", "s")
+        return run1, run2, did
+
+    def test_a_plan_aimed_at_one_project_cannot_rewrite_another_ones_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run1, run2, did = self._two_projects(store, actor)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.upsert_units(run2["run_id"], [_unit("u9")], actor,
+                                       project_id="p1")
+                self.assertEqual(ctx.exception.reason, "run-not-in-project")
+                self.assertIn("p1", str(ctx.exception))
+                self.assertIn("p2", str(ctx.exception))
+
+                self.assertEqual(
+                    store.get_run("p2", raw=True)["state"], "PAUSED",
+                    "the foreign run never left PAUSED: law L1 says only "
+                    "resume does that")
+                units = {u["unit_id"]: u for u in
+                         store.list_units(run2["run_id"], raw=True)}
+                self.assertEqual(sorted(units), ["v1"],
+                                 "and its unit graph was not replaced")
+                self.assertEqual(units["v1"]["status"], "DISPATCHED")
+                self.assertEqual(units["v1"]["fence_uuid"], "fence-v1",
+                                 "and its fence was never orphaned")
+                self.assertEqual(
+                    store.get_dispatch(did, raw=True)["status"], "DISPATCHED",
+                    "and its open dispatch was never cancelled")
+
+    def test_set_run_state_refuses_before_even_the_idempotent_no_op(self):
+        """The no-op return is the sharpest version of this: moving a
+        foreign PAUSED run to PAUSED wrote nothing and returned a SUCCESS
+        shape, so a caller acting on another project's run was told it had
+        succeeded."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run1, run2, did = self._two_projects(store, actor)
+                for target in ("PAUSED", "READY"):
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        store.set_run_state(run2["run_id"], target, actor,
+                                            "r", "s", project_id="p1")
+                    self.assertEqual(ctx.exception.reason,
+                                     "run-not-in-project")
+                self.assertEqual(store.get_run("p2", raw=True)["state"],
+                                 "PAUSED")
+
+    def test_every_run_scoped_write_refuses_the_foreign_project(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run1, run2, did = self._two_projects(store, actor)
+                calls = (
+                    ("upsert_units",
+                     lambda: store.upsert_units(run2["run_id"], [_unit("u9")],
+                                                actor, project_id="p1")),
+                    ("set_run_state",
+                     lambda: store.set_run_state(run2["run_id"], "READY",
+                                                 actor, "r", "s",
+                                                 project_id="p1")),
+                    ("block_lane_units",
+                     lambda: store.block_lane_units(run2["run_id"], "default",
+                                                    actor, project_id="p1")),
+                    ("unblock_lane_units",
+                     lambda: store.unblock_lane_units(run2["run_id"],
+                                                      "default", actor,
+                                                      project_id="p1")),
+                    ("claim_unit",
+                     lambda: store.claim_unit("v1", "fence-x", actor,
+                                              project_id="p1")),
+                    ("record_dispatch",
+                     lambda: store.record_dispatch("v1", 2, 1, "fence-v1",
+                                                   "s", actor,
+                                                   project_id="p1")),
+                    ("record_result",
+                     lambda: store.record_result(did, "done", ["a.py"],
+                                                 actor, project_id="p1")),
+                    ("record_verification",
+                     lambda: store.record_verification(did, 0, "ok", True,
+                                                       actor,
+                                                       project_id="p1")),
+                    ("mark_unit_done",
+                     lambda: store.mark_unit_done("v1", "chk1", actor,
+                                                  project_id="p1")),
+                    ("mark_unit_failed",
+                     lambda: store.mark_unit_failed("v1", actor, "no",
+                                                    project_id="p1")),
+                    ("release_claimed_unit",
+                     lambda: store.release_claimed_unit("v1", actor,
+                                                        project_id="p1")),
+                )
+                for name, call in calls:
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        call()
+                    self.assertEqual(
+                        ctx.exception.reason, "run-not-in-project",
+                        "%s must refuse a run that belongs to another "
+                        "project" % name)
+                units = {u["unit_id"]: u for u in
+                         store.list_units(run2["run_id"], raw=True)}
+                self.assertEqual(units["v1"]["status"], "DISPATCHED",
+                                 "eleven refusals, nothing written")
+                self.assertEqual(units["v1"]["retry_count"], 0)
+                self.assertEqual(store.get_run("p2", raw=True)["state"],
+                                 "PAUSED")
+
+    def test_the_owning_project_and_the_omitted_project_both_still_work(self):
+        """The CONTROL, in both directions: naming the RIGHT project writes
+        exactly as before, and omitting the argument keeps every existing
+        caller (and every existing test) behaving identically."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run1, run2, did = self._two_projects(store, actor)
+                store.set_run_state(run2["run_id"], "EXECUTING", actor, "r",
+                                    "s", project_id="p2")
+                self.assertEqual(store.get_run("p2", raw=True)["state"],
+                                 "EXECUTING")
+                store.upsert_units(run1["run_id"], [_unit("u1")], actor,
+                                   project_id="p1")
+                self.assertEqual(
+                    [u["unit_id"] for u in store.list_units(run1["run_id"])],
+                    ["u1"])
+                store.upsert_units(run1["run_id"], [_unit("u1"), _unit("u2")],
+                                   actor)
+                self.assertEqual(
+                    sorted(u["unit_id"] for u in
+                           store.list_units(run1["run_id"])), ["u1", "u2"])
+                self.assertEqual(
+                    store.block_lane_units(run1["run_id"], "default", actor,
+                                           project_id="p1")["count"], 2)
+                self.assertEqual(
+                    store.unblock_lane_units(run1["run_id"], "default", actor,
+                                             project_id="p1")["count"], 2)
+
+    def test_an_unknown_run_still_refuses_not_found_not_the_new_reason(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                _open_and_plan(store, project_id="p1")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.upsert_units("ghost", [_unit("u9")], actor,
+                                       project_id="p1")
+                self.assertEqual(ctx.exception.reason, "not-found")
+
+
+class _RaisesFromBothDunders(object):
+    """An object whose __fspath__ AND __repr__ both raise something that is
+    not TypeError. AZ F11's probe p5 used exactly this shape: the store
+    caught only TypeError from os.fspath and then formatted its own refusal
+    with %r, so both halves of the coercion could raise out of a method
+    documented as TOTAL and out of a gate_check its callers run in a loop."""
+
+    def __fspath__(self):
+        raise RuntimeError("fspath blows up")
+
+    def __repr__(self):
+        raise RuntimeError("repr blows up")
+
+
+class TestCoercePathEntryIsTotalForAnyObject(unittest.TestCase):
+    """AZ F11 (REFUTATION-4-authorization.md). _coerce_path_entry's
+    docstring says: 'TOTAL: for ANY input, this either returns a string or
+    raises OwnershipRefused reason bad-path'. It caught TypeError only, so
+    28 of 30 hostile inputs returned a verdict and 2 escaped as themselves.
+    LOW severity (the CLI passes strings and the controller passes
+    store-loaded strings, so this is an SDK caller's problem), and cheap:
+    the boundary catches Exception, and the message it formats can no
+    longer be the thing that raises."""
+
+    def test_coerce_path_entry_refuses_rather_than_propagating(self):
+        with self.assertRaises(bs.OwnershipRefused) as ctx:
+            bs._coerce_path_entry(_RaisesFromBothDunders())
+        self.assertEqual(ctx.exception.reason, "bad-path")
+        self.assertIn("_RaisesFromBothDunders", str(ctx.exception),
+                      "the type still names itself even when repr cannot")
+
+    def test_gate_check_returns_a_verdict_and_does_not_raise(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["."], risk_classes=["file-edit"])
+                got = store.gate_check("p1", "file-edit",
+                                       path=_RaisesFromBothDunders())
+                self.assertEqual(got["verdict"], "REFUSED-SCOPE")
+                self.assertEqual(got["revision"], 1)
+                self.assertIsNotNone(got["contract_id"])
+
+    def test_a_unit_declaring_it_refuses_instead_of_tracebacking(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _controller_actor()
+                run = _open_and_plan(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.upsert_units(
+                        run["run_id"],
+                        [_unit("u1",
+                               write_scope=[_RaisesFromBothDunders()])],
+                        actor)
+                self.assertEqual(ctx.exception.reason, "bad-path")
+                self.assertEqual(store.list_units(run["run_id"]), [])
 
 
 if __name__ == "__main__":

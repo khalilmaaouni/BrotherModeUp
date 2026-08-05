@@ -106,7 +106,9 @@ than restated). Most of that growth is test code, which is the kind a reader
 of a security document should want: of the roughly 14,500 lines the autonomy
 contract added, about 2,100 are the contract layer and its command line and
 the rest are the store and behavioral tests plus the security refutation that
-proved the layer holds. The small-toolchain promise still stands: if the
+proved the layer holds. Two shipping tools import subprocess, both for LOCAL execution and neither for the network: bm_autosave.py drives git (never a push, never a remote), and bm_controller.py (the Full-Auto controller) runs each unit's deterministic done-check as a local command. Both are named exceptions in the no-network test, per file and per module, so no third tool inherits the allowance quietly.
+
+The small-toolchain promise still stands: if the
 NON-test line count starts climbing like this, the honest move is to withdraw
 the claim, not keep restating a larger number.
 

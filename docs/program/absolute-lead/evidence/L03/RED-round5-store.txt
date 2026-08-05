@@ -1,0 +1,309 @@
+RED, round 5, the STORE half of the L03 controller hardening
+============================================================
+
+Tree: /Users/khalil.maaouni/Documents/BrotherModeUp
+Source: docs/program/absolute-lead/evidence/L03/REFUTATION-4-authorization.md
+        F1 and F3 (HIGH, one root cause: a write scope that is a PATTERN),
+        F2 (HIGH, a run id used as an independent argument), F11 (LOW,
+        _coerce_path_entry documented TOTAL and not).
+Captured: 2026-08-05T00:44:38Z
+Python:   3.9.6 (default, Apr  7 2026, 02:38:40) [Clang 21.0.0]
+
+Every class below was written FIRST and run against the UNTOUCHED
+tools/bm_store.py, before any store edit was made. Command, per class:
+
+  cd /Users/khalil.maaouni/Documents/BrotherModeUp/tools
+  python3 -m unittest -v test_bm_store.<class>
+
+Baseline before any edit, for the record:
+  python3 tools/test_bm_store.py    -> Ran 839 tests ... OK
+  python3 tools/test_bm_autonomy.py -> Ran 58 tests ... OK
+
+Per-class counts at capture time:
+  TestWriteScopeEntriesAreLiteralPaths            5 tests, 4 failures, 1 error
+  TestGlobAllowancesGrantOnlyWhatTheyLiterallyMatch 3 tests, 0 failures, 1 error
+  TestRunScopedWritesRefuseAForeignProject        5 tests, 0 failures, 5 errors
+  TestCoercePathEntryIsTotalForAnyObject          3 tests, 0 failures, 3 errors
+
+ONE OF THOSE ERRORS WAS MY OWN TEST'S BUG, not the store's, and it is named
+here rather than quietly corrected: TestWriteScopeEntriesAreLiteralPaths ::
+test_a_literal_write_scope_is_accepted_exactly_as_before (the CONTROL) called
+json.loads on list_units(raw=True)'s write_scope, which that accessor has
+already decoded, so it raised TypeError instead of asserting. The assertion
+was corrected to compare the decoded list directly; nothing else in the test
+changed, and the corrected control is green before AND after the store edit,
+which is what a control is for.
+
+TWO TESTS ARE GREEN BEFORE AND AFTER, ON PURPOSE, and they are named here
+rather than left for a reader to notice:
+
+  * TestGlobAllowancesGrantOnlyWhatTheyLiterallyMatch ::
+    test_no_declarable_path_names_a_file_its_contract_refuses is a
+    CHARACTERISATION, not a reproduction. It sweeps 55440 (allowed,
+    candidate, file) triples over LITERAL candidates, finds 35 violations
+    (0 of them under a non-glob allowance), and asserts that
+    every surviving violation of gate_check's stated property has exactly
+    one shape (a glob allowance admitting a plain directory at its own
+    depth, whose subtree the fence then covers). It is only legitimate
+    because the OTHER test in the class, which IS red here, proves that a
+    pattern can no longer be declared as a write scope at all. It stays
+    green if a later round removes the residual entirely and goes red the
+    moment a violation of any other shape appears.
+  * TestGlobAllowancesGrantOnlyWhatTheyLiterallyMatch ::
+    test_a_leading_wildcard_allowance_admits_only_its_own_depth is a
+    CONTROL over the round-4 depth-exact rule, the same role
+    TestGlobNarrowingBreaksNothingElse played in RED-round4-store.txt.
+
+==============================================================
+BLOCK: tools/test_bm_store.py :: TestWriteScopeEntriesAreLiteralPaths
+==============================================================
+test_a_character_class_can_no_longer_re_spell_a_path_that_escapes (test_bm_store.TestWriteScopeEntriesAreLiteralPaths)
+F3's bypass primitive, closed at the source. 'src/app' is a ... FAIL
+test_a_literal_write_scope_is_accepted_exactly_as_before (test_bm_store.TestWriteScopeEntriesAreLiteralPaths)
+The CONTROL. Every spelling here reaches the store unchanged, so ... ERROR
+test_every_glob_metacharacter_is_refused_at_declaration (test_bm_store.TestWriteScopeEntriesAreLiteralPaths) ... FAIL
+test_the_refusal_names_the_entry_the_unit_and_the_remedy (test_bm_store.TestWriteScopeEntriesAreLiteralPaths) ... FAIL
+test_the_whole_project_grant_needs_a_glob_no_unit_can_declare (test_bm_store.TestWriteScopeEntriesAreLiteralPaths)
+AZ F1 reproduction 3, end to end in the store: contract ... FAIL
+
+======================================================================
+ERROR: test_a_literal_write_scope_is_accepted_exactly_as_before (test_bm_store.TestWriteScopeEntriesAreLiteralPaths)
+The CONTROL. Every spelling here reaches the store unchanged, so
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17942, in test_a_literal_write_scope_is_accepted_exactly_as_before
+    json.loads(unit["write_scope"]),
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/__init__.py", line 339, in loads
+    raise TypeError(f'the JSON object must be str, bytes or bytearray, '
+TypeError: the JSON object must be str, bytes or bytearray, not list
+
+======================================================================
+FAIL: test_a_character_class_can_no_longer_re_spell_a_path_that_escapes (test_bm_store.TestWriteScopeEntriesAreLiteralPaths)
+F3's bypass primitive, closed at the source. 'src/app' is a
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17966, in test_a_character_class_can_no_longer_re_spell_a_path_that_escapes
+    store.upsert_units(
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_every_glob_metacharacter_is_refused_at_declaration (test_bm_store.TestWriteScopeEntriesAreLiteralPaths)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17898, in test_every_glob_metacharacter_is_refused_at_declaration
+    store.upsert_units(
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_the_refusal_names_the_entry_the_unit_and_the_remedy (test_bm_store.TestWriteScopeEntriesAreLiteralPaths)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17915, in test_the_refusal_names_the_entry_the_unit_and_the_remedy
+    store.upsert_units(
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_the_whole_project_grant_needs_a_glob_no_unit_can_declare (test_bm_store.TestWriteScopeEntriesAreLiteralPaths)
+AZ F1 reproduction 3, end to end in the store: contract
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17996, in test_the_whole_project_grant_needs_a_glob_no_unit_can_declare
+    store.upsert_units(
+AssertionError: OwnershipRefused not raised
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.071s
+
+FAILED (failures=4, errors=1)
+
+==============================================================
+BLOCK: tools/test_bm_store.py :: TestGlobAllowancesGrantOnlyWhatTheyLiterallyMatch
+==============================================================
+test_a_leading_wildcard_allowance_admits_only_its_own_depth (test_bm_store.TestGlobAllowancesGrantOnlyWhatTheyLiterallyMatch)
+AZ F-A2's sentence, now true of everything that can reach a ... ok
+test_every_pattern_spelling_is_undeclarable_so_the_sweep_is_complete (test_bm_store.TestGlobAllowancesGrantOnlyWhatTheyLiterallyMatch)
+The sweep above runs over literal candidates only. That is ... ERROR
+test_no_declarable_path_names_a_file_its_contract_refuses (test_bm_store.TestGlobAllowancesGrantOnlyWhatTheyLiterallyMatch) ... ok
+
+======================================================================
+ERROR: test_every_pattern_spelling_is_undeclarable_so_the_sweep_is_complete (test_bm_store.TestGlobAllowancesGrantOnlyWhatTheyLiterallyMatch)
+The sweep above runs over literal candidates only. That is
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18114, in test_every_pattern_spelling_is_undeclarable_so_the_sweep_is_complete
+    bs.literal_scope_entry(spelling, unit_id="u1")
+AttributeError: module 'bm_store' has no attribute 'literal_scope_entry'
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.032s
+
+FAILED (errors=1)
+
+==============================================================
+BLOCK: tools/test_bm_store.py :: TestRunScopedWritesRefuseAForeignProject
+==============================================================
+test_a_plan_aimed_at_one_project_cannot_rewrite_another_ones_run (test_bm_store.TestRunScopedWritesRefuseAForeignProject) ... ERROR
+test_an_unknown_run_still_refuses_not_found_not_the_new_reason (test_bm_store.TestRunScopedWritesRefuseAForeignProject) ... ERROR
+test_every_run_scoped_write_refuses_the_foreign_project (test_bm_store.TestRunScopedWritesRefuseAForeignProject) ... ERROR
+test_set_run_state_refuses_before_even_the_idempotent_no_op (test_bm_store.TestRunScopedWritesRefuseAForeignProject)
+The no-op return is the sharpest version of this: moving a ... ERROR
+test_the_owning_project_and_the_omitted_project_both_still_work (test_bm_store.TestRunScopedWritesRefuseAForeignProject)
+The CONTROL, in both directions: naming the RIGHT project writes ... ERROR
+
+======================================================================
+ERROR: test_a_plan_aimed_at_one_project_cannot_rewrite_another_ones_run (test_bm_store.TestRunScopedWritesRefuseAForeignProject)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18165, in test_a_plan_aimed_at_one_project_cannot_rewrite_another_ones_run
+    store.upsert_units(run2["run_id"], [_unit("u9")], actor,
+TypeError: upsert_units() got an unexpected keyword argument 'project_id'
+
+======================================================================
+ERROR: test_an_unknown_run_still_refuses_not_found_not_the_new_reason (test_bm_store.TestRunScopedWritesRefuseAForeignProject)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18298, in test_an_unknown_run_still_refuses_not_found_not_the_new_reason
+    store.upsert_units("ghost", [_unit("u9")], actor,
+TypeError: upsert_units() got an unexpected keyword argument 'project_id'
+
+======================================================================
+ERROR: test_every_run_scoped_write_refuses_the_foreign_project (test_bm_store.TestRunScopedWritesRefuseAForeignProject)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18250, in test_every_run_scoped_write_refuses_the_foreign_project
+    call()
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18211, in <lambda>
+    lambda: store.upsert_units(run2["run_id"], [_unit("u9")],
+TypeError: upsert_units() got an unexpected keyword argument 'project_id'
+
+======================================================================
+ERROR: test_set_run_state_refuses_before_even_the_idempotent_no_op (test_bm_store.TestRunScopedWritesRefuseAForeignProject)
+The no-op return is the sharpest version of this: moving a
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18197, in test_set_run_state_refuses_before_even_the_idempotent_no_op
+    store.set_run_state(run2["run_id"], target, actor,
+TypeError: set_run_state() got an unexpected keyword argument 'project_id'
+
+======================================================================
+ERROR: test_the_owning_project_and_the_omitted_project_both_still_work (test_bm_store.TestRunScopedWritesRefuseAForeignProject)
+The CONTROL, in both directions: naming the RIGHT project writes
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18271, in test_the_owning_project_and_the_omitted_project_both_still_work
+    store.set_run_state(run2["run_id"], "EXECUTING", actor, "r",
+TypeError: set_run_state() got an unexpected keyword argument 'project_id'
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.062s
+
+FAILED (errors=5)
+
+==============================================================
+BLOCK: tools/test_bm_store.py :: TestCoercePathEntryIsTotalForAnyObject
+==============================================================
+test_a_unit_declaring_it_refuses_instead_of_tracebacking (test_bm_store.TestCoercePathEntryIsTotalForAnyObject) ... ERROR
+test_coerce_path_entry_refuses_rather_than_propagating (test_bm_store.TestCoercePathEntryIsTotalForAnyObject) ... ERROR
+test_gate_check_returns_a_verdict_and_does_not_raise (test_bm_store.TestCoercePathEntryIsTotalForAnyObject) ... ERROR
+
+======================================================================
+ERROR: test_a_unit_declaring_it_refuses_instead_of_tracebacking (test_bm_store.TestCoercePathEntryIsTotalForAnyObject)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18351, in test_a_unit_declaring_it_refuses_instead_of_tracebacking
+    store.upsert_units(
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13008, in upsert_units
+    write_scope = [canonicalize_path(
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13009, in <listcomp>
+    self.root, _coerce_path_entry(p),
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 736, in _coerce_path_entry
+    p = os.fspath(f)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18311, in __fspath__
+    raise RuntimeError("fspath blows up")
+RuntimeError: fspath blows up
+
+======================================================================
+ERROR: test_coerce_path_entry_refuses_rather_than_propagating (test_bm_store.TestCoercePathEntryIsTotalForAnyObject)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18329, in test_coerce_path_entry_refuses_rather_than_propagating
+    bs._coerce_path_entry(_RaisesFromBothDunders())
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 736, in _coerce_path_entry
+    p = os.fspath(f)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18311, in __fspath__
+    raise RuntimeError("fspath blows up")
+RuntimeError: fspath blows up
+
+======================================================================
+ERROR: test_gate_check_returns_a_verdict_and_does_not_raise (test_bm_store.TestCoercePathEntryIsTotalForAnyObject)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18339, in test_gate_check_returns_a_verdict_and_does_not_raise
+    got = store.gate_check("p1", "file-edit",
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 12689, in gate_check
+    self.root, _coerce_path_entry(path), cwd=None)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 736, in _coerce_path_entry
+    p = os.fspath(f)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18311, in __fspath__
+    raise RuntimeError("fspath blows up")
+RuntimeError: fspath blows up
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.031s
+
+FAILED (errors=3)
+
+
+==============================================================
+BLOCK: COLLISION, the surviving half of AZ F1, measured not argued
+==============================================================
+The literal-write-scope rule closes every violation whose CANDIDATE is a
+pattern. One shape survives: a GLOB allowance admitting a plain DIRECTORY
+at its own depth ('src/app' under ['src/*']), whose subtree the fence then
+covers while gate_check refuses 'src/app/main.py' when it is named. Closing
+that needs the ALLOWANCE side to move, and both ways of moving it break
+tests that are already law, so this item STOPS here and is disclosed
+instead (docs/KNOWN-LIMITS.md, and FIX-round5-store-report.md section 3).
+
+Measured by monkeypatching test_bm_store's own bm_store instance (gate_check
+resolves path_within_allowed as a module global at call time, so the patch
+exercises the shipped call path) and running the two round-4 classes that
+pin the rule. NO source file was edited to produce this. Script:
+scratchpad/collision.py, reproduced in full in the fix report.
+
+--- REMEDY A (a glob allowance grants the subtree of what it matches):
+    ran 6, failures 1, errors 0
+  FAIL: test_a_bare_star_is_one_segment_and_a_directory_glob_is_one_level
+        (test_bm_store.TestGlobAllowedPathsAreDepthExact)
+    at tools/test_bm_store.py:17441
+    AssertionError: 'ALLOWED' != 'REFUSED-SCOPE'
+    : allowed_paths ['*'], candidate 'src/a.py' must be REFUSED-SCOPE, got ALLOWED (authorised against risk class 'file-edit'.)
+
+--- REMEDY C (a glob allowance grants nothing, patterns refused on both
+    sides): ran 6, failures 4, errors 0
+  FAIL: test_a_bare_star_is_one_segment_and_a_directory_glob_is_one_level
+    at tools/test_bm_store.py:17441
+    : allowed_paths ['*'], candidate 'main.py' must be ALLOWED, got REFUSED-SCOPE ('main.py' is outside this contract's allowed paths.)
+  FAIL: test_a_directory_glob_admits_only_its_own_directory_at_its_own_depth
+    at tools/test_bm_store.py:17415
+    : allowed_paths ['api/*.py'], candidate 'api/pay.py' must be ALLOWED, got REFUSED-SCOPE ('api/pay.py' is outside this contract's allowed paths.)
+  FAIL: test_a_leading_wildcard_does_not_escape_its_own_directory
+    at tools/test_bm_store.py:17432
+    : allowed_paths ['*.py'], candidate 'main.py' must be ALLOWED, got REFUSED-SCOPE ('main.py' is outside this contract's allowed paths.)
+  FAIL: test_a_wildcard_segment_matches_one_segment_character_for_character
+    at tools/test_bm_store.py:17451
+    : allowed_paths ['src/*/main.py'], candidate 'src/app/main.py' must be ALLOWED, got REFUSED-SCOPE ('src/app/main.py' is outside this contract's allowed paths.)
+
+Remedy C additionally contradicts this round's own written constraint that
+'api/*.py' must keep working as a founder-authored allowance.
+
+==============================================================
+BLOCK: GREEN after the fix, same four classes
+==============================================================
+  cd /Users/khalil.maaouni/Documents/BrotherModeUp/tools
+  python3 -m unittest -v test_bm_store.TestWriteScopeEntriesAreLiteralPaths \
+      test_bm_store.TestGlobAllowancesGrantOnlyWhatTheyLiterallyMatch \
+      test_bm_store.TestRunScopedWritesRefuseAForeignProject \
+      test_bm_store.TestCoercePathEntryIsTotalForAnyObject
+  Ran 16 tests in 0.166s
+  OK

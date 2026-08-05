@@ -1,0 +1,354 @@
+# The durable Full-Auto controller (U2)
+
+Status: CURRENT as of 2026-08-05.
+
+This page explains `tools/bm_controller.py`, the command line and the engine
+behind it for U2: the loop that reads the signed autonomy contract (U1,
+`docs/AUTONOMY.md`) on every pass, sequences durable units of work from an
+outcome to a checked deliverable, survives a process death without repeating
+completed work, and keeps independent lanes moving while one lane is
+human-blocked. Store schema 15, `tools/bm_store.py`. U1 exposes the seven
+store surfaces U2 consumes (`references/autonomy.md` names each one); U2
+adds no enforcement of its own, only sequencing and durability.
+
+No em or en dashes anywhere in this page.
+
+## The controller model, in plain language
+
+Once a founder has signed a contract for a project (U1), the controller can
+begin a RUN against it: one run drives one project from an outcome to a
+delivered, checked result. A run is made of UNITS, small pieces of work
+(create a file, edit a file, run a build, and so on) with dependencies
+between them, a role, a risk class, and a done-check command the controller
+runs ITSELF to decide whether the unit is actually finished. The controller
+never trusts a worker's own claim of success; it re-runs the done-check and
+reads the real exit code.
+
+Before a unit is handed out, the controller checks it against the signed
+contract: its risk class, and EVERY path it declares it will write, not just
+the first one. One forbidden path refuses the whole unit, because the brief
+the worker receives carries the whole list. Every path in one unit is judged
+under ONE contract revision: if the contract is amended part way through
+that check, the whole check is re-run against the newer contract, and if the
+contract moves again during the re-run, the unit is set aside for the next
+pass rather than judged under two different authorisations.
+
+"Inside the contract's allowed paths" means INSIDE, not merely overlapping.
+A contract that allows `src/app` authorises `src/app` itself and anything
+under it. It does not authorise `src`, and it does not authorise `.`, even
+though both of those contain an allowed path: a unit cannot widen its own
+authorisation by naming a parent directory. A contract that allows `.` still
+allows the whole project, which is what signing `.` means.
+
+Every forward step the controller takes is written to the store BEFORE the
+action it authorises, so a crash never loses the controller's place. A fresh
+process picking the run back up reads exactly where the last one left off,
+and never repeats a unit that already reached DONE.
+
+## The state machine, NEW to COMPLETE
+
+One run holds exactly one of these states at a time:
+
+- `NEW`: the run exists; nothing has happened yet.
+- `ORIENTING`: reading the repository and the contract.
+- `PLANNING`: the unit graph is being built.
+- `READY`: a graph exists and something in it may be selectable.
+- `EXECUTING`: at least one unit has been dispatched and the controller is
+  waiting on it.
+- `VERIFYING`: a result has come back and the controller is running its own
+  done-check and verifier against it.
+- `CHECKPOINTED`: the last wave was judged (accepted or rejected) and a
+  liveness beacon was written.
+- `WAITING_HUMAN`: every remaining unit is waiting on the founder; every
+  other lane already finished. Three things put a unit there: an action
+  inside one of the five safety floors, a unit whose dependency is DEAD
+  (either `FAILED` after its retry ceiling or `SKIPPED` by a later re-plan,
+  neither of which the controller can move on its own), and a unit whose
+  lane already holds an open founder step. In every case the queued step
+  names what is stuck, which unit it is stuck behind and what state that
+  unit is in, and the run waits for the founder instead of resting in
+  `CHECKPOINTED` forever.
+- `DELIVERABLE_READY`: every non-founder-gated unit is DONE and the
+  contract's whole done-definition passed one more time, after the last
+  edit.
+- `COMPLETE`: the founder accepted the deliverable. Terminal.
+- `PAUSED`: the underlying contract was paused, or the founder asked the
+  controller to pause. Reversible, and **the founder's alone**. While a run
+  is `PAUSED` the controller starts nothing, judges nothing, verifies
+  nothing, delivers nothing, and abandons no hung dispatch; `plan` refuses
+  outright rather than un-pausing the run as a side effect of writing a
+  unit graph. Only `bm-controller resume` leaves that state. A result that
+  arrives during a pause is RECORDED AND HELD, never rejected: the answer
+  is durable and the meter is charged, but nothing is judged and no
+  rollback command touches your files, so a pause never destroys real work.
+  `bm-controller resume` plus one `step` then verifies the held answer on
+  its own merits.
+- `STOPPING` then `STOPPED`: draining in flight work, then done for this
+  run. Terminal once `STOPPED`; a fresh contract and a fresh run are what
+  restart work, never a reopened `STOPPED` row.
+- `FAILED_RECOVERABLE`: a fault happened (a unit exhausted its retries, a
+  worker outage, a crash detected on resume) but the run itself can still
+  continue. Reversible back to `READY`.
+- `FAILED_TERMINAL`: an unrecoverable state, most often a rollback that
+  itself failed, leaving a write scope that needs a human to look at it
+  before any further work touches it. Terminal.
+
+Each unit underneath the run has its own, finer state (`PENDING`, `READY`,
+`CLAIMED`, `DISPATCHED`, `RESULT_IN`, `VERIFYING`, `DONE`, `FAILED`,
+`BLOCKED`, `SKIPPED`): a run can be `EXECUTING` while some units are still
+`PENDING` on a dependency and others sit `BLOCKED` behind a founder-only
+step, which is exactly how one blocked lane never stalls the rest of the
+run.
+
+`BLOCKED` is a VIEW of one fact and nothing else: **your lane holds an open
+founder step.** It is recomputed on every pass, in both directions. Queue a
+step in a lane and that lane's waiting units show `BLOCKED`; resolve the
+last open step in a lane and its units come straight back to `PENDING` or
+`READY` on the next `step`, by whether their dependencies are done. There
+is no separate un-block command and there is nothing to remember to undo.
+A unit dropped from the graph by a re-plan (`SKIPPED`) can be brought back
+the same way: re-add it, unchanged, and it returns to the graph.
+
+## Why a pass stopped: the `reason` line
+
+`bm-controller step` and `bm-controller start` print a `reason:` line
+whenever a pass has stopped for a reason, and `--json` carries the same
+value as `stop_reason`. It is one word out of a fixed list, and it is the
+one thing to read first, because it says whether you need to do anything:
+
+| reason | what it means | do you need to act? |
+|---|---|---|
+| `TERMINAL` | the run is `COMPLETE`, `STOPPED` or `FAILED_TERMINAL` | no, it is over |
+| `DELIVERED` | the run is `DELIVERABLE_READY` | yes, `bm-controller complete` |
+| `FOUNDER_WAITING` | paused, every remaining unit waits on a human, or your done-definition failed | yes |
+| `SPEND_STOP` | the soft spend stop is on and nothing is in flight | yes, raise the ceiling or accept the stop |
+| `OUTAGE` | the worker reported itself unavailable | no, try again later |
+| `CONTENTION` | another writer holds a fence over the files, or the contract was amended twice mid-check | **no**, the next pass tries the same unit again |
+| `IN_FLIGHT` | a dispatch is open, waiting for `record-result` | no |
+| `NOTHING_SELECTABLE` | nothing selectable, nothing in flight, nothing founder-gated | yes, inspect the graph |
+| `CONTRACT_PAUSED` | you paused the CONTRACT, and that is what paused this run | yes, `bm-autonomy resume` first, then `bm-controller resume` |
+| `CONTRACT_NOT_LIVE` | the contract is stopped, revoked or gone; nothing is authorised and nothing was run | yes, sign a fresh contract or stop the run |
+
+No line is empty and no reason is missing. A pass with no `reason:` line
+made progress and the loop kept going. `CONTENTION` in particular does not
+mean a founder is needed for a transient overlap: it clears when the other
+writer releases its fence or the contract stops moving. If every pass
+reports it, that is the other case the note names, and then somebody does
+have to find the stale claim and release it.
+
+`CONTRACT_PAUSED` and `FOUNDER_WAITING` are deliberately different words
+for two pauses that look identical from outside. If you paused the
+CONTRACT, `bm-controller resume` on its own will not clear it: the next
+pass re-reads the contract, finds it still paused, and pauses the run
+again. Clear the contract first, then resume the run. If only the RUN is
+paused, `bm-controller resume` is the whole answer, and the reason is
+`FOUNDER_WAITING`.
+
+## The kill switch stops commands, not just new work
+
+`bm-autonomy stop` and `bm-autonomy revoke` end the contract, and from that
+instant the controller runs NOTHING on your machine. Not a unit's own
+done-check, not its verifier, not the `git restore` rollback, not your
+final done-definition. The contract is re-read immediately before every
+single one of those, so a result that arrives after you pulled the switch
+is recorded, rejected, its fence parked, and a founder step queued naming
+the unit and the dead contract, with no command executed at all.
+
+That matters because in full auto the unit graph, including each unit's
+done-check and verifier, is written by the orchestrating model, not by you.
+Stopping the contract has to stop those, and it does.
+
+Pausing is the reversible version and behaves differently on purpose. A
+result arriving while the contract is paused is HELD: recorded, nothing
+judged, nothing rolled back, no retry burned, the fence still held. When
+you resume, that same answer is judged on its own merits rather than thrown
+away. Pausing and resuming does not count as your authorisation changing,
+so a held answer is not rejected as stale for it; a real amend to the
+contract still is.
+
+## The harness and the seam, stated honestly
+
+The controller is a HARNESS, not a process that spawns real subagents on its
+own. It persists and sequences units; the ORCHESTRATING MODEL executes
+them. "Dispatch" means record-intent-and-await: the controller writes a
+unit's brief (its objective, its read and write scope, its role, its risk
+class) to standard output and returns control immediately. The run parks in
+`EXECUTING` until a result arrives out of band, through
+`bm-controller record-result`. This process never calls a model and never
+blocks waiting for one.
+
+Two boundaries are genuinely impure and cannot be made deterministic from
+inside this project: whether the worker actually made the right change, and
+whether a real shell command actually passes. Both are isolated behind a
+single, narrow interface each (a worker adapter and a check runner), so the
+loop itself is fully testable with no live model and no network, and the
+production implementations are thin: one prints a brief and returns, the
+other runs the founder's own done-check, verifier, and rollback commands
+and nothing else.
+
+## The at-most-once limit on external side effects, stated honestly
+
+SQLite writes inside the store are transactional, and a dispatch's own
+`(unit_id, attempt)` pair is unique, so the RECORDING of an accepted result
+is exactly-once: the store can never end up with two accepted results for
+one attempt. A real worker's real file edit or real commit is not something
+this project can make exactly-once the same way. What the controller
+actually provides is at-most-once RE-DISPATCH (a held fence plus that same
+unique key stop a crash-and-retry from opening a second live dispatch),
+idempotent recording, and a post-crash re-verification through the SAME
+independent done-check rather than trusting that a prior side effect
+happened. This limit holds fully where the underlying operation is
+idempotent (creating the same file twice is the same file; running a build
+twice is the same build) or where the worker is the record-intent kind
+described above. It is not claimed to hold for every conceivable side
+effect a worker could take, and `docs/KNOWN-LIMITS.md` states this dated,
+alongside the other limit this loop found while building it.
+
+## The founder-gated remainder, what DELIVERABLE_READY actually names
+
+`DELIVERABLE_READY` is not a claim that everything is finished; it is a
+claim that every unit the controller was authorised to run on its own IS
+finished, and it names exactly what remains: any open human step (an
+action inside one of the five safety floors, never grantable by any
+contract: credential entry, payment, account sign-in, permanent deletion,
+publish or release) and any unit that reached `FAILED` after its retry
+ceiling. Only a founder action, `bm-controller complete`, moves a run from
+`DELIVERABLE_READY` to `COMPLETE`; the controller never makes that move on
+its own.
+
+## The eight commands, one example each
+
+Every mutating command needs `--actor-name` and takes an optional
+`--actor-type human|model` (default `model`) and `--session-id`. Exit
+codes: 0 success, 1 a refusal, 2 a usage error, the same law
+`tools/bm_autonomy.py` states for itself.
+
+**start**: begins a fresh run when the project has no controller run at
+all, or resumes an existing one otherwise, whatever state it is in.
+
+```
+python3 tools/bm_controller.py start --project my-app \
+  --outcome "ship the export feature" \
+  --done-definition "python3 tools/test_bm.py" \
+  --controller-id session-abc123 --actor-name founder
+```
+
+**plan**: carries the unit graph the orchestrating model already built into
+the run. This is the one judgement the design leaves to the model, never to
+the harness.
+
+```
+python3 tools/bm_controller.py plan --project my-app \
+  --units-file units.json --controller-id session-abc123 \
+  --actor-name founder
+```
+
+**step**: one pass of the resumable loop.
+
+```
+python3 tools/bm_controller.py step --project my-app \
+  --controller-id session-abc123 --actor-name founder
+```
+
+**record-result**: the far end of record-intent-and-await; the
+orchestrating model, having done a unit's work, hands the result back. The
+dispatch id comes from `status --json`'s own `open_dispatches` map, since a
+printed brief carries no dispatch id of its own.
+
+```
+python3 tools/bm_controller.py record-result --project my-app \
+  --dispatch-id <id> --worker-claim "created src/export.py" \
+  --artifact src/export.py --controller-id session-abc123 \
+  --actor-name founder
+```
+
+A result can arrive LATE: after the founder stopped the run, or after a
+re-plan dropped that unit. That is a real situation, not an error, and the
+command handles it rather than refusing. Three outcomes, and the command
+prints which one happened:
+
+- **accepted**, the ordinary case.
+- **rejected**, on a stopped, delivered or terminal run, which cannot judge
+  new work. The result is recorded and rejected, the unit's rollback runs,
+  the founder is warned if that rollback left the write scope dirty, the
+  file claim is released, and the run state is left exactly where the
+  founder put it. A founder step naming the unit is queued in the UNIT'S
+  OWN lane, **every time**, including when the unit's retry ceiling is
+  already spent, so a real answer is never discarded with nothing to show
+  for it. That lane gate is what stops a stopped or delivered run from
+  growing new selectable work; re-planning or a fresh run is what attempts
+  the unit again. Spend is charged for the work that really happened,
+  whether the result was accepted or not.
+- **held**, when the run is `PAUSED`. Nothing is judged, nothing is rolled
+  back, the file claim stays held; `bm-controller resume` plus one `step`
+  verifies it.
+
+A result for a unit a re-plan DROPPED is refused outright, naming
+`dispatch-cancelled`: dropping a unit closes its open dispatch in the same
+breath, so a late answer can no longer quietly bring a dropped unit back
+and reverse the re-plan. `bm-controller plan` tells you when it cancelled a
+dispatch, so the refusal is never a surprise.
+
+**status**: one screen: run id and state, a unit count by status, any open
+dispatch waiting on a result, the spend verdict, open human steps, and the
+most recent checkpoint.
+
+```
+python3 tools/bm_controller.py status --project my-app
+```
+
+**stop**: the founder's kill switch on the run itself (distinct from
+`bm-autonomy stop`, which ends the contract): drains in flight work and
+releases every held fence.
+
+```
+python3 tools/bm_controller.py stop --project my-app --actor-name founder
+```
+
+**resume**: the founder's own reverse of a pause.
+
+```
+python3 tools/bm_controller.py resume --project my-app --actor-name founder
+```
+
+**complete**: `DELIVERABLE_READY` to `COMPLETE`, a founder action, never a
+controller self-move.
+
+```
+python3 tools/bm_controller.py complete --project my-app \
+  --actor-name founder
+```
+
+## What this page does not claim
+
+Not a description of anything beyond what `tools/test_bm_controller.py`
+exercises. Five limits, restated here in the founder's own reading order;
+all of them are also recorded, with the rest of this loop's residuals, in
+`docs/KNOWN-LIMITS.md`:
+
+- **Stale-heartbeat adoption is a store primitive only, not wired into
+  `begin()`.** A dead controller is recovered by the SAME identity
+  resuming, and a duplicate live controller is refused by the fence, but
+  automatic cross-identity adoption of a dead controller's run needs a
+  later store method and a founder displace flag; `bm-controller start`
+  does not attempt it today.
+- **The at-most-once limit above holds only where the operation is
+  idempotent, or the worker is the record-intent kind.** It is not a
+  claim that every external side effect a worker could ever take is
+  made exactly-once by this project.
+- **A plain path in `allowed_paths` grants its whole subtree; a pattern
+  grants exactly what it matches at its own depth.** `api` authorises
+  `api/pay.py` and `api/sub/deep/secrets.env`. `api/*.py` authorises
+  `api/pay.py` and nothing else: not `api/notes.md`, not `api` itself, not
+  anything deeper. `**` is not recursive; the recursive spelling is the
+  plain directory. Write the plain directory when you mean the subtree.
+- **`allowed_paths` has no floor.** A contract signed with `.` authorises
+  the whole project, including `.git/`, `.claude/` and BrotherMode's own
+  `.brothermode/store.db`. Grant the directories the work actually needs.
+- **The duplicate-controller refusal is on `begin()` only.** Two drivers
+  calling `step` against one project at the same moment are not refused.
+  Run one controller per project.
+
+See `references/autonomy.md` for the seven U1 surfaces the controller
+reads and writes and how `gate-check` is consulted on every path-bearing
+action.
