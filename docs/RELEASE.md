@@ -298,6 +298,22 @@ through preparing it.
 
 ## What has and has not happened, stated honestly
 
+CURRENT STATE, 2026-08-06: `VERSION` now reads `2.1.0.dev1`, a DEVELOPMENT
+identity that opens the 2.1 line. `release_tag` is `None` for it and no tag
+named `v2.1.0.dev1` will ever exist, per rule 3 of the version law.
+`install_target_tag` stays `v2.0.0`, the last tag known to resolve, per rule
+5, so the onboarding pages do not go stale. What landed on `main` since
+`v2.0.0` and justifies a minor bump rather than a patch: the live project
+view and visual onboarding surface (L05), the Codex apply_patch fence matcher
+(L06), and three closed authorization gaps (L09, a sixth safety floor, the
+controller driver-ownership check, and a signing-time empty-scope refusal),
+each landed under adversarial refutation. The `v2.1.0` tag is FOUNDER-GATED
+(steps 5 to 7 below) and has not been cut; when the founder cuts it, `VERSION`
+becomes `2.1.0` on the release commit, per rule 1, and the released-identity
+tests arm automatically.
+
+The entry below is now history, kept dated rather than rewritten.
+
 CURRENT STATE, 2026-08-04, fourth entry of the day: `VERSION` now reads
 `2.0.1.dev1`, a DEVELOPMENT identity, because `v2.0.0` was cut and pushed
 earlier tonight and rule 3 of the version law requires `main` to bump
