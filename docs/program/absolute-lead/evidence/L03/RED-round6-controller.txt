@@ -1,0 +1,444 @@
+RED evidence, round 6, the CONTROLLER half of the L03 hardening.
+
+Captured by running each NEW test class of this round against the
+UNTOUCHED tools/bm_controller.py, before any controller edit, on
+2026-08-05. tools/bm_store.py is whatever the parallel STORE writer had
+landed at capture time (their pathspec refusal was already in, which is
+visible in two of the failures below as a refusal arriving one state walk
+too late, from upsert_units rather than from the engine); no real store
+was read or written by this capture beyond the throwaway
+tempfile.TemporaryDirectory() each test builds.
+
+Every class below is one of REFUTATION-5-safety.md's own probe sequences
+restated as a permanent regression test.
+
+Command, once per class:
+
+  cd /Users/khalil.maaouni/Documents/BrotherModeUp/tools
+  python3 -m unittest -v test_bm_controller.<class>
+
+Totals at capture: 22 tests, 18 RED (14 failures, 4 errors), plus 4 that
+were green at capture and are labelled THE CONTROL or are the round-6
+guard itself (see BLOCK 5, whose RED evidence is the MUTATION EVIDENCE
+section further down instead: the round-5 guard passing four ungated
+command sites IS the finding).
+
+Mapping, finding to class:
+
+  S1 -> TestR6WriteScopePathspecMagicCannotReachGit
+  S4, S6 -> TestR6EngineRefusesMalformedScopeContainers
+  S2 -> TestR6TheSpendBreakerStopsEveryCommand
+  S3 -> TestR6AKillLandingDuringACommandRejects
+  S5 -> TestR6TheExecutionPrimitiveGuardIsStructural (see MUTATION EVIDENCE)
+  S7 -> TestR6TheMeterCannotReadLowOnADeliveredRun
+
+===================================================================
+BLOCK: TestR6WriteScopePathspecMagicCannotReachGit
+===================================================================
+test_a_plain_path_is_emitted_byte_for_byte_unchanged (test_bm_controller.TestR6WriteScopePathspecMagicCannotReachGit)
+THE CONTROL, and a deliberate compatibility pin: a path that ... ERROR
+test_a_poisoned_write_scope_is_never_dispatched (test_bm_controller.TestR6WriteScopePathspecMagicCannotReachGit)
+The EXECUTION side. The row reaches the engine already bad; no ... FAIL
+test_a_scope_that_goes_bad_after_dispatch_is_never_rolled_back (test_bm_controller.TestR6WriteScopePathspecMagicCannotReachGit)
+The second execution site. The unit dispatched under a clean ... FAIL
+test_plan_refuses_a_pathspec_write_scope_and_writes_nothing (test_bm_controller.TestR6WriteScopePathspecMagicCannotReachGit) ... FAIL
+test_the_rollback_never_hands_git_a_magic_pathspec (test_bm_controller.TestR6WriteScopePathspecMagicCannotReachGit)
+The pure half: git reads a leading colon as pathspec magic, and ... ERROR
+
+======================================================================
+ERROR: test_a_plain_path_is_emitted_byte_for_byte_unchanged (test_bm_controller.TestR6WriteScopePathspecMagicCannotReachGit)
+THE CONTROL, and a deliberate compatibility pin: a path that
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4691, in test_a_plain_path_is_emitted_byte_for_byte_unchanged
+    self.assertEqual(bc._pathspec_literal(entry), entry)
+AttributeError: module 'bm_controller' has no attribute '_pathspec_literal'
+
+======================================================================
+ERROR: test_the_rollback_never_hands_git_a_magic_pathspec (test_bm_controller.TestR6WriteScopePathspecMagicCannotReachGit)
+The pure half: git reads a leading colon as pathspec magic, and
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4682, in test_the_rollback_never_hands_git_a_magic_pathspec
+    bc._pathspec_literal(entry), ":(literal)" + entry,
+AttributeError: module 'bm_controller' has no attribute '_pathspec_literal'
+
+======================================================================
+FAIL: test_a_poisoned_write_scope_is_never_dispatched (test_bm_controller.TestR6WriteScopePathspecMagicCannotReachGit)
+The EXECUTION side. The row reaches the engine already bad; no
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4728, in test_a_poisoned_write_scope_is_never_dispatched
+    self.assertEqual(summary["dispatched"], [])
+AssertionError: Lists differ: ['u1'] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+'u1'
+
+- ['u1']
++ []
+
+======================================================================
+FAIL: test_a_scope_that_goes_bad_after_dispatch_is_never_rolled_back (test_bm_controller.TestR6WriteScopePathspecMagicCannotReachGit)
+The second execution site. The unit dispatched under a clean
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4761, in test_a_scope_that_goes_bad_after_dispatch_is_never_rolled_back
+    self.assertEqual(
+AssertionError: Lists differ: ['git restore -- :/'] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+'git restore -- :/'
+
+- ['git restore -- :/']
++ [] : no rollback is composed from a poisoned scope: ['true', 'git restore -- :/']
+
+======================================================================
+FAIL: test_plan_refuses_a_pathspec_write_scope_and_writes_nothing (test_bm_controller.TestR6WriteScopePathspecMagicCannotReachGit)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4706, in test_plan_refuses_a_pathspec_write_scope_and_writes_nothing
+    self.assertEqual(
+AssertionError: 'PLANNING' != 'NEW'
+- PLANNING
++ NEW
+ : nothing is written and the run has not moved
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.047s
+
+FAILED (failures=3, errors=2)
+
+===================================================================
+BLOCK: TestR6EngineRefusesMalformedScopeContainers
+===================================================================
+test_a_bare_string_read_scope_is_refused_not_shredded (test_bm_controller.TestR6EngineRefusesMalformedScopeContainers) ... FAIL
+test_a_bare_string_write_scope_is_refused_not_shredded (test_bm_controller.TestR6EngineRefusesMalformedScopeContainers) ... FAIL
+test_a_dict_read_scope_is_refused_rather_than_reduced_to_keys (test_bm_controller.TestR6EngineRefusesMalformedScopeContainers) ... FAIL
+test_a_scalar_write_scope_is_a_named_refusal_not_a_typeerror (test_bm_controller.TestR6EngineRefusesMalformedScopeContainers) ... FAIL
+
+======================================================================
+FAIL: test_a_bare_string_read_scope_is_refused_not_shredded (test_bm_controller.TestR6EngineRefusesMalformedScopeContainers)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4807, in test_a_bare_string_read_scope_is_refused_not_shredded
+    exc = self._refusal(dict(_unit("u1"), read_scope="src"))
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4791, in _refusal
+    engine.plan("p1", run["run_id"], [unit])
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_a_bare_string_write_scope_is_refused_not_shredded (test_bm_controller.TestR6EngineRefusesMalformedScopeContainers)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4802, in test_a_bare_string_write_scope_is_refused_not_shredded
+    exc = self._refusal(dict(_unit("u1"), write_scope="a.py"))
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4792, in _refusal
+    self.assertEqual(store.get_run("p1", raw=True)["state"],
+AssertionError: 'PLANNING' != 'NEW'
+- PLANNING
++ NEW
+ : nothing written, run not moved
+
+======================================================================
+FAIL: test_a_dict_read_scope_is_refused_rather_than_reduced_to_keys (test_bm_controller.TestR6EngineRefusesMalformedScopeContainers)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4811, in test_a_dict_read_scope_is_refused_rather_than_reduced_to_keys
+    exc = self._refusal(dict(_unit("u1"), read_scope={"a.py": 1}))
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4791, in _refusal
+    engine.plan("p1", run["run_id"], [unit])
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_a_scalar_write_scope_is_a_named_refusal_not_a_typeerror (test_bm_controller.TestR6EngineRefusesMalformedScopeContainers)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4797, in test_a_scalar_write_scope_is_a_named_refusal_not_a_typeerror
+    exc = self._refusal(dict(_unit("u1"), write_scope=7))
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4792, in _refusal
+    self.assertEqual(store.get_run("p1", raw=True)["state"],
+AssertionError: 'PLANNING' != 'NEW'
+- PLANNING
++ NEW
+ : nothing written, run not moved
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.050s
+
+FAILED (failures=4)
+
+===================================================================
+BLOCK: TestR6TheSpendBreakerStopsEveryCommand
+===================================================================
+test_record_result_after_the_breaker_trips_runs_no_command (test_bm_controller.TestR6TheSpendBreakerStopsEveryCommand) ... FAIL
+test_the_founder_is_told_the_breaker_is_what_stopped_it (test_bm_controller.TestR6TheSpendBreakerStopsEveryCommand) ... FAIL
+test_the_rollback_leg_runs_no_command_either (test_bm_controller.TestR6TheSpendBreakerStopsEveryCommand)
+The refuter's second sequence: the unit FAILS its done_check, so ... FAIL
+
+======================================================================
+FAIL: test_record_result_after_the_breaker_trips_runs_no_command (test_bm_controller.TestR6TheSpendBreakerStopsEveryCommand)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4850, in test_record_result_after_the_breaker_trips_runs_no_command
+    self.assertEqual(
+AssertionError: Lists differ: ['true', 'echo done'] != []
+
+First list contains 2 additional elements.
+First extra element 0:
+'true'
+
+- ['true', 'echo done']
++ [] : the spend breaker stops EVERY command, the unit's own done_check and the founder's whole done_definition included: ['true', 'echo done']
+
+======================================================================
+FAIL: test_the_founder_is_told_the_breaker_is_what_stopped_it (test_bm_controller.TestR6TheSpendBreakerStopsEveryCommand)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4875, in test_the_founder_is_told_the_breaker_is_what_stopped_it
+    self.assertEqual(summary.get("stop_reason"), "SPEND_STOP")
+AssertionError: 'DELIVERED' != 'SPEND_STOP'
+- DELIVERED
++ SPEND_STOP
+
+
+======================================================================
+FAIL: test_the_rollback_leg_runs_no_command_either (test_bm_controller.TestR6TheSpendBreakerStopsEveryCommand)
+The refuter's second sequence: the unit FAILS its done_check, so
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4897, in test_the_rollback_leg_runs_no_command_either
+    self.assertEqual(checker.calls, [],
+AssertionError: Lists differ: ['true', 'git restore -- a.py'] != []
+
+First list contains 2 additional elements.
+First extra element 0:
+'true'
+
+- ['true', 'git restore -- a.py']
++ [] : zero commands, done_check and rollback alike: ['true', 'git restore -- a.py']
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.043s
+
+FAILED (failures=3)
+
+===================================================================
+BLOCK: TestR6AKillLandingDuringACommandRejects
+===================================================================
+test_a_revoke_during_the_done_check_rejects_the_unit (test_bm_controller.TestR6AKillLandingDuringACommandRejects) ... FAIL
+test_a_stop_during_the_done_check_rejects_the_unit (test_bm_controller.TestR6AKillLandingDuringACommandRejects) ... FAIL
+test_the_founder_note_does_not_claim_nothing_ran (test_bm_controller.TestR6AKillLandingDuringACommandRejects)
+S3's second half: one note constant served two branches whose ... FAIL
+
+======================================================================
+FAIL: test_a_revoke_during_the_done_check_rejects_the_unit (test_bm_controller.TestR6AKillLandingDuringACommandRejects)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4938, in test_a_revoke_during_the_done_check_rejects_the_unit
+    self.assertEqual(outcome, "rejected")
+AssertionError: 'u1' != 'rejected'
+- u1
++ rejected
+
+
+======================================================================
+FAIL: test_a_stop_during_the_done_check_rejects_the_unit (test_bm_controller.TestR6AKillLandingDuringACommandRejects)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4954, in test_a_stop_during_the_done_check_rejects_the_unit
+    self.assertEqual(outcome, "rejected")
+AssertionError: 'u1' != 'rejected'
+- u1
++ rejected
+
+
+======================================================================
+FAIL: test_the_founder_note_does_not_claim_nothing_ran (test_bm_controller.TestR6AKillLandingDuringACommandRejects)
+S3's second half: one note constant served two branches whose
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4972, in test_the_founder_note_does_not_claim_nothing_ran
+    self.assertNotIn(
+AssertionError: 'NO command was executed' unexpectedly found in 'the contract is revoked, not live: nothing is authorised, so the result was recorded and rejected and NO command was executed (no done_check, no verifier, no rollback). The fence is parked and a founder step names the unit' : the note must not deny the command it just ran: 'the contract is revoked, not live: nothing is authorised, so the result was recorded and rejected and NO command was executed (no done_check, no verifier, no rollback). The fence is parked and a founder step names the unit'
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.041s
+
+FAILED (failures=3)
+
+===================================================================
+BLOCK: TestR6TheExecutionPrimitiveGuardIsStructural
+===================================================================
+test_each_of_the_four_bypass_spellings_fails_the_guard (test_bm_controller.TestR6TheExecutionPrimitiveGuardIsStructural)
+THE CALIBRATION. Without this, a guard that never fails proves ... ok
+test_the_one_checker_call_site_is_still_the_gated_one (test_bm_controller.TestR6TheExecutionPrimitiveGuardIsStructural)
+The round-5 property is kept, not replaced. ... ok
+test_the_shipped_file_passes_the_guard (test_bm_controller.TestR6TheExecutionPrimitiveGuardIsStructural) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.357s
+
+OK
+
+===================================================================
+BLOCK: TestR6TheMeterCannotReadLowOnADeliveredRun
+===================================================================
+test_a_founder_step_names_the_gap_and_the_command_that_clears_it (test_bm_controller.TestR6TheMeterCannotReadLowOnADeliveredRun) ... ERROR
+test_reconciling_the_gap_lets_the_run_deliver (test_bm_controller.TestR6TheMeterCannotReadLowOnADeliveredRun)
+The way out is a SHIPPED command pair, not a wedge: charge the ... ERROR
+test_the_reserved_lane_blocks_no_unit_of_the_run (test_bm_controller.TestR6TheMeterCannotReadLowOnADeliveredRun)
+Round 5 chose a checkpoint over a founder step precisely because ... ok
+test_the_run_does_not_deliver_while_a_cost_was_never_metered (test_bm_controller.TestR6TheMeterCannotReadLowOnADeliveredRun) ... FAIL
+
+======================================================================
+ERROR: test_a_founder_step_names_the_gap_and_the_command_that_clears_it (test_bm_controller.TestR6TheMeterCannotReadLowOnADeliveredRun)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 5074, in test_a_founder_step_names_the_gap_and_the_command_that_clears_it
+    "p1", lane=bc.SPEND_RECONCILE_LANE, resolved=False,
+AttributeError: module 'bm_controller' has no attribute 'SPEND_RECONCILE_LANE'
+
+======================================================================
+ERROR: test_reconciling_the_gap_lets_the_run_deliver (test_bm_controller.TestR6TheMeterCannotReadLowOnADeliveredRun)
+The way out is a SHIPPED command pair, not a wedge: charge the
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 5113, in test_reconciling_the_gap_lets_the_run_deliver
+    "p1", lane=bc.SPEND_RECONCILE_LANE, resolved=False,
+AttributeError: module 'bm_controller' has no attribute 'SPEND_RECONCILE_LANE'
+
+======================================================================
+FAIL: test_the_run_does_not_deliver_while_a_cost_was_never_metered (test_bm_controller.TestR6TheMeterCannotReadLowOnADeliveredRun)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 5054, in test_the_run_does_not_deliver_while_a_cost_was_never_metered
+    self.assertNotEqual(
+AssertionError: 'DELIVERABLE_READY' == 'DELIVERABLE_READY' : a run whose meter never saw 90 tokens against a 100 token ceiling is not a deliverable: {'run_id': '07924e2c42974e19b933a7a692e9209c', 'state': 'DELIVERABLE_READY', 'dispatched': [], 'completed': ['u1'], 'note': 'deliverable ready', 'stop_reason': 'DELIVERED', 'founder_gated': {'human_steps': [], 'failed_units': []}}
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.063s
+
+FAILED (failures=1, errors=2)
+
+
+===================================================================
+MUTATION EVIDENCE for S5, which is this finding's RED capture
+===================================================================
+
+REFUTATION-5-safety.md S5 refutes a CLAIM, not the shipped file: "a
+command site added OUTSIDE the gate fails that test". The round-5 guard
+matched one AST shape, self.checker.run, so four real ungated command
+sites passed it. A guard that never fails proves nothing, so the evidence
+below is the calibration: each of the refuter's own four spellings is
+spliced into a COPY of tools/bm_controller.py held in memory (the repo
+file is never written, and none of the mutant code is ever executed: the
+only thing done with it is ast.parse), and both guards are asked.
+
+  $ python3 pS5_mutations.py
+
+==========================================================================
+ROUND 5's GUARD (test_every_checker_call_sits_behind_one_gated_call_site)
+==========================================================================
+as shipped (no mutation)                             -> GUARD PASSES  enclosing=['_run_command']
+subprocess.run() added inline in _verify_and_finish  -> GUARD PASSES  enclosing=['_run_command']
+os.system() added inline in _verify_and_finish       -> GUARD PASSES  enclosing=['_run_command']
+getattr(self.checker, 'run') in _verify_and_finish   -> GUARD PASSES  enclosing=['_run_command']
+runner = self.checker; runner.run(...) in _verify_and_finish -> GUARD PASSES  enclosing=['_run_command']
+
+==========================================================================
+ROUND 6's GUARD (_execution_primitive_offences)
+==========================================================================
+as shipped (no mutation)                             -> GUARD PASSES
+subprocess.run() added inline in _verify_and_finish  -> GUARD FAILS
+       line 2756  subprocess.run() is called in ControllerEngine._verify_and_finish; the only place this module may start a process is SubprocessCheckRunner.run
+os.system() added inline in _verify_and_finish       -> GUARD FAILS
+       line 2756  os.system() starts a process outside the CheckRunner entirely (in ControllerEngine._verify_and_finish)
+getattr(self.checker, 'run') in _verify_and_finish   -> GUARD FAILS
+       line 2756  getattr() in ControllerEngine._verify_and_finish can reach a gated attribute without naming it
+       line 2756  self.checker is reached in ControllerEngine._verify_and_finish; it may only be bound in ControllerEngine.__init__ and called as self.checker.run(...) in ControllerEngine._run_command
+runner = self.checker; runner.run(...) in _verify_and_finish -> GUARD FAILS
+       line 2756  self.checker is reached in ControllerEngine._verify_and_finish; it may only be bound in ControllerEngine.__init__ and called as self.checker.run(...) in ControllerEngine._run_command
+
+===================================================================
+COLLISION 1 with an existing test: TestFault6CostCeilingReached
+===================================================================
+
+The FIRST version of the S2 fix (the subprocess gate consults the whole
+authorisation verdict, breaker included, read fresh at the moment of the
+command) turned this existing test red. Verbatim:
+
+  $ cd /Users/khalil.maaouni/Documents/BrotherModeUp/tools
+  $ python3 -m unittest -v test_bm_controller.TestFault6CostCeilingReached
+
+test_hard_stop_drains_and_starts_no_new_unit (test_bm_controller.TestFault6CostCeilingReached) ... FAIL
+
+======================================================================
+FAIL: test_hard_stop_drains_and_starts_no_new_unit (test_bm_controller.TestFault6CostCeilingReached)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 621, in test_hard_stop_drains_and_starts_no_new_unit
+    self.assertEqual(
+AssertionError: 'READY' != 'DONE'
+- READY
++ DONE
+
+----------------------------------------------------------------------
+Ran 1 test in 0.025s
+
+FAILED (failures=1)
+
+WHY. That test's u1 reports a cost of 100 tokens against a 10 token
+ceiling, and the engine charges the meter BEFORE it judges the result
+(REFUTATION-3 SM C moved the charge there deliberately, so a late result
+cannot drop its spend). So the breaker the gate read a moment later was
+tripped by u1's OWN cost, and u1 was refused its own done_check and left
+READY instead of DONE.
+
+THE TEST WAS NOT EDITED. The fix was narrowed instead, by a rule rather
+than an exception: _breaker_is_this_results_own_cost. The breaker refuses
+every command unless subtracting the spend row THIS call just wrote for
+THIS unit puts both meters back under their ceilings, in which case the
+one already-paid unit in flight is still judged. The refuted sequence is
+untouched (REFUTATION-5 S2 blew the ceiling with a separate
+`bm-autonomy spend` BEFORE record-result, and supplied no cost at all, so
+there is nothing to subtract), and the run still drains on the next step
+and still cannot deliver. The residual is disclosed in
+docs/KNOWN-LIMITS.md and in section 3 of the round-6 report.
+
+===================================================================
+COLLISION 2, OUTSIDE THIS WRITER'S FILES: tools/test_bm.py
+===================================================================
+
+`python3 tools/test_bm.py` is RED after this round, on a documentation
+number, not on behaviour. Verbatim:
+
+======================================================================
+FAIL: test_security_md_line_count_claim_is_still_true (__main__.TestProjectSecurityClaims)
+SECURITY.md tells the reader how much code they have to audit, and
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm.py", line 1126, in test_security_md_line_count_claim_is_still_true
+    self.assertLess(drift, 0.15,
+AssertionError: 0.16321960216045317 not less than 0.15 : SECURITY.md claims about 76224 lines but the tools are 91092. Update the figure in SECURITY.md.
+
+----------------------------------------------------------------------
+Ran 276 tests in 43.291s
+
+FAILED (failures=1, skipped=1)
+
+MEASURED, so nobody has to guess whose lines did it:
+
+  tools/*.py+*.sh at HEAD (5afc895)      88,740   drift 14.10%  (green)
+  after the STORE writer's +931 lines    89,671   drift 15.00%  (green by
+                                                  0.00004)
+  after this writer's +1,421 lines       91,092   drift 16.32%  (RED)
+
+SECURITY.md is NOT in this writer's permitted file list, so it was not
+touched. The remedy is one number, on SECURITY.md line 101: change
+"the tools are about 76,224 lines of" to the figure the file's own
+published command reports (91,092 at this capture). Whoever owns
+SECURITY.md this round should make that edit; it is a one-line
+documentation refresh with no behaviour attached.

@@ -98,15 +98,18 @@ What the code actually writes inside your project today:
   owner-only where the platform supports it (on Windows this is best-effort;
   rely on your user profile's access control).
 
-You can verify both claims yourself; the tools are about 76,224 lines of
-standard-library Python and shell (re-measured 2026-08-05 after the signed
-autonomy contract landed; the prior figure of 61,668 from 2026-08-01 drifted
-past the 15 percent guard the test enforces, so it is corrected here rather
-than restated). Most of that growth is test code, which is the kind a reader
-of a security document should want: of the roughly 14,500 lines the autonomy
-contract added, about 2,100 are the contract layer and its command line and
-the rest are the store and behavioral tests plus the security refutation that
-proved the layer holds. Two shipping tools import subprocess, both for LOCAL execution and neither for the network: bm_autosave.py drives git (never a push, never a remote), and bm_controller.py (the Full-Auto controller) runs each unit's deterministic done-check as a local command. Both are named exceptions in the no-network test, per file and per module, so no third tool inherits the allowance quietly.
+You can verify both claims yourself; the tools are about 91,100 lines of
+standard-library Python and shell (re-measured 2026-08-05 after the Full-Auto
+controller landed; the figure of 76,224 from earlier the same day drifted past
+the 15 percent guard the test enforces, so it is corrected here rather than
+restated, which is the third such correction and is exactly the pattern the
+promise below is about). Most of that growth is test code, which is the kind
+a reader of a security document should want: of the roughly 14,900 lines the
+controller added, about 4,400 are the engine and its command line and the rest
+are behavioral tests, including the tests that six adversarial refutation
+rounds produced. Those rounds are why the number moved twice in one day: each
+one reproduced a defect with a probe, and each reproduction became a permanent
+test rather than a note. Two shipping tools import subprocess, both for LOCAL execution and neither for the network: bm_autosave.py drives git (never a push, never a remote), and bm_controller.py (the Full-Auto controller) runs each unit's deterministic done-check as a local command. Both are named exceptions in the no-network test, per file and per module, so no third tool inherits the allowance quietly.
 
 The small-toolchain promise still stands: if the
 NON-test line count starts climbing like this, the honest move is to withdraw
