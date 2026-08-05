@@ -80,7 +80,7 @@ EXIT_REFUSED = 4
 HOOK_EVENTS = ("SessionStart", "SessionEnd", "Stop", "PreCompact",
                "PreToolUse", "PostToolUse")
 
-FENCE_MATCHER = "Edit|Write|MultiEdit|NotebookEdit"
+FENCE_MATCHER = "Edit|Write|MultiEdit|NotebookEdit|Bash"
 FENCE_TIMEOUT = 10
 BASH_AUDIT_MATCHER = "Bash"
 BASH_AUDIT_PRE_TIMEOUT = 10
