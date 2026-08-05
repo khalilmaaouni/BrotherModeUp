@@ -982,12 +982,31 @@ production surfaces stay behind the contract's floors regardless.
 
 What the second hardening round (2026-08-05) narrowed but did not close:
 
-- A contract that allows a path PATTERN, for example `api/*.py`, authorises
-  everything under that pattern's literal prefix directory, so `api/notes.md`
-  passes under `api/*.py`. Naming plain directories in `allowed_paths` is the
-  precise form; the pattern form is a coarser boundary than it looks. Naming
-  the PARENT of an allowed path no longer widens anything, which is the case
-  this round fixed.
+- A contract that allows a path PATTERN is no longer a limit at all. It is a
+  RULE, decided by the founder on 2026-08-05 after both alternatives were
+  measured and rejected. THE RULE: **a plain path grants its whole subtree,
+  and a pattern grants the FILES it matches at its own depth.** `api/*.py`
+  grants `api/pay.py`. It refuses `api/notes.md`, `api` itself, anything
+  deeper such as `api/sub/deep/secrets.env`, and, this last one is what the
+  decision added, any DIRECTORY the pattern happens to match at its own
+  depth: `src/*` no longer grants `src/app`. That refusal is the point of
+  the rule. A fence over a directory covers its whole subtree, so granting
+  `src/app` made `src/app/deep/keys.pem` writable although the same contract
+  refuses that file when it is named directly. Name the plain directory when
+  the subtree is what you mean; that spelling has always granted a subtree
+  and still does. Naming the PARENT of an allowed path widens nothing, which
+  is the case round 2 fixed and this decision left alone. This entry stays
+  under a heading that now contradicts it rather than being deleted,
+  because the record of what was once open is the point of this page; the
+  correction sections below carry the rest of that history.
+- Reading the name is how the rule tells a file from a directory: a name
+  carrying an EXTENSION is a file, an extensionless name is a directory.
+  That is the only file signal a path comparison has without touching the
+  disk. So a pattern also refuses `Makefile`, `LICENSE` and `.env`, and
+  there is one case the reading cannot see, a directory whose name carries
+  an extension (`src/*` grants `src/data.bak` as though it were a file, and
+  a fence over it would cover what is inside it). Both directions have the
+  same answer: name the path literally when you mean it.
 - A contract revoked in the instant between the controller reading it and
   recording spend against it still raises out of that one call. The next
   `step` resumes the pending result and settles it correctly, so the window is
@@ -1022,14 +1041,18 @@ standing.
   understated the blast radius: a leading wildcard such as `*.py` authorised
   the entire project, at any depth, because the pattern's literal prefix was
   empty. Both are now closed. THE RULE, in one sentence a founder can hold
-  the system to: **a plain path grants its whole subtree, and a pattern
-  grants exactly what it matches at its own depth.** `api` grants
-  `api/pay.py` and `api/sub/deep/secrets.env`. `api/*.py` grants
-  `api/pay.py` and refuses `api`, `api/notes.md` and
-  `api/sub/deep/secrets.env`. `**` is NOT recursive: `api/**` grants the
-  direct children of `api` and nothing below them, and the recursive
-  spelling is the plain directory. Naming the PARENT of an allowed path
-  still widens nothing, which round 2 fixed and this round left alone.
+  the system to, in the form the founder's 2026-08-05 decision left it:
+  **a plain path grants its whole subtree, and a pattern grants the FILES it
+  matches at its own depth.** `api` grants `api/pay.py` and
+  `api/sub/deep/secrets.env`. `api/*.py` grants `api/pay.py` and refuses
+  `api`, `api/notes.md` and `api/sub/deep/secrets.env`. `**` is NOT
+  recursive: `api/**` grants the direct children of `api` that are files,
+  and nothing below them, and the recursive spelling is the plain directory.
+  Naming the PARENT of an allowed path still widens nothing, which round 2
+  fixed and this round left alone. Round 4 wrote this sentence as "grants
+  exactly what it matches at its own depth", which admitted a directory at
+  that depth and therefore, through the fence over it, a subtree; the word
+  FILES is the 2026-08-05 correction and it only ever narrows.
 - **The soft-spend-stop spin is closed, and it was not the only one.** The
   round-2 entry says `run_to_completion` still spins at a soft spend stop.
   Every pass now reports one machine-readable reason out of a fixed set and
@@ -1151,21 +1174,23 @@ heading was edited to add it.
 
 ### Not closed, and what stands in the way
 
-- **A pattern in `allowed_paths` still grants a subtree it does not itself
-  match, through one spelling.** A contract granting `src/*` authorises the
-  directory `src/app`, and a fence over a directory covers everything under
-  it, so `src/app/deep/keys.pem` is reachable even though asking about that
-  file by name is refused. Closing it means moving the pattern rule in one
-  of two directions, and both break behaviour that this project's own tests
-  already pin in the opposite direction: making a pattern grant the subtree
-  of what it matches turns `['*']` into a whole-project grant again, and
-  making a pattern grant nothing breaks `api/*.py`, which is the whole point
-  of allowing a pattern there. Measured, not argued: the failing assertions
-  for both are in
-  `docs/program/absolute-lead/evidence/L03/RED-round5-store.txt`. Until a
-  round is scoped to decide that rule deliberately, the practical advice is
-  the same one the teachable rule already gives: grant the directory you
-  mean, not a pattern that happens to match it.
+- **CLOSED on 2026-08-05, by the founder decision this entry was waiting
+  for.** This entry said a pattern in `allowed_paths` still granted a
+  subtree it did not itself match: `src/*` authorised the directory
+  `src/app`, a fence over a directory covers everything under it, and
+  `src/app/deep/keys.pem` was reachable even though asking about that file
+  by name was refused. Round 5 stopped here because closing it meant moving
+  a verdict this project's own tests pinned, and both directions it could
+  measure broke something (a pattern granting the subtree of what it matches
+  turns `['*']` into a whole-project grant again; a pattern granting nothing
+  breaks `api/*.py`). The founder chose a third rule, which narrows only: a
+  pattern grants the FILES it matches at its own depth and no directory. The
+  superseded test row was moved in the same change, the property that had 35
+  violations over 55440 triples now sweeps to ZERO, and the evidence is
+  `docs/program/absolute-lead/evidence/L03/FIX-glob-rule-report.md` beside
+  the round-5 measurement it closes. The practical advice is unchanged and
+  is now enforced rather than advised: grant the directory you mean, not a
+  pattern that happens to match it.
 - **A unit that declares NO write scope is still dispatched, under any
   contract, and claims an empty fence.** The page already deferred this as a
   question about what an empty `allowed_paths` MEANS; the missing data now
@@ -1325,13 +1350,66 @@ file. Nothing above this heading was edited to add it.
   the intended cost of the fix holding even for a row that reached the
   engine by another route.
 - **The uncharged-spend founder step uses a reserved lane name,
-  `spend-reconciliation`.** A unit graph that plans units into a lane of
-  that name would have them gated by the disclosure. No shipped fixture
-  does; do not name a lane that.
-- **The mid-command kill re-reads the authorisation after every command.**
-  That is three extra store reads per judged result (contract, spend
-  totals, and the unit's own gate check) and it is deliberate: the read is
-  what makes the moment of execution the moment of authorisation.
+  `spend-reconciliation`.** Round 6 called that lane reserved and reserved
+  nothing: `plan` accepted a unit into it, and the delivery block selected
+  every open step in the lane, so an unrelated step there blocked a whole
+  run's delivery citing spend that was never uncharged. Round 7 closed both
+  halves. `bm-controller plan` now REFUSES a unit whose lane is that name,
+  by name, before anything is written, and the delivery block selects only
+  steps the disclosure itself marked. A unit graph that wants that lane
+  name gets a refusal naming it, not a silent gate.
+- **The kill switch is re-asked at every window on the judging path.**
+  Round 6 said "after every command" and asked once, after the done_check.
+  The complete set is now: after the unit's done_check, after its verifier,
+  once more immediately before anything is written about the unit's fate,
+  and once after the founder's whole done-definition and before
+  `DELIVERABLE_READY` is declared. A rollback has no window after it,
+  because nothing is accepted after a rollback and the rollback is itself
+  refused before it runs. The cost is three extra store reads per window
+  (contract, spend totals, and the unit's own gate check) and it is
+  deliberate: the read is what makes the moment of execution the moment of
+  authorisation. A unit with a verifier therefore pays for two adjacent
+  windows today, which is kept on purpose so that a future statement
+  inserted between them cannot reopen the gap.
+- **The sentence that says what ran is scoped to the CALL, not to the
+  unit.** The controller derives "what ran" from a ledger of the commands
+  it actually executed since the current command started, rather than from
+  which branch is writing the sentence, which is what stopped it claiming
+  that nothing ran in a call that ran three things. On `bm-controller
+  record-result`, which handles exactly one result, the call and the result
+  are the same set. On a `bm-controller step` wave that judges several
+  units, the sentence names every command the WAVE ran, which is coarser
+  than per-unit and still true.
+
+### Bounds round 7's own fixes introduce
+
+- **The structural guard over execution primitives is not total, and here
+  is what it does and does not cover.** It reads the controller's source
+  and refuses: any import that is not one of the eight whole modules the
+  file already imports, any `from X import Y` at all, any aliased import,
+  any reference (called or merely bound) to `subprocess` outside the one
+  runner method or to a listed process-starting or name-resolving call, any
+  of the builtins that turn a string into an object, either builtins
+  namespace, and the `checker` attribute anywhere except where it is bound
+  and where it is called behind the gate. Names are resolved through the
+  file's own imports before any of that is tested, so a rebinding is read
+  as what it really names. What it does NOT cover: the module's own `_load`
+  helper, which is how every tool in this repository loads
+  `tools/bm_store.py`, executes a sibling `.py` file by path. A future edit
+  could reach a command through a sibling module rather than through a
+  primitive named above, and this guard would not see it. That is a
+  boundary of reading source rather than running it, and it is written down
+  here rather than left to be discovered.
+- **A write scope that is not a list of paths is refused on the judging
+  path by SHAPE, not by entry.** A scalar or a bare string is refused
+  before any path is judged, with a founder step naming the unit, because
+  without a container there is no list to judge at all. An entry that IS a
+  string but is not a plain relative path (a git pathspec, a glob, an
+  absolute path) is still refused where it is ACTED on, in the rollback,
+  which composes no command and tells the founder the scope was left as the
+  worker left it. That split is deliberate: the unit's answer is already in
+  hand by then, and refusing its done-check would destroy an answer over a
+  fault in a field the check does not use.
 
 ### Bounds this round's own fixes introduce
 

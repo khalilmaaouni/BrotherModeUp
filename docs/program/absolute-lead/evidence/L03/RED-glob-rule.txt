@@ -1,0 +1,126 @@
+RED first, captured against the UNTOUCHED tools/bm_store.py on 2026-08-05,
+before a single character of the store was edited. Command, verbatim:
+
+    python3 tools/test_bm_store.py \
+        TestAPatternGrantsOnlyWhatAFenceOverItWouldAlsoGrant
+
+The class encodes the FOUNDER DECISION of 2026-08-05: an allowed_paths entry
+grants a candidate path ONLY IF it also grants everything a FENCE over that
+candidate would cover.
+
+Two of the five tests are GREEN here on purpose and are CONTROLS, not
+oversights: test_a_founder_pattern_over_files_still_grants_the_files_it_names
+(['api/*.py'] must survive the change; remedy C broke it, which is why the
+founder rejected remedy C) and test_a_plain_path_still_grants_its_whole_subtree
+(the non-glob branch must not move at all). If either of those ever goes red,
+the narrowing took something with it that it was not meant to take.
+
+=============================================================================
+1. THE THREE FAILURES
+=============================================================================
+
+test_a_bare_star_grants_a_file_at_the_root_and_no_directory (__main__.TestAPatternGrantsOnlyWhatAFenceOverItWouldAlsoGrant)
+Required outcome 3, and the reason remedy A was rejected: under ... FAIL
+test_a_founder_pattern_over_files_still_grants_the_files_it_names (__main__.TestAPatternGrantsOnlyWhatAFenceOverItWouldAlsoGrant)
+Required outcome 2, and the reason remedy C was rejected: ... ok
+test_a_pattern_no_longer_grants_a_directory_at_its_own_depth (__main__.TestAPatternGrantsOnlyWhatAFenceOverItWouldAlsoGrant)
+Required outcome 1, and AZ's reproduction 4 from ... FAIL
+test_a_plain_path_still_grants_its_whole_subtree (__main__.TestAPatternGrantsOnlyWhatAFenceOverItWouldAlsoGrant)
+The CONTROL. The rule moves the PATTERN branch and nothing else: ... ok
+test_no_path_this_gate_allows_names_a_file_it_would_refuse (__main__.TestAPatternGrantsOnlyWhatAFenceOverItWouldAlsoGrant)
+Required outcome 4: the exhaustive sweep, ZERO violations. ... FAIL
+
+======================================================================
+FAIL: test_a_bare_star_grants_a_file_at_the_root_and_no_directory (__main__.TestAPatternGrantsOnlyWhatAFenceOverItWouldAlsoGrant)
+Required outcome 3, and the reason remedy A was rejected: under
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19099, in test_a_bare_star_grants_a_file_at_the_root_and_no_directory
+    _gate_verdicts(self, ["*"], (
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17396, in _gate_verdicts
+    case.assertEqual(
+AssertionError: 'ALLOWED' != 'REFUSED-SCOPE'
+- ALLOWED
++ REFUSED-SCOPE
+ : allowed_paths ['*'], candidate 'src' must be REFUSED-SCOPE, got ALLOWED (authorised against risk class 'file-edit'.)
+
+======================================================================
+FAIL: test_a_pattern_no_longer_grants_a_directory_at_its_own_depth (__main__.TestAPatternGrantsOnlyWhatAFenceOverItWouldAlsoGrant)
+Required outcome 1, and AZ's reproduction 4 from
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19077, in test_a_pattern_no_longer_grants_a_directory_at_its_own_depth
+    _gate_verdicts(self, ["src/*"], (
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17396, in _gate_verdicts
+    case.assertEqual(
+AssertionError: 'ALLOWED' != 'REFUSED-SCOPE'
+- ALLOWED
++ REFUSED-SCOPE
+ : allowed_paths ['src/*'], candidate 'src/app' must be REFUSED-SCOPE, got ALLOWED (authorised against risk class 'file-edit'.)
+
+======================================================================
+FAIL: test_no_path_this_gate_allows_names_a_file_it_would_refuse (__main__.TestAPatternGrantsOnlyWhatAFenceOverItWouldAlsoGrant)
+Required outcome 4: the exhaustive sweep, ZERO violations.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 19124, in test_no_path_this_gate_allows_names_a_file_it_would_refuse
+    self.assertEqual(
+AssertionError: Lists differ: [('*', 'src', 'src/app'), ('*', 'src', 'sr[3489 chars]em')] != []
+
+First list contains 95 additional elements.
+First extra element 0:
+('*', 'src', 'src/app')
+
+Diff is 3826 characters long. Set self.maxDiff to None to see it. : 95 violations over 5840400 triples. Each is an allowance that grants a candidate whose fence then covers a file the same allowance refuses by name; the first three are [('*', 'src', 'src/app'), ('*', 'src', 'src/app/deep'), ('*', 'src', 'src/a.py')]
+
+----------------------------------------------------------------------
+Ran 5 tests in 1.385s
+
+FAILED (failures=3)
+
+=============================================================================
+2. THE SWEEP, MEASURED BEFORE THE FIX
+=============================================================================
+
+Command, verbatim (the sweep lives at module level in the test file so that
+one command runs the shipped generator, with no second implementation of it
+anywhere):
+
+    python3 -c "
+    import sys; sys.path.insert(0, 'tools')
+    import test_bm_store as t
+    tr, v = t._glob_rule_sweep()
+    ...
+    "
+
+Output:
+
+    triples 5840400
+    violations 95
+    by (allowance depth, candidate depth): {(1, 1): 35, (2, 2): 60}
+    distinct (allowance, candidate) pairs: 23
+    all under a GLOB allowance: True
+    first ten:
+      ('*', 'src', 'src/app')
+      ('*', 'src', 'src/app/deep')
+      ('*', 'src', 'src/a.py')
+      ('*', 'src', 'src/b.py')
+      ('*', 'src', 'src/keys.pem')
+      ('*', 'src', 'src/app/a.py')
+      ('*', 'src', 'src/app/keys.pem')
+      ('*', 'src', 'src/app/deep/keys.pem')
+      ('*', 'app', 'app/a.py')
+      ('*', 'api', 'api/sub')
+
+Read against the round-5 baseline (FIX-round5-store-report.md section 3:
+55440 triples, 35 violations): this sweep is wider (5840400 triples, three
+segment allowances and three segment candidates, seven pattern shapes) and
+finds 95, every one of them under a GLOB allowance and every one the same
+shape round 5 named. 23 distinct (allowance, candidate) pairs produce them,
+at depth 1 and depth 2, and each pair is a pattern admitting a plain
+DIRECTORY at its own depth whose subtree the fence then covers.
+
+Nothing in this file is a bug in the tests: the two rows the founder's
+decision supersedes are pinned by round 4 in
+TestGlobAllowedPathsAreDepthExact and are moved in the same change that
+turns these three failures green, with the reason recorded beside them.
