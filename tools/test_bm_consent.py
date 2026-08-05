@@ -418,10 +418,14 @@ class TelemetryEveryHookProgramPreConsentCase(unittest.TestCase):
 
     # Two different counts, kept apart on purpose, because conflating them is
     # how the count in the docs went wrong twice already: hooks/hooks.json
-    # holds SEVEN command strings and those strings invoke EIGHT programs,
-    # since the PreCompact line is one `sh -c` script running two.
+    # holds SEVEN command strings and those strings invoke NINE programs,
+    # since the PreCompact line and the Stop line are each one `sh -c`
+    # script running two. The program floor moved from 8 to 9 on 2026-08-05
+    # when the Stop line gained the half hour catch-up check beside the
+    # unfinished-work warning; raising a floor is the only direction this
+    # number is ever allowed to move.
     MIN_WIRED_COMMAND_STRINGS = 7
-    MIN_WIRED_PROGRAMS = 8
+    MIN_WIRED_PROGRAMS = 9
     _PROGRAM_RE = re.compile(
         r"(?:python3|sh)\s+\S*?(?:tools|scripts)/\S+\.(?:py|sh)")
 
@@ -566,43 +570,205 @@ class TelemetryEveryHookProgramPreConsentCase(unittest.TestCase):
             "in the wired-command test cannot distinguish 'refused to write' "
             "from 'never ran'")
 
-    def test_every_hook_wired_telemetry_command_checks_consent(self):
+    # A hook-wired program that legitimately runs BEFORE consent, with the
+    # reason, encoded here rather than left in prose. bm_fence_hook.py is
+    # the ownership proof itself: it must exist before it can refuse anyone,
+    # and SECURITY.md's threat-model section already carries that argument
+    # in words. Encoding the exemption in the test WITH its reason is
+    # stronger than the situation it replaced, where the exemption existed
+    # only in prose.
+    CONSENT_EXEMPT_MODULES = {
+        "bm_fence_hook.py": (
+            "the single-writer proof itself. It reads and refuses; a gate "
+            "in front of it would mean no file claim exists until setup "
+            "runs, which is the opposite of the protection it provides."),
+    }
+
+    # WHERE each module's gate lives, and how it spells the check. Every
+    # entry names a CALL, never a comment: a module that merely mentions
+    # consent is not a module that checks it. A module wired into
+    # hooks.json with no entry here is reported, because that means a hook
+    # wired it without anyone deciding how it is gated.
+    #
+    # Two shapes, and both are checked as gates rather than as mentions:
+    #
+    #   "per-command": every wired subcommand's own cmd_ function names the
+    #       call. This is the shape the four telemetry-era modules use, and
+    #       it is exactly what the narrow version of this test enforced.
+    #   "one-door": the module has one gated entry point. The subcommand
+    #       must still have its cmd_ function (so a typo in hooks.json is
+    #       still caught), AND main() must name the call BEFORE it
+    #       subscripts its dispatch table. That ordering is the whole of
+    #       the gate, so it is asserted rather than assumed.
+    CONSENT_GATE_BY_MODULE = {
+        "bm_telemetry.py": ("per-command", "_consented()"),
+        "bm_autosave.py": ("per-command", "_consented()"),
+        "bm_bash_audit.py": ("per-command", "_consented()"),
+        "bm_lead.py": ("one-door", "_consent_state()"),
+    }
+
+    def test_every_hook_wired_command_of_every_module_checks_consent(self):
         """The durable half: an inventory test rather than one test per
-        command. Every bm_telemetry.py subcommand named in hooks/hooks.json
-        must call _consented() somewhere in its function body. A future hook
-        that wires an ungated command fails here instead of in someone's home
-        directory."""
-        source = _read_text(TELEMETRY)
+        command, WIDENED on 2026-08-05 from bm_telemetry.py alone to every
+        module named on a hook line (DESIGN-L04 section 18.2).
+
+        Why the widening is a strengthening and not a weakening: every
+        assertion the telemetry-scoped version made survives verbatim,
+        because bm_telemetry.py's commands are a subset of the widened set.
+        What it gains is exactly the class of defect this project has
+        already suffered twice, a hook line whose SECOND program was never
+        gated (see the class docstring above). The rename is required
+        rather than cosmetic: leaving the word telemetry in the name of a
+        test that now governs every module would make the name a false
+        description of the law.
+
+        A module whose subcommands are dispatched from a GATED main(),
+        rather than gated one cmd_ function at a time, satisfies this by
+        naming its check inside main() before the dispatch. That is the ONE
+        DOOR shape tools/bm_lead.py uses, and this test accepts it only
+        when main() itself names the call."""
         wiring = json.loads(_read_text(HOOKS_JSON))
         # EVERY occurrence per command string, not the first: the PreCompact
-        # entry is an `sh -c` script that names two programs, and reading only
-        # the first is the exact blind spot that let precompact-brief ship
-        # ungated. Quotes are part of that script, so the subcommand is
-        # matched rather than split out of it.
-        pattern = re.compile(r"bm_telemetry\.py['\"]?\s+([a-z][a-z0-9-]*)")
+        # and Stop entries are `sh -c` scripts that name two programs each,
+        # and reading only the first is the exact blind spot that let
+        # precompact-brief ship ungated. Quotes are part of those scripts,
+        # so the module and its subcommand are matched rather than split out
+        # of them.
+        pattern = re.compile(
+            r"(?:tools|scripts)/(\w+\.(?:py|sh))[\"']?(?:\s+([a-z][a-z0-9-]*))?")
         wired = set()
         for groups in wiring.get("hooks", {}).values():
             for group in groups:
                 for entry in group.get("hooks", []):
-                    wired.update(pattern.findall(entry.get("command", "")))
-        self.assertTrue(wired, "no bm_telemetry.py command found in hooks.json")
+                    for module, sub in pattern.findall(
+                            entry.get("command", "")):
+                        wired.add((module, sub or ""))
+        self.assertTrue(wired, "no hook-wired program found in hooks.json")
+        modules = sorted({m for m, _s in wired})
+        self.assertIn(
+            "bm_telemetry.py", modules,
+            "the widened inventory lost sight of the one module the narrow "
+            "version covered, so it is not a superset of it")
+        self.assertGreaterEqual(
+            len(modules), 4,
+            "hooks/hooks.json names only %d module(s) (%s); a manifest that "
+            "parsed to fewer must not read as a pass"
+            % (len(modules), modules))
         ungated = []
-        for command in sorted(wired):
+        for module, command in sorted(wired):
+            if module in self.CONSENT_EXEMPT_MODULES:
+                continue
+            path = os.path.join(HERE, module)
+            if not os.path.isfile(path):
+                ungated.append("%s: not in tools/" % module)
+                continue
+            source = _read_text(path)
+            if module.endswith(".sh"):
+                # tools/bm_sessionstart.sh gates in shell, not in Python.
+                if "setup_complete" not in source:
+                    ungated.append("%s: never reads setup_complete" % module)
+                continue
+            declared = self.CONSENT_GATE_BY_MODULE.get(module)
+            if declared is None:
+                ungated.append(
+                    "%s: no consent gate is declared for it in "
+                    "CONSENT_GATE_BY_MODULE, so a hook wired it without "
+                    "anyone deciding how it is gated" % module)
+                continue
+            shape, call = declared
+            if not command:
+                ungated.append("%s: wired with no subcommand" % module)
+                continue
             func = "def cmd_%s(" % command.replace("-", "_")
             idx = source.find(func)
             if idx == -1:
-                ungated.append("%s: no cmd_ function found" % command)
+                ungated.append("%s %s: no cmd_ function found"
+                               % (module, command))
+                continue
+            if shape == "one-door":
+                # The gate is the entry point, so the entry point is what
+                # gets checked: main() must name the call, and it must do
+                # so BEFORE it looks the command up in its dispatch table.
+                # An index comparison is enough here because the ast proof
+                # of the same ordering lives in tools/test_bm_lead.py,
+                # TestConsentIsTheOnlyDoor; this is the hook-side half.
+                midx = source.find("\ndef main(")
+                end = source.find("\ndef ", midx + 1) if midx != -1 else -1
+                body = "" if midx == -1 else source[
+                    midx:end if end != -1 else len(source)]
+                gate_at = body.find(call)
+                lookup_at = body.find("COMMANDS[")
+                if gate_at == -1:
+                    ungated.append("%s %s: main() never calls %s"
+                                   % (module, command, call))
+                elif lookup_at == -1:
+                    ungated.append(
+                        "%s %s: main() has no COMMANDS lookup, so the "
+                        "one-door shape cannot be verified"
+                        % (module, command))
+                elif gate_at > lookup_at:
+                    ungated.append(
+                        "%s %s: main() calls %s AFTER the dispatch lookup, "
+                        "so the door is not a gate"
+                        % (module, command, call))
                 continue
             nxt = source.find("\ndef ", idx + 1)
             body = source[idx:nxt if nxt != -1 else len(source)]
-            if "_consented()" not in body:
-                ungated.append("%s: never calls _consented()" % command)
+            if call not in body:
+                ungated.append("%s %s: never calls %s"
+                               % (module, command, call))
         self.assertEqual(
             ungated, [],
-            "a hook-wired bm_telemetry.py command writes before consent is "
+            "a hook-wired command of some module writes before consent is "
             "checked (%s). Every program on a hook line needs its own gate; "
             "gating the line's first program does not gate the second."
             % "; ".join(ungated))
+
+    def test_calibrated_the_widened_inventory_reports_an_undeclared_module(self):
+        """The vacuous-pass guard for the widening above. An equality
+        against an empty list is only evidence when the scan can produce a
+        non-empty one, so this drives the two predicates the widened test
+        turns on, against inputs that MUST be reported: a module nobody
+        declared a gate for, and a main() whose gate sits AFTER the
+        dispatch lookup, which is a door that is not a gate."""
+        self.assertIsNone(
+            self.CONSENT_GATE_BY_MODULE.get("bm_invented.py"),
+            "an undeclared module must have no declared gate, so the "
+            "inventory reports it rather than passing it")
+        too_late = ("\ndef main(argv):\n"
+                    "    handler = COMMANDS[argv[0]]\n"
+                    "    if not _consent_state():\n"
+                    "        return 1\n"
+                    "    return handler()\n")
+        self.assertGreater(
+            too_late.find("_consent_state()"), too_late.find("COMMANDS["),
+            "this is what a gate placed after the lookup looks like, and "
+            "the one-door branch above compares exactly these two indexes, "
+            "so it reports this shape rather than passing it")
+
+    def test_every_hook_wired_module_is_classified(self):
+        """Neither exempt nor declared is not a state a hook line may be
+        in. This is the half that makes the widening durable: a new module
+        wired into hooks/hooks.json fails HERE, with a sentence telling
+        whoever wired it to decide, rather than in someone's home
+        directory."""
+        wiring = json.loads(_read_text(HOOKS_JSON))
+        pattern = re.compile(r"(?:tools|scripts)/(\w+\.(?:py|sh))")
+        modules = set()
+        for groups in wiring.get("hooks", {}).values():
+            for group in groups:
+                for entry in group.get("hooks", []):
+                    modules.update(pattern.findall(entry.get("command", "")))
+        unclassified = sorted(
+            m for m in modules
+            if m not in self.CONSENT_EXEMPT_MODULES
+            and m not in self.CONSENT_GATE_BY_MODULE
+            and not m.endswith(".sh"))
+        self.assertEqual(
+            [], unclassified,
+            "module(s) wired into hooks/hooks.json that are neither "
+            "consent-exempt with a stated reason nor declared with the "
+            "gate they use: %s" % unclassified)
 
 
 class SetupShowCase(unittest.TestCase):

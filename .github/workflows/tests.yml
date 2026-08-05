@@ -220,6 +220,15 @@ jobs:
       # just above already runs on this leg.
       - name: Run the controller suite
         run: python .github/run_with_annotations.py tools/test_bm_controller.py
+      # The lead surface suite (L04, 2026-08-05): founder mode, IC mode, the
+      # record of what was decided, the half hour catch-up, the handback and
+      # the handover pages, over the schema 16 tables the V2 store suite on
+      # this same leg already proved sound. It runs here rather than in the
+      # POSIX-only suite job for the same reason the two suites above do:
+      # it drives its own module in process and as a local subprocess, with
+      # no shell script and no platform-specific path handling of its own.
+      - name: Run the lead surface suite
+        run: python .github/run_with_annotations.py tools/test_bm_lead.py
       # The recovery suite runs on Windows too, not only on the POSIX legs above.
       # Recovery is the subsystem whose failure loses work rather than merely
       # reporting it wrongly, so it gets the widest platform coverage, not the

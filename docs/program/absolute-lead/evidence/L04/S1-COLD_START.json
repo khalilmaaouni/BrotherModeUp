@@ -1,0 +1,14 @@
+{
+  "branch_after_outcome": "agree-authorisation",
+  "branch_before_outcome": "state-outcome",
+  "machinery_terms_leaked": [],
+  "outcome_transcript": [
+    "Goal: a booking site that takes money",
+    "Progress: nothing planned yet",
+    "Next step: agree what I am allowed to do on your behalf",
+    "  why: the outcome is recorded, and nothing can run until you authorise it",
+    "  run: bm-autonomy sign --project-id p1"
+  ],
+  "project_rows": 1,
+  "shape": "a founder with no project says what they want"
+}

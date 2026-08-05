@@ -5680,21 +5680,30 @@ class TestTheSeventhCommandAndTheDeepTourAreWired(unittest.TestCase):
     def test_exactly_seven_brotherme_commands_ship(self):
         # Named for the original seven beginner commands. L03 added the three
         # Full-Auto controller commands (auto, auto-status, stop), a deliberate
-        # new family, so the pinned set is now ten. The test still catches
-        # accidental drift: a command file nobody meant to ship fails it.
+        # new family, so the pinned set became ten. L04 adds four more (brief,
+        # decisions, handback, handover-pack), the founder-mode family, so it
+        # is now fourteen.
+        # The NAME of this test is two families out of date and is deliberately
+        # not changed: it is cited by name in the closure register and in the
+        # evidence pages, and renaming it would break those citations to fix
+        # nothing. What the test does is unchanged and is the whole point: a
+        # command file nobody meant to ship fails it, and every growth of the
+        # set costs somebody a sentence here rather than landing quietly.
         found = sorted(os.path.basename(p) for p in
                        __import__("glob").glob(
                            os.path.join(self.ROOT, "commands",
                                         "brotherme-*.md")))
         expected = ["brotherme-auto-status.md", "brotherme-auto.md",
-                    "brotherme-deliver.md", "brotherme-help.md",
+                    "brotherme-brief.md", "brotherme-decisions.md",
+                    "brotherme-deliver.md", "brotherme-handback.md",
+                    "brotherme-handover-pack.md", "brotherme-help.md",
                     "brotherme-next.md", "brotherme-review.md",
                     "brotherme-start.md", "brotherme-status.md",
                     "brotherme-stop.md", "brotherme-update.md"]
         self.assertEqual(expected, found,
-                         "the shipped command set drifted from the ten this "
-                         "release documents (seven beginner plus three "
-                         "controller): %r" % found)
+                         "the shipped command set drifted from the fourteen "
+                         "this release documents (seven beginner, three "
+                         "controller, four founder mode): %r" % found)
 
     def test_the_five_store_backed_commands_name_the_mechanical_command(self):
         """Loop 2 WP-C, decision D-3 (docs/superpowers/specs/2026-08-01-

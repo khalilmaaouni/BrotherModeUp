@@ -1386,7 +1386,16 @@ class TestExportAndPurge(unittest.TestCase):
                           # is the point of pinning the WHOLE dict.
                           "controller_dispatches": 0,
                           "controller_units": 0,
-                          "controller_runs": 0})
+                          "controller_runs": 0,
+                          # L04 (schema 16) put the insight ledger and the
+                          # briefing timeline under the same purge. Same
+                          # rule and same reason as the block above: this
+                          # fixture seeds neither, so each is 0, and these
+                          # two keys had to be added here precisely because
+                          # the pin did its designed job and turned red the
+                          # moment purge_project started removing them.
+                          "insights": 0,
+                          "briefings": 0})
 
             after = _raw_dump(root)
             self.assertEqual(
