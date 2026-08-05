@@ -8,6 +8,12 @@ interactive `/plugin` command for you, for example a script or an agent
 installing this with no Claude Code session open, use Path 2: Path 1 needs an
 interactive session to run its two commands in.
 
+Both paths install into Claude Code. If you drive a different runtime (OpenAI
+Codex CLI, GitHub Copilot, Qwen Code, iFlow, Antigravity), read "Other
+runtimes" at the bottom of this page before you start. The engine runs there,
+the enforcement does not, and putting the instruction file in place is a copy
+you make by hand.
+
 ## Path 1: install as a plugin (the simple way)
 
 Honesty label, read this first: this install path has been installed exactly
@@ -392,3 +398,50 @@ or a weekly review (`tools/WEEKLY-REVIEW.md`, run it once your first week of
 real sessions has landed). Read `../README.md`'s status section and
 `KNOWN-LIMITS.md` before deciding how much to lean on anything described here
 as more proven than it is.
+
+## Other runtimes (Codex, Copilot, Qwen, iFlow, Antigravity)
+
+Everything above installs into Claude Code. The engine itself is standard
+library Python driven from a shell, so it runs anywhere a shell runs. What does
+not travel is the enforcement: the pre-write hook that refuses an edit to a file
+somebody else owns is verified in Claude Code and nowhere else.
+
+There is no installer for another runtime. What ships is a generated instruction
+file per runtime, already committed, that you copy into place yourself:
+
+```bash
+ls docs/runtimes/
+# codex.AGENTS.md  generic.AGENTS.md  copilot.copilot-instructions.md
+# qwen.QWEN.md  iflow.IFLOW.md  antigravity.brothermode.md
+```
+
+For OpenAI Codex CLI, the copy is one of these, and it is yours to make:
+
+```bash
+cp docs/runtimes/codex.AGENTS.md /path/to/your/project/AGENTS.md   # one project
+cp docs/runtimes/codex.AGENTS.md "${CODEX_HOME:-$HOME/.codex}/AGENTS.md"  # every project
+```
+
+If your project already has an `AGENTS.md`, merge by hand. The generator
+deliberately refuses to write into either destination, because an `AGENTS.md` at
+a repository root usually already has content in it.
+
+Three things the file itself will tell you, and that are worth knowing before
+you decide:
+
+- Call the tools by the ABSOLUTE path to this checkout. `python3
+  tools/bm_store.py` only resolves when your working directory is this
+  repository; in your own project it fails with `[Errno 2] No such file or
+  directory`.
+- Run `bm_store.py init` in a project before anything else, and start Codex with
+  a writable sandbox (`-s workspace-write`). On its default read-only sandbox the
+  store cannot create itself.
+- Do NOT wire BrotherMode's hooks into Codex. Measured on 2026-08-05 against
+  codex-cli 0.146.0: Codex reports every file write as a Bash call running
+  `apply_patch`, so BrotherMode's matcher never fires and the fence hook exits
+  quietly without deciding anything. In Codex the law is advisory. The store
+  still refuses an overlapping claim; nothing refuses a write.
+
+`RUNTIMES.md` is the full page: which file each runtime reads, which vendor page
+that came from, what each runtime needs first, and what was measured rather than
+assumed.

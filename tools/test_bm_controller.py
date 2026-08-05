@@ -7007,5 +7007,227 @@ class TestCrossFamilyF3ShippedRecordResultCannotBeRedirected(
                 "invoked for: %s" % (recorded.stdout + recorded.stderr))
 
 
+# ---------------------------------------------------------------------------
+# CROSS-FAMILY refuter, findings 1 and 5, the halves that live in this file.
+# Finding 5 has an anchor on each side (the stale selection here, the
+# unconditional claim in tools/bm_store.py) and was fixed whole in one
+# round; finding 1's store-side refusal is pinned in tools/test_bm_store.py
+# and its reachability from the SHIPPED CLI is pinned here.
+# ---------------------------------------------------------------------------
+
+
+class _ReplanningStore(object):
+    """A delegating Store wrapper that fires ONE concurrent re-plan the
+    moment select_ready_units returns, and then hands the engine the
+    selection it had ALREADY taken. That is the refuter's own sequence
+    exactly: process A selects while the run is READY, process B plans
+    without the unit and commits it SKIPPED, and process A resumes with a
+    stale list, walks the run to EXECUTING and claims.
+
+    Everything except select_ready_units is delegated untouched, so the
+    engine under test is the real one against a real store, and the re-plan
+    is a real upsert_units against the same file rather than a hand-written
+    row edit."""
+
+    def __init__(self, store, run_id, replacement_units):
+        self._store = store
+        self._run_id = run_id
+        self._replacement = replacement_units
+        self.fired = False
+        self.stale_selection = None
+
+    def __getattr__(self, name):
+        return getattr(self._store, name)
+
+    def select_ready_units(self, run_id):
+        selected = self._store.select_ready_units(run_id)
+        if not self.fired and selected:
+            self.fired = True
+            self.stale_selection = [u["unit_id"] for u in selected]
+            self._store.upsert_units(self._run_id, self._replacement,
+                                     _actor())
+        return selected
+
+
+def _active_fence_names(store):
+    return sorted(r["name"] for r in store.dump(raw=True)["records"]
+                  if r["state"] == "active")
+
+
+class TestCrossFamilyF5StaleSelectionIsDeferred(unittest.TestCase):
+    """FINDING 5 (MEDIUM), controller half. The engine selected units,
+    walked the run to EXECUTING and then claimed from that stale list, so a
+    re-plan that landed in between had its removal silently overwritten and
+    the dropped unit was dispatched anyway.
+
+    The store now refuses the claim by name; this is the half that says
+    what the engine does with that refusal: defer to a later wave, exactly
+    as a fence overlap is deferred. No drain, no retry burned, no fence
+    left active."""
+
+    def _run_the_race(self, replacement):
+        # bc.bs.Store, NOT bs.Store, and the difference is load-bearing.
+        # This file loads bm_store by path and tools/bm_controller.py loads
+        # it by path again, so the two are DIFFERENT module objects with
+        # DIFFERENT OwnershipRefused classes ("the class-identity trap
+        # tools/bm_project.py documents", named in bm_controller.py's own
+        # comment on that load). In production there is one load and
+        # self.store is a Store from it, so an engine-level
+        # `except bs.OwnershipRefused` matches; a store built from THIS
+        # file's copy raises a class the engine cannot catch, and the
+        # refusal escapes step() as an uncaught exception. Building the
+        # store from the engine's own module is what reproduces production
+        # rather than an artefact of how the tests import.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = bc.bs.Store(tmp.name)
+        self.addCleanup(store.close)
+        _seed(store)
+        _sign(store)
+        worker = FakeWorker({"u1": _worker_result(), "u2": _worker_result()})
+        engine = _engine(store, worker, FakeCheckRunner())
+        run = _begin_and_plan(engine, store, "p1", [_unit("u1")])
+        wrapper = _ReplanningStore(store, run["run_id"], replacement)
+        engine.store = wrapper
+        summary = engine.step("p1")
+        return store, run, worker, summary, wrapper
+
+    def test_a_unit_a_concurrent_replan_removed_is_never_dispatched(self):
+        store, run, worker, summary, wrapper = self._run_the_race(
+            [_unit("u2")])
+        self.assertEqual(wrapper.stale_selection, ["u1"],
+                         "the race did not set up: the engine never took a "
+                         "selection before the re-plan")
+        self.assertEqual(
+            _unit_row(store, run["run_id"], "u1")["status"], "SKIPPED",
+            "the claim overwrote a unit the re-plan had removed")
+        self.assertEqual(_dispatch_count(store, "u1"), 0,
+                         "a dispatch was opened for a removed unit")
+        self.assertEqual(worker.call_log, [],
+                         "a worker was handed a brief for a unit the "
+                         "re-plan had removed: %r" % (worker.call_log,))
+        self.assertEqual(summary["dispatched"], [])
+
+    def test_the_deferral_burns_no_retry_and_drains_nothing(self):
+        store, run, _worker, summary, _wrapper = self._run_the_race(
+            [_unit("u2")])
+        self.assertEqual(
+            _unit_row(store, run["run_id"], "u1")["retry_count"], 0,
+            "the deferral burned a retry the unit never earned")
+        self.assertEqual(
+            summary["stop_reason"], "CONTENTION",
+            "a stale selection is contention, the same word a fence overlap "
+            "gets, never a drain: %r" % (summary,))
+        self.assertNotIn(
+            store.get_run("p1", raw=True)["state"],
+            ("STOPPING", "STOPPED", "FAILED_TERMINAL"),
+            "the run was drained for what is only contention")
+
+    def test_the_fence_claimed_for_the_deferred_unit_is_not_left_active(self):
+        """The claim of the FILES happens before the claim of the UNIT, so
+        a refused unit claim leaves a fence this engine has already taken.
+        Leaving it active would block every later wave over those paths
+        with nothing naming it."""
+        store, _run, _worker, _summary, _wrapper = self._run_the_race(
+            [_unit("u2")])
+        unit_fence = bc.ControllerEngine.UNIT_FENCE_PREFIX + "u1"
+        self.assertNotIn(
+            unit_fence, _active_fence_names(store),
+            "the fence claimed for the deferred unit is still active: %r"
+            % (_active_fence_names(store),))
+
+    def test_the_next_wave_makes_progress_on_the_replanned_graph(self):
+        """Deferral means "try again later", so the loop must not be stuck:
+        the unit the re-plan ADDED is dispatched by the very next step."""
+        store, _run, worker, _summary, _wrapper = self._run_the_race(
+            [_unit("u2")])
+        second = _engine(store, worker, FakeCheckRunner()).step("p1")
+        self.assertIn("u2", second["dispatched"],
+                      "the next wave made no progress: %r" % (second,))
+        self.assertEqual(_dispatch_count(store, "u1"), 0)
+
+
+class TestCrossFamilyF1ShippedPlanRefusesABadNumber(unittest.TestCase):
+    """FINDING 1 (HIGH), reachability. The refuter's route is the SHIPPED
+    `bm-controller plan --units-json`, so the closure is asked of that
+    command as a real subprocess, not only of the store method."""
+
+    def test_plan_refuses_a_string_retry_ceiling_without_a_traceback(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            _cli_begin(root)
+            unit = dict(_UNIT_ONE)
+            unit["retry_ceiling"] = "one"
+            r = _run_cli(
+                ["plan", "--project", "p1", "--units-json",
+                 json.dumps([unit]), "--controller-id", "c1"]
+                + list(CLI_ACTOR), root)
+            self.assertNotIn("Traceback", r.stderr,
+                             "the shipped plan command raised rather than "
+                             "refused: %s" % (r.stdout + r.stderr))
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("retry_ceiling", r.stderr)
+            self.assertIn("str", r.stderr)
+
+    def test_plan_still_accepts_a_well_typed_retry_ceiling(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            _cli_begin(root)
+            unit = dict(_UNIT_ONE)
+            unit["retry_ceiling"] = 2
+            r = _run_cli(
+                ["plan", "--project", "p1", "--units-json",
+                 json.dumps([unit]), "--controller-id", "c1"]
+                + list(CLI_ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+class TestCrossFamilyF4ShippedStatusNeverWritesTheStoreDirectory(
+        unittest.TestCase):
+    """FINDING 4 (HIGH), reachability. `bm-controller status` is the
+    shipped read-only command the finding names, driven here as a real
+    subprocess against a store directory made non-writable with its WAL
+    sidecars removed."""
+
+    def _sidecars_removed(self, root):
+        store_dir = os.path.join(root, bs.STORE_DIRNAME)
+        for name in sorted(os.listdir(store_dir)):
+            if name.startswith(bs.STORE_FILENAME) and name != bs.STORE_FILENAME:
+                os.remove(os.path.join(store_dir, name))
+        return store_dir
+
+    def test_status_against_a_non_writable_store_directory_still_reports(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            _cli_begin(root)
+            store_dir = self._sidecars_removed(root)
+            before = sorted(os.listdir(store_dir))
+            os.chmod(store_dir, 0o500)
+            try:
+                r = _run_cli(["status", "--project", "p1"], root)
+                self.assertNotIn("Traceback", r.stderr,
+                                 r.stdout + r.stderr)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertIn("project p1: run ", r.stdout)
+                self.assertEqual(
+                    sorted(os.listdir(store_dir)), before,
+                    "a read-only command wrote into the store directory")
+            finally:
+                os.chmod(store_dir, 0o700)
+
+    def test_status_against_a_writable_store_directory_creates_no_sidecar(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            _cli_begin(root)
+            store_dir = self._sidecars_removed(root)
+            before = sorted(os.listdir(store_dir))
+            r = _run_cli(["status", "--project", "p1"], root)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual(
+                sorted(os.listdir(store_dir)), before,
+                "a read-only command created %r in the store directory"
+                % (sorted(set(os.listdir(store_dir)) - set(before)),))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

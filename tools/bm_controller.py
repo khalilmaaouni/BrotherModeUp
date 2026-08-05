@@ -2896,8 +2896,41 @@ class ControllerEngine(object):
                 owner=self.controller_id, session_id=self.session_id)
         except bs.OwnershipRefused:
             return None, "DEFER"
-        self.store.claim_unit(unit["unit_id"], record.lifecycle_uuid,
-                              self.actor, project_id=project_id)
+        try:
+            self.store.claim_unit(unit["unit_id"], record.lifecycle_uuid,
+                                  self.actor, project_id=project_id)
+        except bs.OwnershipRefused as exc:
+            if exc.reason != "unit-not-claimable":
+                raise
+            # THE STALE SELECTION, closed on this side too (cross-family
+            # refuter, finding 5). `unit` came from select_ready_units at
+            # step 4, several store transactions ago, and the run was
+            # walked to EXECUTING in between; a second process running
+            # `plan` in that window commits its removal as SKIPPED, and the
+            # claim this engine is holding is built on a fact that has
+            # stopped being true. The store now refuses that claim instead
+            # of overwriting the re-plan's decision, and this is what the
+            # refusal means HERE: contention, deferred to a later wave,
+            # exactly as a fence overlap two lines above is deferred.
+            #
+            # NOT mark_unit_failed: nothing was dispatched, nothing was
+            # judged and the unit did not fail, so burning a retry would
+            # walk a unit toward FAILED for someone else's re-plan. NOT a
+            # drain either: the re-plan IS the founder's own intent, and
+            # the very next wave re-selects from the graph they left.
+            #
+            # The fence is released because it was claimed one call
+            # earlier, over the files of a unit this engine is now not
+            # dispatching: leaving it active would block every later wave
+            # over those paths with nothing naming it, which is the orphan
+            # class release_claimed_unit exists for on the crash route.
+            self._release_fence(
+                record.lifecycle_uuid, "parked",
+                "unit %s was no longer claimable when the claim landed "
+                "(%s); the unit is deferred to a later wave and its files "
+                "are released" % (unit["unit_id"],
+                                  exc.details.get("status", "status moved")))
+            return None, "DEFER"
         attempt = self._next_attempt(unit["unit_id"])
         dispatch_id = self.store.record_dispatch(
             unit["unit_id"], attempt, verdict["revision"],

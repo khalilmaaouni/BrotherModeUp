@@ -14,9 +14,13 @@ exit 0. Two of those closures are narrowings rather than complete fixes and
 say so in their own entries: C-02 ships refusal and alerting but not
 containment, and carries a deliberate fail-open when the store module cannot
 be imported; C-06 leaves `bm_project_facts.py` and `scripts/` unwired on
-purpose. What remains open is X-01 to X-06 below, and none of it is closable
-by engineering: it needs credits, outside participants, or calendar time.
-That is the honest reason a 9 out of 10 still cannot be claimed today.
+purpose. What remains open is X-01 to X-06 below. X-02 to X-06 are still not
+closable by engineering: they need outside participants or calendar time.
+X-01 CHANGED on 2026-08-05 and now has its own entry rather than a bullet: the
+credits blocker it recorded is gone, a four lane rehearsal proved the engine
+runs in a second runtime, the same rehearsal DISPROVED the fence transferring
+there, and what is left open is narrower than the old line claimed. That is
+the honest reason a 9 out of 10 still cannot be claimed today.
 
 ---
 
@@ -297,9 +301,14 @@ That is the honest reason a 9 out of 10 still cannot be claimed today.
 These are open by definition until external evidence exists. Naming them here so
 no scorecard can quietly omit them.
 
-- **X-01 Second runtime conformance.** Codex is authenticated but out of credits;
-  adding credits is a payment and permanently the founder's. Alert
-  `65921a00` already records it.
+- **X-01 Second runtime conformance.** MOVED OUT of this list on 2026-08-05, and
+  split. The blocker this line recorded (no credits, and buying them is the
+  founder's payment to make) is GONE, and most of the question was answered by
+  rehearsal rather than by purchase. What is proven and what is still open now
+  have their own entry below, "X-01 Second runtime conformance (SPLIT)". Read it
+  before scoring this line either way: the engine running in a second runtime is
+  proven, the fence being enforced there is disproven, and model obedience is
+  still open.
 - **X-02 External user study.** Needs participants who did not build this.
 - **X-03 Benchmark corpus.** Thirty projects, five users, three operating
   systems, two runtimes.
@@ -315,6 +324,95 @@ no scorecard can quietly omit them.
   two maintainers able to release.
 - **X-06 Fault-injection reliability.** The protocol asks for 10,000 sequences;
   zero have been run, so no reliability figure exists to report.
+
+## X-01 Second runtime conformance (SPLIT)
+
+- Severity: **HIGH** (the product claims to be runtime neutral; this is the line
+  that decides how much of that is true)
+- Metric: honest limits
+- Promoted out of "not machine-closable" on 2026-08-05. The old entry said
+  "Codex is authenticated but out of credits; adding credits is a payment and
+  permanently the founder's". The founder has credits, and separately, a four
+  lane rehearsal answered most of this question WITHOUT them, by driving the
+  real `codex` binary against a local stand-in model provider. A blocker stated
+  as a payment turned out to be a blocker only for one narrow half.
+- Evidence base: the four lane reports of 2026-08-05, in
+  `BrotherModeUp-handovers/2026-08-05-codex-lifecycle/`, and the verdict beside
+  them. Versions: codex-cli 0.146.0, BrotherMode v2.0.0 (Lane D, cloned from the
+  GitHub tag) and a working copy reporting 2.0.1.dev1 (Lanes A, B, C).
+
+**PROVEN.**
+
+1. A SECOND RUNTIME RUNS THE ENGINE. Lane B, inside Codex's own tool pathway and
+   its own sandbox, with no Claude Code process anywhere: `bm_store.py init`,
+   `bm_store.py dashboard`, `bm_project.py start` and `bm_project.py status` all
+   succeeded when Codex was started with `-s workspace-write`. Same lane, in a
+   plain shell: `bm_project.py task add`, `task transition`, `next` (which
+   returned a recommendation with its reason), and `bm_store.py verify` ->
+   `verify: healthy, 0 problem(s)`, exit 0 throughout.
+2. THE INSTALL VERIFIES WITH NO CLAUDE CODE PRESENT. Lane D cloned the public
+   `v2.0.0` tag from GitHub into a throwaway HOME and ran `python3
+   scripts/doctor.py`: `[9/10] CHECKSUMS.sha256 self-check: PASS all 255 file(s)
+   match`, `9 of 10 proven, 1 skipped, 0 failed`, DOCTOR_EXIT=0. PRECISION, and
+   it matters: Lane D never executed the `codex` binary at all. That run proves
+   the install stands up outside Claude Code; it does not prove anything about
+   Codex behaviour. The Codex behaviour evidence is Lanes A, B and C.
+3. THE ADAPTER REACHES THE MODEL, VERBATIM AND PERSISTENTLY. Lane B captured the
+   request Codex builds: the adapter arrives as input item 5, 6433 characters,
+   byte identical to the file on disk, and the law was still present on every
+   one of five successive turns. It arrives as a USER message, below Codex's own
+   17730 character system prompt, so it is context rather than policy.
+4. THE STORE'S OWN REFUSAL WORKS THERE. Lane B: a second overlapping claim was
+   refused, `refused (overlap): claim overlaps active record 'codex-lane-b'`,
+   exit 2. The coordination ledger transfers.
+5. THE ENFORCEMENT PRIMITIVE EXISTS IN CODEX. Lane C, live: a PreToolUse hook
+   returning BrotherMode's exact deny object blocked the command, `error=Command
+   blocked by PreToolUse hook: BrotherMode fence: probe deny`.
+
+**DISPROVEN, and this is the half that must never be read as proven.**
+
+6. THE ONE WRITER FENCE DOES NOT TRANSFER TO CODEX. Lane C captured the payload
+   on codex-cli 0.146.0: every file write arrives as `"tool_name": "Bash"` with
+   an `apply_patch` heredoc inside `tool_input.command`. BrotherMode's matcher is
+   `Edit|Write|MultiEdit|NotebookEdit`, so the label `PreToolUse_EDIT_MATCHER`
+   appeared in no capture, and fed a real Codex payload `bm_fence_hook.py` exits
+   0 in silence. A second runtime RUNNING the engine is proven. A second runtime
+   ENFORCING the fence is not, and it is not merely unverified: it is measured
+   and negative.
+7. Three further measured negatives from the same lane: hooks are silently inert
+   until the project is trusted, `${CLAUDE_PLUGIN_ROOT}` expands to empty so
+   every command in the shipped hooks file breaks, and `bm_telemetry.py
+   outcomes-append` records nothing under Codex because the rollout JSONL is not
+   Claude Code's transcript format (it exits 0 after reading zero messages, so
+   the session looks recorded and is not).
+
+**STILL OPEN, and what each one needs.**
+
+- MODEL OBEDIENCE. Nothing here shows that a real authenticated GPT model,
+  handed the adapter, CHOOSES to claim a file before editing it. Every lane that
+  ran the binary hit `401 Unauthorized`, exit 1, because the brief required a
+  throwaway `CODEX_HOME` with no credentials. Lanes B and C worked around it
+  with local stand-in model servers, which drive Codex's real tool pathway, real
+  sandbox and real hook plumbing while the model's CHOICES were scripted by the
+  tester. This is the one part that still needs the founder's own authenticated
+  Codex account. It is no longer blocked on a payment; it is blocked on a
+  session an agent cannot run on his behalf.
+- FENCE ENFORCEMENT IN CODEX. Buildable, not built: it needs an `apply_patch`
+  parser covering Add, Update, Delete and Move, a Codex shaped hooks file written
+  with absolute paths, and the hook trust grant flow, which no lane reached.
+- THE OTHER FIVE ADAPTERS (generic, copilot, antigravity, qwen, iflow) were not
+  tested at all. Every finding above is Codex only, and true of codex-cli
+  0.146.0 and of nothing else.
+- Concurrent Codex sessions against one store, and Windows, were not tested.
+- machine-closable: **partly.** Items 6 and 7 are closable by engineering, and
+  the surface repair of 2026-08-05 has already corrected what the product SAYS
+  about them (see `docs/RUNTIMES.md` and the regenerated `docs/runtimes/`
+  adapters). Model obedience is not machine-closable by an agent, because a
+  throwaway `CODEX_HOME` cannot authenticate and the founder's credentials are
+  his alone.
+- Status: **OPEN, SPLIT AND EVIDENCED 2026-08-05.** Scoring rule for whoever
+  reads this next: count the engine half as proven, count the enforcement half
+  as a measured negative, and do not let the phrase "second runtime" carry both.
 
 ## C-11 A timing test flakes on one CI leg, and its own reasoning says it cannot
 

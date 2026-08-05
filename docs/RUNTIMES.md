@@ -13,9 +13,9 @@ Regenerate this page and every adapter file with:
 Almost every claim about cross runtime support blurs these, so they get separate columns:
 
 - **Hook points**: does the runtime run an external program at lifecycle events at all. Verified per runtime below.
-- **BrotherMode hooks**: do BrotherMode's OWN hook targets work there. BrotherMode's hooks parse Claude Code's hook JSON contract (docs/HOOKS.md). A same named event in another runtime is not known to carry the same payload. Nobody has captured a real payload from any other runtime, so every non Claude answer in that column is UNVERIFIED, and UNVERIFIED means do not wire it: a fence that fails open while looking installed is worse than no fence.
+- **BrotherMode hooks**: do BrotherMode's OWN hook targets work there. BrotherMode's hooks parse Claude Code's hook JSON contract (docs/HOOKS.md). A same named event in another runtime is not known to carry the same payload. ONE non Claude runtime has now been measured, OpenAI Codex CLI, and its answer is a measured NO rather than a yes (details in its section below). Every other non Claude answer in that column is UNVERIFIED, and UNVERIFIED means do not wire it: a fence that fails open while looking installed is worse than no fence.
 
-Retrieval and the store CLI need no such column. They are ordinary local processes, so they work in any runtime that can run a shell command.
+Retrieval and the store CLI need no such column, with two caveats that are true of the CODE being runtime neutral and false of the EXPERIENCE, which is the version a user meets. First, the tools live in the BrotherMode checkout, so a project that is not the checkout has to call them by absolute path: the bare relative form fails with `[Errno 2] No such file or directory`. Second, a runtime that sandboxes its shell read-only cannot create the store at all: under Codex's default sandbox `init` dies with `PermissionError(1, 'Operation not permitted')`. Both were measured on 2026-08-05. The per runtime sections say what each runtime needs.
 
 ## Capability table
 
@@ -23,7 +23,7 @@ Retrieval and the store CLI need no such column. They are ordinary local process
 |---|---|---|---|---|
 | Claude Code | CLAUDE.md and SKILL.md (native, see docs/SETUP.md) | yes | yes | YES, this is the one verified runtime |
 | Generic AGENTS.md | `AGENTS.md` | yes | none found | not applicable, no hook points |
-| OpenAI Codex CLI | `AGENTS.md` | yes | yes: SessionStart, SessionEnd, PreToolUse, PostToolUse, and 7 more | UNVERIFIED, payload shape not captured |
+| OpenAI Codex CLI | `AGENTS.md` | yes, with two caveats measured on 2026-08-05: call the tools by their absolute path in the checkout, and start Codex with `-s workspace-write` | yes: SessionStart, SessionEnd, PreToolUse, PostToolUse, and 7 more | MEASURED 2026-08-05 on codex-cli 0.146.0, and the answer is no. Payloads are Claude shaped and a PreToolUse deny really does block, so the primitive exists; but the one writer fence does not transfer, because every write arrives as tool_name Bash running apply_patch, so the Edit/Write matcher never fires. Hooks are also inert until the project is trusted, and SessionEnd is clamped to 3s. Do not wire them. |
 | GitHub Copilot | `.github/copilot-instructions.md` | yes | none found | not applicable, no hook points |
 | Google Antigravity | `.agents/rules/brothermode.md` | yes | yes: PreToolUse, PostToolUse, PreInvocation, PostInvocation, and 1 more | UNVERIFIED, payload shape not captured |
 | Qwen Code | `QWEN.md` | yes | yes: SessionStart, SessionEnd, PreToolUse, PostToolUse, and 12 more | UNVERIFIED, payload shape not captured |
@@ -63,12 +63,30 @@ Verified 2026-07-29 from:
 - Custom instructions with AGENTS.md: <https://learn.chatgpt.com/docs/agent-configuration/agents-md>
 - Codex hooks: <https://learn.chatgpt.com/docs/hooks>
 
+What this runtime needs before any BrotherMode command works:
+
+- A WRITABLE SANDBOX. Codex runs model driven shell commands in a read-only sandbox by default, and BrotherMode's store has to CREATE `.brothermode/store.sqlite3`. On the default, `init` dies with `bm_store: unexpected error: PermissionError(1, 'Operation not permitted')`, and every command after it then reports no project root, which points you back at the command that just failed. Start Codex with `-s workspace-write`. That spelling was read off `codex --help` on codex-cli 0.146.0 on 2026-08-05, whose accepted values are read-only, workspace-write and danger-full-access. With that flag, everything below runs.
+- YOUR OWN OpenAI CREDENTIALS. Codex keeps them per user, in the Codex home directory. A fresh CODEX_HOME answers `401 Unauthorized` and exits 1 before any of this matters. BrotherMode itself needs no account and no network; the runtime carrying it does.
+
 Hook points: ~/.codex/hooks.json or an inline [hooks] table in ~/.codex/config.toml for user scope; <repo>/.codex/hooks.json or an inline [hooks] table in <repo>/.codex/config.toml for project scope.
 
 Events: SessionStart, SessionEnd, PreToolUse, PostToolUse, PermissionRequest, PreCompact, PostCompact, UserPromptSubmit, SubagentStart, SubagentStop, Stop.
 
+BrotherMode's own hooks here: MEASURED 2026-08-05 on codex-cli 0.146.0. The payload was captured; the answer is a measured no, not an unknown.
+
+- THE PRIMITIVE EXISTS. Codex accepts Claude Code's hook configuration shape and Claude Code's output object. A hook returning permissionDecision deny, in BrotherMode's exact JSON shape, blocked the command live: `error=Command blocked by PreToolUse hook: BrotherMode fence: probe deny`. deny is the only permission decision Codex honours, and it is the only one BrotherMode ever emits.
+- THE ONE WRITER FENCE DOES NOT TRANSFER. Codex has no Edit, Write, MultiEdit or NotebookEdit tool. File writes arrive as tool_name Bash with an apply_patch heredoc inside tool_input.command, so BrotherMode's matcher never fires; the label PreToolUse_EDIT_MATCHER appeared in no capture. Fed a real Codex payload directly, bm_fence_hook.py exits 0 in silence, because the tool name is not in its write set and the paths it looks for live inside the patch body.
+- HOOKS ARE SILENTLY INERT UNTIL THE PROJECT IS TRUSTED. With a valid hooks file and no trust record, no hook ran, no warning printed, and the command executed unguarded. How a trust is granted was never reached, so that flow stays UNVERIFIED.
+- ${CLAUDE_PLUGIN_ROOT} EXPANDS TO EMPTY. Codex runs hook commands through the shell, so every command in BrotherMode's shipped hooks file becomes a path starting at the filesystem root and fails. A hand installed hooks file needs absolute paths.
+- SESSION TELEMETRY RECORDS NOTHING, SILENTLY. Codex's rollout JSONL is not Claude Code's transcript format, so outcomes-append parses zero messages and drops the session under its activity floor, exit 0. A session that looks recorded and is not.
+- THE SessionEnd TIMEOUT IS CLAMPED TO 3 SECONDS whatever the configuration says. BrotherMode declares 30. It fits on an empty store (0.061s measured) and nobody has measured a loaded one.
+- FIVE OF THE ELEVEN EVENTS were never observed firing: PermissionRequest, PreCompact, PostCompact, SubagentStart and SubagentStop. Their shapes are known from the binary's own embedded schemas; their live behaviour stays UNVERIFIED.
+
+Evidence: Lane C of the 2026-08-05 Codex lifecycle rehearsal, which drove codex-cli 0.146.0 with a local stand-in model provider so Codex itself built every payload, and whose report is `BrotherModeUp-handovers/2026-08-05-codex-lifecycle/LANE-C-hooks.md`. No authenticated model turn was ever made, so whether a real model CHOOSES to obey the law is a different question and is still open.
+
 - Codex builds its instruction chain once when it starts, so editing an AGENTS.md mid session does not reload it.
-- The event NAMES overlap heavily with Claude Code's, which is exactly the trap: an overlapping name is not a compatible payload. See the compatibility note below before wiring any hook.
+- The event NAMES overlap heavily with Claude Code's. The trap turned out to be subtler than expected: the names AND the payload fields AND the output contract all match, and the tool vocabulary underneath does not. See the measured findings in the hooks section above.
+- This file arrives as a user message, below Codex's own much larger system prompt. It is context, not policy, which is another way of saying an instruction file is persuasion.
 
 ### GitHub Copilot
 

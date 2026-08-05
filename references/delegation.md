@@ -57,6 +57,48 @@ Read-only work fans out in parallel; IMPLEMENTATION STAYS SERIAL, one writer, be
 parallel implementers on shared files produce exactly the collisions the fence exists
 to prevent.
 
+## Cross-family refutation, and why same-family rounds do not substitute
+
+LAW, added 2026-08-05 after it was measured rather than argued: any finding that
+gates a push, a release, or a safety claim is attacked by at least one refuter from
+a DIFFERENT MODEL FAMILY than the one that wrote the code, and the record names
+which family produced which verdict. A verdict with no family named is incomplete.
+
+The evidence for the law, because a rule without its incident becomes ceremony. The
+Full-Auto controller was attacked by SIX consecutive refutation rounds, all of them
+the same model family as its authors. Each round found real defects with real
+reproductions, and by the sixth the panel returned no push blocker. A refuter from a
+different family was then pointed at the same code and returned SIX findings, THREE
+of them HIGH, including one in the same data-destruction class as the blocker the
+six rounds had just closed: the engine ran its rollback with an INHERITED
+environment, and git honours GIT_DIR and GIT_WORK_TREE over the working directory,
+so a shipped command restored files in an unrelated repository and exited zero.
+Reproduced in two throwaway repositories; the uncommitted edit in the innocent one
+was destroyed.
+
+Why every same-family round missed it, which is the transferable part: all six
+attacked the ARGUMENT (spelling after spelling of git pathspec magic) and not one
+attacked the ENVIRONMENT around the call. That is not six failures of diligence, it
+is one shared prior about where bugs live, held by every member of the panel because
+they share a lineage. Adding a seventh round of the same family buys another pass
+over the same prior. This is the pseudo-diversity failure named as BM-A20 in the
+MirrorForge register, and it is now a measured local result rather than a borrowed
+claim.
+
+What to give the outside refuter, since a generic brief wastes the independence you
+paid for: name the classes YOUR family under-weights and aim it there. The brief
+that produced the finding above named Python evaluation semantics, SQLite
+transaction and foreign-key behaviour, shell and environment inheritance, and
+two-process contention, and told it not to re-litigate what the earlier rounds had
+closed. Read-only is the default posture and it fits: a refuter never needs write
+rights, and Codex's own default sandbox is read-only, so the report is captured by
+redirecting its output rather than by letting it write.
+
+Mechanics on this machine today, an example and not the law: `codex exec
+--skip-git-repo-check "<brief>" > <report path>` runs a non-Claude family locally.
+The same reasoning applies to any other family that can be reached; what matters is
+that the lineage differs, not which vendor supplies it.
+
 ## Assignment explanation, a mandatory section of every brief
 
 Before any task is dispatched, the assignment answers these five questions,
