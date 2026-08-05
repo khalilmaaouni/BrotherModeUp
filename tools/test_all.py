@@ -123,6 +123,17 @@ SUITES = (
     # tools/bm_lead.py in process for most of its work plus as a real
     # subprocess for the pre-consent proof.
     "test_bm_lead.py",
+    # L05 (2026-08-05): the visual surface. The vocabulary suite first
+    # (the drawn shapes, the alert ladder, the insight box and the
+    # rewritten refusals in tools/bm_visual.py), then the page and CLI
+    # suite (tools/bm_view.py: the live project view, the consent door,
+    # the empty states and the developer brief page). NO APOSTROPHE
+    # ANYWHERE IN THESE COMMENTS, ON PURPOSE (see the note above): placed
+    # right after the lead surface suite whose collectors both modules
+    # read, over the schema 17 tables the store suite already proved
+    # sound.
+    "test_bm_visual.py",
+    "test_bm_view.py",
     "test_bm_fence_hook.py",
     # Loop 6 WP-G (2026-08-01): the Bash-write detection suite for
     # tools/bm_bash_audit.py. Placed right after the fence hook suite it

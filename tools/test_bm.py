@@ -5682,7 +5682,8 @@ class TestTheSeventhCommandAndTheDeepTourAreWired(unittest.TestCase):
         # Full-Auto controller commands (auto, auto-status, stop), a deliberate
         # new family, so the pinned set became ten. L04 adds four more (brief,
         # decisions, handback, handover-pack), the founder-mode family, so it
-        # is now fourteen.
+        # is now fourteen. L05 adds one (view, the live project page), the
+        # visual surface's single command, so it is now fifteen.
         # The NAME of this test is two families out of date and is deliberately
         # not changed: it is cited by name in the closure register and in the
         # evidence pages, and renaming it would break those citations to fix
@@ -5699,11 +5700,13 @@ class TestTheSeventhCommandAndTheDeepTourAreWired(unittest.TestCase):
                     "brotherme-handover-pack.md", "brotherme-help.md",
                     "brotherme-next.md", "brotherme-review.md",
                     "brotherme-start.md", "brotherme-status.md",
-                    "brotherme-stop.md", "brotherme-update.md"]
+                    "brotherme-stop.md", "brotherme-update.md",
+                    "brotherme-view.md"]
         self.assertEqual(expected, found,
-                         "the shipped command set drifted from the fourteen "
+                         "the shipped command set drifted from the fifteen "
                          "this release documents (seven beginner, three "
-                         "controller, four founder mode): %r" % found)
+                         "controller, four founder mode, one visual "
+                         "surface): %r" % found)
 
     def test_the_five_store_backed_commands_name_the_mechanical_command(self):
         """Loop 2 WP-C, decision D-3 (docs/superpowers/specs/2026-08-01-

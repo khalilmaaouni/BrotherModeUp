@@ -78,7 +78,7 @@ import sys
 import unicodedata
 import uuid
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
@@ -2023,12 +2023,31 @@ _TABLES_LEAD = ("insights", "briefings")
 
 _TABLES_V16 = _TABLES_V15 + _TABLES_LEAD
 
+# Schema 17 (L05, the visual surface, design
+# docs/program/absolute-lead/DESIGN-visual-surface.md section 11.2). ONE
+# table, and it exists for exactly one fact that must survive a session:
+# the URL a generated page was published to, per project and per kind.
+# Without it a new session always creates a NEW artifact instead of
+# updating the existing one, and the founder accumulates a graveyard of
+# one-shot pages. The content fingerprint lives on the same row because
+# "has anything changed since the last render" and "do we need to
+# republish" are then the same comparison rather than two.
+#
+# Its own tuple for the same reason every schema above got one: a healthy
+# schema-16 store must be checked against schema 16's table list, or a
+# store whose only fault is predating this upgrade gets quarantined
+# instead of migrated. The DDL text itself (_VIEW_DDL) is defined further
+# down, after _split_ddl exists; this tuple only needs the table NAMES.
+_TABLES_VIEW = ("views",)
+
+_TABLES_V17 = _TABLES_V16 + _TABLES_VIEW
+
 _TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3,
                       4: _TABLES_V4, 5: _TABLES_V5, 6: _TABLES_V6,
                       7: _TABLES_V7, 8: _TABLES_V8, 9: _TABLES_V9,
                       10: _TABLES_V10, 11: _TABLES_V11, 12: _TABLES_V12,
                       13: _TABLES_V13, 14: _TABLES_V14, 15: _TABLES_V15,
-                      16: _TABLES_V16}
+                      16: _TABLES_V16, 17: _TABLES_V17}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -3198,6 +3217,82 @@ CREATE INDEX IF NOT EXISTS briefings_project_created_idx
 _LEAD_DDL_STATEMENTS = _split_ddl(_LEAD_DDL)
 _LEAD_INDEX_STATEMENTS = _split_ddl(_LEAD_INDEX_DDL)
 
+# Schema 17 (L05, the visual surface, design section 11.2). Beside the
+# ledger block for the same reason every schema addition sits beside the
+# one before it: one place to read the whole DDL history in order.
+#
+# APPEND ONLY, exactly like insights. A republish INSERTs a new row; it
+# never UPDATEs the old one. That is not tidiness: the artifact URL and
+# the fingerprint together are the record of what the founder was shown
+# and when, and a page he opened last Tuesday stays answerable only if
+# the row that described it was never edited. An ast guard in
+# tools/test_bm_store.py fails the build if any UPDATE or DELETE names
+# this table outside purge_project.
+#
+# rel_path is TEXT and carries a path RELATIVE to the project root,
+# because an absolute path is both a disclosure (it names the founder's
+# home directory) and a lie the moment the project moves. It is
+# validated through safe_project_path at write time, so a row can never
+# name a file outside the project it belongs to.
+#
+# subject is the handback insight_id for a DEVELOPER_BRIEF and empty for
+# a PROJECT_VIEW. Deliberately NOT a foreign key to insights: the same
+# reason insights.supersedes is not one either (see that block above), so
+# an unknown id refuses with a named reason code rather than raising a
+# bare sqlite3.IntegrityError, and purge_project's single per-project
+# DELETE cannot trip a per-row check.
+_VIEW_DDL = """
+CREATE TABLE IF NOT EXISTS views (
+  view_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(project_id),
+  created_at TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  rel_path TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  artifact_url TEXT NOT NULL DEFAULT '',
+  published_at TEXT NOT NULL DEFAULT '',
+  subject TEXT NOT NULL DEFAULT '',
+  session_id TEXT NOT NULL DEFAULT '',
+  actor_type TEXT NOT NULL DEFAULT '',
+  actor_name TEXT NOT NULL DEFAULT ''
+);
+"""
+
+# One index, on the one read that runs every render: latest_view narrows
+# by project and kind and takes the newest row.
+_VIEW_INDEX_DDL = """
+CREATE INDEX IF NOT EXISTS views_project_kind_created_idx
+  ON views(project_id, kind, created_at);
+"""
+
+_VIEW_DDL_STATEMENTS = _split_ddl(_VIEW_DDL)
+_VIEW_INDEX_STATEMENTS = _split_ddl(_VIEW_INDEX_DDL)
+
+# The closed sets record_view refuses against, and the caller-settable
+# keys of its dict argument. Same discipline and same reason as
+# INSIGHT_KINDS and INSIGHT_FIELDS below: no CHECK constraint in the DDL,
+# so the closed set lives here and the refusal names both the field and
+# the whole allowed set.
+#
+# Two kinds and no more. PROJECT_VIEW is the standing page at the project
+# root; DEVELOPER_BRIEF is the HTML rendering of one handback brief. A
+# third kind would need a third generator, and the design gives it none.
+VIEW_KINDS = ("PROJECT_VIEW", "DEVELOPER_BRIEF")
+
+# Everything NOT here is filled by the store (the id, the timestamp and
+# the three actor columns), so naming one of those is the same typo class
+# as naming a column that does not exist and gets the same loud refusal
+# rather than a silent drop.
+VIEW_FIELDS = ("kind", "rel_path", "fingerprint", "artifact_url",
+               "published_at", "subject")
+
+# A fingerprint is the first 12 hex characters of a sha256 over the
+# rendered body (design section 4.6). Twelve is what the page prints, so
+# twelve is what is stored: a column holding sometimes 12 and sometimes
+# 64 characters would make "did the bytes change" a comparison nobody
+# could trust.
+_VIEW_FINGERPRINT_RE = re.compile(r"^[0-9a-f]{12}$")
+
 # The closed sets record_insight and record_briefing refuse against. Same
 # discipline as CONTROLLER_DISPATCH_STATUSES and the AUTONOMY_* sets
 # below: no CHECK constraint is written into the DDL above, because
@@ -4196,6 +4291,36 @@ def _migrate_15_to_16(conn):
         conn.execute(statement)
 
 
+def _migrate_16_to_17(conn):
+    """Schema 16 to 17 (L05, the visual surface, design
+    docs/program/absolute-lead/DESIGN-visual-surface.md section 11.2): ONE
+    table (views) plus one index. ADDITIVE ONLY: no existing table gains,
+    loses or changes a column here, and no existing index is dropped or
+    redefined.
+
+    Same contract as _migrate_15_to_16, the last table-only migration:
+    every statement is CREATE TABLE IF NOT EXISTS or CREATE INDEX IF NOT
+    EXISTS, safe whether this runs against a genuinely old schema-16 store
+    or, via _ensure_schema, against a brand new one that already has the
+    table. Runs inside the caller's BEGIN EXCLUSIVE, so it must never
+    commit, roll back, or open a transaction of its own; that is also why
+    it walks _split_ddl's statement list instead of calling executescript,
+    whose implicit COMMIT would end the caller's transaction underneath
+    it.
+
+    What this deliberately does NOT do: it does not backfill a row for a
+    page that already exists on disk. A views row records that a page was
+    GENERATED, with the fingerprint of the bytes that were generated, and
+    a row invented for a file nobody can prove this store wrote would make
+    the very first "have the bytes changed since last time" comparison a
+    guess. Every project that predates schema 17 therefore has no
+    recorded view until one is rendered."""
+    for statement in _VIEW_DDL_STATEMENTS:
+        conn.execute(statement)
+    for statement in _VIEW_INDEX_STATEMENTS:
+        conn.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_1_to_2,
     2: _migrate_2_to_3,
@@ -4212,6 +4337,7 @@ _MIGRATIONS = {
     13: _migrate_13_to_14,
     14: _migrate_14_to_15,
     15: _migrate_15_to_16,
+    16: _migrate_16_to_17,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -4930,6 +5056,23 @@ _DUMP_SAFE_COLUMNS = frozenset((
     ("briefings", "skipped_events"), ("briefings", "since_briefing"),
     ("briefings", "run_state"), ("briefings", "open_steps"),
     ("briefings", "decision_insight"), ("briefings", "risk_insight"),
+    # Schema 17 (L05, the visual surface). Identifiers, one enum, one
+    # content hash and two timestamps.
+    #
+    # DELIBERATELY ABSENT, and therefore withheld as length markers:
+    # rel_path and artifact_url. A rel_path is a filename inside the
+    # founder's own project, which is project content exactly as an
+    # objective is; an artifact_url is a private page on claude.ai and
+    # anyone holding it can open the page, so a URL in a dump would be a
+    # capability leak rather than a data leak. The fingerprint is safe to
+    # show and is the useful half anyway: it says WHETHER two renders
+    # differ without saying what either one said. Both actor columns are
+    # absent for the same reason they are on insights: an actor_name is a
+    # person's or a model's name.
+    ("views", "view_id"), ("views", "project_id"),
+    ("views", "created_at"), ("views", "kind"),
+    ("views", "fingerprint"), ("views", "published_at"),
+    ("views", "subject"),
 ))
 
 
@@ -6113,6 +6256,12 @@ class Store(object):
             # this call is safe on a store that was just created with both
             # ledger tables already present.
             _migrate_15_to_16(self.conn)
+        if SCHEMA_VERSION >= 17:
+            # Same rule again. Every statement in _migrate_16_to_17 is
+            # CREATE TABLE IF NOT EXISTS or CREATE INDEX IF NOT EXISTS, so
+            # this call is safe on a store that was just created with the
+            # views table already present.
+            _migrate_16_to_17(self.conn)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -6162,6 +6311,9 @@ class Store(object):
             # to that text. Idempotent (IF NOT EXISTS), so running it on
             # every open costs nothing once they exist.
             self.conn.executescript(_LEAD_INDEX_DDL)
+        if SCHEMA_VERSION >= 17:
+            # Same reasoning again, for the one schema-17 index.
+            self.conn.executescript(_VIEW_INDEX_DDL)
 
     # ------------------------------------------------------------------
     # The optional FTS5 fast path (LOOP P7). Read the block above
@@ -12365,6 +12517,24 @@ class Store(object):
                 self, "DELETE FROM briefings WHERE project_id=?",
                 (project_id,)).rowcount
 
+            # L05 extension: views carries a REFERENCES
+            # projects(project_id) FK, so a purge that stopped above would
+            # leave every recorded view orphaned, each row pointing at a
+            # project that no longer exists. `subject` names an insight for
+            # a developer brief and is deliberately not a foreign key (see
+            # the _VIEW_DDL block), so one statement removing a whole
+            # project's views cannot trip a per-row check whatever order
+            # the ledger delete above ran in. Like every other table here,
+            # the attribution trail these rows left behind is KEPT:
+            # purge_project never touches attribution except to append,
+            # and that includes the view.recorded events. The pages
+            # themselves are ordinary files in the founder's project and
+            # are not this method's to delete; what goes is the record
+            # that this store generated them.
+            removed["views"] = _exec(
+                self, "DELETE FROM views WHERE project_id=?",
+                (project_id,)).rowcount
+
             self._write_attribution(
                 project_id, None, "project.purged", actor,
                 action="purge_project",
@@ -15237,6 +15407,168 @@ class Store(object):
         return {"active_minutes": int(seconds // 60), "events": len(stamps),
                 "skipped": skipped}
 
+    # -- L05: the generated views (design section 11.2) -------------------
+    #
+    # APPEND ONLY, same law as the ledger above and proven the same way (an
+    # ast guard plus the behaviour): a republish appends a row, so "which
+    # URL did this page have, and what did its bytes hash to" stays
+    # answerable for every render this project ever made. There is no
+    # UPDATE and no DELETE outside purge_project.
+    #
+    # This table records that a page was GENERATED. It never holds the
+    # page: the bytes live in the file at rel_path, which is written
+    # through write_generated_document like every other generated
+    # document, and the fingerprint here is what lets a caller ask "did
+    # anything change" without reading the file back.
+
+    def record_view(self, project_id, view, actor):
+        """Append ONE row to the views table, with its attribution event
+        ('view.recorded'), in ONE transaction: both land or neither does.
+        Returns {'view_id', 'kind', 'fingerprint'}.
+
+        `view` is a dict; every key of VIEW_FIELDS is accepted and nothing
+        else (V6). Validation runs BEFORE the transaction opens where it
+        can, and inside it where a refusal needs to read a row, so a
+        refused write leaves nothing behind either way.
+
+        Six refusals, design section 11.2, each OwnershipRefused with a
+        kebab-case reason code and each writing nothing:
+
+            V1  not-found          the project row does not exist
+            V2  bad-view-kind      kind is not in VIEW_KINDS
+            V3  path-escape        rel_path does not resolve inside the
+                                   project root (raised by
+                                   safe_project_path, this store's one
+                                   path funnel, not re-implemented here)
+            V4  bad-fingerprint    not exactly 12 lowercase hex characters
+            V5  bad-artifact-url   non empty and not an https URL
+            V6  unknown-field      a key outside VIEW_FIELDS
+
+        V1's code is 'not-found', which is this store's own universal code
+        for "the row you named does not exist" (record_insight's R15 uses
+        it for the identical condition). The design names that refusal
+        'unknown-project'; a second code meaning exactly what 'not-found'
+        already means would fork a convention 27 call sites follow, so the
+        landed code keeps the store's word and this docstring records the
+        difference rather than hiding it.
+
+        V5 exists because an artifact_url is a capability: anyone holding
+        it can open the page. Refusing anything but https keeps a
+        javascript: or file: URL out of a column a renderer will later put
+        in an href.
+
+        V6 is an OwnershipRefused where the ledger's own R16 is a
+        ValueError, and the difference is deliberate rather than sloppy: a
+        page renderer must rewrite every refusal into a founder-facing
+        block keyed by REASON CODE (law L-S9), and a bare ValueError
+        carries no code, so it would reach the founder as raw Python. The
+        not-a-dict case below stays a ValueError, because that one is a
+        caller passing the wrong type and can never be shown to a
+        founder."""
+        if not isinstance(view, dict):
+            raise ValueError(
+                "view must be a dict of (%s), got %r"
+                % (", ".join(VIEW_FIELDS), type(view).__name__))
+        unknown = sorted(k for k in view if k not in VIEW_FIELDS)
+        if unknown:
+            raise OwnershipRefused(
+                "unknown-field",
+                "unknown view field(s) %s (allowed: %s). The id, the "
+                "timestamp and the three actor columns are filled by this "
+                "store, so naming one is the same typo class as naming a "
+                "column that does not exist."
+                % (", ".join(unknown), ", ".join(VIEW_FIELDS)))
+        kind = view.get("kind")
+        if kind not in VIEW_KINDS:
+            raise OwnershipRefused(
+                "bad-view-kind",
+                "unknown view kind %r (allowed: %s)"
+                % (kind, ", ".join(VIEW_KINDS)))
+        rel_path = _lead_text("rel_path", view.get("rel_path"))
+        fingerprint = _lead_text("fingerprint", view.get("fingerprint"))
+        if not _VIEW_FINGERPRINT_RE.match(fingerprint):
+            raise OwnershipRefused(
+                "bad-fingerprint",
+                "a fingerprint is the first 12 hex characters of the "
+                "sha256 over the rendered body, lowercase; got %r"
+                % (fingerprint,))
+        artifact_url = _lead_text("artifact_url", view.get("artifact_url"))
+        if artifact_url and not artifact_url.startswith("https://"):
+            raise OwnershipRefused(
+                "bad-artifact-url",
+                "a published page is an https URL; %r is not one, and a "
+                "renderer would put it in a link" % (artifact_url,))
+        published_at = _lead_text("published_at", view.get("published_at"))
+        subject = _lead_text("subject", view.get("subject"))
+        # V3 through the ONE path funnel. Called before the transaction
+        # opens: it touches the filesystem, and a filesystem check inside
+        # BEGIN EXCLUSIVE would hold the write lock across a stat call.
+        #
+        # The split is deliberately NOT filtered for empty components. An
+        # absolute path splits to a leading empty string, and dropping it
+        # would turn "/etc/passwd" into the perfectly containable
+        # "etc/passwd" under the project root: the escape would be
+        # silently REWRITTEN rather than refused. Passing the empty
+        # component through means safe_project_path refuses it, which is
+        # also what makes an empty rel_path and a trailing slash refuse.
+        safe_project_path(self.root, *rel_path.split("/"))
+        actor = actor or {}
+        view_id = uuid.uuid4().hex
+        ts = now_iso()
+        with self._transaction():
+            # V1 first, and BEFORE the foreign key can raise: a bare
+            # sqlite3.IntegrityError names no project and offers no remedy.
+            if _exec(self, "SELECT project_id FROM projects WHERE "
+                     "project_id=?", (project_id,)).fetchone() is None:
+                raise OwnershipRefused(
+                    "not-found",
+                    "no project %r to record a view against" % (project_id,))
+            _exec(self,
+                  "INSERT INTO views (view_id, project_id, created_at, "
+                  "kind, rel_path, fingerprint, artifact_url, "
+                  "published_at, subject, session_id, actor_type, "
+                  "actor_name) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (view_id, project_id, ts, kind, rel_path, fingerprint,
+                   artifact_url, published_at, subject,
+                   actor.get("session_id", ""), actor.get("actor_type", ""),
+                   actor.get("actor_name", "")))
+            self._write_attribution(
+                project_id, None, "view.recorded", actor,
+                action="record_view", evidence_ref=view_id)
+        return {"view_id": view_id, "kind": kind, "fingerprint": fingerprint}
+
+    def list_views(self, project_id, kind=None, limit=None, raw=False):
+        """Views for `project_id`, NEWEST FIRST (created_at, then rowid as
+        the tie break, so two rows written in the same second still have
+        one deterministic order). `limit` therefore means the newest N.
+        Same ordering rule as list_insights: the order is not a per-caller
+        option, so two readers cannot disagree about which row is the
+        latest."""
+        if kind is not None and kind not in VIEW_KINDS:
+            raise ValueError(
+                "unknown view kind %r (allowed: %s)"
+                % (kind, ", ".join(VIEW_KINDS)))
+        sql = "SELECT * FROM views WHERE project_id=?"
+        params = [project_id]
+        if kind is not None:
+            sql += " AND kind=?"
+            params.append(kind)
+        sql += " ORDER BY created_at DESC, rowid DESC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(int(limit))
+        rows = _exec(self, sql, tuple(params)).fetchall()
+        return [_export_row(self.conn, "views", dict(r), raw=raw)
+                for r in rows]
+
+    def latest_view(self, project_id, kind, raw=False):
+        """The newest view of `kind` for `project_id`, or None when this
+        project has never had one. That None is a real answer, not a gap to
+        paper over: it is what a renderer reads to decide between updating
+        a page at a URL it already has and having no URL at all."""
+        rows = self.list_views(project_id, kind=kind, limit=1, raw=raw)
+        return rows[0] if rows else None
+
     def dump(self, raw=False):
         """Full JSON-serializable export of every table.
 
@@ -15739,6 +16071,21 @@ class ReadOnlyStore(object):
     def active_minutes_since(self, project_id, since_iso, now=None):
         return Store.active_minutes_since(self, project_id, since_iso,
                                           now=now)
+
+    # -- L05: the generated views (read-only surface) --------------------
+    # Same reuse and same reason as every block above: both of these only
+    # ever SELECT through _exec and redact through _export_row, so Store's
+    # implementation works unchanged against a read-only connection.
+    # record_view is NOT defined anywhere on this class, which is what
+    # makes "a diagnostic cannot claim a page was published" structural
+    # rather than a convention.
+
+    def list_views(self, project_id, kind=None, limit=None, raw=False):
+        return Store.list_views(self, project_id, kind=kind, limit=limit,
+                                raw=raw)
+
+    def latest_view(self, project_id, kind, raw=False):
+        return Store.latest_view(self, project_id, kind, raw=raw)
 
     def close(self):
         """Idempotent, same contract as Store.close()."""

@@ -229,6 +229,22 @@ jobs:
       # no shell script and no platform-specific path handling of its own.
       - name: Run the lead surface suite
         run: python .github/run_with_annotations.py tools/test_bm_lead.py
+      # The visual vocabulary suite (L05, 2026-08-05): the drawn shapes,
+      # the alert ladder, the insight box and the rewritten refusals in
+      # tools/bm_visual.py, over the schema 17 tables the V2 store suite
+      # on this same leg already proved sound. Cross-platform on purpose:
+      # its terminal renderings are ASCII only and the suite asserts it,
+      # which is exactly the claim a Windows leg exists to test.
+      - name: Run the visual vocabulary suite
+        run: python .github/run_with_annotations.py tools/test_bm_visual.py
+      # The project view suite (L05, 2026-08-05): the live project view,
+      # its CLI, the consent door and the developer brief page in
+      # tools/bm_view.py. It drives its own module in process, with no
+      # shell script and no platform-specific path handling of its own,
+      # the same cross-platform-safe shape the lead surface suite just
+      # above already runs on this leg.
+      - name: Run the project view suite
+        run: python .github/run_with_annotations.py tools/test_bm_view.py
       # The recovery suite runs on Windows too, not only on the POSIX legs above.
       # Recovery is the subsystem whose failure loses work rather than merely
       # reporting it wrongly, so it gets the widest platform coverage, not the
