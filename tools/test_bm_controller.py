@@ -43,7 +43,6 @@ import io
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 import tempfile
@@ -6179,28 +6178,68 @@ AUTONOMY_CLI = os.path.join(HERE, "bm_autonomy.py")
 
 CLI_ACTOR = ("--actor-name", "tester")
 
+#: A done_check that exits 0, and one that does not, on every platform in
+#: this repository's CI matrix.
+#:
+#: These strings are EXECUTED for real: SubprocessCheckRunner runs the
+#: unit's done_check and the contract's whole done-definition with
+#: shell=True (tools/bm_controller.py), so anything written here has to be
+#: a command the runner's shell can actually resolve. `true` and `false`
+#: stood here until the 2026-08-05 Windows audit (F9) and are POSIX shell
+#: builtins: cmd.exe has neither, and there is no true.exe in System32.
+#: They resolve on a GitHub-hosted Windows runner only because that image
+#: happens to put Git for Windows' usr/bin on PATH, which is a property of
+#: the runner image rather than of Windows or of anything this repository
+#: controls, and which that image's own maintainers have said is slated to
+#: change. The day it changes, every CLI test that reaches a done-check
+#: flips to a REJECTED unit and reads like a controller bug rather than a
+#: shell-portability one.
+#:
+#: The interpreter running this suite is the one dependency that cannot go
+#: missing, so it is the one used, quoted with the project's own helper
+#: (tools/bm_store.py::_quote_path_for_local_shell) rather than with
+#: shlex, for the reason that helper's docstring gives. One constant each,
+#: not four literals, so a later reader cannot reintroduce half of it.
+_DONE_CHECK_PASSES = ("%s -c pass"
+                      % bs._quote_path_for_local_shell(sys.executable))
+_DONE_CHECK_FAILS = ('%s -c "raise SystemExit(1)"'
+                     % bs._quote_path_for_local_shell(sys.executable))
+
 _UNIT_ONE = {
     "unit_id": "u1", "objective": "create a file", "dependencies": [],
     "write_scope": ["out.txt"], "role": "builder", "risk_class": "file-edit",
-    "lane": "default", "done_check": "true", "done_check_expect_exit": 0,
+    "lane": "default", "done_check": _DONE_CHECK_PASSES,
+    "done_check_expect_exit": 0,
 }
 
 
 def _cli_env(root):
     """A fresh environment for one subprocess call: BROTHERMODE_ROOT,
-    BROTHERMODE_VAULT and HOME are all pointed at directories under this
-    same throwaway root, so nothing this section runs can touch the real
-    founder's home directory or vault. Structurally identical to
-    tools/test_bm_autonomy.py's own _env."""
+    BROTHERMODE_VAULT and the HOME DIRECTORY are all pointed at
+    directories under this same throwaway root, so nothing this section
+    runs can touch the real founder's home directory or vault.
+    Structurally identical to tools/test_bm_autonomy.py's own _env.
+
+    USERPROFILE joined HOME on 2026-08-05 (Windows audit, F8). Setting
+    HOME alone made the sentence above FALSE on one platform: Python
+    resolves `~` through ntpath.expanduser there, which reads USERPROFILE
+    first and then HOMEDRIVE plus HOMEPATH, and consults HOME only on
+    POSIX. Nothing in tools/bm_store.py or tools/bm_controller.py calls
+    expanduser today (grepped, zero hits), so no test was failing over
+    it; the guard was simply inert on Windows while its own comment
+    claimed otherwise, and the first caller to reach for the home
+    directory would have inherited a false sense of isolation."""
     home = os.path.join(root, "home")
     vault = os.path.join(root, "vault")
     os.makedirs(home, exist_ok=True)
     e = dict(os.environ)
-    for key in ("BROTHERMODE_ROOT", "BROTHERMODE_VAULT", "HOME"):
+    for key in ("BROTHERMODE_ROOT", "BROTHERMODE_VAULT", "HOME",
+                "USERPROFILE"):
         e.pop(key, None)
     e["BROTHERMODE_ROOT"] = root
     e["BROTHERMODE_VAULT"] = vault
     e["HOME"] = home
+    e["USERPROFILE"] = home
     return e
 
 
@@ -6242,7 +6281,8 @@ def _cli_start_project(root, project_id="p1", extra=()):
 
 def _cli_sign(root, project_id="p1", extra=()):
     args = (["sign", "--project", project_id, "--outcome", "ship it",
-            "--done-definition", "true", "--signed-by", "Khalil Maaouni"]
+            "--done-definition", _DONE_CHECK_PASSES,
+            "--signed-by", "Khalil Maaouni"]
            + list(CLI_ACTOR) + list(extra))
     r = _run_other(AUTONOMY_CLI, args, root)
     if r.returncode != 0:
@@ -6263,7 +6303,8 @@ def _cli_bootstrap(root, project_id="p1"):
 def _cli_begin(root, project_id="p1", controller_id="c1"):
     r = _run_cli(
         ["start", "--project", project_id, "--outcome", "ship it",
-         "--done-definition", "true", "--controller-id", controller_id]
+         "--done-definition", _DONE_CHECK_PASSES,
+         "--controller-id", controller_id]
         + list(CLI_ACTOR), root)
     if r.returncode != 0:
         raise AssertionError("start (begin) failed: %s" % (r.stdout + r.stderr))
@@ -6736,6 +6777,38 @@ class _PoisonedGitEnvironment(object):
         return False
 
 
+def _env_dump_command(tmp, expression):
+    """A done_check-shaped command string that prints ONE json expression
+    about its own environment, runnable by the shell the runner really
+    has, on POSIX and on Windows.
+
+    NOT `shlex.quote(sys.executable) + " -c " + shlex.quote(payload)`,
+    which is what stood here and which the 2026-08-05 Windows audit found
+    broken twice over in one string. shlex implements POSIX shell quoting
+    and nothing else: on Windows it wraps
+    C:\\hostedtoolcache\\...\\python.exe in SINGLE quotes, so cmd.exe looks
+    for a program whose name begins with a quote character, and it wraps
+    the -c payload the same way, so even a correctly named interpreter
+    would receive `'import` as its first token. Either alone makes the
+    exit code non-zero, and the assertion on the next line is
+    exit_code == 0.
+
+    Two changes, no branch and no skip. The multi-token payload goes to a
+    FILE in the same throwaway directory, which takes it out of the
+    quoting question entirely, and the two paths that remain are quoted
+    with the helper this project built for exactly this
+    (tools/bm_store.py::_quote_path_for_local_shell, whose docstring
+    carries the external ground truth for why shlex is the wrong tool
+    here). What is executed is still one shell command string handed to
+    the real SubprocessCheckRunner, which is the thing under test."""
+    script = os.path.join(tmp, "env_dump.py")
+    _write(script,
+           "import json, os, sys\n"
+           "sys.stdout.write(json.dumps(%s))\n" % (expression,))
+    return "%s %s" % (bs._quote_path_for_local_shell(sys.executable),
+                      bs._quote_path_for_local_shell(script))
+
+
 def _subprocess_run_keywords():
     """The keyword names on the ONE subprocess call in
     tools/bm_controller.py, with the function that holds it. Source only:
@@ -6825,13 +6898,9 @@ class TestCrossFamilyF3InheritedGitEnvironment(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             poison = {name: os.path.join(tmp, "poison")
                       for name in _GIT_REDIRECTION_ENV}
-            dump = ("%s -c %s"
-                    % (shlex.quote(sys.executable),
-                       shlex.quote(
-                           "import json, os, sys; "
-                           "sys.stdout.write(json.dumps(sorted("
-                           "k for k in os.environ if k.startswith('GIT_')"
-                           ")))")))
+            dump = _env_dump_command(
+                tmp,
+                "sorted(k for k in os.environ if k.startswith('GIT_'))")
             with _PoisonedGitEnvironment(poison):
                 outcome = bc.SubprocessCheckRunner().run(dump, cwd=tmp)
             self.assertEqual(outcome["exit_code"], 0, outcome["stderr"])
@@ -6846,12 +6915,7 @@ class TestCrossFamilyF3InheritedGitEnvironment(unittest.TestCase):
         to do with safety, and a founder would read that as the
         controller being broken."""
         with tempfile.TemporaryDirectory() as tmp:
-            dump = ("%s -c %s"
-                    % (shlex.quote(sys.executable),
-                       shlex.quote(
-                           "import json, os, sys; "
-                           "sys.stdout.write(json.dumps("
-                           "sorted(os.environ)))")))
+            dump = _env_dump_command(tmp, "sorted(os.environ)")
             outcome = bc.SubprocessCheckRunner().run(dump, cwd=tmp)
             self.assertEqual(outcome["exit_code"], 0, outcome["stderr"])
             names = json.loads(outcome["stdout"])
@@ -6873,9 +6937,22 @@ class TestCrossFamilyF3InheritedGitEnvironment(unittest.TestCase):
                 command, refusal = engine._rollback_plan(run["run_id"], "u1")
             self.assertIsNone(refusal)
             root = os.path.realpath(p)
-            self.assertIn("--git-dir=%s" % os.path.join(root, ".git"),
-                          command)
-            self.assertIn("--work-tree=%s" % root, command)
+            # Asserted THROUGH bs._quote_path_for_local_shell, which is what
+            # the composition site itself uses, so this reads the same on
+            # every platform with no branch. Written out rather than left as
+            # the bare path (2026-08-05 Windows audit, F1): the bare form is
+            # right only while the runner's temporary directory happens to
+            # contain no whitespace and no cmd.exe metacharacter, and a test
+            # that is correct by accident of the runner image is the exact
+            # shape of defect this audit was called to remove. On POSIX the
+            # helper IS shlex.quote, so both lines are byte for byte what
+            # they were.
+            self.assertIn(
+                "--git-dir=%s" % bs._quote_path_for_local_shell(
+                    os.path.join(root, ".git")), command)
+            self.assertIn(
+                "--work-tree=%s" % bs._quote_path_for_local_shell(root),
+                command)
             self.assertTrue(command.endswith("restore -- a.py"), command)
 
     def test_the_rollback_keeps_its_plain_shape_with_no_repository_to_name(
@@ -6965,7 +7042,7 @@ class TestCrossFamilyF3ShippedRecordResultCannotBeRedirected(
                     "unit_id": "u1", "objective": "edit a.py",
                     "dependencies": [], "write_scope": ["a.py"],
                     "role": "builder", "risk_class": "file-edit",
-                    "lane": "default", "done_check": "false",
+                    "lane": "default", "done_check": _DONE_CHECK_FAILS,
                     "done_check_expect_exit": 0}], fh)
             planned = _run_cli(
                 ["plan", "--project", "p1", "--units-file", units_path,
@@ -7182,6 +7259,45 @@ class TestCrossFamilyF1ShippedPlanRefusesABadNumber(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
 
+def _directory_write_denial_works(directory):
+    """Whether `os.chmod(directory, 0o500)` really stops a file being
+    created inside `directory` HERE, measured with a probe file and the
+    directory left exactly as it was found (mode 0o700, no probe).
+
+    2026-08-05 Windows audit, F7 (F6 is the same mechanism in
+    tools/test_bm_store.py, which carries the same helper; the two files
+    do not import each other). Python's own documentation for os.chmod:
+    "Although Windows supports chmod(), you can only set the file's
+    read-only flag with it (via the stat.S_IWRITE and stat.S_IREAD
+    constants or a corresponding integer value). All other bits are
+    ignored."  https://docs.python.org/3/library/os.html#os.chmod  A
+    read-only ATTRIBUTE on a directory does not stop files being created
+    in it, so the test below used to run its whole body against an
+    ordinary writable directory on Windows and pass while proving nothing
+    there. A test that silently proves nothing on a platform is worse than
+    one that says so.
+
+    Asked as a MEASUREMENT rather than as `os.name == "nt"` on purpose:
+    the same vacuous pass happens on any POSIX machine running the suite
+    as root, where mode 0o500 is ignored too, and it will stop happening
+    by itself on any platform where the denial ever starts working."""
+    probe = os.path.join(directory, "write_denial_probe.tmp")
+    os.chmod(directory, 0o500)
+    try:
+        try:
+            with io.open(probe, "w", encoding="utf-8") as fh:
+                fh.write("probe")
+        except EnvironmentError:
+            return True
+        try:
+            os.remove(probe)
+        except EnvironmentError:
+            pass
+        return False
+    finally:
+        os.chmod(directory, 0o700)
+
+
 class TestCrossFamilyF4ShippedStatusNeverWritesTheStoreDirectory(
         unittest.TestCase):
     """FINDING 4 (HIGH), reachability. `bm-controller status` is the
@@ -7202,6 +7318,23 @@ class TestCrossFamilyF4ShippedStatusNeverWritesTheStoreDirectory(
             _cli_begin(root)
             store_dir = self._sidecars_removed(root)
             before = sorted(os.listdir(store_dir))
+            if not _directory_write_denial_works(store_dir):
+                self.skipTest(
+                    "os.chmod(dir, 0o500) does not deny a write in this "
+                    "directory here (measured, not assumed: a probe file "
+                    "was created under that mode and removed again), so "
+                    "the sharp half of FINDING 4 cannot be posed on this "
+                    "platform. What is NOT covered where this skip fires, "
+                    "stated plainly: nothing proves that the shipped "
+                    "read-only `status` command still reports from a "
+                    "store directory it cannot write, so a regression "
+                    "that reintroduced a read-write connection would be "
+                    "caught on POSIX only. What IS still covered here is "
+                    "the sibling test below: `status` creates no sidecar "
+                    "in a WRITABLE store directory, which is the same "
+                    "regression seen from the other side. On Windows the "
+                    "equivalent denial is a directory ACL (icacls), which "
+                    "is not in the standard library.")
             os.chmod(store_dir, 0o500)
             try:
                 r = _run_cli(["status", "--project", "p1"], root)

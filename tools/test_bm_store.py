@@ -17551,6 +17551,46 @@ class TestGlobNarrowingBreaksNothingElse(unittest.TestCase):
             _gate_verdicts(self, ["SRC"], (("src/a.py", "ALLOWED"),))
 
 
+def _symlink_or_skip(test, source, link):
+    """os.symlink(source, link), or a NAMED skip on a machine that is not
+    allowed to create one.
+
+    2026-08-05 Windows audit, F10. Creating a symbolic link on Windows
+    needs SeCreateSymbolicLinkPrivilege, which an unprivileged process
+    does not hold unless Developer Mode is on and the caller passes
+    SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE; CPython has a
+    long-standing open issue about passing that flag (bpo-33946, migrated
+    to GitHub issue 78127).
+
+    Deliberately NOT `skipIf(sys.platform == "win32")`, which the sibling
+    convention at tools/test_bm_fence_hook.py:610 uses: the current
+    windows-latest runner DOES grant the privilege, measured, both
+    symlink tests in this file ran and passed on both Windows legs of CI
+    run 30980039674. Guarding on the PRIVILEGE keeps that real coverage
+    wherever it exists and degrades only where it does not. Without this
+    guard, a runner image that stops granting it raises
+    OSError [WinError 1314] out of a SETUP line, which unittest reports
+    as an ERROR in a test about path escapes, naming neither symlinks nor
+    privilege: the mysterious failure this makes loud.
+
+    What a firing skip gives up, stated at the place it happens: nothing
+    then proves that a symlink out of the project root is refused. The
+    '..' escapes and the character-class respellings in the same tests
+    are unaffected and keep running."""
+    if not hasattr(os, "symlink"):
+        test.skipTest("os.symlink does not exist on this platform, so the "
+                      "symlink-escape half of this test cannot be posed "
+                      "here")
+    try:
+        os.symlink(source, link)
+    except (OSError, NotImplementedError) as exc:
+        test.skipTest(
+            "symlink creation is unavailable here (%s: %s), which on "
+            "Windows means the process lacks SeCreateSymbolicLinkPrivilege; "
+            "the symlink-escape half of this test needs a real symlink"
+            % (type(exc).__name__, exc))
+
+
 class TestGateCheckReturnsAVerdictInsteadOfRaising(unittest.TestCase):
     """AZ F-A5 (REFUTATION-3-authorization.md): gate_check calls
     canonicalize_path (tools/bm_store.py:12625), which RAISES
@@ -17580,7 +17620,8 @@ class TestGateCheckReturnsAVerdictInsteadOfRaising(unittest.TestCase):
                     _seed(store)
                     _sign(store, allowed_paths=["."],
                           risk_classes=["file-edit"])
-                    os.symlink(outside, os.path.join(d, "escape"))
+                    _symlink_or_skip(self, outside,
+                                     os.path.join(d, "escape"))
                     gc = self._refused(store, "escape/x.py")
                     self.assertIn("escape", gc["reason"])
 
@@ -18003,7 +18044,8 @@ class TestWriteScopeEntriesAreLiteralPaths(unittest.TestCase):
         with tempfile.TemporaryDirectory() as outside:
             with tempfile.TemporaryDirectory() as d:
                 os.makedirs(os.path.join(d, "src"))
-                os.symlink(outside, os.path.join(d, "src", "app"))
+                _symlink_or_skip(self, outside,
+                                 os.path.join(d, "src", "app"))
                 with bs.Store(d) as store:
                     actor = _controller_actor()
                     run = _open_and_plan(store)
@@ -18623,26 +18665,48 @@ class TestWriteScopeEntriesAreNotGitPathspecs(unittest.TestCase):
         relative path and must reach the store unchanged, including one
         with a colon that is not in the leading position: git pathspec
         magic is a PREFIX, so 'src/a:b.py' is an ordinary filename and
-        refusing it would be this round's own over-reach."""
+        refusing it would be this round's own over-reach.
+
+        THE COLON ENTRY IS POSIX ONLY, and that is a statement about the
+        platform rather than about this round. On Windows a colon inside a
+        path names a drive or an alternate data stream, so 'src/a:b.py' is
+        not a filename that can exist there and the resolver refuses it as
+        an escape. Asserting acceptance on every platform is what turned CI
+        red on both Windows legs at bdb3920 while the macOS gate was green,
+        which is this project's recorded local-green-CI-red class. The
+        Windows branch below asserts the REFUSAL rather than skipping, so
+        the platform difference stays pinned in both directions instead of
+        becoming a hole."""
+        posix_only = "src/a:b.py"
+        windows = os.name == "nt"
+        entries = ["src/app/main.py", "docs", "./api/pay.py", "a.py", "."]
+        expected = ["src/app/main.py", "docs", "api/pay.py", "a.py", "."]
+        if not windows:
+            entries.append(posix_only)
+            expected.append(posix_only)
+        entries.append(" spaced.py")
+        expected.append("spaced.py")
         with tempfile.TemporaryDirectory() as d:
             with bs.Store(d) as store:
                 actor = _controller_actor()
                 run = _open_and_plan(store)
                 store.upsert_units(
                     run["run_id"],
-                    [_unit("u1", write_scope=["src/app/main.py", "docs",
-                                              "./api/pay.py", "a.py", ".",
-                                              "src/a:b.py", " spaced.py"])],
+                    [_unit("u1", write_scope=entries)],
                     actor)
                 unit = {u["unit_id"]: u for u in
                         store.list_units(run["run_id"], raw=True)}["u1"]
                 self.assertEqual(
-                    unit["write_scope"],
-                    ["src/app/main.py", "docs", "api/pay.py", "a.py", ".",
-                     "src/a:b.py", "spaced.py"],
+                    unit["write_scope"], expected,
                     "canonicalize_path still converges './api/pay.py' and "
                     "still strips surrounding whitespace, and nothing else "
                     "about a literal entry moved")
+                if windows:
+                    with self.assertRaises(bs.OwnershipRefused) as ctx:
+                        store.upsert_units(
+                            run["run_id"],
+                            [_unit("u2", write_scope=[posix_only])], actor)
+                    self.assertEqual(ctx.exception.reason, "path-escape")
 
     def test_a_pathspec_cannot_be_re_spelled_through_a_relative_prefix(self):
         """Found by attacking THIS round's own fix rather than the round it
@@ -19370,6 +19434,45 @@ class TestCrossFamilyF1UnitNumberTypes(unittest.TestCase):
                 self.assertEqual(second["status"], "FAILED")
 
 
+def _directory_write_denial_works(directory):
+    """Whether `os.chmod(directory, 0o500)` really stops a file being
+    created inside `directory` HERE, measured with a probe file and the
+    directory left exactly as it was found (mode 0o700, no probe).
+
+    2026-08-05 Windows audit, F6 (F7 is the same mechanism in
+    tools/test_bm_controller.py, which carries the same helper; the two
+    files do not import each other). Python's own documentation for
+    os.chmod: "Although Windows supports chmod(), you can only set the
+    file's read-only flag with it (via the stat.S_IWRITE and stat.S_IREAD
+    constants or a corresponding integer value). All other bits are
+    ignored."  https://docs.python.org/3/library/os.html#os.chmod  A
+    read-only ATTRIBUTE on a directory does not stop files being created
+    in it, so the test below ran its whole body against an ordinary
+    writable directory on Windows and passed there while proving nothing.
+    CI run 30980039674 measured that pass. A test that silently proves
+    nothing on a platform is worse than one that says so.
+
+    Asked as a MEASUREMENT rather than as `os.name == "nt"` on purpose:
+    the same vacuous pass happens on any POSIX machine running the suite
+    as root, where mode 0o500 is ignored too, and it will stop happening
+    by itself on any platform where the denial ever starts working."""
+    probe = os.path.join(directory, "write_denial_probe.tmp")
+    os.chmod(directory, 0o500)
+    try:
+        try:
+            with io.open(probe, "w", encoding="utf-8") as fh:
+                fh.write("probe")
+        except EnvironmentError:
+            return True
+        try:
+            os.remove(probe)
+        except EnvironmentError:
+            pass
+        return False
+    finally:
+        os.chmod(directory, 0o700)
+
+
 class TestCrossFamilyF4ReadOnlyOpensReadOnly(unittest.TestCase):
     """FINDING 4 (HIGH). _connect_read_only opened an ORDINARY read-write
     sqlite3 connection and only afterwards executed PRAGMA query_only=ON,
@@ -19414,6 +19517,24 @@ class TestCrossFamilyF4ReadOnlyOpensReadOnly(unittest.TestCase):
             self._closed_store_without_sidecars(root)
             directory = bs.store_dir(root)
             before = self._listing(root)
+            if not _directory_write_denial_works(directory):
+                self.skipTest(
+                    "os.chmod(dir, 0o500) does not deny a write in this "
+                    "directory here (measured, not assumed: a probe file "
+                    "was created under that mode and removed again), so "
+                    "the sharp half of FINDING 4 cannot be posed on this "
+                    "platform. What is NOT covered where this skip fires, "
+                    "stated plainly: nothing proves that a read-only "
+                    "diagnostic survives a store directory it cannot "
+                    "write, so a regression that reintroduced the "
+                    "read-write sqlite3.connect would be caught on POSIX "
+                    "only. What IS still covered here is the sibling test "
+                    "above (a read-only open creates no sidecar in a "
+                    "WRITABLE directory) and the one below (the read-only "
+                    "connection refuses a write), which are the same "
+                    "regression seen from two other sides. On Windows the "
+                    "equivalent denial is a directory ACL (icacls), which "
+                    "is not in the standard library.")
             os.chmod(directory, 0o500)
             try:
                 ro = bs.ReadOnlyStore(root)
