@@ -835,7 +835,7 @@ class DoctorCase(unittest.TestCase):
         with io.open(self.settings, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(obj, indent=2))
 
-    def wired(self, command=None, matcher="Edit|Write|MultiEdit|NotebookEdit"):
+    def wired(self, command=None, matcher="Edit|Write|MultiEdit|NotebookEdit|Bash"):
         return {"hooks": {"PreToolUse": [{
             "matcher": matcher,
             "hooks": [{"type": "command",

@@ -1,0 +1,646 @@
+L09 RED: the three authorisation gaps, demonstrated against the UNTOUCHED tree
+Captured before any implementation change. Date: 2026-08-06 (local run).
+Baseline suites at capture time: test_bm_store.py 976 OK, test_bm_autonomy.py 58 OK, test_bm_controller.py 191 OK.
+
+########################################################################
+## RED 1: GAP 1 (sixth floor) and GAP 3 (empty allowed_paths), store level
+## command: python3 tools/test_bm_store.py TestSixthFloorGovernancePaths TestEmptyScopeRefusedAtSigning
+## exit code: 1
+########################################################################
+test_a_whole_root_allowance_itself_still_signs (__main__.TestSixthFloorGovernancePaths)
+The control the founder's flip condition names: '.' is a ... ok
+test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) ... test_gate_still_allows_neighbours_of_the_protected_paths (__main__.TestSixthFloorGovernancePaths)
+The narrowing must not swallow a neighbour: .gitignore and ... ok
+test_sign_refuses_an_allowance_naming_a_protected_path (__main__.TestSixthFloorGovernancePaths) ... test_the_sixth_floor_id_is_refused_as_risk_class_and_action (__main__.TestSixthFloorGovernancePaths) ... ERROR
+test_the_sixth_floor_is_declared_beside_the_five (__main__.TestSixthFloorGovernancePaths) ... FAIL
+test_a_read_only_contract_with_no_paths_still_signs (__main__.TestEmptyScopeRefusedAtSigning)
+The edge the founder required expressible: genuinely read-only ... ok
+test_a_writing_contract_with_a_declared_path_still_signs (__main__.TestEmptyScopeRefusedAtSigning) ... ok
+test_a_writing_contract_with_no_paths_refuses_at_signing (__main__.TestEmptyScopeRefusedAtSigning) ... FAIL
+test_every_writing_class_alone_triggers_the_refusal (__main__.TestEmptyScopeRefusedAtSigning) ... ERROR
+test_the_floor_refusals_still_come_before_the_scope_refusal (__main__.TestEmptyScopeRefusedAtSigning)
+Ordering control: a floor id in risk_classes refuses ... ok
+test_the_refusal_says_what_to_declare_and_names_the_read_only_route (__main__.TestEmptyScopeRefusedAtSigning) ... FAIL
+
+======================================================================
+ERROR: test_the_sixth_floor_id_is_refused_as_risk_class_and_action (__main__.TestSixthFloorGovernancePaths)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21532, in test_the_sixth_floor_id_is_refused_as_risk_class_and_action
+    _sign(store, allowed_paths=["src"],
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 15078, in _sign
+    return store.sign_contract(
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13124, in sign_contract
+    _autonomy_enum("risk class", rc, AUTONOMY_RISK_CLASSES)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 3482, in _autonomy_enum
+    raise ValueError(
+ValueError: unknown risk class 'governance-write' (allowed: file-edit, file-create, file-move, build, test-run, local-commit, local-branch, read-only-inspect, app-drive, browser-read)
+
+======================================================================
+ERROR: test_every_writing_class_alone_triggers_the_refusal (__main__.TestEmptyScopeRefusedAtSigning)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21592, in test_every_writing_class_alone_triggers_the_refusal
+    for rc in self._writing_classes():
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21566, in _writing_classes
+    return [rc for rc in bs.AUTONOMY_RISK_CLASSES
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21567, in <listcomp>
+    if rc not in bs.AUTONOMY_READ_ONLY_RISK_CLASSES]
+AttributeError: module 'bm_store' has no attribute 'AUTONOMY_READ_ONLY_RISK_CLASSES'
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='.', candidate='.git')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'ALLOWED' != 'REFUSED-FLOOR'
+- ALLOWED
++ REFUSED-FLOOR
+ : '.git' under allowed_paths ['.'] must be REFUSED-FLOOR, got ALLOWED (authorised against risk class 'file-edit'.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='.', candidate='.git/config')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'ALLOWED' != 'REFUSED-FLOOR'
+- ALLOWED
++ REFUSED-FLOOR
+ : '.git/config' under allowed_paths ['.'] must be REFUSED-FLOOR, got ALLOWED (authorised against risk class 'file-edit'.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='.', candidate='.git/hooks/pre-push')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'ALLOWED' != 'REFUSED-FLOOR'
+- ALLOWED
++ REFUSED-FLOOR
+ : '.git/hooks/pre-push' under allowed_paths ['.'] must be REFUSED-FLOOR, got ALLOWED (authorised against risk class 'file-edit'.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='.', candidate='.brothermode')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'ALLOWED' != 'REFUSED-FLOOR'
+- ALLOWED
++ REFUSED-FLOOR
+ : '.brothermode' under allowed_paths ['.'] must be REFUSED-FLOOR, got ALLOWED (authorised against risk class 'file-edit'.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='.', candidate='.brothermode/store.sqlite3')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'ALLOWED' != 'REFUSED-FLOOR'
+- ALLOWED
++ REFUSED-FLOOR
+ : '.brothermode/store.sqlite3' under allowed_paths ['.'] must be REFUSED-FLOOR, got ALLOWED (authorised against risk class 'file-edit'.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='.', candidate='.brothermode/anything.txt')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'ALLOWED' != 'REFUSED-FLOOR'
+- ALLOWED
++ REFUSED-FLOOR
+ : '.brothermode/anything.txt' under allowed_paths ['.'] must be REFUSED-FLOOR, got ALLOWED (authorised against risk class 'file-edit'.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='.', candidate='.claude/settings.json')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'ALLOWED' != 'REFUSED-FLOOR'
+- ALLOWED
++ REFUSED-FLOOR
+ : '.claude/settings.json' under allowed_paths ['.'] must be REFUSED-FLOOR, got ALLOWED (authorised against risk class 'file-edit'.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='*', candidate='.git')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'REFUSED-SCOPE' != 'REFUSED-FLOOR'
+- REFUSED-SCOPE
++ REFUSED-FLOOR
+ : '.git' under allowed_paths ['*'] must be REFUSED-FLOOR, got REFUSED-SCOPE ('.git' is outside this contract's allowed paths.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='*', candidate='.git/config')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'REFUSED-SCOPE' != 'REFUSED-FLOOR'
+- REFUSED-SCOPE
++ REFUSED-FLOOR
+ : '.git/config' under allowed_paths ['*'] must be REFUSED-FLOOR, got REFUSED-SCOPE ('.git/config' is outside this contract's allowed paths.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='*', candidate='.git/hooks/pre-push')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'REFUSED-SCOPE' != 'REFUSED-FLOOR'
+- REFUSED-SCOPE
++ REFUSED-FLOOR
+ : '.git/hooks/pre-push' under allowed_paths ['*'] must be REFUSED-FLOOR, got REFUSED-SCOPE ('.git/hooks/pre-push' is outside this contract's allowed paths.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='*', candidate='.brothermode')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'REFUSED-SCOPE' != 'REFUSED-FLOOR'
+- REFUSED-SCOPE
++ REFUSED-FLOOR
+ : '.brothermode' under allowed_paths ['*'] must be REFUSED-FLOOR, got REFUSED-SCOPE ('.brothermode' is outside this contract's allowed paths.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='*', candidate='.brothermode/store.sqlite3')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'REFUSED-SCOPE' != 'REFUSED-FLOOR'
+- REFUSED-SCOPE
++ REFUSED-FLOOR
+ : '.brothermode/store.sqlite3' under allowed_paths ['*'] must be REFUSED-FLOOR, got REFUSED-SCOPE ('.brothermode/store.sqlite3' is outside this contract's allowed paths.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='*', candidate='.brothermode/anything.txt')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'REFUSED-SCOPE' != 'REFUSED-FLOOR'
+- REFUSED-SCOPE
++ REFUSED-FLOOR
+ : '.brothermode/anything.txt' under allowed_paths ['*'] must be REFUSED-FLOOR, got REFUSED-SCOPE ('.brothermode/anything.txt' is outside this contract's allowed paths.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='*', candidate='.claude/settings.json')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'REFUSED-SCOPE' != 'REFUSED-FLOOR'
+- REFUSED-SCOPE
++ REFUSED-FLOOR
+ : '.claude/settings.json' under allowed_paths ['*'] must be REFUSED-FLOOR, got REFUSED-SCOPE ('.claude/settings.json' is outside this contract's allowed paths.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='**', candidate='.git')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'REFUSED-SCOPE' != 'REFUSED-FLOOR'
+- REFUSED-SCOPE
++ REFUSED-FLOOR
+ : '.git' under allowed_paths ['**'] must be REFUSED-FLOOR, got REFUSED-SCOPE ('.git' is outside this contract's allowed paths.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='**', candidate='.git/config')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'REFUSED-SCOPE' != 'REFUSED-FLOOR'
+- REFUSED-SCOPE
++ REFUSED-FLOOR
+ : '.git/config' under allowed_paths ['**'] must be REFUSED-FLOOR, got REFUSED-SCOPE ('.git/config' is outside this contract's allowed paths.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='**', candidate='.git/hooks/pre-push')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'REFUSED-SCOPE' != 'REFUSED-FLOOR'
+- REFUSED-SCOPE
++ REFUSED-FLOOR
+ : '.git/hooks/pre-push' under allowed_paths ['**'] must be REFUSED-FLOOR, got REFUSED-SCOPE ('.git/hooks/pre-push' is outside this contract's allowed paths.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='**', candidate='.brothermode')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'REFUSED-SCOPE' != 'REFUSED-FLOOR'
+- REFUSED-SCOPE
++ REFUSED-FLOOR
+ : '.brothermode' under allowed_paths ['**'] must be REFUSED-FLOOR, got REFUSED-SCOPE ('.brothermode' is outside this contract's allowed paths.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='**', candidate='.brothermode/store.sqlite3')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'REFUSED-SCOPE' != 'REFUSED-FLOOR'
+- REFUSED-SCOPE
++ REFUSED-FLOOR
+ : '.brothermode/store.sqlite3' under allowed_paths ['**'] must be REFUSED-FLOOR, got REFUSED-SCOPE ('.brothermode/store.sqlite3' is outside this contract's allowed paths.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='**', candidate='.brothermode/anything.txt')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'REFUSED-SCOPE' != 'REFUSED-FLOOR'
+- REFUSED-SCOPE
++ REFUSED-FLOOR
+ : '.brothermode/anything.txt' under allowed_paths ['**'] must be REFUSED-FLOOR, got REFUSED-SCOPE ('.brothermode/anything.txt' is outside this contract's allowed paths.)
+
+======================================================================
+FAIL: test_gate_refuses_a_protected_candidate_under_every_broad_allowance (__main__.TestSixthFloorGovernancePaths) (allowance='**', candidate='.claude/settings.json')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21496, in test_gate_refuses_a_protected_candidate_under_every_broad_allowance
+    self.assertEqual(
+AssertionError: 'REFUSED-SCOPE' != 'REFUSED-FLOOR'
+- REFUSED-SCOPE
++ REFUSED-FLOOR
+ : '.claude/settings.json' under allowed_paths ['**'] must be REFUSED-FLOOR, got REFUSED-SCOPE ('.claude/settings.json' is outside this contract's allowed paths.)
+
+======================================================================
+FAIL: test_sign_refuses_an_allowance_naming_a_protected_path (__main__.TestSixthFloorGovernancePaths) (entry='.git')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21477, in test_sign_refuses_an_allowance_naming_a_protected_path
+    _sign(store, allowed_paths=[entry],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_sign_refuses_an_allowance_naming_a_protected_path (__main__.TestSixthFloorGovernancePaths) (entry='.git/config')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21477, in test_sign_refuses_an_allowance_naming_a_protected_path
+    _sign(store, allowed_paths=[entry],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_sign_refuses_an_allowance_naming_a_protected_path (__main__.TestSixthFloorGovernancePaths) (entry='.git/hooks')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21477, in test_sign_refuses_an_allowance_naming_a_protected_path
+    _sign(store, allowed_paths=[entry],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_sign_refuses_an_allowance_naming_a_protected_path (__main__.TestSixthFloorGovernancePaths) (entry='.git/*')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21477, in test_sign_refuses_an_allowance_naming_a_protected_path
+    _sign(store, allowed_paths=[entry],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_sign_refuses_an_allowance_naming_a_protected_path (__main__.TestSixthFloorGovernancePaths) (entry='.brothermode')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21477, in test_sign_refuses_an_allowance_naming_a_protected_path
+    _sign(store, allowed_paths=[entry],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_sign_refuses_an_allowance_naming_a_protected_path (__main__.TestSixthFloorGovernancePaths) (entry='.brothermode/store.sqlite3')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21477, in test_sign_refuses_an_allowance_naming_a_protected_path
+    _sign(store, allowed_paths=[entry],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_sign_refuses_an_allowance_naming_a_protected_path (__main__.TestSixthFloorGovernancePaths) (entry='.brothermode/*')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21477, in test_sign_refuses_an_allowance_naming_a_protected_path
+    _sign(store, allowed_paths=[entry],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_sign_refuses_an_allowance_naming_a_protected_path (__main__.TestSixthFloorGovernancePaths) (entry='.claude/settings.json')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21477, in test_sign_refuses_an_allowance_naming_a_protected_path
+    _sign(store, allowed_paths=[entry],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_the_sixth_floor_is_declared_beside_the_five (__main__.TestSixthFloorGovernancePaths)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21466, in test_the_sixth_floor_is_declared_beside_the_five
+    self.assertIn("governance-write", bs.AUTONOMY_FLOOR_IDS)
+AssertionError: 'governance-write' not found in ('credential-entry', 'payment', 'account-signin', 'permanent-delete', 'publish-release')
+
+======================================================================
+FAIL: test_a_writing_contract_with_no_paths_refuses_at_signing (__main__.TestEmptyScopeRefusedAtSigning)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21574, in test_a_writing_contract_with_no_paths_refuses_at_signing
+    _sign(store, allowed_paths=[],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_the_refusal_says_what_to_declare_and_names_the_read_only_route (__main__.TestEmptyScopeRefusedAtSigning)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21585, in test_the_refusal_says_what_to_declare_and_names_the_read_only_route
+    _sign(store, allowed_paths=[],
+AssertionError: OwnershipRefused not raised
+
+----------------------------------------------------------------------
+Ran 12 tests in 0.436s
+
+FAILED (failures=32, errors=2)
+
+########################################################################
+## RED 2: GAP 2 (driver adoption), engine and CLI level
+## command: python3 tools/test_bm_controller.py TestDriverAdoption TestControllerCLIAdopt
+## exit code: 1
+## note: the three tests that PASS here are the deliberate controls
+## (same-session resume, empty recorded driver, terminal-run read),
+## which must stay green before AND after the change.
+########################################################################
+test_a_foreign_step_on_a_terminal_run_stays_the_quiet_summary (__main__.TestDriverAdoption)
+Ownership guards only a LIVE run (the fence store's BLOCKER 2 ... ok
+test_a_run_with_no_recorded_driver_is_not_guarded (__main__.TestDriverAdoption)
+The fence store's own ownership law, restated for runs: a ... ok
+test_a_second_session_cannot_record_a_result (__main__.TestDriverAdoption) ... FAIL
+test_a_second_session_cannot_step_a_run_it_never_started (__main__.TestDriverAdoption) ... ERROR
+test_a_second_session_cannot_stop_the_run (__main__.TestDriverAdoption) ... FAIL
+test_adopt_hands_the_run_over_and_records_the_handover (__main__.TestDriverAdoption) ... ERROR
+test_adopting_a_terminal_run_refuses (__main__.TestDriverAdoption) ... ERROR
+test_adopting_with_no_run_refuses (__main__.TestDriverAdoption) ... ERROR
+test_adoption_by_the_current_driver_is_the_idempotent_no_op (__main__.TestDriverAdoption) ... ERROR
+test_the_same_session_resumes_without_adoption (__main__.TestDriverAdoption)
+The crash-resume the engine's own docstring promises: a fresh ... ok
+test_step_refuses_a_foreign_session_until_adopt (__main__.TestControllerCLIAdopt) ... FAIL
+
+======================================================================
+ERROR: test_a_second_session_cannot_step_a_run_it_never_started (__main__.TestDriverAdoption)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 7401, in test_a_second_session_cannot_step_a_run_it_never_started
+    engine2.step("p1")
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_controller.py", line 1741, in step
+    claimed, self.worker.run(claimed["brief"]), project_id,
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 221, in run
+    script = self.scripts[unit_id]
+KeyError: 'u1'
+
+======================================================================
+ERROR: test_adopt_hands_the_run_over_and_records_the_handover (__main__.TestDriverAdoption)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 7453, in test_adopt_hands_the_run_over_and_records_the_handover
+    out = engine2.adopt("p1", note="engine1's terminal died")
+AttributeError: 'ControllerEngine' object has no attribute 'adopt'
+
+======================================================================
+ERROR: test_adopting_a_terminal_run_refuses (__main__.TestDriverAdoption)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 7525, in test_adopting_a_terminal_run_refuses
+    engine2.adopt("p1")
+AttributeError: 'ControllerEngine' object has no attribute 'adopt'
+
+======================================================================
+ERROR: test_adopting_with_no_run_refuses (__main__.TestDriverAdoption)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 7515, in test_adopting_with_no_run_refuses
+    engine.adopt("p1")
+AttributeError: 'ControllerEngine' object has no attribute 'adopt'
+
+======================================================================
+ERROR: test_adoption_by_the_current_driver_is_the_idempotent_no_op (__main__.TestDriverAdoption)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 7532, in test_adoption_by_the_current_driver_is_the_idempotent_no_op
+    out = engine1.adopt("p1")
+AttributeError: 'ControllerEngine' object has no attribute 'adopt'
+
+======================================================================
+FAIL: test_a_second_session_cannot_record_a_result (__main__.TestDriverAdoption)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 7427, in test_a_second_session_cannot_record_a_result
+    engine2.receive_result("p1", dispatch_id, "done",
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_a_second_session_cannot_stop_the_run (__main__.TestDriverAdoption)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 7442, in test_a_second_session_cannot_stop_the_run
+    engine2.stop("p1")
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_step_refuses_a_foreign_session_until_adopt (__main__.TestControllerCLIAdopt)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 7573, in test_step_refuses_a_foreign_session_until_adopt
+    self.assertEqual(r.returncode, 1,
+AssertionError: 0 != 1 : a foreign session's step must be refused: {"controller_brief": {"attempt": 1, "objective": "create a file", "prior_failure_note": "", "read_scope": [], "risk_class": "file-edit", "role": "builder", "unit_id": "u1", "write_scope": ["out.txt"]}}
+run 4912a6db0a304741ac5a3f3a13122a85: state EXECUTING
+dispatched: u1
+completed: (none)
+note: waiting for 1 open dispatch(es); record a result with bm-controller record-result
+reason: IN_FLIGHT
+
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.660s
+
+FAILED (failures=3, errors=5)
+
+########################################################################
+## RED 3: GAP 1 and GAP 3 through the shipped bm_autonomy.py CLI
+## command: python3 tools/test_bm_autonomy.py TestSixthFloorThroughTheCLI TestEmptyScopeSignRefusalThroughTheCLI
+## exit code: 1
+## note: the two tests that PASS here are the deliberate controls
+## (ordinary file stays ALLOWED; read-only sign with no paths stays legal).
+########################################################################
+F.F.F
+======================================================================
+FAIL: test_gate_check_refuses_a_protected_candidate_under_a_dot_contract (__main__.TestSixthFloorThroughTheCLI)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_autonomy.py", line 932, in test_gate_check_refuses_a_protected_candidate_under_a_dot_contract
+    self.assertEqual(r.returncode, 1,
+AssertionError: 0 != 1 : .git/config must be refused: {
+  "contract_id": "d4a84d6bf2a548a48424016265491346",
+  "floor": null,
+  "reason": "authorised against risk class 'file-edit'.",
+  "revision": 1,
+  "verdict": "ALLOWED"
+}
+
+
+======================================================================
+FAIL: test_sign_refuses_an_allowance_naming_git_config (__main__.TestSixthFloorThroughTheCLI)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_autonomy.py", line 919, in test_sign_refuses_an_allowance_naming_git_config
+    self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+AssertionError: 0 != 1 : signed contract for project p1: revision 1 (live, sign)
+outcome: o
+done definition: d
+token ceiling: NO-DATA
+minutes ceiling: NO-DATA
+risk classes granted: file-edit
+allowed paths: 1, allowed surfaces: 0
+check authorisation before acting: python3 /Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_autonomy.py gate-check --project p1 --action-class <class> [--path P] [--surface A]
+
+
+======================================================================
+FAIL: test_a_writing_sign_with_no_allowed_path_refuses (__main__.TestEmptyScopeSignRefusalThroughTheCLI)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_autonomy.py", line 963, in test_a_writing_sign_with_no_allowed_path_refuses
+    self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+AssertionError: 0 != 1 : signed contract for project p1: revision 1 (live, sign)
+outcome: o
+done definition: d
+token ceiling: NO-DATA
+minutes ceiling: NO-DATA
+risk classes granted: file-edit
+allowed paths: 0, allowed surfaces: 0
+check authorisation before acting: python3 /Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_autonomy.py gate-check --project p1 --action-class <class> [--path P] [--surface A]
+
+
+----------------------------------------------------------------------
+Ran 5 tests in 1.893s
+
+FAILED (failures=3)
+
+
+########################################################################
+## L09 REFUTE ROUND 2 RED, captured against the tree AFTER round 1 but
+## BEFORE the round-2 fixes (A1, A2, B2, B3). Date: 2026-08-06.
+## Source of the holes: docs/program/absolute-lead/evidence/L09/REFUTE-auth-gaps.md
+## Claim C SURVIVED and is not touched.
+########################################################################
+
+-- A1 (settings family floor) + A2 (unit write_scope floored at plan)
+-- command: python3 tools/test_bm_store.py TestRefuteRound2SettingsFamilyFloor TestRefuteRound2UnitWriteScopeFloor
+-- exit code: 1. The '.claude/settings.json' subcase and the neighbour/ordinary
+-- controls already PASS (round 1 covered .git/.brothermode/settings.json and the
+-- neighbours); the local/staging settings variants and every unit-scope floor FAIL.
+
+test_gate_refuses_the_whole_settings_family_under_a_dot_contract (__main__.TestRefuteRound2SettingsFamilyFloor) ... test_sign_refuses_settings_local_json (__main__.TestRefuteRound2SettingsFamilyFloor) ... FAIL
+test_the_settings_family_neighbours_stay_allowed (__main__.TestRefuteRound2SettingsFamilyFloor)
+The refuter confirmed these must stay allowed: .claude itself, ... ok
+test_upsert_refuses_a_unit_write_scope_naming_a_floor (__main__.TestRefuteRound2UnitWriteScopeFloor) ... test_upsert_still_accepts_an_ordinary_write_scope (__main__.TestRefuteRound2UnitWriteScopeFloor) ... ok
+
+======================================================================
+FAIL: test_gate_refuses_the_whole_settings_family_under_a_dot_contract (__main__.TestRefuteRound2SettingsFamilyFloor) (candidate='.claude/settings.local.json')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21605, in test_gate_refuses_the_whole_settings_family_under_a_dot_contract
+    self.assertEqual(
+AssertionError: 'ALLOWED' != 'REFUSED-FLOOR'
+- ALLOWED
++ REFUSED-FLOOR
+ : '.claude/settings.local.json' must be REFUSED-FLOOR under a '.' contract, got ALLOWED (authorised against risk class 'file-edit'.)
+
+======================================================================
+FAIL: test_gate_refuses_the_whole_settings_family_under_a_dot_contract (__main__.TestRefuteRound2SettingsFamilyFloor) (candidate='.claude/settings.staging.json')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21605, in test_gate_refuses_the_whole_settings_family_under_a_dot_contract
+    self.assertEqual(
+AssertionError: 'ALLOWED' != 'REFUSED-FLOOR'
+- ALLOWED
++ REFUSED-FLOOR
+ : '.claude/settings.staging.json' must be REFUSED-FLOOR under a '.' contract, got ALLOWED (authorised against risk class 'file-edit'.)
+
+======================================================================
+FAIL: test_sign_refuses_settings_local_json (__main__.TestRefuteRound2SettingsFamilyFloor)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21588, in test_sign_refuses_settings_local_json
+    _sign(store, allowed_paths=[".claude/settings.local.json"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_upsert_refuses_a_unit_write_scope_naming_a_floor (__main__.TestRefuteRound2UnitWriteScopeFloor) (entry='.git/config')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21647, in test_upsert_refuses_a_unit_write_scope_naming_a_floor
+    store.upsert_units(
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_upsert_refuses_a_unit_write_scope_naming_a_floor (__main__.TestRefuteRound2UnitWriteScopeFloor) (entry='.brothermode/store.sqlite3')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21647, in test_upsert_refuses_a_unit_write_scope_naming_a_floor
+    store.upsert_units(
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_upsert_refuses_a_unit_write_scope_naming_a_floor (__main__.TestRefuteRound2UnitWriteScopeFloor) (entry='.claude/settings.local.json')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 21647, in test_upsert_refuses_a_unit_write_scope_naming_a_floor
+    store.upsert_units(
+AssertionError: OwnershipRefused not raised
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.151s
+
+FAILED (failures=6)
+
+-- B2 (foreign plan) + B3 (foreign late result on a terminal run)
+-- command: python3 tools/test_bm_controller.py TestRefuteRound2PlanAndTerminalResult
+-- exit code: 1. The two calibration twins (same-driver plan; own-driver late
+-- result on a terminal run) already PASS; the two foreign-session holes FAIL.
+
+test_a_foreign_session_cannot_record_a_late_result_on_a_terminal_run (__main__.TestRefuteRound2PlanAndTerminalResult) ... FAIL
+test_a_second_session_cannot_plan_a_run_it_never_began (__main__.TestRefuteRound2PlanAndTerminalResult) ... FAIL
+test_the_own_driver_still_records_a_late_result_on_a_terminal_run (__main__.TestRefuteRound2PlanAndTerminalResult)
+Calibration: the run's OWN driver, whose work was in flight when ... ok
+test_the_same_driver_can_still_plan (__main__.TestRefuteRound2PlanAndTerminalResult)
+Calibration: a crash-resume replan is the SAME driver, which ... ok
+
+======================================================================
+FAIL: test_a_foreign_session_cannot_record_a_late_result_on_a_terminal_run (__main__.TestRefuteRound2PlanAndTerminalResult)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 7659, in test_a_foreign_session_cannot_record_a_late_result_on_a_terminal_run
+    engine2.receive_result("p1", dispatch_id, "done",
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_a_second_session_cannot_plan_a_run_it_never_began (__main__.TestRefuteRound2PlanAndTerminalResult)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 7611, in test_a_second_session_cannot_plan_a_run_it_never_began
+    engine2.plan("p1", run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.068s
+
+FAILED (failures=2)

@@ -1014,7 +1014,7 @@ class DoctorTenChecksCase(unittest.TestCase):
             fh.write("# stub, never executed by this test\n")
         self.write_settings({
             "hooks": {"PreToolUse": [{
-                "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+                "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
                 "hooks": [{"type": "command",
                            "command": "python3 " + fence_path,
                            "timeout": 10}],
@@ -1161,7 +1161,7 @@ class DoctorStrictAndSummaryCase(unittest.TestCase):
         self.settings = os.path.join(self.tmp, "settings.json")
         with io.open(self.settings, "w", encoding="utf-8") as fh:
             json.dump({"hooks": {"PreToolUse": [{
-                "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+                "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
                 "hooks": [{"type": "command", "command": "python3 " + self.fence,
                           "timeout": 10}]}]}}, fh)
         self.vault = os.path.join(self.home, "Vault")

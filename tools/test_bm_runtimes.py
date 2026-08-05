@@ -908,10 +908,13 @@ class TestTheCodexHookAnswerIsTheMeasuredOne(unittest.TestCase):
     """GUARD 7. `docs/RUNTIMES.md` said "UNVERIFIED, payload shape not
     captured" for Codex. On 2026-08-05, on codex-cli 0.146.0, Lane C captured
     every payload. The honest replacement is not "yes": Codex reports every
-    file write as tool_name "Bash" with an apply_patch heredoc, so
-    BrotherMode's Edit|Write|MultiEdit|NotebookEdit matcher never fires and
-    bm_fence_hook.py exits 0 silently. The same lane proved a PreToolUse deny
-    in the right shape DOES block a command, so the primitive exists."""
+    file write as tool_name "Bash" with an apply_patch heredoc, so the
+    matcher shipped that day never fired and bm_fence_hook.py exited 0
+    silently. The same lane proved a PreToolUse deny in the right shape DOES
+    block a command, so the primitive exists. L06 (2026-08-06) widened the
+    matcher to Bash and the hook now parses apply_patch envelopes, proven in
+    process against the captured payload; the live wired rehearsal has not
+    run, and this guard now holds the record to exactly that split."""
 
     def test_the_codex_entry_carries_dated_measured_evidence(self):
         m = rt_mod.by_key("codex").get("measured")
@@ -951,15 +954,26 @@ class TestTheCodexHookAnswerIsTheMeasuredOne(unittest.TestCase):
         self.assertIn("PermissionError", doc)
         self.assertIn("[Errno 2]", doc)
 
-    def test_nothing_anywhere_claims_the_fence_works_in_codex(self):
+    def test_nothing_anywhere_overclaims_the_fence_in_codex(self):
+        # Pre-L06 this asserted "does not transfer" outright. L06 landed the
+        # apply_patch matcher, so the honest sentence became a split: the
+        # 2026-08-05 measurement stays on the record ("did not transfer"),
+        # the in-process proof is named, and the live half stays UNVERIFIED
+        # until a wired Codex session rehearses the deny. The teeth this
+        # guard keeps: the split must be present, and an unqualified success
+        # claim is still banned everywhere.
         blobs = [rt_mod.render_runtimes_doc("tools"),
                  rt_mod.render_runtime_file(rt_mod.by_key("codex"), "tools")]
         for b in blobs:
-            self.assertIn("does not transfer", b)
-            self.assertIn("apply_patch", b)
-            for claim in ("fence is enforced", "fence works in Codex",
-                          "one writer promise holds"):
-                self.assertNotIn(claim, b)
+            low = b.lower()
+            self.assertIn("did not transfer", low)
+            self.assertIn("apply_patch", low)
+            self.assertIn("in process", low)
+            self.assertIn("UNVERIFIED", b)
+            for claim in ("fence is enforced", "fence works in codex",
+                          "one writer promise holds",
+                          "fence now works", "fully enforced under codex"):
+                self.assertNotIn(claim, low)
 
     def test_the_codex_adapter_says_the_primitive_exists(self):
         text = rt_mod.render_runtime_file(rt_mod.by_key("codex"), "tools")

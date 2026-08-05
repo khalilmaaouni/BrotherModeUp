@@ -359,7 +359,8 @@ this project stops being able to promise anything".
 
 **Attacks this design answers:**
 
-- **A second Edit, Write, MultiEdit or NotebookEdit crossing a fence.**
+- **A second Edit, Write, MultiEdit or NotebookEdit crossing a fence, and
+  since L06 (2026-08-06) a Bash apply_patch envelope naming a fenced path.**
   Blocked, in front of the write, by `tools/bm_fence_hook.py` (a PreToolUse
   hook that can refuse the call before it happens; see docs/HOOKS.md) --
   CORRECTED 2026-08-01 (loop6 refuter finding A8a): that "Blocked" is not

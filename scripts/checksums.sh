@@ -176,6 +176,9 @@ else
         ! -name '*.bak*' \
         ! -name 'STATE.md' \
         ! -name 'CANVAS.md' \
+        ! -name 'CANVAS-*.md' \
+        ! -name 'DELIVERY-PACKET.md' \
+        ! -name 'DELIVERY-PACKET-*.md' \
         | sed 's|^\./||' > "$WORKDIR/filelist"
 fi
 

@@ -62,13 +62,19 @@ person was not sure about.
   open by design (missing, empty, or corrupt store, or any internal error),
   so a green doctor is a statement about the files and the code right now,
   not a promise about every future run.
-- **The fence covers Edit, Write, MultiEdit and NotebookEdit for PREVENTION. Bash
-  writes are DETECTED, since 2026-08-01 (Loop 6, D-1), and still not prevented.**
-  Bash writes (redirection, `sed -i`, `tee`, `git checkout`, inline interpreter
-  scripts, any subprocess) still reach the filesystem without passing a hook that
-  can refuse them: `tools/bm_fence_hook.py`'s `PreToolUse` matcher still cannot
-  parse arbitrary shell, so nothing blocks a Bash write the way an Edit or Write
-  can be blocked. What changed is that a fenced file changed BY a Bash call FROM a
+- **The fence covers Edit, Write, MultiEdit, NotebookEdit, and since L06
+  (2026-08-06) exactly one Bash shape, for PREVENTION. Every other Bash write is
+  DETECTED, since 2026-08-01 (Loop 6, D-1), and still not prevented.** The one
+  prevented Bash shape is an apply_patch envelope (the form every Codex CLI file
+  write takes): `tools/bm_fence_hook.py` now parses its file directives and
+  refuses a foreign-fenced path before the command runs, proven in process
+  against a captured Codex payload; a live wired Codex rehearsal has not run
+  yet, so under Codex itself that enforcement stays UNVERIFIED until rehearsed.
+  All other Bash writes (redirection, `sed -i`, `tee`, `git checkout`, inline
+  interpreter scripts, any subprocess) still reach the filesystem without
+  passing a hook that can refuse them: no reliable parse of arbitrary shell
+  exists, so nothing blocks those the way an Edit or Write
+  can be blocked. What changed on 2026-08-01 is that a fenced file changed BY a Bash call FROM a
   session that does not own that fence is no longer invisible: `tools/
   bm_bash_audit.py` snapshots every fenced, existing file before a Bash call and
   re-hashes it after, raising a high-severity fence-breach alert (through the
@@ -1064,36 +1070,56 @@ standing.
   `stop_reason`; `docs/FULL-AUTO.md` lists all eight words and says for each
   whether a founder needs to act.
 
-### Deferred, each with its reason
+### Closed 2026-08-06 (L09), each ratified by the founder on 2026-08-05
 
-- **No path floor: a contract signed with `allowed_paths ['.']` authorises
-  BrotherMode's own `.brothermode/store.db`, `.git/config` and
-  `.claude/settings.json`.** Closing it means a sixth entry in the safety
-  floors, which are a founder-facing closed set enumerated in the contract
-  refusals, in `docs/AUTONOMY.md`, in `bm-autonomy`'s help text and in its
-  tests. That is a policy change about what a founder may EVER authorise,
-  not a defect in the controller machinery this round was scoped to. The
-  recommendation on file for a later round: refuse the store's own directory
-  and the version-control metadata directory inside `gate_check`, before the
-  `allowed_paths` comparison, so no contract can grant them. Until then:
-  grant the directories the work actually needs, not `.`.
-- **The duplicate-controller refusal is only on `begin()`.** `step`,
-  `record-result` and `stop` perform no ownership check, so a caller that
-  skips `start` bypasses the one-writer fence. Closing it means deciding an
-  ADOPTION policy for the controller fence, because a legitimate crash
-  resume arrives with a different controller id and a still-active fence,
-  which is exactly the shape the fence store's `adopted` state exists for.
-  Picking that policy is a design decision beyond this round's scope, and
-  guessing it would risk wedging the shipped resume path `bm-controller
-  start` depends on. The damaging version needs two simultaneous drivers,
-  which no refuter demonstrated. Run one controller per project.
-- **An empty `allowed_paths` still authorises a unit that declares no write
-  scope.** The path check is skipped entirely when there is no path to
-  check, so such a unit is judged on its risk class alone. Making "no path
-  granted" mean "nothing authorised" is a change to what an empty
-  `allowed_paths` MEANS, which is contract semantics rather than controller
-  machinery. The recommendation on file: decide it in the contract layer, by
-  refusing to sign an empty `allowed_paths` at all.
+- **The path floor is CLOSED.** A sixth safety floor, `governance-write`,
+  makes writes to BrotherMode's own `.brothermode` store directory, to
+  `.git` (config included) and to `.claude/settings.json` un-authorisable
+  by any contract wording. `sign` refuses an `allowed_paths` entry that
+  names one of those surfaces (`path-is-floor`), and `gate_check` refuses a
+  candidate path inside one (`REFUSED-FLOOR`) BEFORE the `allowed_paths`
+  comparison, so the floor holds under `.`, `*`, `**`, any covering glob,
+  and any hand-written row. A `.` contract stays signable; the floor bites
+  the protected path, never the broad allowance. What remains open by
+  design: a fence claimed over `.` still covers the protected files at the
+  fence layer; the gate refuses any attempt to authorise them as a write
+  path, and the fence hook's own git-containment check is the second
+  defence there.
+- **Controller ownership on `step`, `plan`, `record-result` and `stop`
+  is CLOSED.** The run's recorded session id is the driver identity; a
+  caller whose session does not match is refused `not-driver`, with the
+  refusal naming the owning session and the one deliberate takeover path:
+  `bm-controller adopt`, which records the handover durably (attribution
+  event `controller.run.adopted`), mirroring STATE.md fence adoption.
+  `plan` was added to the guarded set on 2026-08-06 after an adversarial
+  refuter showed it was the sharpest bypass of exactly this gap (a
+  foreign session could inject the unit graph the honest driver then
+  dispatched); `record-result` now refuses a foreign session even on a
+  terminal run. Consequence a founder must know: a multi-process CLI flow
+  must carry the SAME `--session-id` across invocations (the store's own
+  documented session convention), or run `adopt` once per takeover. A run
+  row with no recorded session (a store from before this law) is not
+  guarded, the same rule the fence store applies. Still not
+  ownership-guarded: the unwired `check_timeouts` (no shipped CLI door).
+- **Driver ownership and the fence are COORDINATION, not access control
+  against a malicious local actor (unchanged trust model, stated plainly
+  after a refuter reproduced it).** The driver identity is a session id
+  the caller supplies with `--session-id` and that `status --json --raw`
+  prints, so a process on the same machine that reads and re-asserts it
+  can drive a run without going through `adopt`, leaving no handover
+  event. This is the same self-asserted-identity model the STATE.md fence
+  has always had: it keeps two COOPERATING sessions from colliding and
+  records who did what, and it is not a defence against a hostile local
+  process, which already has the founder's filesystem. Authenticating a
+  session would need a per-session secret store, a different product than
+  this one. Runs that need a real trust boundary belong in separate OS
+  accounts or machines, not separate BrotherMode sessions.
+- **An empty `allowed_paths` no longer authorises writing work.** `sign`
+  refuses (`no-write-scope`) a contract that grants any writing risk class
+  with no declared `allowed_paths`. Genuinely read-only work stays
+  expressible the one way the schema has: grant only `read-only-inspect`
+  and/or `browser-read` (there is no explicit read-only marker column),
+  and the refusal message names that route.
 
 ### Bounds that survive by design, stated rather than implied
 
@@ -1198,17 +1224,17 @@ heading was edited to add it.
   only `docs`, a unit with `write_scope []` is authorised on its risk class
   alone, dispatched, and fenced over nothing at all, and in the default
   (non-strict) fence mode a fence holding nothing refuses no write anywhere.
-  The recommendation on file is unchanged and is a contract-layer decision,
-  not a controller one: refuse to sign an empty `allowed_paths`, and decide
-  whether an empty write scope is ever a legitimate unit. Until then, give
-  every unit a write scope.
-- **Two earlier deferrals are unchanged and are stated above rather than
-  restated here**: there is still no path floor (a contract granting `.`
-  reaches BrotherMode's own store directory, the VCS metadata directory and
-  the editor settings directory), and the duplicate-driver refusal still
-  only fires on `start`, so a second driver that skips `start` is not
-  refused. Both remain as the "Deferred, each with its reason" section
-  above describes them, and nothing in round 5 changed either.
+  Half of the recommendation on file landed on 2026-08-06: `sign` now
+  refuses a contract that grants writing work with no `allowed_paths` at
+  all (`no-write-scope`, see the closed section above). The UNIT-level
+  half is still open: under a legitimately signed contract, a unit whose
+  own `write_scope` is `[]` is still judged on its risk class alone and
+  claims an empty fence. Until that is decided, give every unit a write
+  scope.
+- **Two earlier deferrals are now CLOSED (2026-08-06)**: the path floor
+  and the driver-ownership check both landed; the "Closed 2026-08-06
+  (L09)" section above carries what each refusal says and the bounds each
+  one keeps.
 
 ### One bound this round's own fix introduces
 

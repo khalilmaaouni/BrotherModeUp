@@ -1,0 +1,269 @@
+RED run, L06 Codex apply_patch matcher. 2026-08-06 00:40:53
+Hook under test: tools/bm_fence_hook.py UNTOUCHED (git clean at c59dd2a lineage); new tests only.
+Command: python3 tools/test_bm_fence_hook.py CodexApplyPatch
+Expected: every deny-side test fails, because Bash is not in the hook's write set and apply_patch paths live inside the patch body.
+----------------------------------------------------------------------
+test_a_heredoc_that_is_not_apply_patch_is_not_matched (__main__.CodexApplyPatch) ... ok
+test_apply_patch_deny_uses_the_documented_wire_shape (__main__.CodexApplyPatch) ... ERROR
+test_begin_without_end_and_no_directives_is_denied_as_unreadable (__main__.CodexApplyPatch)
+An envelope with no readable file directive is a write whose ... FAIL
+test_begin_without_end_with_a_readable_directive_checks_it (__main__.CodexApplyPatch) ... FAIL
+test_calibrated_captured_payload_allowed_when_unfenced (__main__.CodexApplyPatch) ... ok
+test_calibrated_captured_payload_denied_when_fenced_to_another_owner (__main__.CodexApplyPatch) ... FAIL
+test_calibrated_owner_may_run_the_captured_patch (__main__.CodexApplyPatch) ... ok
+test_captured_payload_verbatim_shape_without_session_id (__main__.CodexApplyPatch)
+The capture carries ONLY tool_name, tool_input and tool_use_id: ... FAIL
+test_delete_file_directive_is_checked (__main__.CodexApplyPatch) ... FAIL
+test_directive_outside_the_envelope_is_still_checked (__main__.CodexApplyPatch)
+A directive that escaped the Begin/End pair still names a file the ... FAIL
+test_echo_apply_patch_is_not_matched (__main__.CodexApplyPatch) ... ok
+test_empty_directive_path_alone_is_denied_as_unreadable (__main__.CodexApplyPatch) ... FAIL
+test_extract_patch_targets_reads_all_four_directive_forms (__main__.CodexApplyPatch) ... ERROR
+test_extract_patch_targets_sees_no_envelope_in_a_quoted_marker (__main__.CodexApplyPatch) ... ERROR
+test_hostile_directive_path_is_parsed_and_fenced (__main__.CodexApplyPatch) ... FAIL
+test_marker_inside_a_quoted_argument_is_not_an_envelope (__main__.CodexApplyPatch)
+DOCUMENTED CHOICE: an envelope is recognized only when the marker ... ok
+test_move_to_target_is_checked (__main__.CodexApplyPatch)
+A rename's Move to TARGET is also a written path: a fence that ... FAIL
+test_multi_file_patch_denies_naming_the_second_file (__main__.CodexApplyPatch) ... FAIL
+test_plain_bash_is_silent_even_with_no_session_id (__main__.CodexApplyPatch)
+The fast path out must run BEFORE identity: a plain shell command ... ok
+test_update_file_directive_is_checked (__main__.CodexApplyPatch) ... FAIL
+
+======================================================================
+ERROR: test_apply_patch_deny_uses_the_documented_wire_shape (__main__.CodexApplyPatch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 950, in test_apply_patch_deny_uses_the_documented_wire_shape
+    obj = json.loads(r.stdout)
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/decoder.py", line 337, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/decoder.py", line 355, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+======================================================================
+ERROR: test_extract_patch_targets_reads_all_four_directive_forms (__main__.CodexApplyPatch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 1004, in test_extract_patch_targets_reads_all_four_directive_forms
+    got, envelope_seen = fh.extract_patch_targets(cmd)
+AttributeError: module 'bm_fence_hook' has no attribute 'extract_patch_targets'
+
+======================================================================
+ERROR: test_extract_patch_targets_sees_no_envelope_in_a_quoted_marker (__main__.CodexApplyPatch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 1010, in test_extract_patch_targets_sees_no_envelope_in_a_quoted_marker
+    got, envelope_seen = fh.extract_patch_targets(
+AttributeError: module 'bm_fence_hook' has no attribute 'extract_patch_targets'
+
+======================================================================
+FAIL: test_begin_without_end_and_no_directives_is_denied_as_unreadable (__main__.CodexApplyPatch)
+An envelope with no readable file directive is a write whose
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 914, in test_begin_without_end_and_no_directives_is_denied_as_unreadable
+    reason = self.assertDenied(decision)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 150, in assertDenied
+    self.assertIsNotNone(decision, "expected a deny; got allow")
+AssertionError: unexpectedly None : expected a deny; got allow
+
+======================================================================
+FAIL: test_begin_without_end_with_a_readable_directive_checks_it (__main__.CodexApplyPatch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 925, in test_begin_without_end_with_a_readable_directive_checks_it
+    self.assertIn("src/app.py", self.assertDenied(decision))
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 150, in assertDenied
+    self.assertIsNotNone(decision, "expected a deny; got allow")
+AssertionError: unexpectedly None : expected a deny; got allow
+
+======================================================================
+FAIL: test_calibrated_captured_payload_denied_when_fenced_to_another_owner (__main__.CodexApplyPatch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 799, in test_calibrated_captured_payload_denied_when_fenced_to_another_owner
+    reason = self.assertDenied(decision)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 150, in assertDenied
+    self.assertIsNotNone(decision, "expected a deny; got allow")
+AssertionError: unexpectedly None : expected a deny; got allow
+
+======================================================================
+FAIL: test_captured_payload_verbatim_shape_without_session_id (__main__.CodexApplyPatch)
+The capture carries ONLY tool_name, tool_input and tool_use_id:
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 975, in test_captured_payload_verbatim_shape_without_session_id
+    self.assertIn("no verifiable identity", r.stderr)
+AssertionError: 'no verifiable identity' not found in ''
+
+======================================================================
+FAIL: test_delete_file_directive_is_checked (__main__.CodexApplyPatch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 856, in test_delete_file_directive_is_checked
+    self.assertIn("src/app.py", self.assertDenied(decision))
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 150, in assertDenied
+    self.assertIsNotNone(decision, "expected a deny; got allow")
+AssertionError: unexpectedly None : expected a deny; got allow
+
+======================================================================
+FAIL: test_directive_outside_the_envelope_is_still_checked (__main__.CodexApplyPatch)
+A directive that escaped the Begin/End pair still names a file the
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 940, in test_directive_outside_the_envelope_is_still_checked
+    self.assertIn("src/app.py", self.assertDenied(decision))
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 150, in assertDenied
+    self.assertIsNotNone(decision, "expected a deny; got allow")
+AssertionError: unexpectedly None : expected a deny; got allow
+
+======================================================================
+FAIL: test_empty_directive_path_alone_is_denied_as_unreadable (__main__.CodexApplyPatch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 931, in test_empty_directive_path_alone_is_denied_as_unreadable
+    self.assertIn("cannot certify", self.assertDenied(decision))
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 150, in assertDenied
+    self.assertIsNotNone(decision, "expected a deny; got allow")
+AssertionError: unexpectedly None : expected a deny; got allow
+
+======================================================================
+FAIL: test_hostile_directive_path_is_parsed_and_fenced (__main__.CodexApplyPatch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 993, in test_hostile_directive_path_is_parsed_and_fenced
+    self.assertIsNotNone(
+AssertionError: unexpectedly None : a non-ASCII directive path crossed the fence unchecked (notes: [])
+
+======================================================================
+FAIL: test_move_to_target_is_checked (__main__.CodexApplyPatch)
+A rename's Move to TARGET is also a written path: a fence that
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 866, in test_move_to_target_is_checked
+    self.assertIn("src/app.py", self.assertDenied(decision))
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 150, in assertDenied
+    self.assertIsNotNone(decision, "expected a deny; got allow")
+AssertionError: unexpectedly None : expected a deny; got allow
+
+======================================================================
+FAIL: test_multi_file_patch_denies_naming_the_second_file (__main__.CodexApplyPatch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 840, in test_multi_file_patch_denies_naming_the_second_file
+    reason = self.assertDenied(decision)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 150, in assertDenied
+    self.assertIsNotNone(decision, "expected a deny; got allow")
+AssertionError: unexpectedly None : expected a deny; got allow
+
+======================================================================
+FAIL: test_update_file_directive_is_checked (__main__.CodexApplyPatch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 850, in test_update_file_directive_is_checked
+    self.assertIn("src/app.py", self.assertDenied(decision))
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 150, in assertDenied
+    self.assertIsNotNone(decision, "expected a deny; got allow")
+AssertionError: unexpectedly None : expected a deny; got allow
+
+----------------------------------------------------------------------
+Ran 20 tests in 0.394s
+
+FAILED (failures=11, errors=3)
+EXIT: 1
+
+======================================================================
+L06 refute round 2. 2026-08-06 01:35:02
+Hook under test: tools/bm_fence_hook.py STILL at round-1 (textual line-scan), UNTOUCHED by the fix.
+Command: python3 tools/test_bm_fence_hook.py CodexApplyPatchRefuteRound2
+Expected REDs: FD-1 (context line harvested), FD-2a and FD-2b (cat heredoc), FD-3 (git commit heredoc) each wrongly DENY where they must ALLOW.
+----------------------------------------------------------------------
+test_apply_patch_heredoc_still_denies_the_fenced_write (__main__.CodexApplyPatchRefuteRound2) ... ok
+test_apply_patch_owned_heredoc_in_a_pipeline_still_denies (__main__.CodexApplyPatchRefuteRound2)
+foo | apply_patch <<PATCH: the heredoc feeds apply_patch even ... ok
+test_dash_heredoc_with_tab_indented_directives_still_denies (__main__.CodexApplyPatchRefuteRound2)
+A '<<-' heredoc: the shell strips leading TABS from the body ... ok
+test_env_assignment_prefix_before_apply_patch_still_denies (__main__.CodexApplyPatchRefuteRound2) ... ok
+test_fd1_added_and_removed_lines_are_not_directives (__main__.CodexApplyPatchRefuteRound2)
+The '+' and '-' prefixes are added / removed hunk lines, also ... ok
+test_fd1_context_line_quoting_a_directive_is_not_a_write (__main__.CodexApplyPatchRefuteRound2)
+The only real target is notes.md (unfenced). The line ... FAIL
+test_fd1_real_column_zero_directive_to_fenced_file_still_denies (__main__.CodexApplyPatchRefuteRound2)
+The other half: a genuine directive at column 0 to the fenced file ... ok
+test_fd2a_cat_heredoc_documenting_the_grammar_is_not_a_write (__main__.CodexApplyPatchRefuteRound2)
+This writes howto.md with cat and never invokes apply_patch. The ... FAIL
+test_fd2b_non_apply_patch_heredoc_whose_body_names_apply_patch (__main__.CodexApplyPatchRefuteRound2)
+Harder than FD2A: the body literally contains the token ... FAIL
+test_fd3_git_commit_heredoc_writes_no_file_and_is_allowed (__main__.CodexApplyPatchRefuteRound2)
+A commit message that documents the grammar writes no file at all. ... FAIL
+test_owner_may_run_a_real_apply_patch_heredoc (__main__.CodexApplyPatchRefuteRound2) ... ok
+test_sus1_printf_piped_to_apply_patch_is_a_recorded_residual (__main__.CodexApplyPatchRefuteRound2)
+SUS-1 from the refute report. The '\n' inside printf are backslash ... ok
+test_unquoted_and_double_quoted_delimiters_still_deny (__main__.CodexApplyPatchRefuteRound2) ... ok
+test_unreadable_apply_patch_heredoc_still_denies (__main__.CodexApplyPatchRefuteRound2)
+An apply_patch heredoc with an envelope marker but no readable ... ok
+
+======================================================================
+FAIL: test_fd1_context_line_quoting_a_directive_is_not_a_write (__main__.CodexApplyPatchRefuteRound2)
+The only real target is notes.md (unfenced). The line
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 1058, in test_fd1_context_line_quoting_a_directive_is_not_a_write
+    self.assertAllowed(decision)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 145, in assertAllowed
+    self.assertIsNone(
+AssertionError: {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': 'BrotherMode fence: src/secret.py is inside the fence of the active record secret (lifecycle e67a71f835a34d10a5bffbc8762415ef, version 1), which is owned by session bm1-eae0c287b895157e387ffae1. This session is bm1-8f83df18b6fcd5c1e10ddbe8, so it is not the writer for that path. Claimed as: src/secret.py.\nOne writer per file is structural, not advisory: do not edit across the fence. Report the needed change to the owner instead. To take the fence over deliberately, run:\n  python3 tools/bm_store.py adopt e67a71f835a34d10a5bffbc8762415ef --version 1 --session bm1-8f83df18b6fcd5c1e10ddbe8 --adopt-from-live-session\nthen re-claim the paths you need with `bm_store.py claim ... --session bm1-8f83df18b6fcd5c1e10ddbe8`.'}} is not None : expected no decision (allow); got a deny: {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': 'BrotherMode fence: src/secret.py is inside the fence of the active record secret (lifecycle e67a71f835a34d10a5bffbc8762415ef, version 1), which is owned by session bm1-eae0c287b895157e387ffae1. This session is bm1-8f83df18b6fcd5c1e10ddbe8, so it is not the writer for that path. Claimed as: src/secret.py.\nOne writer per file is structural, not advisory: do not edit across the fence. Report the needed change to the owner instead. To take the fence over deliberately, run:\n  python3 tools/bm_store.py adopt e67a71f835a34d10a5bffbc8762415ef --version 1 --session bm1-8f83df18b6fcd5c1e10ddbe8 --adopt-from-live-session\nthen re-claim the paths you need with `bm_store.py claim ... --session bm1-8f83df18b6fcd5c1e10ddbe8`.'}}
+
+======================================================================
+FAIL: test_fd2a_cat_heredoc_documenting_the_grammar_is_not_a_write (__main__.CodexApplyPatchRefuteRound2)
+This writes howto.md with cat and never invokes apply_patch. The
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 1097, in test_fd2a_cat_heredoc_documenting_the_grammar_is_not_a_write
+    self.assertAllowed(decision)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 145, in assertAllowed
+    self.assertIsNone(
+AssertionError: {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': 'BrotherMode fence: src/app.py is inside the fence of the active record api (lifecycle ae111ec9e2d14b38aea51cf400033cbf, version 1), which is owned by session bm1-b59a303a749be185cf306c57. This session is bm1-18382c60dcf7a3654e60c58f, so it is not the writer for that path. Claimed as: src/app.py.\nOne writer per file is structural, not advisory: do not edit across the fence. Report the needed change to the owner instead. To take the fence over deliberately, run:\n  python3 tools/bm_store.py adopt ae111ec9e2d14b38aea51cf400033cbf --version 1 --session bm1-18382c60dcf7a3654e60c58f --adopt-from-live-session\nthen re-claim the paths you need with `bm_store.py claim ... --session bm1-18382c60dcf7a3654e60c58f`.'}} is not None : expected no decision (allow); got a deny: {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': 'BrotherMode fence: src/app.py is inside the fence of the active record api (lifecycle ae111ec9e2d14b38aea51cf400033cbf, version 1), which is owned by session bm1-b59a303a749be185cf306c57. This session is bm1-18382c60dcf7a3654e60c58f, so it is not the writer for that path. Claimed as: src/app.py.\nOne writer per file is structural, not advisory: do not edit across the fence. Report the needed change to the owner instead. To take the fence over deliberately, run:\n  python3 tools/bm_store.py adopt ae111ec9e2d14b38aea51cf400033cbf --version 1 --session bm1-18382c60dcf7a3654e60c58f --adopt-from-live-session\nthen re-claim the paths you need with `bm_store.py claim ... --session bm1-18382c60dcf7a3654e60c58f`.'}}
+
+======================================================================
+FAIL: test_fd2b_non_apply_patch_heredoc_whose_body_names_apply_patch (__main__.CodexApplyPatchRefuteRound2)
+Harder than FD2A: the body literally contains the token
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 1113, in test_fd2b_non_apply_patch_heredoc_whose_body_names_apply_patch
+    self.assertAllowed(decision)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 145, in assertAllowed
+    self.assertIsNone(
+AssertionError: {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': 'BrotherMode fence: src/app.py is inside the fence of the active record api (lifecycle 6dd1050360e34190bbb39a8dad1d88b9, version 1), which is owned by session bm1-a254aae0fc5a1e01d2c867dd. This session is bm1-8a423e2f48e11a584ff2b467, so it is not the writer for that path. Claimed as: src/app.py.\nOne writer per file is structural, not advisory: do not edit across the fence. Report the needed change to the owner instead. To take the fence over deliberately, run:\n  python3 tools/bm_store.py adopt 6dd1050360e34190bbb39a8dad1d88b9 --version 1 --session bm1-8a423e2f48e11a584ff2b467 --adopt-from-live-session\nthen re-claim the paths you need with `bm_store.py claim ... --session bm1-8a423e2f48e11a584ff2b467`.'}} is not None : expected no decision (allow); got a deny: {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': 'BrotherMode fence: src/app.py is inside the fence of the active record api (lifecycle 6dd1050360e34190bbb39a8dad1d88b9, version 1), which is owned by session bm1-a254aae0fc5a1e01d2c867dd. This session is bm1-8a423e2f48e11a584ff2b467, so it is not the writer for that path. Claimed as: src/app.py.\nOne writer per file is structural, not advisory: do not edit across the fence. Report the needed change to the owner instead. To take the fence over deliberately, run:\n  python3 tools/bm_store.py adopt 6dd1050360e34190bbb39a8dad1d88b9 --version 1 --session bm1-8a423e2f48e11a584ff2b467 --adopt-from-live-session\nthen re-claim the paths you need with `bm_store.py claim ... --session bm1-8a423e2f48e11a584ff2b467`.'}}
+
+======================================================================
+FAIL: test_fd3_git_commit_heredoc_writes_no_file_and_is_allowed (__main__.CodexApplyPatchRefuteRound2)
+A commit message that documents the grammar writes no file at all.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 1128, in test_fd3_git_commit_heredoc_writes_no_file_and_is_allowed
+    self.assertAllowed(decision)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_fence_hook.py", line 145, in assertAllowed
+    self.assertIsNone(
+AssertionError: {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': 'BrotherMode fence: src/app.py is inside the fence of the active record api (lifecycle 4da9bd5d0e364d7fa23d9c9c6bae2764, version 1), which is owned by session bm1-be67d044148b6790a7ac9f07. This session is bm1-00a0e64cd230c031bda68db1, so it is not the writer for that path. Claimed as: src/app.py.\nOne writer per file is structural, not advisory: do not edit across the fence. Report the needed change to the owner instead. To take the fence over deliberately, run:\n  python3 tools/bm_store.py adopt 4da9bd5d0e364d7fa23d9c9c6bae2764 --version 1 --session bm1-00a0e64cd230c031bda68db1 --adopt-from-live-session\nthen re-claim the paths you need with `bm_store.py claim ... --session bm1-00a0e64cd230c031bda68db1`.'}} is not None : expected no decision (allow); got a deny: {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': 'BrotherMode fence: src/app.py is inside the fence of the active record api (lifecycle 4da9bd5d0e364d7fa23d9c9c6bae2764, version 1), which is owned by session bm1-be67d044148b6790a7ac9f07. This session is bm1-00a0e64cd230c031bda68db1, so it is not the writer for that path. Claimed as: src/app.py.\nOne writer per file is structural, not advisory: do not edit across the fence. Report the needed change to the owner instead. To take the fence over deliberately, run:\n  python3 tools/bm_store.py adopt 4da9bd5d0e364d7fa23d9c9c6bae2764 --version 1 --session bm1-00a0e64cd230c031bda68db1 --adopt-from-live-session\nthen re-claim the paths you need with `bm_store.py claim ... --session bm1-00a0e64cd230c031bda68db1`.'}}
+
+----------------------------------------------------------------------
+Ran 14 tests in 0.284s
+
+FAILED (failures=4)
+EXIT: 1
+
+----------------------------------------------------------------------
+AFTER FIX, round 2. 2026-08-06 01:37:54  Hook now heredoc-aware and column-0 aware.
+----------------------------------------------------------------------
+Ran 14 tests in 0.455s
+
+OK
+FULL SUITE:
+Ran 96 tests in 4.652s
+
+OK

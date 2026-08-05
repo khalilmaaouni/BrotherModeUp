@@ -971,6 +971,40 @@ class ControllerEngine(object):
                 "founder action. Resume the run first, then %s again."
                 % (run["run_id"], action, action))
 
+    def _refuse_foreign_driver(self, run, action):
+        """A run has ONE driver: the session recorded on the run row at
+        begin(), or by the last explicit adoption (L09 GAP 2, founder
+        decision 2026-08-05). begin() already enforces this for STARTING
+        a run, through the controller fence; this is the same law for
+        CONTINUING one, at the three doors that used to skip it (step,
+        receive_result, stop), so a second process can no longer drive a
+        run it never started just by not calling begin().
+
+        The guard mirrors the fence store's own ownership law
+        (Store.transition, BLOCKER 2): a NON-EMPTY recorded session
+        blocks a foreign move, an empty one (a run row written before
+        this law) has no live driver to protect, and the callers only
+        ask this question about a run that is still live (a terminal
+        run's summary is a read anyone may take). The one deliberate
+        takeover path is adopt(), which records the handover, exactly as
+        STATE.md fence adoption does; it is named in the refusal so the
+        founder is told the legal next step rather than left guessing."""
+        driver = run["session_id"] or ""
+        if driver and driver != self.session_id:
+            raise bs.OwnershipRefused(
+                "not-driver",
+                "controller run %r is driven by session %r, and this "
+                "engine is session %r, so %s is refused: a run has one "
+                "driver, the same law the controller fence enforces at "
+                "begin(). If that session is gone, or this takeover is "
+                "deliberate, run `bm-controller adopt` for this project "
+                "(engine: adopt()), which records the handover and makes "
+                "this session the driver; then %s again."
+                % (run["run_id"], driver, self.session_id, action, action),
+                details={"run_id": run["run_id"],
+                         "driver_session_id": driver,
+                         "caller_session_id": self.session_id})
+
     # -- the contract gate in front of every command this engine runs ------
 
     def _contract_state(self, project_id):
@@ -1391,6 +1425,17 @@ class ControllerEngine(object):
         between the two calls is closed by _resume_result_in_and_orphans'
         own SKIPPED branch."""
         run = self._run_or_refuse(project_id)
+        # The driver's own gate (L09 refute round 2, finding B2). `plan`
+        # is the single most powerful mutation (it defines what work runs
+        # and rewrites the unit graph, cascading DONE units), and round 1
+        # scoped the driver guard to step/receive_result/stop, leaving
+        # this door open: a foreign session injected the unit graph the
+        # honest driver's next step then dispatched. Guarded in the same
+        # shape step uses, and BEFORE _refuse_if_paused, so a foreign
+        # session learns "not yours" before it learns anything about the
+        # run's pause state. A legitimate crash-resume replan is the SAME
+        # driver (or a session that ran adopt first), which passes.
+        self._refuse_foreign_driver(run, "plan")
         self._refuse_if_paused(run, "plan")
         units = self._validated_units(units)
         # EVERY store write below names the project the caller said it was
@@ -1586,6 +1631,13 @@ class ControllerEngine(object):
         if run["state"] in _TERMINAL_STATES:
             return self._finish(summary, project_id, "TERMINAL",
                                 "run is terminal; nothing to do")
+
+        # -- the driver's own gate (L09 GAP 2): AFTER the terminal read
+        # above (a finished run has no driver to protect, and the summary
+        # is a read), BEFORE every branch below (the pause read included:
+        # a foreign process is told "not yours" before it is told
+        # anything about the run it does not drive).
+        self._refuse_foreign_driver(run, "step")
 
         # -- the founder's own gate, checked ONCE, before any read of the
         # contract, any unit list and any resume branch (law L1). It must
@@ -1919,6 +1971,18 @@ class ControllerEngine(object):
         run = self._run_or_refuse(project_id)
         run_id = run["run_id"]
         summary = {} if summary is None else summary
+        # The driver's own gate (L09 GAP 2, widened in refute round 2,
+        # finding B3), before ANYTHING is recorded or charged: recording a
+        # result and charging the meter are driving the run, and this
+        # entry point used to be the widest open door (any process holding
+        # a dispatch id could judge, roll back and re-queue another
+        # driver's unit). Round 1 guarded only the non-terminal path, so a
+        # foreign session recorded a late result on a STOPPED run; the
+        # guard is now UNCONDITIONAL. The legitimate late-result-after-stop
+        # case comes from the run's OWN driver, whose work was in flight
+        # when stop landed and whose session matches, so it passes; only a
+        # foreign session is refused.
+        self._refuse_foreign_driver(run, "receive_result")
         # The dispatch is looked up and CHECKED AGAINST THIS RUN before
         # anything is recorded or charged (REFUTATION-3 SM K and AZ F-A3):
         # project_id and dispatch_id arrive as independent arguments, and
@@ -4255,11 +4319,28 @@ class ControllerEngine(object):
                                  self.session_id, project_id=project_id)
 
     def stop(self, project_id, reason="founder requested stop"):
-        """Public entry point for `bm-controller stop` (Writer B's CLI)."""
+        """Public entry point for `bm-controller stop` (Writer B's CLI).
+        The no-run and already-terminal cases stay the quiet no-op they
+        have always been; a LIVE run is the driver's to stop (L09 GAP 2:
+        stopping drains fences and ends the run, which is driving it),
+        so a foreign session is refused by name and pointed at adopt()."""
         run = self.store.get_run(project_id, raw=True)
         if run is None or run["state"] in _TERMINAL_STATES:
             return
+        self._refuse_foreign_driver(run, "stop")
         self._begin_stopping(project_id, run["run_id"], reason)
+
+    def adopt(self, project_id, note=""):
+        """Make THIS engine's session the recorded driver of the
+        project's current run: the one deliberate takeover path the
+        not-driver refusal names (L09 GAP 2), mirroring STATE.md fence
+        adoption (bm-fence adopt): explicit, displacing by name, and
+        recorded durably in the same transaction (attribution event
+        'controller.run.adopted'). Thin by design: Store.adopt_run holds
+        the whole rule, including the no-run and run-terminal refusals
+        and the idempotent already-the-driver no-op."""
+        return self.store.adopt_run(project_id, self.session_id,
+                                    self.actor, note=note)
 
     # -- internal: small lookups -------------------------------------------
 
@@ -4304,19 +4385,24 @@ class ControllerEngine(object):
 # way bm_autonomy.py's status reads latest_contract straight off the
 # store), or reads/writes through a schema-15 Store method directly.
 #
-# TWO COMMANDS CALL THE STORE DIRECTLY RATHER THAN THE ENGINE, ON PURPOSE:
-# `resume` (PAUSED -> READY) and `complete` (DELIVERABLE_READY -> COMPLETE)
-# are founder actions, never a controller self-move (design section 1's
-# own words for the `complete` transition, and the same reasoning applies
-# to reversing a pause); no ControllerEngine method performs either move,
-# so these two commands call store.set_run_state directly and let the
-# store's own CONTROLLER_STATE_TRANSITIONS legality check answer whether
-# the move is allowed, the identical thin-CLI law tools/bm_autonomy.py's
-# own pause/resume/stop/revoke already follow for the contract.
+# THREE COMMANDS CALL THE STORE DIRECTLY RATHER THAN THE ENGINE, ON
+# PURPOSE: `resume` (PAUSED -> READY) and `complete` (DELIVERABLE_READY ->
+# COMPLETE) are founder actions, never a controller self-move (design
+# section 1's own words for the `complete` transition, and the same
+# reasoning applies to reversing a pause); no ControllerEngine method
+# performs either move, so these two commands call store.set_run_state
+# directly and let the store's own CONTROLLER_STATE_TRANSITIONS legality
+# check answer whether the move is allowed, the identical thin-CLI law
+# tools/bm_autonomy.py's own pause/resume/stop/revoke already follow for
+# the contract. `adopt` (L09 GAP 2) is the third for the same reason: a
+# driver handover is a founder-facing ownership move over a run, and
+# Store.adopt_run holds the whole rule.
 #
-# EIGHT COMMANDS, matching the design's own file-plan (section 7) and
-# Writer A's report (Cross-writer dependencies 1): start, step, plan,
-# record-result, status, stop, resume, complete. check_timeouts is a real
+# NINE COMMANDS: the design's own eight (file-plan section 7 and Writer
+# A's report, Cross-writer dependencies 1: start, step, plan,
+# record-result, status, stop, resume, complete) plus `adopt`, added
+# 2026-08-06 (L09 GAP 2) as the CLI door for the run-driver handover the
+# engine's not-driver refusal names. check_timeouts is a real
 # ControllerEngine method but is not wired to a subcommand here: a
 # scheduler-driven deadline check is a later door on this same dispatch
 # table, not a gap the design or this loop's own build instructions name.
@@ -4953,6 +5039,50 @@ def cmd_stop(argv):
 
 
 # ---------------------------------------------------------------------------
+# adopt
+# ---------------------------------------------------------------------------
+
+_ADOPT_FLAGS = ("project", "note", "json") + _ACTOR_FLAGS
+
+
+def cmd_adopt(argv):
+    """The one deliberate takeover path the not-driver refusal names
+    (L09 GAP 2): make THIS invocation's session the recorded driver of
+    the project's current run, displacing the previous one by name and
+    recording the handover durably, mirroring `bm-store adopt` for a
+    fence record. Calls the store directly rather than the engine, the
+    same thin-CLI law `resume` and `complete` follow: adoption is a
+    founder-facing ownership move, never a controller self-move."""
+    _pos, kv = _parse(argv, _ADOPT_FLAGS,
+                      wants_value=("project", "note") + _ACTOR_FLAGS)
+    usage = ("usage: adopt --project ID --actor-name NAME "
+             "[--actor-type human|model] [--session-id SID] "
+             "[--note TEXT] [--json]")
+    project_id = _require(kv, "project", usage)
+    actor = _actor(kv, usage)
+    store = _store()
+    try:
+        out = store.adopt_run(project_id, actor["session_id"], actor,
+                              note=kv.get("note") or "")
+    finally:
+        store.close()
+    if kv.get("json"):
+        _print_json(out)
+        return EXIT_OK
+    if out["adopted"]:
+        _out("project %s controller run %s: driver handed over from "
+             "session %s to session %s"
+             % (project_id, out["run_id"],
+                out["previous_session_id"] or "(none recorded)",
+                out["session_id"]))
+    else:
+        _out("project %s controller run %s: session %s already drives "
+             "this run; nothing to adopt"
+             % (project_id, out["run_id"], out["session_id"]))
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
 # resume
 # ---------------------------------------------------------------------------
 
@@ -5055,6 +5185,7 @@ COMMANDS = {
     "record-result": cmd_record_result,
     "status": cmd_status,
     "stop": cmd_stop,
+    "adopt": cmd_adopt,
     "resume": cmd_resume,
     "complete": cmd_complete,
 }

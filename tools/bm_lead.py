@@ -561,7 +561,7 @@ def _ranked_decisions(store, project_id):
 
 def _floor_named_by(insight):
     """The safety floor id a decision names, or ''. A decision that touches
-    one of the five floors is the one thing nothing else can move past."""
+    one of the six floors is the one thing nothing else can move past."""
     haystack = " ".join([(insight.get("subject") or ""),
                          (insight.get("claim") or ""),
                          (insight.get("flip_condition") or "")]).lower()
