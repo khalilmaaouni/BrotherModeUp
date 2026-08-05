@@ -1604,3 +1604,66 @@ controller writer's and are recorded separately.
   sqlite's read-only WAL behaviour is not documented as platform specific, but
   the sidecar creation, the `immutable=1` behaviour and the non-writable
   directory results were observed on this machine only.
+
+## Platform-blind tests: what the 2026-08-05 Windows audit closed, and the four gaps it leaves standing (2026-08-05)
+
+Context, because it is the reason this section is not simply a bug list. CI run
+30980039674 failed on both Windows legs at the FIRST step of the `store` job, and
+GitHub stops a job at its first failing step, so `tools/test_bm_controller.py` has
+never executed on a Windows runner even once. An audit
+(`docs/program/absolute-lead/evidence/AUDIT-windows-blind-assumptions.md`) read the
+new tests for platform assumptions and found eleven. Five would have turned the
+Windows leg red the first time it got far enough to run them, three passed while
+proving nothing there, two depend on the runner image, and one lives in a suite
+Windows never runs.
+
+What was fixed is written up in
+`docs/program/absolute-lead/evidence/FIX-windows-blind-report.md`. What remains is
+here.
+
+- **Every Windows claim in that work is UNVERIFIED LOCALLY. There is no Windows
+  machine in this loop.** The probes behind it were executed on macOS against
+  `ntpath`, `shlex` and the shipped `_quote_path_for_local_shell` with
+  `sys.platform` forced to `win32`, which gives exact Windows LEXICAL semantics and
+  says nothing about syscall behaviour or about what `cmd.exe` then does with the
+  string. CI is the instrument that settles it.
+- **On Windows, nothing proves that a read-only diagnostic survives a store
+  directory it cannot write.** `os.chmod(dir, 0o500)` cannot deny a directory write
+  there (Python documents that only the read-only flag is settable and that all
+  other bits are ignored), so the two tests that pose that question now MEASURE
+  whether the denial works before relying on it and skip with a named reason where
+  it does not. The real denial needs a directory ACL through `icacls`, which is not
+  in the standard library. The same skip fires on any POSIX machine running the
+  suite as root, which is a second vacuous pass this closes. What still runs
+  everywhere: a read-only open creates no sidecar in a WRITABLE directory, and the
+  read-only connection refuses a write.
+- **The symlink-escape refusals depend on a Windows privilege the runner currently
+  grants.** Creating a symbolic link needs `SeCreateSymbolicLinkPrivilege`. Both
+  symlink tests ran and passed on both Windows legs of run 30980039674, so the
+  privilege exists on today's image; the guard is on the PRIVILEGE rather than on
+  the platform, so the coverage keeps running wherever it exists and degrades to a
+  named skip rather than to an unexplained `OSError [WinError 1314]` in a test about
+  path escapes.
+- **`tools/bm_controller.py` still applies `shlex.quote` to each write-scope entry
+  when composing the rollback** (the `git restore -- <paths>` half, not the
+  `--git-dir/--work-tree` half, which was fixed). Ordinary entries such as `a.py`
+  come back bare and are safe on both platforms, which is why the rollback tests are
+  correct as they stand. An entry containing a SPACE comes back POSIX
+  single-quoted, and `cmd.exe` reads those quotes as filename characters, so on
+  Windows that rollback would fail to restore rather than restore the wrong thing.
+  The failure direction is the safe one (a non-zero exit is the dirty-write-scope
+  warning path, so the founder hears about it), no test exercises a spaced entry on
+  the CLI path, and the one-line remedy is the same helper swap the `_git_prefix`
+  call site just took. Left for a founder call rather than folded into an audit
+  closure loop.
+- **`tools/bm_controller.py` defaults an empty `done_check` to the string `true`.**
+  That is a POSIX shell builtin. `cmd.exe` has no `true` and there is no `true.exe`
+  in `System32`; it resolves on a GitHub-hosted Windows runner only because that
+  image puts Git for Windows' `usr/bin` on PATH. The test literals that depended on
+  the same accident were replaced with an interpreter-based command; the PRODUCT
+  default was not, because changing it changes shipped behaviour for every unit that
+  declares no done-check. If that image ever drops those Unix tools, a Windows unit
+  with no done-check flips to REJECTED and reads like a controller bug.
+- **`tools/test_bm_runtimes.py` still never runs on Windows.** Its `shlex.split`
+  ordering bug is fixed anyway because the fix was one line, but the `suite` job is
+  ubuntu and macos only, so that file has no Windows evidence behind it at all.
