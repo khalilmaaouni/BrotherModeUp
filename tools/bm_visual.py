@@ -2149,6 +2149,33 @@ REFUSAL_HELP = {
         "finding what you named",
         "there is no record with that name",
         "Ask for the status to see what is on record."),
+    # L09 (2026-08-06): the authorisation narrowings landed four new codes.
+    "no-run": (
+        "finding the run to act on",
+        "this project has no run on record to drive or take over",
+        "Ask for the status, or start the work first."),
+    "run-terminal": (
+        "taking over a run",
+        "that run has already finished, so there is nothing to take over",
+        "Read its summary on the project page; start new work if more is "
+        "needed."),
+    "path-is-floor": (
+        "signing the work authorisation",
+        "the authorisation asked to write inside the project's own safety "
+        "machinery, which nothing may ever grant",
+        "Remove that path from the authorisation and sign again."),
+    "write-scope-is-floor": (
+        "planning a step of the work",
+        "a step asked to write inside the project's own safety machinery, "
+        "which nothing may ever grant",
+        "Point that step at the folders the work really needs, then plan "
+        "again."),
+    "no-write-scope": (
+        "signing the work authorisation",
+        "the authorisation grants writing work but does not say where "
+        "writing is allowed",
+        "Name the folders the work may touch, or grant only read-only "
+        "work."),
     "not-owner": (
         "changing a piece of work",
         "another session holds it, and only one thing edits at a time",

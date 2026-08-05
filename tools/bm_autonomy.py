@@ -56,7 +56,7 @@ FOURTEEN COMMANDS
                      target, assumption count, open human steps by lane,
                      and the most recent controller checkpoint (read only)
   queue-human-step   queue one step only a human can complete (optionally
-                     tied to one of the five safety floors), blocking the
+                     tied to one of the six safety floors), blocking the
                      lane it names and no other
   human-steps        list open (default) or all human steps, or resolve one
                      with --resolve
@@ -67,13 +67,20 @@ FOURTEEN COMMANDS
                      nothing to design" does not hold for checkpoints if the
                      store's own record_checkpoint method has no CLI door.
 
-THE FIVE FLOORS, NEVER GRANTABLE BY ANY CONTRACT
+THE SIX FLOORS, NEVER GRANTABLE BY ANY CONTRACT
   credential-entry, payment, account-signin, permanent-delete,
-  publish-release (bs.AUTONOMY_FLOORS). gate-check refuses one of these
-  WITHOUT EVEN CONSULTING THE CONTRACT: a floor id smuggled into a
-  contract's risk_classes by hand-editing the store is still refused,
-  because the floor check runs before the contract is read at all
-  (Store.gate_check, check 2). No flag on this command line can grant one.
+  publish-release, governance-write (bs.AUTONOMY_FLOORS). gate-check
+  refuses one of these WITHOUT EVEN CONSULTING THE CONTRACT: a floor id
+  smuggled into a contract's risk_classes by hand-editing the store is
+  still refused, because the floor check runs before the contract is read
+  at all (Store.gate_check, check 2). No flag on this command line can
+  grant one. governance-write (L09, 2026-08-06) is the PATH-shaped floor:
+  a write to the project's own .brothermode store, its .git directory or
+  .claude/settings.json is refused at gate time whatever the contract's
+  allowed_paths say, and an --allowed-path that NAMES one of those
+  surfaces is refused at sign time. A writing contract must also declare
+  at least one --allowed-path at sign time; only a contract granting
+  nothing but bs.AUTONOMY_READ_ONLY_RISK_CLASSES may sign with none.
 
 THE SIGNER CHECK IS A DENYLIST, NOT AN AUTHENTICATION CHECK
   `sign --signed-by` refuses roughly thirty model-name tokens

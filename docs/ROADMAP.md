@@ -95,7 +95,7 @@ The mapping is code rather than judgement. Certified stays certified. A beta row
 
 | Capability | Proof state | What proves it |
 |---|---|---|
-| One writer per file, refused by a hook rather than by convention | certified | tools/bm_fence_hook.py refuses a write to a file another session has claimed, wired by hooks/hooks.json and proven by tools/test_bm_fence_hook.py. |
+| One writer per file, refused by a hook rather than by convention | certified | tools/bm_fence_hook.py refuses a write to a file another session has claimed, wired by hooks/hooks.json at matcher Edit\|Write\|MultiEdit\|NotebookEdit\|Bash and proven by tools/test_bm_fence_hook.py. The Bash leg reads apply_patch envelopes, the shape every Codex CLI write takes, and was proven in process against a captured Codex payload; enforcement inside a live Codex session is not yet rehearsed and docs/RUNTIMES.md states that split. |
 | Durable local store that survives a crash and can be recovered | certified | tools/bm_store.py holds the state and tools/test_bm_store.py exercises recovery; the store job in .github/workflows/tests.yml runs that suite on Linux, macOS and Windows. |
 | Current pages are held to the facts read out of the tree | certified | tools/test_bm_docs.py refuses a current page carrying a stale count, a stale version, or a dated record that declares no status; docs/ba/QA-GATES.md states the gates. |
 | Guided beginner flow on Claude Code | certified | skills/brotherme/SKILL.md drives the flow, commands/brotherme-start.md is its entry point, and docs/QUICKSTART.md is the install path a beginner follows. |

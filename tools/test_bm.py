@@ -6109,6 +6109,28 @@ class TestGitignoreCoversGeneratedProjectViews(unittest.TestCase):
                 "founder's own project rows could land in a commit to "
                 "this repository" % pattern)
 
+    def test_manifest_scripts_exclude_the_same_generated_view_family(self):
+        # Found live 2026-08-06 by dogfooding: bm_project.py start with
+        # --allow-second wrote CANVAS-<project-id>.md at the repository
+        # root, .gitignore hid it from git, and verify-install.sh then
+        # FAILED with an EXTRA entry, because the two manifest scripts
+        # excluded only the exact name CANVAS.md. CANVAS.md itself went
+        # through this same class once already (the dated comment inside
+        # scripts/checksums.sh tells that story), so this pin holds the
+        # WHOLE gitignore family in both scripts rather than one name.
+        for script in ("scripts/checksums.sh", "scripts/verify-install.sh"):
+            with io.open(os.path.join(self.ROOT, script),
+                         encoding="utf-8") as fh:
+                src = fh.read()
+            for name in ("CANVAS.md", "CANVAS-*.md",
+                         "DELIVERY-PACKET.md", "DELIVERY-PACKET-*.md"):
+                self.assertIn(
+                    "! -name '%s'" % name, src,
+                    "%s no longer excludes the generated view %r; any "
+                    "machine with a generated project view at the root "
+                    "fails its own integrity check with an EXTRA "
+                    "warning" % (script, name))
+
 
 class TestScorecardSurvivesANullTokenField(unittest.TestCase):
     """N-6 finding 1 (2026-08-04). A ledger row that parses as valid JSON but

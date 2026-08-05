@@ -102,7 +102,7 @@ Four states and no others, read out of `capabilities.status.json`, updated 2026-
 
 | Capability | What proves it, or why it is not offered |
 |---|---|
-| One writer per file, refused by a hook rather than by convention | tools/bm_fence_hook.py refuses a write to a file another session has claimed, wired by hooks/hooks.json and proven by tools/test_bm_fence_hook.py. |
+| One writer per file, refused by a hook rather than by convention | tools/bm_fence_hook.py refuses a write to a file another session has claimed, wired by hooks/hooks.json at matcher Edit\|Write\|MultiEdit\|NotebookEdit\|Bash and proven by tools/test_bm_fence_hook.py. The Bash leg reads apply_patch envelopes, the shape every Codex CLI write takes, and was proven in process against a captured Codex payload; enforcement inside a live Codex session is not yet rehearsed and docs/RUNTIMES.md states that split. |
 | Durable local store that survives a crash and can be recovered | tools/bm_store.py holds the state and tools/test_bm_store.py exercises recovery; the store job in .github/workflows/tests.yml runs that suite on Linux, macOS and Windows. |
 | Current pages are held to the facts read out of the tree | tools/test_bm_docs.py refuses a current page carrying a stale count, a stale version, or a dated record that declares no status; docs/ba/QA-GATES.md states the gates. |
 | Guided beginner flow on Claude Code | skills/brotherme/SKILL.md drives the flow, commands/brotherme-start.md is its entry point, and docs/QUICKSTART.md is the install path a beginner follows. |
@@ -161,7 +161,9 @@ it belongs to.
 
 **Execute.** Work is claimed before it is written, and the claim is enforced:
 `tools/bm_fence_hook.py` runs on the PreToolUse hook and REFUSES a write to a
-file another live session owns. It is the one hook that can say no.
+file another live session owns, whether it arrives as an Edit tool call or,
+since L06, as a Bash apply_patch envelope naming a fenced path. It is the one
+hook that can say no.
 `tools/test_bm_fence_hook.py` holds that behaviour in place, and
 `scripts/doctor.py` proves the wired fence is live on your machine by
 simulating a blocked foreign write in a throwaway project.

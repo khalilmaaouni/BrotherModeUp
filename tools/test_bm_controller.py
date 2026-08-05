@@ -366,9 +366,13 @@ class TestFault1KilledBetweenResultAndCommit(unittest.TestCase):
                 self.assertEqual(_dispatch_count(store, "u1"), 1)
 
                 # A fresh engine, same store: true resume, no in-memory
-                # carryover.
+                # carryover. The SAME driver restarted, so the same
+                # session id: since L09 GAP 2 a run has one driver, and a
+                # genuinely new session would adopt first
+                # (TestDriverAdoption).
                 worker2 = FakeWorker({})  # must NOT be called
-                engine2 = _engine(store, worker2, checker)
+                engine2 = _engine(store, worker2, checker,
+                                  session_id=engine1.session_id)
                 summary = engine2.step("p1")
 
                 self.assertEqual(worker2.calls, {},
@@ -738,7 +742,11 @@ class TestFault8RestartWithNewerWorkflowVersion(unittest.TestCase):
                 # "still_pending_dropped" removed, and "keep" UNCHANGED
                 # (reused, never re-run).
                 worker2 = FakeWorker({})  # "keep" must never be re-dispatched
-                engine2 = _engine(store, worker2, checker)
+                # The SAME driver restarted, so the same session id: since
+                # L09 GAP 2 a run has one driver, and a genuinely new
+                # session would adopt first (TestDriverAdoption).
+                engine2 = _engine(store, worker2, checker,
+                                  session_id=engine1.session_id)
                 engine2.plan("p1", run["run_id"],
                              [_unit("keep", write_scope=["a.py"])])
 
@@ -3528,7 +3536,11 @@ class TestEndToEndE4(unittest.TestCase):
                 # between u3's dispatch and its checkpoint. Resume must
                 # not re-dispatch u3 a THIRD time (it already has
                 # retry_count=1; the resumed engine's retry is attempt 2).
-                engine = _engine(store, worker, checker, controller_id="ctrl1")
+                # The SAME driver restarted, so the same session id (L09
+                # GAP 2: a run has one driver, and a genuinely new
+                # session would adopt first).
+                engine = _engine(store, worker, checker, controller_id="ctrl1",
+                                 session_id=engine.session_id)
                 s4 = engine.step("p1")  # attempt 2: done_check now passes
                 states_visited.append(s4["state"])
                 self.assertEqual(
@@ -6176,7 +6188,17 @@ STORE_CLI = os.path.join(HERE, "bm_store.py")
 PROJECT_CLI = os.path.join(HERE, "bm_project.py")
 AUTONOMY_CLI = os.path.join(HERE, "bm_autonomy.py")
 
-CLI_ACTOR = ("--actor-name", "tester")
+# One STABLE session id across every invocation of a multi-command CLI
+# flow, the documented convention for multi-invocation CLI workflows
+# (tools/bm_store.py, _default_cli_session_id's own docstring: "a human
+# doing a multi-step CLI workflow ... must pass the SAME --session
+# explicitly across those invocations"). Load-bearing since L09 GAP 2: a
+# controller run has ONE driver (the recorded session), so the start /
+# step / record-result / stop flow these tests drive must arrive as one
+# driver, exactly as a founder's own scripted flow would.
+# TestControllerCLIAdopt builds its flags by hand instead, because its
+# whole subject is two DIFFERENT sessions meeting the same run.
+CLI_ACTOR = ("--actor-name", "tester", "--session-id", "sess-cli-tester")
 
 #: A done_check that exits 0, and one that does not, on every platform in
 #: this repository's CI matrix.
@@ -7215,10 +7237,15 @@ class TestCrossFamilyF5StaleSelectionIsDeferred(unittest.TestCase):
 
     def test_the_next_wave_makes_progress_on_the_replanned_graph(self):
         """Deferral means "try again later", so the loop must not be stuck:
-        the unit the re-plan ADDED is dispatched by the very next step."""
+        the unit the re-plan ADDED is dispatched by the very next step.
+        The next wave is the SAME driver continuing, so the fresh engine
+        carries the session the run row records (L09 GAP 2: a run has one
+        driver, and a genuinely new session would adopt first)."""
         store, _run, worker, _summary, _wrapper = self._run_the_race(
             [_unit("u2")])
-        second = _engine(store, worker, FakeCheckRunner()).step("p1")
+        driver = store.get_run("p1", raw=True)["session_id"]
+        second = _engine(store, worker, FakeCheckRunner(),
+                         session_id=driver).step("p1")
         self.assertIn("u2", second["dispatched"],
                       "the next wave made no progress: %r" % (second,))
         self.assertEqual(_dispatch_count(store, "u1"), 0)
@@ -7360,6 +7387,339 @@ class TestCrossFamilyF4ShippedStatusNeverWritesTheStoreDirectory(
                 sorted(os.listdir(store_dir)), before,
                 "a read-only command created %r in the store directory"
                 % (sorted(set(os.listdir(store_dir)) - set(before)),))
+
+
+# ---------------------------------------------------------------------------
+# L09 GAP 2 (2026-08-06): driver adoption. step(), receive_result() and
+# stop() performed no ownership check, so a second process calling step on
+# a run it never started bypassed the fence guard that start enforces. The
+# run's recorded session_id (written at open_run) is the driver identity;
+# a mismatched caller is refused by name, and the ONE deliberate takeover
+# path is an explicit adopt operation that records the handover, rhyming
+# with the fence store's own cmd_adopt.
+# ---------------------------------------------------------------------------
+
+class TestDriverAdoption(unittest.TestCase):
+    """L09 GAP 2. One run, one driver: the session that started (or last
+    adopted) the run. A different session's step, receive_result and stop
+    refuse 'not-driver', naming the owning session and the adopt path,
+    and writing NOTHING. Adoption hands the run over durably, records the
+    handover in the attribution stream, and flips who is refused."""
+
+    def _begun(self, store, worker=None):
+        _seed(store)
+        _sign(store)
+        engine1 = _engine(store, worker or FakeWorker({}),
+                          FakeCheckRunner())
+        run = _begin_and_plan(engine1, store, "p1",
+                              [_unit("u1", write_scope=["a.py"])])
+        return engine1, run
+
+    def _foreign(self, store, worker=None):
+        return _engine(store, worker or FakeWorker({}), FakeCheckRunner(),
+                       controller_id="ctrl2")
+
+    def test_a_second_session_cannot_step_a_run_it_never_started(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine1, run = self._begun(store)
+                engine2 = self._foreign(store)
+                # bc.bs.OwnershipRefused, not bs.OwnershipRefused: the
+                # not-driver refusal is ENGINE-raised, so it carries the
+                # class from bm_controller's own bm_store load (the same
+                # class-identity note the run-paused test states).
+                with self.assertRaises(bc.bs.OwnershipRefused) as ctx:
+                    engine2.step("p1")
+                self.assertEqual(ctx.exception.reason, "not-driver")
+                self.assertEqual(
+                    ctx.exception.details.get("driver_session_id"),
+                    engine1.session_id,
+                    "the refusal must name the owning session")
+                self.assertIn("adopt", str(ctx.exception),
+                              "the refusal must name the one deliberate "
+                              "takeover path")
+                self.assertEqual(
+                    store.get_run("p1", raw=True)["state"], "READY",
+                    "a refused foreign step must move nothing")
+                self.assertEqual(_dispatch_count(store, "u1"), 0)
+
+    def test_a_second_session_cannot_record_a_result(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine1, run = self._begun(
+                    store, worker=FakeWorker(
+                        {"u1": {"status": "pending"}}))
+                engine1.step("p1")
+                dispatches = store.list_dispatches("u1", raw=True)
+                self.assertEqual(len(dispatches), 1)
+                dispatch_id = dispatches[0]["dispatch_id"]
+                engine2 = self._foreign(store)
+                with self.assertRaises(bc.bs.OwnershipRefused) as ctx:
+                    engine2.receive_result("p1", dispatch_id, "done",
+                                           ["a.py"])
+                self.assertEqual(ctx.exception.reason, "not-driver")
+                row = store.list_dispatches("u1", raw=True)[0]
+                self.assertEqual(row["status"], "DISPATCHED",
+                                 "a refused foreign result must record "
+                                 "nothing")
+                self.assertIsNone(row["resulted_at"])
+
+    def test_a_second_session_cannot_stop_the_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine1, run = self._begun(store)
+                engine2 = self._foreign(store)
+                with self.assertRaises(bc.bs.OwnershipRefused) as ctx:
+                    engine2.stop("p1")
+                self.assertEqual(ctx.exception.reason, "not-driver")
+                self.assertEqual(
+                    store.get_run("p1", raw=True)["state"], "READY",
+                    "a refused foreign stop must not drain the run")
+
+    def test_adopt_hands_the_run_over_and_records_the_handover(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine1, run = self._begun(store)
+                engine2 = self._foreign(
+                    store, worker=FakeWorker({"u1": _worker_result()}))
+                out = engine2.adopt("p1", note="engine1's terminal died")
+                self.assertTrue(out["adopted"])
+                self.assertEqual(out["previous_session_id"],
+                                 engine1.session_id)
+                self.assertEqual(out["session_id"], engine2.session_id)
+                self.assertEqual(
+                    store.get_run("p1", raw=True)["session_id"],
+                    engine2.session_id,
+                    "adoption must be durable: a fresh engine reads the "
+                    "new driver from the store")
+                rows = store.conn.execute(
+                    "SELECT reason FROM attribution "
+                    "WHERE event_type='controller.run.adopted'").fetchall()
+                self.assertEqual(len(rows), 1,
+                                 "the handover must be recorded")
+                self.assertIn(engine1.session_id, rows[0]["reason"],
+                              "the record must name the displaced driver")
+                # The handover flips who is refused: the new driver steps,
+                # the old one is now the foreigner.
+                engine2.step("p1")
+                with self.assertRaises(bc.bs.OwnershipRefused) as ctx:
+                    engine1.step("p1")
+                self.assertEqual(ctx.exception.reason, "not-driver")
+                self.assertEqual(
+                    ctx.exception.details.get("driver_session_id"),
+                    engine2.session_id)
+
+    def test_the_same_session_resumes_without_adoption(self):
+        """The crash-resume the engine's own docstring promises: a fresh
+        ControllerEngine carrying the SAME session id is the same driver
+        restarted, and resumes with no ceremony."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine1, run = self._begun(store)
+                engine1b = _engine(store, FakeWorker(
+                    {"u1": _worker_result()}), FakeCheckRunner(),
+                    session_id=engine1.session_id)
+                summary = engine1b.step("p1")
+                self.assertIn("u1", summary["completed"])
+
+    def test_a_run_with_no_recorded_driver_is_not_guarded(self):
+        """The fence store's own ownership law, restated for runs: a
+        non-empty owning session blocks a move; an empty one (a store
+        written before this law) has no live driver to protect."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine1, run = self._begun(store)
+                store.conn.execute(
+                    "UPDATE controller_runs SET session_id=''")
+                store.conn.commit()
+                engine2 = self._foreign(
+                    store, worker=FakeWorker({"u1": _worker_result()}))
+                summary = engine2.step("p1")
+                self.assertIn("u1", summary["completed"])
+
+    def test_adopting_with_no_run_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine = _engine(store, FakeWorker({}), FakeCheckRunner())
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    engine.adopt("p1")
+                self.assertEqual(ctx.exception.reason, "no-run")
+
+    def test_adopting_a_terminal_run_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine1, run = self._begun(store)
+                engine1.stop("p1", reason="done here")
+                engine2 = self._foreign(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    engine2.adopt("p1")
+                self.assertEqual(ctx.exception.reason, "run-terminal")
+
+    def test_adoption_by_the_current_driver_is_the_idempotent_no_op(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine1, run = self._begun(store)
+                out = engine1.adopt("p1")
+                self.assertFalse(out["adopted"])
+                self.assertEqual(out["session_id"], engine1.session_id)
+                rows = store.conn.execute(
+                    "SELECT reason FROM attribution "
+                    "WHERE event_type='controller.run.adopted'").fetchall()
+                self.assertEqual(rows, [],
+                                 "a no-op adoption records no handover")
+
+    def test_a_foreign_step_on_a_terminal_run_stays_the_quiet_summary(self):
+        """Ownership guards only a LIVE run (the fence store's BLOCKER 2
+        law): a finished run has no driver to protect, and asking about
+        it writes nothing, so any session may read the TERMINAL answer."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine1, run = self._begun(store)
+                engine1.stop("p1", reason="done here")
+                engine2 = self._foreign(store)
+                summary = engine2.step("p1")
+                self.assertEqual(summary["stop_reason"], "TERMINAL")
+
+
+class TestRefuteRound2PlanAndTerminalResult(unittest.TestCase):
+    """L09 refute round 2. B2: `plan` was the one powerful mutation left
+    without the driver guard, so a foreign session injected the unit graph
+    the honest driver then dispatched. B3: `receive_result` guarded only
+    the non-terminal path, so a foreign session recorded a late result on
+    a STOPPED run. Both now apply _refuse_foreign_driver; the run's OWN
+    driver (a crash-resume replan, or a late result for work that was in
+    flight when stop landed) passes the same-session check unchanged."""
+
+    def _seed_sign(self, store):
+        _seed(store)
+        _sign(store)
+
+    def _foreign(self, store, worker=None):
+        return _engine(store, worker or FakeWorker({}), FakeCheckRunner(),
+                       controller_id="ctrl2")
+
+    def test_a_second_session_cannot_plan_a_run_it_never_began(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._seed_sign(store)
+                engine1 = _engine(store, FakeWorker({}), FakeCheckRunner())
+                run = engine1.begin("p1", "ship it", "echo done")
+                engine2 = self._foreign(store)
+                with self.assertRaises(bc.bs.OwnershipRefused) as ctx:
+                    engine2.plan("p1", run["run_id"],
+                                 [_unit("evil", write_scope=["src/pwned.py"])])
+                self.assertEqual(ctx.exception.reason, "not-driver")
+                self.assertEqual(
+                    ctx.exception.details.get("driver_session_id"),
+                    engine1.session_id)
+                self.assertEqual(
+                    store.list_units(run["run_id"], raw=True), [],
+                    "a refused foreign plan must inject NO unit graph")
+
+    def test_the_same_driver_can_still_plan(self):
+        """Calibration: a crash-resume replan is the SAME driver, which
+        passes the guard (or a genuinely new session adopts first)."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._seed_sign(store)
+                engine1 = _engine(store, FakeWorker({}), FakeCheckRunner())
+                run = engine1.begin("p1", "ship it", "echo done")
+                result = engine1.plan("p1", run["run_id"],
+                                      [_unit("u1", write_scope=["a.py"])])
+                self.assertEqual(result["count"], 1)
+                engine1b = _engine(store, FakeWorker({}), FakeCheckRunner(),
+                                   session_id=engine1.session_id)
+                engine1b.plan("p1", run["run_id"],
+                              [_unit("u1", write_scope=["a.py"]),
+                               _unit("u2", write_scope=["b.py"])])
+                self.assertEqual(len(store.list_units(run["run_id"])), 2)
+
+    def _dispatched_then_stopped(self, store):
+        engine1 = _engine(
+            store, FakeWorker({"u1": {"status": "pending"}}),
+            FakeCheckRunner())
+        run = _begin_and_plan(engine1, store, "p1",
+                              [_unit("u1", write_scope=["a.py"])])
+        engine1.step("p1")
+        dispatch_id = store.list_dispatches("u1", raw=True)[0]["dispatch_id"]
+        engine1.stop("p1", reason="founder stopped mid-flight")
+        self.assertEqual(store.get_run("p1", raw=True)["state"], "STOPPED")
+        return engine1, run, dispatch_id
+
+    def test_a_foreign_session_cannot_record_a_late_result_on_a_terminal_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._seed_sign(store)
+                _engine1, _run, dispatch_id = self._dispatched_then_stopped(
+                    store)
+                engine2 = self._foreign(store)
+                with self.assertRaises(bc.bs.OwnershipRefused) as ctx:
+                    engine2.receive_result("p1", dispatch_id, "done",
+                                           ["a.py"])
+                self.assertEqual(ctx.exception.reason, "not-driver")
+                row = store.list_dispatches("u1", raw=True)[0]
+                self.assertIsNone(
+                    row["resulted_at"],
+                    "a refused foreign late result must record nothing")
+
+    def test_the_own_driver_still_records_a_late_result_on_a_terminal_run(self):
+        """Calibration: the run's OWN driver, whose work was in flight when
+        stop landed, still records the late result (the legitimate
+        after-stop case the guard must not break)."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._seed_sign(store)
+                engine1, _run, dispatch_id = self._dispatched_then_stopped(
+                    store)
+                outcome = engine1.receive_result("p1", dispatch_id, "done",
+                                                 ["a.py"])
+                self.assertIsInstance(outcome, str)
+                row = store.list_dispatches("u1", raw=True)[0]
+                self.assertIsNotNone(
+                    row["resulted_at"],
+                    "the own driver's late result must be recorded")
+
+
+class TestControllerCLIAdopt(unittest.TestCase):
+    """L09 GAP 2 through the shipped CLI: a second session's step is
+    refused by name, `adopt` is the recorded takeover, and the adopted
+    session then drives. Session ids are passed explicitly, the
+    documented convention for every multi-invocation CLI workflow
+    (tools/bm_store.py, _default_cli_session_id's own docstring)."""
+
+    def test_step_refuses_a_foreign_session_until_adopt(self):
+        # Flags by hand, not CLI_ACTOR: CLI_ACTOR carries the shared
+        # stable session, and this test is ABOUT two different sessions.
+        actor_a = ("--actor-name", "tester", "--session-id", "sA")
+        actor_b = ("--actor-name", "tester", "--session-id", "sB")
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            r = _run_cli(["start", "--project", "p1", "--outcome", "ship",
+                          "--done-definition", _DONE_CHECK_PASSES,
+                          "--controller-id", "c1"] + list(actor_a), root)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            units_path = os.path.join(root, "units.json")
+            with io.open(units_path, "w", encoding="utf-8") as fh:
+                json.dump([_UNIT_ONE], fh)
+            r = _run_cli(["plan", "--project", "p1", "--units-file",
+                          units_path, "--controller-id", "c1"]
+                         + list(actor_a), root)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            r = _run_cli(["step", "--project", "p1", "--controller-id",
+                          "c1"] + list(actor_b), root)
+            self.assertEqual(r.returncode, 1,
+                             "a foreign session's step must be refused: "
+                             + r.stdout + r.stderr)
+            self.assertIn("driver", r.stdout + r.stderr)
+            self.assertIn("adopt", r.stdout + r.stderr)
+            r = _run_cli(["adopt", "--project", "p1"] + list(actor_b),
+                         root)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            r = _run_cli(["step", "--project", "p1", "--controller-id",
+                          "c1"] + list(actor_b), root)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
 
 if __name__ == "__main__":

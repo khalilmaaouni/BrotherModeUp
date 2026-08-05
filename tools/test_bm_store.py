@@ -15075,9 +15075,16 @@ def _sign(store, project_id="p1", outcome="ship it",
           allowed_surfaces=None, risk_classes=None, token_ceiling=None,
           minutes_ceiling=None, signed_by="Khalil Maaouni",
           session_id="sess1", actor=None, supersede=False):
+    # The default allowed_paths moved [] -> ["."] on 2026-08-06 (L09 GAP
+    # 3): the default risk classes grant file-edit, and a writing
+    # contract with no declared write scope now refuses at signing by
+    # founder decision. ["."] is the legitimate whole-project allowance,
+    # which preserves what every default-signed fixture meant: a live
+    # contract granting file-edit somewhere. Tests about the empty-scope
+    # refusal itself pass allowed_paths=[] explicitly.
     return store.sign_contract(
         project_id, outcome, done_definition,
-        [] if allowed_paths is None else allowed_paths,
+        ["."] if allowed_paths is None else allowed_paths,
         [] if allowed_surfaces is None else allowed_surfaces,
         ["file-edit", "read-only-inspect"] if risk_classes is None
         else risk_classes,
@@ -18135,13 +18142,22 @@ class TestWriteScopeEntriesAreLiteralPaths(unittest.TestCase):
                 self.assertEqual(
                     store.gate_check("p1", "file-edit",
                                      path="main.py")["verdict"], "ALLOWED")
-                for outside in ("infra/terraform/prod.tfstate",
-                                ".git/config", "src/app/main.py",
-                                "secrets.env"):
+                # .git/config moved REFUSED-SCOPE -> REFUSED-FLOOR on
+                # 2026-08-06 (L09 GAP 1, governance-write): the floor
+                # question now comes before the scope question, so the
+                # refusal got SHARPER for that one path. Every path here
+                # is still refused; the property this test pins (a glob
+                # allowance grants only what it literally matches) is
+                # untouched.
+                for outside, want in (
+                        ("infra/terraform/prod.tfstate", "REFUSED-SCOPE"),
+                        (".git/config", "REFUSED-FLOOR"),
+                        ("src/app/main.py", "REFUSED-SCOPE"),
+                        ("secrets.env", "REFUSED-SCOPE")):
                     self.assertEqual(
                         store.gate_check("p1", "file-edit",
                                          path=outside)["verdict"],
-                        "REFUSED-SCOPE",
+                        want,
                         "%r is not what the pattern literally matches"
                         % outside)
 
@@ -21421,6 +21437,315 @@ class TestViewPathsAreContained(unittest.TestCase):
                     store.record_view("p1", _view(), _lead_actor())
                 self.assertEqual(ctx.exception.reason, "path-escape")
                 self.assertEqual(_view_count(store), 0)
+
+
+# ---------------------------------------------------------------------------
+# L09 (2026-08-06): the three founder-ratified authorisation narrowings.
+# GAP 1, the sixth floor: writes to the store's own database directory
+# (.brothermode), the git directory (.git, .git/config included), and the
+# assistant's settings file (.claude/settings.json) are un-authorisable by
+# any contract wording. GAP 3: a contract that grants a writing risk class
+# while declaring no allowed_paths refuses at SIGNING.
+# ---------------------------------------------------------------------------
+
+class TestSixthFloorGovernancePaths(unittest.TestCase):
+    """L09 GAP 1. A contract whose allowed_paths include '.' authorised
+    writes to .brothermode/, .git (config included) and
+    .claude/settings.json. The founder closed it 2026-08-05: those three
+    classes are a FLOOR, un-authorisable by any contract wording, however
+    broad the allowance ('.', '*', '**', a covering glob, or the literal
+    path). Enforced at the same two points the five existing floors are:
+    sign time (naming one refuses) and gate time (a candidate inside one
+    refuses REFUSED-FLOOR before the allowance is even consulted)."""
+
+    #: Spellings of an allowance that NAME a protected surface: each must
+    #: refuse at SIGN time, with nothing written.
+    _PROTECTED_ALLOWANCES = (
+        ".git", ".git/config", ".git/hooks", ".git/*",
+        ".brothermode", ".brothermode/store.sqlite3", ".brothermode/*",
+        ".claude/settings.json",
+    )
+
+    #: Candidate paths at gate time that fall inside a protected surface:
+    #: each must come back REFUSED-FLOOR whatever the contract granted.
+    _PROTECTED_CANDIDATES = (
+        ".git", ".git/config", ".git/hooks/pre-push",
+        ".brothermode", ".brothermode/store.sqlite3",
+        ".brothermode/anything.txt", ".claude/settings.json",
+    )
+
+    #: Broad allowances a founder may legitimately sign; the floor must
+    #: hold UNDER each of them (the founder's own spelling sweep).
+    _BROAD_ALLOWANCES = (".", "*", "**")
+
+    def test_the_sixth_floor_is_declared_beside_the_five(self):
+        self.assertIn("governance-write", bs.AUTONOMY_FLOOR_IDS)
+        self.assertEqual(len(bs.AUTONOMY_FLOORS), 6)
+        self.assertTrue(bs.AUTONOMY_FLOOR_DESCRIPTIONS["governance-write"])
+
+    def test_sign_refuses_an_allowance_naming_a_protected_path(self):
+        for entry in self._PROTECTED_ALLOWANCES:
+            with self.subTest(entry=entry):
+                with tempfile.TemporaryDirectory() as d:
+                    with bs.Store(d) as store:
+                        _seed(store)
+                        with self.assertRaises(bs.OwnershipRefused) as ctx:
+                            _sign(store, allowed_paths=[entry],
+                                  risk_classes=["file-edit"])
+                        self.assertEqual(ctx.exception.reason,
+                                         "path-is-floor")
+                        self.assertIsNone(
+                            store.latest_contract("p1"),
+                            "a refused sign must write NOTHING")
+
+    def test_gate_refuses_a_protected_candidate_under_every_broad_allowance(self):
+        for allowance in self._BROAD_ALLOWANCES:
+            for candidate in self._PROTECTED_CANDIDATES:
+                with self.subTest(allowance=allowance, candidate=candidate):
+                    with tempfile.TemporaryDirectory() as d:
+                        with bs.Store(d) as store:
+                            _seed(store)
+                            _sign(store, allowed_paths=[allowance],
+                                  risk_classes=["file-edit"])
+                            gc = store.gate_check("p1", "file-edit",
+                                                  path=candidate)
+                            self.assertEqual(
+                                gc["verdict"], "REFUSED-FLOOR",
+                                "%r under allowed_paths [%r] must be "
+                                "REFUSED-FLOOR, got %s (%s)"
+                                % (candidate, allowance, gc["verdict"],
+                                   gc["reason"]))
+                            self.assertEqual(gc["floor"],
+                                             "governance-write")
+
+    def test_gate_still_allows_neighbours_of_the_protected_paths(self):
+        """The narrowing must not swallow a neighbour: .gitignore and
+        .github share a prefix with .git but sit at a separator boundary
+        outside it, .claude itself is NOT protected (only its
+        settings.json is), and a directory named brothermode without the
+        dot is an ordinary directory."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["."],
+                      risk_classes=["file-edit"])
+                for candidate in (".gitignore", ".github/workflows/ci.yml",
+                                  ".claude", ".claude/other.json",
+                                  "brothermode/x.py", "src/git/config",
+                                  "src/a.py"):
+                    gc = store.gate_check("p1", "file-edit", path=candidate)
+                    self.assertEqual(
+                        gc["verdict"], "ALLOWED",
+                        "%r is OUTSIDE every protected surface and must "
+                        "stay ALLOWED under a '.' contract, got %s (%s)"
+                        % (candidate, gc["verdict"], gc["reason"]))
+
+    def test_the_sixth_floor_id_is_refused_as_risk_class_and_action(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    _sign(store, allowed_paths=["src"],
+                          risk_classes=["governance-write"])
+                self.assertEqual(ctx.exception.reason, "risk-class-is-floor")
+                _sign(store, allowed_paths=["."],
+                      risk_classes=["file-edit"])
+                gc = store.gate_check("p1", "governance-write")
+                self.assertEqual(gc["verdict"], "REFUSED-FLOOR")
+                self.assertEqual(gc["floor"], "governance-write")
+
+    def test_a_whole_root_allowance_itself_still_signs(self):
+        """The control the founder's flip condition names: '.' is a
+        legitimate whole-project allowance and must stay signable; the
+        floor bites the protected CANDIDATE, never the broad allowance."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                out = _sign(store, allowed_paths=["."],
+                            risk_classes=["file-edit"])
+                self.assertEqual(out["revision"], 1)
+                self.assertEqual(
+                    store.gate_check("p1", "file-edit",
+                                     path="src/a.py")["verdict"],
+                    "ALLOWED")
+
+
+class TestRefuteRound2SettingsFamilyFloor(unittest.TestCase):
+    """L09 refute round 2, CONFIRMED A1. The floor named
+    '.claude/settings.json' but NOT '.claude/settings.local.json', which
+    in Claude Code carries the same permissions/hooks power and HIGHER
+    precedence. The refuter signed it, gate-passed it, and got a fence and
+    a dispatched brief over it under a '.' contract. The floor now covers
+    the Claude settings FAMILY (settings.json, settings.local.json, and a
+    same-power settings.<qualifier>.json variant), still leaving .claude
+    itself and .claude/other.json allowed."""
+
+    def test_sign_refuses_settings_local_json(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    _sign(store, allowed_paths=[".claude/settings.local.json"],
+                          risk_classes=["file-edit"])
+                self.assertEqual(ctx.exception.reason, "path-is-floor")
+                self.assertIsNone(store.latest_contract("p1"))
+
+    def test_gate_refuses_the_whole_settings_family_under_a_dot_contract(self):
+        for candidate in (".claude/settings.json",
+                          ".claude/settings.local.json",
+                          ".claude/settings.staging.json"):
+            with self.subTest(candidate=candidate):
+                with tempfile.TemporaryDirectory() as d:
+                    with bs.Store(d) as store:
+                        _seed(store)
+                        _sign(store, allowed_paths=["."],
+                              risk_classes=["file-edit"])
+                        gc = store.gate_check("p1", "file-edit",
+                                              path=candidate)
+                        self.assertEqual(
+                            gc["verdict"], "REFUSED-FLOOR",
+                            "%r must be REFUSED-FLOOR under a '.' contract, "
+                            "got %s (%s)"
+                            % (candidate, gc["verdict"], gc["reason"]))
+                        self.assertEqual(gc["floor"], "governance-write")
+
+    def test_the_settings_family_neighbours_stay_allowed(self):
+        """The refuter confirmed these must stay allowed: .claude itself,
+        .claude/other.json, and a file that merely CONTAINS 'settings' in
+        its name but is not the settings family."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["."], risk_classes=["file-edit"])
+                for candidate in (".claude", ".claude/other.json",
+                                  ".claude/mysettings.json",
+                                  "src/settings.json", "settings.json"):
+                    gc = store.gate_check("p1", "file-edit", path=candidate)
+                    self.assertEqual(
+                        gc["verdict"], "ALLOWED",
+                        "%r is not a Claude settings file and must stay "
+                        "ALLOWED under a '.' contract, got %s (%s)"
+                        % (candidate, gc["verdict"], gc["reason"]))
+
+
+class TestRefuteRound2UnitWriteScopeFloor(unittest.TestCase):
+    """L09 refute round 2, A2 defense in depth. upsert_units validated a
+    unit's risk_class against the floor ids and canonicalised its
+    write_scope, but never floored the scope entries, so a floor-naming
+    unit row was persisted verbatim (the gate was the only wall). Now a
+    unit whose write_scope names a floor surface is refused at PLAN time,
+    with nothing written."""
+
+    def test_upsert_refuses_a_unit_write_scope_naming_a_floor(self):
+        for entry in (".git/config", ".brothermode/store.sqlite3",
+                      ".claude/settings.local.json"):
+            with self.subTest(entry=entry):
+                with tempfile.TemporaryDirectory() as d:
+                    with bs.Store(d) as store:
+                        run = _open_and_plan(store)
+                        with self.assertRaises(bs.OwnershipRefused) as ctx:
+                            store.upsert_units(
+                                run["run_id"],
+                                [_unit("u1", write_scope=[entry])],
+                                _controller_actor())
+                        self.assertEqual(ctx.exception.reason,
+                                         "write-scope-is-floor")
+                        self.assertEqual(
+                            store.list_units(run["run_id"], raw=True), [],
+                            "a refused unit must leave NOTHING written")
+
+    def test_upsert_still_accepts_an_ordinary_write_scope(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                run = _open_and_plan(store)
+                store.upsert_units(run["run_id"],
+                                   [_unit("u1", write_scope=["src/a.py"])],
+                                   _controller_actor())
+                self.assertEqual(len(store.list_units(run["run_id"])), 1)
+
+
+class TestEmptyScopeRefusedAtSigning(unittest.TestCase):
+    """L09 GAP 3. sign_contract judged a contract with no declared
+    allowed_paths on risk class alone. The founder chose 2026-08-05:
+    refuse at SIGNING when a writing risk class is granted with no write
+    scope. The schema has NO explicit read-only marker, so the accepted
+    way to express read-only work is to grant only the read-only classes
+    (read-only-inspect, browser-read), and the refusal must say so."""
+
+    def _writing_classes(self):
+        return [rc for rc in bs.AUTONOMY_RISK_CLASSES
+                if rc not in bs.AUTONOMY_READ_ONLY_RISK_CLASSES]
+
+    def test_a_writing_contract_with_no_paths_refuses_at_signing(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    _sign(store, allowed_paths=[],
+                          risk_classes=["file-edit"])
+                self.assertEqual(ctx.exception.reason, "no-write-scope")
+                self.assertIsNone(store.latest_contract("p1"),
+                                  "a refused sign must write NOTHING")
+
+    def test_the_refusal_says_what_to_declare_and_names_the_read_only_route(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    _sign(store, allowed_paths=[],
+                          risk_classes=["file-edit", "build"])
+                msg = str(ctx.exception)
+                self.assertIn("allowed_paths", msg)
+                self.assertIn("read-only-inspect", msg)
+
+    def test_every_writing_class_alone_triggers_the_refusal(self):
+        for rc in self._writing_classes():
+            with self.subTest(risk_class=rc):
+                with tempfile.TemporaryDirectory() as d:
+                    with bs.Store(d) as store:
+                        _seed(store)
+                        with self.assertRaises(bs.OwnershipRefused) as ctx:
+                            _sign(store, allowed_paths=[],
+                                  risk_classes=[rc])
+                        self.assertEqual(ctx.exception.reason,
+                                         "no-write-scope")
+
+    def test_a_read_only_contract_with_no_paths_still_signs(self):
+        """The edge the founder required expressible: genuinely read-only
+        work. Also the degenerate contract granting NOTHING, which
+        authorises no work and therefore bounds no work."""
+        for classes in (["read-only-inspect"], ["browser-read"],
+                        ["read-only-inspect", "browser-read"], []):
+            with self.subTest(risk_classes=classes):
+                with tempfile.TemporaryDirectory() as d:
+                    with bs.Store(d) as store:
+                        _seed(store)
+                        out = _sign(store, allowed_paths=[],
+                                    risk_classes=classes)
+                        self.assertEqual(out["revision"], 1)
+                        latest = store.latest_contract("p1", raw=True)
+                        self.assertEqual(latest["state"], "live")
+                        self.assertEqual(latest["allowed_paths"], [])
+
+    def test_a_writing_contract_with_a_declared_path_still_signs(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                out = _sign(store, allowed_paths=["src"],
+                            risk_classes=["file-edit"])
+                self.assertEqual(out["revision"], 1)
+
+    def test_the_floor_refusals_still_come_before_the_scope_refusal(self):
+        """Ordering control: a floor id in risk_classes refuses
+        'risk-class-is-floor' even when allowed_paths is also empty; the
+        new check must not shadow the older, sharper refusal."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    _sign(store, allowed_paths=[],
+                          risk_classes=["payment"])
+                self.assertEqual(ctx.exception.reason, "risk-class-is-floor")
 
 
 if __name__ == "__main__":

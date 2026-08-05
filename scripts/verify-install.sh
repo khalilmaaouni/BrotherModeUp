@@ -171,6 +171,9 @@ find "$TARGET" ! -type d \
     ! -name '*.bak*' \
     ! -name 'STATE.md' \
     ! -name 'CANVAS.md' \
+    ! -name 'CANVAS-*.md' \
+    ! -name 'DELIVERY-PACKET.md' \
+    ! -name 'DELIVERY-PACKET-*.md' \
     > "$WORKDIR/installed_raw"
 
 EXTRA=0

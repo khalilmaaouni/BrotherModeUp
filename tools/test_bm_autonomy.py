@@ -223,7 +223,8 @@ class TestSign(unittest.TestCase):
     def test_sign_writes_a_live_revision_one_contract(self):
         with tempfile.TemporaryDirectory() as root:
             _bootstrap(root)
-            r = _sign(root, extra=("--risk-class", "file-edit"))
+            r = _sign(root, extra=("--risk-class", "file-edit",
+                               "--allowed-path", "."))
             self.assertIn("revision 1", r.stdout)
             self.assertIn("live", r.stdout)
             raw = _raw_dump(root)
@@ -448,7 +449,8 @@ class TestGateCheck(unittest.TestCase):
     def test_allowed_exits_zero_and_names_the_revision(self):
         with tempfile.TemporaryDirectory() as root:
             _bootstrap(root)
-            _sign(root, extra=("--risk-class", "file-edit"))
+            _sign(root, extra=("--risk-class", "file-edit",
+                               "--allowed-path", "."))
             r = _run(["gate-check", "--project", "p1", "--action-class",
                      "file-edit"], root)
             self.assertEqual(r.returncode, 0, r.stderr)
@@ -458,7 +460,8 @@ class TestGateCheck(unittest.TestCase):
     def test_a_refusal_exits_one_never_zero(self):
         with tempfile.TemporaryDirectory() as root:
             _bootstrap(root)
-            _sign(root, extra=("--risk-class", "build"))
+            _sign(root, extra=("--risk-class", "build",
+                               "--allowed-path", "."))
             r = _run(["gate-check", "--project", "p1", "--action-class",
                      "file-edit"], root)
             self.assertEqual(r.returncode, 1)
@@ -467,7 +470,8 @@ class TestGateCheck(unittest.TestCase):
     def test_a_revoked_contract_refuses_authorization(self):
         with tempfile.TemporaryDirectory() as root:
             _bootstrap(root)
-            _sign(root, extra=("--risk-class", "file-edit"))
+            _sign(root, extra=("--risk-class", "file-edit",
+                               "--allowed-path", "."))
             _run(["revoke", "--project", "p1", "--reason", "done"]
                 + list(ACTOR), root)
             r = _run(["gate-check", "--project", "p1", "--action-class",
@@ -491,7 +495,8 @@ class TestGateCheck(unittest.TestCase):
     def test_json_output_carries_the_revision_for_the_u2_staleness_protocol(self):
         with tempfile.TemporaryDirectory() as root:
             _bootstrap(root)
-            _sign(root, extra=("--risk-class", "file-edit"))
+            _sign(root, extra=("--risk-class", "file-edit",
+                               "--allowed-path", "."))
             r = _run(["gate-check", "--project", "p1", "--action-class",
                      "file-edit", "--json"], root)
             self.assertEqual(r.returncode, 0, r.stderr)
@@ -637,7 +642,7 @@ class TestSpend(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             _bootstrap(root)
             _sign(root, extra=("--token-ceiling", "1000", "--risk-class",
-                              "file-edit"))
+                              "file-edit", "--allowed-path", "."))
             r = _run(["spend", "--project", "p1", "--tokens", "1000"]
                     + list(ACTOR), root)
             self.assertEqual(r.returncode, 0, r.stderr)
@@ -657,7 +662,8 @@ class TestStateChanges(unittest.TestCase):
     def test_pause_blocks_gate_check_but_status_still_works(self):
         with tempfile.TemporaryDirectory() as root:
             _bootstrap(root)
-            _sign(root, extra=("--risk-class", "file-edit"))
+            _sign(root, extra=("--risk-class", "file-edit",
+                               "--allowed-path", "."))
             r = _run(["pause", "--project", "p1", "--reason", "lunch"]
                     + list(ACTOR), root)
             self.assertEqual(r.returncode, 0, r.stderr)
@@ -672,7 +678,8 @@ class TestStateChanges(unittest.TestCase):
     def test_resume_restores_the_same_authorisation(self):
         with tempfile.TemporaryDirectory() as root:
             _bootstrap(root)
-            _sign(root, extra=("--risk-class", "file-edit"))
+            _sign(root, extra=("--risk-class", "file-edit",
+                               "--allowed-path", "."))
             _run(["pause", "--project", "p1", "--reason", "r"]
                 + list(ACTOR), root)
             r = _run(["resume", "--project", "p1", "--reason", "back"]
@@ -728,7 +735,8 @@ class TestStateChanges(unittest.TestCase):
     def test_revoked_contract_refuses_authorization_through_gate_check(self):
         with tempfile.TemporaryDirectory() as root:
             _bootstrap(root)
-            _sign(root, extra=("--risk-class", "file-edit"))
+            _sign(root, extra=("--risk-class", "file-edit",
+                               "--allowed-path", "."))
             _run(["revoke", "--project", "p1", "--reason", "done"]
                 + list(ACTOR), root)
             gc = _run(["gate-check", "--project", "p1", "--action-class",
@@ -799,7 +807,8 @@ class TestHumanSteps(unittest.TestCase):
     def test_an_open_step_in_one_lane_leaves_another_lane_unaffected(self):
         with tempfile.TemporaryDirectory() as root:
             _bootstrap(root)
-            _sign(root, extra=("--risk-class", "file-edit"))
+            _sign(root, extra=("--risk-class", "file-edit",
+                               "--allowed-path", "."))
             _run(["queue-human-step", "--project", "p1", "--what",
                  "click deploy", "--lane", "release"] + list(ACTOR), root)
             # Nothing about the store's own gate-check consults human
@@ -894,6 +903,86 @@ class TestUsageErrors(unittest.TestCase):
             r = _run([], root)
             self.assertEqual(r.returncode, 0)
             self.assertIn("commands:", r.stdout)
+
+
+# ---------------------------------------------------------------------------
+# L09 (2026-08-06): the founder-ratified authorisation narrowings, seen
+# through the shipped CLI. GAP 1: the sixth floor (writes to .brothermode,
+# .git and .claude/settings.json are un-authorisable). GAP 3: a writing
+# contract with no --allowed-path refuses at signing.
+# ---------------------------------------------------------------------------
+
+class TestSixthFloorThroughTheCLI(unittest.TestCase):
+    """GAP 1 at the two shipped doors: sign refuses an allowance naming a
+    protected surface, and gate-check refuses a protected candidate under
+    a whole-project contract, exit 1 both times."""
+
+    def test_sign_refuses_an_allowance_naming_git_config(self):
+        with tempfile.TemporaryDirectory() as root:
+            _bootstrap(root)
+            r = _run(["sign", "--project", "p1", "--outcome", "o",
+                      "--done-definition", "d",
+                      "--signed-by", "Khalil Maaouni",
+                      "--risk-class", "file-edit",
+                      "--allowed-path", ".git/config"] + list(ACTOR), root)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("floor", (r.stdout + r.stderr).lower())
+
+    def test_gate_check_refuses_a_protected_candidate_under_a_dot_contract(self):
+        with tempfile.TemporaryDirectory() as root:
+            _bootstrap(root)
+            _sign(root, extra=("--risk-class", "file-edit",
+                               "--allowed-path", "."))
+            for candidate in (".git/config", ".brothermode/store.sqlite3",
+                              ".claude/settings.json"):
+                r = _run(["gate-check", "--project", "p1",
+                          "--action-class", "file-edit",
+                          "--path", candidate, "--json"], root)
+                self.assertEqual(r.returncode, 1,
+                                 "%s must be refused: %s"
+                                 % (candidate, r.stdout + r.stderr))
+                verdict = json.loads(r.stdout)
+                self.assertEqual(verdict["verdict"], "REFUSED-FLOOR")
+                self.assertEqual(verdict["floor"], "governance-write")
+
+    def test_gate_check_still_allows_an_ordinary_file_under_a_dot_contract(self):
+        with tempfile.TemporaryDirectory() as root:
+            _bootstrap(root)
+            _sign(root, extra=("--risk-class", "file-edit",
+                               "--allowed-path", "."))
+            r = _run(["gate-check", "--project", "p1",
+                      "--action-class", "file-edit",
+                      "--path", "src/a.py", "--json"], root)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual(json.loads(r.stdout)["verdict"], "ALLOWED")
+
+
+class TestEmptyScopeSignRefusalThroughTheCLI(unittest.TestCase):
+    """GAP 3 at the shipped door: `sign` granting a writing class with no
+    --allowed-path is exit 1 with a message naming what to declare and
+    the read-only route; a read-only sign with no paths stays exit 0."""
+
+    def test_a_writing_sign_with_no_allowed_path_refuses(self):
+        with tempfile.TemporaryDirectory() as root:
+            _bootstrap(root)
+            r = _run(["sign", "--project", "p1", "--outcome", "o",
+                      "--done-definition", "d",
+                      "--signed-by", "Khalil Maaouni",
+                      "--risk-class", "file-edit"] + list(ACTOR), root)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            out = r.stdout + r.stderr
+            self.assertIn("allowed_paths", out)
+            self.assertIn("read-only-inspect", out)
+
+    def test_a_read_only_sign_with_no_allowed_path_still_signs(self):
+        with tempfile.TemporaryDirectory() as root:
+            _bootstrap(root)
+            r = _run(["sign", "--project", "p1", "--outcome", "o",
+                      "--done-definition", "d",
+                      "--signed-by", "Khalil Maaouni",
+                      "--risk-class", "read-only-inspect"] + list(ACTOR),
+                     root)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
 
 if __name__ == "__main__":
