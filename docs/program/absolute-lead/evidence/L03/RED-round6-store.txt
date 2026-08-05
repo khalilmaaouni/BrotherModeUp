@@ -1,0 +1,410 @@
+RED, round 6, the STORE half (DECLARATION side) of the L03 safety hardening
+==========================================================================
+
+Tree: /Users/khalil.maaouni/Documents/BrotherModeUp
+Source: docs/program/absolute-lead/evidence/L03/REFUTATION-5-safety.md
+        S1 (HIGH, PUSH-BLOCKER, data destruction: a git PATHSPEC in a
+        write_scope makes the engine's own rollback restore the WHOLE
+        working tree), S4 (HIGH: a bare JSON string scope is iterated
+        CHARACTER BY CHARACTER, silently) and S6 (LOW: a scalar scope is an
+        uncaught TypeError out of the shipped plan).
+Captured: 2026-08-05T02:14:05Z
+Python:   3.9.6 (default, Apr  7 2026, 02:38:40) [Clang 21.0.0]
+
+This is the DECLARATION half only. The EXECUTION half of the same finding
+(what the engine does with an entry once it is stored) is closed in the same
+round by the writer who owns tools/bm_controller.py, and is reported
+separately. Defence in depth is deliberate: neither half is written assuming
+the other one landed.
+
+Every class below was written FIRST and run against the UNTOUCHED
+tools/bm_store.py, before any store edit was made. Command, per class:
+
+  cd /Users/khalil.maaouni/Documents/BrotherModeUp/tools
+  python3 -m unittest -v test_bm_store.<class>
+
+Baseline before any edit, for the record:
+  python3 tools/test_bm_store.py    -> Ran 855 tests ... OK
+  python3 tools/test_bm_autonomy.py -> exit 0
+
+Per-class counts at capture time:
+  TestWriteScopeEntriesAreNotGitPathspecs           9 tests, 6 failures, 1 error, 2 ok
+  TestScopeContainersAreValidatedBeforeIteration    7 tests, 4 failures, 1 error, 2 ok
+  TestScopePathHandlingRefusesTotally               4 tests, 1 failure,  3 errors, 0 ok
+
+FOUR TESTS ARE GREEN BEFORE THE FIX, ON PURPOSE, and they are named here
+rather than left for a reader to find:
+
+  * TestWriteScopeEntriesAreNotGitPathspecs ::
+    test_a_relative_escape_still_refuses_path_escape is a CONTROL over the
+    round-1 rule: '../outside.py' must keep refusing 'path-escape' and must
+    not be swallowed by any of this round's three new gates.
+  * TestWriteScopeEntriesAreNotGitPathspecs ::
+    test_literal_entries_are_accepted_exactly_as_before is the CONTROL for
+    this round's refusals, and it carries the one entry that proves the
+    pathspec rule is a PREFIX rule and not a ban on the colon character:
+    'src/a:b.py' is an ordinary filename and stays accepted.
+  * TestScopeContainersAreValidatedBeforeIteration ::
+    test_a_list_or_a_tuple_of_strings_is_accepted_and_stored_verbatim is the
+    CONTROL for the container rule.
+  * TestScopeContainersAreValidatedBeforeIteration ::
+    test_a_unit_that_omits_its_scopes_is_unchanged is the CONTROL that
+    decides where the None rule bites (an ABSENT key still means "no
+    scope"), and it also asserts the definition hash of such a unit does not
+    move, so no persisted unit is silently redefined by this upgrade.
+
+ONE OF THE ERRORS BELOW WAS MY OWN TEST'S BUG, not the store's, and it is
+named here rather than quietly corrected: TestScopePathHandlingRefusesTotally
+:: test_no_declared_entry_escapes_as_an_exception formatted its failure
+message with %r over a sweep that deliberately includes the object whose
+__repr__ raises, so the failure message was itself an unformattable
+exception. The message now uses the store's own bs._safe_repr, which exists
+for exactly that reason. Nothing else in the test changed; the corrected test
+is still RED here (it names the missing function) and green after the fix.
+
+THREE OF THE ERRORS ARE "no attribute canonical_write_scope_entry", which is
+the honest shape of a test written before the function it pins exists. They
+are weaker evidence than a reproduction, and the class carries a real
+reproduction alongside them: test_the_same_holds_through_the_shipped_plan_path
+drives store.upsert_units and watches an OSError from path resolution leave
+the method as itself, past main()'s two-exception handler.
+
+==============================================================
+BLOCK: tools/test_bm_store.py :: TestWriteScopeEntriesAreNotGitPathspecs
+==============================================================
+test_a_relative_escape_still_refuses_path_escape (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+CONTROL over the round-1 rule. '../outside.py' is not a ... ok
+test_an_absolute_path_inside_the_project_refuses_rather_than_being_rewritten (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+The quiet half. An absolute path that happens to resolve inside ... FAIL
+test_an_empty_or_whitespace_entry_refuses_by_name (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+Before this round an empty entry reached canonicalize_path and ... ERROR
+test_every_absolute_spelling_is_refused_by_name (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs) ... FAIL
+test_every_git_pathspec_spelling_is_refused_at_declaration (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs) ... FAIL
+test_literal_entries_are_accepted_exactly_as_before (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+The CONTROL for this round. Every spelling here is a plain ... ok
+test_literal_scope_entry_refuses_each_family_directly (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+The same three rules at the function, not through a store, so a ... FAIL
+test_the_exclude_spelling_that_reads_as_one_file_is_refused (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+Reproduction 1 of S1. ':!keep.txt' is the sharpest one for a ... FAIL
+test_the_root_spelling_the_silent_one_never_reaches_a_rollback (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+Reproduction 2 of S1, at the store's own gate. ':/' is the row ... FAIL
+
+======================================================================
+ERROR: test_an_empty_or_whitespace_entry_refuses_by_name (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+Before this round an empty entry reached canonicalize_path and
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18538, in test_an_empty_or_whitespace_entry_refuses_by_name
+    store.upsert_units(
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13162, in upsert_units
+    write_scope = [canonicalize_path(
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13162, in <listcomp>
+    write_scope = [canonicalize_path(
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 705, in canonicalize_path
+    raise ValueError("empty path")
+ValueError: empty path
+
+======================================================================
+FAIL: test_an_absolute_path_inside_the_project_refuses_rather_than_being_rewritten (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+The quiet half. An absolute path that happens to resolve inside
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18521, in test_an_absolute_path_inside_the_project_refuses_rather_than_being_rewritten
+    store.upsert_units(
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_every_absolute_spelling_is_refused_by_name (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18503, in test_every_absolute_spelling_is_refused_by_name
+    self.assertEqual(
+AssertionError: 'path-escape' != 'absolute-write-scope'
+- path-escape
++ absolute-write-scope
+ : write_scope '/' is absolute, so it is not a path inside this project
+
+======================================================================
+FAIL: test_every_git_pathspec_spelling_is_refused_at_declaration (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18436, in test_every_git_pathspec_spelling_is_refused_at_declaration
+    store.upsert_units(
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_literal_scope_entry_refuses_each_family_directly (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+The same three rules at the function, not through a store, so a
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18597, in test_literal_scope_entry_refuses_each_family_directly
+    bs.literal_scope_entry(spelling, unit_id="u1")
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_the_exclude_spelling_that_reads_as_one_file_is_refused (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+Reproduction 1 of S1. ':!keep.txt' is the sharpest one for a
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18483, in test_the_exclude_spelling_that_reads_as_one_file_is_refused
+    store.upsert_units(
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_the_root_spelling_the_silent_one_never_reaches_a_rollback (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+Reproduction 2 of S1, at the store's own gate. ':/' is the row
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18459, in test_the_root_spelling_the_silent_one_never_reaches_a_rollback
+    store.upsert_units(
+AssertionError: OwnershipRefused not raised
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.098s
+
+FAILED (failures=6, errors=1)
+
+==============================================================
+BLOCK: tools/test_bm_store.py :: TestScopeContainersAreValidatedBeforeIteration
+==============================================================
+test_a_bare_string_write_scope_is_not_exploded_into_characters (test_bm_store.TestScopeContainersAreValidatedBeforeIteration)
+S4's reproduction, at the store. The assertion that matters is ... FAIL
+test_a_list_or_a_tuple_of_strings_is_accepted_and_stored_verbatim (test_bm_store.TestScopeContainersAreValidatedBeforeIteration)
+CONTROL. Both container shapes a JSON decoder and a Python ... ok
+test_a_read_scope_entry_that_is_not_a_path_refuses_bad_path (test_bm_store.TestScopeContainersAreValidatedBeforeIteration)
+A list whose ENTRIES are not strings is the container's other ... FAIL
+test_a_unit_that_omits_its_scopes_is_unchanged (test_bm_store.TestScopeContainersAreValidatedBeforeIteration)
+CONTROL, and the one that decides where the None rule bites. An ... ok
+test_every_non_list_container_refuses_naming_its_type (test_bm_store.TestScopeContainersAreValidatedBeforeIteration)
+S6's class, widened to every shape a JSON document or an SDK ... ERROR
+test_read_scope_gets_the_same_container_check (test_bm_store.TestScopeContainersAreValidatedBeforeIteration)
+S4's second half. read_scope is the store's other declared scope ... FAIL
+test_the_refusal_names_the_field_the_type_and_the_remedy (test_bm_store.TestScopeContainersAreValidatedBeforeIteration) ... FAIL
+
+======================================================================
+ERROR: test_every_non_list_container_refuses_naming_its_type (test_bm_store.TestScopeContainersAreValidatedBeforeIteration)
+S6's class, widened to every shape a JSON document or an SDK
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18701, in test_every_non_list_container_refuses_naming_its_type
+    store.upsert_units(run["run_id"], [unit], actor)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13162, in upsert_units
+    write_scope = [canonicalize_path(
+TypeError: 'int' object is not iterable
+
+======================================================================
+FAIL: test_a_bare_string_write_scope_is_not_exploded_into_characters (test_bm_store.TestScopeContainersAreValidatedBeforeIteration)
+S4's reproduction, at the store. The assertion that matters is
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18655, in test_a_bare_string_write_scope_is_not_exploded_into_characters
+    store.upsert_units(
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_a_read_scope_entry_that_is_not_a_path_refuses_bad_path (test_bm_store.TestScopeContainersAreValidatedBeforeIteration)
+A list whose ENTRIES are not strings is the container's other
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18748, in test_a_read_scope_entry_that_is_not_a_path_refuses_bad_path
+    store.upsert_units(run["run_id"], [unit], actor)
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_read_scope_gets_the_same_container_check (test_bm_store.TestScopeContainersAreValidatedBeforeIteration)
+S4's second half. read_scope is the store's other declared scope
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18726, in test_read_scope_gets_the_same_container_check
+    store.upsert_units(run["run_id"], [unit], actor)
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_the_refusal_names_the_field_the_type_and_the_remedy (test_bm_store.TestScopeContainersAreValidatedBeforeIteration)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18670, in test_the_refusal_names_the_field_the_type_and_the_remedy
+    store.upsert_units(
+AssertionError: OwnershipRefused not raised
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.078s
+
+FAILED (failures=4, errors=1)
+
+==============================================================
+BLOCK: tools/test_bm_store.py :: TestScopePathHandlingRefusesTotally
+==============================================================
+test_a_refusal_from_path_resolution_passes_through_unchanged (test_bm_store.TestScopePathHandlingRefusesTotally)
+The catch-all must not swallow the refusals that already work: ... ERROR
+test_an_exception_from_path_resolution_becomes_a_named_refusal (test_bm_store.TestScopePathHandlingRefusesTotally) ... ERROR
+test_no_declared_entry_escapes_as_an_exception (test_bm_store.TestScopePathHandlingRefusesTotally)
+The property, swept: for every hostile entry, the boundary ... FAIL
+test_the_same_holds_through_the_shipped_plan_path (test_bm_store.TestScopePathHandlingRefusesTotally) ... ERROR
+
+======================================================================
+ERROR: test_a_refusal_from_path_resolution_passes_through_unchanged (test_bm_store.TestScopePathHandlingRefusesTotally)
+The catch-all must not swallow the refusals that already work:
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18849, in test_a_refusal_from_path_resolution_passes_through_unchanged
+    bs.canonical_write_scope_entry(d, "../outside.py",
+AttributeError: module 'bm_store' has no attribute 'canonical_write_scope_entry'
+
+======================================================================
+ERROR: test_an_exception_from_path_resolution_becomes_a_named_refusal (test_bm_store.TestScopePathHandlingRefusesTotally)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18818, in test_an_exception_from_path_resolution_becomes_a_named_refusal
+    bs.canonical_write_scope_entry(d, "a.py",
+AttributeError: module 'bm_store' has no attribute 'canonical_write_scope_entry'
+
+======================================================================
+ERROR: test_the_same_holds_through_the_shipped_plan_path (test_bm_store.TestScopePathHandlingRefusesTotally)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18836, in test_the_same_holds_through_the_shipped_plan_path
+    store.upsert_units(
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13162, in upsert_units
+    write_scope = [canonicalize_path(
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 13162, in <listcomp>
+    write_scope = [canonicalize_path(
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 715, in canonicalize_path
+    resolved = _resolve_against_root(root, literal_dir, cwd)
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1093, in __call__
+    return self._mock_call(*args, **kwargs)
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1097, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1152, in _execute_mock_call
+    raise effect
+OSError: gone
+
+======================================================================
+FAIL: test_no_declared_entry_escapes_as_an_exception (test_bm_store.TestScopePathHandlingRefusesTotally)
+The property, swept: for every hostile entry, the boundary
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18862, in test_no_declared_entry_escapes_as_an_exception
+    got = bs.canonical_write_scope_entry(d, entry,
+AttributeError: module 'bm_store' has no attribute 'canonical_write_scope_entry'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18870, in test_no_declared_entry_escapes_as_an_exception
+    self.fail("entry %s escaped as %s: %s"
+AssertionError: entry <_RaisesFromBothDunders object whose repr() raised> escaped as AttributeError: module 'bm_store' has no attribute 'canonical_write_scope_entry'
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.025s
+
+FAILED (failures=1, errors=3)
+
+==============================================================
+SECOND RED, same round: attacking THIS round's own fix
+==============================================================
+
+The three blocks above were written against the untouched store. What
+follows was written against the store AFTER the first fix landed, because a
+fix is a claim and a claim is worth attacking. Both findings are real, both
+were reproduced, and both are closed in the same round.
+
+FINDING R6-A: the declaration rules read what was DECLARED, and the resolver
+then collapses '.' and '..' segments, so a refused spelling can be
+re-spelled as an accepted one. './:!keep.txt' passed the leading-colon test
+and was STORED as ':!keep.txt', the git exclude spelling that reverts every
+file except the one it names; 'sub/../:' was stored as ':', the
+whole-repository one. This is S1 re-opened by one character, and it is the
+same shape REFUTATION-4's F3 had (a resolver that only validates part of
+what it is given).
+
+Probe, before the second look was added, against the fixed store:
+
+  './:!keep.txt'         -> STORED ':!keep.txt'
+  'a/../:!keep.txt'      -> STORED ':!keep.txt'
+  './:/'                 -> STORED ':'
+  'sub/../:'             -> STORED ':'
+  './a.py'               -> STORED 'a.py'          (control)
+  'a/../b.py'            -> STORED 'b.py'          (control)
+
+test_a_pathspec_cannot_be_re_spelled_through_a_relative_prefix (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+Found by attacking THIS round's own fix rather than the round it ... FAIL
+test_a_legitimate_relative_prefix_still_resolves_and_is_stored (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+CONTROL for the second look: resolving '.' and '..' is what ... ok
+
+======================================================================
+FAIL: test_a_pathspec_cannot_be_re_spelled_through_a_relative_prefix (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+Found by attacking THIS round's own fix rather than the round it
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18610, in test_a_pathspec_cannot_be_re_spelled_through_a_relative_prefix
+    store.upsert_units(
+AssertionError: OwnershipRefused not raised
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.036s
+
+FAILED (failures=1)
+
+FINDING R6-B: fixing R6-A by testing the resolved string for a LEADING
+COLON only was itself too narrow, and a property sweep over 2954 generated
+spellings said so. Two further families survive canonicalisation, neither of
+them predictable from reading canonicalize_path:
+
+  './a:b' -> 'a:b'   which the absolute rule refuses when DECLARED, because
+                     a Windows caller reads it as drive-qualified
+  './ /'  -> ' '      whitespace only, because _to_posix strips the WHOLE
+                     string and not each segment
+
+The sweep is now a permanent test (it asserts the property, not the list of
+spellings: whatever the gate accepts must be a string the gate would also
+accept if it had been declared that way). Its RED run, against the
+leading-colon-only version of the second look:
+
+test_no_generated_spelling_is_stored_as_a_path_the_rule_refuses (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+The property, swept rather than sampled, and it is what found ... FAIL
+
+======================================================================
+FAIL: test_no_generated_spelling_is_stored_as_a_path_the_rule_refuses (test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs)
+The property, swept rather than sampled, and it is what found
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 18667, in test_no_generated_spelling_is_stored_as_a_path_the_rule_refuses
+    self.assertEqual(
+AssertionError: Lists differ: [('./a:b', 'a:b', 'absolute-write-scope'),[2199 chars]pe')] != []
+
+First list contains 50 additional elements.
+First extra element 0:
+('./a:b', 'a:b', 'absolute-write-scope')
+
+Diff is 2401 characters long. Set self.maxDiff to None to see it. : every stored write scope must be a string this gate would accept as a declaration; these were not: [('./a:b', 'a:b', 'absolute-write-scope'), ('./C:', 'C:', 'absolute-write-scope'), ('.//a:b', 'a:b', 'absolute-write-scope'), ('.//C:', 'C:', 'absolute-write-scope'), ('././a:b', 'a:b', 'absolute-write-scope')]
+
+----------------------------------------------------------------------
+Ran 1 test in 0.051s
+
+AFTER THE FIX, all three blocks and both second-round findings are green:
+
+  cd /Users/khalil.maaouni/Documents/BrotherModeUp/tools
+  python3 -m unittest test_bm_store.TestWriteScopeEntriesAreNotGitPathspecs \
+      test_bm_store.TestScopeContainersAreValidatedBeforeIteration \
+      test_bm_store.TestScopePathHandlingRefusesTotally
+  -> Ran 23 tests in 0.234s / OK
+
+  python3 tools/test_bm_store.py     -> Ran 878 tests ... OK   (exit 0)
+  python3 tools/test_bm_autonomy.py  -> Ran 58 tests ... OK    (exit 0)
+
+ONE EXISTING TEST COLLIDED WITH THE FIRST SHAPE OF THE FIX and was obeyed,
+not edited. tools/test_bm_store.py :: TestLearningApi ::
+test_structural_every_ownership_refusal_names_a_reason_code requires every
+OwnershipRefused call to name a LITERAL kebab reason code as its first
+argument. The second look's first draft forwarded the reason from the
+underlying refusal (a variable), and the guard caught it:
+
+  FAIL: test_structural_every_ownership_refusal_names_a_reason_code
+  AssertionError: Lists differ: [(1013, 'first argument is not a literal
+  reason code')] != []
+  : OwnershipRefused(reason, message) violated at: [(1013, 'first argument
+  is not a literal reason code')]
+
+The fix was changed to raise one literal-coded refusal per family, with an
+explicit fallback for a family added later. The test was not touched.
