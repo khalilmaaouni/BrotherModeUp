@@ -81,7 +81,8 @@ PLUGIN_ROOT_TOKEN = "${CLAUDE_PLUGIN_ROOT}"
 # ever grows past the first seven entries here.
 COPY_EXCLUDE = (".git", ".brothermode", "__pycache__", "threads",
                 ".superpowers", ".DS_Store", "STATE.md",
-                "build", "dist", "*.egg-info", "STATE.md.bak-*")
+                "build", "dist", "*.egg-info", "STATE.md.bak-*",
+                "PROJECT-VIEW.html", "Handover")
 
 _INSTALLER_MODULE = None
 
