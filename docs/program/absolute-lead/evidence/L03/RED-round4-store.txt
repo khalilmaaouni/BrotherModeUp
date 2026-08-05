@@ -1,0 +1,325 @@
+RED, round 4, the STORE half of the L03 controller hardening
+===========================================================
+
+Tree: /Users/khalil.maaouni/Documents/BrotherModeUp
+Design: docs/program/absolute-lead/evidence/L03/DESIGN-round4.md,
+        sections 5 (glob containment, gate_check verdicts, one
+        contract read), 8.1 and 8.3 (the SKIPPED lifecycle), 12.2,
+        12.3, 12.4 (store-side refusals) and 15.2 (the inventory).
+Captured: 2026-08-04T22:45:18Z
+Python:   Python 3.9.6
+
+Every class below was written FIRST and run against the UNTOUCHED
+tools/bm_store.py (git-clean at capture time, no store edit made
+yet). Command, per class:
+
+  cd /Users/khalil.maaouni/Documents/BrotherModeUp/tools
+  python3 -m unittest -v test_bm_store.<class>
+
+Seven of the eight classes are RED here. The eighth,
+TestGlobNarrowingBreaksNothingElse, is a CONTROL and is green
+BEFORE and after on purpose: it pins the non-glob containment
+branch (the 6682-triple property AZ proved) so that a failure there
+after the change would mean the glob narrowing took a plain path
+with it. This is the same role AZ's own C1b control plays in the
+controller suite (design 17.1: 'must stay green').
+
+
+==============================================================
+BLOCK: tools/test_bm_store.py :: TestGlobAllowedPathsAreDepthExact
+==============================================================
+test_a_bare_star_is_one_segment_and_a_directory_glob_is_one_level (test_bm_store.TestGlobAllowedPathsAreDepthExact) ... FAIL
+test_a_directory_glob_admits_only_its_own_directory_at_its_own_depth (test_bm_store.TestGlobAllowedPathsAreDepthExact) ... FAIL
+test_a_leading_wildcard_does_not_escape_its_own_directory (test_bm_store.TestGlobAllowedPathsAreDepthExact) ... FAIL
+test_a_wildcard_segment_matches_one_segment_character_for_character (test_bm_store.TestGlobAllowedPathsAreDepthExact) ... FAIL
+
+======================================================================
+FAIL: test_a_bare_star_is_one_segment_and_a_directory_glob_is_one_level (test_bm_store.TestGlobAllowedPathsAreDepthExact)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17436, in test_a_bare_star_is_one_segment_and_a_directory_glob_is_one_level
+    _gate_verdicts(self, ["*"], (
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17390, in _gate_verdicts
+    case.assertEqual(
+AssertionError: 'ALLOWED' != 'REFUSED-SCOPE'
+- ALLOWED
++ REFUSED-SCOPE
+ : allowed_paths ['*'], candidate 'src/a.py' must be REFUSED-SCOPE, got ALLOWED (authorised against risk class 'file-edit'.)
+
+======================================================================
+FAIL: test_a_directory_glob_admits_only_its_own_directory_at_its_own_depth (test_bm_store.TestGlobAllowedPathsAreDepthExact)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17410, in test_a_directory_glob_admits_only_its_own_directory_at_its_own_depth
+    _gate_verdicts(self, ["api/*.py"], (
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17390, in _gate_verdicts
+    case.assertEqual(
+AssertionError: 'ALLOWED' != 'REFUSED-SCOPE'
+- ALLOWED
++ REFUSED-SCOPE
+ : allowed_paths ['api/*.py'], candidate 'api/notes.md' must be REFUSED-SCOPE, got ALLOWED (authorised against risk class 'file-edit'.)
+
+======================================================================
+FAIL: test_a_leading_wildcard_does_not_escape_its_own_directory (test_bm_store.TestGlobAllowedPathsAreDepthExact)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17427, in test_a_leading_wildcard_does_not_escape_its_own_directory
+    _gate_verdicts(self, ["*.py"], (
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17390, in _gate_verdicts
+    case.assertEqual(
+AssertionError: 'ALLOWED' != 'REFUSED-SCOPE'
+- ALLOWED
++ REFUSED-SCOPE
+ : allowed_paths ['*.py'], candidate 'secrets.env' must be REFUSED-SCOPE, got ALLOWED (authorised against risk class 'file-edit'.)
+
+======================================================================
+FAIL: test_a_wildcard_segment_matches_one_segment_character_for_character (test_bm_store.TestGlobAllowedPathsAreDepthExact)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17446, in test_a_wildcard_segment_matches_one_segment_character_for_character
+    _gate_verdicts(self, ["src/*/main.py"], (
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17390, in _gate_verdicts
+    case.assertEqual(
+AssertionError: 'ALLOWED' != 'REFUSED-SCOPE'
+- ALLOWED
++ REFUSED-SCOPE
+ : allowed_paths ['src/*/main.py'], candidate 'src/main.py' must be REFUSED-SCOPE, got ALLOWED (authorised against risk class 'file-edit'.)
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.062s
+
+FAILED (failures=4)
+
+
+==============================================================
+BLOCK: tools/test_bm_store.py :: TestGlobNarrowingBreaksNothingElse
+==============================================================
+test_a_plain_allowed_path_still_grants_its_whole_subtree (test_bm_store.TestGlobNarrowingBreaksNothingElse) ... ok
+test_every_spelling_of_the_same_path_keeps_its_verdict (test_bm_store.TestGlobNarrowingBreaksNothingElse) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.087s
+
+OK
+
+
+==============================================================
+BLOCK: tools/test_bm_store.py :: TestGateCheckReturnsAVerdictInsteadOfRaising
+==============================================================
+test_a_non_string_path_is_a_refusal (test_bm_store.TestGateCheckReturnsAVerdictInsteadOfRaising) ... ERROR
+test_a_symlink_out_of_the_root_created_after_the_plan_is_a_refusal (test_bm_store.TestGateCheckReturnsAVerdictInsteadOfRaising) ... ERROR
+test_an_empty_path_is_a_refusal (test_bm_store.TestGateCheckReturnsAVerdictInsteadOfRaising) ... ERROR
+
+======================================================================
+ERROR: test_a_non_string_path_is_a_refusal (test_bm_store.TestGateCheckReturnsAVerdictInsteadOfRaising)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17539, in test_a_non_string_path_is_a_refusal
+    self._refused(store, 5)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17515, in _refused
+    gc = store.gate_check("p1", "file-edit", path=path)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 12625, in gate_check
+    candidate = canonicalize_path(self.root, path, cwd=None)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 672, in canonicalize_path
+    posix = _to_posix(p)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 451, in _to_posix
+    p = (p or "").strip()
+AttributeError: 'int' object has no attribute 'strip'
+
+======================================================================
+ERROR: test_a_symlink_out_of_the_root_created_after_the_plan_is_a_refusal (test_bm_store.TestGateCheckReturnsAVerdictInsteadOfRaising)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17531, in test_a_symlink_out_of_the_root_created_after_the_plan_is_a_refusal
+    gc = self._refused(store, "escape/x.py")
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17515, in _refused
+    gc = store.gate_check("p1", "file-edit", path=path)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 12625, in gate_check
+    candidate = canonicalize_path(self.root, path, cwd=None)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 684, in canonicalize_path
+    resolved = _resolve_against_root(root, literal_dir, cwd)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 647, in _resolve_against_root
+    raise OwnershipRefused(
+bm_store.OwnershipRefused: path 'escape/x.py' resolves outside the project root /private/var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/tmpakm5bgli
+
+======================================================================
+ERROR: test_an_empty_path_is_a_refusal (test_bm_store.TestGateCheckReturnsAVerdictInsteadOfRaising)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17546, in test_an_empty_path_is_a_refusal
+    self._refused(store, "")
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17515, in _refused
+    gc = store.gate_check("p1", "file-edit", path=path)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 12625, in gate_check
+    candidate = canonicalize_path(self.root, path, cwd=None)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 674, in canonicalize_path
+    raise ValueError("empty path")
+ValueError: empty path
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.038s
+
+FAILED (errors=3)
+
+
+==============================================================
+BLOCK: tools/test_bm_store.py :: TestGateCheckVerdictComesFromOneContractRead
+==============================================================
+test_a_supersede_between_the_reads_cannot_mix_one_verdict (test_bm_store.TestGateCheckVerdictComesFromOneContractRead) ... FAIL
+
+======================================================================
+FAIL: test_a_supersede_between_the_reads_cannot_mix_one_verdict (test_bm_store.TestGateCheckVerdictComesFromOneContractRead)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17594, in test_a_supersede_between_the_reads_cannot_mix_one_verdict
+    self.assertEqual(
+AssertionError: Tuples differ: ('ALLOWED', 1) != ('REFUSED-BREAKER', 1)
+
+First differing element 0:
+'ALLOWED'
+'REFUSED-BREAKER'
+
+- ('ALLOWED', 1)
++ ('REFUSED-BREAKER', 1) : a verdict stamped revision 1 must BE revision 1's verdict in every field, breaker included; got {'verdict': 'ALLOWED', 'floor': None, 'reason': "authorised against risk class 'file-edit'.", 'contract_id': 'fde50d6bf4744f1092abef1d7d5c50d9', 'revision': 1}
+
+----------------------------------------------------------------------
+Ran 1 test in 0.016s
+
+FAILED (failures=1)
+
+
+==============================================================
+BLOCK: tools/test_bm_store.py :: TestUpsertUnitsClosesTheSkippedLifecycle
+==============================================================
+test_a_byte_identical_replan_revives_a_skipped_unit (test_bm_store.TestUpsertUnitsClosesTheSkippedLifecycle) ... FAIL
+test_a_unit_id_another_project_already_holds_refuses_instead_of_raising (test_bm_store.TestUpsertUnitsClosesTheSkippedLifecycle) ... ERROR
+test_dropping_a_unit_cancels_its_open_dispatch_and_refuses_a_late_result (test_bm_store.TestUpsertUnitsClosesTheSkippedLifecycle) ... ERROR
+test_the_dropped_units_still_held_fence_is_reported_to_the_caller (test_bm_store.TestUpsertUnitsClosesTheSkippedLifecycle) ... ERROR
+
+======================================================================
+ERROR: test_a_unit_id_another_project_already_holds_refuses_instead_of_raising (test_bm_store.TestUpsertUnitsClosesTheSkippedLifecycle)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17703, in test_a_unit_id_another_project_already_holds_refuses_instead_of_raising
+    store.upsert_units(run2["run_id"],
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 12974, in upsert_units
+    _exec(self,
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 4923, in _exec
+    return store.conn.execute(sql, params)
+sqlite3.IntegrityError: UNIQUE constraint failed: controller_units.unit_id
+
+======================================================================
+ERROR: test_dropping_a_unit_cancels_its_open_dispatch_and_refuses_a_late_result (test_bm_store.TestUpsertUnitsClosesTheSkippedLifecycle)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17629, in test_dropping_a_unit_cancels_its_open_dispatch_and_refuses_a_late_result
+    self.assertEqual(out["skipped"], ["u1"])
+KeyError: 'skipped'
+
+======================================================================
+ERROR: test_the_dropped_units_still_held_fence_is_reported_to_the_caller (test_bm_store.TestUpsertUnitsClosesTheSkippedLifecycle)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17656, in test_the_dropped_units_still_held_fence_is_reported_to_the_caller
+    out["orphaned_fences"], [("u1", "fence-u1")],
+KeyError: 'orphaned_fences'
+
+======================================================================
+FAIL: test_a_byte_identical_replan_revives_a_skipped_unit (test_bm_store.TestUpsertUnitsClosesTheSkippedLifecycle)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17680, in test_a_byte_identical_replan_revives_a_skipped_unit
+    self.assertEqual(
+AssertionError: 'SKIPPED' != 'READY'
+- SKIPPED
++ READY
+ : a founder re-adding the unit is the founder undoing the drop; the identical definition hash is what makes it the SAME unit, not an argument for ignoring the request (LV 2)
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.049s
+
+FAILED (failures=1, errors=3)
+
+
+==============================================================
+BLOCK: tools/test_bm_store.py :: TestUpsertUnitsRefusesANonPathWriteScopeEntry
+==============================================================
+test_every_non_path_write_scope_entry_refuses_bad_path (test_bm_store.TestUpsertUnitsRefusesANonPathWriteScopeEntry) ... ERROR
+
+======================================================================
+ERROR: test_every_non_path_write_scope_entry_refuses_bad_path (test_bm_store.TestUpsertUnitsRefusesANonPathWriteScopeEntry)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17732, in test_every_non_path_write_scope_entry_refuses_bad_path
+    store.upsert_units(
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 12897, in upsert_units
+    write_scope = [canonicalize_path(self.root, p, cwd=None)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 12897, in <listcomp>
+    write_scope = [canonicalize_path(self.root, p, cwd=None)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 672, in canonicalize_path
+    posix = _to_posix(p)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 451, in _to_posix
+    p = (p or "").strip()
+AttributeError: 'int' object has no attribute 'strip'
+
+----------------------------------------------------------------------
+Ran 1 test in 0.018s
+
+FAILED (errors=1)
+
+
+==============================================================
+BLOCK: tools/test_bm_store.py :: TestReleaseClaimedUnit
+==============================================================
+test_a_claimed_unit_returns_by_dependency_satisfaction_and_drops_its_fence (test_bm_store.TestReleaseClaimedUnit) ... ERROR
+test_release_claimed_unit_refuses_a_unit_that_is_not_claimed (test_bm_store.TestReleaseClaimedUnit) ... ERROR
+
+======================================================================
+ERROR: test_a_claimed_unit_returns_by_dependency_satisfaction_and_drops_its_fence (test_bm_store.TestReleaseClaimedUnit)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17762, in test_a_claimed_unit_returns_by_dependency_satisfaction_and_drops_its_fence
+    out = store.release_claimed_unit("u1", actor)
+AttributeError: 'Store' object has no attribute 'release_claimed_unit'
+
+======================================================================
+ERROR: test_release_claimed_unit_refuses_a_unit_that_is_not_claimed (test_bm_store.TestReleaseClaimedUnit)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17786, in test_release_claimed_unit_refuses_a_unit_that_is_not_claimed
+    store.release_claimed_unit("u1", actor)
+AttributeError: 'Store' object has no attribute 'release_claimed_unit'
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.026s
+
+FAILED (errors=2)
+
+
+==============================================================
+BLOCK: tools/test_bm_store.py :: TestGetDispatch
+==============================================================
+test_a_known_dispatch_id_returns_the_row_with_its_run_and_project (test_bm_store.TestGetDispatch) ... ERROR
+test_an_unknown_dispatch_id_is_none_and_the_read_only_store_shares_it (test_bm_store.TestGetDispatch) ... ERROR
+
+======================================================================
+ERROR: test_a_known_dispatch_id_returns_the_row_with_its_run_and_project (test_bm_store.TestGetDispatch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17811, in test_a_known_dispatch_id_returns_the_row_with_its_run_and_project
+    row = store.get_dispatch(did, raw=True)
+AttributeError: 'Store' object has no attribute 'get_dispatch'
+
+======================================================================
+ERROR: test_an_unknown_dispatch_id_is_none_and_the_read_only_store_shares_it (test_bm_store.TestGetDispatch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_store.py", line 17826, in test_an_unknown_dispatch_id_is_none_and_the_read_only_store_shares_it
+    self.assertIsNone(store.get_dispatch("ghost"))
+AttributeError: 'Store' object has no attribute 'get_dispatch'
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.026s
+
+FAILED (errors=2)
+

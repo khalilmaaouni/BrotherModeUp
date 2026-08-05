@@ -212,6 +212,14 @@ jobs:
       # suite job.
       - name: Run the autonomy contract CLI suite
         run: python .github/run_with_annotations.py tools/test_bm_autonomy.py
+      # The durable Full-Auto controller suite (U2, loop L03, 2026-08-05):
+      # the engine's own fault tests run in process against the schema 15
+      # tables the V2 store suite above already proved sound, and the CLI
+      # section drives tools/bm_controller.py as a real subprocess, the
+      # same cross-platform-safe shape the autonomy contract CLI suite
+      # just above already runs on this leg.
+      - name: Run the controller suite
+        run: python .github/run_with_annotations.py tools/test_bm_controller.py
       # The recovery suite runs on Windows too, not only on the POSIX legs above.
       # Recovery is the subsystem whose failure loses work rather than merely
       # reporting it wrongly, so it gets the widest platform coverage, not the

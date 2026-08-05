@@ -1,0 +1,4868 @@
+#!/usr/bin/env python3
+"""Regression tests for tools/bm_controller.py: the U2 durable Full-Auto
+controller ENGINE (design docs/superpowers/specs/2026-08-05-l03-
+controller-design.md), and, in the CLI section near the end of this file
+(Writer B, same loop), the main()/cli() dispatch appended to the same
+module.
+
+THE ENGINE TESTS (everything above the CLI section marker) drive the
+ControllerEngine class DIRECTLY, in-process, against a throwaway tools/
+bm_store.py Store under a fresh tempfile.TemporaryDirectory() root, never
+against this repo's own store or vault, and import NO subprocess: every
+worker and every done-check/verifier/rollback command is answered by
+FakeWorker and FakeCheckRunner below, so every one of those tests is fully
+deterministic with no model and no network (design section 4:
+"test_bm_controller.py itself imports NO subprocess and stays hermetic,
+preserving the repo's test-file no-subprocess rule"). Untouched by this
+loop's own change.
+
+THE CLI SECTION drives tools/bm_controller.py as a REAL SUBPROCESS
+instead, the same discipline tools/test_bm_autonomy.py already uses for
+tools/bm_autonomy.py: this file's own no-subprocess claim above is scoped
+to the engine tests, not the whole file, and tools/test_bm.py's own no-
+subprocess scan already exempts every test_*.py file by name (it skips
+any filename starting with "test_"), so importing subprocess here is the
+documented exemption in use, never a bypass of it.
+
+"Kill" is simulated by discarding the ControllerEngine object and
+constructing a fresh one against the SAME store file (a true resume from
+persisted state, no in-memory carryover: the class docstring in
+tools/bm_controller.py states this is the whole point).
+
+Python 3.9, standard library only. No network. The CLI section spawns
+only local subprocesses of this repository's own tools, never a network
+call.
+
+No em or en dashes anywhere in this file, its comments, or its output.
+"""
+
+import ast
+import datetime
+import importlib.util
+import io
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import unittest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _load(name):
+    """Load a sibling module by PATH, the same technique tools/
+    bm_autonomy.py and tools/bm_controller.py itself use for tools/
+    bm_store.py."""
+    spec = importlib.util.spec_from_file_location(
+        name, os.path.join(HERE, name + ".py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+bs = _load("bm_store")
+bc = _load("bm_controller")
+
+CONTROLLER_FILE = os.path.join(HERE, "bm_controller.py")
+
+
+# ---------------------------------------------------------------------------
+# Structural guard: bm_controller.py issues NO SQL of its own (its own
+# module docstring states the same D-1 flip condition tools/bm_project.py's
+# and tools/bm_autonomy.py's do). Copied structurally from tools/
+# test_bm_autonomy.py's TestNoSQLGuard, itself copied from tools/
+# test_bm_project.py's, including the calibration test that proves the AST
+# approach actually earns its complexity over a naive regex.
+# ---------------------------------------------------------------------------
+
+def _docstring_constant_ids(tree):
+    """id() of every ast.Constant node ast.get_docstring would return the
+    value of: the first statement of a Module/FunctionDef/
+    AsyncFunctionDef/ClassDef body, when it is a bare string expression."""
+    ids = set()
+    doc_holders = (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
+                  ast.ClassDef)
+    for node in ast.walk(tree):
+        if isinstance(node, doc_holders) and node.body:
+            first = node.body[0]
+            if (isinstance(first, ast.Expr)
+                    and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                ids.add(id(first.value))
+    return ids
+
+
+class TestNoSQLGuard(unittest.TestCase):
+    """tools/bm_controller.py's own module docstring states the D-1 flip
+    condition: the moment this file needs a query the store does not
+    already offer, it has become a second writer and must be folded back
+    into bm_store.py instead of growing one here."""
+
+    _SQL_RE = re.compile(r"\b(SELECT|INSERT|UPDATE|DELETE|PRAGMA)\b",
+                         re.IGNORECASE)
+
+    def test_bm_controller_never_issues_its_own_sql(self):
+        with io.open(CONTROLLER_FILE, encoding="utf-8") as fh:
+            source = fh.read()
+        tree = ast.parse(source, filename="bm_controller.py")
+        skip = _docstring_constant_ids(tree)
+        hits = []
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Constant)
+                    and isinstance(node.value, str)
+                    and id(node) not in skip
+                    and self._SQL_RE.search(node.value)):
+                hits.append((node.lineno, node.value))
+        self.assertEqual(
+            hits, [],
+            "bm_controller.py must never contain a string literal shaped "
+            "like SQL (found %r); a query the store does not already "
+            "offer means this file has become a second writer and the "
+            "query belongs in bm_store.py instead." % hits)
+
+    def test_bm_controller_never_imports_sqlite3(self):
+        with io.open(CONTROLLER_FILE, encoding="utf-8") as fh:
+            source = fh.read()
+        tree = ast.parse(source, filename="bm_controller.py")
+        offenders = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                offenders.extend(a.name for a in node.names
+                                 if a.name.split(".")[0] == "sqlite3")
+            elif isinstance(node, ast.ImportFrom):
+                if (node.module or "").split(".")[0] == "sqlite3":
+                    offenders.append(node.module)
+        self.assertEqual(
+            offenders, [],
+            "bm_controller.py must never import sqlite3 directly (found "
+            "%r); every query it needs already goes through bs, the "
+            "loaded bm_store module." % offenders)
+
+    def test_calibrated_old_guard_missed_a_lowercase_or_split_bypass(self):
+        """CALIBRATION. Reproduces the pre-fix guard tools/test_bm_project
+        .py itself replaced (a bare uppercase-only regex over raw text)
+        against a synthetic snippet, proving it would have said nothing
+        was wrong, then proves the current AST-based guard catches both
+        bypasses in the same snippet."""
+        bypass_snippet = (
+            'query = "sel" "ect * from controller_runs"\n'
+            'other = "update controller_units set status=?"\n'
+        )
+        old_style_hits = re.findall(
+            r"\b(SELECT|INSERT|UPDATE|DELETE)\b", bypass_snippet)
+        self.assertEqual(
+            old_style_hits, [],
+            "calibration sanity: the OLD guard must find nothing in this "
+            "snippet, or it does not actually demonstrate the bypass")
+        tree = ast.parse(bypass_snippet)
+        hits = [n.value for n in ast.walk(tree)
+               if isinstance(n, ast.Constant) and isinstance(n.value, str)
+               and self._SQL_RE.search(n.value)]
+        self.assertEqual(
+            len(hits), 2,
+            "the AST-based guard must catch both the split literal and "
+            "the lowercase keyword the old regex missed (got %r)" % hits)
+
+    def test_the_only_subprocess_call_site_is_subprocesscheckrunner(self):
+        """design section 4: SubprocessCheckRunner is the ONLY place in
+        this file that touches `subprocess`. Every call site is inside
+        that one class, never inside ControllerEngine or a module-level
+        function."""
+        with io.open(CONTROLLER_FILE, encoding="utf-8") as fh:
+            source = fh.read()
+        tree = ast.parse(source, filename="bm_controller.py")
+        offenders = []
+
+        class _Visitor(ast.NodeVisitor):
+            def __init__(self):
+                self.class_stack = []
+
+            def visit_ClassDef(self, node):
+                self.class_stack.append(node.name)
+                self.generic_visit(node)
+                self.class_stack.pop()
+
+            def visit_Attribute(self, node):
+                if (node.attr in ("run", "call", "Popen", "check_output")
+                        and isinstance(node.value, ast.Name)
+                        and node.value.id == "subprocess"):
+                    enclosing = (self.class_stack[-1] if self.class_stack
+                                else "<module>")
+                    if enclosing != "SubprocessCheckRunner":
+                        offenders.append((node.lineno, enclosing))
+                self.generic_visit(node)
+
+        _Visitor().visit(tree)
+        self.assertEqual(offenders, [])
+
+
+# ---------------------------------------------------------------------------
+# The harness seam's fakes (design section 4).
+# ---------------------------------------------------------------------------
+
+class FakeWorker(bc.WorkerAdapter):
+    """Constructed with a dict unit_id -> WorkerResult, OR unit_id ->
+    callable(attempt_number) -> WorkerResult for a unit whose behaviour
+    changes attempt over attempt (a scripted retry, an outage that
+    recovers, a hang). Records every call for assertions."""
+
+    def __init__(self, scripts):
+        self.scripts = scripts
+        self.calls = {}
+        self.call_log = []
+
+    def run(self, brief):
+        unit_id = brief["unit_id"]
+        n = self.calls.get(unit_id, 0) + 1
+        self.calls[unit_id] = n
+        self.call_log.append((unit_id, n))
+        script = self.scripts[unit_id]
+        if callable(script):
+            return script(n, brief)
+        return script
+
+
+class FakeCheckRunner(bc.CheckRunner):
+    """Constructed with a dict command -> CheckOutcome, OR command ->
+    callable(call_number) -> CheckOutcome for a command whose result
+    changes call over call (the circuit-breaker retry-then-pass
+    scenarios). Unlisted commands default to a clean pass, so a test only
+    needs to script the commands it cares about."""
+
+    def __init__(self, outcomes=None):
+        self.outcomes = outcomes or {}
+        self.calls = []
+        self._counts = {}
+
+    def run(self, command, cwd):
+        self.calls.append(command)
+        self._counts[command] = self._counts.get(command, 0) + 1
+        if command not in self.outcomes:
+            return {"exit_code": 0, "stdout": "", "stderr": ""}
+        script = self.outcomes[command]
+        if callable(script):
+            return script(self._counts[command])
+        return script
+
+
+# ---------------------------------------------------------------------------
+# Fixtures.
+# ---------------------------------------------------------------------------
+
+def _actor(name="controller"):
+    return {"actor_type": "model", "actor_name": name}
+
+
+def _project(pid="p1"):
+    return {"project_id": pid, "name": "Project", "created_at":
+            "2026-08-05T00:00:00Z", "updated_at": "2026-08-05T00:00:00Z"}
+
+
+def _seed(store, pid="p1", actor=None):
+    store.upsert_project(_project(pid), actor or _actor())
+    return pid
+
+
+def _sign(store, project_id="p1", risk_classes=None, token_ceiling=None,
+          minutes_ceiling=None, actor=None, allowed_paths=None):
+    return store.sign_contract(
+        project_id, "ship the widget", "the done-definition passes",
+        allowed_paths or ["."],
+        [], risk_classes or ["file-create", "file-edit", "file-move",
+                             "build", "test-run", "local-commit",
+                             "read-only-inspect"],
+        token_ceiling, minutes_ceiling, "Khalil Maaouni", "sess1",
+        actor or _actor(), supersede=False)
+
+
+def _unit(unit_id, dependencies=None, write_scope=None, read_scope=None,
+          risk_class="file-create", lane="default", role="builder",
+          done_check="true", verifier="", **kw):
+    d = {"unit_id": unit_id, "objective": "unit %s" % unit_id,
+         "dependencies": dependencies or [], "read_scope": read_scope or [],
+         "write_scope": write_scope or [], "role": role,
+         "risk_class": risk_class, "lane": lane, "done_check": done_check,
+         "done_check_expect_exit": 0, "verifier": verifier}
+    d.update(kw)
+    return d
+
+
+def _worker_result(claim="done", artifacts=None, tokens=1, minutes=1,
+                   status="returned"):
+    return {"worker_claim": claim, "artifacts": artifacts or [],
+            "cost": {"tokens": tokens, "minutes": minutes},
+            "status": status}
+
+
+def _engine(store, worker, checker, controller_id="ctrl1", actor=None,
+           **kw):
+    return bc.ControllerEngine(store, worker, checker, controller_id,
+                               actor or _actor(), **kw)
+
+
+def _begin_and_plan(engine, store, project_id, units, outcome="ship it",
+                    done_definition="echo done", workflow_version=1):
+    run = engine.begin(project_id, outcome, done_definition,
+                       workflow_version=workflow_version)
+    engine.plan(project_id, run["run_id"], units)
+    return run
+
+
+def _dispatch_count(store, unit_id):
+    return len(store.list_dispatches(unit_id, raw=True))
+
+
+def _unit_row(store, run_id, unit_id):
+    for u in store.list_units(run_id, raw=True):
+        if u["unit_id"] == unit_id:
+            return u
+    return None
+
+
+# ---------------------------------------------------------------------------
+# The ten fault tests (design section 5), each proving its invariant.
+# ---------------------------------------------------------------------------
+
+class TestFault1KilledBetweenResultAndCommit(unittest.TestCase):
+    """FakeWorker returns; record_result commits RESULT_IN; the engine is
+    discarded BEFORE verification runs. A fresh engine against the same
+    store resumes. Invariant: exactly-once recording of the accepted
+    result; at-most-once dispatch."""
+
+    def test_resume_verifies_without_re_dispatch_and_reaches_done_exactly_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                checker = FakeCheckRunner()
+                engine1 = _engine(store, FakeWorker({}), checker)
+                run = _begin_and_plan(
+                    engine1, store, "p1", [_unit("u1", write_scope=["a.py"])])
+
+                # Manually replicate step()'s own sequence up through
+                # record_result, then "crash": discard engine1 before
+                # verification (step 12) ever runs.
+                ready = store.select_ready_units(run["run_id"])
+                u = ready[0]
+                verdict = store.gate_check(
+                    "p1", u["risk_class"], path=u["write_scope"][0])
+                store.set_run_state(run["run_id"], "EXECUTING", _actor(),
+                                    "dispatching", "sess1")
+                rec = store.claim(
+                    name="unit-u1", lifetime="ephemeral",
+                    files=u["write_scope"], objective=u["objective"],
+                    owner="ctrl1", session_id=engine1.session_id)
+                store.claim_unit("u1", rec.lifecycle_uuid, _actor())
+                dispatch_id = store.record_dispatch(
+                    "u1", 1, verdict["revision"], rec.lifecycle_uuid,
+                    engine1.session_id, _actor())
+                store.record_result(dispatch_id, "created a.py", ["a.py"],
+                                   _actor())
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"],
+                    "RESULT_IN")
+                self.assertEqual(_dispatch_count(store, "u1"), 1)
+
+                # A fresh engine, same store: true resume, no in-memory
+                # carryover.
+                worker2 = FakeWorker({})  # must NOT be called
+                engine2 = _engine(store, worker2, checker)
+                summary = engine2.step("p1")
+
+                self.assertEqual(worker2.calls, {},
+                                 "resume must go straight to verification, "
+                                 "never re-invoke the worker")
+                self.assertEqual(_dispatch_count(store, "u1"), 1,
+                                 "at-most-once dispatch: no second "
+                                 "controller_dispatches row for attempt 1")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "DONE")
+                self.assertEqual(summary["completed"], ["u1"])
+                # Exactly one DONE transition (mark_unit_done refuses a
+                # second accept for a non-RESULT_IN/VERIFYING unit).
+                with self.assertRaises(bs.OwnershipRefused):
+                    store.mark_unit_done("u1", "some-checkpoint", _actor())
+
+
+class TestFault2DuplicateResult(unittest.TestCase):
+    """FakeWorker (or a caller) emits two record-result calls for one
+    dispatch. Invariant: at-most-once result recording."""
+
+    def test_second_receive_result_call_refuses_already_resulted(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({"u1": _worker_result()})
+                checker = FakeCheckRunner()
+                engine = _engine(store, worker, checker)
+                run = _begin_and_plan(
+                    engine, store, "p1", [_unit("u1", write_scope=["a.py"])])
+                engine.step("p1")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "DONE")
+                dispatch_id = store.list_dispatches("u1", raw=True)[0][
+                    "dispatch_id"]
+
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    engine.receive_result("p1", dispatch_id, "done again",
+                                          [], cost={"tokens": 1, "minutes": 1})
+                self.assertEqual(ctx.exception.reason, "already-resulted")
+                self.assertEqual(_dispatch_count(store, "u1"), 1)
+                # Exactly one DONE, never two.
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "DONE")
+
+
+class TestFault3DependencyChangedOutputInvalidatesEvidence(unittest.TestCase):
+    """U_down verifies green against U_up's H1 artifact; U_up is then
+    re-run (a re-plan with a changed definition) and its output becomes
+    H2. Invariant: a final edit invalidates prior evidence."""
+
+    def test_replanning_the_upstream_unit_re_queues_the_downstream_one(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({
+                    "up": _worker_result(claim="v1", artifacts=["a.py"]),
+                    "down": _worker_result(claim="consumed v1",
+                                           artifacts=["b.py"]),
+                })
+                checker = FakeCheckRunner()
+                engine = _engine(store, worker, checker)
+                run = _begin_and_plan(engine, store, "p1", [
+                    _unit("up", write_scope=["a.py"]),
+                    _unit("down", dependencies=["up"], read_scope=["a.py"],
+                         write_scope=["b.py"]),
+                ])
+                engine.step("p1")  # dispatches "up"
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "up")["status"], "DONE")
+                engine.step("p1")  # dispatches "down"
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "down")["status"],
+                    "DONE")
+                down_checkpoint_v1 = _unit_row(
+                    store, run["run_id"], "down")["checkpoint_ref"]
+                self.assertIsNotNone(down_checkpoint_v1)
+
+                # Re-plan "up" with a CHANGED definition (H1 -> H2): this
+                # is what a redesign/re-run of an upstream unit looks like
+                # at the store layer (store-level cascade is proven in
+                # tools/test_bm_store.py; this test proves the DOWNSTREAM
+                # consequence an engine-driven run actually sees).
+                store.upsert_units(
+                    run["run_id"],
+                    [_unit("up", write_scope=["a.py"],
+                          objective="a DIFFERENT a.py")],
+                    _actor())
+
+                up_row = _unit_row(store, run["run_id"], "up")
+                down_row = _unit_row(store, run["run_id"], "down")
+                self.assertEqual(up_row["status"], "READY",
+                                 "the redefined upstream unit re-queues")
+                self.assertIn(
+                    down_row["status"], ("PENDING", "READY"),
+                    "the downstream unit's prior H1-based evidence is "
+                    "invalidated: it is no longer DONE")
+                self.assertIsNone(
+                    down_row["checkpoint_ref"],
+                    "the downstream unit's stale checkpoint_ref is cleared, "
+                    "not left pointing at evidence that no longer holds")
+
+                # Re-run to a new green: the final done-definition run
+                # (step 19) reflects H2, not H1.
+                worker.scripts["up"] = _worker_result(
+                    claim="v2", artifacts=["a.py"])
+                trace = engine.run_to_completion("p1")
+                self.assertEqual(trace[-1]["state"], "DELIVERABLE_READY")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "down")["status"],
+                    "DONE")
+                self.assertNotEqual(
+                    _unit_row(store, run["run_id"], "down")["checkpoint_ref"],
+                    down_checkpoint_v1,
+                    "the downstream unit's NEW green checkpoint reflects "
+                    "H2, never reuses H1's stale checkpoint id")
+
+
+class TestFault4WorkerHangs(unittest.TestCase):
+    """A unit is dispatched and the worker never synchronously answers
+    (an injected clock simulates the deadline passing, since a REAL
+    block would hang the test). Invariant: a hang is a recoverable fault,
+    not a stall, and independent lanes keep progressing."""
+
+    def test_an_abandoned_dispatch_re_queues_for_one_retry_and_other_lanes_progress(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                clock = {"now": bc._default_now()}
+                worker = FakeWorker({
+                    "hung": _worker_result(status="pending"),
+                    "docs": _worker_result(claim="wrote docs",
+                                           artifacts=["README.md"]),
+                })
+                checker = FakeCheckRunner()
+                engine = _engine(
+                    store, worker, checker, dispatch_timeout_seconds=60,
+                    now_fn=lambda: clock["now"])
+                run = _begin_and_plan(engine, store, "p1", [
+                    _unit("hung", write_scope=["a.py"], lane="code"),
+                    _unit("docs", write_scope=["README.md"], lane="docs"),
+                ])
+                summary = engine.step("p1")
+                self.assertIn("hung", summary["dispatched"])
+                self.assertIn("docs", summary["dispatched"])
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "hung")["status"],
+                    "DISPATCHED")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "docs")["status"],
+                    "DONE", "the independent docs lane finished while "
+                            "'hung' is still in flight")
+
+                # Advance the injected clock past the deadline: the
+                # dispatch is now abandoned.
+                clock["now"] = clock["now"] + datetime.timedelta(seconds=120)
+                abandoned = engine.check_timeouts("p1")
+                self.assertEqual(abandoned, ["hung"])
+                hung_row = _unit_row(store, run["run_id"], "hung")
+                self.assertEqual(hung_row["status"], "READY",
+                                 "one retry: the circuit breaker returns "
+                                 "it to READY, not FAILED, on the first "
+                                 "abandonment")
+                self.assertEqual(hung_row["retry_count"], 1)
+
+                # The retry succeeds.
+                worker.scripts["hung"] = _worker_result(
+                    claim="finally done", artifacts=["a.py"])
+                trace = engine.run_to_completion("p1")
+                self.assertEqual(trace[-1]["state"], "DELIVERABLE_READY")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "hung")["status"],
+                    "DONE")
+
+
+class TestFault5MalformedOutput(unittest.TestCase):
+    """FakeWorker returns a payload missing 'artifacts'. Invariant:
+    untrusted worker output never crashes the controller."""
+
+    def test_malformed_payload_is_a_rejection_not_an_exception(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({
+                    "bad": {"status": "malformed"},
+                    "good": _worker_result(claim="fine",
+                                           artifacts=["ok.py"]),
+                })
+                checker = FakeCheckRunner()
+                engine = _engine(store, worker, checker)
+                run = _begin_and_plan(engine, store, "p1", [
+                    _unit("bad", write_scope=["a.py"], lane="risky"),
+                    _unit("good", write_scope=["ok.py"], lane="safe"),
+                ])
+                try:
+                    trace = engine.run_to_completion("p1")
+                except Exception as exc:  # pragma: no cover, the assertion
+                    self.fail("malformed worker output crashed the "
+                             "controller: %r" % (exc,))
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "good")["status"],
+                    "DONE", "the run stays green elsewhere")
+                bad_row = _unit_row(store, run["run_id"], "bad")
+                self.assertIn(bad_row["status"], ("FAILED", "READY"))
+                self.assertGreaterEqual(bad_row["retry_count"], 1)
+
+
+class TestFault6CostCeilingReached(unittest.TestCase):
+    """record_spend crosses 100 percent mid-fan-out. Invariant: hard-stop
+    starts no new work."""
+
+    def test_hard_stop_drains_and_starts_no_new_unit(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, token_ceiling=10)
+                worker = FakeWorker({
+                    "u1": _worker_result(claim="x", artifacts=["a.py"],
+                                         tokens=100, minutes=1),
+                })
+                checker = FakeCheckRunner()
+                engine = _engine(store, worker, checker)
+                # u2 depends on u1 so it is NOT selectable in the same
+                # wave as u1: the ceiling must already be blown by the
+                # time u2 would ever become a candidate for dispatch.
+                run = _begin_and_plan(engine, store, "p1", [
+                    _unit("u1", write_scope=["a.py"]),
+                    _unit("u2", dependencies=["u1"], read_scope=["a.py"],
+                         write_scope=["b.py"]),
+                ])
+                engine.step("p1")  # u1 dispatches, blows the ceiling
+                self.assertEqual(
+                    store.spend_totals("p1")["verdict"], "hard-stop")
+                alerts_before = store.conn.execute(
+                    "SELECT COUNT(*) c FROM alerts WHERE "
+                    "category='autonomy-breaker' AND severity='critical'"
+                ).fetchone()["c"]
+                self.assertEqual(alerts_before, 1,
+                                 "one critical breaker alert exists")
+
+                # u1 completes synchronously within the FIRST step() call
+                # (FakeWorker returns immediately), which is what records
+                # the spend that blows the ceiling; the SECOND step() call
+                # is what discovers hard-stop, before ever reaching
+                # select_ready_units for u2.
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "DONE")
+                summary = engine.step("p1")
+                self.assertEqual(summary["state"], "STOPPED")
+                self.assertEqual(summary["dispatched"], [])
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u2")["status"],
+                    "PENDING", "u2 was never claimed or dispatched")
+                self.assertEqual(worker.calls.get("u2"), None)
+
+
+class TestFault7FounderCancelsDuringFanOut(unittest.TestCase):
+    """Three parallel-fenced units are DISPATCHED; the founder stops the
+    contract. Invariant: stop starts no new unit and leaves no orphan
+    fence."""
+
+    def test_stop_mid_fan_out_records_returned_results_selects_nothing_new_and_releases_every_fence(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({
+                    "u1": _worker_result(status="pending"),
+                    "u2": _worker_result(status="pending"),
+                    "u3": _worker_result(status="pending"),
+                })
+                checker = FakeCheckRunner()
+                engine = _engine(store, worker, checker)
+                run = _begin_and_plan(engine, store, "p1", [
+                    _unit("u1", write_scope=["a.py"], lane="l1"),
+                    _unit("u2", write_scope=["b.py"], lane="l2"),
+                    _unit("u3", write_scope=["c.py"], lane="l3"),
+                ])
+                summary = engine.step("p1")
+                self.assertEqual(sorted(summary["dispatched"]),
+                                 ["u1", "u2", "u3"])
+                for uid in ("u1", "u2", "u3"):
+                    self.assertEqual(
+                        _unit_row(store, run["run_id"], uid)["status"],
+                        "DISPATCHED")
+
+                store.set_contract_state("p1", "stopped", "khalil",
+                                         "founder stop", "sess1", _actor())
+                s2 = engine.step("p1")
+                self.assertEqual(s2["state"], "STOPPED")
+                self.assertEqual(s2["dispatched"], [])
+
+                for uid in ("u1", "u2", "u3"):
+                    row = _unit_row(store, run["run_id"], uid)
+                    if row["fence_uuid"]:
+                        rec = store.get(row["fence_uuid"])
+                        self.assertNotEqual(
+                            rec.state, "active",
+                            "unit %s's fence must be released, not left "
+                            "orphaned" % uid)
+                run_row = store.get_run("p1", raw=True)
+                controller_fence = store.get(run_row["fence_uuid"])
+                self.assertNotEqual(
+                    controller_fence.state, "active",
+                    "the controller's own fence must also be released")
+
+
+class TestFault8RestartWithNewerWorkflowVersion(unittest.TestCase):
+    """A run is persisted at workflow_version=1, then resumed with the
+    engine reporting version 2. Invariant: resume does not repeat
+    completed work across a version change; a DONE unit whose definition
+    still matches is never re-run."""
+
+    def test_reuses_unchanged_units_skips_dropped_ones_never_reruns_done(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({
+                    "keep": _worker_result(claim="kept", artifacts=["a.py"]),
+                    "done_but_dropped": _worker_result(
+                        claim="finished before the redesign",
+                        artifacts=["b.py"]),
+                })
+                checker = FakeCheckRunner()
+                engine1 = _engine(store, worker, checker)
+                # "still_pending_dropped" has NO worker script: it must
+                # never be dispatched in this test, proving SKIPPED (not
+                # a crash from an unscripted unit_id) is what removes it.
+                run = _begin_and_plan(
+                    engine1, store, "p1",
+                    [_unit("keep", write_scope=["a.py"]),
+                     _unit("done_but_dropped", write_scope=["b.py"]),
+                     _unit("still_pending_dropped", write_scope=["c.py"],
+                          lane="never-selected"),
+                    ], workflow_version=1)
+                store.block_lane_units(run["run_id"], "never-selected",
+                                       _actor())
+                # Round 4 pairing law (DESIGN-round4 8.4): BLOCKED is a
+                # materialised view of an open founder step in the lane, so
+                # an unpaired block would be reversed by the reconcile on
+                # the next wave. Pair it, which is what block_lane_units'
+                # own docstring requires of every caller.
+                store.queue_human_step(
+                    "p1", "", "never-selected",
+                    "this lane is held for the founder in this test", "",
+                    [], "sess1", _actor())
+                engine1.step("p1")  # dispatches "keep" and "done_but_dropped"
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "keep")["status"],
+                    "DONE")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"],
+                             "done_but_dropped")["status"], "DONE")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"],
+                             "still_pending_dropped")["status"], "BLOCKED")
+                keep_checkpoint = _unit_row(
+                    store, run["run_id"], "keep")["checkpoint_ref"]
+
+                # Restart: a NEW engine reporting workflow_version=2,
+                # re-validates the graph with BOTH "done_but_dropped" and
+                # "still_pending_dropped" removed, and "keep" UNCHANGED
+                # (reused, never re-run).
+                worker2 = FakeWorker({})  # "keep" must never be re-dispatched
+                engine2 = _engine(store, worker2, checker)
+                engine2.plan("p1", run["run_id"],
+                             [_unit("keep", write_scope=["a.py"])])
+
+                keep_row = _unit_row(store, run["run_id"], "keep")
+                done_dropped_row = _unit_row(
+                    store, run["run_id"], "done_but_dropped")
+                pending_dropped_row = _unit_row(
+                    store, run["run_id"], "still_pending_dropped")
+                self.assertEqual(keep_row["status"], "DONE",
+                                 "unchanged definition: never re-run")
+                self.assertEqual(keep_row["checkpoint_ref"], keep_checkpoint)
+                self.assertEqual(
+                    done_dropped_row["status"], "DONE",
+                    "a unit that already completed real work is never "
+                    "retroactively marked SKIPPED just because a later "
+                    "re-plan no longer lists it; the work still happened")
+                self.assertEqual(
+                    pending_dropped_row["status"], "SKIPPED",
+                    "a unit that never ran is safely dropped from the "
+                    "graph when a redesign no longer needs it")
+                self.assertNotIn("keep", worker2.calls)
+
+                trace = engine2.run_to_completion("p1")
+                self.assertEqual(trace[-1]["state"], "DELIVERABLE_READY")
+                self.assertNotIn("keep", worker2.calls,
+                                 "resume across a version bump must not "
+                                 "repeat completed work")
+
+
+class TestFault9ProviderOutageThenRecovery(unittest.TestCase):
+    """FakeWorker returns 'unavailable' for two calls, then a real
+    result. Invariant: a transient boundary fault is recoverable and
+    idempotent."""
+
+    def test_dispatch_stays_open_across_the_outage_and_recovers_without_a_duplicate(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+
+                def scripted(n, brief):
+                    if n <= 2:
+                        return {"status": "unavailable"}
+                    return _worker_result(claim="recovered",
+                                          artifacts=["a.py"])
+
+                worker = FakeWorker({"u1": scripted})
+                checker = FakeCheckRunner()
+                engine = _engine(store, worker, checker)
+                run = _begin_and_plan(
+                    engine, store, "p1", [_unit("u1", write_scope=["a.py"])])
+
+                s1 = engine.step("p1")
+                # Round 4 law L2 (DESIGN-round4 3.2): the summary reports
+                # the state the store holds at return time. An outage moves
+                # the run to FAILED_RECOVERABLE in the store; the old
+                # EXECUTING here pinned the stale pre-funnel summary, which
+                # is SM E in miniature.
+                self.assertEqual(s1["state"], "FAILED_RECOVERABLE")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"],
+                    "DISPATCHED", "the dispatch stays open, not FAILED, "
+                                  "across a provider outage")
+                self.assertEqual(_dispatch_count(store, "u1"), 1)
+
+                s2 = engine.step("p1")
+                self.assertEqual(s2["state"], "FAILED_RECOVERABLE")
+                self.assertEqual(_dispatch_count(store, "u1"), 1,
+                                 "still no duplicate dispatch")
+
+                # Resume retries the SAME dispatch idempotently.
+                s3 = engine.step("p1")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "DONE")
+                self.assertEqual(_dispatch_count(store, "u1"), 1,
+                                 "recovery reused the ORIGINAL dispatch, "
+                                 "never opened a second one")
+                self.assertEqual(worker.calls["u1"], 3)
+
+
+class TestFault10RollbackItselfFails(unittest.TestCase):
+    """A unit is rejected; FakeCheckRunner returns exit!=0 for the
+    rollback command. Invariant: an unrecoverable dirty state is
+    surfaced, never papered over."""
+
+    def test_a_failed_rollback_reaches_failed_terminal_and_queues_a_founder_step(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({
+                    "u1": _worker_result(claim="claims done",
+                                         artifacts=["a.py"]),
+                })
+                checker = FakeCheckRunner({
+                    "true": {"exit_code": 1, "stdout": "", "stderr": "fail"},
+                    "git restore -- a.py": {"exit_code": 1, "stdout": "",
+                                            "stderr": "rollback failed"},
+                })
+                engine = _engine(store, worker, checker)
+                run = _begin_and_plan(
+                    engine, store, "p1", [_unit("u1", write_scope=["a.py"])])
+
+                engine.step("p1")
+
+                self.assertEqual(
+                    store.get_run("p1", raw=True)["state"],
+                    "FAILED_TERMINAL")
+                steps = store.list_human_steps("p1", resolved=False,
+                                               raw=True)
+                self.assertEqual(len(steps), 1)
+                self.assertIn("rollback", steps[0]["what"].lower())
+                # No further unit is dispatched from this run.
+                summary = engine.step("p1")
+                self.assertEqual(summary["dispatched"], [])
+                self.assertEqual(summary["note"], "run is terminal; "
+                                                   "nothing to do")
+
+
+# ---------------------------------------------------------------------------
+# Additional required-behaviours the design's section 5 coverage map
+# names but that are not one of the ten numbered faults above: the
+# self-approve/adversarial probe, the stale-heartbeat adoption test, and
+# the revoked-contract-mid-unit staleness re-read.
+# ---------------------------------------------------------------------------
+
+class TestExecutorCannotSelfApprove(unittest.TestCase):
+    """worker_claim says pass but the controller's OWN done-check says
+    fail: the controller must reject, proving the two-seam property
+    (executor cannot self-approve, design section 4)."""
+
+    def test_a_worker_that_lies_about_passing_is_caught_by_the_real_done_check(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({
+                    "u1": _worker_result(claim="all tests pass, trust me",
+                                         artifacts=["a.py"]),
+                })
+                checker = FakeCheckRunner({
+                    "true": {"exit_code": 1, "stdout": "", "stderr": ""},
+                })
+                engine = _engine(store, worker, checker)
+                run = _begin_and_plan(
+                    engine, store, "p1", [_unit("u1", write_scope=["a.py"])])
+                engine.step("p1")
+                row = _unit_row(store, run["run_id"], "u1")
+                self.assertNotEqual(
+                    row["status"], "DONE",
+                    "a worker's claim of success must never substitute "
+                    "for the controller's own independent done-check")
+                dispatch = store.list_dispatches("u1", raw=True)[0]
+                self.assertEqual(dispatch["status"], "REJECTED")
+                self.assertEqual(dispatch["done_check_exit"], 1)
+
+
+class TestRevokedContractMidUnit(unittest.TestCase):
+    """design step 13's staleness re-read: the contract is revoked
+    BETWEEN dispatch and verification. Invariant: the result is not
+    accepted under authorisation that no longer holds; the unit
+    re-queues."""
+
+    def test_a_revoke_between_dispatch_and_verification_re_queues_the_unit(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+
+                def scripted(n, brief):
+                    if n == 1:
+                        # Revoke the contract from INSIDE the worker call,
+                        # simulating "a revoke lands between check and
+                        # act": the dispatch already captured the OLD
+                        # revision; by the time record_result -> verify
+                        # runs, the live revision has moved.
+                        store.set_contract_state(
+                            "p1", "revoked", "khalil", "mid-unit revoke",
+                            "sess1", _actor())
+                    return _worker_result(claim="done", artifacts=["a.py"])
+
+                worker = FakeWorker({"u1": scripted})
+                checker = FakeCheckRunner()
+                engine = _engine(store, worker, checker)
+                run = _begin_and_plan(
+                    engine, store, "p1", [_unit("u1", write_scope=["a.py"])])
+                engine.step("p1")
+
+                row = _unit_row(store, run["run_id"], "u1")
+                self.assertNotEqual(
+                    row["status"], "DONE",
+                    "a result is never accepted under a contract "
+                    "revision that has already moved")
+                dispatch = store.list_dispatches("u1", raw=True)[0]
+                self.assertEqual(dispatch["status"], "REJECTED")
+                self.assertIn("stale", dispatch["verifier_verdict"])
+
+
+class TestHumanBlockedLaneDoesNotStallIndependentLane(unittest.TestCase):
+    """design U1 section 6 point 4: a lane behind a founder-gated step is
+    the ONLY thing that blocks; every other lane keeps running."""
+
+    def test_release_lane_blocked_while_docs_lane_completes(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({
+                    "docs": _worker_result(claim="wrote docs",
+                                           artifacts=["README.md"]),
+                })
+                checker = FakeCheckRunner()
+                engine = _engine(store, worker, checker)
+                run = _begin_and_plan(engine, store, "p1", [
+                    _unit("release_unit", write_scope=["dist/pkg.tar"],
+                         lane="release"),
+                    _unit("docs", write_scope=["README.md"], lane="docs"),
+                ])
+                store.block_lane_units(run["run_id"], "release", _actor())
+                store.queue_human_step(
+                    "p1", "publish-release", "release",
+                    "click publish in the dashboard", "", [], "sess1",
+                    _actor())
+
+                trace = engine.run_to_completion("p1")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "docs")["status"],
+                    "DONE", "the docs lane completed independently")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"],
+                             "release_unit")["status"], "BLOCKED")
+                self.assertNotIn("release_unit", worker.calls)
+
+
+class TestDuplicateControllerAndStaleHeartbeatAdoption(unittest.TestCase):
+    """design section 8: a second controller for the same project hits
+    the fence's own name-active refusal for free (no new lock);
+    ControllerEngine.begin() adds nothing on top, it simply lets that
+    refusal surface. The SEPARATE adoption primitive (transition(...,
+    'adopted', adopt_from_live_session=...)) is the store's own, reused
+    verbatim; WHEN to use it is a policy decision for whoever calls
+    begin() (a founder, or a future CLI), made by comparing
+    recent_checkpoints(project_id, limit=1) against a staleness
+    threshold. transition() itself does not consult heartbeat freshness
+    at all: it only distinguishes "the current holder is the same
+    session" from "it is a different one", and for a different one,
+    always requires the explicit adopt_from_live_session=True regardless
+    of how fresh or stale that holder's last heartbeat was. This class
+    tests exactly that store-level gate, not an engine-level auto-
+    adoption flow ControllerEngine does not implement."""
+
+    def test_a_second_live_controller_refuses_name_active(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine1 = _engine(store, FakeWorker({}), FakeCheckRunner(),
+                                  controller_id="ctrl1")
+                engine1.begin("p1", "ship it", "echo done")
+
+                engine2 = _engine(store, FakeWorker({}), FakeCheckRunner(),
+                                  controller_id="ctrl2")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    engine2.begin("p1", "ship it", "echo done")
+                self.assertEqual(ctx.exception.reason, "name-active")
+
+    def test_a_founder_reading_a_stale_heartbeat_may_adopt_the_dead_controllers_fence(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine1 = _engine(store, FakeWorker({}), FakeCheckRunner(),
+                                  controller_id="ctrl1")
+                engine1.begin("p1", "ship it", "echo done")
+                # begin()'s own return value is {'run_id', 'state'} only
+                # (Store.open_run's documented shape); the fence_uuid
+                # lives on the persisted run row.
+                fence_uuid = store.get_run("p1", raw=True)["fence_uuid"]
+                rec = store.get(fence_uuid)
+
+                # The policy decision a founder (or a future CLI) makes
+                # BEFORE calling transition(..., 'adopted', ...): read the
+                # most recent heartbeat and compare it against a
+                # staleness threshold. No fresh checkpoint has been
+                # recorded since begin(), so by any reasonable threshold
+                # this controller already reads as silent.
+                last_beat = store.recent_checkpoints("p1", limit=1)
+                self.assertEqual(len(last_beat), 0,
+                                 "begin() itself records no heartbeat; "
+                                 "the first one is step()'s own job "
+                                 "(design step 7), so a controller that "
+                                 "crashed before its first step has NO "
+                                 "checkpoint at all, the most silent "
+                                 "case there is")
+
+                # A fresh, live session: adoption without the explicit
+                # flag is refused regardless of heartbeat staleness,
+                # because transition() does not consult heartbeats at
+                # all; the flag is what a caller passes AFTER making that
+                # judgement itself.
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.transition(fence_uuid, rec.version, "adopted",
+                                     session_id="rescuer-session")
+                self.assertEqual(ctx.exception.reason,
+                                 "live-session-adopt-blocked")
+
+                # With the explicit displace flag, a second controller
+                # may adopt it.
+                adopted = store.transition(
+                    fence_uuid, rec.version, "adopted",
+                    session_id="rescuer-session",
+                    adopt_from_live_session=True)
+                self.assertEqual(adopted.state, "adopted")
+
+
+# ---------------------------------------------------------------------------
+# The four findings an independent security refuter raised against this
+# loop (report R-L03-security, 2026-08-05), each reproduced here as the
+# scenario that broke before the fix. Three of the four live on the
+# PRODUCTION async path (receive_result, which `bm-controller
+# record-result` wraps) or in the dispatch gate; the ten fault tests above
+# only ever reached those code paths through the SYNCHRONOUS FakeWorker,
+# which is exactly the gap the refuter walked through.
+# ---------------------------------------------------------------------------
+
+def _park_one_async_unit(test, store, checker, units=None, worker=None,
+                         unit_ids=("u1",)):
+    """Drive one wave through a worker that always parks (precisely what
+    the production RecordIntentWorker does: it prints the brief and
+    returns 'pending'), leaving the run in EXECUTING with an open
+    dispatch, so the test can deliver the result OUT OF BAND through
+    receive_result() the way the CLI does. Returns
+    (engine, run, {unit_id: dispatch_id})."""
+    units = units or [_unit("u1", write_scope=["a.py"])]
+    worker = worker or FakeWorker(
+        {u["unit_id"]: _worker_result(status="pending") for u in units})
+    engine = _engine(store, worker, checker)
+    run = _begin_and_plan(engine, store, "p1", units)
+    summary = engine.step("p1")
+    test.assertEqual(sorted(summary["dispatched"]), sorted(unit_ids))
+    test.assertEqual(store.get_run("p1", raw=True)["state"], "EXECUTING",
+                     "the async worker parks the run in EXECUTING, which "
+                     "is the state receive_result() is called against")
+    dispatch_ids = {uid: store.list_dispatches(uid, raw=True)[0]["dispatch_id"]
+                    for uid in unit_ids}
+    return engine, run, dispatch_ids
+
+
+class TestF1AsyncRejectWhoseRollbackAlsoFails(unittest.TestCase):
+    """R-L03-security F1 (HIGH, safety). Fault 10 on the PRODUCTION path:
+    a result arriving through receive_result() is rejected AND its
+    rollback command also fails. The async path must walk the same states
+    as the synchronous one (EXECUTING -> VERIFYING the moment the result
+    is recorded, design step 10), because FAILED_TERMINAL is legal only
+    from VERIFYING or FAILED_RECOVERABLE. Without that walk the store
+    refuses the move and the call aborts BEFORE the founder is warned
+    about the dirty write scope and BEFORE the fence is released, leaving
+    the run EXECUTING, holding a fence, and free to re-dispatch the unit."""
+
+    def test_it_reaches_failed_terminal_warns_the_founder_and_releases_the_fence(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                checker = FakeCheckRunner({
+                    "true": {"exit_code": 1, "stdout": "", "stderr": "fail"},
+                    "git restore -- a.py": {"exit_code": 1, "stdout": "",
+                                            "stderr": "rollback failed"},
+                })
+                engine, run, dispatch_ids = _park_one_async_unit(
+                    self, store, checker)
+                fence_uuid = _unit_row(store, run["run_id"],
+                                       "u1")["fence_uuid"]
+                self.assertEqual(store.get(fence_uuid).state, "active")
+
+                outcome = engine.receive_result(
+                    "p1", dispatch_ids["u1"], "claims done", ["a.py"],
+                    cost={"tokens": 1, "minutes": 1})
+
+                self.assertEqual(outcome, "rejected")
+                self.assertEqual(
+                    store.get_run("p1", raw=True)["state"], "FAILED_TERMINAL",
+                    "a failed rollback is an unrecoverable dirty state and "
+                    "must halt the run on the async path exactly as it does "
+                    "on the synchronous one")
+                steps = store.list_human_steps("p1", resolved=False, raw=True)
+                self.assertEqual(len(steps), 1,
+                                 "the founder is warned exactly once about "
+                                 "the dirty write scope")
+                self.assertIn("rollback", steps[0]["what"].lower())
+                self.assertIn("dirty", steps[0]["what"].lower())
+                self.assertNotEqual(
+                    store.get(fence_uuid).state, "active",
+                    "the unit's fence is released, never left held by a "
+                    "run that has already halted")
+
+                # No further unit is dispatched from this run.
+                summary = engine.step("p1")
+                self.assertEqual(summary["dispatched"], [])
+                self.assertEqual(summary["note"],
+                                 "run is terminal; nothing to do")
+                self.assertEqual(_dispatch_count(store, "u1"), 1,
+                                 "the unit is never re-dispatched after the "
+                                 "failed rollback")
+
+
+class TestF2EveryWriteScopePathIsGateChecked(unittest.TestCase):
+    """R-L03-security F2 (HIGH, authorization). The dispatch precondition
+    (design line 163) is "gate_check ALLOWED for the chosen unit's
+    risk_class AND write_scope", the WHOLE scope. Checking only
+    write_scope[0] hands the worker a brief authorising every further
+    path in the list, and the fence claim and the brief both carry the
+    full list, so a forbidden second path escapes the contract's
+    allowed_paths with no after-the-fact net (it is INSIDE the unit's own
+    write_scope, so bm_bash_audit sees nothing anomalous)."""
+
+    def test_a_forbidden_second_write_path_refuses_the_whole_unit(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["src"])
+                worker = FakeWorker({"u1": _worker_result()})
+                engine = _engine(store, worker, FakeCheckRunner())
+                run = _begin_and_plan(engine, store, "p1", [
+                    _unit("u1", write_scope=["src/a.py",
+                                             "secrets/prod.env"]),
+                ])
+                self.assertEqual(
+                    store.gate_check("p1", "file-create",
+                                     path="secrets/prod.env")["verdict"],
+                    "REFUSED-SCOPE",
+                    "fixture sanity: the second path is refused on its own")
+
+                summary = engine.step("p1")
+
+                self.assertEqual(summary["dispatched"], [],
+                                 "a unit is dispatched only when EVERY path "
+                                 "in its write_scope is authorised")
+                self.assertEqual(worker.calls, {},
+                                 "no brief authorising the forbidden path is "
+                                 "ever handed to a worker")
+                self.assertEqual(_dispatch_count(store, "u1"), 0)
+                row = _unit_row(store, run["run_id"], "u1")
+                self.assertEqual(row["status"], "READY",
+                                 "the refusal routes through the SAME "
+                                 "circuit breaker a single-path refusal "
+                                 "uses (mark_unit_failed), not the drain")
+                self.assertEqual(row["retry_count"], 1)
+                self.assertNotEqual(
+                    store.get_run("p1", raw=True)["state"], "STOPPED",
+                    "REFUSED-SCOPE is an authorisation gap for THIS unit, "
+                    "never a whole-run drain")
+
+                # Second wave: the breaker escalates, and the escalation
+                # names the path that earned the refusal.
+                engine.step("p1")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "FAILED")
+                questions = [i["question"] for i in
+                             store.list_interruptions("p1", raw=True)]
+                self.assertTrue(
+                    any("secrets/prod.env" in q for q in questions),
+                    "the refusal reason must name the forbidden path, not "
+                    "just the unit: %r" % (questions,))
+
+    def test_a_unit_whose_paths_are_all_authorised_still_dispatches(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["src"])
+                worker = FakeWorker({
+                    "u1": _worker_result(claim="wrote both",
+                                         artifacts=["src/a.py", "src/b.py"]),
+                })
+                engine = _engine(store, worker, FakeCheckRunner())
+                run = _begin_and_plan(engine, store, "p1", [
+                    _unit("u1", write_scope=["src/a.py", "src/b.py"]),
+                ])
+
+                summary = engine.step("p1")
+
+                self.assertEqual(summary["dispatched"], ["u1"],
+                                 "no regression: a multi-path unit entirely "
+                                 "inside allowed_paths still dispatches")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "DONE")
+
+    def test_an_empty_write_scope_still_gate_checks_the_risk_class_alone(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, risk_classes=["file-create"])
+                worker = FakeWorker({"u1": _worker_result()})
+                engine = _engine(store, worker, FakeCheckRunner())
+                run = _begin_and_plan(engine, store, "p1", [
+                    _unit("u1", write_scope=[], risk_class="local-commit"),
+                ])
+
+                summary = engine.step("p1")
+
+                self.assertEqual(
+                    summary["dispatched"], [],
+                    "a unit with no write path at all is still gate-checked "
+                    "on its risk class, so an ungranted class never "
+                    "dispatches just because there is no path to check")
+                self.assertEqual(worker.calls, {})
+                engine.step("p1")
+                questions = [i["question"] for i in
+                             store.list_interruptions("p1", raw=True)]
+                self.assertTrue(
+                    any("local-commit" in q for q in questions),
+                    "the escalation names the ungranted risk class: %r"
+                    % (questions,))
+
+
+class TestF3AsyncSpendAfterARevoke(unittest.TestCase):
+    """R-L03-security F3 (MEDIUM, robustness). A revoke landing between
+    dispatch and record-result must SKIP spend bookkeeping, never crash
+    the whole result-handling path: record_spend refuses on a non-live
+    contract, and the synchronous path already guards for it. The
+    REJECTION of the now-stale result still happens where the design puts
+    it, at the revision comparison (step 13)."""
+
+    def test_no_exception_escapes_spend_is_skipped_and_the_result_is_rejected_as_stale(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine, run, dispatch_ids = _park_one_async_unit(
+                    self, store, FakeCheckRunner())
+                store.set_contract_state("p1", "revoked", "khalil",
+                                         "founder revoke mid-unit", "sess1",
+                                         _actor())
+
+                try:
+                    outcome = engine.receive_result(
+                        "p1", dispatch_ids["u1"], "done", ["a.py"],
+                        cost={"tokens": 9, "minutes": 2})
+                except Exception as exc:  # pragma: no cover, the assertion
+                    self.fail("a revoke between dispatch and record-result "
+                             "crashed the result-handling path: %r" % (exc,))
+
+                self.assertEqual(outcome, "rejected")
+                self.assertEqual(
+                    store.spend_totals("p1")["tokens"], 0,
+                    "spend bookkeeping is SKIPPED against an authorisation "
+                    "that no longer exists, never recorded and never "
+                    "crashed")
+                dispatch = store.list_dispatches("u1", raw=True)[0]
+                self.assertEqual(dispatch["status"], "REJECTED")
+                self.assertIn(
+                    "stale", dispatch["verifier_verdict"],
+                    "the rejection happens at the revision comparison, "
+                    "which is where the design puts it")
+                row = _unit_row(store, run["run_id"], "u1")
+                self.assertEqual(row["status"], "READY")
+                self.assertEqual(row["retry_count"], 1)
+
+                # The documented next state: the run drains on the next
+                # pass, because the contract is no longer live.
+                summary = engine.step("p1")
+                self.assertEqual(summary["state"], "STOPPED")
+                self.assertEqual(summary["dispatched"], [])
+
+
+class TestF4DependentOfAFailedUnitDoesNotStallTheRun(unittest.TestCase):
+    """R-L03-security F4 (LOW). A unit whose dependency reached FAILED can
+    never be selected again, so a run holding one used to sit in
+    CHECKPOINTED forever: no delivery, no terminal state, and
+    run_to_completion burning every one of its max_steps. The dependent
+    unit is instead BLOCKED behind a founder step naming the failed
+    dependency, which is the design's own pairing (step 18:
+    queue_human_step plus block_lane_units, and WAITING_HUMAN once the
+    blocked lanes are the ONLY remaining work)."""
+
+    def test_a_chain_whose_first_unit_exhausts_its_breaker_reaches_waiting_human(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({
+                    "u1": _worker_result(claim="claims done",
+                                         artifacts=["a.py"]),
+                    "u2": _worker_result(claim="never runs", artifacts=[]),
+                })
+                checker = FakeCheckRunner({
+                    "check-u1": {"exit_code": 1, "stdout": "",
+                                 "stderr": "u1 never passes"},
+                })
+                engine = _engine(store, worker, checker)
+                run = _begin_and_plan(engine, store, "p1", [
+                    _unit("u1", write_scope=["a.py"], done_check="check-u1"),
+                    _unit("u2", dependencies=["u1"], read_scope=["a.py"],
+                         write_scope=["b.py"], done_check="check-u2"),
+                ])
+
+                trace = engine.run_to_completion("p1", max_steps=12)
+
+                self.assertLess(
+                    len(trace), 12,
+                    "run_to_completion must RETURN, not spin through every "
+                    "one of its max_steps with nothing selectable")
+                self.assertIn(
+                    trace[-1]["state"],
+                    frozenset(bc._TERMINAL_STATES | {"WAITING_HUMAN"}),
+                    "a run whose remaining work is unreachable resolves to a "
+                    "terminal state or WAITING_HUMAN, never rests in "
+                    "CHECKPOINTED: %r" % (trace[-1],))
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "FAILED")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u2")["status"], "BLOCKED",
+                    "the dependent unit is itself marked, not left PENDING "
+                    "on a dependency that can never become DONE")
+                self.assertEqual(worker.calls.get("u2"), None,
+                                 "the dependent unit is never dispatched")
+                reasons = [s["what"] for s in
+                           store.list_human_steps("p1", resolved=False,
+                                                  raw=True)
+                           if "u2" in s["what"]]
+                self.assertTrue(
+                    reasons, "the founder is told WHICH unit cannot run")
+                self.assertTrue(
+                    any("u1" in r for r in reasons),
+                    "the reason names the failed dependency: %r" % (reasons,))
+
+    def test_a_transitively_blocked_unit_is_told_which_unit_actually_failed(self):
+        """The unit two hops downstream waits on a unit that is itself
+        only BLOCKED, never attempted. Its founder step must name the
+        FAILED unit at the end of the chain and must not call the middle
+        unit failed, which would be a false statement about work that
+        never ran."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({
+                    "u1": _worker_result(claim="claims done",
+                                         artifacts=["a.py"]),
+                })
+                checker = FakeCheckRunner({
+                    "check-u1": {"exit_code": 1, "stdout": "",
+                                 "stderr": "u1 never passes"},
+                })
+                engine = _engine(store, worker, checker)
+                run = _begin_and_plan(engine, store, "p1", [
+                    _unit("u1", write_scope=["a.py"], done_check="check-u1"),
+                    _unit("u2", dependencies=["u1"], write_scope=["b.py"]),
+                    _unit("u3", dependencies=["u2"], write_scope=["c.py"]),
+                ])
+
+                trace = engine.run_to_completion("p1", max_steps=12)
+
+                self.assertEqual(trace[-1]["state"], "WAITING_HUMAN")
+                for uid in ("u2", "u3"):
+                    self.assertEqual(
+                        _unit_row(store, run["run_id"], uid)["status"],
+                        "BLOCKED")
+                steps = {}
+                for s in store.list_human_steps("p1", resolved=False,
+                                                raw=True):
+                    for uid in ("u2", "u3"):
+                        if s["what"].startswith("unit %s " % uid):
+                            steps[uid] = s["what"]
+                self.assertEqual(sorted(steps), ["u2", "u3"],
+                                 "each unreachable unit gets its own step")
+                self.assertIn("u1", steps["u3"],
+                              "the two-hop unit is told which unit actually "
+                              "FAILED: %r" % (steps["u3"],))
+                self.assertNotIn(
+                    "unit u2, which reached FAILED", steps["u3"],
+                    "u2 was never attempted; calling it failed would be a "
+                    "false statement to the founder: %r" % (steps["u3"],))
+
+
+# ---------------------------------------------------------------------------
+# ROUND 3: the reproductions a SECOND adversarial pass raised against the
+# F1 to F4 fixes above (report docs/program/absolute-lead/evidence/L03/
+# REFUTATION-2-fixes.md, 2026-08-05). Each test below is one of that
+# report's own probe sequences, restated as a permanent regression test.
+# Every one of them FAILED on the tree that report attacked, which is what
+# makes it evidence rather than a restatement of the fix.
+# ---------------------------------------------------------------------------
+
+def _move_run_along_legal_edges(store, run, states):
+    """Walk the run through `states` using set_run_state, which refuses any
+    move CONTROLLER_STATE_TRANSITIONS does not allow. This is how the
+    refuter's own state matrix reached each row: the question under test is
+    what receive_result does FROM that state, never whether the state was
+    reachable by an illegal move."""
+    for state in states:
+        store.set_run_state(run["run_id"], state, _actor(),
+                            "state matrix probe", "sess1")
+
+
+class _StraddlingStore(object):
+    """A delegating Store wrapper that fires ONE concurrent contract amend
+    immediately after the Nth gate_check call returns, which is exactly
+    what a second process running against the same SQLite file does when
+    its `bm-autonomy sign --supersede` lands between two of the per-path
+    gate_check calls _gate_check_write_scope makes. Everything except
+    gate_check is delegated untouched, so the engine under test is the
+    real one against a real store."""
+
+    def __init__(self, store, amend_after):
+        self._store = store
+        self._amend_after = dict(amend_after)
+        self.gate_check_calls = []
+
+    def __getattr__(self, name):
+        return getattr(self._store, name)
+
+    def gate_check(self, project_id, action_class, path=None, surface=None):
+        verdict = self._store.gate_check(project_id, action_class,
+                                         path=path, surface=surface)
+        self.gate_check_calls.append((path, verdict["verdict"],
+                                      verdict["revision"]))
+        amend = self._amend_after.pop(len(self.gate_check_calls), None)
+        if amend is not None:
+            amend(self._store)
+        return verdict
+
+
+def _amend_allowed_paths(allowed_paths):
+    """A concurrent writer's supersede amend, narrowing allowed_paths."""
+    def _fire(store):
+        store.sign_contract(
+            "p1", "ship the widget", "the done-definition passes",
+            allowed_paths, [],
+            ["file-create", "file-edit", "file-move", "build", "test-run",
+             "local-commit", "read-only-inspect"],
+            None, None, "Khalil Maaouni", "sess1", _actor(), supersede=True)
+    return _fire
+
+
+class TestR2F1LateResultOnARunStateThatCannotReachVerifying(unittest.TestCase):
+    """REFUTATION-2 F1. The F1 fix walks CHECKPOINTED and WAITING_HUMAN to
+    EXECUTING and leaves four run states in which the original defect
+    reproduces verbatim: STOPPED, STOPPING, PAUSED and DELIVERABLE_READY.
+    A result arriving for a run in one of those is a REAL situation (a
+    founder stop, a re-plan that delivered), not a state-machine accident,
+    so receive_result must handle it explicitly: no OwnershipRefused
+    escapes, the founder is warned when the rollback left the write scope
+    dirty, the fence is parked, an interruption names the late result, the
+    run state is left exactly where it was, and a terminal or delivered
+    run never gains newly selectable work."""
+
+    _DIRTY = {"true": {"exit_code": 1, "stdout": "", "stderr": "fail"},
+              "git restore -- a.py": {"exit_code": 1, "stdout": "",
+                                      "stderr": "rollback failed"}}
+
+    def _assert_late_result_handled(self, store, run, fence_uuid, state):
+        self.assertEqual(store.get_run("p1", raw=True)["state"], state,
+                         "a late result never moves the run state")
+        steps = [s["what"] for s in
+                 store.list_human_steps("p1", resolved=False, raw=True)]
+        self.assertTrue(
+            any("rollback" in w.lower() and "dirty" in w.lower()
+                for w in steps),
+            "the founder is warned about the dirty write scope even when "
+            "no state move is legal: %r" % (steps,))
+        self.assertNotEqual(store.get(fence_uuid).state, "active",
+                            "the unit fence is parked, never left held")
+        row = _unit_row(store, run["run_id"], "u1")
+        self.assertNotEqual(
+            row["status"], "READY",
+            "a run that is %s must never gain newly selectable work" % state)
+        self.assertEqual(store.select_ready_units(run["run_id"]), [],
+                         "nothing becomes selectable on a %s run" % state)
+        questions = [i["question"] for i in
+                     store.list_interruptions("p1", raw=True)]
+        self.assertTrue(
+            any("late result" in q and state in q for q in questions),
+            "an interruption names the late result and the run state: %r"
+            % (questions,))
+        # Added 2026-08-05 (DESIGN-round4 section 18.2). SM D: the founder
+        # step used to sit behind `if outcome['status'] != 'FAILED'`, and
+        # _record_interruption returns None on a contract that is not live,
+        # so a unit at its retry ceiling produced NO founder-visible record
+        # at all. An open step naming the unit now exists in EVERY case,
+        # below the ceiling and at it.
+        self.assertTrue(
+            any("u1" in w for w in steps),
+            "an open founder step names the unit in every case, not only "
+            "below the retry ceiling: %r" % (steps,))
+
+    def test_a_founder_stop_then_a_late_result_whose_rollback_also_fails(self):
+        """REFUTATION-2 F1 reproduction 1: three shipped CLI commands, no
+        contract move at all, so the staleness re-read cannot absorb it."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                checker = FakeCheckRunner(self._DIRTY)
+                engine, run, dispatch_ids = _park_one_async_unit(
+                    self, store, checker)
+                fence_uuid = _unit_row(store, run["run_id"],
+                                       "u1")["fence_uuid"]
+                engine.stop("p1", "founder requested stop")
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "STOPPED")
+
+                outcome = engine.receive_result(
+                    "p1", dispatch_ids["u1"], "claims done", ["a.py"],
+                    cost={"tokens": 1})
+
+                self.assertEqual(outcome, "rejected")
+                self._assert_late_result_handled(store, run, fence_uuid,
+                                                 "STOPPED")
+                self.assertEqual(
+                    store.list_dispatches("u1", raw=True)[0]["status"],
+                    "REJECTED", "the late result is recorded and rejected, "
+                                "never silently dropped")
+
+    def test_a_clean_rollback_on_a_stopped_run_still_requeues_nothing(self):
+        """REFUTATION-2 F1 reproduction 1, secondary observation: with a
+        CLEAN rollback the old code returned 'rejected' and re-queued the
+        unit to READY on an already terminal run."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                checker = FakeCheckRunner(
+                    {"true": {"exit_code": 1, "stdout": "", "stderr": "no"}})
+                engine, run, dispatch_ids = _park_one_async_unit(
+                    self, store, checker)
+                engine.stop("p1", "founder requested stop")
+
+                outcome = engine.receive_result(
+                    "p1", dispatch_ids["u1"], "claims done", ["a.py"])
+
+                self.assertEqual(outcome, "rejected")
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "STOPPED")
+                self.assertNotEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "READY",
+                    "a terminal run must not grow new selectable work")
+                self.assertEqual(store.select_ready_units(run["run_id"]), [])
+
+    # RETIRED on 2026-08-05 (round 4, orchestrator supersession, same
+    # pattern as the PAUSED row above per DESIGN-round4 18.1):
+    # test_a_late_result_on_deliverable_ready_never_dispatches_a_second_time
+    # asserted that a late result for a re-plan-dropped unit is REJECTED
+    # after the fact. Design section 8.1 closes that lifecycle one layer
+    # earlier: the drop CANCELS the open dispatch in the same transaction,
+    # and record_result refuses 'dispatch-cancelled', so the late answer is
+    # never processed at all (LV finding 4: processing it could resurrect
+    # the dropped unit to DONE). The property this test protected, a
+    # delivered run never re-dispatches the dropped unit, is pinned
+    # stronger by TestR3TheSkippedLifecycleClosesAtTheSource.
+    # test_a_result_for_a_cancelled_dispatch_refuses_instead_of_reviving_
+    # the_unit, which additionally asserts the founder's drop stands and no
+    # meter is charged.
+
+    def test_the_three_red_rows_of_the_state_matrix_never_raise(self):
+        """REFUTATION-2 F1's state matrix: DELIVERABLE_READY, PAUSED,
+        STOPPING and STOPPED all raised OwnershipRefused out of
+        receive_result, losing the founder warning and leaving the fence
+        ACTIVE. The contract is left alone throughout, so the staleness
+        branch cannot mask the state-walk question.
+
+        THE PAUSED ROW MOVED OUT on 2026-08-05, into
+        TestR3PausedIsAFounderOnlyGate's
+        test_a_result_arriving_on_a_paused_run_is_recorded_and_held
+        (DESIGN-round4 section 18.1). Every assertion it loses here (the
+        founder was warned about a dirty scope, the fence is parked, an
+        interruption names the late result) is a CONSEQUENCE OF REJECTING
+        the result, and rejecting a real answer because a founder pressed a
+        REVERSIBLE pause is the behaviour being removed, so asserting its
+        consequences would pin the defect. What replaces it is stronger on
+        the property this class exists to protect: the answer survives the
+        pause and is verified on its own merits after `bm-controller
+        resume`, instead of being rolled back on disk with a retry burned.
+        The other three rows stay verbatim, including the whole of
+        _assert_late_result_handled."""
+        red_rows = {
+            "DELIVERABLE_READY": ("VERIFYING", "CHECKPOINTED",
+                                  "DELIVERABLE_READY"),
+            "STOPPING": ("STOPPING",),
+            "STOPPED": ("STOPPING", "STOPPED"),
+        }
+        for state, edges in sorted(red_rows.items()):
+            with self.subTest(run_state=state):
+                with tempfile.TemporaryDirectory() as d:
+                    with bs.Store(d) as store:
+                        _seed(store)
+                        _sign(store)
+                        checker = FakeCheckRunner(self._DIRTY)
+                        engine, run, dispatch_ids = _park_one_async_unit(
+                            self, store, checker)
+                        fence_uuid = _unit_row(store, run["run_id"],
+                                               "u1")["fence_uuid"]
+                        _move_run_along_legal_edges(store, run, edges)
+
+                        outcome = engine.receive_result(
+                            "p1", dispatch_ids["u1"], "claims done",
+                            ["a.py"], cost={"tokens": 1})
+
+                        self.assertEqual(outcome, "rejected")
+                        self._assert_late_result_handled(
+                            store, run, fence_uuid, state)
+
+
+class TestR2F1CheckTimeoutsWalksTheSameStatesAsReceiveResult(unittest.TestCase):
+    """REFUTATION-2 F1, the sibling path the fix did not cover:
+    check_timeouts records a result and a verification and then rejects
+    with NO walk in between, so the same FAILED_TERMINAL move is attempted
+    from EXECUTING and every subsequent step() raises forever."""
+
+    def test_an_abandoned_dispatch_whose_rollback_fails_never_raises(self):
+        """REFUTATION-2 probe_f1b_timeouts.py."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                clock = {"now": bc._default_now()}
+                checker = FakeCheckRunner({
+                    "git restore -- a.py": {"exit_code": 1, "stdout": "",
+                                            "stderr": "rollback failed"}})
+                worker = FakeWorker({"u1": _worker_result(status="pending")})
+                engine = _engine(store, worker, checker,
+                                 dispatch_timeout_seconds=60,
+                                 now_fn=lambda: clock["now"])
+                run = _begin_and_plan(engine, store, "p1",
+                                      [_unit("u1", write_scope=["a.py"])])
+                engine.step("p1")
+                fence_uuid = _unit_row(store, run["run_id"],
+                                       "u1")["fence_uuid"]
+                clock["now"] = clock["now"] + datetime.timedelta(seconds=120)
+
+                abandoned = engine.check_timeouts("p1")
+
+                self.assertEqual(abandoned, ["u1"])
+                self.assertEqual(
+                    store.get_run("p1", raw=True)["state"], "FAILED_TERMINAL",
+                    "check_timeouts walks the run exactly as receive_result "
+                    "does, so the failed rollback reaches FAILED_TERMINAL "
+                    "instead of raising out of an illegal move")
+                steps = [s["what"] for s in store.list_human_steps(
+                    "p1", resolved=False, raw=True)]
+                self.assertTrue(any("rollback" in w.lower() for w in steps),
+                                "the founder is warned: %r" % (steps,))
+                self.assertNotEqual(store.get(fence_uuid).state, "active")
+                summary = engine.step("p1")
+                self.assertEqual(summary["note"],
+                                 "run is terminal; nothing to do")
+
+    def test_two_timeouts_exhaust_the_breaker_and_no_later_step_raises(self):
+        """REFUTATION-2 probe_f1c_deliver_from_executing.py: with a CLEAN
+        rollback the run used to stay wedged in EXECUTING, and every later
+        step() raised on _deliver_or_hold's converge-before-delivery, which
+        assumes READY is reachable from EXECUTING."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                clock = {"now": bc._default_now()}
+                worker = FakeWorker({"u1": _worker_result(status="pending")})
+                engine = _engine(store, worker, FakeCheckRunner(),
+                                 dispatch_timeout_seconds=60,
+                                 now_fn=lambda: clock["now"])
+                run = _begin_and_plan(engine, store, "p1",
+                                      [_unit("u1", write_scope=["a.py"])])
+                engine.step("p1")
+                clock["now"] = clock["now"] + datetime.timedelta(seconds=120)
+                self.assertEqual(engine.check_timeouts("p1"), ["u1"])
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["retry_count"], 1)
+                engine.step("p1")  # attempt 2, parks again
+                clock["now"] = clock["now"] + datetime.timedelta(seconds=120)
+                self.assertEqual(engine.check_timeouts("p1"), ["u1"])
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "FAILED",
+                    "the breaker is exhausted after the second abandonment")
+
+                summary = engine.step("p1")
+                trace = engine.run_to_completion("p1", max_steps=5)
+
+                legal_rest = frozenset(
+                    bc._TERMINAL_STATES
+                    | {"WAITING_HUMAN", "DELIVERABLE_READY"})
+                self.assertIn(
+                    summary["state"], legal_rest,
+                    "the step after an exhausted breaker ends in a legal "
+                    "terminal or founder-gated state, with zero exceptions")
+                self.assertIn(trace[-1]["state"], legal_rest)
+
+
+class TestR2F2TheRevisionEveryPathWasJudgedUnder(unittest.TestCase):
+    """REFUTATION-2 F2, the new hole the multi-path loop opened: the
+    dispatch was stamped with the LAST verdict's revision, so an amend
+    landing between two per-path gate_check calls left path 1 judged under
+    the OLD contract and the staleness protocol seeing no movement."""
+
+    def test_an_amend_straddling_the_per_path_loop_never_authorises_a_forbidden_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["docs", "src"])
+                wrapped = _StraddlingStore(
+                    store, {1: _amend_allowed_paths(["src"])})
+                worker = FakeWorker({"u1": _worker_result()})
+                engine = _engine(wrapped, worker, FakeCheckRunner())
+                run = _begin_and_plan(engine, wrapped, "p1", [
+                    _unit("u1", write_scope=["docs/x.md", "src/a.py"]),
+                ])
+
+                summary = engine.step("p1")
+
+                self.assertEqual(
+                    summary["dispatched"], [],
+                    "the whole per-path loop is re-run against the newer "
+                    "contract, which forbids docs/x.md: %r"
+                    % (wrapped.gate_check_calls,))
+                self.assertEqual(worker.calls, {})
+                self.assertEqual(_dispatch_count(store, "u1"), 0)
+                for dispatch in store.list_dispatches("u1", raw=True):
+                    self.assertEqual(
+                        dispatch["contract_revision"], 2,
+                        "a dispatch is stamped only with the revision EVERY "
+                        "path was actually judged under")
+
+    def test_a_revision_that_moves_twice_defers_the_unit_instead_of_failing_it(self):
+        """Contention, not a violation: two amends straddling both passes
+        mean nothing can be judged under one stable contract this wave, so
+        the unit is deferred (no drain, no retry burned, no dispatch)."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["docs", "src"])
+                wrapped = _StraddlingStore(store, {
+                    1: _amend_allowed_paths(["docs", "src"]),
+                    3: _amend_allowed_paths(["docs", "src"]),
+                })
+                worker = FakeWorker({"u1": _worker_result()})
+                engine = _engine(wrapped, worker, FakeCheckRunner())
+                run = _begin_and_plan(engine, wrapped, "p1", [
+                    _unit("u1", write_scope=["docs/x.md", "src/a.py"]),
+                ])
+
+                summary = engine.step("p1")
+
+                self.assertEqual(summary["dispatched"], [])
+                self.assertEqual(worker.calls, {})
+                row = _unit_row(store, run["run_id"], "u1")
+                self.assertEqual(row["status"], "READY",
+                                 "a deferred unit is tried again next wave")
+                self.assertEqual(row["retry_count"], 0,
+                                 "contention burns no retry: it is not an "
+                                 "authorisation gap for this unit")
+                self.assertNotEqual(store.get_run("p1", raw=True)["state"],
+                                    "STOPPED", "contention is never a drain")
+
+    def test_a_write_scope_that_is_the_parent_of_an_allowed_path_is_refused(self):
+        """REFUTATION-2 F2's second route: gate_check compared with the
+        SYMMETRIC paths_overlap, so declaring the PARENT of an allowed path
+        (or '.') passed, and the worker was handed a brief and a fence
+        covering every sibling the contract refuses by name."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["src/app"])
+                worker = FakeWorker({"u1": _worker_result()})
+                engine = _engine(store, worker, FakeCheckRunner())
+                run = _begin_and_plan(engine, store, "p1", [
+                    _unit("u1", write_scope=["src"]),
+                ])
+                self.assertEqual(
+                    store.gate_check("p1", "file-create",
+                                     path="src/secrets.env")["verdict"],
+                    "REFUSED-SCOPE",
+                    "fixture sanity: the sibling is refused by name")
+
+                summary = engine.step("p1")
+
+                self.assertEqual(
+                    summary["dispatched"], [],
+                    "a unit may not widen its way to a sibling the contract "
+                    "refuses by naming their common ancestor")
+                self.assertEqual(worker.calls, {})
+                self.assertEqual(_dispatch_count(store, "u1"), 0)
+
+
+class TestR2F4DeadDependenciesAndFounderGatedLanes(unittest.TestCase):
+    """REFUTATION-2 F4: the escalation recognised only a FAILED dependency
+    and judged the whole run by unit status alone, so a SKIPPED dependency
+    and any founder-gated lane still parked the run in CHECKPOINTED forever
+    and still burned every one of run_to_completion's max_steps."""
+
+    def test_a_skipped_dependency_is_as_dead_as_a_failed_one(self):
+        """REFUTATION-2 probe_f4c_skipped_dep.py: a re-plan drops u1, so
+        u2's dependency is SKIPPED and select_ready_units can never return
+        it again."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({
+                    "u0": _worker_result(claim="done", artifacts=["z.py"]),
+                })
+                engine = _engine(store, worker, FakeCheckRunner())
+                run = _begin_and_plan(engine, store, "p1", [
+                    _unit("u0", write_scope=["z.py"]),
+                    _unit("u1", write_scope=["a.py"]),
+                    _unit("u2", dependencies=["u1"], write_scope=["b.py"]),
+                ])
+                engine.plan("p1", run["run_id"], [
+                    _unit("u0", write_scope=["z.py"]),
+                    _unit("u2", dependencies=["u1"], write_scope=["b.py"]),
+                ])
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "SKIPPED")
+
+                trace = engine.run_to_completion("p1", max_steps=15)
+
+                self.assertLess(
+                    len(trace), 15,
+                    "run_to_completion must RETURN, not spin through every "
+                    "one of its max_steps with nothing selectable")
+                self.assertIn(
+                    trace[-1]["state"],
+                    frozenset(bc._TERMINAL_STATES | {"WAITING_HUMAN"}),
+                    "a run whose remainder waits on a SKIPPED unit resolves "
+                    "to a terminal state or WAITING_HUMAN: %r" % (trace[-1],))
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u2")["status"], "BLOCKED")
+                reasons = [s["what"] for s in store.list_human_steps(
+                    "p1", resolved=False, raw=True) if "u2" in s["what"]]
+                self.assertTrue(reasons,
+                                "the founder is told WHICH unit cannot run")
+                self.assertTrue(
+                    any("u1" in r and "SKIPPED" in r for r in reasons),
+                    "the escalation names the dead dependency AND its "
+                    "status: %r" % (reasons,))
+
+    def test_a_failed_dependency_plus_a_gated_lane_reaches_waiting_human(self):
+        """REFUTATION-2 probe_f4_stall.py case C: a unit whose LANE holds
+        an open human step is not selectable but keeps status READY, so the
+        whole-run judgement (every non-terminal unit BLOCKED) was false and
+        the run rested in CHECKPOINTED forever."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({
+                    "u1": _worker_result(claim="claims done",
+                                         artifacts=["a.py"]),
+                })
+                checker = FakeCheckRunner({
+                    "check-u1": {"exit_code": 1, "stdout": "",
+                                 "stderr": "u1 never passes"}})
+                engine = _engine(store, worker, checker)
+                run = _begin_and_plan(engine, store, "p1", [
+                    _unit("u1", write_scope=["a.py"], done_check="check-u1"),
+                    _unit("u2", dependencies=["u1"], write_scope=["b.py"]),
+                    _unit("g1", write_scope=["g.py"], lane="release"),
+                ])
+                store.queue_human_step(
+                    "p1", "publish-release", "release",
+                    "click publish in the dashboard", "", [], "sess1",
+                    _actor())
+
+                trace = engine.run_to_completion("p1", max_steps=20)
+
+                self.assertLess(len(trace), 20,
+                                "the run must not spin through max_steps")
+                self.assertEqual(trace[-1]["state"], "WAITING_HUMAN")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "FAILED")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u2")["status"], "BLOCKED")
+
+    def test_one_gated_lane_with_nothing_failed_also_reaches_waiting_human(self):
+        """REFUTATION-2 probe_f4_stall.py case D, the pre-existing shape:
+        a single founder-gated lane, nothing failed at all, still spun
+        run_to_completion through every step while resting in READY."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine = _engine(store, FakeWorker({}), FakeCheckRunner())
+                run = _begin_and_plan(engine, store, "p1", [
+                    _unit("g1", write_scope=["g.py"], lane="release"),
+                ])
+                store.queue_human_step(
+                    "p1", "publish-release", "release",
+                    "click publish in the dashboard", "", [], "sess1",
+                    _actor())
+
+                trace = engine.run_to_completion("p1", max_steps=20)
+
+                self.assertLess(len(trace), 20,
+                                "the run must not spin through max_steps")
+                self.assertEqual(trace[-1]["state"], "WAITING_HUMAN",
+                                 "a unit unselectable SOLELY because its "
+                                 "lane holds an open human step is "
+                                 "founder-waiting, not merely waiting")
+
+    def test_run_to_completion_returns_when_a_step_makes_no_progress(self):
+        """The belt-and-braces stop: a unit whose files are held by an
+        UNRELATED fence can never be claimed, so every wave dispatches
+        nothing, completes nothing and changes no state, with no dispatch
+        in flight to wait for.
+
+        THE ONE TEST IN THIS FILE THAT BUILDS ITS STORE FROM bc.bs, the
+        module tools/bm_controller.py ITSELF loaded, rather than from this
+        file's own independent load: it is the only test that exercises an
+        engine branch which CATCHES bs.OwnershipRefused (the fence-overlap
+        defer in _claim_and_dispatch), and the class-identity trap
+        tools/bm_project.py documents means a refusal raised by a second,
+        independent load of bm_store is a DIFFERENT class that branch can
+        never catch. In production there is exactly one loaded bm_store per
+        process, which is what bc.bs reproduces here."""
+        with tempfile.TemporaryDirectory() as d:
+            with bc.bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                store.claim(name="unrelated-holder", lifetime="persistent",
+                            files=["a.py"], objective="holds the same file",
+                            owner="someone-else", session_id="other-session")
+                engine = _engine(store, FakeWorker({}), FakeCheckRunner())
+                _begin_and_plan(engine, store, "p1",
+                                [_unit("u1", write_scope=["a.py"])])
+
+                trace = engine.run_to_completion("p1", max_steps=25)
+
+                self.assertLess(
+                    len(trace), 25,
+                    "a step that dispatches nothing, completes nothing, "
+                    "moves no state and waits on no open dispatch is a "
+                    "parked run, not a reason to burn 25 steps")
+
+
+
+# ---------------------------------------------------------------------------
+# ROUND 4: the findings a THIRD adversarial pass raised against the round-3
+# fixes above, across three independent lenses (reports
+# docs/program/absolute-lead/evidence/L03/REFUTATION-3-state-machine.md,
+# -authorization.md and -liveness.md, 2026-08-05), closed by
+# DESIGN-round4.md. Every class below is one of those reports' own probe
+# sequences restated as a permanent regression test, and every one of them
+# FAILED on the tree those reports attacked (evidence:
+# docs/program/absolute-lead/evidence/L03/RED-round4-controller.txt), which
+# is what makes each of them evidence rather than a restatement of a fix.
+# ---------------------------------------------------------------------------
+
+def _pause_the_run(store, run):
+    """Move a run to PAUSED the way the store's own table allows, so the
+    tests below ask what the ENGINE does from PAUSED rather than whether
+    PAUSED was reachable (the same discipline
+    _move_run_along_legal_edges states for the round-3 matrix)."""
+    store.set_run_state(run["run_id"], "PAUSED", _actor(),
+                        "founder paused the run", "sess1")
+
+
+def _resume_the_run(store, run):
+    """`bm-controller resume`'s own move (PAUSED to READY), performed the
+    way that command performs it: straight through set_run_state, never
+    through an engine method, because un-pausing is a founder action."""
+    store.set_run_state(run["run_id"], "READY", _actor(), "founder resume",
+                        "sess1")
+
+
+class TestR3PausedIsAFounderOnlyGate(unittest.TestCase):
+    """REFUTATION-3 SM findings A and B, and LV's own PAUSED rows. A run
+    the founder PAUSED is the founder's, and no engine path may dispatch,
+    judge, verify, deliver, abandon or un-pause it (DESIGN-round4 law L1).
+    Round 3 left every one of those reachable: _walk_to_executing is a
+    silent no-op from PAUSED so step() dispatched anyway (SM A, reproduced
+    through four shipped commands), _deliver_or_hold asked only whether
+    READY was a LEGAL move and so performed the founder's own resume edge
+    (SM B), check_timeouts abandoned a dispatch on a paused run, and plan()
+    un-paused it through upsert_units' PLANNING to READY flip."""
+
+    def test_a_paused_run_dispatches_nothing_under_a_live_contract(self):
+        """SM A, probes p08_cli_paused_dispatch.py and
+        p03_dispatch_from_paused.py: the contract is LIVE and the RUN is
+        PAUSED, which is exactly the state the founder is left in after
+        `bm-autonomy resume` without `bm-controller resume`."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({"u1": _worker_result()})
+                engine = _engine(store, worker, FakeCheckRunner())
+                run = _begin_and_plan(engine, store, "p1",
+                                      [_unit("u1", write_scope=["a.py"])])
+                _pause_the_run(store, run)
+
+                summary = engine.step("p1")
+
+                self.assertEqual(summary["dispatched"], [])
+                self.assertEqual(summary["state"], "PAUSED")
+                self.assertEqual(summary["stop_reason"], "FOUNDER_WAITING")
+                self.assertIn("resume", summary["note"])
+                self.assertEqual(worker.calls, {},
+                                 "no brief is handed to a worker from a "
+                                 "PAUSED run")
+                self.assertEqual(_dispatch_count(store, "u1"), 0)
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "READY",
+                    "nothing about the unit moved either: no claim, no "
+                    "fence, no dispatch row")
+
+    def test_a_paused_run_never_delivers_itself(self):
+        """SM B, probe p09_deliver_guard_and_spin.py part a: PAUSED to
+        READY is LEGAL, and it is precisely the founder-only edge
+        `bm-controller resume` exists to take, so legality was the wrong
+        question. Here every unit is terminal while the run is PAUSED,
+        which is the shape that reached _deliver_or_hold."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                checker = FakeCheckRunner(
+                    {"check-u1": {"exit_code": 1, "stdout": "",
+                                  "stderr": "never passes"}})
+                worker = FakeWorker({"u1": _worker_result()})
+                engine = _engine(store, worker, checker)
+                run = _begin_and_plan(
+                    engine, store, "p1",
+                    [_unit("u1", write_scope=["a.py"],
+                           done_check="check-u1")])
+                engine.step("p1")  # one rejection, one retry left
+                _pause_the_run(store, run)
+                # The founder's pause lands while the last unit is being
+                # judged; the breaker then exhausts, so nothing non-terminal
+                # remains and delivery is what round 3 attempted next.
+                store.mark_unit_failed("u1", _actor(), "ceiling reached")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "FAILED")
+
+                summary = engine.step("p1")
+
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "PAUSED",
+                                 "the engine never takes the founder's own "
+                                 "resume edge to deliver")
+                self.assertEqual(summary["state"], "PAUSED")
+                self.assertEqual(summary["stop_reason"], "FOUNDER_WAITING")
+                kinds = [c["kind"] for c in store.recent_checkpoints(
+                    "p1", limit=200, raw=True)]
+                self.assertNotIn("deliverable-ready", kinds,
+                                 "no deliverable-ready checkpoint is written "
+                                 "for a paused run: %r" % (kinds,))
+
+                _resume_the_run(store, run)
+                after = engine.step("p1")
+                self.assertEqual(after["state"], "DELIVERABLE_READY",
+                                 "the founder's own resume is what unlocks "
+                                 "delivery, and it still works")
+
+    def test_a_result_arriving_on_a_paused_run_is_recorded_and_held(self):
+        """SM A consequence 3 and DESIGN-round4 section 4.3. Round 3 routed
+        this to _handle_late_result, which recorded a rejected
+        verification, burned a retry, ran the founder's rollback command
+        against the filesystem and parked the fence: a real answer
+        destroyed because a founder pressed pause, which is reversible.
+        This test also carries the PAUSED row that used to live in
+        TestR2F1LateResultOnARunStateThatCannotReachVerifying's red_rows
+        (design section 18.1's supersession)."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                checker = FakeCheckRunner()
+                engine, run, dispatch_ids = _park_one_async_unit(
+                    self, store, checker)
+                fence_uuid = _unit_row(store, run["run_id"],
+                                       "u1")["fence_uuid"]
+                _pause_the_run(store, run)
+
+                outcome = engine.receive_result(
+                    "p1", dispatch_ids["u1"], "claims done", ["a.py"],
+                    cost={"tokens": 11, "minutes": 3})
+
+                self.assertEqual(outcome, "held")
+                self.assertEqual(
+                    store.list_dispatches("u1", raw=True)[0]["status"],
+                    "RESULT_IN",
+                    "the answer is durable: at-most-once recording still "
+                    "holds, nothing is judged")
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "PAUSED")
+                self.assertEqual(store.get(fence_uuid).state, "active",
+                                 "the fence is NOT parked: the unit is not "
+                                 "finished, it is waiting for the founder")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["retry_count"], 0,
+                    "a pause burns no retry")
+                self.assertEqual(
+                    [c for c in checker.calls if c.startswith("git restore")],
+                    [], "no rollback is run against the founder's files")
+                self.assertEqual(store.spend_totals("p1")["tokens"], 11,
+                                 "the meter is still charged for real work "
+                                 "(section 10.1's one spend rule)")
+
+                _resume_the_run(store, run)
+                summary = engine.step("p1")
+
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "DONE",
+                    "the held answer is judged on its own merits after the "
+                    "founder resumes: %r" % (summary,))
+
+    def test_check_timeouts_abandons_nothing_on_a_paused_run(self):
+        """Abandoning a dispatch records a result AND a rejected
+        verification AND runs the founder's rollback command, which is the
+        engine acting on a paused run by any reading."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                clock = {"now": bc._default_now()}
+                worker = FakeWorker({"u1": _worker_result(status="pending")})
+                engine = _engine(store, worker, FakeCheckRunner(),
+                                 dispatch_timeout_seconds=60,
+                                 now_fn=lambda: clock["now"])
+                run = _begin_and_plan(engine, store, "p1",
+                                      [_unit("u1", write_scope=["a.py"])])
+                engine.step("p1")
+                fence_uuid = _unit_row(store, run["run_id"],
+                                       "u1")["fence_uuid"]
+                clock["now"] = clock["now"] + datetime.timedelta(seconds=120)
+                _pause_the_run(store, run)
+
+                self.assertEqual(engine.check_timeouts("p1"), [])
+
+                self.assertEqual(
+                    store.list_dispatches("u1", raw=True)[0]["status"],
+                    "DISPATCHED", "the dispatch stays open across a pause")
+                self.assertEqual(store.get(fence_uuid).state, "active")
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "PAUSED")
+
+    def test_plan_refuses_run_paused_instead_of_un_pausing_the_run(self):
+        """upsert_units always flips a run to READY and PAUSED to READY is
+        legal, so `bm-controller plan` un-paused a paused run as a side
+        effect of writing a unit graph.
+
+        The refusal is asserted against bc.bs.OwnershipRefused, the class
+        tools/bm_controller.py itself loaded, never this file's own
+        independent load: the class-identity trap tools/bm_project.py
+        documents applies to a caller CATCHING a refusal exactly as it
+        applies to an engine branch catching one."""
+        with tempfile.TemporaryDirectory() as d:
+            with bc.bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine = _engine(store, FakeWorker({}), FakeCheckRunner())
+                run = _begin_and_plan(engine, store, "p1",
+                                      [_unit("u1", write_scope=["a.py"])])
+                _pause_the_run(store, run)
+
+                with self.assertRaises(bc.bs.OwnershipRefused) as caught:
+                    engine.plan("p1", run["run_id"],
+                                [_unit("u1", write_scope=["a.py"]),
+                                 _unit("u2", write_scope=["b.py"])])
+
+                self.assertEqual(caught.exception.reason, "run-paused")
+                self.assertIn("resume", str(caught.exception))
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "PAUSED")
+                self.assertIsNone(
+                    _unit_row(store, run["run_id"], "u2"),
+                    "nothing was written: the refusal precedes upsert_units")
+
+    def test_run_to_completion_stops_on_the_first_step_of_a_paused_run(self):
+        """One guard, checked once: run_to_completion needs no PAUSED
+        branch of its own because its first step() reports FOUNDER_WAITING
+        and the ONE stop predicate reads it."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({"u1": _worker_result()})
+                engine = _engine(store, worker, FakeCheckRunner())
+                run = _begin_and_plan(engine, store, "p1",
+                                      [_unit("u1", write_scope=["a.py"])])
+                _pause_the_run(store, run)
+
+                trace = engine.run_to_completion("p1", max_steps=10)
+
+                self.assertEqual(len(trace), 1)
+                self.assertEqual(trace[0]["stop_reason"], "FOUNDER_WAITING")
+                self.assertEqual(worker.calls, {})
+
+
+class TestR3TheSummaryStateIsTheStoreState(unittest.TestCase):
+    """REFUTATION-3 SM E and LV 3. _handle_no_ready_units wrote
+    summary['state'] = 'WAITING_HUMAN' unconditionally while the store move
+    beside it was guarded, and step() returned that summary to the caller
+    with no re-read, so `bm-controller step --json` printed one state and
+    `bm-controller status` printed another a second later. The same lie was
+    load bearing: run_to_completion stopped on the state the SUMMARY
+    claimed."""
+
+    def _drive_and_compare(self, engine, store, project_id, steps):
+        summary = None
+        for _ in range(steps):
+            summary = engine.step(project_id)
+            self.assertEqual(
+                summary["state"],
+                store.get_run(project_id, raw=True)["state"],
+                "every summary state is a store read at return time: %r"
+                % (summary,))
+            if summary.get("stop_reason") is not None:
+                return summary
+        return summary
+
+    def test_a_founder_gated_remainder_reports_the_state_the_store_holds(self):
+        """LV p11 and SM p07 case 4: a run wedged in EXECUTING whose only
+        remaining unit sits behind an open founder step. WAITING_HUMAN is
+        not legal from EXECUTING, so the store move never happened and the
+        summary said it did."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine = _engine(store, FakeWorker({}), FakeCheckRunner())
+                run = _begin_and_plan(
+                    engine, store, "p1",
+                    [_unit("u1", write_scope=["a.py"], lane="release")])
+                store.queue_human_step(
+                    "p1", "publish-release", "release",
+                    "click publish in the dashboard", "", [], "sess1",
+                    _actor())
+                _move_run_along_legal_edges(store, run, ("EXECUTING",))
+
+                summary = engine.step("p1")
+
+                self.assertEqual(summary["state"],
+                                 store.get_run("p1", raw=True)["state"],
+                                 "the summary never says anything the store "
+                                 "does not hold: %r" % (summary,))
+                self.assertEqual(summary["stop_reason"], "FOUNDER_WAITING")
+
+    def test_every_summary_of_a_driven_trace_matches_the_store(self):
+        """The whole trajectory, not one row: a multi-wave run driven step
+        by step, with the store read back after every single call.
+
+        A CONTROL, and stated as one: it is GREEN on the untouched tree
+        too, because the mismatch SM E found lives only on the
+        founder-waiting branch. It exists so the one exit funnel cannot buy
+        its honesty on that branch by breaking the ordinary one."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({
+                    "u1": _worker_result(artifacts=["a.py"]),
+                    "u2": _worker_result(artifacts=["b.py"]),
+                })
+                engine = _engine(store, worker, FakeCheckRunner())
+                _begin_and_plan(engine, store, "p1", [
+                    _unit("u1", write_scope=["a.py"]),
+                    _unit("u2", dependencies=["u1"], write_scope=["b.py"]),
+                ])
+
+                self._drive_and_compare(engine, store, "p1", 6)
+
+    def test_run_to_completion_stops_on_a_state_the_store_actually_holds(self):
+        """SM E's load-bearing half: the loop terminated because of a state
+        the run was not in."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine = _engine(store, FakeWorker({}), FakeCheckRunner())
+                run = _begin_and_plan(
+                    engine, store, "p1",
+                    [_unit("u1", write_scope=["a.py"], lane="release")])
+                store.queue_human_step(
+                    "p1", "publish-release", "release",
+                    "click publish in the dashboard", "", [], "sess1",
+                    _actor())
+                _move_run_along_legal_edges(store, run, ("EXECUTING",))
+
+                trace = engine.run_to_completion("p1", max_steps=8)
+
+                self.assertEqual(trace[-1]["state"],
+                                 store.get_run("p1", raw=True)["state"])
+                self.assertLess(len(trace), 8)
+
+
+class TestR3StopReasonDrivesEveryLoopDriver(unittest.TestCase):
+    """REFUTATION-3 LV 5 and LV 6, and SM J. Round 3's stop read a NOTE
+    STRING, so three zero-progress shapes it did not enumerate spun through
+    every max_steps (the soft spend stop, a failing done-definition
+    re-running the founder's whole suite once per wasted step, and the
+    ORDINARY async park the production RecordIntentWorker always produces),
+    while the two shapes it DID cover were transient contention it then
+    described to the founder as 'parked until a founder acts'. Control flow
+    now reads an enum and never the prose (law L3)."""
+
+    def test_the_soft_spend_stop_parks_in_one_step(self):
+        """LV p1 and FIX-round3 residual 4: 12 of 12 steps, every one
+        identical."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, token_ceiling=10)
+                worker = FakeWorker({
+                    "u1": _worker_result(artifacts=["a.py"], tokens=9,
+                                         minutes=0),
+                    "u2": _worker_result(artifacts=["b.py"]),
+                })
+                engine = _engine(store, worker, FakeCheckRunner())
+                _begin_and_plan(engine, store, "p1", [
+                    _unit("u1", write_scope=["a.py"]),
+                    _unit("u2", dependencies=["u1"], write_scope=["b.py"]),
+                ])
+                engine.step("p1")
+                self.assertEqual(store.spend_totals("p1")["verdict"],
+                                 "soft-stop")
+
+                trace = engine.run_to_completion("p1", max_steps=12)
+
+                self.assertEqual(len(trace), 1,
+                                 "one wave discovers the soft stop and the "
+                                 "loop stops on it: %r" % (trace,))
+                self.assertEqual(trace[-1]["stop_reason"], "SPEND_STOP")
+                self.assertNotIn("u2", worker.calls)
+
+    def test_a_failing_done_definition_runs_once_per_call(self):
+        """LV p8 case C: 15 executions of the founder's WHOLE
+        done-definition in ONE run_to_completion call, which with the
+        production SubprocessCheckRunner and the default max_steps=500 is
+        500 real test-suite runs."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                checker = FakeCheckRunner(
+                    {"final-check": {"exit_code": 1, "stdout": "",
+                                     "stderr": "not ready"}})
+                worker = FakeWorker({"u1": _worker_result(artifacts=["a.py"])})
+                engine = _engine(store, worker, checker)
+                _begin_and_plan(engine, store, "p1",
+                                [_unit("u1", write_scope=["a.py"])],
+                                done_definition="final-check")
+                engine.step("p1")
+                before = checker.calls.count("final-check")
+
+                trace = engine.run_to_completion("p1", max_steps=15)
+
+                self.assertEqual(
+                    checker.calls.count("final-check") - before, 1,
+                    "exactly ONE done-definition execution per call")
+                self.assertEqual(trace[-1]["stop_reason"], "FOUNDER_WAITING")
+                self.assertIn("done-definition", trace[-1]["note"])
+
+    def test_a_provider_outage_parks_after_one_ask(self):
+        """LV p8 case D and SM J: 15 of 15 steps, 15 worker asks, no
+        backoff and no bound other than max_steps."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({"u1": {"status": "unavailable"}})
+                engine = _engine(store, worker, FakeCheckRunner())
+                _begin_and_plan(engine, store, "p1",
+                                [_unit("u1", write_scope=["a.py"])])
+
+                trace = engine.run_to_completion("p1", max_steps=15)
+
+                self.assertEqual(trace[-1]["stop_reason"], "OUTAGE")
+                self.assertEqual(worker.calls["u1"], 1,
+                                 "the same unavailable worker is not asked "
+                                 "max_steps times")
+                self.assertEqual(len(trace), 1)
+
+    def test_a_fence_overlap_is_contention_and_says_so(self):
+        """LV p2: zero founder steps exist and the event that unblocks the
+        run is another agent releasing its fence, yet the note told the
+        founder the run was parked until THEY acted.
+
+        BUILDS ITS STORE FROM bc.bs, the module tools/bm_controller.py
+        itself loaded, for the reason
+        test_run_to_completion_returns_when_a_step_makes_no_progress states
+        in full: this exercises the engine branch that CATCHES
+        bs.OwnershipRefused (the fence-overlap defer inside
+        _authorise_dispatch), and a refusal raised by a second, independent
+        load of bm_store is a DIFFERENT class that branch can never
+        catch."""
+        with tempfile.TemporaryDirectory() as d:
+            with bc.bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                store.claim(name="unrelated-holder", lifetime="persistent",
+                            files=["a.py"], objective="holds the same file",
+                            owner="someone-else", session_id="other-session")
+                worker = FakeWorker({})
+                engine = _engine(store, worker, FakeCheckRunner())
+                _begin_and_plan(engine, store, "p1",
+                                [_unit("u1", write_scope=["a.py"])])
+
+                trace = engine.run_to_completion("p1", max_steps=20)
+
+                self.assertEqual(trace[-1]["stop_reason"], "CONTENTION")
+                self.assertNotIn(
+                    "until a founder acts", trace[-1]["note"],
+                    "contention is transient: the note may not claim a "
+                    "founder is needed, because none is: %r"
+                    % (trace[-1]["note"],))
+                self.assertIn("no founder action is needed",
+                              trace[-1]["note"])
+                self.assertEqual(worker.calls, {})
+
+    def test_a_double_contract_amend_is_contention_and_says_so(self):
+        """LV p3: the round-3 contention deferral fed the round-3 park stop
+        and produced the same false statement about the run."""
+        with tempfile.TemporaryDirectory() as d:
+            with bc.bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["docs", "src"])
+                wrapped = _StraddlingStore(store, {
+                    1: _amend_allowed_paths(["docs", "src"]),
+                    3: _amend_allowed_paths(["docs", "src"]),
+                })
+                worker = FakeWorker({"u1": _worker_result()})
+                engine = _engine(wrapped, worker, FakeCheckRunner())
+                _begin_and_plan(engine, wrapped, "p1", [
+                    _unit("u1", write_scope=["docs/x.md", "src/a.py"]),
+                ])
+
+                summary = engine.step("p1")
+
+                self.assertEqual(summary["stop_reason"], "CONTENTION")
+                self.assertNotIn("until a founder acts", summary["note"])
+                self.assertEqual(worker.calls, {})
+
+    def test_the_ordinary_async_park_reports_in_flight_after_one_ask(self):
+        """SM J probe p09 part c: the note a parked async wave actually
+        writes was in neither no-progress constant, so the stop never fired
+        for the shape the production RecordIntentWorker ALWAYS produces:
+        12 of 12 steps and the same unit brief printed to stdout 12
+        times."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({"u1": _worker_result(status="pending")})
+                engine = _engine(store, worker, FakeCheckRunner())
+                _begin_and_plan(engine, store, "p1",
+                                [_unit("u1", write_scope=["a.py"])])
+
+                trace = engine.run_to_completion("p1", max_steps=12)
+
+                self.assertEqual(len(trace), 1)
+                self.assertEqual(trace[-1]["stop_reason"], "IN_FLIGHT")
+                self.assertEqual(worker.calls["u1"], 1)
+
+
+class TestR3TheExecutingWedgeUnwinds(unittest.TestCase):
+    """REFUTATION-3 LV 1. A wave in which every unit is gate-refused walks
+    the run to EXECUTING before knowing anything will be claimed, and
+    nothing walks it back; from EXECUTING neither WAITING_HUMAN nor
+    DELIVERABLE_READY is legal, so the deliverable was ready and could
+    never be delivered, no founder step said so, and the wedge note was in
+    neither no-progress constant so run_to_completion re-ran the founder's
+    whole done-definition once per wasted step (21 executions in one
+    call)."""
+
+    def _wedge(self, store):
+        _seed(store)
+        _sign(store, allowed_paths=["src"])
+        worker = FakeWorker({})
+        engine = _engine(store, worker, FakeCheckRunner())
+        run = _begin_and_plan(engine, store, "p1",
+                              [_unit("u1", write_scope=["docs/x.md"])])
+        return engine, run, worker
+
+    def test_a_wave_that_claims_nothing_still_reaches_delivery(self):
+        """LV p9: DELIVERABLE FOREVER OUT OF REACH: True."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine, run, worker = self._wedge(store)
+
+                trace = engine.run_to_completion("p1", max_steps=20)
+
+                self.assertLess(len(trace), 20)
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "DELIVERABLE_READY",
+                                 "the breaker exhausts the ungrantable "
+                                 "unit, the empty wave unwinds, and the run "
+                                 "delivers: %r" % (trace[-1],))
+                self.assertEqual(trace[-1]["state"],
+                                 store.get_run("p1", raw=True)["state"])
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "FAILED")
+                self.assertEqual(worker.calls, {})
+
+    def test_the_wedge_note_never_appears_in_any_summary(self):
+        """The note itself is the artefact of the dead end: 'the
+        done-definition passes but the run is EXECUTING, from which
+        delivery is not a legal move; staying in place'. LV p9 reaches it
+        on the SECOND driver call, once the breaker has exhausted u1 and
+        nothing non-terminal is left; that same call is where the wedge
+        note, being in neither no-progress constant, burned 20 of 20 steps
+        and re-ran the founder's whole done-definition 21 times."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine, _run, _worker = self._wedge(store)
+
+                trace = (engine.run_to_completion("p1", max_steps=20)
+                         + engine.run_to_completion("p1", max_steps=20))
+
+                for summary in trace:
+                    self.assertNotIn(
+                        "is not a legal move", summary.get("note") or "",
+                        "delivery is refused by an OWNED-EDGE rule, never "
+                        "by a legality accident: %r" % (summary,))
+                self.assertLess(len(trace), 21,
+                                "neither call burns its max_steps: %d"
+                                % len(trace))
+
+
+class TestR3TheSkippedLifecycleClosesAtTheSource(unittest.TestCase):
+    """REFUTATION-3 LV 2 and LV 4. A re-plan that drops a unit marked it
+    SKIPPED and left everything else about it alive: its dispatch stayed
+    DISPATCHED so a late result marked the dead unit DONE and silently
+    reversed the founder's re-plan; its fence stayed ACTIVE with nothing
+    naming it; check_timeouts could not see it because that filtered on
+    unit status; and the drop was IRREVERSIBLE, because upsert_units'
+    byte-identical-reuse rule meant the re-plan the escalation itself tells
+    the founder to make did not bring the unit back."""
+
+    def _drop_u1(self, store, checker=None, lane="default"):
+        """Wave 1 parks u1 async and completes u2, then a re-plan drops
+        u1: the exact four-command shape LV finding 4 used."""
+        _seed(store)
+        _sign(store)
+        worker = FakeWorker({
+            "u1": _worker_result(status="pending"),
+            "u2": _worker_result(artifacts=["b.py"]),
+        })
+        engine = _engine(store, worker, checker or FakeCheckRunner())
+        run = _begin_and_plan(engine, store, "p1", [
+            _unit("u1", write_scope=["a.py"], lane=lane),
+            _unit("u2", write_scope=["b.py"], lane=lane),
+        ])
+        engine.step("p1")
+        fence_uuid = _unit_row(store, run["run_id"], "u1")["fence_uuid"]
+        dispatch_id = store.list_dispatches("u1", raw=True)[0]["dispatch_id"]
+        engine.plan("p1", run["run_id"],
+                    [_unit("u2", write_scope=["b.py"], lane=lane)])
+        return engine, run, worker, fence_uuid, dispatch_id
+
+    def test_a_re_plan_cancels_the_dropped_units_open_dispatch(self):
+        """GREEN before this change as well as after: the cancel landed in
+        the STORE half. What it pins HERE is that the engine's own plan()
+        route still carries it, so a founder using `bm-controller plan`
+        gets it rather than only a direct Store caller."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine, run, _w, _f, dispatch_id = self._drop_u1(store)
+
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "SKIPPED")
+                self.assertEqual(
+                    store.get_dispatch(dispatch_id, raw=True)["status"],
+                    "CANCELLED",
+                    "a dropped unit's dispatch is closed AT THE SOURCE, in "
+                    "the same transaction that skipped it")
+
+    def test_a_result_for_a_cancelled_dispatch_refuses_instead_of_reviving_the_unit(self):
+        """LV finding 4: `receive_result returned: u1` and the dropped unit
+        went SKIPPED to DONE, its fence released as complete and its spend
+        recorded, silently reversing the founder's re-plan."""
+        with tempfile.TemporaryDirectory() as d:
+            with bc.bs.Store(d) as store:
+                engine, run, _w, _f, dispatch_id = self._drop_u1(store)
+                tokens_before = store.spend_totals("p1")["tokens"]
+
+                with self.assertRaises(bc.bs.OwnershipRefused) as caught:
+                    engine.receive_result("p1", dispatch_id, "claims done",
+                                          ["a.py"], cost={"tokens": 9000})
+
+                self.assertEqual(caught.exception.reason, "dispatch-cancelled")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "SKIPPED",
+                    "the founder's drop stands")
+                self.assertEqual(store.spend_totals("p1")["tokens"],
+                                 tokens_before,
+                                 "no meter is charged for a unit that is no "
+                                 "longer in the graph")
+                self.assertIsInstance(
+                    caught.exception, bc.bs.BMStoreError,
+                    "main() catches BMStoreError, so this is exit 1 with a "
+                    "clear line, never a traceback")
+
+    def test_a_re_plan_parks_the_dropped_units_fence(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _engine_, _run, _w, fence_uuid, _d = self._drop_u1(store)
+
+                self.assertNotEqual(
+                    store.get(fence_uuid).state, "active",
+                    "a dropped unit holds no fence over the founder's files")
+
+    def test_a_byte_identical_re_plan_revives_the_skipped_unit(self):
+        """LV p5: the reuse-untouched rule made the founder's own repair a
+        no-op, so the drop could never be undone.
+
+        GREEN before this change as well as after, because the revival
+        itself landed in the STORE half of this round
+        (FIX-round4-store-report.md); what it pins HERE is that
+        ControllerEngine.plan still reaches it, guard and orphan-fence
+        release included."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine, run, _w, _f, _d = self._drop_u1(store)
+
+                engine.plan("p1", run["run_id"], [
+                    _unit("u1", write_scope=["a.py"]),
+                    _unit("u2", write_scope=["b.py"]),
+                ])
+
+                row = _unit_row(store, run["run_id"], "u1")
+                self.assertEqual(
+                    row["status"], "READY",
+                    "re-adding the unit is the founder undoing the drop, "
+                    "and the identical hash is what makes it the SAME unit")
+                self.assertEqual(row["retry_count"], 0)
+
+    def test_the_whole_founder_recovery_ends_deliverable_ready(self):
+        """LV p6's own control: before round 3 the founder's repair
+        delivered the run; after it, the same repair could not. Drop,
+        escalate, re-plan, resolve, deliver."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({
+                    "u1": _worker_result(artifacts=["a.py"]),
+                    "u2": _worker_result(artifacts=["b.py"]),
+                })
+                engine = _engine(store, worker, FakeCheckRunner())
+                run = _begin_and_plan(engine, store, "p1", [
+                    _unit("u1", write_scope=["a.py"]),
+                    _unit("u2", dependencies=["u1"], write_scope=["b.py"]),
+                ])
+                engine.plan("p1", run["run_id"],
+                            [_unit("u2", dependencies=["u1"],
+                                   write_scope=["b.py"])])
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "SKIPPED")
+
+                engine.run_to_completion("p1", max_steps=10)
+                steps = store.list_human_steps("p1", resolved=False, raw=True)
+                self.assertTrue(steps, "the founder is told what is stuck")
+
+                # The founder does exactly what that step asks for.
+                engine.plan("p1", run["run_id"], [
+                    _unit("u1", write_scope=["a.py"]),
+                    _unit("u2", dependencies=["u1"], write_scope=["b.py"]),
+                ])
+                for step_row in store.list_human_steps("p1", resolved=False,
+                                                       raw=True):
+                    store.resolve_human_step(step_row["step_id"], "p1",
+                                             "repaired by re-plan", _actor())
+
+                trace = engine.run_to_completion("p1", max_steps=10)
+
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "DELIVERABLE_READY",
+                                 "RUN DELIVERED: %r" % (trace[-1],))
+                for uid in ("u1", "u2"):
+                    self.assertEqual(
+                        _unit_row(store, run["run_id"], uid)["status"], "DONE")
+
+
+class TestR3BlockedIsAMaterialisedViewOfTheLaneGate(unittest.TestCase):
+    """REFUTATION-3 SM F and LV 2. Round 3 added two producers of BLOCKED
+    units and no production caller of Store.unblock_lane_units existed
+    anywhere, so every BLOCKED status was a one-way door: resolving the
+    founder step did not make the lane selectable again, a healthy unit
+    that merely shared the lane was lost as collateral, and a run could
+    rest in WAITING_HUMAN reporting 'only founder-gated lanes remain' with
+    ZERO open founder steps and nothing a founder could resolve. BLOCKED is
+    now a view of one fact ('this lane holds an open founder step') and is
+    reconciled in BOTH directions on every wave (law L4)."""
+
+    def _stall(self, store, extra_units=()):
+        worker = FakeWorker({
+            "u0": _worker_result(artifacts=["z.py"]),
+            "u1": _worker_result(artifacts=["a.py"]),
+            "u2": _worker_result(artifacts=["b.py"]),
+            "u3": _worker_result(artifacts=["c.py"]),
+            "g1": _worker_result(artifacts=["g.py"]),
+        })
+        engine = _engine(store, worker, FakeCheckRunner())
+        units = [_unit("u0", write_scope=["z.py"]),
+                 _unit("u1", write_scope=["a.py"]),
+                 _unit("u2", dependencies=["u1"], write_scope=["b.py"])]
+        units.extend(extra_units)
+        run = _begin_and_plan(engine, store, "p1", units)
+        kept = [u for u in units if u["unit_id"] != "u1"]
+        engine.plan("p1", run["run_id"], kept)
+        engine.run_to_completion("p1", max_steps=10)
+        return engine, run, worker
+
+    def test_resolving_the_step_unblocks_the_lane_on_the_next_step(self):
+        """SM p07 case 3: `select_ready_units now: []` forever, whatever
+        the founder resolved."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine, run, _w = self._stall(store)
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u2")["status"], "BLOCKED")
+
+                engine.plan("p1", run["run_id"], [
+                    _unit("u0", write_scope=["z.py"]),
+                    _unit("u1", write_scope=["a.py"]),
+                    _unit("u2", dependencies=["u1"], write_scope=["b.py"])])
+                for step_row in store.list_human_steps("p1", resolved=False,
+                                                       raw=True):
+                    store.resolve_human_step(step_row["step_id"], "p1",
+                                             "repaired", _actor())
+
+                engine.step("p1")
+
+                self.assertNotEqual(
+                    _unit_row(store, run["run_id"], "u2")["status"], "BLOCKED",
+                    "a lane whose last step was resolved returns its units "
+                    "to PENDING or READY by dependency satisfaction")
+
+    def test_a_healthy_unit_sharing_the_lane_recovers(self):
+        """LV p12: block_lane_units flips EVERY PENDING/READY unit of the
+        lane, so u3, which had nothing to do with the dropped dependency,
+        was permanently lost too (`u3 was HEALTHY and is now: BLOCKED ...
+        RUN DELIVERED: False`). u3 here waits on g1, a unit in a DIFFERENT,
+        founder-gated lane, so it is PENDING when the escalation fires and
+        is picked up purely as collateral."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                store.queue_human_step(
+                    "p1", "publish-release", "release",
+                    "click publish in the dashboard", "", [], "sess1",
+                    _actor())
+                engine, run, _w = self._stall(store, extra_units=[
+                    _unit("g1", write_scope=["g.py"], lane="release"),
+                    _unit("u3", dependencies=["g1"], write_scope=["c.py"])])
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u3")["status"], "BLOCKED",
+                    "the collateral is real while the lane is gated")
+
+                for step_row in store.list_human_steps("p1", resolved=False,
+                                                       raw=True):
+                    store.resolve_human_step(step_row["step_id"], "p1",
+                                             "looked at it", _actor())
+                engine.run_to_completion("p1", max_steps=10)
+
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u3")["status"], "DONE",
+                    "the healthy unit runs once its lane is ungated, even "
+                    "though u2 beside it is still unreachable")
+
+    def test_resolving_without_repairing_re_queues_exactly_one_step(self):
+        """LV p5's dead end: the run rested in WAITING_HUMAN reporting
+        founder-gating with zero open steps and nothing to resolve. The
+        condition is still true, so it is restated ONCE per founder
+        action."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine, run, _w = self._stall(store)
+                for step_row in store.list_human_steps("p1", resolved=False,
+                                                       raw=True):
+                    store.resolve_human_step(step_row["step_id"], "p1",
+                                             "acknowledged", _actor())
+                self.assertEqual(
+                    store.list_human_steps("p1", resolved=False, raw=True), [])
+
+                engine.step("p1")
+
+                open_steps = store.list_human_steps("p1", resolved=False,
+                                                    raw=True)
+                self.assertEqual(
+                    len(open_steps), 1,
+                    "one fresh step, because the condition still holds: %r"
+                    % ([s["what"] for s in open_steps],))
+                self.assertIn("u2", open_steps[0]["what"])
+
+    def test_ten_consecutive_steps_queue_exactly_one_escalation_step(self):
+        """The idempotency marker is state-derived (an open founder step in
+        the unit's own lane), so no driver, however eager, produces spam.
+
+        A CONTROL: round 3 also queued exactly one, through a DIFFERENT
+        mechanism (the BLOCKED status it wrote made the unit invisible to
+        the next pass). This class removes that mechanism, so the anti-spam
+        property has to be re-earned by the state-derived marker, and this
+        is what fails if it is not."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({"u0": _worker_result(artifacts=["z.py"])})
+                engine = _engine(store, worker, FakeCheckRunner())
+                run = _begin_and_plan(engine, store, "p1", [
+                    _unit("u0", write_scope=["z.py"]),
+                    _unit("u1", write_scope=["a.py"]),
+                    _unit("u2", dependencies=["u1"], write_scope=["b.py"]),
+                ])
+                engine.plan("p1", run["run_id"], [
+                    _unit("u0", write_scope=["z.py"]),
+                    _unit("u2", dependencies=["u1"], write_scope=["b.py"])])
+
+                for _ in range(10):
+                    engine.step("p1")
+
+                open_steps = store.list_human_steps("p1", resolved=False,
+                                                    raw=True)
+                self.assertEqual(
+                    len(open_steps), 1,
+                    "ten steps, one escalation: %r"
+                    % ([s["what"] for s in open_steps],))
+
+
+class TestR3EveryDispatchRouteIsGateChecked(unittest.TestCase):
+    """REFUTATION-3 AZ F-A1. _resume_dispatched built the brief and called
+    the worker with NO gate_check on that route at all, so a founder who
+    NARROWED a still-live contract had the worker told a second time to
+    write a path they had just forbidden, with the fence over that path
+    left active. The fix's own docstring rests its security property on
+    gate_check being 'the ONLY component that ever compares a unit's scope
+    against allowed_paths'; that sentence was false while a second route
+    existed. There is now exactly ONE route from a unit row to a brief
+    (law L5)."""
+
+    def _park_then_amend(self, store, amend):
+        _seed(store)
+        _sign(store, allowed_paths=["docs", "src"])
+        worker = FakeWorker({"u1": _worker_result(status="pending")})
+        engine = _engine(store, worker, FakeCheckRunner())
+        run = _begin_and_plan(engine, store, "p1",
+                              [_unit("u1", write_scope=["docs/x.md"])])
+        engine.step("p1")
+        self.assertEqual(worker.calls["u1"], 1)
+        fence_uuid = _unit_row(store, run["run_id"], "u1")["fence_uuid"]
+        amend(store)
+        return engine, run, worker, fence_uuid
+
+    def test_a_narrowing_supersede_stops_the_re_await(self):
+        """AZ F-A1 c1: `worker call count: {'u1': 2}` and `fence still
+        held, files: ['docs/x.md'] state: active`."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine, run, worker, fence_uuid = self._park_then_amend(
+                    store, _amend_allowed_paths(["src"]))
+
+                engine.step("p1")
+
+                self.assertEqual(
+                    worker.calls["u1"], 1,
+                    "no worker is handed a brief the LIVE contract refuses")
+                self.assertNotEqual(store.get(fence_uuid).state, "active",
+                                    "the fence over the forbidden path is "
+                                    "parked, not left held")
+                self.assertEqual(_dispatch_count(store, "u1"), 1)
+                self.assertEqual(
+                    store.list_dispatches("u1", raw=True)[0]["status"],
+                    "REJECTED",
+                    "the in-flight dispatch is CLOSED rather than left open "
+                    "over a path the founder just forbade")
+
+    def test_the_revoke_control_still_drains_with_one_worker_call(self):
+        """AZ's own control C1b, which must stay green: the contract check
+        at step 2 catches a REVOKE, so the narrowing case is the gap, not
+        the whole branch."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                def _revoke(s):
+                    s.set_contract_state("p1", "revoked", "khalil",
+                                         "founder revoke", "sess1", _actor())
+
+                engine, _run, worker, _f = self._park_then_amend(
+                    store, _revoke)
+
+                engine.step("p1")
+
+                self.assertEqual(worker.calls["u1"], 1)
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "STOPPED")
+
+    def test_a_legitimate_re_await_never_opens_a_second_dispatch_row(self):
+        """At-most-once re-dispatch is preserved by the dispatch UNIQUE key
+        and by the SAME dispatch_id being reused, not by trust.
+
+        A CONTROL, green before and after: the re-await route is being
+        rebuilt around the choke point, and the property it already had
+        (one dispatch row per attempt, the id reused) must survive that."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({"u1": _worker_result(status="pending")})
+                engine = _engine(store, worker, FakeCheckRunner())
+                _begin_and_plan(engine, store, "p1",
+                                [_unit("u1", write_scope=["a.py"])])
+                engine.step("p1")
+                first = store.list_dispatches("u1", raw=True)[0]["dispatch_id"]
+
+                engine.step("p1")
+
+                self.assertEqual(worker.calls["u1"], 2,
+                                 "the re-await is a real re-ask")
+                self.assertEqual(_dispatch_count(store, "u1"), 1)
+                self.assertEqual(
+                    store.list_dispatches("u1", raw=True)[0]["dispatch_id"],
+                    first)
+
+    def test_every_worker_handoff_sits_behind_the_one_choke_point(self):
+        """A structural guard, shaped like TestNoSQLGuard above: parse
+        tools/bm_controller.py and prove that `self.worker.run` appears in
+        exactly two function bodies and that each of them obtains its brief
+        from a call to self._authorise_dispatch. A THIRD route added later
+        fails here rather than in a founder's run."""
+        with io.open(CONTROLLER_FILE, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename="bm_controller.py")
+        callers, authorised = set(), set()
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for inner in ast.walk(node):
+                if not isinstance(inner, ast.Call):
+                    continue
+                func = inner.func
+                if not isinstance(func, ast.Attribute):
+                    continue
+                if (func.attr == "run"
+                        and isinstance(func.value, ast.Attribute)
+                        and func.value.attr == "worker"):
+                    callers.add(node.name)
+                if func.attr == "_authorise_dispatch":
+                    authorised.add(node.name)
+        self.assertEqual(
+            sorted(callers), ["_resume_dispatched", "step"],
+            "exactly two functions hand a brief to a worker: %r" % (callers,))
+        self.assertTrue(
+            callers <= authorised,
+            "every function that calls the worker obtains its brief from "
+            "_authorise_dispatch: callers=%r authorised=%r"
+            % (sorted(callers), sorted(authorised)))
+
+
+class TestR3ForeignAndCancelledDispatchIdsRefuse(unittest.TestCase):
+    """REFUTATION-3 SM K and AZ F-A3, the same defect from two angles:
+    receive_result took project_id and dispatch_id as INDEPENDENT arguments
+    and never checked that the dispatch belonged to the named project's
+    current run. It recorded the result, charged the spend against a
+    contract that never authorised the work, moved the run to VERIFYING,
+    and only THEN dereferenced a None unit row and raised an uncaught
+    TypeError, which main() does not catch."""
+
+    def _two_projects(self, store):
+        _seed(store, "p1")
+        _sign(store, "p1", token_ceiling=1000)
+        _seed(store, "p2")
+        _sign(store, "p2", token_ceiling=1000)
+        engine1 = _engine(store, FakeWorker({}), FakeCheckRunner(),
+                          controller_id="c1")
+        engine1.begin("p1", "ship p1", "true")
+        run1 = store.get_run("p1", raw=True)
+        engine1.plan("p1", run1["run_id"], [_unit("a1", write_scope=["a.py"])])
+        worker2 = FakeWorker({"b1": _worker_result(status="pending")})
+        engine2 = _engine(store, worker2, FakeCheckRunner(),
+                          controller_id="c2")
+        engine2.begin("p2", "ship p2", "true")
+        run2 = store.get_run("p2", raw=True)
+        engine2.plan("p2", run2["run_id"], [_unit("b1", write_scope=["b.py"])])
+        engine2.step("p2")
+        foreign = store.list_dispatches("b1", raw=True)[0]["dispatch_id"]
+        return engine1, run1, foreign
+
+    def test_a_dispatch_from_another_project_refuses_and_changes_nothing(self):
+        """AZ F-A3, reproduced through the real shipped CLI: project A's
+        meter burned to 70 percent of its ceiling for work project B's
+        contract authorised, A's run moved to VERIFYING with nothing in
+        flight, B's dispatch left RESULT_IN, and a raw traceback."""
+        with tempfile.TemporaryDirectory() as d:
+            with bc.bs.Store(d) as store:
+                engine1, run1, foreign = self._two_projects(store)
+                state_before = store.get_run("p1", raw=True)["state"]
+
+                with self.assertRaises(bc.bs.OwnershipRefused) as caught:
+                    engine1.receive_result("p1", foreign, "done", ["b.py"],
+                                           cost={"tokens": 700, "minutes": 5})
+
+                self.assertEqual(caught.exception.reason, "foreign-dispatch")
+                self.assertEqual(store.spend_totals("p1")["tokens"], 0,
+                                 "no meter is charged against a contract "
+                                 "that never authorised the work")
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 state_before, "no run is moved")
+                self.assertEqual(
+                    store.get_dispatch(foreign, raw=True)["status"],
+                    "DISPATCHED", "no result is recorded")
+
+    def test_a_dispatch_from_an_earlier_terminal_run_refuses(self):
+        """SM K probe p10_cross_run_dispatch.py: on the late-result path
+        the crash happened AFTER record_verification and mark_unit_failed
+        committed, so the old run's unit was resurrected with its retry
+        count bumped and the fence park, the rollback and the interruption
+        never ran."""
+        with tempfile.TemporaryDirectory() as d:
+            with bc.bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({"u1": _worker_result(status="pending")})
+                engine = _engine(store, worker, FakeCheckRunner())
+                run1 = _begin_and_plan(engine, store, "p1",
+                                       [_unit("u1", write_scope=["a.py"])])
+                engine.step("p1")
+                old = store.list_dispatches("u1", raw=True)[0]["dispatch_id"]
+                engine.stop("p1", "founder requested stop")
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "STOPPED")
+                engine.begin("p1", "a second attempt", "true")
+                run2 = store.get_run("p1", raw=True)
+                self.assertNotEqual(run2["run_id"], run1["run_id"])
+
+                with self.assertRaises(bc.bs.OwnershipRefused) as caught:
+                    engine.receive_result("p1", old, "done", ["a.py"],
+                                          cost={"tokens": 3})
+
+                self.assertEqual(caught.exception.reason, "foreign-dispatch")
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 run2["state"])
+                self.assertEqual(store.spend_totals("p1")["tokens"], 0)
+
+    def test_an_unknown_dispatch_id_refuses_rather_than_tracebacks(self):
+        """main() catches bs.BMStoreError and ValueError only, so every
+        refusal on this path has to be one of those, never a TypeError.
+
+        A CONTROL: record_result already refuses 'not-found' for an id that
+        names no dispatch at all, so this is green before and after. It is
+        here because the two tests above INSERT a new read (get_dispatch)
+        ahead of that refusal, and the unknown-id case must keep its
+        existing answer rather than gain a new one."""
+        with tempfile.TemporaryDirectory() as d:
+            with bc.bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine = _engine(store, FakeWorker({}), FakeCheckRunner())
+                _begin_and_plan(engine, store, "p1",
+                                [_unit("u1", write_scope=["a.py"])])
+
+                with self.assertRaises(bc.bs.BMStoreError) as caught:
+                    engine.receive_result("p1", "no-such-dispatch", "done",
+                                          [])
+
+                self.assertEqual(caught.exception.reason, "not-found")
+
+
+class TestR3LateResultKeepsItsSpendAndItsFounderRecord(unittest.TestCase):
+    """REFUTATION-3 SM C (a REGRESSION) and SM D. Round 3 moved the spend
+    block AFTER the late-result return, so every late result silently
+    dropped its spend and the breaker under-counted by exactly that amount;
+    and it put the founder step behind `if outcome['status'] != 'FAILED'`
+    while _record_interruption returns None on a contract that is not live,
+    so a real result at the retry ceiling was discarded with NO new
+    founder-visible record at all."""
+
+    def test_spend_lands_on_a_stopped_run(self):
+        """SM C probe p14, the four-shipped-command route (`start`, `plan`,
+        `step`, `stop`, `record-result --tokens 9000`): `spend tokens 0 to
+        0`, so 9000 tokens of real worker cost never reached the meter the
+        contract's ceiling is computed from."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, token_ceiling=100000)
+                engine, _run, dispatch_ids = _park_one_async_unit(
+                    self, store, FakeCheckRunner())
+                engine.stop("p1", "founder requested stop")
+                self.assertEqual(store.spend_totals("p1")["tokens"], 0)
+
+                engine.receive_result("p1", dispatch_ids["u1"], "claims done",
+                                      ["a.py"],
+                                      cost={"tokens": 9000, "minutes": 120})
+
+                self.assertEqual(store.spend_totals("p1")["tokens"], 9000,
+                                 "every result path charges the meter "
+                                 "exactly once, under exactly one rule")
+                self.assertEqual(store.spend_totals("p1")["minutes"], 120)
+
+    def test_a_late_result_at_the_ceiling_still_reaches_the_founder(self):
+        """SM D probe p06 case B: `founder (open human steps,
+        interruptions): before=(0, 0) after=(0, 0)`. The founder ran a
+        worker, the worker did the work, the answer arrived, and the only
+        trace was a REJECTED dispatch row nothing surfaces."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                checker = FakeCheckRunner(
+                    {"check-u1": {"exit_code": 1, "stdout": "",
+                                  "stderr": "never passes"}})
+                worker = FakeWorker({"u1": _worker_result(status="pending")})
+                engine = _engine(store, worker, checker)
+                run = _begin_and_plan(
+                    engine, store, "p1",
+                    [_unit("u1", write_scope=["a.py"],
+                           done_check="check-u1")])
+                engine.step("p1")
+                first = store.list_dispatches("u1", raw=True)[0]["dispatch_id"]
+                engine.receive_result("p1", first, "attempt 1", ["a.py"])
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["retry_count"], 1)
+                engine.step("p1")  # attempt 2, parks again
+                second = store.list_dispatches("u1", raw=True)[-1][
+                    "dispatch_id"]
+                store.set_contract_state("p1", "stopped", "khalil",
+                                         "founder stopped the contract",
+                                         "sess1", _actor())
+                engine.step("p1")  # drains: the run is now STOPPED
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "STOPPED")
+                before = (len(store.list_human_steps("p1", resolved=False,
+                                                     raw=True)),
+                          len(store.list_interruptions("p1", raw=True)))
+
+                engine.receive_result("p1", second, "attempt 2", ["a.py"])
+
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "FAILED",
+                    "the retry ceiling is spent, which is the case round 3 "
+                    "told the founder nothing about")
+                after = (len(store.list_human_steps("p1", resolved=False,
+                                                    raw=True)),
+                         len(store.list_interruptions("p1", raw=True)))
+                self.assertGreater(
+                    after[0] + after[1], before[0] + before[1],
+                    "a real result is never discarded without at least one "
+                    "new founder-visible record: before=%r after=%r"
+                    % (before, after))
+                whats = [s["what"] for s in store.list_human_steps(
+                    "p1", resolved=False, raw=True)]
+                self.assertTrue(any("u1" in w for w in whats),
+                                "and it names the unit: %r" % (whats,))
+
+    def test_the_blocked_status_the_late_result_causes_is_reversible(self):
+        """SM F: round 3's late-result path wrote BLOCKED directly through
+        block_lane_units, with no production caller of unblock_lane_units
+        anywhere, so the status was a one-way door. It is now a VIEW of the
+        founder step queued in the same lane, and the same reconcile that
+        derives it also reverses it."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine, run, dispatch_ids = _park_one_async_unit(
+                    self, store, FakeCheckRunner())
+                engine.stop("p1", "founder requested stop")
+                engine.receive_result("p1", dispatch_ids["u1"], "claims done",
+                                      ["a.py"])
+                self.assertEqual(store.select_ready_units(run["run_id"]), [],
+                                 "a stopped run gains no selectable work")
+
+                for step_row in store.list_human_steps("p1", resolved=False,
+                                                       raw=True):
+                    store.resolve_human_step(step_row["step_id"], "p1",
+                                             "founder looked at it", _actor())
+                engine._reconcile_lane_blocks("p1", run["run_id"])
+
+                self.assertNotEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "BLOCKED",
+                    "resolving the step reverses the status the step "
+                    "produced; nothing about it is permanent")
+
+    def test_the_dirty_scope_warning_lands_in_the_units_own_lane(self):
+        """SM observation 4: _warn_dirty_write_scope wrote into the
+        hard-coded lane 'default', so a dirty rollback for a unit in lane
+        'build' gated lane 'default' project wide through
+        select_ready_units."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                checker = FakeCheckRunner(
+                    {"git restore -- a.py": {"exit_code": 1, "stdout": "",
+                                             "stderr": "rollback failed"}})
+                worker = FakeWorker({"u1": _worker_result(status="pending")})
+                engine = _engine(store, worker, checker)
+                run = _begin_and_plan(
+                    engine, store, "p1",
+                    [_unit("u1", write_scope=["a.py"], lane="build")])
+                engine.step("p1")
+                dispatch_id = store.list_dispatches(
+                    "u1", raw=True)[0]["dispatch_id"]
+                engine.stop("p1", "founder requested stop")
+
+                engine.receive_result("p1", dispatch_id, "claims done",
+                                      ["a.py"])
+
+                lanes = {s["lane"] for s in store.list_human_steps(
+                    "p1", resolved=False, raw=True)
+                    if "rollback" in s["what"].lower()}
+                self.assertEqual(
+                    lanes, {"build"},
+                    "the warning gates the unit's OWN lane, never a "
+                    "hard-coded one: %r" % (lanes,))
+
+
+class _StateRecordingCheckRunner(FakeCheckRunner):
+    """A CheckRunner that reads the run's PERSISTED state at the exact
+    moment each founder-authored command runs, which is how SM probe
+    p16_verifying_invariant.py measured the invariant."""
+
+    def __init__(self, store, project_id, outcomes=None):
+        FakeCheckRunner.__init__(self, outcomes)
+        self._store = store
+        self._project_id = project_id
+        self.seen = []
+
+    def run(self, command, cwd):
+        run = self._store.get_run(self._project_id, raw=True)
+        self.seen.append((command, run["state"] if run else None))
+        return FakeCheckRunner.run(self, command, cwd)
+
+
+class TestR3FailedRecoverableReachesVerifying(unittest.TestCase):
+    """REFUTATION-3 SM I. FAILED_RECOVERABLE was in the walkable set
+    because FAILED_TERMINAL is legal from it, not because any edge carried
+    it to VERIFYING, so a result was judged from a run state that never
+    reached VERIFYING and the run was left in FAILED_RECOVERABLE with the
+    unit DONE and no delivery attempted. A crash between the done_check and
+    mark_unit_done in that row leaves a durable state saying nothing was
+    ever verified, which is the exact durability property the walk exists
+    to provide."""
+
+    def test_the_done_check_runs_from_verifying_and_the_run_delivers(self):
+        """SM p16's fourth matrix row: `start=FAILED_RECOVERABLE ...
+        [('true','FAILED_RECOVERABLE'), ('verify.sh','FAILED_RECOVERABLE')]
+        final=FAILED_RECOVERABLE unit=DONE`, beside three rows that all
+        reach VERIFYING and DELIVERABLE_READY."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                checker = _StateRecordingCheckRunner(store, "p1")
+                worker = FakeWorker({"u1": _worker_result(status="pending")})
+                engine = _engine(store, worker, checker)
+                run = _begin_and_plan(
+                    engine, store, "p1",
+                    [_unit("u1", write_scope=["a.py"], done_check="unit-check",
+                           verifier="verify.sh")])
+                engine.step("p1")
+                dispatch_id = store.list_dispatches(
+                    "u1", raw=True)[0]["dispatch_id"]
+                _move_run_along_legal_edges(store, run,
+                                            ("FAILED_RECOVERABLE",))
+
+                engine.receive_result("p1", dispatch_id, "claims done",
+                                      ["a.py"])
+
+                seen = dict(checker.seen)
+                self.assertEqual(
+                    seen.get("unit-check"), "VERIFYING",
+                    "a recorded result implies VERIFYING BEFORE any "
+                    "verification runs: %r" % (checker.seen,))
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "DONE")
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "DELIVERABLE_READY")
+
+    def test_every_walk_edge_is_one_the_store_itself_allows(self):
+        """The import-time guard, restated as a test over all three edge
+        maps: a walk edge the store's own law does not allow is a defect in
+        bm_controller.py and must surface at import, never as an
+        OwnershipRefused in the middle of a founder's run."""
+        maps = {"_RESULT_WALK_EDGES": bc._RESULT_WALK_EDGES,
+                "_DISPATCH_WALK_EDGES": bc._DISPATCH_WALK_EDGES,
+                "_DELIVERY_WALK_EDGES": bc._DELIVERY_WALK_EDGES}
+        for name, edges in sorted(maps.items()):
+            for from_state, to_state in sorted(edges.items()):
+                self.assertIn(
+                    to_state,
+                    bs.CONTROLLER_STATE_TRANSITIONS.get(from_state, ()),
+                    "%s walks %s to %s, which the store refuses"
+                    % (name, from_state, to_state))
+        self.assertEqual(
+            bc._DISPATCH_SOURCE_STATES,
+            frozenset(("READY", "CHECKPOINTED", "WAITING_HUMAN",
+                       "EXECUTING")),
+            "PAUSED, DELIVERABLE_READY and FAILED_RECOVERABLE are "
+            "deliberately OUT of the set a dispatch may start from")
+
+
+class TestR3TheClaimedCrashWindowRecovers(unittest.TestCase):
+    """REFUTATION-3 LV 7. Two in-flight helpers added in one round defined
+    'in flight' two different ways: _IN_FLIGHT_UNIT_STATUSES counted
+    CLAIMED so the escalation abstained, while _anything_in_flight read
+    DISPATCH rows and did not, so the loop parked. A crash between
+    claim_unit and record_dispatch, one Store call earlier than fault 1's
+    own window, therefore stranded a unit with an ACTIVE fence and no
+    founder step naming it. There is now ONE predicate and it reads
+    dispatch rows."""
+
+    def _crash_window(self, store):
+        """The crash window itself, built from the two Store calls the
+        engine makes in order: claim the fence, link it to the unit, and
+        never reach record_dispatch."""
+        _seed(store)
+        _sign(store)
+        worker = FakeWorker({"u1": _worker_result(status="pending")})
+        engine = _engine(store, worker, FakeCheckRunner())
+        run = _begin_and_plan(engine, store, "p1",
+                              [_unit("u1", write_scope=["a.py"])])
+        record = store.claim(
+            name="unit-u1", lifetime="ephemeral", files=["a.py"],
+            objective="unit u1", owner="ctrl1", session_id="sess1")
+        store.claim_unit("u1", record.lifecycle_uuid, _actor())
+        _move_run_along_legal_edges(store, run, ("EXECUTING",))
+        self.assertEqual(_unit_row(store, run["run_id"], "u1")["status"],
+                         "CLAIMED")
+        self.assertEqual(_dispatch_count(store, "u1"), 0)
+        return engine, run, record.lifecycle_uuid
+
+    def test_a_claimed_unit_with_no_dispatch_row_is_recovered(self):
+        """LV p13: `fence STILL: active`, `open founder steps: 0`,
+        `_anything_in_flight says: False`, `CLAIMED counted as in flight by
+        the escalation: True`."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine, run, fence_uuid = self._crash_window(store)
+
+                engine.step("p1")
+
+                self.assertNotEqual(store.get(fence_uuid).state, "active",
+                                    "the fence a crash left held is parked")
+                self.assertNotEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "CLAIMED",
+                    "the unit is returned to the graph, not stranded")
+
+    def test_the_recovery_burns_no_retry_the_unit_never_earned(self):
+        """Nothing was ever dispatched, so there was no attempt to fail;
+        mark_unit_failed would walk the unit toward FAILED for a crash.
+
+        Green on the untouched tree only because NOTHING touches the
+        stranded unit there at all, which is the defect its sibling test
+        above reproduces. It is the paired half of that recovery: the fix
+        must not buy the unit's freedom with a retry it never earned."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                engine, run, _fence = self._crash_window(store)
+
+                engine.step("p1")
+
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["retry_count"], 0)
+
+
+# ---------------------------------------------------------------------------
+# The end-to-end E4 fixture (design section 6).
+# ---------------------------------------------------------------------------
+
+_E4_ARTIFACT_PATH = os.path.join(
+    HERE, "..", "docs", "program", "absolute-lead", "evidence", "L03",
+    "E4-endtoend.json")
+
+
+class TestEndToEndE4(unittest.TestCase):
+    """The synthetic project: requirement interpretation, three dependent
+    code changes, one parallel docs change, one deliberate test failure,
+    one simulated process death, one human-gated step, final
+    verification. Deterministic via FakeWorker/FakeCheckRunner, one
+    throwaway store. Writes the E4 artifact to the path the design
+    names.
+
+    THE ARTIFACT IS REGENERATED ON EVERY RUN, BY DESIGN, so
+    docs/program/absolute-lead/evidence/L03/E4-endtoend.json shows as
+    modified after any run of this file. It is the LATEST run's evidence,
+    not a golden file: every value in it is read back out of the live
+    store this test just drove, which is what makes it evidence at all.
+    The only bytes that differ run to run are the four checkpoint_ref
+    values, which are uuid4 ids the store mints per checkpoint; every
+    status, state, count and verdict in the file is stable, and the
+    assertions below key on that structure, never on those ids. Making
+    the ids deterministic would mean writing checkpoint ids this run did
+    not actually produce, which would weaken the evidence rather than
+    stabilise it."""
+
+    def test_the_synthetic_project_ends_deliverable_ready_with_no_duplicate_work(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, token_ceiling=100000, minutes_ceiling=1000)
+
+                # U2's own done_check fails on attempt 1, passes on
+                # attempt 2 (the deliberate test failure, exercising the
+                # circuit breaker and a successful single retry).
+                checker = FakeCheckRunner({
+                    "test -f build.log": lambda n: (
+                        {"exit_code": 1, "stdout": "", "stderr": "boom"}
+                        if n == 1 else
+                        {"exit_code": 0, "stdout": "", "stderr": ""}),
+                })
+
+                worker = FakeWorker({
+                    "u1": _worker_result(claim="created widget.py",
+                                         artifacts=["widget.py"]),
+                    "u2": _worker_result(claim="edited widget.py",
+                                         artifacts=["widget.py"]),
+                    "u3": _worker_result(claim="built the widget",
+                                         artifacts=["build.log"]),
+                    "u4": _worker_result(claim="wrote docs",
+                                         artifacts=["README.md"]),
+                })
+
+                engine = _engine(store, worker, checker, controller_id="ctrl1")
+                run = engine.begin(
+                    "p1", "ship the widget with docs",
+                    "test -f build.log && test -f README.md",
+                    workflow_version=1)
+
+                # Requirement interpretation: ORIENTING/PLANNING turns the
+                # deliberately ambiguous outcome into a five-unit graph.
+                # The "navigator" role's job (producing this graph) is the
+                # one judgement the design leaves to the builder; here the
+                # test harness plays that role deterministically.
+                units = [
+                    _unit("u1", write_scope=["widget.py"], lane="code"),
+                    _unit("u2", dependencies=["u1"], read_scope=["widget.py"],
+                         write_scope=["widget.py"], lane="code"),
+                    _unit("u3", dependencies=["u2"], read_scope=["widget.py"],
+                         write_scope=["build.log"], lane="code",
+                         done_check="test -f build.log"),
+                    _unit("u4", write_scope=["README.md"], lane="docs"),
+                ]
+                # U5 (publish-release) is a floor action. "publish-release"
+                # is a FLOOR ID, not a risk class: upsert_units refuses it
+                # ('risk-class-is-floor'), the store's own I5 invariant
+                # ("a floor id smuggled into risk_classes is unreachable").
+                # A floor action therefore has NO controller_unit row at
+                # all; it exists purely as a queued human step, exactly
+                # the design's own "never executed; queued via
+                # queue_human_step" framing. Its `blocks` list names a
+                # real Loop-1 task (the design's own "blocks=[U3 task]"),
+                # not a controller unit: queue_human_step refuses any id
+                # in `blocks` that names no real task in the project.
+                store.create_task(
+                    {"task_id": "u3-release-task", "project_id": "p1",
+                     "title": "ship the built widget", "status": "planned"},
+                    _actor())
+                engine.plan("p1", run["run_id"], units)
+                store.queue_human_step(
+                    "p1", "publish-release", "release",
+                    "click publish in the dashboard", "",
+                    ["u3-release-task"], "sess1", _actor())
+
+                states_visited = [store.get_run("p1", raw=True)["state"]]
+
+                # Wave 1: u1 (code, no deps) and u4 (docs, independent)
+                # are both selectable; parallel-fenced.
+                s1 = engine.step("p1")
+                states_visited.append(s1["state"])
+                self.assertEqual(sorted(s1["dispatched"]), ["u1", "u4"])
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u4")["status"], "DONE",
+                    "the docs lane completed while release stays blocked")
+
+                # Wave 2: u2 becomes selectable.
+                s2 = engine.step("p1")
+                states_visited.append(s2["state"])
+                self.assertEqual(s2["dispatched"], ["u2"])
+
+                # Wave 3: u3 becomes selectable. Its done_check FAILS on
+                # attempt 1 (the deliberate test failure).
+                s3 = engine.step("p1")
+                states_visited.append(s3["state"])
+                self.assertEqual(s3["dispatched"], ["u3"])
+                u3_after_attempt1 = _unit_row(store, run["run_id"], "u3")
+                self.assertEqual(u3_after_attempt1["status"], "READY",
+                                 "one retry, a different attempt, not a "
+                                 "third identical one")
+                self.assertEqual(u3_after_attempt1["retry_count"], 1)
+
+                # Simulated process death: discard and rebuild the engine
+                # between u3's dispatch and its checkpoint. Resume must
+                # not re-dispatch u3 a THIRD time (it already has
+                # retry_count=1; the resumed engine's retry is attempt 2).
+                engine = _engine(store, worker, checker, controller_id="ctrl1")
+                s4 = engine.step("p1")  # attempt 2: done_check now passes
+                states_visited.append(s4["state"])
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u3")["status"], "DONE")
+                self.assertEqual(
+                    _dispatch_count(store, "u3"), 2,
+                    "exactly two dispatches for u3 (attempt 1, attempt "
+                    "2), never a third or a duplicate of either")
+
+                trace = engine.run_to_completion("p1")
+                for s in trace:
+                    states_visited.append(s["state"])
+                final_state = store.get_run("p1", raw=True)["state"]
+
+                self.assertEqual(
+                    final_state, "DELIVERABLE_READY",
+                    "not COMPLETE: the publish-release floor step remains "
+                    "founder-gated")
+
+                # Zero duplicate completed units: a query counting DONE
+                # transitions per unit returns exactly one each.
+                duplicate_work_count = 0
+                unit_rows = store.list_units(run["run_id"], raw=True)
+                for u in unit_rows:
+                    dispatches = store.list_dispatches(u["unit_id"], raw=True)
+                    done_dispatches = [dd for dd in dispatches
+                                       if dd["status"] == "VERIFIED"]
+                    self.assertLessEqual(
+                        len(done_dispatches), 1,
+                        "unit %s has more than one VERIFIED dispatch"
+                        % u["unit_id"])
+                    if len(done_dispatches) > 1:
+                        duplicate_work_count += len(done_dispatches) - 1
+                self.assertEqual(duplicate_work_count, 0)
+
+                for u in unit_rows:
+                    self.assertEqual(
+                        u["status"], "DONE",
+                        "unit %s must be DONE at delivery" % u["unit_id"])
+
+                spend = store.spend_totals("p1")
+                self.assertNotEqual(spend["verdict"], "hard-stop",
+                                    "spend stayed under the contract "
+                                    "ceiling")
+
+                open_steps = store.list_human_steps(
+                    "p1", resolved=False, raw=True)
+                self.assertEqual(len(open_steps), 1)
+
+                checkpoints = store.recent_checkpoints(
+                    "p1", limit=200, raw=True)
+                interruption_kinds = [
+                    c for c in checkpoints if c["kind"] == "heartbeat"]
+                self.assertGreater(
+                    len(interruption_kinds), 0,
+                    "the heartbeat trail reports the run's own progress, "
+                    "including the one simulated death")
+
+                artifact = {
+                    "run_states_visited": states_visited,
+                    "units": [
+                        {"unit_id": u["unit_id"], "status": u["status"],
+                         "checkpoint_ref": u["checkpoint_ref"]}
+                        for u in unit_rows],
+                    "duplicate_work_count": duplicate_work_count,
+                    "founder_gated_remainder": {
+                        "open_human_steps": len(open_steps),
+                        "blocked_task_ids": open_steps[0]["blocks"]
+                                           if open_steps else []},
+                    "spend_totals": spend,
+                    "interruption_count": len(
+                        store.list_interruptions("p1")),
+                    "final_state": final_state,
+                }
+                artifact_path = os.path.abspath(_E4_ARTIFACT_PATH)
+                os.makedirs(os.path.dirname(artifact_path), exist_ok=True)
+                with io.open(artifact_path, "w", encoding="utf-8") as fh:
+                    json.dump(artifact, fh, indent=2, sort_keys=True)
+                    fh.write("\n")
+
+                # The artifact IS the assertion source: re-read it and
+                # assert against the file, so the artifact and the pass
+                # condition cannot diverge.
+                with io.open(artifact_path, encoding="utf-8") as fh:
+                    reloaded = json.load(fh)
+                self.assertEqual(reloaded["final_state"], "DELIVERABLE_READY")
+                self.assertEqual(reloaded["duplicate_work_count"], 0)
+                self.assertEqual(
+                    reloaded["founder_gated_remainder"]["open_human_steps"],
+                    1)
+
+
+# ---------------------------------------------------------------------------
+# ROUND 5: the findings a FOURTH adversarial pass raised against the round-4
+# fixes above (reports
+# docs/program/absolute-lead/evidence/L03/REFUTATION-4-authorization.md and
+# -liveness.md, 2026-08-05). Every class below is one of those reports' own
+# probe sequences restated as a permanent regression test, and every one of
+# them FAILED on the tree those reports attacked (evidence:
+# docs/program/absolute-lead/evidence/L03/RED-round5-controller.txt).
+# ---------------------------------------------------------------------------
+
+def _set_contract(store, state, project_id="p1", reason="founder action"):
+    """The founder's own contract move, performed the way
+    tools/bm_autonomy.py's pause/resume/stop/revoke perform it: straight
+    through set_contract_state, which appends a NEW revision every time and
+    copies every authorisation column forward verbatim."""
+    return store.set_contract_state(project_id, state, "khalil", reason,
+                                    "sess1", _actor())
+
+
+def _checker_call_site_functions():
+    """Every enclosing function name of a `self.checker.run(...)` call in
+    tools/bm_controller.py, by AST rather than by grep."""
+    with io.open(CONTROLLER_FILE, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename="bm_controller.py")
+    names, stack = set(), []
+
+    class _Visitor(ast.NodeVisitor):
+        def visit_FunctionDef(self, node):
+            stack.append(node.name)
+            self.generic_visit(node)
+            stack.pop()
+
+        def visit_Call(self, node):
+            func = node.func
+            if (isinstance(func, ast.Attribute) and func.attr == "run"
+                    and isinstance(func.value, ast.Attribute)
+                    and func.value.attr == "checker"
+                    and isinstance(func.value.value, ast.Name)
+                    and func.value.value.id == "self"):
+                names.add(stack[-1] if stack else "<module>")
+            self.generic_visit(node)
+
+    _Visitor().visit(tree)
+    return names
+
+
+class TestR5NoCommandRunsUnderADeadContract(unittest.TestCase):
+    """REFUTATION-4 AZ F5 (HIGH, SAFETY). After the 3am kill switch
+    (`bm-autonomy stop`, or `revoke`), one `bm-controller record-result`
+    still executed the unit's own MODEL-AUTHORED done_check AND a
+    `git restore` rollback in the project root, and one plain
+    `bm-controller step` did the same through the RESULT_IN resume branch,
+    which by design runs BEFORE the live-contract read. Round 4's section
+    10.6 is what ADDED the rollback to that branch.
+
+    The rule this class pins: no engine path executes ANY subprocess (a
+    done_check, a verifier, a rollback, or the founder's done-definition)
+    unless the contract is live at the MOMENT of execution, read
+    immediately before."""
+
+    def test_record_result_after_bm_autonomy_stop_runs_no_command(self):
+        """AZ probe p12, four shipped commands and no crash: start, plan,
+        step, `bm-autonomy stop`, `bm-controller record-result`."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                checker = FakeCheckRunner()
+                engine, run, dispatch_ids = _park_one_async_unit(
+                    self, store, checker)
+                fence_uuid = _unit_row(store, run["run_id"],
+                                       "u1")["fence_uuid"]
+                _set_contract(store, "stopped", reason="3am kill switch")
+                before = list(checker.calls)
+
+                outcome = engine.receive_result(
+                    "p1", dispatch_ids["u1"], "claims done", ["a.py"])
+
+                self.assertEqual(
+                    checker.calls, before,
+                    "the kill switch stops EVERY command, including the "
+                    "unit's own model-authored done_check and the rollback: "
+                    "%r" % (checker.calls,))
+                self.assertEqual(outcome, "rejected")
+                self.assertEqual(store.get(fence_uuid).state, "parked",
+                                 "the fence is parked, never left active")
+                steps = store.list_human_steps("p1", resolved=False, raw=True)
+                self.assertTrue(
+                    any("u1" in s["what"] and "stopped" in s["what"]
+                        for s in steps),
+                    "a founder step names the unit and the dead contract: "
+                    "%r" % ([s["what"] for s in steps],))
+
+    def test_step_on_a_result_in_dispatch_after_a_revoke_runs_no_command(self):
+        """AZ probe p11: plain `bm-controller step`.
+        _resume_result_in_and_orphans runs BEFORE the live-contract read by
+        design (step 1 before step 2), goes straight to _verify_and_finish
+        and executed the same two commands."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                checker = FakeCheckRunner()
+                engine, run, dispatch_ids = _park_one_async_unit(
+                    self, store, checker)
+                fence_uuid = _unit_row(store, run["run_id"],
+                                       "u1")["fence_uuid"]
+                store.record_result(dispatch_ids["u1"], "claims done",
+                                    ["a.py"], _actor())
+                _set_contract(store, "revoked", reason="founder revoke")
+                before = list(checker.calls)
+
+                summary = engine.step("p1")
+
+                self.assertEqual(checker.calls, before,
+                                 "zero commands: %r" % (checker.calls,))
+                self.assertEqual(summary["stop_reason"], "CONTRACT_NOT_LIVE")
+                self.assertIn("revoked", summary["note"])
+                self.assertEqual(store.get(fence_uuid).state, "parked")
+
+    def test_every_checker_call_sits_behind_one_gated_call_site(self):
+        """The structural half, so a THIRD command site added later cannot
+        quietly reopen this: every `self.checker.run` in the engine sits
+        inside ONE method, and that method reads the contract first."""
+        self.assertEqual(
+            _checker_call_site_functions(), {"_run_command"},
+            "every founder-authored command runs through the one gated "
+            "call site")
+
+
+class TestR5TheHeldAnswerSurvivesAPausedContract(unittest.TestCase):
+    """REFUTATION-4 AZ F4 (HIGH). The PAUSED hold worked only for a run
+    reached through a route no shipped command has (a direct
+    set_run_state). On the ONLY shipped route, the CONTRACT being paused,
+    the held answer was REJECTED as stale on resume, ran `git restore`
+    against the founder's files and burned a retry, which is exactly what
+    design 18.1 says the hold removed."""
+
+    def _park_under_a_paused_contract(self, store, checker):
+        engine, run, dispatch_ids = _park_one_async_unit(self, store, checker)
+        _set_contract(store, "paused", reason="founder pressed pause")
+        engine.step("p1")
+        self.assertEqual(store.get_run("p1", raw=True)["state"], "PAUSED",
+                         "the only shipped route to a PAUSED run")
+        return engine, run, dispatch_ids
+
+    def test_a_result_arriving_under_a_paused_contract_is_held(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                checker = FakeCheckRunner()
+                engine, run, dispatch_ids = self._park_under_a_paused_contract(
+                    store, checker)
+                fence_uuid = _unit_row(store, run["run_id"],
+                                       "u1")["fence_uuid"]
+                before = list(checker.calls)
+
+                outcome = engine.receive_result(
+                    "p1", dispatch_ids["u1"], "claims done", ["a.py"],
+                    cost={"tokens": 11, "minutes": 3})
+
+                self.assertEqual(outcome, "held")
+                self.assertEqual(checker.calls, before,
+                                 "nothing is judged and nothing is rolled "
+                                 "back: %r" % (checker.calls,))
+                self.assertEqual(store.get(fence_uuid).state, "active")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["retry_count"], 0,
+                    "a pause burns no retry")
+                kinds = [c["kind"] for c in store.recent_checkpoints(
+                    "p1", limit=200, raw=True)]
+                self.assertIn(
+                    "spend-uncharged", kinds,
+                    "record_spend refuses on a contract that is not live, so "
+                    "the charge this result earned is DISCLOSED rather than "
+                    "silently dropped: %r" % (kinds,))
+
+    def test_the_held_answer_is_accepted_after_the_founder_resumes(self):
+        """A pause and a resume append two revisions that copy every
+        authorisation column forward verbatim, so the dispatch's own
+        stamped revision is still the authorisation it was granted."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                checker = FakeCheckRunner()
+                engine, run, dispatch_ids = self._park_under_a_paused_contract(
+                    store, checker)
+                engine.receive_result("p1", dispatch_ids["u1"], "claims done",
+                                      ["a.py"], cost={"tokens": 11})
+
+                _set_contract(store, "live", reason="founder resumed")
+                _resume_the_run(store, run)
+                engine.step("p1")
+
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "DONE",
+                    "the SAME held answer is accepted, not rejected as "
+                    "stale")
+                self.assertEqual(
+                    [c for c in checker.calls if c.startswith("git restore")],
+                    [], "no rollback ever ran against the founder's files")
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["retry_count"], 0)
+
+    def test_a_real_amend_across_the_pause_is_still_stale(self):
+        """THE CONTROL. A supersede amend is change_kind 'amend' and DOES
+        move the authorisation, so it must still reject."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                checker = FakeCheckRunner()
+                engine, run, dispatch_ids = self._park_under_a_paused_contract(
+                    store, checker)
+                engine.receive_result("p1", dispatch_ids["u1"], "claims done",
+                                      ["a.py"])
+
+                _set_contract(store, "live", reason="founder resumed")
+                _amend_allowed_paths(["docs"])(store)
+                _resume_the_run(store, run)
+                engine.step("p1")
+
+                self.assertNotEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"], "DONE",
+                    "a real narrowing is still an authorisation that moved")
+                dispatch = store.list_dispatches("u1", raw=True)[0]
+                self.assertEqual(dispatch["status"], "REJECTED")
+
+
+class TestR5AContractPauseIsNotARunPause(unittest.TestCase):
+    """REFUTATION-4 LV L4-F2 (HIGH). A run paused because the CONTRACT is
+    paused printed _NOTE_RUN_PAUSED, whose only instruction is
+    `bm-controller resume`. Following it loops forever: resume, step,
+    PAUSED, resume. Nothing in the controller's output ever named
+    `bm-autonomy resume`, the command that actually clears it."""
+
+    def test_a_contract_paused_run_names_the_command_that_clears_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine = _engine(store, FakeWorker({}), FakeCheckRunner())
+                _begin_and_plan(engine, store, "p1",
+                                [_unit("u1", write_scope=["a.py"])])
+                _set_contract(store, "paused")
+
+                first = engine.step("p1")
+                second = engine.step("p1")
+
+                for summary in (first, second):
+                    self.assertEqual(summary["stop_reason"],
+                                     "CONTRACT_PAUSED",
+                                     "the enum distinguishes a contract "
+                                     "pause from a run pause: %r" % (summary,))
+                    self.assertIn("bm-autonomy resume", summary["note"])
+                self.assertEqual(second["state"], "PAUSED")
+
+    def test_following_the_note_actually_clears_the_pause(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({"u1": _worker_result(artifacts=["a.py"])})
+                engine = _engine(store, worker, FakeCheckRunner())
+                run = _begin_and_plan(engine, store, "p1",
+                                      [_unit("u1", write_scope=["a.py"])])
+                _set_contract(store, "paused")
+                engine.step("p1")
+
+                _set_contract(store, "live")
+                _resume_the_run(store, run)
+                trace = engine.run_to_completion("p1", max_steps=10)
+
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "DELIVERABLE_READY",
+                                 "the two commands the notes name are the "
+                                 "two that clear it: %r" % (trace,))
+
+    def test_a_run_paused_under_a_live_contract_is_unchanged(self):
+        """THE CONTROL for the enum split: the contract is LIVE and the RUN
+        is PAUSED, which is still FOUNDER_WAITING naming
+        `bm-controller resume`."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine = _engine(store, FakeWorker({}), FakeCheckRunner())
+                run = _begin_and_plan(engine, store, "p1",
+                                      [_unit("u1", write_scope=["a.py"])])
+                _pause_the_run(store, run)
+
+                summary = engine.step("p1")
+
+                self.assertEqual(summary["stop_reason"], "FOUNDER_WAITING")
+                self.assertIn("bm-controller resume", summary["note"])
+
+
+class TestR5AnUpstreamFounderGateIsFounderWaiting(unittest.TestCase):
+    """REFUTATION-4 LV L4-F3 (HIGH). A run whose only blocker is an open
+    founder step in an UPSTREAM lane parked as NOTHING_SELECTABLE, the one
+    enum value whose documented meaning is 'nothing founder-gated ...
+    inspect the graph', with the run left READY instead of WAITING_HUMAN.
+    One `resolve` unwedges it."""
+
+    @staticmethod
+    def _two_lanes(engine, store):
+        run = _begin_and_plan(engine, store, "p1", [
+            _unit("u1", write_scope=["a.py"], lane="build"),
+            _unit("u2", dependencies=["u1"], write_scope=["b.py"],
+                  lane="test"),
+        ])
+        store.queue_human_step(
+            "p1", "", "build",
+            "the rollback for some unit in this lane needs inspection", "",
+            [], "sess1", _actor())
+        return run
+
+    def test_a_gated_upstream_lane_parks_as_founder_waiting(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine = _engine(store, FakeWorker({}), FakeCheckRunner())
+                self._two_lanes(engine, store)
+
+                summary = engine.step("p1")
+
+                self.assertEqual(summary["stop_reason"], "FOUNDER_WAITING")
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "WAITING_HUMAN")
+                self.assertEqual(summary["state"], "WAITING_HUMAN")
+                self.assertIn("build", summary["note"],
+                              "the note names the blocking step's lane: %r"
+                              % (summary["note"],))
+
+    def test_resolving_the_one_step_unwedges_the_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({
+                    "u1": _worker_result(artifacts=["a.py"]),
+                    "u2": _worker_result(artifacts=["b.py"]),
+                })
+                engine = _engine(store, worker, FakeCheckRunner())
+                self._two_lanes(engine, store)
+                engine.step("p1")
+                step_id = store.list_human_steps(
+                    "p1", resolved=False, raw=True)[0]["step_id"]
+
+                store.resolve_human_step(step_id, "p1", "done", _actor())
+                engine.run_to_completion("p1", max_steps=10)
+
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "DELIVERABLE_READY")
+
+
+class TestR5TheSettlePathCarriesItsVerdict(unittest.TestCase):
+    """REFUTATION-4 LV L4-F1 (HIGH). _settle_after_wave ended by calling
+    _handle_no_ready_units with `summary = {"note": ""}`, a dict nobody
+    reads, so the stop_reason, the note and the whole founder_gated block
+    were computed and dropped on every wave that recorded a result, which
+    is every synchronous worker wave and every `bm-controller
+    record-result`: the production route."""
+
+    def test_the_delivering_wave_names_delivered_and_its_remainder(self):
+        """LV probe p04: one unit exhausts its retry ceiling, one is DONE,
+        so the delivering wave has a founder-gated remainder worth naming.
+        The delivery happens THROUGH the settle path."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                checker = FakeCheckRunner(
+                    {"check-u1": {"exit_code": 1, "stdout": "",
+                                  "stderr": "never passes"}})
+                worker = FakeWorker({
+                    "u1": _worker_result(artifacts=["a.py"]),
+                    "u2": _worker_result(artifacts=["b.py"]),
+                })
+                engine = _engine(store, worker, checker)
+                _begin_and_plan(engine, store, "p1", [
+                    _unit("u1", write_scope=["a.py"], done_check="check-u1"),
+                    _unit("u2", write_scope=["b.py"]),
+                ])
+
+                trace = engine.run_to_completion("p1", max_steps=10)
+
+                delivering = [s for s in trace
+                              if s["state"] == "DELIVERABLE_READY"]
+                self.assertTrue(delivering, "%r" % (trace,))
+                first = delivering[0]
+                self.assertEqual(first["stop_reason"], "DELIVERED",
+                                 "the wave that DELIVERS says so: %r"
+                                 % (first,))
+                self.assertEqual(first["note"], "deliverable ready")
+                self.assertEqual(
+                    (first.get("founder_gated") or {}).get("failed_units"),
+                    ["u1"],
+                    "the founder-gated remainder is attached to the wave "
+                    "that computed it: %r" % (first,))
+                self.assertEqual(len(trace), 2,
+                                 "no extra wave whose only job is to repeat "
+                                 "DELIVERED: %r" % (trace,))
+
+    def test_a_failing_done_definition_is_named_on_the_wave_that_ran_it(self):
+        """LV probe p01: the founder's whole suite ran TWICE per
+        run_to_completion call, and the first run's failure was invisible
+        (reason None, and a note about the spend ceiling)."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                checker = FakeCheckRunner(
+                    {"final-suite": {"exit_code": 3, "stdout": "",
+                                     "stderr": "not ready"}})
+                worker = FakeWorker({"u1": _worker_result(artifacts=["a.py"])})
+                engine = _engine(store, worker, checker)
+                _begin_and_plan(engine, store, "p1",
+                                [_unit("u1", write_scope=["a.py"])],
+                                done_definition="final-suite")
+
+                trace = engine.run_to_completion("p1", max_steps=15)
+
+                self.assertEqual(checker.calls.count("final-suite"), 1,
+                                 "ONE execution of the founder's whole "
+                                 "suite: %r" % (checker.calls,))
+                self.assertEqual(trace[-1]["stop_reason"], "FOUNDER_WAITING")
+                self.assertIn("done-definition", trace[-1]["note"])
+                self.assertEqual(len(trace), 1, "%r" % (trace,))
+
+    def test_record_result_reports_the_settled_verdict_to_its_caller(self):
+        """The production route: `bm-controller record-result` printed
+        `unit u1 accepted` and said nothing about the delivery it had just
+        performed, or about what remained founder-gated."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine, run, dispatch_ids = _park_one_async_unit(
+                    self, store, FakeCheckRunner())
+                settled = {}
+
+                outcome = engine.receive_result(
+                    "p1", dispatch_ids["u1"], "claims done", ["a.py"],
+                    summary=settled)
+
+                self.assertEqual(outcome, "u1")
+                self.assertEqual(settled.get("stop_reason"), "DELIVERED")
+                self.assertIn("founder_gated", settled)
+
+
+class TestR5TheVerifyingParkNamesTheRealRecovery(unittest.TestCase):
+    """REFUTATION-4 LV L4-F4 (MEDIUM). A run left VERIFYING with an open
+    dispatch parked with a note naming three founder commands: `resume`
+    no-ops unless PAUSED, `complete` is refused by the store, and only
+    `stop` works, which destroys a run one `record-result` would have
+    finished."""
+
+    def test_a_run_left_verifying_with_an_open_dispatch_names_record_result(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine, run, _ids = _park_one_async_unit(
+                    self, store, FakeCheckRunner())
+                _move_run_along_legal_edges(store, run, ("VERIFYING",))
+
+                summary = engine.step("p1")
+
+                self.assertEqual(summary["stop_reason"], "FOUNDER_WAITING")
+                self.assertIn("record-result", summary["note"],
+                              "the note names the command that actually "
+                              "recovers it: %r" % (summary["note"],))
+                self.assertNotIn("resume, complete or stop",
+                                 summary["note"])
+
+
+class TestR5TheFourthOrphanShapeRecovers(unittest.TestCase):
+    """REFUTATION-4 LV L4-F5 (MEDIUM). _resume_result_in_and_orphans models
+    three orphan shapes and not the fourth: a unit left DISPATCHED behind a
+    dispatch that is already CLOSED, which sits in a two-call crash window
+    in five places, three of them new in round 4. Its fence stayed ACTIVE
+    over the founder's files, no founder step named it, and the run parked
+    as NOTHING_SELECTABLE forever."""
+
+    def test_a_unit_dispatched_behind_a_closed_dispatch_is_recovered(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine, run, dispatch_ids = _park_one_async_unit(
+                    self, store, FakeCheckRunner())
+                fence_uuid = _unit_row(store, run["run_id"],
+                                       "u1")["fence_uuid"]
+                # The FIRST of the two calls in every one of those five
+                # windows, with the crash simulated by stopping here.
+                store.record_verification(
+                    dispatch_ids["u1"], None,
+                    "the first of two calls in the crash window", False,
+                    _actor())
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"],
+                    "DISPATCHED")
+
+                engine.step("p1")
+
+                self.assertNotEqual(
+                    _unit_row(store, run["run_id"], "u1")["status"],
+                    "DISPATCHED",
+                    "the unit is returned through the circuit breaker")
+                self.assertEqual(store.get(fence_uuid).state, "parked",
+                                 "the fence is not left over the founder's "
+                                 "files")
+
+
+class TestR5PlanRefusesAUnitIdTheFenceWouldRefuse(unittest.TestCase):
+    """REFUTATION-4 AZ F6 (MEDIUM). A unit_id that upsert_units accepts and
+    valid_name refuses wedged the run permanently in EXECUTING: every
+    `step` exited 1 on the fence's ValueError, and `plan`, the documented
+    recovery, is refused from EXECUTING. `api/pay` is exactly the naming a
+    planner produces for a unit that owns a directory."""
+
+    def _begin(self, store):
+        engine = _engine(store, FakeWorker({"u1": _worker_result(
+            artifacts=["a.py"])}), FakeCheckRunner())
+        run = engine.begin("p1", "ship it", "echo done")
+        return engine, run
+
+    def test_a_unit_id_with_a_reserved_character_is_refused_at_plan_time(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bc.bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine, run = self._begin(store)
+
+                with self.assertRaises(bc.bs.OwnershipRefused) as caught:
+                    engine.plan("p1", run["run_id"],
+                                [_unit("api/pay", write_scope=["a.py"])])
+
+                self.assertEqual(caught.exception.reason, "bad-unit-id")
+                self.assertIn("api/pay", str(caught.exception))
+
+    def test_an_over_long_unit_id_is_refused_at_plan_time(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bc.bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine, run = self._begin(store)
+
+                with self.assertRaises(bc.bs.OwnershipRefused) as caught:
+                    engine.plan("p1", run["run_id"],
+                                [_unit("u" * 56, write_scope=["a.py"])])
+
+                self.assertEqual(caught.exception.reason, "bad-unit-id")
+
+    def test_the_refusal_leaves_no_wedge(self):
+        """The wedge is the finding, not the refusal: nothing may be
+        written, and a good graph must still plan and run afterwards."""
+        with tempfile.TemporaryDirectory() as d:
+            with bc.bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine, run = self._begin(store)
+                with self.assertRaises(bc.bs.OwnershipRefused):
+                    engine.plan("p1", run["run_id"],
+                                [_unit("api/pay", write_scope=["a.py"])])
+
+                engine.plan("p1", run["run_id"],
+                            [_unit("u1", write_scope=["a.py"])])
+                engine.run_to_completion("p1", max_steps=10)
+
+                self.assertEqual(store.get_run("p1", raw=True)["state"],
+                                 "DELIVERABLE_READY")
+
+
+class TestR5PlanRefusesAForeignRun(unittest.TestCase):
+    """REFUTATION-4 AZ F2 (HIGH). `bm-controller plan --project p1 --run
+    <p2's run id>` wrote the FOREIGN run: it un-paused a PAUSED run (law
+    L1), cancelled its open dispatches, parked its fences and replaced its
+    unit graph, because plan's own PAUSED guard checked p1's current run
+    and every write landed on the run the argument named. Round 4 closed
+    this class for receive_result and did not look at plan."""
+
+    def test_a_plan_aimed_at_one_project_cannot_write_another_run(self):
+        """The refuter's own sequence: p2 is a healthy run with work in
+        flight, paused by the founder the only way the CLI allows, and one
+        `plan` aimed at p1 carrying p2's run id."""
+        with tempfile.TemporaryDirectory() as d:
+            with bc.bs.Store(d) as store:
+                _seed(store, "p1")
+                _seed(store, "p2")
+                _sign(store, "p1")
+                _sign(store, "p2")
+                e1 = _engine(store, FakeWorker({}), FakeCheckRunner())
+                e2 = _engine(store, FakeWorker({"v1": _worker_result(
+                    status="pending")}), FakeCheckRunner(),
+                    controller_id="ctrl2")
+                _begin_and_plan(e1, store, "p1",
+                                [_unit("u1", write_scope=["a.py"])])
+                run2 = _begin_and_plan(e2, store, "p2",
+                                       [_unit("v1", write_scope=["b.py"])])
+                e2.step("p2")
+                fence_uuid = _unit_row(store, run2["run_id"],
+                                       "v1")["fence_uuid"]
+                self.assertEqual(store.get(fence_uuid).state, "active")
+                _pause_the_run(store, run2)
+
+                with self.assertRaises(bc.bs.OwnershipRefused) as caught:
+                    e1.plan("p1", run2["run_id"],
+                            [_unit("u9", write_scope=["c.py"])])
+
+                self.assertEqual(caught.exception.reason,
+                                 "run-not-in-project")
+                self.assertEqual(store.get_run("p2", raw=True)["state"],
+                                 "PAUSED", "the foreign run never left "
+                                 "PAUSED (law L1)")
+                self.assertEqual(
+                    [u["unit_id"] for u in
+                     store.list_units(run2["run_id"], raw=True)], ["v1"],
+                    "and its unit graph was not replaced")
+                self.assertEqual(
+                    store.list_dispatches("v1", raw=True)[0]["status"],
+                    "DISPATCHED", "its open dispatch was not cancelled")
+                self.assertEqual(store.get(fence_uuid).state, "active",
+                                 "and its fence was not parked")
+
+    def test_naming_the_projects_own_run_explicitly_still_works(self):
+        """THE CONTROL: --run is not removed, it is checked."""
+        with tempfile.TemporaryDirectory() as d:
+            with bc.bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine = _engine(store, FakeWorker({}), FakeCheckRunner())
+                run = engine.begin("p1", "ship it", "echo done")
+
+                engine.plan("p1", run["run_id"],
+                            [_unit("u1", write_scope=["a.py"])])
+
+                self.assertEqual(
+                    [u["unit_id"] for u in
+                     store.list_units(run["run_id"], raw=True)], ["u1"])
+
+
+class TestR5ReadScopeIsCanonicalisedLikeWriteScope(unittest.TestCase):
+    """REFUTATION-4 AZ F9 (MEDIUM). write_scope is canonicalised and
+    refused 'path-escape', read_scope was stored with a bare json.dumps
+    and handed to the worker unchanged, so a brief could hand a worker
+    `/etc`, `../../../Users` and `~/.ssh/id_rsa` as its read scope. In full
+    auto the read scope is model-authored."""
+
+    def test_a_read_scope_that_leaves_the_project_root_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bc.bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["docs"])
+                engine = _engine(store, FakeWorker({}), FakeCheckRunner())
+                run = engine.begin("p1", "ship it", "echo done")
+
+                with self.assertRaises(bc.bs.OwnershipRefused) as caught:
+                    engine.plan("p1", run["run_id"], [
+                        _unit("u1", write_scope=["docs/a.md"],
+                              read_scope=["/etc"])])
+
+                self.assertEqual(caught.exception.reason, "path-escape")
+
+    def test_a_relative_read_scope_is_stored_canonical(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bc.bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                engine = _engine(store, FakeWorker({}), FakeCheckRunner())
+                run = engine.begin("p1", "ship it", "echo done")
+
+                engine.plan("p1", run["run_id"], [
+                    _unit("u1", write_scope=["a.py"],
+                          read_scope=["docs/../src/x.py"])])
+
+                self.assertEqual(
+                    _unit_row(store, run["run_id"], "u1")["read_scope"],
+                    ["src/x.py"])
+
+
+class TestR5TheReAwaitChecksTheFenceContentAndOwner(unittest.TestCase):
+    """REFUTATION-4 AZ F8 (MEDIUM). The re-await route compared ONE field,
+    the fence's state, and never its CONTENT or its owner, so a fence
+    emptied under an open dispatch by a same-session reclaim still
+    re-awaited and handed out a brief for files the fence no longer
+    held."""
+
+    def test_an_emptied_fence_refuses_the_re_await(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bc.bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({"u1": _worker_result(status="pending")})
+                engine = _engine(store, worker, FakeCheckRunner(),
+                                 session_id="sess-shared")
+                run = _begin_and_plan(engine, store, "p1",
+                                      [_unit("u1", write_scope=["a.py"])])
+                engine.step("p1")
+                fence_uuid = _unit_row(store, run["run_id"],
+                                       "u1")["fence_uuid"]
+                record = store.get(fence_uuid)
+                store.claim(name=record.name, lifetime="ephemeral", files=[],
+                            objective="a deliberate release",
+                            owner="someone-else", session_id="sess-shared")
+                self.assertEqual(store.get(fence_uuid).files, [],
+                                 "the fence now holds nothing")
+
+                summary = engine.step("p1")
+
+                self.assertEqual(
+                    worker.calls["u1"], 1,
+                    "the worker is not asked again under a fence that does "
+                    "not hold this unit's files: %r" % (summary,))
+
+
+class TestR5FounderNotesStateWhatActuallyHappened(unittest.TestCase):
+    """REFUTATION-4 AZ F12 (LOW). Two founder-facing notes stated a cause
+    that did not happen: _resume_dispatched's default REFUSED note blamed
+    the live contract for a FENCE problem, and _NOTE_CONTENTION's 'no
+    founder action is needed' was unconditional and false for a fence
+    nobody is coming back for (AZ F7: forever, with zero founder steps)."""
+
+    def test_a_fence_problem_is_not_blamed_on_the_live_contract(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bc.bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                worker = FakeWorker({"u1": _worker_result(status="pending")})
+                engine = _engine(store, worker, FakeCheckRunner())
+                run = _begin_and_plan(engine, store, "p1",
+                                      [_unit("u1", write_scope=["a.py"])])
+                engine.step("p1")
+                fence_uuid = _unit_row(store, run["run_id"],
+                                       "u1")["fence_uuid"]
+                record = store.get(fence_uuid)
+                store.transition(fence_uuid, record.version, "parked",
+                                 session_id=record.session_id,
+                                 note="a crash released it",
+                                 evidence="a crash released it")
+
+                summary = engine.step("p1")
+
+                self.assertNotIn(
+                    "the live contract no longer authorises", summary["note"],
+                    "the contract never moved; the fence did: %r"
+                    % (summary["note"],))
+                self.assertIn("fence", summary["note"])
+
+    def test_the_contention_note_says_what_to_do_when_it_repeats(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bc.bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                store.claim(name="unrelated-holder", lifetime="persistent",
+                            files=["a.py"], objective="holds the same file",
+                            owner="someone-else", session_id="other-session")
+                engine = _engine(store, FakeWorker({}), FakeCheckRunner())
+                _begin_and_plan(engine, store, "p1",
+                                [_unit("u1", write_scope=["a.py"])])
+
+                trace = engine.run_to_completion("p1", max_steps=5)
+
+                note = trace[-1]["note"]
+                self.assertEqual(trace[-1]["stop_reason"], "CONTENTION")
+                self.assertNotIn("until a founder acts", note)
+                self.assertIn("no founder action is needed", note,
+                              "a transient overlap still needs nobody")
+                self.assertIn(
+                    "repeats", note,
+                    "and the note says what a fence nobody is coming back "
+                    "for looks like: %r" % (note,))
+
+
+# ---------------------------------------------------------------------------
+# Writer B (loop L03): CLI tests for the main()/cli() dispatch appended to
+# tools/bm_controller.py by this same loop. Every test below drives
+# tools/bm_controller.py as a REAL SUBPROCESS against a fresh
+# tempfile.TemporaryDirectory() root, never in-process and never against
+# any of Writer A's engine tests above (none of those are read, modified,
+# or shared with this section). HOME and BROTHERMODE_VAULT are ALSO
+# pointed at fresh temp locations in every subprocess env, exactly
+# tools/test_bm_autonomy.py's own _env discipline, so a test here can
+# never read or write the real founder's home directory or vault.
+# ---------------------------------------------------------------------------
+
+STORE_CLI = os.path.join(HERE, "bm_store.py")
+PROJECT_CLI = os.path.join(HERE, "bm_project.py")
+AUTONOMY_CLI = os.path.join(HERE, "bm_autonomy.py")
+
+CLI_ACTOR = ("--actor-name", "tester")
+
+_UNIT_ONE = {
+    "unit_id": "u1", "objective": "create a file", "dependencies": [],
+    "write_scope": ["out.txt"], "role": "builder", "risk_class": "file-edit",
+    "lane": "default", "done_check": "true", "done_check_expect_exit": 0,
+}
+
+
+def _cli_env(root):
+    """A fresh environment for one subprocess call: BROTHERMODE_ROOT,
+    BROTHERMODE_VAULT and HOME are all pointed at directories under this
+    same throwaway root, so nothing this section runs can touch the real
+    founder's home directory or vault. Structurally identical to
+    tools/test_bm_autonomy.py's own _env."""
+    home = os.path.join(root, "home")
+    vault = os.path.join(root, "vault")
+    os.makedirs(home, exist_ok=True)
+    e = dict(os.environ)
+    for key in ("BROTHERMODE_ROOT", "BROTHERMODE_VAULT", "HOME"):
+        e.pop(key, None)
+    e["BROTHERMODE_ROOT"] = root
+    e["BROTHERMODE_VAULT"] = vault
+    e["HOME"] = home
+    return e
+
+
+def _run_cli(args, root, extra_env=None):
+    """Drive tools/bm_controller.py's own CLI as a real subprocess against
+    `root`."""
+    e = _cli_env(root)
+    if extra_env:
+        e.update(extra_env)
+    return subprocess.run([sys.executable, CONTROLLER_FILE] + list(args),
+                          cwd=root, capture_output=True, text=True, env=e)
+
+
+def _run_other(cli_path, args, root):
+    """Drive a DIFFERENT tool's CLI (bm_store.py, bm_project.py,
+    bm_autonomy.py) as a real subprocess against the same `root`, for the
+    setup every CLI test needs before bm_controller.py has anything to
+    act on."""
+    e = _cli_env(root)
+    return subprocess.run([sys.executable, cli_path] + list(args),
+                          cwd=root, capture_output=True, text=True, env=e)
+
+
+def _cli_init(root):
+    r = _run_other(STORE_CLI, ["init"], root)
+    if r.returncode != 0:
+        raise AssertionError("bm_store.py init failed: %s" % r.stderr)
+    return r
+
+
+def _cli_start_project(root, project_id="p1", extra=()):
+    args = (["start", "--project-id", project_id, "--name", "Test Project"]
+           + list(CLI_ACTOR) + list(extra))
+    r = _run_other(PROJECT_CLI, args, root)
+    if r.returncode != 0:
+        raise AssertionError("bm_project.py start failed: %s" % r.stderr)
+    return r
+
+
+def _cli_sign(root, project_id="p1", extra=()):
+    args = (["sign", "--project", project_id, "--outcome", "ship it",
+            "--done-definition", "true", "--signed-by", "Khalil Maaouni"]
+           + list(CLI_ACTOR) + list(extra))
+    r = _run_other(AUTONOMY_CLI, args, root)
+    if r.returncode != 0:
+        raise AssertionError("bm_autonomy.py sign failed: %s" % r.stderr)
+    return r
+
+
+def _cli_bootstrap(root, project_id="p1"):
+    """A ready-to-drive store: initialized, one project started, a live
+    contract signed with file-edit granted, no ceiling, path '.'
+    allowed."""
+    _cli_init(root)
+    _cli_start_project(root, project_id)
+    _cli_sign(root, project_id,
+             extra=("--allowed-path", ".", "--risk-class", "file-edit"))
+
+
+def _cli_begin(root, project_id="p1", controller_id="c1"):
+    r = _run_cli(
+        ["start", "--project", project_id, "--outcome", "ship it",
+         "--done-definition", "true", "--controller-id", controller_id]
+        + list(CLI_ACTOR), root)
+    if r.returncode != 0:
+        raise AssertionError("start (begin) failed: %s" % (r.stdout + r.stderr))
+    return r
+
+
+def _cli_plan_one_unit(root, project_id="p1", controller_id="c1"):
+    units_path = os.path.join(root, "units.json")
+    with io.open(units_path, "w", encoding="utf-8") as fh:
+        json.dump([_UNIT_ONE], fh)
+    r = _run_cli(
+        ["plan", "--project", project_id, "--units-file", units_path,
+         "--controller-id", controller_id] + list(CLI_ACTOR), root)
+    if r.returncode != 0:
+        raise AssertionError("plan failed: %s" % (r.stdout + r.stderr))
+    return r
+
+
+class TestControllerCLIStartResumesWithNoDuplicateWork(unittest.TestCase):
+    """The CLI's own start/plan/status/record-result loop, end to end
+    through real subprocesses: start BEGINS a fresh run, plan upserts one
+    unit, start again RESUMES and dispatches it, parking rather than
+    busy-looping (see tools/bm_controller.py's own
+    _drive_until_parked docstring: driving the resume path through
+    engine.run_to_completion(max_steps=500) directly against the real
+    RecordIntentWorker was reproduced printing the SAME unit brief to
+    stdout up to 500 times in one `start` call, because a dispatch that
+    parks 'pending' never satisfies run_to_completion's own stop-state
+    set; _drive_until_parked exists because of that reproduction, and the
+    assertion below on brief_lines is the regression guard for it),
+    status --json exposes the dispatch id record-result needs (a brief
+    carries no dispatch_id of its own: it is the WORKER's input, and
+    dispatch_id is the controller's own bookkeeping), record-result
+    accepts it, and the run reaches DELIVERABLE_READY with the unit DONE
+    exactly once."""
+
+    def test_start_begins_then_resumes_and_completes_with_no_duplicate_work(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+
+            begin = _cli_begin(root)
+            self.assertIn("started for project p1", begin.stdout)
+            self.assertIn("state NEW", begin.stdout)
+
+            planned = _cli_plan_one_unit(root)
+            self.assertIn("planned 1 unit(s)", planned.stdout)
+
+            resumed = _run_cli(
+                ["start", "--project", "p1", "--controller-id", "c1"]
+                + list(CLI_ACTOR), root)
+            self.assertEqual(resumed.returncode, 0,
+                             resumed.stdout + resumed.stderr)
+            brief_lines = [l for l in resumed.stdout.splitlines()
+                          if "controller_brief" in l]
+            self.assertEqual(
+                len(brief_lines), 1,
+                "start printed the unit brief %d time(s) in one call; it "
+                "must dispatch once and park, awaiting record-result, "
+                "never busy-loop on its own printed brief: %r"
+                % (len(brief_lines), resumed.stdout))
+            self.assertIn("dispatched 1 unit(s), completed 0 unit(s)",
+                          resumed.stdout)
+
+            status1 = _run_cli(["status", "--project", "p1", "--json"], root)
+            self.assertEqual(status1.returncode, 0,
+                             status1.stdout + status1.stderr)
+            payload1 = json.loads(status1.stdout)
+            dispatch_id = payload1["open_dispatches"]["u1"]
+            self.assertTrue(dispatch_id)
+
+            recorded = _run_cli(
+                ["record-result", "--project", "p1", "--dispatch-id",
+                 dispatch_id, "--worker-claim", "created out.txt",
+                 "--controller-id", "c1"] + list(CLI_ACTOR), root)
+            self.assertEqual(recorded.returncode, 0,
+                             recorded.stdout + recorded.stderr)
+            self.assertIn("unit u1 accepted", recorded.stdout)
+
+            status2 = _run_cli(["status", "--project", "p1"], root)
+            self.assertEqual(status2.returncode, 0,
+                             status2.stdout + status2.stderr)
+            self.assertIn("state DELIVERABLE_READY", status2.stdout)
+            self.assertIn("DONE: 1", status2.stdout)
+
+            # No duplicate work: exactly one dispatch for u1 ever, and it
+            # is VERIFIED, never a second attempt.
+            raw_store = bs.Store(root, create=False)
+            try:
+                dispatches = raw_store.list_dispatches("u1", raw=True)
+            finally:
+                raw_store.close()
+            self.assertEqual(len(dispatches), 1)
+            self.assertEqual(dispatches[0]["status"], "VERIFIED")
+
+            # start again is a clean no-op: DELIVERABLE_READY has no
+            # further autonomous progress, and start must not re-dispatch
+            # the already-DONE unit.
+            again = _run_cli(
+                ["start", "--project", "p1", "--controller-id", "c1"]
+                + list(CLI_ACTOR), root)
+            self.assertEqual(again.returncode, 0,
+                             again.stdout + again.stderr)
+            self.assertNotIn("controller_brief", again.stdout)
+            raw_store = bs.Store(root, create=False)
+            try:
+                dispatches_again = raw_store.list_dispatches("u1", raw=True)
+            finally:
+                raw_store.close()
+            self.assertEqual(
+                len(dispatches_again), 1,
+                "resuming a DELIVERABLE_READY run must never re-dispatch "
+                "an already-DONE unit")
+
+
+class TestControllerCLIStatusReport(unittest.TestCase):
+    """status is the CLI's one-screen report: it must carry every field a
+    founder or an orchestrating model reads from it, and refuse cleanly,
+    naming the fix, when there is nothing to report yet."""
+
+    def test_status_prints_the_one_screen_report(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            _cli_begin(root)
+            r = _run_cli(["status", "--project", "p1"], root)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            for fragment in ("project p1: run ", "outcome:",
+                             "done definition:", "units:",
+                             "spend verdict:", "open human steps:",
+                             "last checkpoint:"):
+                self.assertIn(fragment, r.stdout,
+                              "status is missing %r: %r"
+                              % (fragment, r.stdout))
+
+    def test_status_json_is_redacted_by_default_and_raw_reveals_the_outcome(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            _cli_begin(root)
+            redacted = _run_cli(["status", "--project", "p1", "--json"],
+                                root)
+            self.assertEqual(redacted.returncode, 0)
+            self.assertNotIn("ship it", redacted.stdout)
+            raw = _run_cli(["status", "--project", "p1", "--json", "--raw"],
+                           root)
+            self.assertEqual(raw.returncode, 0)
+            self.assertIn("ship it", raw.stdout)
+
+    def test_status_without_a_run_refuses_and_names_start(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            r = _run_cli(["status", "--project", "p1"], root)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("no controller run", r.stderr)
+            self.assertIn("start", r.stderr)
+
+
+class TestControllerCLIStopDrains(unittest.TestCase):
+    """stop is the founder's kill switch on the run itself: it must drain
+    (release every fence this run held, including its own controller-
+    level fence) rather than abandon them, and it must be idempotent, the
+    same 3am-kill-switch posture tools/bm_autonomy.py's own stop takes on
+    the contract."""
+
+    def test_stop_drains_releases_every_fence_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            _cli_begin(root)
+            _cli_plan_one_unit(root)
+            _run_cli(["start", "--project", "p1", "--controller-id", "c1"]
+                     + list(CLI_ACTOR), root)  # dispatch u1, park
+
+            stopped = _run_cli(
+                ["stop", "--project", "p1", "--controller-id", "c1"]
+                + list(CLI_ACTOR), root)
+            self.assertEqual(stopped.returncode, 0,
+                             stopped.stdout + stopped.stderr)
+            self.assertIn("-> STOPPED", stopped.stdout)
+
+            raw_store = bs.Store(root, create=False)
+            try:
+                records = raw_store.dump(raw=True)["records"]
+            finally:
+                raw_store.close()
+            active = [r for r in records if r["state"] == "active"]
+            self.assertEqual(
+                active, [],
+                "stop must drain and release every fence this run held, "
+                "including the unit fence it dispatched and its own "
+                "controller-level fence: still active: %r" % active)
+
+            again = _run_cli(
+                ["stop", "--project", "p1", "--controller-id", "c1"]
+                + list(CLI_ACTOR), root)
+            self.assertEqual(again.returncode, 0,
+                             again.stdout + again.stderr)
+            self.assertIn("STOPPED -> STOPPED", again.stdout)
+
+    def test_stop_with_no_run_at_all_is_a_clean_no_op(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            r = _run_cli(
+                ["stop", "--project", "p1", "--controller-id", "c1"]
+                + list(CLI_ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("nothing to stop", r.stdout)
+
+
+class TestControllerCLIPauseAndResume(unittest.TestCase):
+    """step must notice a contract the founder paused (a store read, not
+    a signal this process has to catch) and resume must be the founder's
+    own reverse of it; both read straight off tools/bm_autonomy.py's own
+    pause/resume, proving the two CLIs agree on the same contract."""
+
+    def test_step_detects_a_paused_contract_and_resume_reverses_it(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            _cli_begin(root)
+            _run_other(AUTONOMY_CLI,
+                      ["pause", "--project", "p1", "--reason", "lunch"]
+                      + list(CLI_ACTOR), root)
+
+            stepped = _run_cli(
+                ["step", "--project", "p1", "--controller-id", "c1"]
+                + list(CLI_ACTOR), root)
+            self.assertEqual(stepped.returncode, 0,
+                             stepped.stdout + stepped.stderr)
+            self.assertIn("state PAUSED", stepped.stdout)
+
+            resumed = _run_cli(["resume", "--project", "p1"]
+                               + list(CLI_ACTOR), root)
+            self.assertEqual(resumed.returncode, 0,
+                             resumed.stdout + resumed.stderr)
+            self.assertIn("PAUSED -> READY", resumed.stdout)
+
+            again = _run_cli(["resume", "--project", "p1"]
+                             + list(CLI_ACTOR), root)
+            self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+            self.assertIn("Nothing to do.", again.stdout)
+
+    def test_resume_with_no_run_at_all_refuses(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            r = _run_cli(["resume", "--project", "p1"] + list(CLI_ACTOR),
+                        root)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("no controller run", r.stderr)
+
+
+class TestControllerCLIComplete(unittest.TestCase):
+    """complete is DELIVERABLE_READY -> COMPLETE, a founder action the
+    design states is never a controller self-move; it must refuse from
+    any other state (the store's own CONTROLLER_STATE_TRANSITIONS
+    legality, never re-implemented here) and be idempotent once
+    COMPLETE."""
+
+    def test_complete_refuses_before_deliverable_ready_then_succeeds_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            _cli_begin(root)
+
+            too_early = _run_cli(["complete", "--project", "p1"]
+                                 + list(CLI_ACTOR), root)
+            self.assertEqual(too_early.returncode, 1)
+
+            _cli_plan_one_unit(root)
+            _run_cli(["start", "--project", "p1", "--controller-id", "c1"]
+                     + list(CLI_ACTOR), root)
+            status1 = _run_cli(["status", "--project", "p1", "--json"], root)
+            dispatch_id = json.loads(status1.stdout)["open_dispatches"]["u1"]
+            _run_cli(
+                ["record-result", "--project", "p1", "--dispatch-id",
+                 dispatch_id, "--controller-id", "c1"] + list(CLI_ACTOR),
+                root)
+
+            completed = _run_cli(["complete", "--project", "p1"]
+                                 + list(CLI_ACTOR), root)
+            self.assertEqual(completed.returncode, 0,
+                             completed.stdout + completed.stderr)
+            self.assertIn("-> COMPLETE", completed.stdout)
+
+            again = _run_cli(["complete", "--project", "p1"]
+                             + list(CLI_ACTOR), root)
+            self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+            self.assertIn("already COMPLETE", again.stdout)
+
+
+class TestControllerCLIExitCodes(unittest.TestCase):
+    """0 success, 1 refusal, 2 usage error, the identical law
+    tools/bm_autonomy.py states for itself, checked here command by
+    command rather than assumed from one example."""
+
+    def test_bare_invocation_prints_help_and_exits_zero(self):
+        with tempfile.TemporaryDirectory() as root:
+            r = _run_cli([], root)
+            self.assertEqual(r.returncode, 0)
+            self.assertIn("commands:", r.stdout)
+
+    def test_an_unknown_command_exits_two_and_names_it(self):
+        with tempfile.TemporaryDirectory() as root:
+            r = _run_cli(["not-a-command"], root)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("not-a-command", r.stderr)
+
+    def test_an_unrecognized_flag_exits_two(self):
+        with tempfile.TemporaryDirectory() as root:
+            r = _run_cli(["start", "--not-a-real-flag", "x"], root)
+            self.assertEqual(r.returncode, 2)
+
+    def test_a_missing_required_flag_exits_two_naming_it(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            r = _run_cli(["start", "--project", "p1"] + list(CLI_ACTOR),
+                        root)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("controller-id", r.stderr)
+
+    def test_step_with_no_run_refuses_at_exit_one(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            r = _run_cli(
+                ["step", "--project", "p1", "--controller-id", "c1"]
+                + list(CLI_ACTOR), root)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("no controller run", r.stderr)
+
+    def test_a_bad_actor_type_exits_two(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            r = _run_cli(
+                ["step", "--project", "p1", "--controller-id", "c1",
+                 "--actor-name", "tester", "--actor-type", "robot"], root)
+            self.assertEqual(r.returncode, 2)
+
+    def test_a_negative_tokens_flag_on_record_result_is_a_usage_error(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            r = _run_cli(
+                ["record-result", "--project", "p1", "--dispatch-id",
+                 "ghost", "--tokens", "-5", "--controller-id", "c1"]
+                + list(CLI_ACTOR), root)
+            self.assertEqual(r.returncode, 2)
+
+    def test_plan_needs_units_file_or_units_json(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            _cli_begin(root)
+            r = _run_cli(
+                ["plan", "--project", "p1", "--controller-id", "c1"]
+                + list(CLI_ACTOR), root)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("units-file", r.stderr)
+
+    def test_record_result_with_no_run_at_all_refuses_cleanly(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            r = _run_cli(
+                ["record-result", "--project", "p1", "--dispatch-id",
+                 "ghost", "--controller-id", "c1"] + list(CLI_ACTOR), root)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("no controller run", r.stderr)
+            self.assertNotIn("Traceback", r.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

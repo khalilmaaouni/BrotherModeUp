@@ -1,0 +1,50 @@
+{
+  "duplicate_work_count": 0,
+  "final_state": "DELIVERABLE_READY",
+  "founder_gated_remainder": {
+    "blocked_task_ids": [
+      "u3-release-task"
+    ],
+    "open_human_steps": 1
+  },
+  "interruption_count": 0,
+  "run_states_visited": [
+    "READY",
+    "READY",
+    "READY",
+    "READY",
+    "DELIVERABLE_READY",
+    "DELIVERABLE_READY"
+  ],
+  "spend_totals": {
+    "minutes": 5,
+    "minutes_ceiling": 1000,
+    "minutes_pct": 0.5,
+    "token_ceiling": 100000,
+    "token_pct": 0.005,
+    "tokens": 5,
+    "verdict": "ok"
+  },
+  "units": [
+    {
+      "checkpoint_ref": "87362791764f4361bc7e561a4400002b",
+      "status": "DONE",
+      "unit_id": "u1"
+    },
+    {
+      "checkpoint_ref": "de6af3d171974c06803f68042408cf04",
+      "status": "DONE",
+      "unit_id": "u2"
+    },
+    {
+      "checkpoint_ref": "b84a94d0441949a593a86cafdf7364ae",
+      "status": "DONE",
+      "unit_id": "u3"
+    },
+    {
+      "checkpoint_ref": "b6fb6aa117b54df2bbea370a9fb60378",
+      "status": "DONE",
+      "unit_id": "u4"
+    }
+  ]
+}

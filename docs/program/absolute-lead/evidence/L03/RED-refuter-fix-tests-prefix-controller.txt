@@ -1,0 +1,79 @@
+test_it_reaches_failed_terminal_warns_the_founder_and_releases_the_fence (tools.test_bm_controller.TestF1AsyncRejectWhoseRollbackAlsoFails) ... ERROR
+test_a_forbidden_second_write_path_refuses_the_whole_unit (tools.test_bm_controller.TestF2EveryWriteScopePathIsGateChecked) ... FAIL
+test_a_unit_whose_paths_are_all_authorised_still_dispatches (tools.test_bm_controller.TestF2EveryWriteScopePathIsGateChecked) ... ok
+test_an_empty_write_scope_still_gate_checks_the_risk_class_alone (tools.test_bm_controller.TestF2EveryWriteScopePathIsGateChecked) ... ok
+test_no_exception_escapes_spend_is_skipped_and_the_result_is_rejected_as_stale (tools.test_bm_controller.TestF3AsyncSpendAfterARevoke) ... FAIL
+test_a_chain_whose_first_unit_exhausts_its_breaker_reaches_waiting_human (tools.test_bm_controller.TestF4DependentOfAFailedUnitDoesNotStallTheRun) ... FAIL
+test_a_transitively_blocked_unit_is_told_which_unit_actually_failed (tools.test_bm_controller.TestF4DependentOfAFailedUnitDoesNotStallTheRun)
+The unit two hops downstream waits on a unit that is itself ... FAIL
+
+======================================================================
+ERROR: test_it_reaches_failed_terminal_warns_the_founder_and_releases_the_fence (tools.test_bm_controller.TestF1AsyncRejectWhoseRollbackAlsoFails)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 1103, in test_it_reaches_failed_terminal_warns_the_founder_and_releases_the_fence
+    outcome = engine.receive_result(
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_controller.py", line 499, in receive_result
+    outcome = self._verify_and_finish(claimed, project_id, run_id)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_controller.py", line 850, in _verify_and_finish
+    self._reject(claimed, project_id, run_id, verdict_text)
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_controller.py", line 867, in _reject
+    self.store.set_run_state(
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_store.py", line 12732, in set_run_state
+    raise OwnershipRefused(
+bm_store.OwnershipRefused: run '768d515a4c8d44a3af25743b5921e043' is EXECUTING; moving it to FAILED_TERMINAL is not legal from there. Legal moves from EXECUTING: VERIFYING, STOPPING, PAUSED, FAILED_RECOVERABLE.
+
+======================================================================
+FAIL: test_a_forbidden_second_write_path_refuses_the_whole_unit (tools.test_bm_controller.TestF2EveryWriteScopePathIsGateChecked)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 1163, in test_a_forbidden_second_write_path_refuses_the_whole_unit
+    self.assertEqual(summary["dispatched"], [],
+AssertionError: Lists differ: ['u1'] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+'u1'
+
+- ['u1']
++ [] : a unit is dispatched only when EVERY path in its write_scope is authorised
+
+======================================================================
+FAIL: test_no_exception_escapes_spend_is_skipped_and_the_result_is_rejected_as_stale (tools.test_bm_controller.TestF3AsyncSpendAfterARevoke)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 1263, in test_no_exception_escapes_spend_is_skipped_and_the_result_is_rejected_as_stale
+    outcome = engine.receive_result(
+bm_store.OwnershipRefused: project 'p1' has no live contract (revoked); spend can only be recorded against a live authorisation.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 1267, in test_no_exception_escapes_spend_is_skipped_and_the_result_is_rejected_as_stale
+    self.fail("a revoke between dispatch and record-result "
+AssertionError: a revoke between dispatch and record-result crashed the result-handling path: OwnershipRefused("project 'p1' has no live contract (revoked); spend can only be recorded against a live authorisation.")
+
+======================================================================
+FAIL: test_a_chain_whose_first_unit_exhausts_its_breaker_reaches_waiting_human (tools.test_bm_controller.TestF4DependentOfAFailedUnitDoesNotStallTheRun)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 1326, in test_a_chain_whose_first_unit_exhausts_its_breaker_reaches_waiting_human
+    self.assertLess(
+AssertionError: 12 not less than 12 : run_to_completion must RETURN, not spin through every one of its max_steps with nothing selectable
+
+======================================================================
+FAIL: test_a_transitively_blocked_unit_is_told_which_unit_actually_failed (tools.test_bm_controller.TestF4DependentOfAFailedUnitDoesNotStallTheRun)
+The unit two hops downstream waits on a unit that is itself
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 1381, in test_a_transitively_blocked_unit_is_told_which_unit_actually_failed
+    self.assertEqual(trace[-1]["state"], "WAITING_HUMAN")
+AssertionError: 'CHECKPOINTED' != 'WAITING_HUMAN'
+- CHECKPOINTED
++ WAITING_HUMAN
+
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.138s
+
+FAILED (failures=4, errors=1)

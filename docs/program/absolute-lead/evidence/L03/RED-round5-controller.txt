@@ -1,0 +1,417 @@
+RED evidence, round 5, the CONTROLLER half of the L03 hardening.
+
+Captured by running each NEW test class of this round against the
+UNTOUCHED tools/bm_controller.py, before any controller edit, on
+2026-08-05. tools/bm_store.py is whatever the parallel store writer had
+landed at capture time; no store file was read or written by this capture
+beyond the throwaway tempfile.TemporaryDirectory() each test builds.
+
+Every class below is one of REFUTATION-4-authorization.md's or
+REFUTATION-4-liveness.md's own probe sequences restated as a permanent
+regression test.
+
+Command, once per class:
+
+  cd /Users/khalil.maaouni/Documents/BrotherModeUp/tools
+  python3 -m unittest -v test_bm_controller.<class>
+
+Totals at capture: 21 tests, 20 RED (17 failures, 1 error, plus the two
+control tests that were already green and are labelled THE CONTROL in
+their own docstrings, which is what makes the rest evidence rather than a
+restatement of a fix).
+
+Mapping, finding to class:
+
+  AZ F5  -> TestR5NoCommandRunsUnderADeadContract
+  AZ F4  -> TestR5TheHeldAnswerSurvivesAPausedContract
+  LV L4-F2 -> TestR5AContractPauseIsNotARunPause
+  LV L4-F3 -> TestR5AnUpstreamFounderGateIsFounderWaiting
+  LV L4-F1 -> TestR5TheSettlePathCarriesItsVerdict
+  LV L4-F4 -> TestR5TheVerifyingParkNamesTheRealRecovery
+  LV L4-F5 -> TestR5TheFourthOrphanShapeRecovers
+  AZ F6  -> TestR5PlanRefusesAUnitIdTheFenceWouldRefuse
+  AZ F9  -> TestR5ReadScopeIsCanonicalisedLikeWriteScope
+  AZ F8  -> TestR5TheReAwaitChecksTheFenceContentAndOwner
+  AZ F12 -> TestR5FounderNotesStateWhatActuallyHappened
+
+===================================================================
+BLOCK: TestR5NoCommandRunsUnderADeadContract
+===================================================================
+test_every_checker_call_sits_behind_one_gated_call_site (test_bm_controller.TestR5NoCommandRunsUnderADeadContract)
+The structural half, so a THIRD command site added later cannot ... FAIL
+test_record_result_after_bm_autonomy_stop_runs_no_command (test_bm_controller.TestR5NoCommandRunsUnderADeadContract)
+AZ probe p12, four shipped commands and no crash: start, plan, ... FAIL
+test_step_on_a_result_in_dispatch_after_a_revoke_runs_no_command (test_bm_controller.TestR5NoCommandRunsUnderADeadContract)
+AZ probe p11: plain `bm-controller step`. ... FAIL
+
+======================================================================
+FAIL: test_every_checker_call_sits_behind_one_gated_call_site (test_bm_controller.TestR5NoCommandRunsUnderADeadContract)
+The structural half, so a THIRD command site added later cannot
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 3748, in test_every_checker_call_sits_behind_one_gated_call_site
+    self.assertEqual(
+AssertionError: Items in the first set but not the second:
+'_handle_late_result'
+'_reject'
+'_verify_and_finish'
+'_deliver_or_hold'
+Items in the second set but not the first:
+'_run_command' : every founder-authored command runs through the one gated call site
+
+======================================================================
+FAIL: test_record_result_after_bm_autonomy_stop_runs_no_command (test_bm_controller.TestR5NoCommandRunsUnderADeadContract)
+AZ probe p12, four shipped commands and no crash: start, plan,
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 3702, in test_record_result_after_bm_autonomy_stop_runs_no_command
+    self.assertEqual(
+AssertionError: Lists differ: ['true', 'git restore -- a.py'] != []
+
+First list contains 2 additional elements.
+First extra element 0:
+'true'
+
+- ['true', 'git restore -- a.py']
++ [] : the kill switch stops EVERY command, including the unit's own model-authored done_check and the rollback: ['true', 'git restore -- a.py']
+
+======================================================================
+FAIL: test_step_on_a_result_in_dispatch_after_a_revoke_runs_no_command (test_bm_controller.TestR5NoCommandRunsUnderADeadContract)
+AZ probe p11: plain `bm-controller step`.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 3738, in test_step_on_a_result_in_dispatch_after_a_revoke_runs_no_command
+    self.assertEqual(checker.calls, before,
+AssertionError: Lists differ: ['true', 'git restore -- a.py'] != []
+
+First list contains 2 additional elements.
+First extra element 0:
+'true'
+
+- ['true', 'git restore -- a.py']
++ [] : zero commands: ['true', 'git restore -- a.py']
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.061s
+
+FAILED (failures=3)
+
+===================================================================
+BLOCK: TestR5TheHeldAnswerSurvivesAPausedContract
+===================================================================
+test_a_real_amend_across_the_pause_is_still_stale (test_bm_controller.TestR5TheHeldAnswerSurvivesAPausedContract)
+THE CONTROL. A supersede amend is change_kind 'amend' and DOES ... ok
+test_a_result_arriving_under_a_paused_contract_is_held (test_bm_controller.TestR5TheHeldAnswerSurvivesAPausedContract) ... FAIL
+test_the_held_answer_is_accepted_after_the_founder_resumes (test_bm_controller.TestR5TheHeldAnswerSurvivesAPausedContract)
+A pause and a resume append two revisions that copy every ... FAIL
+
+======================================================================
+FAIL: test_a_result_arriving_under_a_paused_contract_is_held (test_bm_controller.TestR5TheHeldAnswerSurvivesAPausedContract)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 3796, in test_a_result_arriving_under_a_paused_contract_is_held
+    self.assertIn(
+AssertionError: 'spend-uncharged' not found in ['heartbeat'] : record_spend refuses on a contract that is not live, so the charge this result earned is DISCLOSED rather than silently dropped: ['heartbeat']
+
+======================================================================
+FAIL: test_the_held_answer_is_accepted_after_the_founder_resumes (test_bm_controller.TestR5TheHeldAnswerSurvivesAPausedContract)
+A pause and a resume append two revisions that copy every
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 3820, in test_the_held_answer_is_accepted_after_the_founder_resumes
+    self.assertEqual(
+AssertionError: 'READY' != 'DONE'
+- READY
++ DONE
+ : the SAME held answer is accepted, not rejected as stale
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.063s
+
+FAILED (failures=2)
+
+===================================================================
+BLOCK: TestR5AContractPauseIsNotARunPause
+===================================================================
+test_a_contract_paused_run_names_the_command_that_clears_it (test_bm_controller.TestR5AContractPauseIsNotARunPause) ... FAIL
+test_a_run_paused_under_a_live_contract_is_unchanged (test_bm_controller.TestR5AContractPauseIsNotARunPause)
+THE CONTROL for the enum split: the contract is LIVE and the RUN ... ok
+test_following_the_note_actually_clears_the_pause (test_bm_controller.TestR5AContractPauseIsNotARunPause) ... ok
+
+======================================================================
+FAIL: test_a_contract_paused_run_names_the_command_that_clears_it (test_bm_controller.TestR5AContractPauseIsNotARunPause)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 3876, in test_a_contract_paused_run_names_the_command_that_clears_it
+    self.assertEqual(summary["stop_reason"],
+AssertionError: 'FOUNDER_WAITING' != 'CONTRACT_PAUSED'
+- FOUNDER_WAITING
++ CONTRACT_PAUSED
+ : the enum distinguishes a contract pause from a run pause: {'run_id': 'c9ad938c97c04609811d05e6fd6977d8', 'state': 'PAUSED', 'dispatched': [], 'completed': [], 'note': 'contract is paused', 'stop_reason': 'FOUNDER_WAITING'}
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.040s
+
+FAILED (failures=1)
+
+===================================================================
+BLOCK: TestR5AnUpstreamFounderGateIsFounderWaiting
+===================================================================
+test_a_gated_upstream_lane_parks_as_founder_waiting (test_bm_controller.TestR5AnUpstreamFounderGateIsFounderWaiting) ... FAIL
+test_resolving_the_one_step_unwedges_the_run (test_bm_controller.TestR5AnUpstreamFounderGateIsFounderWaiting) ... ok
+
+======================================================================
+FAIL: test_a_gated_upstream_lane_parks_as_founder_waiting (test_bm_controller.TestR5AnUpstreamFounderGateIsFounderWaiting)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 3953, in test_a_gated_upstream_lane_parks_as_founder_waiting
+    self.assertEqual(summary["stop_reason"], "FOUNDER_WAITING")
+AssertionError: 'NOTHING_SELECTABLE' != 'FOUNDER_WAITING'
+- NOTHING_SELECTABLE
++ FOUNDER_WAITING
+
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.029s
+
+FAILED (failures=1)
+
+===================================================================
+BLOCK: TestR5TheSettlePathCarriesItsVerdict
+===================================================================
+test_a_failing_done_definition_is_named_on_the_wave_that_ran_it (test_bm_controller.TestR5TheSettlePathCarriesItsVerdict)
+LV probe p01: the founder's whole suite ran TWICE per ... FAIL
+test_record_result_reports_the_settled_verdict_to_its_caller (test_bm_controller.TestR5TheSettlePathCarriesItsVerdict)
+The production route: `bm-controller record-result` printed ... ERROR
+test_the_delivering_wave_names_delivered_and_its_remainder (test_bm_controller.TestR5TheSettlePathCarriesItsVerdict)
+LV probe p04: one unit exhausts its retry ceiling, one is DONE, ... FAIL
+
+======================================================================
+ERROR: test_record_result_reports_the_settled_verdict_to_its_caller (test_bm_controller.TestR5TheSettlePathCarriesItsVerdict)
+The production route: `bm-controller record-result` printed
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4069, in test_record_result_reports_the_settled_verdict_to_its_caller
+    outcome = engine.receive_result(
+TypeError: receive_result() got an unexpected keyword argument 'summary'
+
+======================================================================
+FAIL: test_a_failing_done_definition_is_named_on_the_wave_that_ran_it (test_bm_controller.TestR5TheSettlePathCarriesItsVerdict)
+LV probe p01: the founder's whole suite ran TWICE per
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4050, in test_a_failing_done_definition_is_named_on_the_wave_that_ran_it
+    self.assertEqual(checker.calls.count("final-suite"), 1,
+AssertionError: 2 != 1 : ONE execution of the founder's whole suite: ['true', 'final-suite', 'final-suite']
+
+======================================================================
+FAIL: test_the_delivering_wave_names_delivered_and_its_remainder (test_bm_controller.TestR5TheSettlePathCarriesItsVerdict)
+LV probe p04: one unit exhausts its retry ceiling, one is DONE,
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4018, in test_the_delivering_wave_names_delivered_and_its_remainder
+    self.assertEqual(first["stop_reason"], "DELIVERED",
+AssertionError: None != 'DELIVERED' : the wave that DELIVERS says so: {'run_id': 'a510e00043e745dc946516d97dab76fa', 'state': 'DELIVERABLE_READY', 'dispatched': ['u1'], 'completed': [], 'note': 'no spend ceiling on file (no-data); starting units and saying so', 'stop_reason': None}
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.047s
+
+FAILED (failures=2, errors=1)
+
+===================================================================
+BLOCK: TestR5TheVerifyingParkNamesTheRealRecovery
+===================================================================
+test_a_run_left_verifying_with_an_open_dispatch_names_record_result (test_bm_controller.TestR5TheVerifyingParkNamesTheRealRecovery) ... FAIL
+
+======================================================================
+FAIL: test_a_run_left_verifying_with_an_open_dispatch_names_record_result (test_bm_controller.TestR5TheVerifyingParkNamesTheRealRecovery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4097, in test_a_run_left_verifying_with_an_open_dispatch_names_record_result
+    self.assertIn("record-result", summary["note"],
+AssertionError: 'record-result' not found in 'a dispatch is open but the run is VERIFYING, which only a founder can move' : the note names the command that actually recovers it: 'a dispatch is open but the run is VERIFYING, which only a founder can move'
+
+----------------------------------------------------------------------
+Ran 1 test in 0.015s
+
+FAILED (failures=1)
+
+===================================================================
+BLOCK: TestR5TheFourthOrphanShapeRecovers
+===================================================================
+test_a_unit_dispatched_behind_a_closed_dispatch_is_recovered (test_bm_controller.TestR5TheFourthOrphanShapeRecovers) ... FAIL
+
+======================================================================
+FAIL: test_a_unit_dispatched_behind_a_closed_dispatch_is_recovered (test_bm_controller.TestR5TheFourthOrphanShapeRecovers)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4133, in test_a_unit_dispatched_behind_a_closed_dispatch_is_recovered
+    self.assertNotEqual(
+AssertionError: 'DISPATCHED' == 'DISPATCHED' : the unit is returned through the circuit breaker
+
+----------------------------------------------------------------------
+Ran 1 test in 0.016s
+
+FAILED (failures=1)
+
+===================================================================
+BLOCK: TestR5PlanRefusesAUnitIdTheFenceWouldRefuse
+===================================================================
+test_a_unit_id_with_a_reserved_character_is_refused_at_plan_time (test_bm_controller.TestR5PlanRefusesAUnitIdTheFenceWouldRefuse) ... FAIL
+test_an_over_long_unit_id_is_refused_at_plan_time (test_bm_controller.TestR5PlanRefusesAUnitIdTheFenceWouldRefuse) ... FAIL
+test_the_refusal_leaves_no_wedge (test_bm_controller.TestR5PlanRefusesAUnitIdTheFenceWouldRefuse)
+The wedge is the finding, not the refusal: nothing may be ... FAIL
+
+======================================================================
+FAIL: test_a_unit_id_with_a_reserved_character_is_refused_at_plan_time (test_bm_controller.TestR5PlanRefusesAUnitIdTheFenceWouldRefuse)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4163, in test_a_unit_id_with_a_reserved_character_is_refused_at_plan_time
+    engine.plan("p1", run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_an_over_long_unit_id_is_refused_at_plan_time (test_bm_controller.TestR5PlanRefusesAUnitIdTheFenceWouldRefuse)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4177, in test_an_over_long_unit_id_is_refused_at_plan_time
+    engine.plan("p1", run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_the_refusal_leaves_no_wedge (test_bm_controller.TestR5PlanRefusesAUnitIdTheFenceWouldRefuse)
+The wedge is the finding, not the refusal: nothing may be
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4191, in test_the_refusal_leaves_no_wedge
+    engine.plan("p1", run["run_id"],
+AssertionError: OwnershipRefused not raised
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.036s
+
+FAILED (failures=3)
+
+===================================================================
+BLOCK: TestR5ReadScopeIsCanonicalisedLikeWriteScope
+===================================================================
+test_a_read_scope_that_leaves_the_project_root_is_refused (test_bm_controller.TestR5ReadScopeIsCanonicalisedLikeWriteScope) ... FAIL
+test_a_relative_read_scope_is_stored_canonical (test_bm_controller.TestR5ReadScopeIsCanonicalisedLikeWriteScope) ... FAIL
+
+======================================================================
+FAIL: test_a_read_scope_that_leaves_the_project_root_is_refused (test_bm_controller.TestR5ReadScopeIsCanonicalisedLikeWriteScope)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4218, in test_a_read_scope_that_leaves_the_project_root_is_refused
+    engine.plan("p1", run["run_id"], [
+AssertionError: OwnershipRefused not raised
+
+======================================================================
+FAIL: test_a_relative_read_scope_is_stored_canonical (test_bm_controller.TestR5ReadScopeIsCanonicalisedLikeWriteScope)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4236, in test_a_relative_read_scope_is_stored_canonical
+    self.assertEqual(
+AssertionError: Lists differ: ['docs/../src/x.py'] != ['src/x.py']
+
+First differing element 0:
+'docs/../src/x.py'
+'src/x.py'
+
+- ['docs/../src/x.py']
+?   --------
+
++ ['src/x.py']
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.024s
+
+FAILED (failures=2)
+
+===================================================================
+BLOCK: TestR5TheReAwaitChecksTheFenceContentAndOwner
+===================================================================
+test_an_emptied_fence_refuses_the_re_await (test_bm_controller.TestR5TheReAwaitChecksTheFenceContentAndOwner) ... FAIL
+
+======================================================================
+FAIL: test_an_emptied_fence_refuses_the_re_await (test_bm_controller.TestR5TheReAwaitChecksTheFenceContentAndOwner)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4270, in test_an_emptied_fence_refuses_the_re_await
+    self.assertEqual(
+AssertionError: 2 != 1 : the worker is not asked again under a fence that does not hold this unit's files: {'run_id': 'a2c86fa3f4114b27b9b9820082124b6a', 'state': 'EXECUTING', 'dispatched': [], 'completed': [], 'note': 'waiting for 1 open dispatch(es); record a result with bm-controller record-result', 'stop_reason': 'IN_FLIGHT'}
+
+----------------------------------------------------------------------
+Ran 1 test in 0.015s
+
+FAILED (failures=1)
+
+===================================================================
+BLOCK: TestR5FounderNotesStateWhatActuallyHappened
+===================================================================
+test_a_fence_problem_is_not_blamed_on_the_live_contract (test_bm_controller.TestR5FounderNotesStateWhatActuallyHappened) ... FAIL
+test_the_contention_note_says_what_to_do_when_it_repeats (test_bm_controller.TestR5FounderNotesStateWhatActuallyHappened) ... FAIL
+
+======================================================================
+FAIL: test_a_fence_problem_is_not_blamed_on_the_live_contract (test_bm_controller.TestR5FounderNotesStateWhatActuallyHappened)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4303, in test_a_fence_problem_is_not_blamed_on_the_live_contract
+    self.assertNotIn(
+AssertionError: 'the live contract no longer authorises' unexpectedly found in "the live contract no longer authorises the in-flight unit's write scope; its dispatch was closed and no worker was re-asked" : the contract never moved; the fence did: "the live contract no longer authorises the in-flight unit's write scope; its dispatch was closed and no worker was re-asked"
+
+======================================================================
+FAIL: test_the_contention_note_says_what_to_do_when_it_repeats (test_bm_controller.TestR5FounderNotesStateWhatActuallyHappened)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_controller.py", line 4328, in test_the_contention_note_says_what_to_do_when_it_repeats
+    self.assertIn(
+AssertionError: 'repeats' not found in "another writer holds a fence over this unit's files, or the contract was amended twice while the unit was being checked; no founder action is needed and the next step tries the same unit again" : and the note says what a fence nobody is coming back for looks like: "another writer holds a fence over this unit's files, or the contract was amended twice while the unit was being checked; no founder action is needed and the next step tries the same unit again"
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.029s
+
+FAILED (failures=2)
+
+
+===================================================================
+BLOCK: TestR5PlanRefusesAForeignRun (AZ F2)
+===================================================================
+Added after the orchestrator handed this item to the controller writer
+(the round-5 store half landed Store._refuse_foreign_run plus an optional
+trailing project_id=None on eleven write entry points; the guard only
+BITES when the caller passes it, so wiring the shipped commands is the
+controller's change).
+
+The RED could not be captured by running the class against an unedited
+tree, because by then the store half had already landed. It was captured
+WITHOUT editing any file instead, by a probe whose delegating Store
+wrapper DROPS the project_id keyword on those eleven methods and changes
+nothing else, which is exactly the pre-fix contract. Probe source:
+p_r5_foreignrun.py (session scratchpad, ephemeral; it is short enough to
+rebuild from this output).
+
+  $ python3 p_r5_foreignrun.py
+--- p2 BEFORE ---
+  run state: PAUSED
+  units: [('v1', 'DISPATCHED')]
+  dispatch: DISPATCHED
+  fence: active
+--- one `plan --project p1 --run <p2's run id>` ---
+  RETURNED (no refusal): {'count': 1, 'skipped': ['v1'], 'cancelled_dispatches': ['e668476bd2cc471d9cf76ea178eff016'], 'orphaned_fences': [('v1', 'e44957bed4ab4eeb96b828a193d348bf')]}
+--- p2 AFTER ---
+  run state: READY
+  units: [('v1', 'SKIPPED'), ('u9', 'READY')]
+  dispatch: CANCELLED
+  fence: parked
+
+Five things happened to a project the command did not name: the run left
+PAUSED (law L1), its open dispatch was CANCELLED, its fence was parked,
+its unit graph was replaced by another project's units, and p2 was left
+READY under a contract the founder had paused. That is REFUTATION-4 AZ
+F2's own reproduction, verbatim.
+
+The class itself, run against the tree with the keyword dropped from the
+plan path, failed with:
+
+  AssertionError: OwnershipRefused not raised
