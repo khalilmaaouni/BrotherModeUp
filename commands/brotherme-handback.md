@@ -15,6 +15,18 @@ Explain in plain language, before running it, what taking it back does, in this 
 4. The project records that the user took this decision, what would have been chosen instead, what else was weighed and why not, and what would have changed that choice.
 5. One page is generated for whoever takes over: what they are taking on, the decision that was in front of us, what would have been chosen and why, the open question, the files, the commands to reproduce the current state, any work that was still in flight, and where to pick up.
 
+Where this command reaches the user from matters, and it is worth saying once. The page that shows where the project stands carries the same offer, whether or not a decision is open, and it carries no button: nothing on that page can act on the project. What it has instead is the exact words to paste back into the chat, revealed under one expander, in this shape:
+
+    /brotherme-handback
+
+    Take back: <the decision, in the user's own words>
+    Decision id: <the id printed beside the decision>
+    Why: <their reason, in their own words>
+
+If the user pastes that, they have already named the decision and the reason, so ask nothing further and run the command. A page that could act on the project on its own would be a second place decisions get made; the paste is what keeps a person in the loop by construction rather than by good intentions.
+
+The page for whoever takes over is written in two forms from the same records: the page under `Handover/`, and the same eight sections as one page they can open in a browser (`python3 tools/bm_view.py brief-page --project-id <id> --insight-id <the decision id>`, the packaged console script being `bm-view brief-page`). The two carry the same sections and the same traceable claims, because the second is generated from the same rows rather than retyped beside the first. Offer whichever suits the person picking the work up, and say plainly that they are the same content in two forms.
+
 Then say plainly what nothing here does: nothing is deleted, nothing already recorded is rewritten, and the choice that was not taken is kept alongside the user's own reason, so a reader a month later sees both. Work that was already in flight when control changed hands stays in flight and is listed by name on the handover page rather than silently cancelled.
 
 If any step after the pause fails, report it with the error card format in references/kickoff.md (What happened, Impact, Recommended action, What remains safe), say plainly that the authorisation is paused and which steps did not run, and do not resume the authorisation to tidy the failure up. A half-finished handback that has been un-paused is a project running on its own again while a person believes they have the wheel.

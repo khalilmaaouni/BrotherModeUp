@@ -1736,3 +1736,74 @@ take.
   certification would take is written down already, in `docs/ROADMAP.md` section
   1 and in `docs/closure/CLOSURE_REGISTER.md` items X-01 to X-06, and none of it
   closes by writing more code here.
+
+## L05: what the live project view, the drawings and the alerts do NOT do (2026-08-05)
+
+L05 added the page that shows where a project stands, the drawn vocabulary
+behind it, the four levels of alert, the designed empty states of a project that
+has barely started, and the offer to take the work back made visible on screen.
+The design is `docs/program/absolute-lead/DESIGN-visual-surface.md`, and the ten
+limits below are its section 10, in its own words, so this page and that design
+cannot drift into two different lists. Every one of them was known before a line
+was written, and each is here because a visual feature that over claims is worse
+than the text it replaces.
+
+- **The page is not live.** It is a snapshot. It cannot read your project
+  records when you open it. Freshness comes from the page being written again,
+  which happens on command and when a session stops, and from Claude
+  republishing it, which is a request and not a guarantee. The page therefore
+  states the newest record it was built from and a short code that changes when
+  your records change, rather than the time it was drawn: two writes with
+  nothing recorded in between produce the same file, and a tab open on an older
+  code is visibly older.
+- **The published page may be unavailable to you entirely.** Publishing needs a
+  Pro, Max, Team or Enterprise plan, a session signed in with `/login`, the
+  Anthropic API as the model provider, an organisation without CMEK, HIPAA or
+  Zero Data Retention, and Claude Code 2.1.183 or later. It is off by default in
+  Agent SDK, GitHub Action and MCP server contexts. Sessions using an API key, a
+  gateway token or a cloud provider credential cannot publish at all. When any
+  of these fails, you still get the file on disk, and the command says which one
+  you got. The file is what this product promises; the published page is an
+  addition.
+- **The page holds no state.** Nothing you do on it is saved. There is no
+  storage capability in Claude Code artifacts; the roster measured on this
+  machine is `downloads` and `mcp` only. This is a feature: it makes it
+  impossible for the view to become a second truth beside your records.
+- **Nothing on the page can act on your project.** There is no path from a
+  button back into the running session. Taking a decision back is a control that
+  copies the exact words for you and a paste you make yourself, which keeps you
+  in the loop by construction rather than by good intentions.
+- **There are no pictures in the chat in the Claude Code terminal.** There is no
+  surface for a drawing inside the conversation there, and no wording makes one
+  appear. What exists instead is the page one click away, plus the same facts as
+  plain text on the same turn. If you work in the Claude desktop chat or in
+  Cowork rather than in the terminal, pictures inside the conversation may
+  additionally be available there, which is a fact about where you are working
+  and not something this product installs.
+- **BrotherMode cannot install the status line or the clickable footer links.**
+  Those are your settings, not a plugin's. Both are offered as a one line change
+  you make yourself, and neither ships.
+- **BrotherMode cannot show you your application running.** It does not run it,
+  has no browser, and will not claim otherwise. There are no screenshots and no
+  video of your product as proof. What stands in for it is the evidence line
+  beside each claim, saying how that claim was checked.
+- **Mermaid rendering inside a Claude Code artifact is unconfirmed** and this
+  design does not rely on it. The drawings are plain inline shapes, which is
+  unambiguously supported. The model behind them can emit mermaid later in one
+  function if that changes.
+- **Sending the page to your phone is not promised.** It needs Remote Control
+  connected or a managed cloud session, so the page reaching you while you are
+  away from the machine is not something this can offer.
+- **Two smaller unknowns, recorded rather than hidden.** Whether the structured
+  findings list can be driven outside code review, which would be the only
+  native structured list renderer in the harness, and what content types the one
+  hook that alters rendered output accepts. Neither is used here, and both are
+  written down as probes worth five minutes each rather than left as folklore.
+
+One more, and it belongs beside these because it is the same class of honesty.
+Every capability this loop registers is beta, and none is certified. What `beta`
+means in `capabilities.status.json` is real with a named gap, and the gap these
+four share is the same one the founder mode rows above carry: nobody outside
+this project has run any of them. The first fifteen minutes in particular is a
+target rather than a measurement, and no first run by a person who had never
+used this has been timed.

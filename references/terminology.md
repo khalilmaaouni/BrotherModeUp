@@ -31,13 +31,20 @@ asked for the advanced view (see references/status-view.md).
 | watchdog | "the automatic check that offers you a catch-up once enough work has happened"; the word watchdog belongs to the pages that disclose it (SECURITY.md and docs/KNOWN-LIMITS.md), never to a status line |
 | handover pack | "the handover pages": one folder another person can pick the project up from |
 | trace tag | "the record id at the end of a line", shown on the handover pages so any claim can be traced back to the record it came from, and not shown in the default status view |
+| live project view | "the page that shows where your project stands": one file called PROJECT-VIEW.html at the top of your project folder, written from your records. It is a picture of your records at the moment it was written, not a live screen, and the page says that about itself |
+| insight box | "what I now believe, what proved it, and what would change it": the short block used whenever something is learned, always including the line offering to hand it back to you |
+| alert rung | "how much attention something needs", said as one of four plain labels: "needs you", "at risk", "for info", or "settled". The word rung belongs to the machinery pages, never to a line you read |
+| empty state | "the short note in a section nothing has filled in yet", saying what will be there and naming the one thing that fills it |
+| fingerprint | "a short code that changes when your records change", printed on the page so an old tab is visibly older than a fresh one; never called a hash in anything you read |
 
-The eight rows below "triage" were added for the founder-mode work of 2026-08-05
-(docs/program/absolute-lead/DESIGN-L04.md, section 15.3), before any of those
-terms was allowed into a sentence a user reads. The rows above them are
-unchanged, and the plain wording in the right column is what founder-mode
-output says: the internal term on the left is for the advanced view and for the
-machinery pages that have to name the thing they are disclosing.
+The eight rows from "insight ledger" to "trace tag" were added for the founder
+mode work of 2026-08-05 (docs/program/absolute-lead/DESIGN-L04.md, section
+15.3), and the five below them for the visual surface of the same day
+(docs/program/absolute-lead/DESIGN-visual-surface.md, section 12.3). Both sets
+landed before any of those terms was allowed into a sentence a user reads. The
+rows above them are unchanged, and the plain wording in the right column is what
+user facing output says: the internal term on the left is for the advanced view
+and for the machinery pages that have to name the thing they are disclosing.
 
 Three working rules:
 

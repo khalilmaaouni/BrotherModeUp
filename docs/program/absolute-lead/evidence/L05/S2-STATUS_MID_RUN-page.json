@@ -1,0 +1,15 @@
+{
+  "fields": [
+    "Goal",
+    "Direction",
+    "Progress",
+    "Time remaining",
+    "Decision needed",
+    "Risk",
+    "Evidence",
+    "Next step"
+  ],
+  "page_carries_next_action_byte_equal": true,
+  "shape": "S2 extended to the page: one collector, three renderers",
+  "shared_field_values_identical": true
+}
