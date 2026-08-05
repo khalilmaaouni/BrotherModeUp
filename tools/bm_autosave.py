@@ -238,6 +238,66 @@ def _parse_int_env(name, default, minimum=1, maximum=10_000_000):
 # ---------------------------------------------------------------------------
 # git plumbing: the one wrapper every call in this module goes through.
 # ---------------------------------------------------------------------------
+
+#: THE ENVIRONMENT PREFIX A CHILD OF THIS MODULE MAY NOT INHERIT
+#: (CROSS-FAMILY REFUTATION finding 3, HIGH, DATA DESTRUCTION; the same
+#: rule tools/bm_controller.py ships, mirrored here rather than imported so
+#: neither module can be broken by an edit to the other).
+#:
+#: `-C <toplevel>` below does NOT beat GIT_DIR and GIT_WORK_TREE: git
+#: honours those over both cwd and -C. Measured here on git 2.50.1 (Apple
+#: Git-155) in two throwaway repositories P and Q:
+#:
+#:     plain:    git -C P rev-parse --show-toplevel  ->  .../P
+#:     poisoned: GIT_DIR=.../Q/.git GIT_WORK_TREE=.../Q
+#:               git -C P rev-parse --show-toplevel  ->  .../Q
+#:
+#: So an autosave fired from an environment carrying those names (a git
+#: hook, a wrapper script, another repository's tooling) resolved a
+#: DIFFERENT repository as its toplevel and ran the whole pipeline there:
+#: the founder's unsaved work was never captured, an unrelated working tree
+#: was committed into refs nobody asked for, that repository's own
+#: snapshots became eligible for this run's retention prune, and the
+#: receipt recorded success. In the one module whose entire job is not
+#: losing work, that is false confidence, which is worse than no backup.
+#:
+#: A PREFIX rather than a name list, and that is the whole point: the names
+#: were enumerated on this machine as the union of git(1)'s ENVIRONMENT
+#: VARIABLES section, git-config(1)'s environment section, and `strings`
+#: over the shipped binary (205 distinct GIT_ names), and thirteen of the
+#: ones that really move where git operates appear in git(1)'s environment
+#: section NOWHERE. The full enumeration and its reasoning live with the
+#: shipped rule in tools/bm_controller.py's own _GIT_ENV_PREFIX block and
+#: in docs/program/absolute-lead/evidence/L03/FIX-crossfamily-report.md;
+#: they are not repeated here. A hand-kept list would ship with those
+#: holes and grow another the next time git adds a name.
+#:
+#: WHAT THIS COSTS HERE, stated rather than buried: a snapshot commit is
+#: attributed to git's own configured (or implicit) identity instead of an
+#: inherited GIT_AUTHOR_NAME or GIT_COMMITTER_EMAIL. Measured on the same
+#: git: `commit-tree` with no identity in the environment AND no
+#: user.email configured still exits 0 using git's implicit ident, so the
+#: strip cannot turn a working snapshot into a failed one on that path.
+#: Autosave commits are throwaway backups nobody blames, so borrowing
+#: whatever identity the invoking process exported was never worth being
+#: redirectable by the same class of variable.
+_GIT_ENV_PREFIX = "GIT_"
+
+
+def _sanitised_env(environ=None):
+    """The environment every git call this module makes really gets: a copy
+    of the caller's, minus the whole git redirection class.
+
+    Takes `environ` so the rule can be exercised on a plain dictionary,
+    which is what makes it testable without a process at all. Everything
+    else passes through untouched, deliberately: PATH and HOME are what
+    make git runnable, and an empty environment would break every snapshot
+    for reasons that have nothing to do with safety."""
+    source = os.environ if environ is None else environ
+    return {k: v for k, v in source.items()
+            if not k.startswith(_GIT_ENV_PREFIX)}
+
+
 def _run_git(toplevel, *args, env=None):
     """Every git call in this module runs through here, always with
     `-C <toplevel>` (requirement 2, F2b): resolving the repository root
@@ -246,8 +306,19 @@ def _run_git(toplevel, *args, env=None):
     still cover the whole repository rather than silently scoping the '.'
     pathspec to that subdirectory. Returns a CompletedProcess-shaped result
     even when git itself cannot be executed, so every caller's return-code
-    check works uniformly."""
-    e = dict(os.environ)
+    check works uniformly.
+
+    This is the ONE place in this module that starts a process, pinned
+    structurally by tools/test_bm_autosave.py's _execution_sites, so a git
+    call added later inherits the SANITISED environment by construction
+    rather than by remembering to ask for it. `toplevel` is simply the path
+    git is rooted at: the resolved repository root for every call except
+    resolve_toplevel's own, which is where that root comes from.
+
+    `env` is the module's own deliberate override (GIT_INDEX_FILE, the
+    throwaway index a snapshot stages onto) and is applied AFTER the strip,
+    so stripping the inherited class never eats the one this module means."""
+    e = _sanitised_env()
     if env:
         e.update(env)
     try:
@@ -277,12 +348,17 @@ def resolve_toplevel(start_dir):
     """git rev-parse --show-toplevel from start_dir, resolved to a real
     path (requirement 2, MUST run first). Returns None when start_dir is
     not inside a git repository: a non-git project is a clean, silent
-    no-op, since advisory surfaces fail open."""
-    try:
-        r = subprocess.run(["git", "-C", start_dir, "rev-parse", "--show-toplevel"],
-                            capture_output=True, text=True)
-    except OSError:
-        return None
+    no-op, since advisory surfaces fail open.
+
+    Goes through _run_git like every other call (CROSS-FAMILY REFUTATION
+    finding 3). This one decides which repository EVERY later call touches,
+    so it is the call an inherited GIT_DIR redirects most cheaply: leaving
+    it as its own subprocess with its own inherited environment would have
+    left the whole pipeline redirectable while the strip below it looked
+    like it was doing the job. _run_git already answers rc=127 rather than
+    raising when git cannot be executed, which is the OSError path this
+    used to catch itself."""
+    r = _run_git(start_dir, "rev-parse", "--show-toplevel")
     if r.returncode != 0:
         return None
     top = r.stdout.strip()
