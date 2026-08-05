@@ -106,6 +106,15 @@ SUITES = (
     # real subprocess and depends on the schema-14 tables the store suite
     # two entries up already proved sound.
     "test_bm_autonomy.py",
+    # U2, the durable Full-Auto controller (loop L03, 2026-08-05): the
+    # engine tests drive ControllerEngine in process against the schema
+    # 15 tables, and the CLI section drives tools/bm_controller.py as a
+    # real subprocess, the same way test_bm_autonomy.py drives its own
+    # CLI. NO APOSTROPHE ANYWHERE IN THIS COMMENT, ON PURPOSE (see the
+    # note above): placed right after the autonomy suite it builds on,
+    # since the controller run needs a live contract the autonomy CLI
+    # already proved sound.
+    "test_bm_controller.py",
     "test_bm_fence_hook.py",
     # Loop 6 WP-G (2026-08-01): the Bash-write detection suite for
     # tools/bm_bash_audit.py. Placed right after the fence hook suite it
