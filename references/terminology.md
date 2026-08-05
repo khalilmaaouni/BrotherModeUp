@@ -23,6 +23,21 @@ asked for the advanced view (see references/status-view.md).
 | telemetry | "session records (written by the machine, not the model)" |
 | orchestrator | "coordinator" |
 | triage | "sizing up the task" |
+| insight ledger | "the record of what was decided, why, and what proved it" |
+| evidence class | "how a claim was checked", said as one of four plain labels: "verified by command", "measured", "verified by inspection", or "my reasoning, not verified" |
+| briefing | "a short catch-up on where the work stands"; the command that asks for one is named `/brotherme-brief`, and the catch-up's own text says catch-up |
+| handback | "handing this back to you", written as the option itself ("Hand this back to me: I take this decision and the work under it") and never as a noun |
+| active minutes | "time actually spent working on your project, not time on the clock" |
+| watchdog | "the automatic check that offers you a catch-up once enough work has happened"; the word watchdog belongs to the pages that disclose it (SECURITY.md and docs/KNOWN-LIMITS.md), never to a status line |
+| handover pack | "the handover pages": one folder another person can pick the project up from |
+| trace tag | "the record id at the end of a line", shown on the handover pages so any claim can be traced back to the record it came from, and not shown in the default status view |
+
+The eight rows below "triage" were added for the founder-mode work of 2026-08-05
+(docs/program/absolute-lead/DESIGN-L04.md, section 15.3), before any of those
+terms was allowed into a sentence a user reads. The rows above them are
+unchanged, and the plain wording in the right column is what founder-mode
+output says: the internal term on the left is for the advanced view and for the
+machinery pages that have to name the thing they are disclosing.
 
 Three working rules:
 

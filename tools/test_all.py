@@ -115,6 +115,14 @@ SUITES = (
     # since the controller run needs a live contract the autonomy CLI
     # already proved sound.
     "test_bm_controller.py",
+    # L04 (2026-08-05): founder mode, IC mode, the record of what was
+    # decided, the half hour catch-up and the handover pages, over the
+    # schema 16 tables. NO APOSTROPHE ANYWHERE IN THIS COMMENT, ON PURPOSE
+    # (see the note above): placed right after the controller suite whose
+    # run state and unit rows this one reads, and it drives
+    # tools/bm_lead.py in process for most of its work plus as a real
+    # subprocess for the pre-consent proof.
+    "test_bm_lead.py",
     "test_bm_fence_hook.py",
     # Loop 6 WP-G (2026-08-01): the Bash-write detection suite for
     # tools/bm_bash_audit.py. Placed right after the fence hook suite it

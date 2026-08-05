@@ -1,0 +1,9 @@
+{
+  "contract_state": "live",
+  "control_offered_still": 1,
+  "decision_still_open": false,
+  "handback_rows": 0,
+  "next_action_branch": "continue-task",
+  "original_row_unchanged": true,
+  "shape": "the founder picks the recommended option instead"
+}

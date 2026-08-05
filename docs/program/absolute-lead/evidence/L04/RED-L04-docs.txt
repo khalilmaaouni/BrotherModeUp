@@ -1,0 +1,204 @@
+RED-L04-docs.txt
+Writer C (the register and the disclosure), L04, 2026-08-05.
+Every block below is a command that was RUN, with its verbatim tail. Blocks are
+labelled. A block marked PRE-EXISTING was red before this writer touched the
+tree; a block marked EXPECTED is a guard firing at the point the design says it
+fires; a block marked COLLISION is an existing assertion this writer refused to
+edit and reported instead (DESIGN-L04.md section 18.8).
+
+================================================================================
+BLOCK 1, PRE-EXISTING. The docs suite on the untouched tree, before any edit by
+this writer. Command:
+
+    cd /Users/khalil.maaouni/Documents/BrotherModeUp && python3 tools/test_bm_docs.py
+
+Tail:
+
+    + [] : current page(s) using a name the identity contract does not allow there: docs/program/absolute-lead/DESIGN-L04.md:6 BrotherModeUp
+
+    ----------------------------------------------------------------------
+    Ran 199 tests in 160.903s
+
+    FAILED (failures=1, skipped=5)
+
+Narrowed to one class. Command:
+
+    python3 tools/test_bm_docs.py TestCurrentPagesUseTheCanonicalNames
+
+Tail:
+
+    FAIL: test_no_current_page_uses_a_retired_name_as_the_product_name (__main__.TestCurrentPagesUseTheCanonicalNames)
+    ----------------------------------------------------------------------
+    Traceback (most recent call last):
+      File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_docs.py", line 4531, in test_no_current_page_uses_a_retired_name_as_the_product_name
+        self.assertEqual(
+    AssertionError: Lists differ: ['docs/program/absolute-lead/DESIGN-L04.md:6 BrotherModeUp'] != []
+
+    First list contains 1 additional elements.
+    First extra element 0:
+    'docs/program/absolute-lead/DESIGN-L04.md:6 BrotherModeUp'
+
+    ----------------------------------------------------------------------
+    Ran 9 tests in 0.902s
+
+    FAILED (failures=1)
+
+CAUSE: docs/program/absolute-lead/DESIGN-L04.md line 6 reads
+"Target tree: /Users/khalil.maaouni/Documents/BrotherModeUp" as bare prose. That
+directory is under docs/ and is not one of test_bm_docs.py RECORD_DIRS (only
+.../absolute-lead/evidence is), so current_pages() reads the design document as a
+current page and the naming rule fires on the repository slug in prose.
+NOT CAUSED BY THIS WRITER, and DESIGN-L04.md is in no writer's allowed set.
+REMEDY (one character pair, for whoever owns the design document): wrap the path
+in backticks on line 6. prose_only() blanks inline code spans, so
+`/Users/khalil.maaouni/Documents/BrotherModeUp` reads as a path a machine takes
+rather than a name a reader is taught, which is exactly the allowance the test
+documents at tools/test_bm_docs.py:4436 to 4444.
+
+================================================================================
+BLOCK 2, COLLISION. tools/test_bm.py, an existing assertion outside every
+writer's allowed set, goes red the moment the four new command files the design
+requires (section 15.3) exist. Command, run AFTER creating them:
+
+    python3 tools/test_bm.py TestTheSeventhCommandAndTheDeepTourAreWired.test_exactly_seven_brotherme_commands_ship
+
+Verbatim:
+
+    test_exactly_seven_brotherme_commands_ship (__main__.TestTheSeventhCommandAndTheDeepTourAreWired) ... FAIL
+    
+    ======================================================================
+    FAIL: test_exactly_seven_brotherme_commands_ship (__main__.TestTheSeventhCommandAndTheDeepTourAreWired)
+    ----------------------------------------------------------------------
+    Traceback (most recent call last):
+      File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm.py", line 5694, in test_exactly_seven_brotherme_commands_ship
+        self.assertEqual(expected, found,
+    AssertionError: Lists differ: ['bro[51 chars]erme-deliver.md', 'brotherme-help.md', 'brothe[120 chars].md'] != ['bro[51 chars]erme-brief.md', 'brotherme-decisions.md', 'bro[223 chars].md']
+    
+    First differing element 2:
+    'brotherme-deliver.md'
+    'brotherme-brief.md'
+    
+    Second list contains 4 additional elements.
+    First extra element 10:
+    'brotherme-start.md'
+    
+      ['brotherme-auto-status.md',
+       'brotherme-auto.md',
+    +  'brotherme-brief.md',
+    +  'brotherme-decisions.md',
+       'brotherme-deliver.md',
+    +  'brotherme-handback.md',
+    +  'brotherme-handover-pack.md',
+       'brotherme-help.md',
+       'brotherme-next.md',
+       'brotherme-review.md',
+       'brotherme-start.md',
+       'brotherme-status.md',
+       'brotherme-stop.md',
+       'brotherme-update.md'] : the shipped command set drifted from the ten this release documents (seven beginner plus three controller): ['brotherme-auto-status.md', 'brotherme-auto.md', 'brotherme-brief.md', 'brotherme-decisions.md', 'brotherme-deliver.md', 'brotherme-handback.md', 'brotherme-handover-pack.md', 'brotherme-help.md', 'brotherme-next.md', 'brotherme-review.md', 'brotherme-start.md', 'brotherme-status.md', 'brotherme-stop.md', 'brotherme-update.md']
+    
+    ----------------------------------------------------------------------
+    Ran 1 test in 0.002s
+    
+    FAILED (failures=1)
+
+REMEDY, for whoever owns tools/test_bm.py (no writer in DESIGN-L04.md section 19
+may edit it): add the four new filenames to the pinned list at
+tools/test_bm.py:5691 to 5694, in sorted order, so the set reads
+
+    "brotherme-auto-status.md", "brotherme-auto.md", "brotherme-brief.md",
+    "brotherme-decisions.md", "brotherme-deliver.md", "brotherme-handback.md",
+    "brotherme-handover-pack.md", "brotherme-help.md", "brotherme-next.md",
+    "brotherme-review.md", "brotherme-start.md", "brotherme-status.md",
+    "brotherme-stop.md", "brotherme-update.md"
+
+and extend the comment above it the way L03 already extended it for the three
+Full-Auto commands. This is the pin performing its designed function, the same
+shape as the migrations DESIGN-L04.md 18.1 and 18.2 describe: the assertion stays
+exact equality over the whole set, so nothing is loosened, and the set it pins
+grows by the four files the design's own section 15.3 requires. It was NOT
+applied here, because section 18.8 tells a writer who finds an unpredicted
+seventh collision to stop and report rather than edit, and because tools/test_bm.py
+is outside every writer's allowed set.
+NOT A REGRESSION IN ANY OTHER TEST OF THAT CLASS: the other seven tests of
+TestTheSeventhCommandAndTheDeepTourAreWired pass with the four files present,
+including the five store-backed command pins and the deep tour pin
+(python3 tools/test_bm.py TestTheSeventhCommandAndTheDeepTourAreWired reports
+"Ran 8 tests ... FAILED (failures=1)", and that one failure is the set pin above).
+
+================================================================================
+BLOCK 3, BLOCKED (gate 2 of DESIGN-L04.md section 19). The six capability rows
+cannot land until Writer B's two files exist. Reproduced by running the shipped
+guard, tools/test_bm_docs.py capability_offenders, over this register plus the
+six drafted rows:
+
+    decision-record-and-briefing: evidence names tools/bm_lead.py, which is not in the tree
+    decision-record-and-briefing: evidence names tools/test_bm_lead.py, which is not in the tree
+    handing-control-back: evidence names tools/bm_lead.py, which is not in the tree
+    handing-control-back: evidence names tools/test_bm_lead.py, which is not in the tree
+    analyst-handover-pack: evidence names tools/bm_lead.py, which is not in the tree
+    analyst-handover-pack: evidence names tools/test_bm_lead.py, which is not in the tree
+
+That is tools/test_bm_docs.py:3566 to 3574 refusing an evidence pointer that
+names a path which is not in the tree, exactly as the brief predicted. The three
+rows naming only files that exist today (autonomy-contract, full-auto-controller,
+half-hour-watchdog) draw no offender. Confirmed absent at the time of writing:
+
+    $ ls -la tools/bm_lead.py tools/test_bm_lead.py
+    ls: tools/bm_lead.py: No such file or directory
+    ls: tools/test_bm_lead.py: No such file or directory
+
+The rows were NOT weakened to name a path that exists, and the test was NOT
+edited. capabilities.status.json, the two bm-docs regenerations, and the
+tools/test_bm_docs.py TestNoDashes target list of DESIGN-L04.md 18.6 (which reads
+both files and would ERROR on a missing one) all wait on Writer B.
+
+================================================================================
+BLOCK 1 UPDATE, PRE-EXISTING and GROWING. Re-run of the same suite at the end of
+this writer's work. The failing test is the same one; the offender list has grown
+from one to seven, because a second concurrent workstream dropped pages under
+docs/program/absolute-lead/research/, which did not exist when this writer
+started and is not a record directory either. Command:
+
+    cd /Users/khalil.maaouni/Documents/BrotherModeUp && python3 tools/test_bm_docs.py
+
+Tail:
+
+    FAIL: test_no_current_page_uses_a_retired_name_as_the_product_name (__main__.TestCurrentPagesUseTheCanonicalNames)
+    ----------------------------------------------------------------------
+    Traceback (most recent call last):
+      File "/Users/khalil.maaouni/Documents/BrotherModeUp/tools/test_bm_docs.py", line 4531, in test_no_current_page_uses_a_retired_name_as_the_product_name
+        self.assertEqual(
+
+    First list contains 7 additional elements.
+    First extra element 0:
+    'docs/program/absolute-lead/DESIGN-L04.md:6 BrotherModeUp'
+
+    ... current page(s) using a name the identity contract does not allow there:
+    docs/program/absolute-lead/DESIGN-L04.md:6 BrotherModeUp,
+    docs/program/absolute-lead/research/visual-surface/LENS-B-onboarding.md:717 BrotherModeUp,
+    docs/program/absolute-lead/research/visual-surface/LENS-B-onboarding.md:718 BrotherModeUp,
+    docs/program/absolute-lead/research/visual-surface/LENS-B-onboarding.md:719 BrotherModeUp,
+    docs/program/absolute-lead/research/visual-surface/LENS-B-onboarding.md:720 BrotherModeUp,
+    docs/program/absolute-lead/research/visual-surface/LENS-C-visual-language.md:1143 BrotherModeUp,
+    docs/program/absolute-lead/research/visual-surface/LENS-C-visual-language.md:1144 BrotherModeUp
+
+    ----------------------------------------------------------------------
+    Ran 199 tests in 20.306s
+
+    FAILED (failures=1, skipped=5)
+    exit=1
+
+Every other test in that run is green, including every class that reads the
+pages this writer changed. The remedy is the one in BLOCK 1, now needed in three
+files. REJECTED remedy, named so nobody reaches for it later: adding
+docs/program/absolute-lead/research to RECORD_DIRS (tools/test_bm_docs.py:4405)
+would turn the suite green by reading fewer pages, which weakens a rule the
+founder ratified on 2026-08-04, and the exclusion dictionary beside it has been
+deliberately empty since that date.
+
+================================================================================
+END. Blocks 1 and its update are pre-existing and not this writer's to fix.
+Block 2 is a collision, reported and not edited. Block 3 is gate 2, and it is
+the reason capabilities.status.json, both generated blocks, and the 18.6 target
+list did not land.

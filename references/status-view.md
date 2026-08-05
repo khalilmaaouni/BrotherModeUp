@@ -52,3 +52,30 @@ appear:
 
 None of these ever appear in the default view. Advanced is per request: the
 next default status returns to the eight fields above.
+
+## IC mode: the same records, read by the person doing the engineering
+
+IC mode is not a second status and not a second set of records. It is the same
+eight fields above, from the same collector, rendered for an engineer: the
+lifecycle identifier behind the file claim, unit ids and the run's own state,
+raw token and minute totals against both ceilings, the evidence class and the
+exact command behind a claim, which trigger made a decision a key decision, the
+contract id with its revision and state, open dispatch ids with their ages, and
+the counts behind the catch-up clock. Every field the two views share carries
+the same value in both, because there is one collector and two renderers.
+
+Three rules, and the first one is what keeps this honest:
+
+- **It is always explicit.** Two switches turn it on and nothing else does: the
+  `--ic` flag on the command, and the environment variable
+  `BROTHERMODE_VIEW=ic`. The flag is per request. The variable is sticky, which
+  is why the next rule exists.
+- **Every IC render names the switch that turned it on**, in one footer line,
+  with how to turn it off. A sticky mode that does not say it is on is a mode
+  the reader did not choose, which is the rule at the end of the advanced-view
+  section above read for a standing setting rather than one request.
+- **The default view is unchanged.** With neither switch set, what prints is
+  the eight fields at the top of this page, in plain wording, and nothing else.
+  IC mode and the advanced view are independent: `--ic` turns on no advanced
+  item, `--advanced` turns on no IC block, and asking for one never implies the
+  other.

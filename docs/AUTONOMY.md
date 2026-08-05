@@ -8,8 +8,9 @@ answers whether one specific action is inside that authorisation, tracks
 spend against a budget, and gives the founder a kill switch. It is the
 contract, the gate, the breaker, the switch and the record. It is written
 for whoever operates the command line directly today, and for the
-controller loop (U2, not yet built) that will call it before every unit of
-work once it exists.
+controller loop (U2, `tools/bm_controller.py`, described in
+`docs/FULL-AUTO.md`), which is built and which calls this layer before
+every unit of work it dispatches.
 
 No em or en dashes anywhere in this page.
 
