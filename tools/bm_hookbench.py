@@ -535,6 +535,18 @@ class Sandbox(object):
         # tool promises to write nothing into the repository but its page.
         self._saved_pycache = getattr(sys, "pycache_prefix", None)
         sys.pycache_prefix = os.path.join(self.base, "pycache")
+        # AND belt as well as braces. sys.pycache_prefix alone was not enough
+        # on continuous integration, where this tool's own guard caught a
+        # __pycache__ landing in tools/ on machines whose checkout had none
+        # yet; it could not be reproduced on a developer machine, which is
+        # exactly the shape of defect that ships. Rather than theorize about
+        # the difference, the promise is made unconditional: nothing writes
+        # bytecode at all while the sandbox is entered. The cost to the
+        # measurement is stated on the page: every repetition now pays a
+        # compile it cannot cache, which makes the figures a LOWER bound by
+        # slightly less than before, never a higher one.
+        self._saved_dontwrite = sys.dont_write_bytecode
+        sys.dont_write_bytecode = True
         os.chdir(self.project)
 
         self._consent()
@@ -550,6 +562,7 @@ class Sandbox(object):
             else:
                 os.environ[key] = value
         sys.pycache_prefix = self._saved_pycache
+        sys.dont_write_bytecode = self._saved_dontwrite
         shutil.rmtree(self.base, ignore_errors=True)
         return False
 
