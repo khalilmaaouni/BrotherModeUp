@@ -709,6 +709,28 @@ def main(argv):
         release_gate_lock(lock)
 
 
+def _worktree_dirt():
+    """Tracked paths the suites modified, as (paths, skip_reason). Exactly one
+    of the two is ever truthy: a reason means the question could not be asked,
+    which is never the same answer as "nothing changed"."""
+    if not os.path.isdir(os.path.join(REPO, ".git")):
+        return [], "this checkout has no .git directory"
+    try:
+        r = subprocess.run(
+            ["git", "-C", REPO, "status", "--porcelain", "--untracked-files=no"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=30,
+            # git honours GIT_DIR and GIT_WORK_TREE over -C, so an inherited
+            # pair would have this report another repository's tree.
+            env={k: v for k, v in os.environ.items()
+                 if not k.startswith("GIT_")})
+    except (OSError, subprocess.SubprocessError) as exc:
+        return [], "git could not be run here (%s)" % exc
+    if r.returncode != 0:
+        return [], "git status exited %d here" % r.returncode
+    return sorted(ln[3:].strip() for ln in r.stdout.splitlines() if ln.strip()), ""
+
+
 def _inventory_gate(known, unlisted, missing):
     """Every refusal that must fire before a single test runs. Returns 0 or 2."""
     if unlisted:
@@ -790,6 +812,24 @@ def _run_all(known, artifacts, timeout):
         for name, _ok, _t, _s, _e, tail in failed:
             sys.stdout.write("  %s: %s\n" % (name, tail))
         sys.stdout.write("\n")
+    dirty, dirt_skip = _worktree_dirt()
+    if dirt_skip:
+        sys.stdout.write("test_all: the clean-checkout check is SKIPPED, %s. A "
+                         "SKIP is not a pass: nothing here proves the suites "
+                         "left this tree alone.\n" % dirt_skip)
+    elif dirty:
+        failed = failed + [("clean-checkout", False, 0, 0, 0.0,
+                            "the suites modified tracked files")]
+        sys.stdout.write(
+            "test_all: REFUSING to report green. The suites left these tracked "
+            "paths modified: %s. A suite that writes into this checkout "
+            "invalidates CHECKSUMS.sha256, so scripts/verify-install.sh then "
+            "tells the user their install may be tampered with, and "
+            "scripts/doctor.py SKIPS its integrity check on any dirty tree, "
+            "which is the documented quickstart order. Write the artifact "
+            "outside the tree, or behind an opt-in environment variable, the "
+            "way tools/test_bm_controller.py does for the E4 evidence.\n"
+            % ", ".join(dirty))
     summary = (
         "test_all: %d tests across %d suites, %d skipped, %.1fs wall. %s\n"
         % (total_tests, len(known), total_skipped, wall,
