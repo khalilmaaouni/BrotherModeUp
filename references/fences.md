@@ -4,6 +4,24 @@ LOAD WHEN: a writing agent is about to be dispatched, or files could be touched 
 
 (Extracted verbatim from SKILL.md section 5; see SKILL.md for the full law.)
 
+## The orchestrator is a writer like any other
+
+Added 2026-08-06 after M17 (`docs/mistakes/`). The orchestrator wrote the fence
+lines for three subagents, dispatched them, and then edited four files of its
+own with no fence line for itself. Nothing collided, which was luck: it edited a
+guard file to name a path that the live agent still owned and was still writing.
+
+WHEN ANY AGENT IS LIVE, the orchestrator's own files get a fence line too,
+written before its first edit and disjoint from every dispatched fence. Being
+the one who writes the registry is the reason to be in it, not an exemption from
+it. Extending your own scope mid-loop is an AMENDMENT block in the registry,
+written before the edit, exactly as it would be for anybody else.
+
+It was caught twice in one hour, by a worker that found a foreign write and
+reported it instead of overwriting it, and by a cheap watchdog whose only job is
+to audit the orchestrator. The orchestrator did not catch itself. Assume it will
+not next time either.
+
 ## 5. The single-writer law, fences, and the harness
 One writer per file, ever. FENCE THEN DISPATCH, never the reverse: the fence line
 is written to STATE.md BEFORE the agent launches and carries the FIVE-FIELD
