@@ -103,6 +103,41 @@ def _store_reason_codes():
     return codes
 
 
+def _controller_reason_codes():
+    """Every refusal reason code tools/bm_controller.py can emit, read from
+    the SHIPPED source the same way the store's are.
+
+    WHY A SECOND SCANNER. The store scanner above cannot see these. The
+    unattended preflight refuses with codes of its own rather than through
+    an OwnershipRefused, so a REFUSAL_HELP enumerated from bm_store.py
+    alone left seven codes a founder can already meet with no rewrite, and
+    `bm_view.py explain --reason unattended-fence-advisory` answered that
+    it was not a reason this product emits, which was false.
+
+    The technique is the one tools/test_bm_controller.py uses over the same
+    constants: a module-level assignment whose target starts with
+    UNATTENDED_ and whose value is a string starting with 'unattended-'.
+    That shape is what separates the reason codes from
+    UNATTENDED_FENCE_MODE_COMMAND and UNATTENDED_FENCE_STRICT_COMMAND,
+    which hold the commands the rewrites quote rather than codes anything
+    refuses with."""
+    tree = ast.parse(_read(CONTROLLER_FILE))
+    codes = set()
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        value = node.value
+        if not (isinstance(value, ast.Constant)
+                and isinstance(value.value, str)
+                and value.value.startswith("unattended-")):
+            continue
+        for target in node.targets:
+            if (isinstance(target, ast.Name)
+                    and target.id.startswith("UNATTENDED_")):
+                codes.add(value.value)
+    return codes
+
+
 class _Clock(object):
     """A controllable now_iso, so ages are driven by ARRANGED timestamps
     rather than by sleeping. Shape copied from tools/test_bm_lead.py."""
@@ -891,30 +926,73 @@ class TestSurfaceRouter(VisualCase):
 
 class TestEveryRefusalIsRewritten(VisualCase):
     """L-S9. A refusal never reaches the founder unrewritten, and the list
-    of codes is read from the store's own source so it cannot go stale."""
+    of codes is read from the SHIPPED sources of BOTH modules that emit
+    them, tools/bm_store.py and tools/bm_controller.py, so it cannot go
+    stale for either one."""
 
-    def test_every_reason_code_the_store_can_emit_has_an_entry(self):
-        codes = _store_reason_codes()
-        self.assertGreater(len(codes), 100,
+    def test_every_reason_code_either_module_can_emit_has_an_entry(self):
+        store_codes = _store_reason_codes()
+        self.assertGreater(len(store_codes), 100,
                            "the scanner found almost nothing, so it is "
                            "broken rather than the map being complete")
+        controller_codes = _controller_reason_codes()
+        self.assertGreaterEqual(len(controller_codes), 7,
+                                "the unattended preflight has at least seven "
+                                "reason codes, so a scanner finding %s of "
+                                "them is broken rather than the preflight "
+                                "having shrunk"
+                                % (len(controller_codes),))
+        codes = store_codes | controller_codes
         missing = sorted(codes - set(bv.REFUSAL_HELP))
         self.assertEqual(missing, [],
                          "reason code(s) with no founder facing rewrite: %s"
                          % (missing,))
         extra = sorted(set(bv.REFUSAL_HELP) - codes)
         self.assertEqual(extra, [],
-                         "REFUSAL_HELP names code(s) the store cannot emit, "
-                         "so they are dead entries: %s" % (extra,))
+                         "REFUSAL_HELP names code(s) neither the store nor "
+                         "the controller can emit, so they are dead "
+                         "entries: %s" % (extra,))
         for code, entry in sorted(bv.REFUSAL_HELP.items()):
             self.assertEqual(len(entry), 3,
                              "%s must be (context, hint, next_action)"
                              % code)
             for part in entry:
                 self.assertTrue(part.strip(), "%s has an empty part" % code)
+                # KEPT for the controller's seven as well, deliberately.
+                # Their next_action lines do name settings the founder
+                # types, but as whole commands (export BM_FENCE_MODE=
+                # enforced) rather than as flags, so none contains "--" and
+                # none needs an exemption. An entry that did would be a
+                # rewrite drifting back towards the system's own terms,
+                # which is the thing this assertion exists to catch, so
+                # weakening it for one source would give the seven a lower
+                # bar than the rest of the map for no reason.
                 self.assertNotIn("--", part,
                                  "%s reads like a command line, not like a "
                                  "sentence" % code)
+
+    def test_the_unattended_rewrites_are_the_controllers_own_words(self):
+        """The seven controller entries in REFUSAL_HELP are a COPY, so the
+        copy is checked against the original rather than trusted.
+
+        WHY A COPY AND NOT AN IMPORT. tools/bm_visual.py may not import
+        tools/bm_controller.py to share that map: the controller is one of
+        the two shipping modules allowed to import subprocess, and
+        tools/bm_view.py loads bm_visual to render a page, so sharing by
+        import would pull subprocess into the render path. This equality is
+        what that copy costs.
+
+        The controller is loaded HERE rather than beside bv at the top, and
+        only for its text constants: every store and every exception class
+        in this file still comes from bv.bs, which is the rule this file's
+        own docstring states."""
+        bc = _load("bm_controller")
+        for code in sorted(_controller_reason_codes()):
+            self.assertEqual(bv.REFUSAL_HELP[code],
+                             bc.UNATTENDED_REFUSAL_HELP[code],
+                             "%s reads differently in the two surfaces, so "
+                             "one founder would meet two different answers "
+                             "for one refusal" % (code,))
 
     def test_the_failure_block_has_five_parts_and_exactly_one_expander(self):
         block = bv.failure_block("path-escape",
