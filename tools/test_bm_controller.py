@@ -7749,5 +7749,819 @@ class TestControllerCLIAdopt(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
 
+# ---------------------------------------------------------------------------
+# THE UNATTENDED PREFLIGHT (founder posture, 2026-08-06). An unattended
+# Full-Auto run must REFUSE to start unless the machine is in a state where
+# the damage it could do is bounded. Seven preconditions, seven named reason
+# codes, one refusal test each, plus the test that proves interactive use is
+# untouched.
+#
+# Hermetic, like every engine test above: the repository facts and the
+# snapshot come through ONE injected seam (bc.UnattendedGitFacts, replaced
+# here by FakeGitFacts), the environment is a plain dictionary, and the
+# store is a throwaway under tempfile.TemporaryDirectory(). No git binary is
+# run and no snapshot ref is written anywhere by this section, except in the
+# one end-to-end CLI test at the bottom, which drives the real command line
+# and therefore refuses before reaching the snapshot at all.
+# ---------------------------------------------------------------------------
+
+#: The environment in which all seven preconditions are MET, so a test that
+#: wants one refusal breaks exactly one thing and nothing else can be the
+#: cause of the answer it reads.
+_UNATTENDED_GOOD_ENV = {"BM_FENCE_MODE": "enforced", "BM_FENCE_STRICT": "1"}
+
+_UNATTENDED_SESSION = "sess-night-run"
+
+
+class FakeGitFacts(object):
+    """The bc.UnattendedGitFacts seam, answered from arranged values.
+
+    Same shape and same discipline as FakeWorker and FakeCheckRunner above:
+    it records what it was asked, so a test can assert that the snapshot was
+    NOT taken on a run the preflight refused."""
+
+    def __init__(self, toplevel="/arranged/repo", branch="lane-a-stability",
+                 modified=(), recovery=(True, "clean")):
+        self._toplevel = toplevel
+        self._branch = branch
+        self._modified = modified
+        self._recovery = recovery
+        self.recovery_calls = []
+
+    def toplevel(self, start_dir):
+        return self._toplevel
+
+    def branch(self, toplevel):
+        return self._branch
+
+    def modified_paths(self, toplevel):
+        if self._modified is None:
+            return None
+        return list(self._modified)
+
+    def recovery_point(self, toplevel, session_id):
+        self.recovery_calls.append((toplevel, session_id))
+        return self._recovery
+
+
+def _preflight(store, root, session_id=_UNATTENDED_SESSION, env=None,
+               git=None, acknowledged=(), project_id="p1"):
+    """One preflight call with every seam arranged to PASS unless the test
+    overrode it. Returns the findings list."""
+    return bc.unattended_preflight(
+        store, root, project_id, session_id,
+        acknowledged=acknowledged,
+        env=dict(_UNATTENDED_GOOD_ENV) if env is None else env,
+        git=FakeGitFacts() if git is None else git)
+
+
+def _codes(findings):
+    return [code for code, _sentence in findings]
+
+
+class TestUnattendedPreflightAllowsAReadyMachine(unittest.TestCase):
+    """The CALIBRATION for the seven refusal tests below. Without it, a
+    preflight that refused everything unconditionally would pass all seven
+    and prove nothing at all."""
+
+    def test_a_machine_that_meets_every_condition_is_not_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                git = FakeGitFacts()
+                self.assertEqual(_preflight(store, d, git=git), [])
+                self.assertEqual(
+                    git.recovery_calls,
+                    [("/arranged/repo", _UNATTENDED_SESSION)],
+                    "the snapshot is taken exactly once, under the run's "
+                    "own stable session id")
+
+
+class TestUnattendedRefusesWithoutFenceEnforcement(unittest.TestCase):
+    """PRECONDITION 1. The write fence must be ENFORCED for the run, not
+    advisory. Advisory means a write the protection cannot check is allowed
+    through with a warning, which is worth something to a founder reading
+    the terminal and nothing at all at 3am.
+
+    The controller REFUSES rather than setting the policy itself, and the
+    refusal must carry the exact remediation command, because
+    tools/bm_fence_hook.py is a separate process spawned by the runtime and
+    nothing this process exports can reach it (bc.unattended_preflight's own
+    docstring states the choice)."""
+
+    def test_advisory_mode_refuses_and_names_the_exact_command(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                git = FakeGitFacts()
+                findings = _preflight(
+                    store, d, git=git,
+                    env={"BM_FENCE_MODE": "advisory", "BM_FENCE_STRICT": "1"})
+                self.assertEqual(_codes(findings),
+                                 [bc.UNATTENDED_FENCE_ADVISORY])
+                self.assertIn("export BM_FENCE_MODE=enforced",
+                              findings[0][1],
+                              "the refusal must carry the command that "
+                              "really changes what the hook reads")
+                self.assertEqual(git.recovery_calls, [],
+                                 "a refused preflight writes nothing")
+
+    def test_an_unset_or_misspelled_mode_is_advisory_too(self):
+        """tools/bm_fence_hook.fence_mode falls back to ADVISORY for
+        anything it does not recognise, so this preflight must read those
+        the same way rather than treating 'enfoced' as close enough."""
+        for value in ("", "enfoced", "1", "ENFORCE"):
+            with tempfile.TemporaryDirectory() as d:
+                with bs.Store(d) as store:
+                    _seed(store)
+                    _sign(store)
+                    findings = _preflight(
+                        store, d,
+                        env={"BM_FENCE_MODE": value, "BM_FENCE_STRICT": "1"})
+                    self.assertEqual(_codes(findings),
+                                     [bc.UNATTENDED_FENCE_ADVISORY],
+                                     "BM_FENCE_MODE=%r must not count as "
+                                     "enforced" % (value,))
+
+    def test_the_hook_and_the_preflight_agree_on_what_enforced_means(self):
+        """The two readings are pinned against each other, not against a
+        hand-written list, the same way tools/test_bm_bash_audit.py pins its
+        own second reading of this variable."""
+        fh = _load("bm_fence_hook")
+        for value in ("enforced", " ENFORCED ", "advisory", "", "1",
+                      "enfoced"):
+            env = {"BM_FENCE_MODE": value}
+            self.assertEqual(
+                bc._unattended_fence_mode(env) is None,
+                fh.enforced_mode(env),
+                "the preflight and the fence hook disagree about "
+                "BM_FENCE_MODE=%r" % (value,))
+
+
+class TestUnattendedRefusesWithoutStrictMode(unittest.TestCase):
+    """PRECONDITION 2. BM_FENCE_STRICT=1 must be in effect, so an edit to a
+    file no active record has claimed is refused. That is the ordinary shape
+    of an unwatched run's mistake, and it is exactly what advisory-plus-
+    non-strict lets through."""
+
+    def test_an_unset_strict_flag_refuses_and_names_the_exact_command(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                git = FakeGitFacts()
+                findings = _preflight(
+                    store, d, git=git,
+                    env={"BM_FENCE_MODE": "enforced"})
+                self.assertEqual(_codes(findings),
+                                 [bc.UNATTENDED_FENCE_NOT_STRICT])
+                self.assertIn("export BM_FENCE_STRICT=1", findings[0][1])
+                self.assertEqual(git.recovery_calls, [])
+
+    def test_zero_is_not_strict_and_any_other_value_is(self):
+        """tools/bm_fence_hook.py reads this variable as SET unless it is
+        empty or '0' (its own `strict` line), and this reads it the same."""
+        for value, refused in (("", True), ("0", True), ("1", False),
+                               ("yes", False)):
+            with tempfile.TemporaryDirectory() as d:
+                with bs.Store(d) as store:
+                    _seed(store)
+                    _sign(store)
+                    findings = _preflight(
+                        store, d,
+                        env={"BM_FENCE_MODE": "enforced",
+                             "BM_FENCE_STRICT": value})
+                    self.assertEqual(
+                        bc.UNATTENDED_FENCE_NOT_STRICT in _codes(findings),
+                        refused,
+                        "BM_FENCE_STRICT=%r was read wrongly" % (value,))
+
+
+class TestUnattendedRefusesOutsideARepository(unittest.TestCase):
+    """PRECONDITION 3. A repository must be detected and the current branch
+    identified. Both halves matter for the same reason: they are what makes
+    the run undoable. No repository means no history to restore from, and a
+    detached HEAD means the run's own commits are reachable from no branch,
+    so a night of work would be unfindable in the morning."""
+
+    def test_a_folder_with_no_repository_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                git = FakeGitFacts(toplevel=None)
+                findings = _preflight(store, d, git=git)
+                self.assertEqual(_codes(findings),
+                                 [bc.UNATTENDED_NO_REPOSITORY])
+                self.assertEqual(git.recovery_calls, [],
+                                 "with no repository there is nowhere to "
+                                 "snapshot, and nothing is attempted")
+
+    def test_a_detached_head_refuses_because_no_branch_is_identified(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                findings = _preflight(store, d,
+                                      git=FakeGitFacts(branch=None))
+                self.assertEqual(_codes(findings),
+                                 [bc.UNATTENDED_NO_REPOSITORY])
+                self.assertIn("detached", findings[0][1])
+
+    def test_the_real_reader_calls_a_detached_head_no_branch(self):
+        """The seam's own implementation, not the fake: `rev-parse
+        --abbrev-ref HEAD` answers the literal string 'HEAD' on a detached
+        head, and that must be a None here rather than a branch called
+        HEAD."""
+        class _Result(object):
+            def __init__(self, code, out):
+                self.returncode = code
+                self.stdout = out
+                self.stderr = ""
+
+        class _Autosave(object):
+            def __init__(self, code, out):
+                self._result = _Result(code, out)
+
+            def _run_git(self, toplevel, *args):
+                return self._result
+
+        for code, out, expected in ((0, "HEAD\n", None), (0, "main\n", "main"),
+                                    (0, "\n", None), (128, "", None)):
+            facts = bc.UnattendedGitFacts(autosave=_Autosave(code, out))
+            self.assertEqual(facts.branch("/repo"), expected,
+                             "rev-parse rc=%s stdout=%r" % (code, out))
+
+
+class TestUnattendedRefusesADirtyTree(unittest.TestCase):
+    """PRECONDITION 4. The working tree is clean, OR every existing
+    modification is explicitly acknowledged by path with
+    --acknowledge-modified.
+
+    Per path, never blanket: a single "I know it is dirty" flag becomes a
+    habit, and a habit acknowledges the file the founder forgot about just
+    as readily as the one they meant."""
+
+    def test_unacknowledged_changes_refuse_and_are_all_named(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                git = FakeGitFacts(modified=["a.py", "docs/b.md"])
+                findings = _preflight(store, d, git=git)
+                self.assertEqual(_codes(findings),
+                                 [bc.UNATTENDED_DIRTY_TREE])
+                self.assertIn("a.py", findings[0][1])
+                self.assertIn("docs/b.md", findings[0][1],
+                              "every unacknowledged path is printed, not "
+                              "only the first, so the acknowledgement can "
+                              "be written from the refusal itself")
+                self.assertEqual(git.recovery_calls, [])
+
+    def test_acknowledging_every_path_lets_the_run_start(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                findings = _preflight(
+                    store, d, git=FakeGitFacts(modified=["a.py",
+                                                         "docs/b.md"]),
+                    acknowledged=["a.py", "docs/b.md"])
+                self.assertEqual(findings, [])
+
+    def test_acknowledging_only_some_of_them_still_refuses(self):
+        """The half-acknowledgement is the case a blanket flag would have
+        waved through, so it is the one that has to fail."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                findings = _preflight(
+                    store, d, git=FakeGitFacts(modified=["a.py",
+                                                         "docs/b.md"]),
+                    acknowledged=["a.py"])
+                self.assertEqual(_codes(findings),
+                                 [bc.UNATTENDED_DIRTY_TREE])
+                self.assertIn("docs/b.md", findings[0][1])
+                self.assertNotIn("--acknowledge-modified a.py",
+                                 findings[0][1],
+                                 "an already-acknowledged path must not be "
+                                 "asked for again")
+
+    def test_a_tree_git_cannot_report_on_is_not_called_clean(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                findings = _preflight(store, d,
+                                      git=FakeGitFacts(modified=None))
+                self.assertEqual(_codes(findings),
+                                 [bc.UNATTENDED_DIRTY_TREE])
+
+    def test_the_real_reader_parses_porcelain_including_renames(self):
+        """The seam's own implementation. Untracked files COUNT (the
+        snapshot captures them and they are something a run can trip over),
+        and a rename is acknowledged by its DESTINATION, which is the path
+        that exists afterwards."""
+        class _Result(object):
+            returncode = 0
+            stderr = ""
+            stdout = (" M a.py\n"
+                      "?? scratch.txt\n"
+                      "R  old.py -> new.py\n"
+                      "A  docs/added.md\n"
+                      "UU conflicted.py\n")
+
+        class _Autosave(object):
+            def _run_git(self, toplevel, *args):
+                return _Result()
+
+        facts = bc.UnattendedGitFacts(autosave=_Autosave())
+        self.assertEqual(facts.modified_paths("/repo"),
+                         ["a.py", "scratch.txt", "new.py", "docs/added.md",
+                          "conflicted.py"])
+
+
+class TestUnattendedRefusesWithoutARecoverySnapshot(unittest.TestCase):
+    """PRECONDITION 5. A recovery snapshot exists, or one is created before
+    the first write. tools/bm_autosave.py already creates snapshots and is
+    reused verbatim: one mechanism, so there is one story about what is
+    recoverable."""
+
+    def test_a_snapshot_that_cannot_be_taken_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                findings = _preflight(
+                    store, d,
+                    git=FakeGitFacts(recovery=(False, "empty-tree")))
+                self.assertEqual(_codes(findings),
+                                 [bc.UNATTENDED_NO_SNAPSHOT])
+                self.assertIn("empty-tree", findings[0][1],
+                              "the reason the snapshot failed is carried "
+                              "through, not swallowed")
+
+    def test_the_snapshot_is_the_last_condition_so_a_refusal_writes_nothing(self):
+        """Ordering, as a property rather than as a comment: the one
+        condition with an effect on disk must never run on a machine the
+        preflight is already refusing."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                git = FakeGitFacts(recovery=(False, "empty-tree"))
+                findings = _preflight(
+                    store, d, git=git,
+                    env={"BM_FENCE_MODE": "advisory"})
+                self.assertEqual(
+                    _codes(findings),
+                    [bc.UNATTENDED_FENCE_ADVISORY,
+                     bc.UNATTENDED_FENCE_NOT_STRICT],
+                    "the snapshot must not even be attempted, so its own "
+                    "failure cannot appear in the findings")
+                self.assertEqual(git.recovery_calls, [])
+
+    def test_an_existing_snapshot_satisfies_the_condition(self):
+        """"exists OR is created": a worktree whose snapshot attempt did
+        not publish but which still has an earlier one on record has a
+        recovery point, and the real reader says so."""
+        class _Autosave(object):
+            def __init__(self, ok, existing):
+                self._ok = ok
+                self._existing = existing
+
+            def snapshot(self, toplevel, session_id, reason):
+                return {"ok": self._ok, "reason": "locked"}
+
+            def worktree_id_for(self, toplevel):
+                return "wt1"
+
+            def list_snapshot_refs(self, toplevel, worktree_id):
+                return self._existing
+
+        ok, detail = bc.UnattendedGitFacts(
+            autosave=_Autosave(False, [("refs/x/1", "abc")])
+        ).recovery_point("/repo", "s1")
+        self.assertTrue(ok)
+        self.assertIn("refs/x/1", detail)
+
+        ok, _detail = bc.UnattendedGitFacts(
+            autosave=_Autosave(False, [])).recovery_point("/repo", "s1")
+        self.assertFalse(ok, "no new snapshot and no old one is a refusal")
+
+        ok, detail = bc.UnattendedGitFacts(
+            autosave=_Autosave(True, [])).recovery_point("/repo", "s1")
+        self.assertTrue(ok, "a fresh snapshot satisfies the condition")
+
+
+class TestUnattendedRefusesAForeignClaim(unittest.TestCase):
+    """PRECONDITION 6. No foreign active claim covers the paths the run will
+    write. Those paths are the live contract's own allowed_paths, which is
+    the only boundary that exists before a unit graph does.
+
+    Two writers over one path is the failure this whole product exists to
+    prevent, and an unattended run is the writer least able to notice it."""
+
+    def test_another_sessions_active_claim_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["src/app"])
+                store.claim(name="somebody-else", lifetime="ephemeral",
+                            files=["src/app/main.py"],
+                            session_id="a-different-session")
+                git = FakeGitFacts()
+                findings = _preflight(store, d, git=git)
+                self.assertEqual(_codes(findings),
+                                 [bc.UNATTENDED_FOREIGN_CLAIM])
+                self.assertIn("somebody-else", findings[0][1])
+                self.assertIn("a-different-session", findings[0][1],
+                              "the refusal names WHO is holding it, which "
+                              "is the only thing the founder can act on")
+                self.assertEqual(git.recovery_calls, [])
+
+    def test_this_runs_own_claim_is_not_foreign(self):
+        """A resumed run is holding its own fences from the previous
+        invocation. Refusing it out of its own fence would make an
+        unattended run startable exactly once."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["src/app"])
+                store.claim(name="unit-u1", lifetime="ephemeral",
+                            files=["src/app/main.py"],
+                            session_id=_UNATTENDED_SESSION)
+                self.assertEqual(_preflight(store, d), [])
+
+    def test_our_own_claim_cannot_hide_a_foreign_one_behind_it(self):
+        """The reason this walks every active record instead of calling
+        Store._find_overlap: that helper answers with the FIRST collision
+        and stops, and the first collision is routinely this run's own
+        fence. Two claims, ours first, and the foreign one must still be
+        found."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["src/app"])
+                store.claim(name="unit-u1", lifetime="ephemeral",
+                            files=["src/app/mine.py"],
+                            session_id=_UNATTENDED_SESSION)
+                store.claim(name="somebody-else", lifetime="ephemeral",
+                            files=["src/app/theirs.py"],
+                            session_id="a-different-session")
+                findings = _preflight(store, d)
+                self.assertEqual(_codes(findings),
+                                 [bc.UNATTENDED_FOREIGN_CLAIM])
+                self.assertIn("theirs.py", findings[0][1])
+
+    def test_a_parked_record_holds_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["src/app"])
+                record = store.claim(
+                    name="somebody-else", lifetime="ephemeral",
+                    files=["src/app/main.py"],
+                    session_id="a-different-session")
+                store.transition(record.lifecycle_uuid, record.version,
+                                 "parked",
+                                 session_id="a-different-session",
+                                 note="handed back")
+                self.assertEqual(_preflight(store, d), [])
+
+    def test_a_claim_outside_the_allowed_paths_is_not_a_collision(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store, allowed_paths=["src/app"])
+                store.claim(name="somebody-else", lifetime="ephemeral",
+                            files=["docs/elsewhere.md"],
+                            session_id="a-different-session")
+                self.assertEqual(_preflight(store, d), [])
+
+
+class TestUnattendedRefusesWithoutIdentity(unittest.TestCase):
+    """PRECONDITION 7. The store is readable and the run's session identity
+    is established.
+
+    One condition, because both halves fail the same way. Without a stable
+    --session-id every invocation invents a fresh one, so the next process
+    is refused as a foreign driver, the snapshot this one took is filed
+    under a name nothing will look for again, and every fence it holds looks
+    like somebody else's."""
+
+    def test_an_unattended_run_with_no_session_id_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                git = FakeGitFacts()
+                findings = _preflight(store, d, session_id="", git=git)
+                self.assertEqual(_codes(findings),
+                                 [bc.UNATTENDED_NO_IDENTITY])
+                self.assertIn("session-id", findings[0][1])
+                self.assertEqual(git.recovery_calls, [])
+
+    def test_a_whitespace_session_id_is_no_session_id(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                self.assertEqual(
+                    _codes(_preflight(store, d, session_id="   ")),
+                    [bc.UNATTENDED_NO_IDENTITY])
+
+    def test_a_store_that_cannot_be_read_refuses_once_not_twice(self):
+        """The store probe. It also proves the ordering rule the preflight
+        states: a store that cannot answer the contract read is not asked
+        about claims either, because that second failure would be the first
+        one wearing a different name."""
+        class _UnreadableStore(object):
+            def latest_contract(self, project_id, raw=False):
+                raise bs.BMStoreError("the database file is locked")
+
+            def dump(self, raw=False):
+                raise AssertionError(
+                    "an unreadable store must not be asked a second "
+                    "question")
+
+        findings = bc.unattended_preflight(
+            _UnreadableStore(), "/arranged/repo", "p1", "sess-night",
+            env=dict(_UNATTENDED_GOOD_ENV), git=FakeGitFacts())
+        self.assertEqual(_codes(findings), [bc.UNATTENDED_NO_IDENTITY])
+        self.assertIn("locked", findings[0][1])
+
+
+class TestUnattendedPreflightLeavesInteractiveUseAlone(unittest.TestCase):
+    """THE PROPERTY THE WHOLE SECTION IS BUILT AROUND: interactive use is
+    completely unchanged.
+
+    Proved twice, from both ends. Structurally, the gate is not even reached
+    without the flag (a poisoned bc.unattended_preflight is never called),
+    and behaviourally, the real CLI drives a full start/plan/start/status
+    flow on a machine that fails EVERY ONE of the seven conditions and
+    behaves exactly as it did before."""
+
+    def test_without_the_flag_the_preflight_is_never_called(self):
+        calls = []
+
+        def _poisoned(*a, **kw):
+            calls.append((a, kw))
+            raise AssertionError(
+                "the preflight ran on a command that did not ask for it")
+
+        original = bc.unattended_preflight
+        bc.unattended_preflight = _poisoned
+        try:
+            bc._refuse_unless_unattended_ready({}, None, "p1")
+            bc._refuse_unless_unattended_ready(
+                {"session-id": "s", "acknowledge-modified": ["a.py"]},
+                None, "p1")
+            self.assertEqual(calls, [])
+            # CALIBRATION: without this the test above would also pass
+            # against a gate that never calls the preflight at all.
+            with self.assertRaises(AssertionError):
+                bc._refuse_unless_unattended_ready(
+                    {"unattended": True}, None, "p1")
+            self.assertEqual(len(calls), 1)
+        finally:
+            bc.unattended_preflight = original
+
+    def test_the_interactive_cli_flow_is_unchanged_on_a_failing_machine(self):
+        """A temporary directory is not a git repository, the fence
+        variables are cleared, and a foreign session holds a claim over the
+        contract's own allowed path: all seven conditions would refuse. Every
+        interactive command must still behave exactly as the CLI tests above
+        expect."""
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            # A foreign claim over a path INSIDE the contract's allowed '.'
+            # but outside the one unit's own write scope ('out.txt'), so it
+            # fails the preflight's precondition 6 without changing what the
+            # fence store would do to an interactive dispatch. The point of
+            # this test is that MY gate changes nothing; arranging a
+            # collision the fence store itself acts on would prove the
+            # opposite of what it claims.
+            claimed = _run_other(
+                STORE_CLI, ["claim", "someone-else", "--files",
+                            "other-file.txt",
+                            "--session", "a-different-session"], root)
+            self.assertEqual(claimed.returncode, 0,
+                             "the arrangement itself must hold, or this "
+                             "test proves nothing about a hostile machine: "
+                             + claimed.stdout + claimed.stderr)
+            hostile = {"BM_FENCE_MODE": "advisory", "BM_FENCE_STRICT": "0"}
+
+            begin = _run_cli(
+                ["start", "--project", "p1", "--outcome", "ship it",
+                 "--done-definition", _DONE_CHECK_PASSES,
+                 "--controller-id", "c1"] + list(CLI_ACTOR), root,
+                extra_env=hostile)
+            self.assertEqual(begin.returncode, 0,
+                             begin.stdout + begin.stderr)
+            self.assertIn("started for project p1", begin.stdout)
+            self.assertIn("state NEW", begin.stdout)
+
+            self.assertEqual(_cli_plan_one_unit(root).returncode, 0)
+
+            resumed = _run_cli(
+                ["start", "--project", "p1", "--controller-id", "c1"]
+                + list(CLI_ACTOR), root, extra_env=hostile)
+            self.assertEqual(resumed.returncode, 0,
+                             resumed.stdout + resumed.stderr)
+            self.assertIn("controller_brief", resumed.stdout,
+                          "the resume path still dispatches and prints the "
+                          "unit brief, exactly as it did before the gate "
+                          "existed")
+
+            stepped = _run_cli(
+                ["step", "--project", "p1", "--controller-id", "c1"]
+                + list(CLI_ACTOR), root, extra_env=hostile)
+            self.assertEqual(stepped.returncode, 0,
+                             stepped.stdout + stepped.stderr)
+
+            status = _run_cli(["status", "--project", "p1", "--json"], root,
+                              extra_env=hostile)
+            self.assertEqual(status.returncode, 0,
+                             status.stdout + status.stderr)
+
+            # THE OTHER HALF, on the SAME machine and the SAME store: the
+            # identical command WITH the flag is refused, and by more than
+            # one condition. Without this the test above would also pass
+            # against a gate that never refuses anything.
+            refused = _run_cli(
+                ["step", "--project", "p1", "--controller-id", "c1",
+                 "--unattended"] + list(CLI_ACTOR), root,
+                extra_env=hostile)
+            out = refused.stdout + refused.stderr
+            self.assertEqual(refused.returncode, 1, out)
+            for code in (bc.UNATTENDED_FENCE_ADVISORY,
+                         bc.UNATTENDED_FENCE_NOT_STRICT,
+                         bc.UNATTENDED_NO_REPOSITORY,
+                         bc.UNATTENDED_FOREIGN_CLAIM):
+                self.assertIn(code, out,
+                              "this machine really does fail every one of "
+                              "these, so the unflagged flow above really "
+                              "did run past all of them")
+
+
+class TestUnattendedCLIRefusesEndToEnd(unittest.TestCase):
+    """The gate through the REAL command line, both doors. `step` is gated
+    as well as `start` because an unattended driver is a loop, and a loop
+    calling `step` directly would walk past a gate that only guarded
+    `start`."""
+
+    def _hostile(self):
+        return {"BM_FENCE_MODE": "advisory", "BM_FENCE_STRICT": "0"}
+
+    def test_start_unattended_refuses_and_explains_itself(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            r = _run_cli(
+                ["start", "--project", "p1", "--outcome", "ship it",
+                 "--done-definition", _DONE_CHECK_PASSES,
+                 "--controller-id", "c1", "--unattended"]
+                + list(CLI_ACTOR), root, extra_env=self._hostile())
+            out = r.stdout + r.stderr
+            self.assertEqual(r.returncode, 1, out)
+            self.assertIn(bc.UNATTENDED_FENCE_ADVISORY, out)
+            self.assertIn(bc.UNATTENDED_FENCE_NOT_STRICT, out)
+            self.assertIn("export BM_FENCE_MODE=enforced", out)
+            self.assertIn("export BM_FENCE_STRICT=1", out)
+            self.assertIn("what to do:", out,
+                          "a reason code never reaches a founder without "
+                          "its plain-language rewrite (defect M08)")
+            r2 = _run_cli(["status", "--project", "p1", "--json"], root)
+            self.assertEqual(r2.returncode, 1,
+                             "a refused unattended start opens no run, so "
+                             "status still has nothing to report: "
+                             + r2.stdout + r2.stderr)
+            self.assertIn("no controller run", r2.stdout + r2.stderr)
+
+    def test_step_unattended_is_gated_too(self):
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            _cli_begin(root)
+            _cli_plan_one_unit(root)
+            r = _run_cli(
+                ["step", "--project", "p1", "--controller-id", "c1",
+                 "--unattended"] + list(CLI_ACTOR), root,
+                extra_env=self._hostile())
+            out = r.stdout + r.stderr
+            self.assertEqual(r.returncode, 1, out)
+            self.assertIn(bc.UNATTENDED_FENCE_ADVISORY, out)
+
+    def test_acknowledge_modified_is_repeatable_and_reaches_the_gate(self):
+        """The flag has to accept more than one path, or "acknowledge every
+        modification" is unsayable on a tree with two of them."""
+        with tempfile.TemporaryDirectory() as root:
+            _cli_bootstrap(root)
+            r = _run_cli(
+                ["start", "--project", "p1", "--outcome", "ship it",
+                 "--done-definition", _DONE_CHECK_PASSES,
+                 "--controller-id", "c1", "--unattended",
+                 "--acknowledge-modified", "a.py",
+                 "--acknowledge-modified", "docs/b.md"]
+                + list(CLI_ACTOR), root,
+                extra_env={"BM_FENCE_MODE": "enforced",
+                           "BM_FENCE_STRICT": "1"})
+            out = r.stdout + r.stderr
+            self.assertEqual(r.returncode, 1, out)
+            self.assertIn(bc.UNATTENDED_NO_REPOSITORY, out,
+                          "a temporary directory is no repository, which is "
+                          "the condition that must be left refusing once "
+                          "the fence and acknowledgement ones are met")
+            self.assertNotIn("unrecognized flag", out)
+
+
+class TestEveryUnattendedRefusalIsRewritten(unittest.TestCase):
+    """DEFECT M08 (docs/mistakes/M08-new-refusals-had-no-plain-language-
+    twice.md), closed for these seven at the point they were written rather
+    than after a founder met a raw code. The list is read from the SHIPPED
+    module, never from a hand list here, because a hand list is exactly what
+    goes stale the day somebody adds an eighth."""
+
+    def _declared_codes(self):
+        """Every module-level constant in tools/bm_controller.py whose name
+        starts with UNATTENDED_ and whose value is an 'unattended-' reason
+        code, read with ast from the shipped source."""
+        with io.open(CONTROLLER_FILE, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename="bm_controller.py")
+        codes = {}
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            if not (isinstance(node.value, ast.Constant)
+                    and isinstance(node.value.value, str)
+                    and node.value.value.startswith("unattended-")):
+                continue
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    codes[target.id] = node.value.value
+        return codes
+
+    def test_every_code_the_preflight_can_emit_has_a_plain_rewrite(self):
+        declared = set(self._declared_codes().values())
+        self.assertEqual(len(declared), 7,
+                         "seven preconditions, seven reason codes; found "
+                         "%s" % (sorted(declared),))
+        missing = sorted(declared - set(bc.UNATTENDED_REFUSAL_HELP))
+        self.assertEqual(missing, [],
+                         "reason code(s) a founder could meet with no "
+                         "plain-language rewrite: %s" % (missing,))
+        extra = sorted(set(bc.UNATTENDED_REFUSAL_HELP) - declared)
+        self.assertEqual(extra, [],
+                         "UNATTENDED_REFUSAL_HELP names code(s) nothing can "
+                         "emit, so they are dead entries: %s" % (extra,))
+
+    def test_every_constant_is_actually_reachable(self):
+        """A code declared and never used would satisfy the map test above
+        while being unreachable, which is a different way of lying about
+        what the gate checks."""
+        with io.open(CONTROLLER_FILE, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename="bm_controller.py")
+        loaded = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+                loaded.add(node.id)
+        unused = sorted(name for name in self._declared_codes()
+                        if name not in loaded)
+        self.assertEqual(unused, [],
+                         "declared but never read: %s" % (unused,))
+
+    def test_each_rewrite_has_all_three_non_empty_parts(self):
+        for code, entry in sorted(bc.UNATTENDED_REFUSAL_HELP.items()):
+            self.assertEqual(len(entry), 3,
+                             "%s must be (context, hint, next_action)"
+                             % (code,))
+            for part in entry:
+                self.assertTrue(part.strip(),
+                                "%s has an empty part" % (code,))
+
+    def test_the_refusal_text_carries_every_finding_with_its_rewrite(self):
+        text = bc.unattended_refusal_text(
+            [(bc.UNATTENDED_FENCE_ADVISORY, "the engine's own sentence"),
+             (bc.UNATTENDED_DIRTY_TREE, "and the second one")])
+        for code in (bc.UNATTENDED_FENCE_ADVISORY, bc.UNATTENDED_DIRTY_TREE):
+            self.assertIn(code, text)
+            for part in bc.UNATTENDED_REFUSAL_HELP[code]:
+                self.assertIn(part, text)
+        self.assertIn("the engine's own sentence", text)
+        self.assertIn("and the second one", text)
+        self.assertIn("2 of the seven", text)
+
+    def test_no_em_or_en_dash_reaches_a_founder_from_this_map(self):
+        """Written as escapes, not as the characters themselves: this file
+        is inside the same no-dash scan it is asserting about, so a literal
+        here would be the very defect it exists to catch."""
+        for code, entry in sorted(bc.UNATTENDED_REFUSAL_HELP.items()):
+            for part in entry:
+                self.assertNotIn("\u2014", part, code)
+                self.assertNotIn("\u2013", part, code)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
