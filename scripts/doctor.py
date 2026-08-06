@@ -758,11 +758,17 @@ def _git_tree_state(root):
     dot_git = os.path.join(root, ".git")
     if not (os.path.isdir(dot_git) or os.path.isfile(dot_git)):
         return None
+    # `-C <root>` does NOT beat GIT_DIR or GIT_WORK_TREE: git honours those over
+    # the working directory, so an inherited one makes this report ANOTHER
+    # repository's cleanliness, and check_checksums trusts this answer to decide
+    # whether the integrity comparison runs at all. Same class as the fix in
+    # tools/bm_autosave.py and tools/bm_controller.py; reproduced 2026-08-06.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     try:
         r = subprocess.run(
             ["git", "-C", root, "status", "--porcelain"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            universal_newlines=True, timeout=30)
+            universal_newlines=True, timeout=30, env=env)
     except (OSError, subprocess.SubprocessError):
         return None
     if r.returncode != 0:
