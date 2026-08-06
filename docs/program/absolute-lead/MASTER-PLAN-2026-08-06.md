@@ -205,6 +205,48 @@ then the doctor, in that order, so every friend receiving this link would hit
 it, and being told "do not trust this installed copy" is the worst available
 first impression.
 
+### Amendment 2, 2026-08-06 night: four founder answers, one correction, one refutation
+
+Recorded at the moment they were taken, per Law 1 and Law 3.
+
+Founder answers, given through decision windows in the review session of
+2026-08-06 night:
+
+1. TAG TIMING: the watchdog design amendment lands on main FIRST, then the
+   founder cuts v2.1.0 on the new HEAD after the gate and CI are green. This
+   supersedes the handover's instruction to tag 724b0a4 directly.
+2. WATCHDOG BUILD: stays deferred until after the tag and the deployment
+   closeout, as recommended. The recorded decision under Amendment 1 stands.
+3. BENCHMARK: the orchestrator probes ONE cell immediately after the review
+   session closes. If the nested session cannot authenticate, the exact
+   unblock goes to the founder the same day.
+4. STRANGER OUTREACH: drafting waits until the tag exists. The calendar cost
+   of that wait is accepted by the founder.
+
+CORRECTION to the Lane A table, found by an independent audit agent this
+session: A1 is PARTIAL, not done. The autosave environment scrub and its
+class closure landed (d7e2e67, 60d10b3), but the telemetry lock fix named in
+the A1 row and in architecture item 3 has NOT landed: no commit after
+ratification touches it, and wave 21 FENCE G, which owns tools/bm_telemetry.py,
+is still live. The item stays open in Lane A rather than being marked done by
+proximity.
+
+REFUTATION RECORD: the watchdog design (DESIGN-watchdog.md) gained Amendment 1
+this night after three refuters and two auditors returned nineteen findings,
+sixteen reproduced against source. The two-layer split, receipts, per
+observation voiding, the sidecar floor, and the calibrated registry check all
+came out of that pass. The build estimate moves from one to two sessions to
+two to three sessions, moderate confidence, because the amendment added a
+schema table, a sidecar, and a ninth plan step.
+
+REGISTRY CLEANUP, same night: wave 17 fences A through E marked LANDED on
+their lines with their commits; wave 21 FENCE D2 closed as landed via 447b73c;
+wave 20 FENCE D flagged queued-and-ready (its dependencies landed) with the
+dispatch decision owed to the next session that opens lane work. The fence
+hook itself refused this amendment's first write because FENCE E was still
+unmarked, which is the stale-registry class firing live, and the closure
+above is the remediation the hook named.
+
 ### Lane B: PROVE (the evidence path)
 
 | Days | Loop | What closes | Done check | Founder |
