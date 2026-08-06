@@ -82,18 +82,22 @@ def _store_reason_codes():
     source with ast rather than from a hand list. A hand list is the thing
     L-S9 exists to make impossible: it goes stale the day somebody adds a
     refusal, and the founder meets the raw code."""
+    # Every CONSTRUCTION of an OwnershipRefused counts, not only the ones
+    # raised in place. A refusal built by a helper and returned to its caller
+    # to raise (_read_only_refusal builds 'store-unreadable' that way) reaches
+    # the founder identically, and walking only ast.Raise made this guard
+    # report that code as one the store cannot emit.
     tree = ast.parse(_read(STORE_FILE))
     codes = set()
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Raise) or not isinstance(node.exc,
-                                                             ast.Call):
+        if not isinstance(node, ast.Call):
             continue
-        func = node.exc.func
+        func = node.func
         name = func.id if isinstance(func, ast.Name) else getattr(
             func, "attr", "")
-        if name != "OwnershipRefused" or not node.exc.args:
+        if name != "OwnershipRefused" or not node.args:
             continue
-        first = node.exc.args[0]
+        first = node.args[0]
         if isinstance(first, ast.Constant) and isinstance(first.value, str):
             codes.add(first.value)
     return codes
