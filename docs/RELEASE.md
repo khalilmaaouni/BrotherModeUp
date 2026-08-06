@@ -166,10 +166,10 @@ for that date.
 Tags exist now, so this is the install instruction, not a future one:
 
 ```bash
-git clone --branch v2.1.0 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.1.1 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
-`--branch v2.1.0` checks out that exact tag, not a moving branch head. It
+`--branch v2.1.1` checks out that exact tag, not a moving branch head. It
 is the public install target, not necessarily the identity the tree on `main`
 currently carries: `python3 tools/bm_project_facts.py --field
 install_target_tag` prints the tag every onboarding page pins, and `python3
@@ -306,6 +306,23 @@ describes exactly what the tag contains rather than what it contained partway
 through preparing it.
 
 ## What has and has not happened, stated honestly
+
+CURRENT STATE, 2026-08-07, the 2.1.1 release cut: `VERSION` reads `2.1.1`
+on this commit and this commit alone, per rule 1 of the version law, cut
+overnight under the founder's recorded grant (STATE.md carries his words).
+The tag `v2.1.1` is cut from exactly this commit immediately after its
+continuous integration run is green, per rule 2, and `main` bumps back to
+`2.2.0.dev1` immediately after the tag is pushed, per rule 3. The pinned
+install on every page moves to `v2.1.1` in this same commit, so the tagged
+bytes and the pages describing them are one tree; the tag resolution tests
+SKIP with a stated reason until the tag exists and turn mandatory the
+moment it does. What 2.1.1 adds is CHANGELOG.md's entry of the same date:
+the boring two command install with its non-skippable release smoke, the
+documentation truth repairs, the pilot protocol, and the first complete
+benchmark run with its blind grades.
+
+The entry below is earlier the same night, kept dated rather than
+rewritten.
 
 CURRENT STATE, 2026-08-06, second entry of the day: `v2.1.0` EXISTS. The
 founder cut and pushed it 2026-08-06: annotated tag `3c27d93` dereferencing
