@@ -12,16 +12,17 @@ steps: if a step needs coaching, that is a finding about the step.
 
 ## What each pilot does, in order
 
-Everything happens inside the Claude Code app (the desktop or web app, not a
-terminal): every command below is typed into the app's chat box. The
-terminal clone install exists as an advanced path and is NOT part of this
-pilot.
+The product is used inside the Claude Code app (desktop or web), and the
+install is ONE copy-paste in the Terminal application first, because the
+app itself cannot install plugins: typing /plugin in the app answers that
+some commands only work in the Claude Code terminal, reproduced by the
+founder on 2026-08-06. Every command after step 1 is typed into the app's
+chat box.
 
-1. Install from inside the app, typing these two into the chat box, using
-   only what docs/QUICKSTART.md says:
-   /plugin marketplace add khalilmaaouni/BrotherModeUp
-   /plugin install brotherme@brotherme-marketplace
-2. Run /brotherme-help and read what it prints.
+1. Install by following the install section of docs/QUICKSTART.md exactly:
+   copy its one clone command into the Terminal app, run the setup step it
+   shows, and answer the consent question yourself. Then open Claude Code.
+2. Run /brotherme-help in the app and read what it prints.
 3. THE FIXED FIRST TASK, about 30 minutes: start a project called
    "reading-list" whose goal is a small personal reading list page: three
    books, one paragraph each, one HTML file. Use /brotherme-start, let the
