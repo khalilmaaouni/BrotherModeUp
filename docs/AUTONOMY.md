@@ -266,6 +266,42 @@ loop has nothing further to design:
 - `human-steps --project X --lane L` lets a controller skip one blocked
   lane and continue every other one.
 
+## A signed contract is not enough to start a run nobody is watching
+
+Landed 2026-08-07. The contract answers "is this action authorised". It does
+not answer "is this machine in a state where an unwatched run's mistakes
+could be seen and undone", and those are different questions. A perfectly
+live contract on a repository with unsaved work, a fence in advise-only
+mode, and no recovery point is a fully authorised way to lose an evening.
+
+So the controller asks the second question separately, and only when it is
+told the run is unattended. `bm-controller start --unattended` (and `step
+--unattended`) refuses unless seven conditions hold:
+
+1. The write fence is ENFORCED (`BM_FENCE_MODE=enforced`), not advisory.
+2. `BM_FENCE_STRICT=1`, so an edit to a file nothing has claimed is refused.
+3. A repository is detected and a branch is named, so the run is undoable.
+4. The working tree is clean, or every change in it was acknowledged by
+   name on the command line.
+5. A recovery snapshot exists, or one is taken before anything is written.
+6. No OTHER session holds an active claim over the paths the contract lets
+   this run write.
+7. The records are readable and the run carries a stable `--session-id`.
+
+Each failure is its own named reason code with its own plain-language
+explanation. `docs/FULL-AUTO.md` is the operating page: it lists the codes,
+shows the commands, and states what the gate does not do.
+
+Two things worth knowing here rather than there. The controller REFUSES on
+conditions 1 and 2; it does not switch them on for you, because the fence
+hook is a separate process started by your runtime and nothing the
+controller sets in its own process can reach it. And condition 6 reads the
+contract's own `allowed_paths` as "the paths this run may write", because
+before a unit graph exists that is the only boundary there is.
+
+Nothing in this section applies without the flag. An interactive session
+behaves exactly as it did before this landed.
+
 ## Paths are project-root relative, not relative to where you typed the command
 
 `--allowed-path` and `--path` are always resolved against the project

@@ -13,27 +13,96 @@ adds no enforcement of its own, only sequencing and durability.
 
 No em or en dashes anywhere in this page.
 
-## READ THIS BEFORE ANY UNATTENDED RUN (2026-08-06)
+## READ THIS BEFORE ANY UNATTENDED RUN (2026-08-06, gate landed 2026-08-07)
 
-The write fence currently defaults to ADVISORY for unattended runs, the same
-as interactive use: when the protection cannot work it allows the write and
-says why. For an unattended run that is too weak, and a stricter posture is
-becoming automatic in the next update: the controller will refuse to start
-unless enforcement is on, the working tree is clean or every modification is
-acknowledged, a recovery snapshot exists, and no foreign claim is active.
+The write fence defaults to ADVISORY, for unattended runs exactly as for
+interactive use: when the protection cannot do its job it allows the write
+and says why. For a run nobody is watching that is too weak, so an
+unattended run now has to ASK to be one, and the controller refuses to start
+it unless the machine is in a state where the damage it could do is bounded.
 
-Until that update reaches your install, do both of these yourself before any
-unattended run:
+An unattended run is one started with the `--unattended` flag:
 
 ```bash
 export BM_FENCE_MODE=enforced
 export BM_FENCE_STRICT=1
+bm-controller start --project P --controller-id C --actor-name NAME \
+  --session-id my-night-run --unattended
 ```
 
-and run only on a clean, dedicated branch or worktree. Hooks are cooperative
-enforcement: arbitrary shell writes are detected where possible, not
-contained, and no operating system sandbox is provided
-(docs/KNOWN-LIMITS.md states the exact boundary).
+Without that flag NOTHING below applies and nothing about the controller
+changes. Interactive use is exactly what it always was; the gate is not even
+reached. That is deliberate: a safety posture that made ordinary work harder
+would be turned off, and a posture that is turned off protects nobody.
+
+### The seven conditions, and what each refusal means
+
+With `--unattended`, the run refuses to start unless all seven hold. Every
+refusal names its own reason code and says, in plain language, what was
+being checked, what is wrong, and what to do next. The first six are
+read-only; the seventh is the only one that writes anything, and it runs
+last, so a refused start leaves nothing behind.
+
+| Condition | Reason code if it fails |
+| --- | --- |
+| The write fence is ENFORCED, not advisory | `unattended-fence-advisory` |
+| `BM_FENCE_STRICT` is set, so unclaimed edits are refused | `unattended-fence-not-strict` |
+| A repository is detected and a branch is named | `unattended-no-repository` |
+| The working tree is clean, or every change is acknowledged | `unattended-dirty-tree` |
+| No other session holds a claim over the paths this run may write | `unattended-foreign-claim` |
+| The records are readable and the run has a stable session id | `unattended-no-identity` |
+| A recovery snapshot exists, or one is taken now | `unattended-no-snapshot` |
+
+**The two fence conditions REFUSE; the controller does not switch them on
+for you.** That is a deliberate choice and not an omission. Those two
+variables are read by the fence hook, which your runtime starts as its own
+separate process from its own environment, so nothing the controller sets in
+its own process could ever reach it. A controller that "turned enforcement
+on" would be reporting a protection nobody has, which is worse than one that
+stops and tells you the truth. The refusal prints the exact command instead.
+
+**The dirty-tree condition is acknowledged per file, never in bulk.** There
+is no "yes, I know" switch. The refusal prints every unacknowledged path in
+the exact spelling you must repeat back:
+
+```bash
+bm-controller start ... --unattended \
+  --acknowledge-modified src/app/main.py \
+  --acknowledge-modified docs/notes.md
+```
+
+A blanket flag becomes a habit, and a habit acknowledges the file you forgot
+about as readily as the one you meant. A file that appears after you read
+the list still stops the run.
+
+**The recovery snapshot is the one already in the product.** It is the same
+mechanism the autosave surface uses, reused rather than reinvented, so there
+is one story about what is recoverable rather than two. If a snapshot cannot
+be published but an earlier one for this worktree is still on record, that
+counts: the condition is "a recovery point exists", not "a new one was
+written". A tree that already matches its last commit counts too, because
+the commit itself is the recovery point.
+
+**A stable `--session-id` is required.** Without one every invocation
+invents a fresh identity, so the next process would be refused as a foreign
+driver of its own run, the snapshot this one took would be filed under a
+name nothing looks for again, and every fence it holds would look like
+somebody else's. Pass the SAME `--session-id` on every call of one run.
+
+`bm-controller step` is gated the same way and by the same flag, because an
+unattended driver is a loop, and a loop calling `step` directly would walk
+straight past a gate that only guarded `start`.
+
+### What this gate does NOT do
+
+Stated plainly, because a safety feature that is trusted further than it
+reaches is worse than none. Hooks are COOPERATIVE enforcement: arbitrary
+shell writes are detected where possible, not contained, and no operating
+system sandbox is provided (docs/KNOWN-LIMITS.md states the exact boundary).
+The gate bounds the state the run STARTS from; it does not sandbox what the
+run then does. Running on a dedicated branch or worktree is still the right
+habit, and the branch condition above is the reason the controller now
+insists you are at least on a named one.
 
 ## The controller model, in plain language
 
