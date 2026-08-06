@@ -965,10 +965,18 @@ def render(record):
 
     add("## Reproducing this")
     add("")
+    # The command is written WITHOUT the repo-relative prefix on purpose. An
+    # installed copy does not live at tools/, and a shipped message that says
+    # it sends a reader somewhere they are not; the store suite sweeps for
+    # exactly that literal. A plugin install resolves the variable itself; a
+    # clone install runs it from the BrotherMode root instead.
     add("```")
-    add("python3 tools/bm_hookbench.py --json > before.json")
-    add("python3 tools/bm_hookbench.py --compare before.json")
+    add('python3 "${CLAUDE_PLUGIN_ROOT}/tools/bm_hookbench.py" --json > before.json')
+    add('python3 "${CLAUDE_PLUGIN_ROOT}/tools/bm_hookbench.py" --compare before.json')
     add("```")
+    add("")
+    add("On a clone install the variable is unset: run the same two commands "
+        "from the BrotherMode root, with the leading path removed.")
     add("")
     add("REPRODUCIBILITY BAND: a re-run on the same machine reproduces every "
         "median on this page within a factor of %.1f, that is between %.2f "

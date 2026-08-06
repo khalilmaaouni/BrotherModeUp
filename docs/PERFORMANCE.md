@@ -14,7 +14,7 @@ Measured on 2026-08-07, the measuring machine's own local date. Timing numbers v
 | Architecture | `arm64` |
 | Logical CPUs | 8 |
 | Interpreter | CPython 3.9.6 |
-| Load average when the run started | 2.62, 2.88, 3.14 |
+| Load average when the run started | 3.87, 6.06, 8.86 |
 
 Repetitions per program: 15 counted, after 1 discarded as warmup. The warmup exists because the first run of a program compiles its imports and fills the bytecode cache, a cost a real install pays once rather than on every call. Every figure below is a median with its own spread beside it, never a single sample.
 
@@ -38,11 +38,11 @@ Read these as MEASURED LOWER BOUNDS. They cover compiling each program, cold imp
 
 | Action | Programs | Chain median ms | Chain max ms | Share of the smallest budget |
 |---|---|---|---|---|
-| One Edit, Write, MultiEdit or NotebookEdit tool call | 1 | 21.55 | 35.74 | 0.215 percent of 10s |
-| One Bash tool call | 3 | 66.33 | 97.18 | 0.663 percent of 10s |
-| One Stop event, at the end of every assistant turn | 4 | 168.92 | 208.15 | 0.563 percent of 30s |
-| One PreCompact event, when the context is condensed | 2 | 66.39 | 175.04 | 0.111 percent of 60s |
-| One SessionEnd event | 1 | 25.98 | 27.56 | 0.087 percent of 30s |
+| One Edit, Write, MultiEdit or NotebookEdit tool call | 1 | 21.81 | 35.87 | 0.218 percent of 10s |
+| One Bash tool call | 3 | 59.92 | 100.60 | 0.599 percent of 10s |
+| One Stop event, at the end of every assistant turn | 4 | 168.83 | 209.02 | 0.563 percent of 30s |
+| One PreCompact event, when the context is condensed | 2 | 66.10 | 260.51 | 0.110 percent of 60s |
+| One SessionEnd event | 1 | 26.13 | 27.57 | 0.087 percent of 30s |
 
 ## Each program on its own, and the chain it sits in
 
@@ -54,9 +54,9 @@ Events fired: PreToolUse on Edit, PostToolUse on Edit.
 
 | Program | Arguments | Own timeout s | median ms | min ms | p90 ms | max ms | samples |
 |---|---|---|---|---|---|---|---|
-| `bm_fence_hook.py` | none | 10 | 21.49 | 21.03 | 33.82 | 35.69 | 15 |
+| `bm_fence_hook.py` | none | 10 | 21.75 | 21.26 | 33.45 | 35.81 | 15 |
 
-Chain total: median 21.55 ms, min 21.07 ms, p90 33.86 ms, max 35.74 ms over 15 repetitions. Sum of the program medians: 21.49 ms.
+Chain total: median 21.81 ms, min 21.30 ms, p90 33.50 ms, max 35.87 ms over 15 repetitions. Sum of the program medians: 21.75 ms.
 
 Calls counted: 15. Non zero exits: 0. Stderr lines reporting a fence that failed open: 0. Crashes: none.
 
@@ -66,11 +66,11 @@ Events fired: PreToolUse on Bash, PostToolUse on Bash.
 
 | Program | Arguments | Own timeout s | median ms | min ms | p90 ms | max ms | samples |
 |---|---|---|---|---|---|---|---|
-| `bm_fence_hook.py` | none | 10 | 7.17 | 6.66 | 7.39 | 7.56 | 15 |
-| `bm_bash_audit.py` | `pre` | 10 | 26.62 | 24.91 | 55.78 | 59.13 | 15 |
-| `bm_bash_audit.py` | `post` | 15 | 24.62 | 23.57 | 50.86 | 60.83 | 15 |
+| `bm_fence_hook.py` | none | 10 | 7.13 | 6.77 | 7.53 | 7.59 | 15 |
+| `bm_bash_audit.py` | `pre` | 10 | 26.48 | 25.36 | 56.92 | 57.74 | 15 |
+| `bm_bash_audit.py` | `post` | 15 | 25.23 | 23.63 | 52.25 | 67.19 | 15 |
 
-Chain total: median 66.33 ms, min 56.07 ms, p90 91.17 ms, max 97.18 ms over 15 repetitions. Sum of the program medians: 58.41 ms.
+Chain total: median 59.92 ms, min 56.73 ms, p90 90.08 ms, max 100.60 ms over 15 repetitions. Sum of the program medians: 58.84 ms.
 
 Calls counted: 45. Non zero exits: 0. Stderr lines reporting a fence that failed open: 0. Crashes: none.
 
@@ -80,12 +80,12 @@ Events fired: Stop.
 
 | Program | Arguments | Own timeout s | median ms | min ms | p90 ms | max ms | samples |
 |---|---|---|---|---|---|---|---|
-| `bm_telemetry.py` | `stop-warn` | 30 | 21.22 | 20.16 | 21.70 | 21.93 | 15 |
-| `bm_lead.py` | `watchdog --tick` | 30 | 28.14 | 26.79 | 76.80 | 101.56 | 15 |
-| `bm_view.py` | `render --if-stale` | 30 | 39.26 | 38.46 | 43.81 | 87.92 | 15 |
-| `bm_view.py` | `alert --tick` | 30 | 39.55 | 37.75 | 114.97 | 119.93 | 15 |
+| `bm_telemetry.py` | `stop-warn` | 30 | 20.93 | 20.33 | 21.84 | 22.27 | 15 |
+| `bm_lead.py` | `watchdog --tick` | 30 | 27.85 | 26.90 | 77.01 | 91.42 | 15 |
+| `bm_view.py` | `render --if-stale` | 30 | 39.07 | 38.18 | 39.69 | 89.13 | 15 |
+| `bm_view.py` | `alert --tick` | 30 | 38.56 | 37.71 | 115.56 | 119.26 | 15 |
 
-Chain total: median 168.92 ms, min 125.92 ms, p90 206.74 ms, max 208.15 ms over 15 repetitions. Sum of the program medians: 128.17 ms.
+Chain total: median 168.83 ms, min 124.86 ms, p90 202.03 ms, max 209.02 ms over 15 repetitions. Sum of the program medians: 126.41 ms.
 
 Calls counted: 60. Non zero exits: 0. Stderr lines reporting a fence that failed open: 0. Crashes: none.
 
@@ -95,10 +95,10 @@ Events fired: PreCompact.
 
 | Program | Arguments | Own timeout s | median ms | min ms | p90 ms | max ms | samples |
 |---|---|---|---|---|---|---|---|
-| `bm_autosave.py` | `precompact` | 60 | 29.47 | 27.56 | 30.44 | 33.88 | 15 |
-| `bm_telemetry.py` | `precompact-brief` | 60 | 36.48 | 33.62 | 136.54 | 147.16 | 15 |
+| `bm_autosave.py` | `precompact` | 60 | 29.70 | 27.75 | 32.36 | 115.21 | 15 |
+| `bm_telemetry.py` | `precompact-brief` | 60 | 36.30 | 33.07 | 145.01 | 178.90 | 15 |
 
-Chain total: median 66.39 ms, min 62.59 ms, p90 165.64 ms, max 175.04 ms over 15 repetitions. Sum of the program medians: 65.95 ms.
+Chain total: median 66.10 ms, min 61.07 ms, p90 210.05 ms, max 260.51 ms over 15 repetitions. Sum of the program medians: 66.00 ms.
 
 Calls counted: 30. Non zero exits: 0. Stderr lines reporting a fence that failed open: 0. Crashes: none.
 
@@ -108,9 +108,9 @@ Events fired: SessionEnd.
 
 | Program | Arguments | Own timeout s | median ms | min ms | p90 ms | max ms | samples |
 |---|---|---|---|---|---|---|---|
-| `bm_telemetry.py` | `outcomes-append` | 30 | 25.94 | 25.05 | 27.45 | 27.50 | 15 |
+| `bm_telemetry.py` | `outcomes-append` | 30 | 26.07 | 25.43 | 27.21 | 27.52 | 15 |
 
-Chain total: median 25.98 ms, min 25.08 ms, p90 27.49 ms, max 27.56 ms over 15 repetitions. Sum of the program medians: 25.94 ms.
+Chain total: median 26.13 ms, min 25.47 ms, p90 27.25 ms, max 27.57 ms over 15 repetitions. Sum of the program medians: 26.07 ms.
 
 Calls counted: 15. Non zero exits: 0. Stderr lines reporting a fence that failed open: 0. Crashes: none.
 
@@ -147,9 +147,11 @@ Programs in the manifest that this tool did not run at all:
 ## Reproducing this
 
 ```
-python3 tools/bm_hookbench.py --json > before.json
-python3 tools/bm_hookbench.py --compare before.json
+python3 "${CLAUDE_PLUGIN_ROOT}/tools/bm_hookbench.py" --json > before.json
+python3 "${CLAUDE_PLUGIN_ROOT}/tools/bm_hookbench.py" --compare before.json
 ```
+
+On a clone install the variable is unset: run the same two commands from the BrotherMode root, with the leading path removed.
 
 REPRODUCIBILITY BAND: a re-run on the same machine reproduces every median on this page within a factor of 2.0, that is between 0.50 and 2.0 times the number printed. `--compare` enforces exactly that band and exits non zero when a median falls outside it. A tighter band is not printed here because timing on a machine that is also doing other work does not hold one, and a promise this tool cannot keep is the thing this page exists to stop making.
 
@@ -166,14 +168,14 @@ Everything above is rendered from this object by `tools/bm_hookbench.py`. `tools
       "action": "One Edit, Write, MultiEdit or NotebookEdit tool call",
       "calls_counted": 15,
       "chain": {
-        "max_ms": 35.74,
-        "median_ms": 21.55,
-        "min_ms": 21.07,
-        "p90_ms": 33.86,
+        "max_ms": 35.87,
+        "median_ms": 21.81,
+        "min_ms": 21.3,
+        "p90_ms": 33.5,
         "samples": 15,
-        "spread_factor": 1.66
+        "spread_factor": 1.64
       },
-      "chain_share_of_smallest_budget_percent": 0.215,
+      "chain_share_of_smallest_budget_percent": 0.218,
       "crashes": [],
       "events": [
         {
@@ -198,32 +200,32 @@ Everything above is rendered from this object by `tools/bm_hookbench.py`. `tools
           "program": "bm_fence_hook.py",
           "timeout_seconds": 10,
           "timing": {
-            "max_ms": 35.69,
-            "median_ms": 21.49,
-            "min_ms": 21.03,
-            "p90_ms": 33.82,
+            "max_ms": 35.81,
+            "median_ms": 21.75,
+            "min_ms": 21.26,
+            "p90_ms": 33.45,
             "samples": 15,
-            "spread_factor": 1.66
+            "spread_factor": 1.65
           }
         }
       ],
       "shared_timeout_seconds": [
         10
       ],
-      "sum_of_program_medians_ms": 21.49
+      "sum_of_program_medians_ms": 21.75
     },
     {
       "action": "One Bash tool call",
       "calls_counted": 45,
       "chain": {
-        "max_ms": 97.18,
-        "median_ms": 66.33,
-        "min_ms": 56.07,
-        "p90_ms": 91.17,
+        "max_ms": 100.6,
+        "median_ms": 59.92,
+        "min_ms": 56.73,
+        "p90_ms": 90.08,
         "samples": 15,
-        "spread_factor": 1.47
+        "spread_factor": 1.68
       },
-      "chain_share_of_smallest_budget_percent": 0.663,
+      "chain_share_of_smallest_budget_percent": 0.599,
       "crashes": [],
       "events": [
         {
@@ -248,12 +250,12 @@ Everything above is rendered from this object by `tools/bm_hookbench.py`. `tools
           "program": "bm_fence_hook.py",
           "timeout_seconds": 10,
           "timing": {
-            "max_ms": 7.56,
-            "median_ms": 7.17,
-            "min_ms": 6.66,
-            "p90_ms": 7.39,
+            "max_ms": 7.59,
+            "median_ms": 7.13,
+            "min_ms": 6.77,
+            "p90_ms": 7.53,
             "samples": 15,
-            "spread_factor": 1.06
+            "spread_factor": 1.07
           }
         },
         {
@@ -264,12 +266,12 @@ Everything above is rendered from this object by `tools/bm_hookbench.py`. `tools
           "program": "bm_bash_audit.py",
           "timeout_seconds": 10,
           "timing": {
-            "max_ms": 59.13,
-            "median_ms": 26.62,
-            "min_ms": 24.91,
-            "p90_ms": 55.78,
+            "max_ms": 57.74,
+            "median_ms": 26.48,
+            "min_ms": 25.36,
+            "p90_ms": 56.92,
             "samples": 15,
-            "spread_factor": 2.22
+            "spread_factor": 2.18
           }
         },
         {
@@ -280,12 +282,12 @@ Everything above is rendered from this object by `tools/bm_hookbench.py`. `tools
           "program": "bm_bash_audit.py",
           "timeout_seconds": 15,
           "timing": {
-            "max_ms": 60.83,
-            "median_ms": 24.62,
-            "min_ms": 23.57,
-            "p90_ms": 50.86,
+            "max_ms": 67.19,
+            "median_ms": 25.23,
+            "min_ms": 23.63,
+            "p90_ms": 52.25,
             "samples": 15,
-            "spread_factor": 2.47
+            "spread_factor": 2.66
           }
         }
       ],
@@ -293,18 +295,18 @@ Everything above is rendered from this object by `tools/bm_hookbench.py`. `tools
         10,
         15
       ],
-      "sum_of_program_medians_ms": 58.41
+      "sum_of_program_medians_ms": 58.84
     },
     {
       "action": "One Stop event, at the end of every assistant turn",
       "calls_counted": 60,
       "chain": {
-        "max_ms": 208.15,
-        "median_ms": 168.92,
-        "min_ms": 125.92,
-        "p90_ms": 206.74,
+        "max_ms": 209.02,
+        "median_ms": 168.83,
+        "min_ms": 124.86,
+        "p90_ms": 202.03,
         "samples": 15,
-        "spread_factor": 1.23
+        "spread_factor": 1.24
       },
       "chain_share_of_smallest_budget_percent": 0.563,
       "crashes": [],
@@ -329,12 +331,12 @@ Everything above is rendered from this object by `tools/bm_hookbench.py`. `tools
           "program": "bm_telemetry.py",
           "timeout_seconds": 30,
           "timing": {
-            "max_ms": 21.93,
-            "median_ms": 21.22,
-            "min_ms": 20.16,
-            "p90_ms": 21.7,
+            "max_ms": 22.27,
+            "median_ms": 20.93,
+            "min_ms": 20.33,
+            "p90_ms": 21.84,
             "samples": 15,
-            "spread_factor": 1.03
+            "spread_factor": 1.06
           }
         },
         {
@@ -346,12 +348,12 @@ Everything above is rendered from this object by `tools/bm_hookbench.py`. `tools
           "program": "bm_lead.py",
           "timeout_seconds": 30,
           "timing": {
-            "max_ms": 101.56,
-            "median_ms": 28.14,
-            "min_ms": 26.79,
-            "p90_ms": 76.8,
+            "max_ms": 91.42,
+            "median_ms": 27.85,
+            "min_ms": 26.9,
+            "p90_ms": 77.01,
             "samples": 15,
-            "spread_factor": 3.61
+            "spread_factor": 3.28
           }
         },
         {
@@ -363,12 +365,12 @@ Everything above is rendered from this object by `tools/bm_hookbench.py`. `tools
           "program": "bm_view.py",
           "timeout_seconds": 30,
           "timing": {
-            "max_ms": 87.92,
-            "median_ms": 39.26,
-            "min_ms": 38.46,
-            "p90_ms": 43.81,
+            "max_ms": 89.13,
+            "median_ms": 39.07,
+            "min_ms": 38.18,
+            "p90_ms": 39.69,
             "samples": 15,
-            "spread_factor": 2.24
+            "spread_factor": 2.28
           }
         },
         {
@@ -380,32 +382,32 @@ Everything above is rendered from this object by `tools/bm_hookbench.py`. `tools
           "program": "bm_view.py",
           "timeout_seconds": 30,
           "timing": {
-            "max_ms": 119.93,
-            "median_ms": 39.55,
-            "min_ms": 37.75,
-            "p90_ms": 114.97,
+            "max_ms": 119.26,
+            "median_ms": 38.56,
+            "min_ms": 37.71,
+            "p90_ms": 115.56,
             "samples": 15,
-            "spread_factor": 3.03
+            "spread_factor": 3.09
           }
         }
       ],
       "shared_timeout_seconds": [
         30
       ],
-      "sum_of_program_medians_ms": 128.17
+      "sum_of_program_medians_ms": 126.41
     },
     {
       "action": "One PreCompact event, when the context is condensed",
       "calls_counted": 30,
       "chain": {
-        "max_ms": 175.04,
-        "median_ms": 66.39,
-        "min_ms": 62.59,
-        "p90_ms": 165.64,
+        "max_ms": 260.51,
+        "median_ms": 66.1,
+        "min_ms": 61.07,
+        "p90_ms": 210.05,
         "samples": 15,
-        "spread_factor": 2.64
+        "spread_factor": 3.94
       },
-      "chain_share_of_smallest_budget_percent": 0.111,
+      "chain_share_of_smallest_budget_percent": 0.11,
       "crashes": [],
       "events": [
         {
@@ -428,12 +430,12 @@ Everything above is rendered from this object by `tools/bm_hookbench.py`. `tools
           "program": "bm_autosave.py",
           "timeout_seconds": 60,
           "timing": {
-            "max_ms": 33.88,
-            "median_ms": 29.47,
-            "min_ms": 27.56,
-            "p90_ms": 30.44,
+            "max_ms": 115.21,
+            "median_ms": 29.7,
+            "min_ms": 27.75,
+            "p90_ms": 32.36,
             "samples": 15,
-            "spread_factor": 1.15
+            "spread_factor": 3.88
           }
         },
         {
@@ -444,28 +446,28 @@ Everything above is rendered from this object by `tools/bm_hookbench.py`. `tools
           "program": "bm_telemetry.py",
           "timeout_seconds": 60,
           "timing": {
-            "max_ms": 147.16,
-            "median_ms": 36.48,
-            "min_ms": 33.62,
-            "p90_ms": 136.54,
+            "max_ms": 178.9,
+            "median_ms": 36.3,
+            "min_ms": 33.07,
+            "p90_ms": 145.01,
             "samples": 15,
-            "spread_factor": 4.03
+            "spread_factor": 4.93
           }
         }
       ],
       "shared_timeout_seconds": [
         60
       ],
-      "sum_of_program_medians_ms": 65.95
+      "sum_of_program_medians_ms": 66.0
     },
     {
       "action": "One SessionEnd event",
       "calls_counted": 15,
       "chain": {
-        "max_ms": 27.56,
-        "median_ms": 25.98,
-        "min_ms": 25.08,
-        "p90_ms": 27.49,
+        "max_ms": 27.57,
+        "median_ms": 26.13,
+        "min_ms": 25.47,
+        "p90_ms": 27.25,
         "samples": 15,
         "spread_factor": 1.06
       },
@@ -492,10 +494,10 @@ Everything above is rendered from this object by `tools/bm_hookbench.py`. `tools
           "program": "bm_telemetry.py",
           "timeout_seconds": 30,
           "timing": {
-            "max_ms": 27.5,
-            "median_ms": 25.94,
-            "min_ms": 25.05,
-            "p90_ms": 27.45,
+            "max_ms": 27.52,
+            "median_ms": 26.07,
+            "min_ms": 25.43,
+            "p90_ms": 27.21,
             "samples": 15,
             "spread_factor": 1.06
           }
@@ -504,16 +506,16 @@ Everything above is rendered from this object by `tools/bm_hookbench.py`. `tools
       "shared_timeout_seconds": [
         30
       ],
-      "sum_of_program_medians_ms": 25.94
+      "sum_of_program_medians_ms": 26.07
     }
   ],
   "generator": "tools/bm_hookbench.py",
   "machine": {
     "cpu_count": 8,
     "load_average_at_start": [
-      2.62,
-      2.88,
-      3.14
+      3.87,
+      6.06,
+      8.86
     ],
     "machine": "arm64",
     "platform": "macOS-26.5.2-arm64-arm-64bit",
