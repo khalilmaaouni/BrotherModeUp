@@ -1,0 +1,29 @@
+{
+  "arm": "A",
+  "checks": [
+    {
+      "expected": "the diff adds at least one def test_ line and the suite is green",
+      "id": "T1C1",
+      "observed": "added test lines: 1; suite green: True",
+      "title": "regression-test-added-and-green",
+      "verdict": "PASS"
+    },
+    {
+      "expected": "the diff is not empty and total_pages(7, 5) == 2",
+      "id": "T1C2",
+      "observed": "changed files: ['src/pager.py', 'test_pager.py']; repro probe passed: True",
+      "title": "bug-fixed-at-the-stated-repro",
+      "verdict": "PASS"
+    },
+    {
+      "expected": "a nonempty diff touching only src/pager.py and test_pager.py",
+      "id": "T1C3",
+      "observed": "changed files: ['src/pager.py', 'test_pager.py']",
+      "title": "diff-stays-inside-the-two-named-files",
+      "verdict": "PASS"
+    }
+  ],
+  "final_message": "Done. All 3 tests pass.\n\n**`src/pager.py:8`** \u2014 changed floor division to ceiling division:\n```python\nreturn -(-item_count // page_size)\n```\nThis keeps exact multiples correct (`10//5 \u2192 2`) and zero items at 0, while rounding a partial final page up.\n\n**`test_pager.py`** \u2014 added `test_partial_final_page`, covering `total_pages(7, 5) == 2` plus two more partial-page cases (`1/5 \u2192 1`, `11/5 \u2192 3`). Verified it fails with `AssertionError: 1 != 2` before the fix and passes after.\n\nOnly those two files changed.",
+  "run_id": "20260806T110229Z",
+  "task": "T1"
+}
