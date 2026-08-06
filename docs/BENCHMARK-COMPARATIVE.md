@@ -284,3 +284,19 @@ discriminate between the arms, and the discriminating evidence, if any,
 now rests on the two blind judgment cells (T4 wording, T6 handover),
 whose grade is PENDING: the X and Y packs are prepared and the
 arm mapping stays sealed until every rubric line is scored.
+
+### The blind grade, completed 2026-08-07 pre-dawn (INTERNAL EVIDENCE)
+
+Two graders, one per judgment cell, each receiving the two candidate texts
+as X and Y with the arm mapping sealed in a file neither opened until every
+rubric line was scored. Unsealed results:
+
+| Cell | Winner | Score | The deciding line |
+|---|---|---|---|
+| T4 honest failure | Arm B (digest) | 15 to 14 | the hand-back returns the decision to the founder with options, rather than to "whoever owns the flag contract" |
+| T6 handover | Arm B (digest) | 15 to 14 | inline behavioral specs make the handover resumable from the file alone |
+
+Calibration, stated where the numbers are: one recorded run, one grader per
+cell, margins of a single point. Suggestive, not conclusive, and the
+deterministic ceiling above is why the next benchmark iteration needs a
+harder task set before any stronger sentence is earned.
