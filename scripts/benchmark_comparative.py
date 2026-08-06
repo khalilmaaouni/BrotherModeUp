@@ -795,7 +795,11 @@ def run_cell(task_id, arm, model, run_id):
             json.dump(manifest, fh, indent=2, sort_keys=True)
         print("cell %s/%s: fixture built at %s" % (task_id, arm, fx))
         print("running: claude -p <prompt> %s" % " ".join(argv[3:]))
-        env = dict(os.environ)
+        # Every GIT_ name is dropped: git honours GIT_DIR and GIT_WORK_TREE over
+        # cwd, so an inherited one aims a scored cell's git calls at the
+        # operator's own repository. Same class as tools/bm_autosave.py.
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith("GIT_")}
         env.pop("BM_FENCE_SESSION_ID", None)
         try:
             r = _run(argv, cwd=fx, timeout=CELL_TIMEOUT_SECONDS, env=env)

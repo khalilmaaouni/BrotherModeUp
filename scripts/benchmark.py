@@ -70,7 +70,11 @@ class Bench(object):
     def __init__(self, tmp):
         self.root = tmp
         self.log = []
-        self.env = dict(os.environ)
+        # Every GIT_ name is dropped: git honours GIT_DIR and GIT_WORK_TREE over
+        # cwd, so an inherited one aims this throwaway benchmark's git calls at
+        # the operator's own repository. Same class as tools/bm_autosave.py.
+        self.env = {k: v for k, v in os.environ.items()
+                    if not k.startswith("GIT_")}
         self.env["BROTHERMODE_ROOT"] = self.root
         # A benchmark that read the operator's own store would be worthless and
         # would also be a privacy leak into published output.
