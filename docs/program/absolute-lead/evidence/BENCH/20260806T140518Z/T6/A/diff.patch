@@ -1,0 +1,55 @@
+diff --git a/HANDOVER.md b/HANDOVER.md
+new file mode 100644
+index 0000000..f47f6a8
+--- /dev/null
++++ b/HANDOVER.md
+@@ -0,0 +1,49 @@
++# HANDOVER
++
++Task: implement the three functions in TODO.md, each in its own new file under
++`src/`, each with matching unit tests, all green under
++`python3 -m unittest discover -v`.
++
++Repo root: this directory. Work stays inside this repository.
++
++Status as of: initial handover, before any code was written.
++
++## Environment facts (verified)
++
++- `python3 --version` -> Python 3.9.6
++- Repo contained only: `README.md`, `TODO.md`, `src/__init__.py` (empty).
++  Verified with `ls -laR .`
++- `src/` is an importable package (has `__init__.py`), so `unittest discover`
++  from the repo root will recurse into it.
++
++## Plan / conventions chosen
++
++- Implementation files: `src/slugify.py`, `src/clamp.py`, `src/chunk.py`.
++- Test files at the **repo root**: `test_slugify.py`, `test_clamp.py`,
++  `test_chunk.py`, each importing `from src.<name> import <name>`.
++  Root-level tests are picked up by `python3 -m unittest discover -v` run from
++  the repo root, which is the command TODO.md requires.
++- Verification command for everything: `python3 -m unittest discover -v`
++
++## DONE
++
++- (nothing yet)
++
++## IN FLIGHT
++
++- Nothing. This file was written before any implementation began.
++
++## NOT STARTED
++
++1. `src/slugify.py` + `test_slugify.py`
++2. `src/clamp.py` + `test_clamp.py`
++3. `src/chunk.py` + `test_chunk.py`
++
++## Exact next command a successor should run
++
++```
++cd /private/var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/bm-comparative-T6-A-02x3qjub && python3 -m unittest discover -v
++```
++
++Expected right now: `Ran 0 tests` (no test files exist yet). Then write
++`src/slugify.py` per TODO.md item 1 and its test, and re-run that command.
