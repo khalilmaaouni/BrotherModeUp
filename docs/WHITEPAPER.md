@@ -1,3 +1,5 @@
+Status: UNAUDITED reference as of 2026-08-06. This page sits outside the mechanical truth guards and is scheduled for the documentation sweep; treat any dated or numeric claim inside with care until then.
+
 # BrotherMode V2: a colleague you can audit
 
 Version 2 draft, 2026-07-26. Written for a founder to read end to end, not for a
