@@ -307,6 +307,18 @@ through preparing it.
 
 ## What has and has not happened, stated honestly
 
+CURRENT STATE, 2026-08-07, second entry: `v2.1.1` EXISTS, annotated tag
+`522ee64` dereferencing to the release-cut commit `748e1f7`, pushed and
+verified by ls-remote, with the full gate green on that exact tree
+(`python3 tools/test_all.py` closing ALL GREEN, exit 0; the dated count
+lives in CHANGELOG.md). `VERSION`
+now reads `2.2.0.dev1` per rule 3. `install_target_tag` is `v2.1.1` and
+every page pins it. Cut by the session under the founder's grant, recorded
+verbatim in the session registry.
+
+The entry below is the cut itself, minutes earlier, kept dated rather than
+rewritten.
+
 CURRENT STATE, 2026-08-07, the 2.1.1 release cut: `VERSION` reads `2.1.1`
 on this commit and this commit alone, per rule 1 of the version law, cut
 overnight under the founder's recorded grant (STATE.md carries his words).
