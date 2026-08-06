@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Repository-hosted marketplace for the BrotherME plugin. The git-clone install described in the repository README remains the verified path.",
-    "version": "2.1.0.dev1"
+    "version": "2.2.0.dev1"
   },
   "plugins": [
     {
       "name": "brotherme",
       "source": "./",
       "description": "Turn an idea into a verified result with a guided start, honest forecasts, clear status, and a checked delivery. Verified on Claude Code.",
-      "version": "2.1.0.dev1",
+      "version": "2.2.0.dev1",
       "author": {
         "name": "Khalil Maaouni"
       },

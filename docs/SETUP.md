@@ -28,7 +28,7 @@ development tree itself currently reads `2.0.0-rc.12.dev1`, a development
 identity rather than a tagged release; `docs/RELEASE.md` explains why.
 
 ```bash
-git clone --branch v2.0.0 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.1.0 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 The path matters: Claude Code discovers skills under `~/.claude/skills/`, and the session-start script resolves its own location, so the clone is the installation. Verify:

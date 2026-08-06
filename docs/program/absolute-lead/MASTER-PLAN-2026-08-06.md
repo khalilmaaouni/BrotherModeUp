@@ -247,7 +247,42 @@ hook itself refused this amendment's first write because FENCE E was still
 unmarked, which is the stale-registry class firing live, and the closure
 above is the remediation the hook named.
 
-### Lane B: PROVE (the evidence path)
+### Amendment 3, 2026-08-06 late night: the tester-first resequencing
+
+Recorded at the moment it was taken. Founder's words: the watchdog is keeping
+us from delivering; deliver the rest first, have a repo ready for human
+testers, then finalize the watchdog. Also recorded here: the founder recruits
+the testers himself once the repo is ready, so stranger availability leaves
+the critical path.
+
+The ratified sequence of record, superseding the lane tables above where they
+conflict:
+
+| Day | What closes | Founder |
+|---|---|---|
+| D1, Aug 7 | v2.1.0 deployment closeout (this commit); telemetry lock fix; full benchmark overnight after the founder login | tag done; one login |
+| D2, Aug 8 | B3, the visual surface refutation, three lenses, one fix loop | none |
+| D3, Aug 9 | Progress surface build on the refuted view code; B6 status line | none |
+| D4, Aug 10 | B7 debt and docs sweep; v2.2.0 release mechanics, gate, manifest last | none |
+| D5, Aug 11 | v2.2.0 tagged; closeout; TESTERS GET THE LINK | tag plus send, 30 min |
+| D6 to D8, Aug 12 to 14 | Watchdog built from the amended spec, refuted, shipped through the update command | none |
+
+Tester-ready: Aug 10 to 11, minimum Aug 10, medium confidence. Assumptions:
+the two founder sittings happen on schedule; the visual refutation's findings
+fit one fix loop; the benchmark completes inside its untested 4 to 12 hour
+envelope after the login.
+
+FOUNDER GRANTS recorded this night, both through question windows: (1) merge
+PR #6, executed and verified, merge commit 77e7678, which the founder then
+tagged as v2.1.0; (2) standing for this sprint, the orchestrator merges the
+sprint's own PRs after their CI is fully green and verified by command, each
+merge recorded in the registry. Tags remain founder-only, absolute.
+
+DEVIATION RECORDED: v2.1.0's tagged commit carries a development identity,
+against version-law rule 1; cause and standing recorded in docs/RELEASE.md.
+v2.2.0 returns to the letter of the law with a proper release-cut commit.
+
+### Lane B: PROVE (the evidence path, sequence now governed by Amendment 3)
 
 | Days | Loop | What closes | Done check | Founder |
 |---|---|---|---|---|
