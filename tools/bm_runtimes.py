@@ -409,11 +409,17 @@ RUNTIMES = (
                      "and the old Edit/Write matcher never fired. L06 widened "
                      "the matcher to Bash and bm_fence_hook.py now parses "
                      "apply_patch envelopes through the same fence path, "
-                     "proven in process against the captured payload; a live "
-                     "wired rehearsal has not run, so the live half stays "
-                     "UNVERIFIED. Hooks are also inert until the project is "
-                     "trusted, and SessionEnd is clamped to 3s. Wire with "
-                     "absolute paths, and rehearse before trusting."),
+                     "proven in process against the captured payload. THE "
+                     "LIVE HALF IS NOW MEASURED, AND IT IS A NO: on "
+                     "2026-08-07 a real codex exec run overwrote a file "
+                     "another session had claimed, twice, and a marker probe "
+                     "proved the PreToolUse hook never executed at all. "
+                     "Config syntax (strict-config), project trust and "
+                     "--dangerously-bypass-hook-trust were all ruled out "
+                     "(docs/mistakes/M19-the-codex-fence-does-not-fire-in-exec-mode.md). So under Codex exec, BrotherMode "
+                     "is the law in writing plus a working command line, and "
+                     "NOT an enforcement layer: do not rely on the fence "
+                     "here. SessionEnd is clamped to 3s."),
             "findings": (
                 "THE PRIMITIVE EXISTS. Codex accepts Claude Code's hook "
                 "configuration shape and Claude Code's output object. A hook "
