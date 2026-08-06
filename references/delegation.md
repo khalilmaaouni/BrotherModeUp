@@ -171,6 +171,41 @@ severity-split findings where Critical blocks the merge; MERGE; then WRITE BACK 
 registers. Aim matters: an independent code review found a Critical that six adversarial
 rounds missed, because it was pointed at the contract rather than at execution edges.
 
+## The tier declaration is a hard law, not a preference
+
+Ratified 2026-08-06 by the founder, after a run that dispatched seven subagents
+and chose a tier for none of them. Inheriting by omission is a decision made by
+omission, and it spends the strongest grade on dash sweeps while leaving
+adversarial review wherever the session happened to be.
+
+- EVERY dispatch brief names its TIER and the REASON, in the brief itself, in
+  the fence line, and in the loop-close report. A brief with no stated tier is
+  not dispatched, and a dispatch that reaches an agent without one is logged in
+  the mistakes ledger as a compliance failure.
+- Fast Worker for mechanical bulk (copies, sweeps, counts, inventories).
+  Builder for scoped implementation and search from a precise spec. Navigator
+  for architecture and hard tradeoffs. Reviewer for adversarial review, judging
+  and synthesis. Researcher for external evidence. Vision Worker for anything
+  judged by looking.
+- When no profile clearly fits, inherit the session default DELIBERATELY and
+  say so in the brief. Silence is not a choice.
+- Every fleet closes with one telemetry line: agents launched, tiers used, and
+  the observable proxies (tool calls, files touched). Where real token counts
+  exist they are quoted; where they do not the line reads "not measured" and
+  never an estimate.
+
+UNATTENDED RUN CEILING, founder-set 2026-08-06: 8,000,000 output tokens for a
+single overnight run, carried in the autonomy contract rather than in anybody's
+memory. Soft stop at 80 percent means no NEW dispatches while in-flight work
+finishes; hard stop at 100 percent ends the run. Interactive sessions target
+2,000,000. The founder raises a ceiling per run by saying so; nothing else may.
+
+CREDENTIAL ENUMERATION AT HOUR ZERO, from the same run: before an unattended
+stretch begins, list every deliverable that needs a credential, an account, a
+network service or a human hand, and put that list to the founder BEFORE he
+sleeps. Three deliverables were lost in one night to blockers discovered at
+hour six that were answerable at hour one.
+
 ## 4. Token budgets and economy
 Budgets are ENFORCED only where the harness enforces them (the Workflow engine);
 in loose dispatches they are advisory sizing guidance, and agents report observable
