@@ -286,7 +286,14 @@ class TestCapabilityClaimsStaySeparate(unittest.TestCase):
             for _label, url in r["sources"]:
                 self.assertIn(url, text,
                               "%s does not cite %s" % (r["key"], url))
-            self.assertIn(rt_mod.VERIFIED_ON, text)
+            # Each entry renders ITS OWN read date: the registry-wide date
+            # for the original entries, a per-entry verified_on for anything
+            # read later. Asserting the shared date everywhere would force
+            # either an understated new entry or a falsely bumped old one,
+            # which is the exact dishonesty the per-entry date removed.
+            self.assertIn(rt_mod.verified_on(r), text,
+                          "%s does not carry its own source date %s"
+                          % (r["key"], rt_mod.verified_on(r)))
 
     def test_an_unverified_runtime_ships_marked_generic_with_its_reason(self):
         # No shipped runtime is unverified today, so the GENERIC path would
