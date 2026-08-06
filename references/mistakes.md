@@ -8,7 +8,33 @@ routing table now points here instead. Corrected 2026-08-02, when the stale
 provenance line was found during a session whose whole subject was recording
 its own errors.
 
+## The per-incident record lives in docs/mistakes/
+
+Sixteen incidents from the 2026-08-05 run are written up one file each, with
+their evidence, their fix, and the rule each produces, at `docs/mistakes/`
+(imported 2026-08-06). Read that directory before working in an area it names.
+This page holds the rules; that directory holds the incidents that earned them,
+and a rule whose incident has been forgotten becomes ceremony.
+
+Two of those sixteen produced standing steps that now belong to EVERY loop:
+
+- DELTAS AT CLOSE. A worker that finds an obligation in a file it may not edit
+  writes the exact change down and stops, which is correct. The orchestrator
+  then collects every such recorded delta from every worker report and closes
+  each one BY NAME before the loop is called finished. M16 is the case where
+  that handoff dropped silently and the obligation sat open at HEAD.
+- REFUTE THE ACCOUNT, not only the code. Point an adversary at the session's
+  own CLAIMS as well as its work. One hour of this on 2026-08-06 found an
+  unpushed security fix nobody knew about, a broken documented procedure, a
+  wrong count, a stale quoted result, and a commit hash in a founder report
+  that resolved nowhere. None was a defect in what shipped; every one was a
+  defect in what was said about it.
+
 ## The ledger (never repeat these)
+- A GATE RUN ON A MOVING TREE IS NOT A RESULT. A suite claims the whole tree for
+  its run: if any file lands while it runs, its verdict describes a tree that no
+  longer exists, and it still prints OK. State the load average and the timing in
+  the same sentence as the result. Two runs were wasted this way in one night.
 - Two writers in one tree collide: fence first, dispatch second.
 - Session limits kill agents mid-flight: edits survive; message-resume by id works
   and is first choice (proven repeatedly); when resume fails, the TREE is the truth:
