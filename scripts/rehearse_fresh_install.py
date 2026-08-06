@@ -208,7 +208,11 @@ def build_env(paths):
     variable this shell might already carry (BROTHERMODE_VAULT,
     BROTHERMODE_ROOT, BROTHERMODE_REGISTRIES) stripped out, so nothing about
     the real machine's own dogfood install leaks into the rehearsal."""
-    env = dict(os.environ)
+    # Every GIT_ name goes too: this rehearsal runs git init, add and commit in
+    # a throwaway tree, and git honours GIT_DIR and GIT_WORK_TREE over cwd, so
+    # an inherited one commits into the operator's real repository instead.
+    # Same class as tools/bm_autosave.py; reproduced 2026-08-06.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     for key in ("BROTHERMODE_VAULT", "BROTHERMODE_ROOT",
                 "BROTHERMODE_REGISTRIES", "BROTHERME_CONFIG"):
         env.pop(key, None)
