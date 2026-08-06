@@ -245,13 +245,50 @@ def atomic_write(path, text, mode=0o644):
     return True
 
 
+def _lock_shared_append(fd):
+    """Take an exclusive advisory lock on the file being appended to, and say
+    whether it was taken.
+
+    O_APPEND makes OUR write atomic; it does not coordinate with another
+    process doing read-modify-write on the same file. A sister project writes
+    the same vault ledger while holding flock, and reproduced twice on
+    2026-08-05 that this writer took no lock at all. Their fail-safe held both
+    times and nothing was lost, which is luck rather than design.
+
+    The ledger file itself is the lock path, so two writers coordinate without
+    having to agree on a third one. A failed lock NEVER blocks the write:
+    telemetry that breaks a session is worse than telemetry that interleaves,
+    and fcntl does not exist on Windows.
+    """
+    try:
+        import fcntl
+    except ImportError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return True
+    except (OSError, IOError):
+        return False
+
+
+def _unlock_shared_append(fd):
+    try:
+        import fcntl
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    except (ImportError, OSError, IOError):
+        pass
+
+
 def atomic_append(path, obj, mode=0o644):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     line = (json.dumps(obj, separators=(",", ":")) + "\n").encode()
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, mode)
+    locked = _lock_shared_append(fd)
     try:
         os.write(fd, line)
     finally:
+        if locked:
+            _unlock_shared_append(fd)
         os.close(fd)
     if mode == 0o600:
         # os.open only applies its mode when it CREATES the file, so a file
