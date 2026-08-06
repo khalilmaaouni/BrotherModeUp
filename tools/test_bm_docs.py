@@ -4780,7 +4780,12 @@ class TestNoDashes(unittest.TestCase):
                                        os.path.join("tools", "bm_visual.py"),
                                        os.path.join("tools", "bm_view.py"),
                                        os.path.join("tools", "test_bm_visual.py"),
-                                       os.path.join("tools", "test_bm_view.py")]
+                                       os.path.join("tools", "test_bm_view.py"),
+                                       os.path.join("scripts", "benchmark_comparative.py"),
+                                       os.path.join("docs", "BENCHMARK-COMPARATIVE.md"),
+                                       os.path.join("docs", "FEEDBACK.md"),
+                                       os.path.join("docs", "program", "absolute-lead",
+                                                    "MASTER-PLAN-2026-08-06.md")]
         # The L05 visual surface design (docs/program/absolute-lead/
         # DESIGN-visual-surface.md, section 13.4) puts five files in this list:
         # the register, which shipped with the design, plus the four L05 tools
