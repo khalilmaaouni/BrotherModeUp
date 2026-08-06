@@ -24,8 +24,10 @@ the tag is generated from the same release fact every other page reads
 (`python3 tools/bm_project_facts.py --field install_target_tag`), the last
 tag actually cut and known to resolve, never typed by hand, and
 `tools/test_bm_docs.py` fails this page if it ever disagrees. The
-development tree itself currently reads `2.0.0-rc.12.dev1`, a development
-identity rather than a tagged release; `docs/RELEASE.md` explains why.
+development tree carries whatever development identity `cat VERSION` prints
+in your checkout, a `.dev` identity rather than a tagged release, and this
+page deliberately does not type that identity by hand; `docs/RELEASE.md`
+explains why.
 
 ```bash
 git clone --branch v2.1.0 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
