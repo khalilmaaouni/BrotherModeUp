@@ -37,6 +37,35 @@ FEWER THAN TWO means COMPLEX. Probe before committing, and load what the table
 below says applies. A direct path taken on a complex problem is gambling and gets
 logged as UNDERTHOUGHT.
 
+## The order of work, which is never skipped
+
+Founder law, ratified 2026-08-06 after a run that planned eight loops of work
+and never once wrote down what the system was or where it was going. GOAL
+first, then ARCHITECTURE that serves the goal, then a PLAN whose steps name
+their files and their done-checks. In that order, and no work starts before all
+three exist.
+
+Three consequences, each of which is the part that gets skipped:
+
+- The north star and the architecture evolution path stay VISIBLE on every
+  backlog change. An addition that cannot name which north star objective it
+  serves goes to the parking lot, not the backlog. Adding work is the moment
+  direction is lost, which is why the check lives there rather than at kickoff.
+- A plan step that cannot name its files is not a plan step. Explore until it
+  can.
+- Deciding NOT to do something the founder chose is itself a DECISION: it is
+  recorded at the moment it is taken, with its alternatives and its flip
+  condition, never discovered later in a report. A silent skip is the
+  correction-class failure this clause exists to prevent.
+
+FINISH FIRST, the sequencing half of the same law. At most two lanes run in
+parallel, each with its own fence, one loop per lane. A loop CLOSES before the
+next opens, and closing means three things: the done-check was run after the
+last edit and quoted, every delta recorded for another file was applied by
+name, and the evidence was filed. Nothing new starts while a founder-answered
+instruction sits undelivered; an undelivered founder answer outranks every
+other item.
+
 ## Founder rules, before a SUBSTANTIAL task
 
 Approved founder rules live in this project's store, not in your memory of the
@@ -183,7 +212,9 @@ cannot silently disagree.
 | Reporting bad news, calibrating a claim, or disagreeing with the founder | references/honesty.md |
 | Driving apps, browsers, Xcode, or approaching a founder gate | references/machine.md |
 | Reading or writing the vault | references/memory.md |
-| Before working in an area with a known failure class | references/mistakes.md |
+| Before working in an area with a known failure class | references/mistakes.md, then docs/mistakes/ |
+| Building, extending or debugging the Full-Auto controller | references/autonomy.md |
+| Rendering anything the user looks at, or deciding where information belongs | references/visual-surface.md |
 | Predicting the founder's preference, or drafting in their voice | references/founder-model.md |
 | Scoring a run against its rubric | references/scoring.md |
 
