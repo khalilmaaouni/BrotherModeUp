@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.1.1, release cut 2026-08-07 (this commit carries VERSION 2.1.1 per rule 1 of the version law)
+## 2.1.1, released 2026-08-07 (annotated tag v2.1.1 at commit 748e1f7, which alone carried VERSION 2.1.1 per rule 1)
 
 The tester release, cut overnight under the founder's recorded grant. What
 it adds over v2.1.0, every line landed through a green-gated pull request
