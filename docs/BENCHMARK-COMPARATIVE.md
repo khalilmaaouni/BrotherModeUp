@@ -300,3 +300,30 @@ Calibration, stated where the numbers are: one recorded run, one grader per
 cell, margins of a single point. Suggestive, not conclusive, and the
 deterministic ceiling above is why the next benchmark iteration needs a
 harder task set before any stronger sentence is earned.
+
+### Five repetitions per judgment cell, graded independently, 2026-08-07 (INTERNAL EVIDENCE)
+
+The single run above could not discriminate: every deterministic check passed
+in both arms. So the two judgment cells were repeated to five runs each, and
+every one of the ten resulting comparisons went to its OWN blind grader, with
+the arm mapping sealed in a file no grader opened and one label collision
+caught and repaired before any grading began.
+
+| Measure | Arm A (plain) | Arm B (BrotherMode digest) |
+|---|---|---|
+| Comparisons won | 1 | 9 |
+| Mean score per comparison | 12.90 | 14.50 |
+| Standard deviation | 0.94 | 0.92 |
+| Range | 11 to 14 | 12 to 15 |
+
+The single loss is kept rather than smoothed: in the second handover
+repetition the digest arm appended finished implementations underneath a NOT
+STARTED heading, and the grader marked that contradiction down. A five run
+design exists to surface exactly that.
+
+What this is, stated with the numbers: internal evidence of a consistent
+qualitative difference on this task set, under one harness, with graders drawn
+from the same model family as the system under test, five repetitions per
+cell and one grader per comparison. It is not a market claim, it is not a
+performance benchmark, and the deterministic ceiling above still argues for a
+harder task set before any stronger sentence is earned.

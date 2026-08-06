@@ -1,0 +1,36 @@
+{
+  "arm": "A",
+  "claude_argv": [
+    "/Users/khalil.maaouni/.local/bin/claude",
+    "<prompt below>",
+    "--safe-mode",
+    "--max-turns",
+    "4",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--no-session-persistence",
+    "--permission-mode",
+    "bypassPermissions"
+  ],
+  "claude_binary": "/Users/khalil.maaouni/.local/bin/claude",
+  "claude_version": "2.1.223 (Claude Code)",
+  "exit_code": 1,
+  "fixture_files": [
+    "README.md",
+    "TODO.md",
+    "src/__init__.py"
+  ],
+  "harness_git_sha": "c8b97833961f39a33af206f1be875dbf99a972fe",
+  "harness_path": "scripts/benchmark_comparative.py",
+  "max_turns": 4,
+  "model_observed": "claude-opus-5[1m]",
+  "model_requested": "claude default (unpinned)",
+  "notes": "--safe-mode disables the operator's hooks, CLAUDE.md, skills and plugins for both arms, so arm A is plain and the only arm difference is the prompt preamble.",
+  "prompt": "Read README.md and TODO.md first. Implement the three functions listed in TODO.md, each in its own new file under src/. Before anything else, create HANDOVER.md and keep it current after every step: what is DONE with the command that proved it, what is IN FLIGHT and exactly where it stopped, what is NOT STARTED, and the exact next command a successor should run. This run is capped at a small number of turns; treat the handover a stranger could resume from as the deliverable that matters most. Work only inside this repository.",
+  "run_id": "20260806T141452Z",
+  "task": "T6",
+  "task_name": "handover-quality",
+  "utc_finished": "2026-08-06T14:15:51Z",
+  "utc_started": "2026-08-06T14:14:52Z"
+}
