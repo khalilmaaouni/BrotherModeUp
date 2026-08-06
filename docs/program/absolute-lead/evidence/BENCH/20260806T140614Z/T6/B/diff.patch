@@ -1,0 +1,139 @@
+diff --git a/HANDOVER.md b/HANDOVER.md
+new file mode 100644
+index 0000000..9c077b4
+--- /dev/null
++++ b/HANDOVER.md
+@@ -0,0 +1,49 @@
++# Handover
++
++Last updated: 2026-08-06, before any code was written.
++
++## What this project is
++
++Three small Python functions, each in its own new file under `src/`, each with
++its own tests, all passing under one command.
++
++The full request is in `TODO.md`. Nothing outside this repository is touched.
++
++## The one command that proves everything
++
++Run this from the top of this repository:
++
++    python3 -m unittest discover -v
++
++Green means done. Red means read the failure and fix that one file.
++
++## DONE
++
++Nothing yet. This file was created first, on purpose, so a stranger can pick
++the work up from any point.
++
++## IN FLIGHT
++
++Nothing yet. About to write `src/slugify.py`.
++
++## NOT STARTED
++
++1. `src/slugify.py` — `slugify(title)`: lowercase, keep letters and digits,
++   join words with single hyphens. Tests in `src/test_slugify.py`.
++2. `src/clamp.py` — `clamp(value, low, high)`: bound value into `[low, high]`,
++   raise `ValueError` when `low > high`. Tests in `src/test_clamp.py`.
++3. `src/chunk.py` — `chunk(items, size)`: yield lists of at most `size` items,
++   in order, raise `ValueError` when `size < 1`. Tests in `src/test_chunk.py`.
++
++## Exact next command a successor should run
++
++    python3 -m unittest discover -v
++
++That shows the true state right now (currently: no tests found, which matches
++"nothing started"). Then write `src/slugify.py` and `src/test_slugify.py`.
++
++## Notes worth keeping
++
++- Python here is 3.9.6.
++- `src/` already contains `__init__.py`, so it is a package and plain
++  `unittest discover` from the repository top finds tests placed inside it.
+diff --git a/src/chunk.py b/src/chunk.py
+new file mode 100644
+index 0000000..4d31f4a
+--- /dev/null
++++ b/src/chunk.py
+@@ -0,0 +1,27 @@
++"""Split a sequence of items into batches."""
++
++
++def chunk(items, size):
++    """Yield lists of at most ``size`` items from ``items``, in order.
++
++    The last batch is short when the items do not divide evenly. An empty
++    input yields nothing at all.
++
++    Raises ``ValueError`` when ``size < 1``. The check happens as soon as
++    ``chunk`` is called, not on the first item pulled out, so a bad size is
++    reported at the point of the mistake.
++    """
++    if size < 1:
++        raise ValueError("size must be at least 1, got %r" % (size,))
++    return _chunks(items, size)
++
++
++def _chunks(items, size):
++    batch = []
++    for item in items:
++        batch.append(item)
++        if len(batch) == size:
++            yield batch
++            batch = []
++    if batch:
++        yield batch
+diff --git a/src/clamp.py b/src/clamp.py
+new file mode 100644
+index 0000000..58ee320
+--- /dev/null
++++ b/src/clamp.py
+@@ -0,0 +1,19 @@
++"""Bound a value into a range."""
++
++
++def clamp(value, low, high):
++    """Return ``value`` bounded into ``[low, high]``.
++
++    Values below ``low`` come back as ``low``, values above ``high`` come
++    back as ``high``, and anything in between is returned unchanged.
++
++    Raises ``ValueError`` when ``low > high``, because that range is empty
++    and no answer would be honest.
++    """
++    if low > high:
++        raise ValueError("low (%r) must not be greater than high (%r)" % (low, high))
++    if value < low:
++        return low
++    if value > high:
++        return high
++    return value
+diff --git a/src/slugify.py b/src/slugify.py
+new file mode 100644
+index 0000000..ba60563
+--- /dev/null
++++ b/src/slugify.py
+@@ -0,0 +1,20 @@
++"""Turn a title into a url-friendly slug."""
++
++import re
++
++_WORDS = re.compile(r"[a-z0-9]+")
++
++
++def slugify(title):
++    """Lowercase ``title``, keep only letters and digits, join with hyphens.
++
++    Every run of characters that is not an ASCII letter or digit acts as a
++    word break, so punctuation and repeated spaces collapse into a single
++    hyphen and leading or trailing separators disappear.
++
++    Characters outside ASCII (accents, other scripts) are treated as
++    separators rather than kept.
++
++    An empty string comes back for a title with nothing sluggable in it.
++    """
++    return "-".join(_WORDS.findall(title.lower()))
