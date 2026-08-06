@@ -13,6 +13,28 @@ adds no enforcement of its own, only sequencing and durability.
 
 No em or en dashes anywhere in this page.
 
+## READ THIS BEFORE ANY UNATTENDED RUN (2026-08-06)
+
+The write fence currently defaults to ADVISORY for unattended runs, the same
+as interactive use: when the protection cannot work it allows the write and
+says why. For an unattended run that is too weak, and a stricter posture is
+becoming automatic in the next update: the controller will refuse to start
+unless enforcement is on, the working tree is clean or every modification is
+acknowledged, a recovery snapshot exists, and no foreign claim is active.
+
+Until that update reaches your install, do both of these yourself before any
+unattended run:
+
+```bash
+export BM_FENCE_MODE=enforced
+export BM_FENCE_STRICT=1
+```
+
+and run only on a clean, dedicated branch or worktree. Hooks are cooperative
+enforcement: arbitrary shell writes are detected where possible, not
+contained, and no operating system sandbox is provided
+(docs/KNOWN-LIMITS.md states the exact boundary).
+
 ## The controller model, in plain language
 
 Once a founder has signed a contract for a project (U1), the controller can

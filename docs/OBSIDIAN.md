@@ -1,3 +1,5 @@
+Status: UNAUDITED reference as of 2026-08-06. This page sits outside the mechanical truth guards and is scheduled for the documentation sweep; treat any dated or numeric claim inside with care until then.
+
 # The memory setup: Obsidian, the vault, and working without either
 
 Written 2026-07-26 because a stranger could install this project, run its

@@ -1,3 +1,5 @@
+Status: UNAUDITED reference as of 2026-08-06. This page sits outside the mechanical truth guards and is scheduled for the documentation sweep; treat any dated or numeric claim inside with care until then.
+
 # Five minutes, copy and paste
 
 A short walkthrough that shows the three things this project is actually for:

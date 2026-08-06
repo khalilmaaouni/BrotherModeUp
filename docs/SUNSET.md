@@ -1,3 +1,5 @@
+Status: UNAUDITED reference as of 2026-08-06. This page sits outside the mechanical truth guards and is scheduled for the documentation sweep; treat any dated or numeric claim inside with care until then.
+
 # How a project or a feature ends well
 
 What this is: the retirement half of the method. Everything else in this

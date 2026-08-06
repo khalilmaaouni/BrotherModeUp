@@ -1,3 +1,5 @@
+Status: UNAUDITED reference as of 2026-08-06. This page sits outside the mechanical truth guards and is scheduled for the documentation sweep; treat any dated or numeric claim inside with care until then.
+
 # BrotherMode: technical and solution design
 
 Prepared for engineers deciding whether to adopt, extend, or argue with this system. `README.md` is the pitch; `HOW-IT-WORKS.md` is the mechanics; this document is the reasoning: what BrotherMode is, why each part exists, what it costs, and where it does not belong.

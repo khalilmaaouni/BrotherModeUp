@@ -1,3 +1,5 @@
+Status: CURRENT as of 2026-08-06. The install feedback loop and week one questionnaire.
+
 # Feedback: your first week with BrotherMode
 
 You are one of the first people outside this project to install BrotherMode.
