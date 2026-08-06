@@ -140,6 +140,14 @@ SUITES = (
     # extends: both drive real subprocesses against a throwaway project and
     # share the same session-identity module.
     "test_bm_bash_audit.py",
+    # D6 (2026-08-07): the hook cost benchmark, tools/bm_hookbench.py, and
+    # the page it generates, docs/PERFORMANCE.md. NO APOSTROPHE ANYWHERE IN
+    # THIS COMMENT, ON PURPOSE (see the file-level note above). Placed right
+    # after the two hook suites whose programs it times, since it drives the
+    # same hook entrypoints against a throwaway store and asserts nothing
+    # about how long they took, only that the page is generated from a real
+    # run and refuses the numbers it cannot take honestly.
+    "test_bm_hookbench.py",
     "test_install.py",
     # Loop 3 WP-D (2026-08-01): the consent gate suite for scripts/setup.py,
     # tools/bm_sessionstart.sh, and the SessionEnd path in tools/bm_telemetry.py.

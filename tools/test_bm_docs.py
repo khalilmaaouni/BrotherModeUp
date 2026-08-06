@@ -548,6 +548,89 @@ class TestOneInstall(unittest.TestCase):
                                  "; ".join(offenders)))
 
 
+class TestPluginMarketplacePin(unittest.TestCase):
+    """DEFECT A from the 2026-08-07 external review: the easiest install path
+    (the marketplace add) tracked the repository's moving default branch,
+    while only the pinned git-clone install was auditable. For code whose
+    hooks run on every future session, the easiest path and the most
+    auditable path should not be different ones. Anthropic's plugin
+    marketplace format resolves an `owner/repo@ref` marketplace source to a
+    fixed branch or tag on every add and every later refresh (the CLI
+    reference for `claude plugin marketplace add`,
+    https://code.claude.com/docs/en/plugin-marketplaces), which is the
+    mechanism `docs/RELEASE.md` step 2b and the three install pages now use.
+
+    Mirrors TestOneInstall's shape for the git-clone pin: one test that no
+    active page adds the marketplace unpinned, one that the pinned line is
+    byte identical everywhere it appears, and one, the requirement this
+    class exists for, that FAILS the moment a page's pin disagrees with
+    install_target_tag."""
+
+    MARKETPLACE_ADD = re.compile(
+        r"^claude plugin marketplace add khalilmaaouni/BrotherModeUp\S*$",
+        re.MULTILINE)
+
+    def test_no_active_page_adds_the_marketplace_unpinned(self):
+        offenders = []
+        for rel in ACTIVE_DOCS:
+            for line in self.MARKETPLACE_ADD.findall(read(rel)):
+                if "@" not in line:
+                    offenders.append("%s: %s" % (rel, line.strip()))
+        self.assertEqual(
+            offenders, [],
+            "an active page adds the marketplace with no ref pinned, which "
+            "tracks the repository's moving default branch and auto-installs "
+            "hooks that then run in every future session with no signal "
+            "anything changed: %s" % "; ".join(offenders))
+
+    def test_the_marketplace_add_line_is_identical_on_every_install_page(self):
+        seen = {}
+        for rel in INSTALL_DOCS:
+            for line in self.MARKETPLACE_ADD.findall(read(rel)):
+                seen.setdefault(line.strip(), []).append(rel)
+        self.assertEqual(
+            len(seen), 1,
+            "the install pages disagree about the pinned marketplace add "
+            "command: %s" % json.dumps(seen, indent=2, sort_keys=True))
+
+    def test_the_marketplace_pin_matches_install_target_tag(self):
+        """THE DEFECT A TEST: a pin that disagrees with install_target_tag
+        (the same fact the pinned git-clone command is checked against) must
+        fail here, not pass silently. install_target_tag, not VERSION, is
+        deliberately the comparison: rule 5 of the version law pins public
+        install instructions to the last tag known to actually resolve,
+        independent of whatever identity VERSION carries mid-development."""
+        offenders = []
+        for rel in INSTALL_DOCS:
+            for line in self.MARKETPLACE_ADD.findall(read(rel)):
+                m = re.search(r"@(\S+)$", line)
+                tag = m.group(1) if m else None
+                if tag != FACTS["install_target_tag"]:
+                    offenders.append("%s pins %r" % (rel, tag))
+        self.assertEqual(
+            offenders, [],
+            "a page pins the marketplace add to a ref that disagrees with "
+            "install_target_tag (%s): %s"
+            % (FACTS["install_target_tag"], "; ".join(offenders)))
+
+    def test_release_md_names_the_repin_step(self):
+        """docs/RELEASE.md must carry the re-pin step as one of the numbered
+        release steps, not only as a fact somewhere else on the page: a step
+        a maintainer cannot find is not a step that gets followed."""
+        text = read(os.path.join("docs", "RELEASE.md"))
+        self.assertIn(
+            "Re-pin the plugin marketplace install command", text,
+            "docs/RELEASE.md no longer names an explicit re-pin step")
+        self.assertIn(
+            "PUBLIC_INSTALL_TAG", text,
+            "the re-pin step does not name the constant a maintainer must "
+            "change")
+        self.assertIn(
+            "tools/test_bm_docs.py", text,
+            "the re-pin step does not name the check that catches a "
+            "disagreeing pin")
+
+
 def _git(*args):
     """Run git read-only against this repository. Returns (returncode,
     stdout, stderr) as text. Never raises: a git failure is a fact a test
