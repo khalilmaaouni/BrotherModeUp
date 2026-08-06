@@ -86,8 +86,10 @@ the tag is generated from the same release fact every other page reads
 (`python3 tools/bm_project_facts.py --field install_target_tag`), the last
 tag actually cut and known to resolve, never typed by hand, and
 `tools/test_bm_docs.py` fails this page if it ever disagrees. The
-development tree itself currently reads `2.0.0-rc.12.dev1`, a development
-identity rather than a tagged release; `docs/RELEASE.md` explains why.
+development tree carries whatever development identity `cat VERSION` prints
+in your checkout, a `.dev` identity rather than a tagged release, and this
+page deliberately does not type that identity by hand: a typed version goes
+stale the day after it is written; `docs/RELEASE.md` explains why.
 
 ```bash
 git clone --branch v2.1.0 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
@@ -151,10 +153,12 @@ working on one of them:
 python3 tools/test_bm.py
 ```
 
-One suite passing is not the gate, though. Run them one at a time if you run
-them by hand: the suites rename a module aside mid-run, so two at once can
-corrupt each other (`docs/NOT-FINALIZED.md` item 10), which is exactly why
-`test_all.py` is serial.
+One suite passing is not the gate, though. `test_all.py` runs the suites
+serially so that two runs sharing one checkout do not interleave. HISTORICAL
+NOTE, kept because an older copy of this page described it as current: the
+suites once renamed a module aside mid-run, which could corrupt two
+concurrent runs; the P9 fix round removed that rename, and the header of
+`tools/test_all.py` records both the old hazard and its removal.
 
 ## 3. Wire the hooks
 
