@@ -4866,6 +4866,17 @@ class TestNoDashes(unittest.TestCase):
                                        os.path.join("scripts", "benchmark_comparative.py"),
                                        os.path.join("docs", "BENCHMARK-COMPARATIVE.md"),
                                        os.path.join("docs", "FEEDBACK.md"),
+                                       # The contributor pack, 2026-08-07. A page
+                                       # teaching outsiders the repository's rules
+                                       # is the last place a banned character may
+                                       # sit, and its own review found one before
+                                       # publication, which is why it is pinned
+                                       # here rather than trusted.
+                                       "CONTRIBUTING.md",
+                                       os.path.join("docs", "contributing",
+                                                    "EXTENSION-CONTRACT.md"),
+                                       os.path.join("docs", "contributing",
+                                                    "FIRST-CAPABILITY-TUTORIAL.md"),
                                        os.path.join("docs", "program", "absolute-lead",
                                                     "MASTER-PLAN-2026-08-06.md")]
         # The L05 visual surface design (docs/program/absolute-lead/
