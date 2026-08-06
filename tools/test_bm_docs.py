@@ -72,6 +72,28 @@ _PACK_SECTIONS = _bpk.SECTIONS
 ACTIVE_DOCS = (
     "README.md",
     "SKILL.md",
+    # THE FIFTEEN COMMAND FILES, added 2026-08-07. They are the surface a user
+    # types at, and they were outside this guard while nine documentation
+    # pages sat inside it. The cost of that was measured, not theorized: the
+    # same stale install sentence that had rotted in the guided skill was
+    # ALSO sitting in commands/brotherme-help.md, and it survived the fix of
+    # the first one because no check could see the second. A user-facing file
+    # this guard cannot read is the defect; the sentence is only its symptom.
+    os.path.join("commands", "brotherme-auto-status.md"),
+    os.path.join("commands", "brotherme-auto.md"),
+    os.path.join("commands", "brotherme-brief.md"),
+    os.path.join("commands", "brotherme-decisions.md"),
+    os.path.join("commands", "brotherme-deliver.md"),
+    os.path.join("commands", "brotherme-handback.md"),
+    os.path.join("commands", "brotherme-handover-pack.md"),
+    os.path.join("commands", "brotherme-help.md"),
+    os.path.join("commands", "brotherme-next.md"),
+    os.path.join("commands", "brotherme-review.md"),
+    os.path.join("commands", "brotherme-start.md"),
+    os.path.join("commands", "brotherme-status.md"),
+    os.path.join("commands", "brotherme-stop.md"),
+    os.path.join("commands", "brotherme-update.md"),
+    os.path.join("commands", "brotherme-view.md"),
     # The GUIDED skill, added 2026-08-07. It is the file a beginner actually
     # reads, and it sat outside this guard while nine less important pages sat
     # inside it: it kept telling users the plugin path had been installed
