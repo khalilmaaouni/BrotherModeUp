@@ -72,6 +72,14 @@ _PACK_SECTIONS = _bpk.SECTIONS
 ACTIVE_DOCS = (
     "README.md",
     "SKILL.md",
+    # The GUIDED skill, added 2026-08-07. It is the file a beginner actually
+    # reads, and it sat outside this guard while nine less important pages sat
+    # inside it: it kept telling users the plugin path had been installed
+    # exactly once and that the clone was the verified path, for a whole
+    # release after the smoke test made that false. A user-facing file that
+    # no truth check can see is the shape of that defect, not an oversight
+    # about one sentence.
+    os.path.join("skills", "brotherme", "SKILL.md"),
     os.path.join("docs", "QUICKSTART.md"),
     os.path.join("docs", "SETUP.md"),
     os.path.join("docs", "RELEASE.md"),
@@ -4561,8 +4569,23 @@ def prose_only(text, is_html):
 
 
 def _read_at(root, rel):
-    with io.open(os.path.join(root, rel), encoding="utf-8") as fh:
-        return fh.read()
+    """Read a page from a fixture root.
+
+    A missing page in a THROWAWAY fixture root is not a defect in the page:
+    these fixtures write the handful of files a test cares about, and
+    ACTIVE_DOCS grew a nested entry (skills/brotherme/SKILL.md) that older
+    fixtures never created. A fixture that lacks a page contributes no prose,
+    which is what an empty string means here. The real tree is never read
+    through this path with a missing file, because the suite's own inventory
+    tests fail first if an ACTIVE_DOCS entry is absent from the repository.
+    """
+    try:
+        with io.open(os.path.join(root, rel), encoding="utf-8") as fh:
+            return fh.read()
+    except (IOError, OSError):
+        if os.path.abspath(root) == os.path.abspath(ROOT):
+            raise
+        return ""
 
 
 def current_pages(root=ROOT):
