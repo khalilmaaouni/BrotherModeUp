@@ -39,8 +39,10 @@ THE FOUR LAWS THIS FILE ENFORCES MECHANICALLY, rather than by prose:
   L-S6  Alerts are derived, never stored. alerts_now is a pure, ordered,
         deduplicated, capped function over rows.
   L-S9  A refusal never reaches the founder unrewritten. REFUSAL_HELP has
-        an entry for every reason code tools/bm_store.py can emit, and a
-        test enumerates them from that file's own source.
+        an entry for every reason code tools/bm_store.py can emit AND for
+        every one tools/bm_controller.py's unattended preflight refuses
+        with, and a test enumerates them from those two files' own
+        sources.
 
 Python 3.9, standard library only. No network, at render time or ever.
 
@@ -2009,18 +2011,25 @@ def surface_for(item):
 # ---------------------------------------------------------------------------
 # 13. EVERY REFUSAL, REWRITTEN
 #
-# L-S9. Keyed by the reason code tools/bm_store.py emits, valued by
+# L-S9. Keyed by the reason code a founder can meet, valued by
 # (context, hint, next_action):
 #
 #   context      what was being attempted, in the founder's words
 #   hint         the cause in plain language, never in the system's terms
 #   next_action  one thing he can say or do
 #
-# tools/test_bm_visual.py enumerates the codes from bm_store.py's own
-# source with ast and fails on any code with no entry here, and on any
-# entry here for a code the store cannot emit. So this map cannot drift in
-# either direction, which is what makes L-S9 mechanical rather than
-# aspirational.
+# TWO MODULES EMIT THOSE CODES, so two scanners enumerate them.
+# tools/test_bm_visual.py reads bm_store.py's OwnershipRefused
+# constructions and bm_controller.py's module-level UNATTENDED_ code
+# constants, both with ast off the shipped source, and fails on any code
+# with no entry here as well as on any entry here that neither module can
+# emit. So this map cannot drift in either direction for either module,
+# which is what makes L-S9 mechanical rather than aspirational.
+#
+# The controller half was added after its seven unattended refusals
+# shipped rewritten in bm_controller.py but absent here, which is how
+# `bm_view.py explain --reason unattended-fence-advisory` came to answer
+# that it was not a reason this product emits.
 #
 # The wording follows references/terminology.md: your project's records
 # rather than the store, your recorded approval rather than a receipt,
@@ -2573,6 +2582,65 @@ REFUSAL_HELP = {
         "a damaged copy was set aside earlier and nobody has said what to "
         "do about it",
         "Ask me what was set aside and I will explain the options."),
+    # The seven below are the UNATTENDED preflight's, and they are a COPY
+    # of tools/bm_controller.py's UNATTENDED_REFUSAL_HELP, word for word,
+    # never a second rewrite of the same seven conditions. Two rewrites
+    # would mean one founder meeting two different answers for one
+    # refusal, so tools/test_bm_visual.py asserts this copy equals that
+    # original and fails on any drift.
+    #
+    # WHY A COPY AND NOT AN IMPORT: bm_controller is one of the two
+    # shipping modules allowed to import subprocess, and tools/bm_view.py
+    # loads THIS file to render a page, so sharing the map by import would
+    # pull subprocess into the render path. The copy is what keeps that
+    # path free of it.
+    "unattended-dirty-tree": (
+        "checking that nothing unfinished is already in the way",
+        "files are already changed here, and an unwatched run on top of "
+        "them makes your work and its work impossible to tell apart "
+        "afterwards",
+        "Save or set aside what you were doing, or name each changed file "
+        "when you start so it is on record that you meant to leave it."),
+    "unattended-fence-advisory": (
+        "checking that the file protection is really switched on",
+        "the protection is in advise-only mode, which means that when it "
+        "cannot check a write it lets the write through and prints a note "
+        "nobody is awake to read",
+        "Switch it to refusing mode in the same terminal you start the "
+        "run from, then start again: export BM_FENCE_MODE=enforced"),
+    "unattended-fence-not-strict": (
+        "checking that the file protection refuses unclaimed edits",
+        "edits to files no piece of work has claimed would be allowed "
+        "through, which is the shape an unwatched run's mistakes take "
+        "most often",
+        "Turn the stricter setting on in the same terminal you start the "
+        "run from, then start again: export BM_FENCE_STRICT=1"),
+    "unattended-foreign-claim": (
+        "checking that nobody else is holding the files this run will "
+        "write",
+        "another session already claimed one of them, and two writers "
+        "over one file is the failure this product exists to prevent",
+        "Wait for that session to finish, or have it hand the files over, "
+        "then start again."),
+    "unattended-no-identity": (
+        "getting ready to run on its own, with nobody watching",
+        "the run has no stable name for itself, or its records could not "
+        "be read, so a second attempt could not tell that it was the same "
+        "run coming back",
+        "Give the run the same session name every time you start it, and "
+        "check that BrotherMode is set up in this folder."),
+    "unattended-no-repository": (
+        "finding the version history this run could be undone from",
+        "this folder is not a tracked project, or it is not sitting on a "
+        "named branch, so there would be no way to put the files back",
+        "Run it from a tracked project on its own branch, and check that "
+        "branch out by name first."),
+    "unattended-no-snapshot": (
+        "taking the safety copy this run could be rewound to",
+        "the safety copy could not be taken, so there would be nothing to "
+        "rewind to if the run went wrong",
+        "Check that the project's version history is healthy, then start "
+        "again."),
     "unit-id-taken": (
         "planning a step",
         "another step already has that name in this run",
