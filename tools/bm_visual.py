@@ -2123,6 +2123,20 @@ REFUSAL_HELP = {
         "opening your project records",
         "this project has no records yet",
         "Say the word and I will set them up."),
+    # Built by _read_only_refusal rather than raised with a literal code, so
+    # the guard that walks literal raises in tools/test_bm_visual.py cannot
+    # see it. It was the one reason code with no entry here, which made
+    # "explain --reason store-unreadable" answer that the product never emits
+    # it. It does.
+    "store-unreadable": (
+        "reading your project records without changing anything",
+        "the records could not be opened for reading, and the records "
+        "themselves are fine: nothing was written, moved or renamed. This "
+        "happens when the folder they live in is not writable, because "
+        "reading them still needs a small scratch file alongside them",
+        "Run any normal command once in a place you can write to, which "
+        "tidies that away, or copy the whole records folder somewhere "
+        "writable and look at it there."),
     "no-successor": (
         "retiring a rule",
         "nothing is named to take its place, and retiring it would leave "
