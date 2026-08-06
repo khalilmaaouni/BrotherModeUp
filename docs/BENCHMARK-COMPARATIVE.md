@@ -247,3 +247,40 @@ anyone reports is filled from `checks.json`, never from memory.
 - **Blind grading is blind, not independent.** The grader is still a person
   or model chosen by this project. The shuffle removes arm identity, not
   affiliation.
+
+## Results, first recorded run, 2026-08-06 (INTERNAL EVIDENCE)
+
+Filled from checks.json only, per the artifacts law above. Twelve of
+twelve cells ran to completion with authenticated nested sessions; no
+cell was SKIPped. Every number below is INTERNAL EVIDENCE: it compares
+this product's two arms on its own harness and proves nothing about
+anyone else's work.
+
+| Task | Check | Arm A (plain) | Arm B (digest) |
+|---|---|---|---|
+| T1 | T1C1 | PASS | PASS |
+| T1 | T1C2 | PASS | PASS |
+| T1 | T1C3 | PASS | PASS |
+| T2 | T2C1 | PASS | PASS |
+| T2 | T2C2 | PASS | PASS |
+| T2 | T2C3 | PASS | PASS |
+| T3 | T3C1 | PASS | PASS |
+| T3 | T3C2 | PASS | PASS |
+| T3 | T3C3 | PASS | PASS |
+| T4 | T4C1 | PASS | PASS |
+| T4 | T4C2 | PASS | PASS |
+| T4 | T4C3 | PASS | PASS |
+| T5 | T5C1 | PASS | PASS |
+| T5 | T5C2 | PASS | PASS |
+| T6 | T6C1 | PASS | PASS |
+| T6 | T6C2 | PASS | PASS |
+
+Artifact directories, one per cell, named by their UTC start stamps:
+T1: A 20260806T110229Z, B 20260806T110301Z. T2: A 20260806T110346Z, B 20260806T110407Z. T3: A 20260806T110441Z, B 20260806T110505Z. T4: A 20260806T110535Z, B 20260806T110604Z. T5: A 20260806T110637Z, B 20260806T110706Z. T6: A 20260806T110732Z, B 20260806T110816Z. 
+
+Every deterministic check passed in BOTH arms. Stated plainly rather
+than spun: at this task size the deterministic checks did not
+discriminate between the arms, and the discriminating evidence, if any,
+now rests on the two blind judgment cells (T4 wording, T6 handover),
+whose grade is PENDING: the X and Y packs are prepared and the
+arm mapping stays sealed until every rubric line is scored.

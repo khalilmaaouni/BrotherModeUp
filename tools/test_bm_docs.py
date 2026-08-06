@@ -254,6 +254,88 @@ class TestNoStaleCurrentNumbers(unittest.TestCase):
                           "the unlisted tools are ungated" % rel)
 
 
+class TestNoTypedCurrentStateIdentity(unittest.TestCase):
+    """The 2026-08-07 release-critical class: an active page typed a version
+    identity into current-state prose ("currently reads 2.0.0-rc.12.dev1")
+    and it survived two releases unnoticed, on two pages. The calibration run
+    that built this test found the second page (docs/SETUP.md) before the
+    test existed. Current-state phrases plus a version literal on one line is
+    the shape; historical entries name their date instead of these phrases,
+    which is why RELEASE.md's dated CURRENT STATE records do not trip it."""
+
+    PHRASES = re.compile(
+        r"currently reads|currently running|development tree reads|"
+        r"current tree reads|version in this checkout|this checkout is|"
+        r"current development identity|tree itself currently reads",
+        re.IGNORECASE)
+    VERSION_LITERAL = re.compile(r"\b\d+\.\d+\.\d+(?:[.-]\w+)*\b")
+
+    # The exact sentences that went stale in real life, byte for byte from
+    # the pages they sat on. sbe note for the claim detector exemption list:
+    # these are hostile fixtures, present tense on purpose.
+    STALE_FIXTURES = (
+        "development tree itself currently reads `2.0.0-rc.12.dev1`, a "
+        "development identity rather than a tagged release",
+        "The development tree itself currently reads `2.0.0-rc.12.dev1`",
+    )
+
+    def _offenders_in(self, text):
+        hits = []
+        for i, line in enumerate(text.split("\n"), 1):
+            if self.PHRASES.search(line) and self.VERSION_LITERAL.search(line):
+                hits.append("%d: %s" % (i, line.strip()[:90]))
+        return hits
+
+    def test_the_original_stale_sentences_are_caught(self):
+        for fixture in self.STALE_FIXTURES:
+            self.assertNotEqual(
+                self._offenders_in(fixture), [],
+                "the detector no longer catches the exact sentence that went "
+                "stale in real life: %r" % fixture[:60])
+
+    def test_no_active_page_types_an_identity_into_current_state_prose(self):
+        offenders = []
+        for rel in ACTIVE_DOCS:
+            for hit in self._offenders_in(read(rel)):
+                offenders.append("%s:%s" % (rel, hit))
+        self.assertEqual(
+            offenders, [],
+            "an active page types a version identity into current-state "
+            "prose (%s). Versions come from cat VERSION or "
+            "bm_project_facts.py, never typed; a typed identity goes stale "
+            "the day after it is written." % "; ".join(offenders))
+
+    def test_no_active_page_describes_the_removed_rename_hazard_as_current(self):
+        """The second 2026-08-07 class: docs/QUICKSTART.md explained a
+        mid-run module rename that tools/test_all.py's own header says the
+        P9 fix round removed. Present-tense rename claims are offenders;
+        a line whose surrounding three lines say HISTORICAL, once, or
+        removed is history telling the truth about itself."""
+        pat = re.compile(r"rename[s]?\s+a\s+module\s+aside")
+        # NOT a bare "once": the real stale sentence says "two at once can
+        # corrupt each other", which this fixture proved would self-excuse.
+        history = re.compile(r"HISTORICAL|once renamed|removed", re.IGNORECASE)
+        offenders = []
+        for rel in ACTIVE_DOCS:
+            lines = read(rel).split("\n")
+            for i, line in enumerate(lines):
+                if pat.search(line):
+                    around = "\n".join(lines[max(0, i - 2):i + 3])
+                    if not history.search(around):
+                        offenders.append("%s:%d" % (rel, i + 1))
+        self.assertEqual(
+            offenders, [],
+            "an active page describes the removed mid-run module rename as "
+            "current behavior (%s); tools/test_all.py's header records its "
+            "removal in the P9 fix round." % "; ".join(offenders))
+        stale = ("the suites rename a module aside mid-run, so two at once "
+                 "can corrupt each other")
+        self.assertTrue(
+            pat.search(stale) and not history.search(stale),
+            "the detector no longer catches the exact rename sentence that "
+            "went stale in real life")
+
+
 class TestHandWiringBlocksMatchInstaller(unittest.TestCase):
     """The copy-paste JSON blocks shipped five events for weeks while every
     prose check nearby stayed green, because no test ever parsed them: the

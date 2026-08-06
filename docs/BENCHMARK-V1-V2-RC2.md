@@ -1,3 +1,5 @@
+Status: HISTORICAL record. Kept as written for the period it describes; it is not a description of the current tree.
+
 # Feature by feature: V1, V2 as audited, V2 as it stands now, and native Claude Code
 
 Written 2026-07-27. Every number here is a judgement, not a measurement, EXCEPT

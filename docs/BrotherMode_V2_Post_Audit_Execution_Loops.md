@@ -1,3 +1,5 @@
+Status: HISTORICAL record. Kept as written for the period it describes; it is not a description of the current tree.
+
 # BrotherMode V2 Post-Audit Execution Loops
 
 ## Purpose
