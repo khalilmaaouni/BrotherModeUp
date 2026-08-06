@@ -90,7 +90,7 @@ page deliberately does not type that identity by hand: a typed version goes
 stale the day after it is written; `docs/RELEASE.md` explains why.
 
 ```bash
-git clone --branch v2.1.0 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.1.1 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 Expected: git prints a few lines ending in something like `Resolving deltas:
