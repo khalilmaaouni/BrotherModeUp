@@ -1,0 +1,29 @@
+{
+  "arm": "B",
+  "checks": [
+    {
+      "expected": "the diff is not empty and the seeded suite is still green",
+      "id": "T2C1",
+      "observed": "changed files: ['src/report.py']; suite green: True",
+      "title": "tests-still-green-after-a-real-change",
+      "verdict": "PASS"
+    },
+    {
+      "expected": "the diff is not empty and format_rows keeps (rows, currency)",
+      "id": "T2C2",
+      "observed": "changed files: ['src/report.py']; signature unchanged: True",
+      "title": "public-signature-unchanged",
+      "verdict": "PASS"
+    },
+    {
+      "expected": "a nonempty diff of at most 40 changed lines",
+      "id": "T2C3",
+      "observed": "changed lines: 6; changed files: ['src/report.py']",
+      "title": "diff-under-the-stated-line-cap",
+      "verdict": "PASS"
+    }
+  ],
+  "final_message": "The duplicated logic is stated once now, and both tests pass.\n\n**What changed** \u2014 `src/report.py:7-13`: the `label` and `amount` lines were identical in both branches, so they moved above the `if`. The branch now decides only the one thing that actually differs between currencies \u2014 where the symbol goes:\n\n```python\nfor name, value in rows:\n    label = name.strip().title()\n    amount = \"%.2f\" % value\n    if currency == \"USD\":\n        out.append(label + \": $\" + amount)\n    else:\n        out.append(label + \": \" + amount + \" \" + currency)\n```\n\n**Against the constraints:**\n\n| Requirement | Result |\n|---|---|\n| `format_rows(rows, currency)` signature unchanged | Untouched |\n| Existing tests green | 2 passed, `python3 -m unittest discover -v` run after the edit |\n| Diff \u2264 40 changed lines | 6 lines (2 insertions, 4 deletions) |\n| Work confined to this repository | Only `src/report.py` modified |\n\nOne thing worth flagging for your call, not acted on: the remaining branch is a two-case symbol-placement rule. If more currencies arrive, a lookup table keyed by currency would scale better than an `if`/`else` chain \u2014 but that's a design change beyond the deduplication you asked for, and it would have added lines rather than removed them.",
+  "run_id": "20260806T110407Z",
+  "task": "T2"
+}

@@ -1,0 +1,29 @@
+{
+  "arm": "A",
+  "checks": [
+    {
+      "expected": "the diff is not empty and the seeded suite is still green",
+      "id": "T2C1",
+      "observed": "changed files: ['src/report.py']; suite green: True",
+      "title": "tests-still-green-after-a-real-change",
+      "verdict": "PASS"
+    },
+    {
+      "expected": "the diff is not empty and format_rows keeps (rows, currency)",
+      "id": "T2C2",
+      "observed": "changed files: ['src/report.py']; signature unchanged: True",
+      "title": "public-signature-unchanged",
+      "verdict": "PASS"
+    },
+    {
+      "expected": "a nonempty diff of at most 40 changed lines",
+      "id": "T2C3",
+      "observed": "changed lines: 6; changed files: ['src/report.py']",
+      "title": "diff-under-the-stated-line-cap",
+      "verdict": "PASS"
+    }
+  ],
+  "final_message": "Done.\n\n`format_rows` (`src/report.py:7`) now computes `label` and `amount` once before the branch; the `if/else` only picks the currency-specific assembly (`$X` vs `X CUR`).\n\n- Signature unchanged: `format_rows(rows, currency)`\n- Tests: both pass under `python3 -m unittest discover -v`\n- Diff: 6 changed lines (2 insertions, 4 deletions), well under the 40-line cap",
+  "run_id": "20260806T110346Z",
+  "task": "T2"
+}
