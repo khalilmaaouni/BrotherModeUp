@@ -181,4 +181,216 @@ surprised. That a size and mtime hash is sufficient in practice for the tree
 facts; that the controller unit loop has a clean call site for the tick; and
 that the two new alert kinds slot into `alerts_now` without disturbing its
 deduplication. All three are implementation risks for the agent that builds
-step 1 to settle, not findings.
+step 1 to settle, not findings. AMENDED BELOW: the size and mtime assumption
+was refuted the same night and is superseded by the content-hash rule in
+amendment section B2.
+
+---
+
+# AMENDMENT 1, 2026-08-06 NIGHT
+
+Written after the design's first live exercise (DRIFT-AUDIT-1, wave 17) and a
+nineteen-finding refutation of the amendment's own draft by three independent
+refuters (suppression, misfire, cost) plus two auditors, sixteen findings
+reproduced against source with file and line evidence. The load-bearing
+decision stands: one trigger nothing the orchestrator writes can suppress,
+plus one that fires from inside the controller loop. Everything below closes
+holes around that spine. Where this amendment contradicts the base text above,
+the amendment wins.
+
+## A. TWO LAYERS, AND THE DISPATCH OBLIGATION THAT CANNOT BE DROPPED
+
+The base design asks the in-process watchdog commit-shaped questions, but
+bm_lead.py may never import subprocess (tools/test_bm.py bans it outside
+bm_autosave.py and bm_controller.py), so it can never read a commit. The first
+real audit worked only because it was a dispatched agent. Therefore:
+
+- LAYER 1, the tick: in-process in bm_lead.py, no subprocess ever. Owns the
+  five-rule cadence, every store-row check (tiers declared, fence before
+  agent, claim receipt linkage, registry staleness), the tree fingerprint,
+  and the EMISSION of layer 2 briefs.
+- LAYER 2, the audit agent: read-only, cheapest tier that can read a diff,
+  answers the commit-shaped questions and the one model question.
+
+The refuted hole: layer 1 cannot dispatch an agent, so the ORCHESTRATOR must,
+which is three suppression points (never dispatch, never relay, filter the
+relay). Closure: on brief emission layer 1 writes an OPEN obligation row in
+the same open-versus-answered shape as a finding. The brief names a drop-box
+file path; the layer 2 agent writes its findings there; layer 1 ingests the
+file directly at the next tick with os.stat plus read, no subprocess and no
+orchestrator relay, validating against the schema before any row lands. A
+brief with no ingested drop-box after K ticks or one founder boundary becomes
+an automatic high-severity finding named audit-not-dispatched, printed by
+bm_sessionstart.sh beside the open findings.
+
+## B. AN AUDIT ON A MOVING TREE, WITHOUT THE STALL THE FIX WOULD CAUSE
+
+B1. DRIFT-AUDIT-1 watched a file change underneath it and could only warn in
+prose (the M12 class). But whole-tick voiding, the obvious fix, was refuted:
+a busy run's tree moves by construction (the controller writes between units;
+bm_view render writes in the same Stop chain), so voiding every observation
+on any mismatch stalls every substantive audit forever, and the stall can be
+provoked deliberately. Closure: void PER OBSERVATION. Each check names the
+paths it read; only observations whose named paths moved are voided, the rest
+land. Small files are snapshotted into memory at tick open so most checks
+cannot race at all. Consecutive whole-tick voids are capped at a small N,
+after which the tick records a high-severity finding named audit-starved and
+the store-row-only checks, which need no tree fingerprint, run
+unconditionally. A void or starved finding NEVER advances or resets the floor
+counter.
+
+B2. The size-plus-mtime fingerprint was refuted in both directions: a
+same-size edit can pass unseen, and a byte-identical re-render trips a false
+move that feeds the stall above. Closure: content hash for every file under a
+size ceiling (store rows, registry, evidence files are all small), with
+size-plus-mtime only as the cheap prefilter that decides WHEN to re-hash,
+never as the verdict.
+
+B3. The fingerprinted slice is BOUNDED and named: git-tracked source files
+only, explicitly excluding .git/, .brothermode/ and every runtime data
+directory. The repository holds 373 untracked files including the live store
+and its wal, which a sibling hook program writes at the same boundary; an
+unbounded slice would void every tick by observing its own machinery.
+
+## C. RECEIPTS: CLAIMS BECOME AUDITABLE, AND SCOPE IS PART OF THE CHECK
+
+DRIFT-AUDIT-1 could not tell a fresh test number from a copied one and could
+not check push claims at all, because the account holds prose. Closure: one
+new append-only table, gate_receipts, written by a thin wrapper AROUND a
+suite or verifier invocation after its process exits, reading its exit code
+and last output line. Never from inside test code: a receipt write is a store
+write, deliberately invisible to the tracked-file cleanliness guard from
+447b73c, and that is stated here so nobody reads the silence as a hole later.
+Each receipt: type, command string, exit code, last line verbatim, wall
+seconds, tree fingerprint, timestamp.
+
+Receipts are TYPED: gate, full-suite, sub-suite, verifier, push. The refuted
+hole: an untyped receipt lets a claim of repository-wide green cite a genuine
+receipt for one sub-suite, passive drift with no forgery. Closure: layer 1
+maps claim kinds to required receipt types; green, passed or done on the
+repository requires a gate or full-suite receipt; a sub-suite receipt
+satisfies only a claim scoped to that suite; the mismatch is a finding named
+receipt-underscoped. The claim's OWN tree fingerprint is recorded at claim
+time, so edit-then-revert after claiming is detectable. Two claims citing one
+receipt across two commits is the copied-forward finding. A push claim
+requires a push receipt with the three hashes (HEAD, upstream, ls-remote)
+equal at verification time. Honesty bound, unchanged: a forged receipt is
+active fraud and out of scope; the floor rule still fires on silence; the
+capability register row says exactly this.
+
+## D. DETECTION WITHOUT COLLATERAL DAMAGE, AND WITHOUT AN ESCAPE HATCH
+
+The F3 incident is the constraint: a hook misread a worker's plan section as
+a completion claim and the worker burned its whole output answering it. The
+draft fix (discard matches under plan-like headings) was refuted twice: the
+orchestrator authors the headings, so the allowlist is an escape hatch; and
+commit messages have no headings at all, so there is no structure to read.
+
+Closure, three rules:
+
+1. AUDIENCE. The watchdog audits the orchestrator's account. Findings go to
+   rows and the founder surface. No hook challenges a subagent mid-turn, and
+   hook text attached to any turn is bounded to one line naming row ids.
+2. DETECTION. For commit messages the deterministic check is receipt linkage:
+   a message claiming done, fixed, works, green or passed must carry a
+   receipt reference, and keyword hits are counted only outside quoted
+   output lines. For structured documents, matches inside plan-marked
+   sections are never hook-challenged and never charged to any agent, but
+   they are NOT discarded: they pass to layer 2 as low-confidence candidates,
+   so a claim hiding under a Plan heading surfaces in audit rather than
+   vanishing.
+3. ANSWERING. The obligation to answer belongs to the orchestrator, due at
+   the EARLIER of the next loop close or K floor firings after the finding
+   opened, K counted from the same non-suppressible Stop counter as rule 1,
+   because a loop close is itself an orchestrator-written event. A finding
+   open past that age escalates: the tick itself writes an escalation
+   finding, so silence compounds instead of hiding. An OPEN finding replays
+   at EVERY founder boundary until answered, not once.
+
+## E. THE REGISTRY STALENESS CHECK, CALIBRATED AGAINST THE REAL REGISTRY
+
+The idea survived review; the draft grammar did not. Refuted: QUEUED fences
+(wave 20 FENCE D, wave 21 FENCE F) would be flagged though dormant by design,
+and marking them LANDED would silently erase undone work, inverting the north
+star objective this watchdog serves; markers live on continuation lines of a
+fence BLOCK, not on the opening line; and an empty declared-file list makes
+the landed-files branch vacuously true, which would flag ten provisional
+rows on the first tick and bury every real finding.
+
+Closure: the unit of inspection is the fence BLOCK, from its opening line to
+the next entry or heading. QUEUED is a first-class state: exempt from both
+staleness branches until dispatch, with TTL counted from the dispatched
+timestamp; but a QUEUED block whose named dependency has itself landed
+becomes a DIFFERENT finding, queued-and-ready-never-dispatched, which
+preserves the obligation instead of erasing it. The landed-files branch
+requires a non-empty file list and tests whether the fence's OWN unit landed,
+not whether its files appear in anybody's landed work. PROVISIONAL records
+with no files are excluded from this check and reported once, low severity,
+as record-never-scoped. The parser ships calibrated against the real
+STATE.md as a fixture: zero findings on the blocks known closed, one finding
+on each wave 17 fence known stale the night this was written.
+
+## F. THE FLOOR LIVES OUTSIDE THE STORE IT AUDITS
+
+Refuted twice from two sides: the base design defers the tick's row write on
+store contention, and the draft required every tick to write a row, a direct
+contradiction; worse, the floor counter itself lived in the same store, so
+sustained contention at Stop boundaries, which the orchestrator or any
+process it starts can cause with an open write transaction against a 5000ms
+busy timeout inside a shared 30 second hook budget, would freeze the floor
+silently, defeating the one property the design says makes it work.
+
+Closure: a SIDECAR under .brothermode/, an O_APPEND one-line-per-firing file
+(or its own tiny database), written FIRST on every Stop firing,
+unconditionally, in microseconds, before any main-store work is attempted.
+The floor counts sidecar lines, which no store lock can touch. The
+drift_ticks row in the main store is then attempted with its OWN short busy
+timeout, tens of milliseconds, so it can never become the contention it
+records; only drift_findings content defers to the next uncontended tick. A
+gap between the sidecar count and the drift_ticks count IS the starvation
+pattern, reported as a finding at the next uncontended tick. The tick also
+opens its sidecar line before any check runs; a later tick finding an
+unclosed line converts it to skip reason crashed, and two consecutive
+crashes are a finding, so the house fail-open posture can no longer hide a
+provoked crash.
+
+## G. THE RISK DIAL IS NOT TURNED BY THE PARTY IT MEASURES
+
+Refuted: rule 4 tightened on confirmed findings and relaxed while the run
+stayed clean, but the only confirmation path is the orchestrator answering
+its own findings, so answering everything as not-a-real-finding relaxes the
+audit. Closure: thresholds tighten on RECORDED findings, the open rows, not
+confirmed ones. They relax only on ticks that ran to completion and found
+nothing, never on answered-away findings, and never past their defaults
+before the founder has seen the playback. A streak of not-a-real-finding
+answers above a small ratio is itself a deterministic layer 1 finding named
+self-acquittal-pattern.
+
+## H. COST BOUNDS, STATED AS NUMBERS
+
+The Stop hook budget is one shared 30 seconds across four chained programs.
+The tick therefore carries an explicit wall ceiling, sub-200 milliseconds
+typical, short-circuits before any stat or SQL work when no cadence rule is
+due, and aborts recording skip reason budget when the ceiling is hit. The
+known unbounded query, Store.active_minutes_since at tools/bm_store.py:15617,
+which reads every attribution row and filters in Python, gains its SQL time
+bound as a PRECONDITION of plan step 1, restated here because cadence rule 2
+multiplies how often that path runs and the base design had already flagged
+it without assigning the fix to a step.
+
+## AMENDED PLAN STEPS
+
+Step 1 grows: gate_receipts (typed) beside drift_findings and drift_ticks,
+the sidecar writer, and the SQL time bound on active_minutes_since. Step 2
+grows: drift_due, the brief emitter with obligation rows and drop-box
+ingestion, and the registry staleness parser calibrated against the real
+STATE.md fixture. Step 5 grows: the sessionstart print includes voided
+ticks, skip and crash streaks, sidecar-versus-ticks gaps, and unanswered
+finding escalations beside the open finding ids. New step 8: the claim
+detector, with fixture tests proving a plan section, a future-tense sentence
+and a quoted specification do NOT match while a past-tense claim does, AND
+an explicit exemption list naming the fixture file itself with its reason
+written beside it, pinned by a test so removing the file without the
+exemption fails, which is the M11 lesson applied in advance instead of
+rediscovered mid-collision. Step 9 is the former step 7, the full gate on a
+quiet tree.
