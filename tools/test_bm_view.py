@@ -390,6 +390,22 @@ class ViewCase(unittest.TestCase):
         html, fp = bw.build_page(self.store, pid)
         return html, fp, Doc(html)
 
+    def make_task(self, task_id, pid="p1", **kw):
+        row = {"task_id": task_id, "project_id": pid,
+              "title": "wire the form", "status": "ready"}
+        row.update(kw)
+        self.store.create_task(row, self.actor)
+        return row
+
+    def add_evidence(self, subject_type, subject_id, pid="p1", **kw):
+        row = {"evidence_id": "ev-%s" % subject_id, "subject_type":
+               subject_type, "subject_id": subject_id, "kind": "check",
+               "ref": "python3 tools/test_bm_view.py",
+               "created_at": self.clock.iso()}
+        row.update(kw)
+        self.store.add_evidence(row, pid, self.actor)
+        return row
+
 
 class _Clock(object):
     """A controllable now_iso, shape copied from tools/test_bm_lead.py."""
@@ -557,14 +573,16 @@ class TestConsentIsTheOnlyDoorForTheView(ViewCase):
 
 class TestEverySectionRenders(ViewCase):
 
-    def test_view_sections_has_twelve_entries_in_the_designed_order(self):
-        self.assertEqual(12, len(bw.VIEW_SECTIONS))
+    def test_view_sections_has_fifteen_entries_in_the_designed_order(self):
+        self.assertEqual(15, len(bw.VIEW_SECTIONS))
         anchors = [s[0] for s in bw.VIEW_SECTIONS]
         self.assertEqual(
-            ["header", "needs-you", "next-step", "pipeline", "counts",
-             "decisions", "insights", "gates", "lanes", "timeline",
-             "your-move", "help"], anchors,
-            "the twelve anchors of design section 4.2, in that order")
+            ["header", "needs-you", "next-step", "pipeline", "progress",
+             "counts", "risks", "decisions", "insights", "gates", "lanes",
+             "documents", "timeline", "your-move", "help"], anchors,
+            "design section 4.2's twelve anchors plus the three the "
+            "progress surface loop added (progress, risks, documents), "
+            "in that order")
         for entry in bw.VIEW_SECTIONS:
             self.assertEqual(4, len(entry),
                              "(anchor_id, heading, renderer_name, "
@@ -1464,6 +1482,184 @@ class TestAlertHookEmitsWellFormedJson(ViewCase):
                         "the JSON emitting program must be the LAST on "
                         "the Stop line so its output is what the harness "
                         "reads")
+
+
+# ---------------------------------------------------------------------------
+# 13.2 class 17: the progress surface (progress, risks, documents)
+# DESIGN-progress-surface.md
+# ---------------------------------------------------------------------------
+
+class TestProgressRisksAndDocumentsSections(ViewCase):
+
+    def test_zero_tasks_renders_the_designed_empty_states(self):
+        self.seed()
+        _html, _fp, doc = self.page()
+        for anchor in ("progress", "documents"):
+            body = Doc.text_of(doc.by_id(anchor))
+            self.assertTrue(body.strip(),
+                            "#%s rendered blank on a zero task project"
+                            % anchor)
+        self.assertIn(bw.EMPTY_STATES["progress"]["title"],
+                      Doc.text_of(doc.by_id("progress")))
+        self.assertIn(bw.EMPTY_STATES["documents"]["title"],
+                      Doc.text_of(doc.by_id("documents")))
+
+    def test_one_task_shows_its_lane_and_its_state(self):
+        self.seed()
+        self.make_task("t1", title="wire the form", status="ready",
+                       assigned_human="Khalil")
+        _html, _fp, doc = self.page()
+        text = Doc.text_of(doc.by_id("progress"))
+        self.assertIn("wire the form", text)
+        self.assertIn("ready", text)
+        self.assertIn("you", text)
+
+    def test_a_blocked_task_shows_what_blocks_it_and_the_recorded_action(
+            self):
+        self.seed()
+        self.make_task("t1", title="collect the payment settings",
+                       status="ready", assigned_human="Khalil")
+        self.store.transition_task("t1", "active", "fixture", self.actor)
+        self.make_task("t2", title="send the confirmation email", status="ready",
+                       depends_on=["t1"], assigned_runtime="claude-code",
+                       blockers=["waiting on the payment settings"])
+        _html, _fp, doc = self.page()
+        text = Doc.text_of(doc.by_id("progress"))
+        self.assertIn("send the confirmation email", text)
+        self.assertIn("collect the payment settings", text,
+                      "the blocking task must reach the page as a name, "
+                      "not a bare identifier")
+        self.assertNotIn("t1", text.split("collect the payment settings")[0]
+                         .split("\n")[-1],
+                         "a raw task id must never sit in visible body "
+                         "text")
+
+    def test_progress_traces_forward_and_backward(self):
+        self.seed()
+        self.make_task("t1", title="wire the form", status="ready")
+        self.make_task("t2", title="send the confirmation email", status="planned")
+        _html, _fp, doc = self.page()
+        section = doc.by_id("progress")
+        found = set()
+        for node in doc.walk(section):
+            tag = node.attrs.get("data-bm-trace") or ""
+            if tag.startswith("t:"):
+                found.add(tag.split(":", 1)[1])
+        self.assertEqual({"t1", "t2"}, found)
+
+    def test_finished_over_planned_is_the_only_fraction_stated_in_words(
+            self):
+        self.seed()
+        self.make_task("t1", title="wire the form", status="ready")
+        self.store.transition_task("t1", "active", "fixture", self.actor)
+        for state in ("awaiting review", "verified", "accepted"):
+            self.store.transition_task("t1", state, "fixture", self.actor)
+        self.make_task("t2", title="send the confirmation email", status="planned")
+        _html, _fp, doc = self.page()
+        text = Doc.text_of(doc.by_id("progress"))
+        self.assertIn("1 of 2 finished in this lane", text)
+
+    def test_zero_risks_renders_the_designed_empty_state(self):
+        self.seed()
+        _html, _fp, doc = self.page()
+        body = Doc.text_of(doc.by_id("risks"))
+        self.assertIn(bw.EMPTY_STATES["risks"]["title"], body)
+
+    def test_a_risk_with_no_mitigation_says_so_rather_than_a_blank_line(
+            self):
+        self.seed()
+        self.record(_insight(kind="RISK", subject="the refund window",
+                             claim="refunds may exceed the agreed budget",
+                             flip_condition="", evidence_class="REASONED",
+                             evidence=""))
+        _html, _fp, doc = self.page()
+        text = Doc.text_of(doc.by_id("risks"))
+        self.assertIn("the refund window", text)
+        self.assertIn("no mitigation recorded", text,
+                      "an empty mitigation must say so; a blank line "
+                      "reads as safe")
+
+    def test_a_risk_with_a_mitigation_shows_it_and_its_owner(self):
+        self.seed()
+        self.record(_insight(kind="RISK", subject="the retry storm",
+                             claim="retries may exceed the rate limit",
+                             flip_condition="cap retries at three per "
+                                            "minute"))
+        _html, _fp, doc = self.page()
+        text = Doc.text_of(doc.by_id("risks"))
+        self.assertIn("cap retries at three per minute", text)
+
+    def test_zero_finished_tasks_renders_the_documents_empty_state(self):
+        self.seed()
+        self.make_task("t1", title="wire the form", status="ready")
+        _html, _fp, doc = self.page()
+        self.assertIn(bw.EMPTY_STATES["documents"]["title"],
+                      Doc.text_of(doc.by_id("documents")))
+
+    def test_a_finished_task_shows_its_produced_paths_and_its_checks(self):
+        self.seed()
+        self.make_task("t1", title="wire the form", status="ready",
+                       expected_outputs=["widget/booking_form.py"])
+        for state in ("active", "awaiting review", "verified", "accepted"):
+            self.store.transition_task("t1", state, "fixture", self.actor)
+        self.add_evidence("task", "t1", kind="test run",
+                          ref="python3 tools/test_bm_view.py")
+        _html, _fp, doc = self.page()
+        text = Doc.text_of(doc.by_id("documents"))
+        self.assertIn("widget/booking_form.py", text)
+        self.assertIn("test run", text)
+        self.assertIn(self.clock.iso().rsplit("T", 1)[0], text,
+                      "a check must carry the timestamp it ran at")
+
+    def test_a_finished_task_with_no_recorded_path_still_renders(self):
+        self.seed()
+        self.make_task("t1", title="wire the form", status="ready")
+        for state in ("active", "awaiting review", "verified", "accepted"):
+            self.store.transition_task("t1", state, "fixture", self.actor)
+        _html, _fp, doc = self.page()
+        text = Doc.text_of(doc.by_id("documents"))
+        self.assertIn("no path recorded", text)
+
+    def test_a_very_long_task_title_does_not_break_the_page(self):
+        self.seed()
+        long_title = "wire " + "a very long form title " * 30
+        self.make_task("t1", title=long_title, status="ready")
+        _html, _fp, doc = self.page()
+        self.assertIsNotNone(doc.by_id("progress"))
+        text = Doc.text_of(doc.by_id("progress"))
+        self.assertIn("wire", text)
+
+    def test_a_non_ascii_task_title_renders_on_the_page(self):
+        self.seed()
+        self.make_task("t1", title=u"café orders ✅", status="ready")
+        _html, _fp, doc = self.page()
+        text = Doc.text_of(doc.by_id("progress"))
+        self.assertIn(u"café", text)
+
+    def test_no_internal_term_leaks_when_all_three_sections_are_populated(
+            self):
+        self.seed()
+        self.make_task("t1", title="collect the payment settings",
+                       status="ready", assigned_human="Khalil")
+        self.make_task("t2", title="send the confirmation email", status="ready",
+                       depends_on=["t1"], assigned_runtime="claude-code",
+                       blockers=["waiting on the payment settings"],
+                       expected_outputs=["widget/confirmation.py"])
+        for state in ("active", "awaiting review", "verified", "accepted"):
+            self.store.transition_task("t2", state, "fixture", self.actor)
+        self.add_evidence("task", "t2")
+        self.record(_insight(kind="RISK", subject="the refund window",
+                             claim="refunds may exceed the agreed budget"))
+        _html, _fp, doc = self.page()
+        haystack = _strip_command_tokens(doc.visible_text()).lower()
+        terms = _terminology_terms()
+        self.assertTrue(terms)
+        leaked = sorted({t for t in terms
+                         if re.search(r"\b%s\b" % re.escape(t.lower()),
+                                      haystack)})
+        self.assertEqual([], leaked,
+                         "internal term(s) leaked once progress, risks "
+                         "and documents are populated: %s" % leaked)
 
 
 if __name__ == "__main__":

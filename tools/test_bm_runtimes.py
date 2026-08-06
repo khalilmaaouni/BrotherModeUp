@@ -423,7 +423,7 @@ class TestEmitIsNonDestructiveAndRefusesCleanly(unittest.TestCase):
     def test_an_unknown_runtime_is_refused_and_nothing_is_written(self):
         with tempfile.TemporaryDirectory() as d:
             _new_project(d)
-            r = _run(["emit", "--runtime", "cursor"], d)
+            r = _run(["emit", "--runtime", "not-a-real-runtime"], d)
             self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
             self.assertIn("unknown runtime", r.stderr)
             self.assertFalse(os.path.exists(os.path.join(d, "docs", "runtimes")))
