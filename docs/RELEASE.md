@@ -251,6 +251,25 @@ run of it as a test of the runbook, not just of the code.
    to use it, and when it matters, and it declares on the page that it is
    kept current by rule (founder directive 2026-08-01). A release that
    changes a feature and ships the old explainer breaks that declared rule.
+2b. **Re-pin the plugin marketplace install command.** Bump
+   `PUBLIC_INSTALL_TAG` in `tools/bm_project_facts.py` to the tag this
+   release is about to become, in the same change as step 2, so
+   `install_target_tag` names it. Then update the `claude plugin
+   marketplace add khalilmaaouni/BrotherModeUp@<tag>` line on every install
+   page (`README.md`, `docs/QUICKSTART.md`, `docs/SETUP.md`) to the same
+   tag, byte identical across all three. Run `python3 tools/test_bm_docs.py`
+   and read the pass: it fails a page whose pin disagrees with
+   `install_target_tag`. This step exists because the two install paths
+   this project calls interchangeable used not to be equally auditable:
+   the pinned git-clone command already named an immutable tag, while the
+   two-command plugin install tracked the repository's moving default
+   branch with no ref pinned at all, so code that runs automatically on
+   every future session was easiest to install in its least checkable
+   form. Anthropic's plugin marketplace format resolves an `owner/repo@ref`
+   marketplace source to that exact branch or tag on every add and every
+   later refresh, per the CLI reference for `claude plugin marketplace add`
+   at https://code.claude.com/docs/en/plugin-marketplaces, which is the
+   mechanism this pin relies on.
 3. **Generate the checksum manifest**, from the repository root, after steps
    1 and 2 are committed (the manifest must describe the exact tree being
    released, not an earlier one):
