@@ -153,6 +153,7 @@ db6e6bec3ae3a9d550dea3594ad6d8281b781322cffe7ed4ed410dbac28c5c83  docs/mistakes/
 340700c7a29a3d4830c500a73d0d1042fb1e773d866714fb273f5eab6ce01765  docs/mistakes/M15-a-status-word-became-a-broken-css-class.md
 af09600ee7307abd813144f1b1ed1edb696b7b4349826cae01d3fe46998c3591  docs/mistakes/M16-a-recorded-delta-was-never-applied.md
 f1ae85822097c2a5249197ec70393c319648e999b7785f343a4b94f394cab25c  docs/mistakes/M17-orchestrator-wrote-outside-a-fence.md
+e3140168f8d779ee4ba31caf7a16f5ce365ac332a57e63f10e30e506ad405767  docs/mistakes/M18-the-local-gate-cannot-see-a-stale-manifest.md
 0b9443765c2a336d56861113b26df0bda3a203b982e5a61fbc925b721bdbc424  docs/mistakes/README.md
 7242532d66710c59782cd3ba9c26331adf06950d3ae496569b1d217e5d7270dd  docs/one-pager.src.html
 954480acac9d10421c9406204a2540ef54251b0cdb703143c8a19b1672c29fc8  docs/program/BASELINE-AFTER-HANDOVER-2026-08-04.md
