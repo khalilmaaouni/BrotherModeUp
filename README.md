@@ -10,7 +10,8 @@ BrotherMode is a Claude Code plugin: a written set of working rules plus a
 small toolchain of Python and shell scripts. You install it once, and from then
 on a session behaves like a colleague rather than an assistant waiting for
 instructions. It agrees the shape of the work with you before touching
-anything, keeps one writer per file so two parallel efforts cannot overwrite
+anything, keeps one writer per file across the write tools it can see so two
+parallel efforts cannot silently overwrite
 each other, refuses the word done until a check has run after the last change,
 and writes the decisions and the progress to plain files so a crash or a
 restart does not lose the thread.
@@ -102,7 +103,7 @@ Four states and no others, read out of `capabilities.status.json`, updated 2026-
 
 | Capability | What proves it, or why it is not offered |
 |---|---|
-| One writer per file, refused by a hook rather than by convention | tools/bm_fence_hook.py refuses a write to a file another session has claimed, wired by hooks/hooks.json at matcher Edit\|Write\|MultiEdit\|NotebookEdit\|Bash and proven by tools/test_bm_fence_hook.py. The Bash leg reads apply_patch envelopes, the shape every Codex CLI write takes, and was proven in process against a captured Codex payload; enforcement inside a live Codex session is not yet rehearsed and docs/RUNTIMES.md states that split. |
+| Single writer per file for supported write tools, refused by a hook; other writes detected, not contained | Conflicting writes are refused for the Claude Code write tools (Edit, Write, MultiEdit, NotebookEdit) and readable apply_patch envelopes on the Bash leg, wired by hooks/hooks.json and proven by tools/test_bm_fence_hook.py. Other shell and external writes are detected where possible by tools/bm_bash_audit.py but are NOT contained. Hooks are cooperative enforcement: no container or operating system sandbox is provided. Enforcement inside a live Codex session is not yet rehearsed and docs/RUNTIMES.md states that split. |
 | Durable local store that survives a crash and can be recovered | tools/bm_store.py holds the state and tools/test_bm_store.py exercises recovery; the store job in .github/workflows/tests.yml runs that suite on Linux, macOS and Windows. |
 | Current pages are held to the facts read out of the tree | tools/test_bm_docs.py refuses a current page carrying a stale count, a stale version, or a dated record that declares no status; docs/ba/QA-GATES.md states the gates. |
 | Guided beginner flow on Claude Code | skills/brotherme/SKILL.md drives the flow, commands/brotherme-start.md is its entry point, and docs/QUICKSTART.md is the install path a beginner follows. |
@@ -455,7 +456,8 @@ the shared run that would earn one has not happened, and the register above
 says so by marking the benchmark harness experimental.
 
 What this trades those things for is the record: one writer per file refused by
-a hook, a check that has to run after the last change before anything is called
+a hook for the write tools it can see (and detected, not contained, beyond
+them), a check that has to run after the last change before anything is called
 done, and a written trail you can read afterwards. That trade is worth it when
 the work matters more than the demo, and it is a bad trade when it does not.
 

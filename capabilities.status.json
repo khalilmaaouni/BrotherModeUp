@@ -5,9 +5,9 @@
   "capabilities": [
     {
       "id": "single-writer-enforcement",
-      "title": "One writer per file, refused by a hook rather than by convention",
+      "title": "Single writer per file for supported write tools, refused by a hook; other writes detected, not contained",
       "state": "certified",
-      "evidence": "tools/bm_fence_hook.py refuses a write to a file another session has claimed, wired by hooks/hooks.json at matcher Edit|Write|MultiEdit|NotebookEdit|Bash and proven by tools/test_bm_fence_hook.py. The Bash leg reads apply_patch envelopes, the shape every Codex CLI write takes, and was proven in process against a captured Codex payload; enforcement inside a live Codex session is not yet rehearsed and docs/RUNTIMES.md states that split."
+      "evidence": "Conflicting writes are refused for the Claude Code write tools (Edit, Write, MultiEdit, NotebookEdit) and readable apply_patch envelopes on the Bash leg, wired by hooks/hooks.json and proven by tools/test_bm_fence_hook.py. Other shell and external writes are detected where possible by tools/bm_bash_audit.py but are NOT contained. Hooks are cooperative enforcement: no container or operating system sandbox is provided. Enforcement inside a live Codex session is not yet rehearsed and docs/RUNTIMES.md states that split."
     },
     {
       "id": "durable-store-and-recovery",
