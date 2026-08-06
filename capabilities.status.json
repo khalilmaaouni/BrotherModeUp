@@ -43,7 +43,7 @@
       "id": "plugin-packaging",
       "title": "Install as a Claude Code plugin from the repository marketplace",
       "state": "beta",
-      "evidence": "The manifests are real and installable (.claude-plugin/plugin.json, .claude-plugin/marketplace.json, tools/test_bm_plugin_install.py), and one install is recorded in docs/evidence/2026-07-31-first-plugin-install.md. The verified path stated in README.md is still the git clone, so this stays beta until the plugin path carries the same evidence."
+      "evidence": "The manifests are real and installable (.claude-plugin/plugin.json, .claude-plugin/marketplace.json, tools/test_bm_plugin_install.py), and one install is recorded in docs/evidence/2026-07-31-first-plugin-install.md. The verified path stated in README.md is still the git clone, so this stays beta until the plugin path carries the same evidence. SURFACE LIMIT, founder-reproduced 2026-08-06: the Claude Code desktop app does not recognize /plugin (it answers that some commands only work in the Claude Code terminal), so this path serves the terminal client only; app users install via the documented clone path, one paste in the Terminal application."
     },
     {
       "id": "windows",
