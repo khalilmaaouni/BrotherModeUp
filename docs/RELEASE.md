@@ -166,10 +166,10 @@ for that date.
 Tags exist now, so this is the install instruction, not a future one:
 
 ```bash
-git clone --branch v2.0.0 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v2.1.0 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
-`--branch v2.0.0` checks out that exact tag, not a moving branch head. It
+`--branch v2.1.0` checks out that exact tag, not a moving branch head. It
 is the public install target, not necessarily the identity the tree on `main`
 currently carries: `python3 tools/bm_project_facts.py --field
 install_target_tag` prints the tag every onboarding page pins, and `python3
@@ -297,6 +297,28 @@ describes exactly what the tag contains rather than what it contained partway
 through preparing it.
 
 ## What has and has not happened, stated honestly
+
+CURRENT STATE, 2026-08-06, second entry of the day: `v2.1.0` EXISTS. The
+founder cut and pushed it 2026-08-06: annotated tag `3c27d93` dereferencing
+to commit `77e7678`, which is the merge of PR #6 (the watchdog design
+amendment) into `main`, with CI green on the PR's twelve legs before the
+merge. `VERSION` now reads `2.2.0.dev1`, a DEVELOPMENT identity opening the
+2.2 line, per rule 3. `install_target_tag` is now `v2.1.0` and the three
+onboarding pages carry the regenerated pinned command, byte identical.
+
+DEVIATION FROM RULE 1, recorded rather than hidden: the tagged commit
+carries `VERSION 2.1.0.dev1`, a development identity, where rule 1 requires
+the release commit to read `2.1.0`. The cause: the execution handover
+instructed the founder to tag the reviewed HEAD as-is, and the founder's
+ratified fast-track did exactly that; no release-cut commit setting
+`VERSION 2.1.0` was ever made. The tag is public and stays; re-cutting it
+would recreate the two-trees ambiguity this law exists to prevent. What
+holds instead: the tag is annotated, singular, CI-green, and the manifest
+inside it verifies. The next release (v2.2.0) returns to the letter of
+rule 1 with a proper release-cut commit.
+
+The entry below predicted the rule 1 path and is now history, kept dated
+rather than rewritten.
 
 CURRENT STATE, 2026-08-06: `VERSION` now reads `2.1.0.dev1`, a DEVELOPMENT
 identity that opens the 2.1 line. `release_tag` is `None` for it and no tag
