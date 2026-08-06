@@ -10,7 +10,8 @@ BrotherMode is a Claude Code plugin: a written set of working rules plus a
 small toolchain of Python and shell scripts. You install it once, and from then
 on a session behaves like a colleague rather than an assistant waiting for
 instructions. It agrees the shape of the work with you before touching
-anything, keeps one writer per file so two parallel efforts cannot overwrite
+anything, keeps one writer per file across the write tools it can see so two
+parallel efforts cannot silently overwrite
 each other, refuses the word done until a check has run after the last change,
 and writes the decisions and the progress to plain files so a crash or a
 restart does not lose the thread.
@@ -102,7 +103,7 @@ Four states and no others, read out of `capabilities.status.json`, updated 2026-
 
 | Capability | What proves it, or why it is not offered |
 |---|---|
-| One writer per file, refused by a hook rather than by convention | tools/bm_fence_hook.py refuses a write to a file another session has claimed, wired by hooks/hooks.json at matcher Edit\|Write\|MultiEdit\|NotebookEdit\|Bash and proven by tools/test_bm_fence_hook.py. The Bash leg reads apply_patch envelopes, the shape every Codex CLI write takes, and was proven in process against a captured Codex payload; enforcement inside a live Codex session is not yet rehearsed and docs/RUNTIMES.md states that split. |
+| Single writer per file for supported write tools, refused by a hook; other writes detected, not contained | Conflicting writes are refused for the Claude Code write tools (Edit, Write, MultiEdit, NotebookEdit) and readable apply_patch envelopes on the Bash leg, wired by hooks/hooks.json and proven by tools/test_bm_fence_hook.py. Other shell and external writes are detected where possible by tools/bm_bash_audit.py but are NOT contained. Hooks are cooperative enforcement: no container or operating system sandbox is provided. Enforcement inside a live Codex session is not yet rehearsed and docs/RUNTIMES.md states that split. |
 | Durable local store that survives a crash and can be recovered | tools/bm_store.py holds the state and tools/test_bm_store.py exercises recovery; the store job in .github/workflows/tests.yml runs that suite on Linux, macOS and Windows. |
 | Current pages are held to the facts read out of the tree | tools/test_bm_docs.py refuses a current page carrying a stale count, a stale version, or a dated record that declares no status; docs/ba/QA-GATES.md states the gates. |
 | Guided beginner flow on Claude Code | skills/brotherme/SKILL.md drives the flow, commands/brotherme-start.md is its entry point, and docs/QUICKSTART.md is the install path a beginner follows. |
@@ -113,7 +114,7 @@ Four states and no others, read out of `capabilities.status.json`, updated 2026-
 
 | Capability | What proves it, or why it is not offered |
 |---|---|
-| Install as a Claude Code plugin from the repository marketplace | The manifests are real and installable (.claude-plugin/plugin.json, .claude-plugin/marketplace.json, tools/test_bm_plugin_install.py), and one install is recorded in docs/evidence/2026-07-31-first-plugin-install.md. The verified path stated in README.md is still the git clone, so this stays beta until the plugin path carries the same evidence. |
+| Install as a Claude Code plugin from the repository marketplace | The manifests are real and installable (.claude-plugin/plugin.json, .claude-plugin/marketplace.json, tools/test_bm_plugin_install.py), and one install is recorded in docs/evidence/2026-07-31-first-plugin-install.md. The verified path stated in README.md is still the git clone, so this stays beta until the plugin path carries the same evidence. SURFACE LIMIT, founder-reproduced 2026-08-06: the Claude Code desktop app does not recognize /plugin (it answers that some commands only work in the Claude Code terminal), so this path serves the terminal client only; app users install via the documented clone path, one paste in the Terminal application. |
 | Windows | Only the store job in .github/workflows/tests.yml runs on windows-latest; the suite and gate jobs run on Linux and macOS only. docs/KNOWN-LIMITS.md records that the installer refuses Windows and that WSL works. There is no native Windows install lifecycle. |
 | The signed authorisation an autonomous session has to work inside | tools/bm_autonomy.py is the command line, tools/test_bm_autonomy.py is its suite, and the store job in .github/workflows/tests.yml runs that suite on Linux, macOS and Windows; docs/AUTONOMY.md is the page. It stays beta because docs/KNOWN-LIMITS.md records open items against this layer and no use outside this project is recorded. |
 | The durable controller that carries a signed outcome to a checked deliverable | tools/bm_controller.py is the engine and its command line, tools/test_bm_controller.py is its suite including an end to end run that is killed and resumed (its transcript is docs/program/absolute-lead/evidence/L03/E4-endtoend.json), the store job in .github/workflows/tests.yml runs that suite on Linux, macOS and Windows, and docs/FULL-AUTO.md is the page. Not experimental, because experimental here means not measured and this is measured. It stays beta because docs/KNOWN-LIMITS.md carries its own list of what the controller does not yet do, and no pilot outside this project exists. |
@@ -455,7 +456,8 @@ the shared run that would earn one has not happened, and the register above
 says so by marking the benchmark harness experimental.
 
 What this trades those things for is the record: one writer per file refused by
-a hook, a check that has to run after the last change before anything is called
+a hook for the write tools it can see (and detected, not contained, beyond
+them), a check that has to run after the last change before anything is called
 done, and a written trail you can read afterwards. That trade is worth it when
 the work matters more than the demo, and it is a bad trade when it does not.
 

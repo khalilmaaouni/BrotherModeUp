@@ -1,0 +1,19 @@
+diff --git a/src/report.py b/src/report.py
+index d2e0697..1724aad 100644
+--- a/src/report.py
++++ b/src/report.py
+@@ -5,12 +5,10 @@ def format_rows(rows, currency):
+     """Render (name, value) pairs as display lines."""
+     out = []
+     for name, value in rows:
++        label = name.strip().title()
++        amount = "%.2f" % value
+         if currency == "USD":
+-            label = name.strip().title()
+-            amount = "%.2f" % value
+             out.append(label + ": $" + amount)
+         else:
+-            label = name.strip().title()
+-            amount = "%.2f" % value
+             out.append(label + ": " + amount + " " + currency)
+     return out
