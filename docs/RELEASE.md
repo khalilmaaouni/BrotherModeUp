@@ -261,8 +261,17 @@ run of it as a test of the runbook, not just of the code.
    so the tag below covers the manifest along with the code it describes.
 4. **Run `sh scripts/verify-install.sh` against the repository root** as a
    final sanity check before tagging: it should report every tracked file
-   matching the manifest you just committed. This is the last automatic
-   step; everything after this line is founder-gated.
+   matching the manifest you just committed.
+4b. **Run `sh scripts/release-smoke-install.sh` and read PASSED.** This is
+   the public-install smoke, and it is NOT SKIPPABLE: it drives the real
+   Claude Code plugin manager end to end in a throwaway configuration
+   (marketplace add, install, version matched against `VERSION`, every
+   hook group registered, uninstall leaving settings clean). FAILED stops
+   the release. BLOCKED (exit 2, no claude binary) also stops the release:
+   continuous integration has no Claude client, so this proof can only be
+   carried on a real machine, and a release that skipped it has not proven
+   the first thing a user touches. This is the last automatic step;
+   everything after this line is founder-gated.
 5. **FOUNDER-GATED: create the git tag.** `git tag -a v$(cat VERSION) -m "..."`
    (annotated, not lightweight, so the tag carries its own message and
    date). A machine must not run this command on its own initiative; it is

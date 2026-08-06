@@ -188,6 +188,14 @@ def facts(root=ROOT):
         "# Development branch (changes over time)\n"
         "git clone --branch %s %s %s"
         % (DEFAULT_BRANCH, REPO_URL, DEV_SKILL_DIR))
+    # The boring install: two plain shell commands through the Claude Code
+    # client's own plugin manager, proven end to end by
+    # scripts/release-smoke-install.sh. Tracks the repository's default
+    # branch by the plugin system's design; the pinned clone above stays the
+    # immutable option for auditors.
+    install_command_plugin = (
+        "claude plugin marketplace add khalilmaaouni/BrotherModeUp\n"
+        "claude plugin install brotherme@brotherme-marketplace")
 
     return {
         "version": version,
@@ -199,6 +207,7 @@ def facts(root=ROOT):
         "dev_skill_dir": DEV_SKILL_DIR,
         "install_command_pinned": install_command_pinned,
         "install_command_dev": install_command_dev,
+        "install_command_plugin": install_command_plugin,
         "schema_version": schema,
         "test_suites": len(suites),
         "test_suite_files": suites,
