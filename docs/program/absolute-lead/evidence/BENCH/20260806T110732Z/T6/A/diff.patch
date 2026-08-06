@@ -1,0 +1,229 @@
+diff --git a/HANDOVER.md b/HANDOVER.md
+new file mode 100644
+index 0000000..e854e7c
+--- /dev/null
++++ b/HANDOVER.md
+@@ -0,0 +1,31 @@
++# HANDOVER
++
++Task: implement 3 functions from TODO.md, each in its own new file under `src/`,
++each with a matching `test_<name>.py`, all green under
++`python3 -m unittest discover -v` run from the repo root.
++
++## STATUS: starting
++
++### DONE
++- Read `README.md` and `TODO.md` (proved by: `cat README.md TODO.md`).
++- Surveyed repo (proved by: `find . -not -path './.git/*' -type f`)
++  -> only `README.md`, `TODO.md`, `src/__init__.py` exist. No tests yet.
++
++### IN FLIGHT
++- Nothing yet. About to write `src/slugify.py`.
++
++### NOT STARTED
++- `src/slugify.py` + `src/test_slugify.py`
++- `src/clamp.py` + `src/test_clamp.py`
++- `src/chunk.py` + `src/test_chunk.py`
++
++### DECISIONS
++- Tests live in `src/` next to their module (`src/` is a package via
++  `__init__.py`, so `unittest discover` from the repo root recurses into it).
++- Tests import as `from src.slugify import slugify` (discovery puts the repo
++  root on `sys.path`).
++
++### NEXT COMMAND A SUCCESSOR SHOULD RUN
++```
++cd /private/var/folders/bx/4mv547hj3nxdv72rb00whvjsgmklcm/T/bm-comparative-T6-A-ctc9optc && python3 -m unittest discover -v
++```
+diff --git a/src/chunk.py b/src/chunk.py
+new file mode 100644
+index 0000000..e92ac56
+--- /dev/null
++++ b/src/chunk.py
+@@ -0,0 +1,24 @@
++"""Split an iterable into fixed-size chunks."""
++
++
++def chunk(items, size):
++    """Yield lists of at most `size` items from `items`, in order.
++
++    The final chunk is short when `items` does not divide evenly. Raises
++    ValueError when `size` < 1; the check happens eagerly, on the call, not
++    on the first iteration of the generator.
++    """
++    if size < 1:
++        raise ValueError("size must be >= 1, got %r" % (size,))
++    return _chunk(items, size)
++
++
++def _chunk(items, size):
++    batch = []
++    for item in items:
++        batch.append(item)
++        if len(batch) == size:
++            yield batch
++            batch = []
++    if batch:
++        yield batch
+diff --git a/src/clamp.py b/src/clamp.py
+new file mode 100644
+index 0000000..86afceb
+--- /dev/null
++++ b/src/clamp.py
+@@ -0,0 +1,15 @@
++"""Bound a value into a closed interval."""
++
++
++def clamp(value, low, high):
++    """Return `value` bounded into [low, high].
++
++    Raises ValueError when `low` > `high`.
++    """
++    if low > high:
++        raise ValueError("low (%r) must not be greater than high (%r)" % (low, high))
++    if value < low:
++        return low
++    if value > high:
++        return high
++    return value
+diff --git a/src/slugify.py b/src/slugify.py
+new file mode 100644
+index 0000000..f90866f
+--- /dev/null
++++ b/src/slugify.py
+@@ -0,0 +1,14 @@
++"""Turn a title into a URL-friendly slug."""
++
++import re
++
++_WORDS = re.compile(r"[a-z0-9]+")
++
++
++def slugify(title):
++    """Lowercase `title`, keep only letters and digits, join words with "-".
++
++    Any run of characters that are not letters or digits acts as a word
++    separator, and separators never produce empty or repeated hyphens.
++    """
++    return "-".join(_WORDS.findall(title.lower()))
+diff --git a/src/test_chunk.py b/src/test_chunk.py
+new file mode 100644
+index 0000000..55994c3
+--- /dev/null
++++ b/src/test_chunk.py
+@@ -0,0 +1,38 @@
++import unittest
++
++from src.chunk import chunk
++
++
++class ChunkTest(unittest.TestCase):
++    def test_even_split(self):
++        self.assertEqual(list(chunk([1, 2, 3, 4], 2)), [[1, 2], [3, 4]])
++
++    def test_short_final_chunk(self):
++        self.assertEqual(list(chunk([1, 2, 3, 4, 5], 2)), [[1, 2], [3, 4], [5]])
++
++    def test_size_larger_than_input(self):
++        self.assertEqual(list(chunk([1, 2], 10)), [[1, 2]])
++
++    def test_size_one(self):
++        self.assertEqual(list(chunk("abc", 1)), [["a"], ["b"], ["c"]])
++
++    def test_empty_input(self):
++        self.assertEqual(list(chunk([], 3)), [])
++
++    def test_accepts_any_iterable_and_is_lazy(self):
++        self.assertEqual(list(chunk(iter(range(5)), 3)), [[0, 1, 2], [3, 4]])
++
++    def test_yields_lists(self):
++        for batch in chunk((1, 2, 3), 2):
++            self.assertIsInstance(batch, list)
++
++    def test_raises_when_size_below_one(self):
++        # Eager: raises on the call itself, not on first iteration.
++        with self.assertRaises(ValueError):
++            chunk([1, 2, 3], 0)
++        with self.assertRaises(ValueError):
++            chunk([1, 2, 3], -1)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/src/test_clamp.py b/src/test_clamp.py
+new file mode 100644
+index 0000000..1ac749a
+--- /dev/null
++++ b/src/test_clamp.py
+@@ -0,0 +1,32 @@
++import unittest
++
++from src.clamp import clamp
++
++
++class ClampTest(unittest.TestCase):
++    def test_inside_range_unchanged(self):
++        self.assertEqual(clamp(5, 0, 10), 5)
++
++    def test_below_low(self):
++        self.assertEqual(clamp(-3, 0, 10), 0)
++
++    def test_above_high(self):
++        self.assertEqual(clamp(42, 0, 10), 10)
++
++    def test_bounds_are_inclusive(self):
++        self.assertEqual(clamp(0, 0, 10), 0)
++        self.assertEqual(clamp(10, 0, 10), 10)
++
++    def test_degenerate_range(self):
++        self.assertEqual(clamp(7, 3, 3), 3)
++
++    def test_floats(self):
++        self.assertEqual(clamp(1.5, 0.0, 1.0), 1.0)
++
++    def test_raises_when_low_above_high(self):
++        with self.assertRaises(ValueError):
++            clamp(5, 10, 0)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/src/test_slugify.py b/src/test_slugify.py
+new file mode 100644
+index 0000000..fd83b57
+--- /dev/null
++++ b/src/test_slugify.py
+@@ -0,0 +1,33 @@
++import unittest
++
++from src.slugify import slugify
++
++
++class SlugifyTest(unittest.TestCase):
++    def test_lowercases(self):
++        self.assertEqual(slugify("Hello World"), "hello-world")
++
++    def test_keeps_digits(self):
++        self.assertEqual(slugify("Top 10 Tips"), "top-10-tips")
++
++    def test_drops_punctuation(self):
++        self.assertEqual(slugify("Hello, World!"), "hello-world")
++
++    def test_collapses_separator_runs(self):
++        self.assertEqual(slugify("a   b---c"), "a-b-c")
++
++    def test_strips_leading_and_trailing_separators(self):
++        self.assertEqual(slugify("  --Hello--  "), "hello")
++
++    def test_single_word(self):
++        self.assertEqual(slugify("Python"), "python")
++
++    def test_empty_string(self):
++        self.assertEqual(slugify(""), "")
++
++    def test_only_separators(self):
++        self.assertEqual(slugify("--- !!! ---"), "")
++
++
++if __name__ == "__main__":
++    unittest.main()

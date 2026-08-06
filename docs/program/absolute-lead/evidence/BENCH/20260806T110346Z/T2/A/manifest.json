@@ -1,0 +1,37 @@
+{
+  "arm": "A",
+  "claude_argv": [
+    "/Users/khalil.maaouni/.local/bin/claude",
+    "<prompt below>",
+    "--safe-mode",
+    "--max-turns",
+    "25",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--no-session-persistence",
+    "--permission-mode",
+    "bypassPermissions"
+  ],
+  "claude_binary": "/Users/khalil.maaouni/.local/bin/claude",
+  "claude_version": "2.1.223 (Claude Code)",
+  "exit_code": 0,
+  "fixture_files": [
+    "README.md",
+    "src/__init__.py",
+    "src/report.py",
+    "test_report.py"
+  ],
+  "harness_git_sha": "3aabdfc83ab090e8b01a7d7632f90efc8f30db16",
+  "harness_path": "scripts/benchmark_comparative.py",
+  "max_turns": 25,
+  "model_observed": "claude-opus-5[1m]",
+  "model_requested": "claude default (unpinned)",
+  "notes": "--safe-mode disables the operator's hooks, CLAUDE.md, skills and plugins for both arms, so arm A is plain and the only arm difference is the prompt preamble.",
+  "prompt": "Read README.md first. src/report.py format_rows carries the same label-and-amount logic twice, once per branch. Refactor it to state that logic once. The public signature format_rows(rows, currency) must not change, every existing test must stay green, and the whole diff must stay at or under 40 changed lines. Work only inside this repository. The verifying command is: python3 -m unittest discover -v",
+  "run_id": "20260806T110346Z",
+  "task": "T2",
+  "task_name": "refactor-no-behavior-change",
+  "utc_finished": "2026-08-06T11:04:07Z",
+  "utc_started": "2026-08-06T11:03:46Z"
+}
