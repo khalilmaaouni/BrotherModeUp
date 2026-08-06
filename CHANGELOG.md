@@ -7,9 +7,10 @@ The 2.1 line. `VERSION` names `2.1.0.dev1`, a development identity: the
 installable by tag yet. This entry describes what has landed on `main` since
 `v2.0.0`.
 
-Gate after the last edit, on a quiet machine: `test_all: 2442 tests across 20
-suites, 6 skipped, 352.2s wall. ALL GREEN`, exit 0, with the checksum manifest
-and `verify-install` clean on the same tree.
+Gate after the last edit of the release run, on a quiet machine: `test_all: 2442
+tests across 20 suites, 6 skipped, 358.7s wall. ALL GREEN`, exit 0, with the
+checksum manifest regenerated afterwards and `verify-install` passing on the
+restored tree.
 
 WHAT IS NEW FOR YOU
 
