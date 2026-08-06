@@ -1,11 +1,21 @@
 # Changelog
 
-## 2.1.0, unreleased (development identity 2.1.0.dev1, opened 2026-08-06)
+## 2.2.0, unreleased (development identity 2.2.0.dev1, opened 2026-08-06)
 
-The 2.1 line. `VERSION` names `2.1.0.dev1`, a development identity: the
-`v2.1.0` tag is founder-gated and has not been cut, so nothing here is
-installable by tag yet. This entry describes what has landed on `main` since
-`v2.0.0`.
+The 2.2 line: the tester release. Planned per the plan of record, second
+resequencing of 2026-08-06: the progress surface, the status line and footer
+links, the structural debt sweep, and a visual surface hardened by
+adversarial review. The drift watchdog follows in the release after, by
+founder decision, reaching installs through the update command.
+
+## 2.1.0, released 2026-08-06 (annotated tag v2.1.0 at commit 77e7678)
+
+The founder cut and pushed `v2.1.0` on 2026-08-06. The pinned install on the
+onboarding pages now delivers this release. One recorded deviation: the
+tagged commit carries the development identity `2.1.0.dev1` rather than
+`2.1.0`; docs/RELEASE.md states the cause and why the tag stands. The body
+below describes what landed on `main` since `v2.0.0`, as written before the
+cut.
 
 Gate after the last edit of the release run, on a quiet machine: `test_all: 2442
 tests across 20 suites, 6 skipped, 358.7s wall. ALL GREEN`, exit 0, with the
