@@ -431,14 +431,30 @@ class TestDiagramCaps(VisualCase):
     def _edges(self, count):
         return [bv.edge("n%d" % i, "n%d" % (i + 1)) for i in range(count)]
 
-    def test_a_shape_outside_the_five_raises_at_construction(self):
+    def test_a_shape_outside_the_six_raises_at_construction(self):
         with self.assertRaises(ValueError) as ctx:
             bv.Diagram("pie", self._nodes(2), [], "t", "d", "c")
         for shape in bv.SHAPES:
             self.assertIn(shape, str(ctx.exception))
-        self.assertEqual(len(bv.SHAPES), 5,
-                         "five shapes and nothing else; a sixth requires "
+        self.assertEqual(len(bv.SHAPES), 6,
+                         "six shapes and nothing else since the progress "
+                         "surface loop added timeline; a seventh requires "
                          "deleting one")
+
+    def test_the_timeline_lane_cap_raises(self):
+        cap = bv.CAPS["timeline"]
+        nodes = [bv.node("n%d" % i, "step %d, working" % i, "working",
+                         lane="owner %d" % i)
+                 for i in range(cap["lanes"] + 1)]
+        with self.assertRaises(ValueError) as ctx:
+            bv.Diagram("timeline", nodes, [], "t", "d", "c")
+        self.assertIn("lane", str(ctx.exception))
+
+    def test_the_timeline_node_cap_raises(self):
+        cap = bv.CAPS["timeline"]
+        with self.assertRaises(ValueError):
+            bv.Diagram("timeline", self._nodes(cap["nodes"] + 1), [],
+                       "t", "d", "c")
 
     def test_the_pipeline_node_and_edge_caps_raise(self):
         cap = bv.CAPS["pipeline"]
@@ -1042,6 +1058,240 @@ class TestNoNonAsciiInTerminalOutput(VisualCase):
             except UnicodeEncodeError as e:
                 self.fail("non ASCII reached a terminal path: %s" % e)
             self.assertNotIn(self.EM, text)
+
+
+# ---------------------------------------------------------------------------
+# Section 13.1, class 12: progress_facts and the timeline shape
+# (DESIGN-progress-surface.md items 1 and 2)
+# ---------------------------------------------------------------------------
+
+class TestProgressFactsIsPureAndStoreFree(unittest.TestCase):
+    """No VisualCase here on purpose: progress_facts takes plain dicts, no
+    store handle at all, which this class proves by never opening one."""
+
+    def test_zero_tasks_is_a_real_answer_not_an_error(self):
+        pf = bv.progress_facts({"tasks": [], "dependencies": [],
+                                "evidence": {}})
+        self.assertEqual({"lanes": []}, pf)
+
+    def test_no_rows_at_all_behaves_the_same_as_empty_rows(self):
+        self.assertEqual({"lanes": []}, bv.progress_facts({}))
+        self.assertEqual({"lanes": []}, bv.progress_facts(None))
+
+    def test_one_task_lands_in_one_lane_with_no_blocker(self):
+        pf = bv.progress_facts({
+            "tasks": [{"task_id": "t1", "title": "wire the form",
+                      "status": "ready", "assigned_human": "Khalil"}],
+            "dependencies": [], "evidence": {}})
+        self.assertEqual(1, len(pf["lanes"]))
+        lane = pf["lanes"][0]
+        self.assertEqual("you", lane["lane"])
+        self.assertEqual(1, len(lane["items"]))
+        item = lane["items"][0]
+        self.assertEqual("t1", item["task_id"])
+        self.assertEqual("wire the form", item["label"])
+        self.assertEqual("ready", item["state"])
+        self.assertEqual("", item["evidence_ref"],
+                         "no evidence on record is the literal absence, "
+                         "never invented text, at the facts layer")
+        self.assertEqual([], item["blocked_by"])
+        self.assertEqual("", item["action"])
+
+    def test_an_unassigned_task_lands_in_its_own_lane(self):
+        pf = bv.progress_facts({
+            "tasks": [{"task_id": "t1", "title": "wire the form",
+                      "status": "planned"}],
+            "dependencies": [], "evidence": {}})
+        self.assertEqual("unassigned", pf["lanes"][0]["lane"])
+
+    def test_a_blocked_task_carries_its_blocking_ids_and_its_own_action(self):
+        pf = bv.progress_facts({
+            "tasks": [
+                {"task_id": "t1", "title": "wire the form",
+                 "status": "active", "assigned_human": "Khalil"},
+                {"task_id": "t2", "title": "send the receipt",
+                 "status": "blocked", "assigned_runtime": "claude-code",
+                 "blockers": ["waiting on the payment provider reply"]},
+            ],
+            "dependencies": [{"task_id": "t2", "depends_on_task_id": "t1"}],
+            "evidence": {}})
+        by_id = {i["task_id"]: i
+                 for lane in pf["lanes"] for i in lane["items"]}
+        self.assertEqual(["t1"], by_id["t2"]["blocked_by"])
+        self.assertEqual("waiting on the payment provider reply",
+                         by_id["t2"]["action"])
+        self.assertEqual([], by_id["t1"]["blocked_by"])
+
+    def test_blocking_ids_are_sorted_and_deduplicated(self):
+        pf = bv.progress_facts({
+            "tasks": [{"task_id": "t3", "title": "ship it",
+                      "status": "blocked"}],
+            "dependencies": [
+                {"task_id": "t3", "depends_on_task_id": "t2"},
+                {"task_id": "t3", "depends_on_task_id": "t1"},
+                {"task_id": "t3", "depends_on_task_id": "t1"}],
+            "evidence": {}})
+        item = pf["lanes"][0]["items"][0]
+        self.assertEqual(["t1", "t2"], item["blocked_by"])
+
+    def test_evidence_reference_is_the_newest_one_on_record(self):
+        pf = bv.progress_facts({
+            "tasks": [{"task_id": "t1", "title": "wire the form",
+                      "status": "verified"}],
+            "dependencies": [],
+            "evidence": {"t1": [
+                {"ref": "tools/test_bm_view.py", "created_at": "2026-08-06"},
+                {"ref": "tools/test_bm_visual.py", "created_at": "2026-08-07"},
+            ]}})
+        self.assertEqual("tools/test_bm_visual.py",
+                         pf["lanes"][0]["items"][0]["evidence_ref"])
+
+    def test_a_very_long_label_is_flattened_and_capped_not_dropped(self):
+        long_title = "wire " + "a very long form title " * 20
+        pf = bv.progress_facts({
+            "tasks": [{"task_id": "t1", "title": long_title,
+                      "status": "active"}],
+            "dependencies": [], "evidence": {}})
+        label = pf["lanes"][0]["items"][0]["label"]
+        self.assertTrue(label)
+        self.assertLessEqual(len(label), 48,
+                             "a label reaching a drawn node must be capped, "
+                             "never truncate mid drawing")
+
+    def test_a_non_ascii_label_survives_and_still_draws_in_both_media(self):
+        pf = bv.progress_facts({
+            "tasks": [{"task_id": "t1",
+                      "title": u"café receipts ✅",
+                      "status": "active"}],
+            "dependencies": [], "evidence": {}})
+        label = pf["lanes"][0]["items"][0]["label"]
+        self.assertTrue(label, "a non ASCII title must not collapse to "
+                               "nothing")
+        diagram = bv.diagram_timeline(pf)
+        self.assertIsNotNone(diagram)
+        svg = bv.to_svg(diagram)
+        root = ET.fromstring(svg)
+        self.assertTrue(root.tag.endswith("figure"),
+                        "a non ASCII label must still produce valid XML")
+        text = bv.to_text(diagram)
+        try:
+            text.encode("ascii")
+        except UnicodeEncodeError as e:
+            self.fail("non ASCII reached the terminal rendering: %s" % e)
+
+
+class TestTheTimelineShape(VisualCase):
+    """D6. Lanes against ordered items, a progress fraction per bar,
+    still no colour attribute of its own."""
+
+    def test_diagram_for_reaches_timeline_and_nothing_else_does(self):
+        self.assertEqual("timeline", bv.diagram_for("how is this "
+                                                     "progressing"))
+        self.assertEqual("timeline", bv.diagram_for("progress by lane"))
+
+    def test_zero_tasks_draws_nothing_a_real_answer_not_a_blank_picture(
+            self):
+        self.assertIsNone(bv.diagram_timeline(bv.progress_facts({})))
+        self.assertIsNone(bv.diagram_timeline({"lanes": []}))
+
+    def test_one_task_draws_one_bar_with_a_word_from_the_lexicon(self):
+        pf = bv.progress_facts({
+            "tasks": [{"task_id": "t1", "title": "wire the form",
+                      "status": "active", "assigned_human": "Khalil"}],
+            "dependencies": [], "evidence": {}})
+        diagram = bv.diagram_timeline(pf)
+        self.assertIsNotNone(diagram)
+        self.assertEqual(1, len(diagram["nodes"]))
+        node = diagram["nodes"][0]
+        self.assertIn(node["status"], bv.STATUS_LEXICON)
+        self.assertIn(node["status"], node["label"])
+        self.assertEqual("you", node["lane"])
+
+    def test_a_blocked_task_draws_as_blocked(self):
+        pf = bv.progress_facts({
+            "tasks": [{"task_id": "t1", "title": "send the receipt",
+                      "status": "blocked"}],
+            "dependencies": [], "evidence": {}})
+        diagram = bv.diagram_timeline(pf)
+        self.assertEqual("BLOCKED", diagram["nodes"][0]["status"])
+
+    def test_the_fraction_is_the_closed_lifecycle_order_never_invented(
+            self):
+        pf = bv.progress_facts({
+            "tasks": [{"task_id": "t1", "title": "ship it",
+                      "status": "closed"}],
+            "dependencies": [], "evidence": {}})
+        node = bv.diagram_timeline(pf)["nodes"][0]
+        self.assertEqual(bv.TASK_STATES.index("closed") + 1, node["value"])
+        self.assertEqual(len(bv.TASK_STATES), node["limit"])
+
+    def test_to_svg_emits_no_colour_attribute(self):
+        pf = bv.progress_facts({
+            "tasks": [{"task_id": "t1", "title": "wire the form",
+                      "status": "active", "assigned_human": "Khalil"},
+                     {"task_id": "t2", "title": "send the receipt",
+                      "status": "blocked", "assigned_runtime": "claude"}],
+            "dependencies": [{"task_id": "t2",
+                             "depends_on_task_id": "t1"}],
+            "evidence": {}})
+        svg = bv.to_svg(bv.diagram_timeline(pf))
+        for banned in ("fill=", "stroke=", "style=", "color=",
+                       "stop-color", "#"):
+            self.assertNotIn(banned, svg,
+                             "%r appears in a timeline drawing; all "
+                             "colour lives in THEME_CSS" % (banned,))
+        root = ET.fromstring(svg)
+        self.assertTrue(root.tag.endswith("figure"))
+
+    def test_text_and_svg_carry_the_same_status_words(self):
+        pf = bv.progress_facts({
+            "tasks": [{"task_id": "t1", "title": "wire the form",
+                      "status": "accepted", "assigned_human": "Khalil"},
+                     {"task_id": "t2", "title": "send the receipt",
+                      "status": "blocked", "assigned_runtime": "claude"}],
+            "dependencies": [], "evidence": {}})
+        diagram = bv.diagram_timeline(pf)
+        text, svg = bv.to_text(diagram), bv.to_svg(diagram)
+        in_text = {w for w in bv.STATUS_LEXICON if w in text}
+        in_svg = {w for w in bv.STATUS_LEXICON if w in svg}
+        self.assertEqual(in_text, in_svg)
+        self.assertIn("BLOCKED", in_text)
+
+    def test_the_lane_cap_aggregates_never_raises_from_real_rows(self):
+        self.assertLessEqual(bv.CAPS["timeline"]["lanes"], 4)
+        tasks = [{"task_id": "t%d" % i, "title": "step %d" % i,
+                  "status": "ready", "assigned_human": "Khalil"}
+                 for i in range(bv.CAPS["timeline"]["nodes"] + 5)]
+        pf = bv.progress_facts({"tasks": tasks, "dependencies": [],
+                                "evidence": {}})
+        diagram = bv.diagram_timeline(pf)
+        self.assertLessEqual(len(diagram["nodes"]),
+                             bv.CAPS["timeline"]["nodes"])
+
+    def test_every_task_state_has_a_drawn_status_the_guard_proves_it(self):
+        """Calibration: the same shape as _check_stage_map's own proof,
+        so the guard is shown to fire rather than merely exist."""
+        with self.assertRaises(RuntimeError):
+            bv._check_task_status_map(
+                list(bv.TASK_STATES) + ["some-future-state"],
+                bv._TIMELINE_STATUS_WORD, bv.STATUS_LEXICON)
+        with self.assertRaises(RuntimeError):
+            bv._check_task_status_map(
+                bv.TASK_STATES,
+                dict(bv._TIMELINE_STATUS_WORD, planned="a-made-up-word"),
+                bv.STATUS_LEXICON)
+        self.assertTrue(bv._check_task_status_map(
+            bv.TASK_STATES, bv._TIMELINE_STATUS_WORD, bv.STATUS_LEXICON))
+
+    def test_surface_for_timeline_is_a_shape_only_no_longer_a_state_kind(
+            self):
+        """The real collision this loop found: STATE_KINDS used to carry
+        an entry literally spelled "timeline" too, so the router could not
+        tell the new shape from the old state kind. Renamed to
+        catchup-story; this pins the fix."""
+        self.assertEqual(("S1",), bv.surface_for({"kind": "timeline"}))
+        self.assertNotIn("timeline", bv.STATE_KINDS)
+        self.assertIn("catchup-story", bv.STATE_KINDS)
 
 
 if __name__ == "__main__":

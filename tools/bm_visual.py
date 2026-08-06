@@ -4,13 +4,18 @@ Design: docs/program/absolute-lead/DESIGN-visual-surface.md, sections 6
 (the insight box and the alert ladder), 7 (the five shapes), 9.2 (the
 failure block) and 12.1 (this inventory).
 
-WHAT THIS FILE IS. One vocabulary, two renderings. Five shapes, four
+WHAT THIS FILE IS. One vocabulary, two renderings. Six shapes, four
 alert rungs, one six slot insight box, one derived alert function and one
 map that rewrites every refusal the engine can emit into words a founder
 can act on. Everything here is a pure function of rows that already
 exist: there is no picture anybody maintains by hand, and there is no
 alerts table, because a stored alert is a lie the moment its condition
 clears.
+
+Loop after v2.1.0 (docs/program/absolute-lead/DESIGN-progress-surface.md)
+added the sixth shape, timeline, and progress_facts, the one pure reader
+that feeds the progress page section: still rows in, plain facts out,
+still no second truth.
 
 WHAT THIS FILE IS NOT. It is not a command: it has no main, it opens no
 store of its own, it writes no file and it prints nothing. Every entry
@@ -483,16 +488,16 @@ def _ascii(text):
 
 
 # ---------------------------------------------------------------------------
-# 5. THE FIVE SHAPES, AND NOTHING ELSE
+# 5. THE SIX SHAPES, AND NOTHING ELSE
 #
-# Five allowed shapes against roughly twenty five available. Graphic
-# economy is the point, not a side effect. The ban is enforced by
-# Diagram() raising, not by prose, because a ban enforced by prose gets
-# broken in month three by somebody with a really good reason for a pie
-# chart.
+# Six allowed shapes against roughly twenty five available (five plus the
+# timeline the progress surface loop added). Graphic economy is the
+# point, not a side effect. The ban is enforced by Diagram() raising, not
+# by prose, because a ban enforced by prose gets broken in month three by
+# somebody with a really good reason for a pie chart.
 # ---------------------------------------------------------------------------
 
-SHAPES = ("pipeline", "gates", "lanes", "fork", "counts")
+SHAPES = ("pipeline", "gates", "lanes", "fork", "counts", "timeline")
 
 CAPS = {
     "pipeline": {"nodes": 7, "edges": 6, "lanes": 0, "outcomes": 0},
@@ -500,16 +505,22 @@ CAPS = {
     "lanes": {"nodes": 9, "edges": 12, "lanes": 4, "outcomes": 0},
     "fork": {"nodes": 4, "edges": 3, "lanes": 0, "outcomes": 3},
     "counts": {"nodes": 6, "edges": 0, "lanes": 0, "outcomes": 0},
+    # No edges: a bar is a period on its own, not a step in a flow, so
+    # nothing points from one to the next. Lane cap and node cap copied
+    # from "lanes", the shape it is closest to in shape.
+    "timeline": {"nodes": 9, "edges": 0, "lanes": 4, "outcomes": 0},
 }
 
 # The closed mapping from a founder's question to a shape. A judgement
-# call would let a sixth shape in through the side door.
+# call would let a seventh shape in through the side door.
 _DIAGRAM_FOR = (
     (("where are we", "how far along", "where"), "pipeline"),
     (("why is this not done", "what is blocking", "blocking"), "gates"),
     (("who is doing what", "who owns this", "who"), "lanes"),
     (("what am i being asked", "asked"), "fork"),
     (("how much against what limit", "how much", "budget"), "counts"),
+    (("how is this progressing", "progress by lane", "progress over time"),
+     "timeline"),
 )
 
 
@@ -694,6 +705,87 @@ _GATE_STATUS = {
 
 
 # ---------------------------------------------------------------------------
+# 6b. THE TASK LIFECYCLE STAGES, FOR THE TIMELINE SHAPE
+#
+# Read from brotherme/core/schema.py's own ten states, the one canonical
+# list: this file never restates them. Two closed maps sit on top, guarded
+# at import time the same way STAGE_FOR_RUN_STATE is above, so a future
+# eleventh state cannot silently draw as no bar at all.
+# ---------------------------------------------------------------------------
+
+S = bs._schema()
+
+TASK_STATES = S.STATES
+
+# "A progress fraction is finished items over planned items in that lane,
+# stated on the page in those words" (DESIGN-progress-surface.md, WHAT
+# MUST NOT HAPPEN). This is the one closed definition of "finished" every
+# builder and every page section that counts a lane's progress reads,
+# rather than each inventing its own cutoff. Kept as the same three
+# values visual_facts already used inline for its own accepted/planned
+# fallback, named here so there is one copy instead of two.
+FINISHED_TASK_STATES = ("accepted", "done", "delivered")
+
+_TASK_STATE_INDEX = {state: i for i, state in enumerate(TASK_STATES)}
+
+# The status word a task's own lifecycle state draws as, on the timeline
+# shape. blocked is the one state with an unambiguous drawn word already
+# in the closed lexicon; every other state collapses to waiting, working
+# or complete, the same three-word vocabulary the pipeline and lanes
+# shapes already use for "not started yet", "in flight" and "done".
+_TIMELINE_STATUS_WORD = {
+    "planned": "waiting",
+    "ready": "waiting",
+    "active": "working",
+    "blocked": "BLOCKED",
+    "awaiting review": "working",
+    "verified": "working",
+    "accepted": "complete",
+    "delivered": "complete",
+    "monitored": "complete",
+    "closed": "complete",
+}
+
+
+def _check_task_status_map(states, status_word, lexicon):
+    """Raise when a task lifecycle state has no drawn status, or when one
+    is mapped outside the closed lexicon. Same governance shape as
+    _check_stage_map and _check_rung_map above, and callable from a test
+    with an invented state so the guard is proven to fire."""
+    missing = sorted(set(states) - set(status_word))
+    if missing:
+        raise RuntimeError(
+            "bm_visual: no drawn status for task state(s): %s. A state a "
+            "founder can be shown must never render as no status at all."
+            % ", ".join(missing))
+    wrong = sorted(w for w in status_word.values() if w not in lexicon)
+    if wrong:
+        raise RuntimeError(
+            "bm_visual: task state(s) mapped to a status outside the "
+            "closed lexicon: %s" % ", ".join(sorted(set(wrong))))
+    return True
+
+
+_check_task_status_map(TASK_STATES, _TIMELINE_STATUS_WORD, STATUS_LEXICON)
+
+
+def _task_lane(task):
+    """Which lane one task row belongs in, on the timeline shape: "you"
+    when a human is named as the assignee, "BrotherMode" when a runtime
+    is, "unassigned" when neither is on record yet. The same two owners
+    _owners() below already draws for the lanes shape, read from the
+    task's own assignment fields rather than invented."""
+    if (task.get("assigned_human") or "").strip():
+        return "you"
+    if (task.get("assigned_runtime") or "").strip():
+        return "BrotherMode"
+    return "unassigned"
+
+
+_TASK_LANE_ORDER = ("you", "BrotherMode", "unassigned")
+
+
+# ---------------------------------------------------------------------------
 # 7. THE ONE READER: rows in, plain facts out
 #
 # Every builder below is pure and takes this dict. The store reads happen
@@ -765,8 +857,7 @@ def visual_facts(store, project_id, now=None):
     if not planned and tasks:
         planned = len(tasks)
         accepted = len([t for t in tasks
-                        if (t.get("status") or "") in ("accepted", "done",
-                                                       "delivered")])
+                        if (t.get("status") or "") in FINISHED_TASK_STATES])
     by_rung = {rung: len([a for a in alerts if a["rung"] == rung])
                for rung in RUNGS}
     counts = [
@@ -856,11 +947,91 @@ def _owners(unit_rows, steps):
 
 
 # ---------------------------------------------------------------------------
-# 8. THE FIVE BUILDERS
+# 7b. PROGRESS FACTS: rows in, plain facts out, NO STORE HANDLE
 #
-# Each is pure over visual_facts' dict. Three of them return None rather
-# than an empty drawing: a picture of nothing teaches nothing, and the
-# page renders its designed empty state instead.
+# DESIGN-progress-surface.md item 2. Unlike visual_facts above, this takes
+# already-fetched rows rather than a store handle: a function with no
+# store handle can never grow into a second query path around the
+# store's own accessors, and it is testable with a handful of dicts
+# instead of a database. tools/bm_view.py is the only caller, and it does
+# the fetching through the store's own list_tasks, list_dependencies and
+# list_evidence: no SQL and no second collector live here either.
+# ---------------------------------------------------------------------------
+
+def progress_facts(rows):
+    """Progress over already-gathered task rows. Pure: no store handle,
+    no SQL, testable with plain dicts, same rule the rest of this module
+    follows.
+
+    `rows` is a dict of:
+        tasks          [task row, ...], the shape store.list_tasks returns
+        dependencies   [{"task_id", "depends_on_task_id"}, ...], the shape
+                       store.list_dependencies returns
+        evidence       {task_id: [evidence row, ...]}, one
+                       store.list_evidence("task", task_id) call per task,
+                       keyed by the caller because list_evidence itself
+                       takes one subject at a time
+
+    Returns {"lanes": [{"lane": name, "items": [item, ...]}, ...]}, one
+    lane per owner that holds at least one task ("you", "BrotherMode",
+    "unassigned", in that order), items in each lane in list_tasks' own
+    insertion order. Each item is:
+
+        task_id       str
+        label         a flat, safe noun phrase (the task's own title)
+        state         the task's own lifecycle status, verbatim
+        evidence_ref  the newest evidence row's own ref for that task, or
+                      "" when none is on record; the literal absence of
+                      one is a rendering decision and is never invented
+                      text here
+        blocked_by    the sorted, deduplicated depends_on_task_id list the
+                      dependencies rows record for that task, whatever
+                      its own state; empty when nothing blocks it
+        action        the task's own recorded blockers, joined, or "" when
+                      none are on record
+
+    Nothing here is a second source of truth: every field is a row's own
+    column, copied, never computed from a clock or a formula."""
+    rows = rows or {}
+    tasks = list(rows.get("tasks") or [])
+    dependencies = list(rows.get("dependencies") or [])
+    evidence_by_task = rows.get("evidence") or {}
+    blocked_by = {}
+    for dep in dependencies:
+        task_id = dep.get("task_id")
+        depends_on = dep.get("depends_on_task_id")
+        if task_id and depends_on:
+            blocked_by.setdefault(task_id, set()).add(depends_on)
+    lanes = {}
+    for t in tasks:
+        task_id = t.get("task_id") or ""
+        evidence = evidence_by_task.get(task_id) or []
+        ref = (evidence[-1].get("ref") or "") if evidence else ""
+        blockers = t.get("blockers") or []
+        if isinstance(blockers, str):
+            blockers = []
+        item = {
+            "task_id": task_id,
+            "label": _flat(t.get("title") or task_id),
+            "state": t.get("status") or "",
+            "evidence_ref": ref,
+            "blocked_by": sorted(blocked_by.get(task_id) or set()),
+            "action": _d("; ".join(b for b in blockers if b), 300),
+        }
+        lanes.setdefault(_task_lane(t), []).append(item)
+    return {"lanes": [{"lane": lane, "items": lanes[lane]}
+                      for lane in _TASK_LANE_ORDER if lane in lanes]}
+
+
+# ---------------------------------------------------------------------------
+# 8. THE SIX BUILDERS
+#
+# Each is pure over visual_facts' dict, except diagram_timeline, which is
+# pure over progress_facts' own dict (section 7b, above): the two data
+# functions stay separate because a store-free reader must never depend
+# on one that opens a store. Four of the six return None rather than an
+# empty drawing: a picture of nothing teaches nothing, and the page
+# renders its designed empty state instead.
 # ---------------------------------------------------------------------------
 
 def diagram_pipeline(facts):
@@ -1033,6 +1204,49 @@ def counts_rows(facts):
         "; ".join(row["sentence"] for row in rows) or "nothing counted yet")
 
 
+def diagram_timeline(progress):
+    """D6. "How is the work progressing, lane by lane?" One bar per item
+    inside its own lane, the bar's fill showing how far that item has
+    moved through the ten recorded lifecycle stages. None when there is
+    nothing to show yet, the same rule the other optional builders
+    follow: a project with no tasks recorded has genuinely nothing to
+    draw here.
+
+    Takes progress_facts' own dict (section 7b), never a store handle:
+    the fraction each bar draws is TASK_STATES' own closed order, the
+    same one _TIMELINE_STATUS_WORD already maps to a drawn status,
+    never an invented confidence figure."""
+    lanes = [l for l in (progress or {}).get("lanes") or []
+             if l.get("items")]
+    if not lanes:
+        return None
+    cap = CAPS["timeline"]
+    lanes = lanes[:cap["lanes"]]
+    total = len(TASK_STATES)
+    nodes, edges = [], []
+    room = cap["nodes"]
+    for li, lane in enumerate(lanes):
+        for ii, item in enumerate(lane["items"]):
+            if len(nodes) >= room:
+                break
+            status = _TIMELINE_STATUS_WORD.get(item["state"], "waiting")
+            stage = _TASK_STATE_INDEX.get(item["state"], 0) + 1
+            n = node("tl%d_%d" % (li, ii),
+                     "%s, %s" % (item["label"], status), status,
+                     detail="stage %d of %d" % (stage, total),
+                     lane=lane["lane"])
+            n["value"] = stage
+            n["limit"] = total
+            nodes.append(n)
+    lane_names = ", ".join(l["lane"] for l in lanes)
+    return Diagram(
+        "timeline", nodes, edges,
+        "How far each lane has moved",
+        "One bar per item inside each lane (%s); the fill shows how far "
+        "that item has moved through its recorded stages." % lane_names,
+        "Progress by lane: %s." % lane_names)
+
+
 # ---------------------------------------------------------------------------
 # 9. THE TWO EMITTERS
 #
@@ -1158,6 +1372,38 @@ def to_svg(diagram):
             x += w + _GAP
         width, height = max(x, qw + 20), y + _ROW + 10
         body = "".join(parts)
+    elif shape == "timeline":
+        parts, y, width = [], 10, 260
+        lanes = []
+        for n in nodes:
+            if n["lane"] not in lanes:
+                lanes.append(n["lane"])
+        for lane in lanes:
+            parts.append('<text class="bm-node-label" x="10" y="%d">%s</text>'
+                         % (y + 14, xml_escape(lane)))
+            y += 24
+            for n in [n for n in nodes if n["lane"] == lane]:
+                w = _text_width(_node_text(n))
+                width = max(width, w + 20)
+                parts.append(_box(10, y, w, _ROW, n))
+                limit, value = n.get("limit"), n.get("value")
+                if isinstance(limit, int) and limit > 0 and isinstance(
+                        value, int):
+                    filled = max(0, min(int(240 * value / limit), 240))
+                    parts.append(
+                        '<g role="progressbar" aria-valuemin="0" '
+                        'aria-valuemax="%d" aria-valuenow="%d" '
+                        'aria-valuetext="%s">'
+                        '<rect class="bm-bar-track" x="10" y="%d" '
+                        'width="240" height="10" rx="4"></rect>'
+                        '<rect class="bm-bar-fill" x="10" y="%d" width="%d" '
+                        'height="10" rx="4"></rect></g>'
+                        % (limit, value, xml_escape(n["detail"]),
+                           y + _ROW + 4, y + _ROW + 4, filled))
+                y += _ROW + 24
+            y += 12
+        width, height = width, y
+        body = "".join(parts)
     else:
         parts, y, width = [], 10, 10
         for n in nodes:
@@ -1211,6 +1457,21 @@ def to_text(diagram):
         lines.append("  " + _node_text(nodes[0]))
         for i, n in enumerate(nodes[1:]):
             lines.append("    %s. %s" % (chr(ord("A") + i), _node_text(n)))
+    elif shape == "timeline":
+        lanes = []
+        for n in nodes:
+            if n["lane"] not in lanes:
+                lanes.append(n["lane"])
+        for lane in lanes:
+            lines.append("  %s:" % lane)
+            for n in [n for n in nodes if n["lane"] == lane]:
+                limit, value = n.get("limit"), n.get("value")
+                bar = ""
+                if isinstance(limit, int) and limit > 0 and isinstance(
+                        value, int):
+                    filled = max(0, min(int(8 * value / limit), 8))
+                    bar = "   [%s%s]" % ("#" * filled, "-" * (8 - filled))
+                lines.append("    %s%s" % (_node_text(n), bar))
     else:
         for n in nodes:
             limit, value = n.get("limit"), n.get("value")
@@ -1706,9 +1967,15 @@ MUST_ACT_KINDS = ("open-key-decision", "failed-gate", "consent-missing",
 # Branch 2: he asked a question in the chat just now.
 ASKED_KINDS = ("status-answer", "next-answer", "explain-answer")
 
-# Branch 3: state rather than an ask, and worth returning to.
+# Branch 3: state rather than an ask, and worth returning to. Renamed
+# from "timeline" to "catchup-story" when the progress surface loop added
+# the timeline SHAPE to SHAPES (section 5): the two are different
+# namespaces this router treats as one flat set on purpose (branch 3 vs
+# branch 4 must stay disjoint, per the test that walks all four groups
+# together), and "catchup-story" is what this entry always meant, the
+# story-so-far VIEW_SECTIONS anchor, not the new drawn shape.
 STATE_KINDS = ("progress", "pipeline-state", "gate-ladder", "pen-holder",
-               "insight-history", "timeline", "handback-offer")
+               "insight-history", "catchup-story", "handback-offer")
 
 
 def surface_for(item):
