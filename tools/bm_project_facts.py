@@ -87,7 +87,7 @@ GATE_EXPECTATION = "ALL GREEN"
 # the public install command is pinned to THIS constant instead, never to
 # release_tag. Bump it by hand, in the same change that cuts and pushes a new
 # tag, never before. See docs/RELEASE.md, "The version law".
-PUBLIC_INSTALL_TAG = "v2.0.0"
+PUBLIC_INSTALL_TAG = "v2.1.0"
 
 
 class FactError(Exception):
