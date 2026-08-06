@@ -173,6 +173,38 @@ forecast.
 | D6 | A4 | Release: full gate on a quiet tree, manifest last, verifier PASSED, push, CI read green, then the tag | CI green on the final commit | Cut and push v2.1.0, about 10 minutes |
 | D7 | A5 | Deployment closeout per section 8: docs repasted, version bumped to next dev identity, fresh clone of v2.1.0 verified, the stale live install on this machine upgraded | Fresh clone verifies PASSED; doctor 10 of 10 on this machine; the schema warning at session start is gone | none |
 
+### Amendment 1, 2026-08-06: four founder asks added after ratification
+
+Recorded here rather than absorbed silently, because Law 1 says an addition that
+cannot name its north star objective is parked rather than backlogged. The
+watchdog caught the first of these landing with no plan entry, which is the
+drift this clause exists to stop, and the entry below is the correction.
+
+| Added | Serves | Where it lands |
+|---|---|---|
+| The installer feedback loop and one week questionnaire | Objective 1 (a stranger installs and succeeds) and objective 4 (nothing dropped silently): it is the instrument that MEASURES objective 1 | DONE, commit e4da2c1, day 1 |
+| Progress reporting as a core product artifact | Objective 1 and objective 4: the founder must answer where the project stands from one place, including what is blocked and what is being done about it | Spec landed at docs/program/absolute-lead/DESIGN-progress-surface.md; BUILD deferred to the loop after the tag, see the decision below |
+| The Haiku drift watchdog at every loop close | Objective 4: nothing dropped silently, including by me | DONE, day 1, first run found real drift; report at evidence/L10/DRIFT-AUDIT-1.md |
+| Fast-track the v2.1.0 tag to today | Objective 3 (the newest work actually reaches people), pulled forward because the founder is sending the repository link to friends now | Lane A, day 1, replacing the day 6 slot |
+
+DECISION TAKEN BY THE ORCHESTRATOR, founder may overrule. The progress surface
+is NOT in the v2.1.0 tag. It is new code in `tools/bm_visual.py` and
+`tools/bm_view.py`, the largest body of code in this repository that has never
+been adversarially reviewed, and the first outside users BrotherMode has ever
+had are installing this tag. Shipping untested new code into that moment is the
+exact risk this plan exists to avoid. ALTERNATIVE CONSIDERED: delay the tag by a
+day and include it, which the founder explicitly declined when he chose to
+fast-track. FLIP CONDITION: he says he would rather wait for it. Otherwise it
+ships as the next loop and reaches them through `/brotherme-update`.
+
+ALSO PULLED FORWARD into day 1, not in the original table: closing the M13 class
+(a suite rewrites a tracked file, so the product's own integrity check fails
+after its own documented procedure). Original slot was lane A days 3 to 4. It
+moved because the documented quickstart tells a new user to run the tests and
+then the doctor, in that order, so every friend receiving this link would hit
+it, and being told "do not trust this installed copy" is the worst available
+first impression.
+
 ### Lane B: PROVE (the evidence path)
 
 | Days | Loop | What closes | Done check | Founder |
