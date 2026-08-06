@@ -4,7 +4,7 @@ description: Check the installed version against the newest release and explain 
 
 Outcome to produce: tell the user their installed version, the newest available version, whether they match, and the exact update steps for their install path.
 
-1. Read the VERSION file at the BrotherME root (the folder this command's plugin or skill is installed in). That is the installed version.
+1. Read the VERSION file at the BrotherMode root (the folder this command's plugin or skill is installed in). That is the installed version.
 2. Check the newest release tag: `git ls-remote --tags https://github.com/khalilmaaouni/BrotherModeUp.git`. If the network refuses, say plainly the check could not run, and do not guess a version.
 3. Tell the user, in plain words: their installed version, the newest version, and whether they match.
 4. If they already match, say so and stop; no update steps needed.
@@ -16,4 +16,4 @@ Outcome to produce: tell the user their installed version, the newest available 
 8. Then re-run `python3 scripts/doctor.py` once more, the same way you would right after a fresh install: every one of its ten checks should read PASS or SKIP (SKIP is not a failure: for most checks it means that check found nothing to look at yet, and for the checksum check specifically it can also mean a dirty working tree made an honest comparison impossible, per step 7 above). If any check reads FAIL, follow the one-sentence fix it prints before doing anything else.
 9. Rollback, if a FAIL will not clear: `git checkout <the tag you were on before>` inside the skill folder, then run `python3 scripts/doctor.py` again to confirm the rollback itself is healthy.
 10. Give one recommended next action, and state any time cost as a range, never a promise, in plain words a non-engineer would follow.
-11. Say plainly: updating never touches the user's project data or records; it only replaces the BrotherME files themselves.
+11. Say plainly: updating never touches the user's project data or records; it only replaces the BrotherMode files themselves.
