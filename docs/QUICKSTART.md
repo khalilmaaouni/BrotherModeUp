@@ -27,26 +27,12 @@ No file editing of any kind happens on this path. You will not touch
 `settings.json`, you will not edit JSON, and you will not run Python by
 hand. The plugin brings its own automatic wiring with it.
 
-DATED, 2026-08-08: v3 has not been tagged yet, and `v2.1.1` below is still the
-last tag that resolves. It predates the night rename this project made to its
-own command and skill names, so it registers its plugin under the OLD id,
-`brotherme`, not `brothermode`, and it ships the old flat
-`commands/brotherme-*.md` surface, not the nine `/brothermode:*` skills this
-project ships today. The pairing below is the one that actually works
-against that tag, reproduced in a throwaway `CLAUDE_CONFIG_DIR` on
-2026-08-08. If you want today's tree instead, use the development clone
-command under step 1 below (`--branch main`), which tracks the moving branch
-rather than a tag. Once v3 is tagged, `docs/RELEASE.md` step 2b re-pins this
-page and the pairing below starts installing v3.
-
-Paste these two plain commands into any terminal, one at a time:
-
 ```bash
-claude plugin marketplace add khalilmaaouni/BrotherModeUp@v2.1.1
+claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.0.0
 ```
 
 ```bash
-claude plugin install brotherme@brotherme-marketplace
+claude plugin install brothermode@brothermode-marketplace
 ```
 
 Pasting `claude plugin install brothermode@brothermode-marketplace` after the
@@ -54,7 +40,7 @@ same marketplace add fails instead, with `Plugin "brothermode" not found in
 marketplace "brothermode-marketplace"`: that plugin id does not exist in the
 v2 marketplace this tag ships.
 
-The `@v2.1.1` pins the marketplace add to the released tag, generated from
+The `@v3.0.0` pins the marketplace add to the released tag, generated from
 the same fact every other page reads (`python3 tools/bm_project_facts.py
 --field install_target_tag`), rather than the repository's moving default
 branch; `docs/RELEASE.md` step 2b makes re-pinning it an explicit release
@@ -121,7 +107,7 @@ page deliberately does not type that identity by hand: a typed version goes
 stale the day after it is written; `docs/RELEASE.md` explains why.
 
 ```bash
-git clone --branch v2.1.1 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v3.0.0 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 Expected: git prints a few lines ending in something like `Resolving deltas:
@@ -136,7 +122,7 @@ ls ~/.claude/skills/brothermode/SKILL.md
 Expected: that exact path printed back. If you get "No such file or
 directory", the clone did not finish or landed somewhere else.
 
-Same dated fact as Path 1 above: `v2.1.1` predates the night rename, so this
+Same dated fact as Path 1 above: `v3.0.0` predates the night rename, so this
 checkout carries the old flat `commands/brotherme-*.md` surface and the
 single `skills/brotherme/SKILL.md` conductor, not the nine `/brothermode:*`
 skills this project ships today. The engine underneath (`tools/bm_*.py`,

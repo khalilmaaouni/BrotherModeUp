@@ -1,5 +1,56 @@
 # Changelog
 
+## 3.0.0, released 2026-08-08 (annotated tag v3.0.0, on the commit that alone carries VERSION 3.0.0 per rule 1)
+
+The identity release. BrotherMode is now one product name everywhere a
+person reads it, and `brothermode` is the one technical namespace: plugin
+id, marketplace, command boundary and skill invocations all agree. This is
+a BREAKING change for anyone running v2: uninstall the old plugin before
+installing this one, because the plugin identity itself changed.
+
+- The nine public actions ship as proper Claude Code skills invoked as
+  `/brothermode:start`, `status`, `next`, `review`, `deliver`, `view`,
+  `help`, `doctor` and `update`. The fifteen legacy `/brotherme-*` command
+  files remain as labelled compatibility shims, each naming its
+  replacement and its removal condition, and the internal actions are
+  hidden from the public menu rather than deleted.
+- One deterministic command boundary (`tools/brothermode_cli.py`) is what
+  the skills call, instead of each skill reaching into a different
+  internal script. Its load-bearing contract, proven by a hermetic test,
+  is that its status output is byte identical to the internal tool it
+  dispatches to.
+- Five worker profiles ship as native plugin agents (fast-worker, builder,
+  researcher, navigator, reviewer) with their models, effort and read-only
+  status declared. The two writer profiles deliberately do NOT declare
+  worktree isolation: the file fence cannot resolve claims across
+  worktrees, so shipping isolation as their default would have made the
+  unfenced path the normal one. That limit is published.
+- The installed product is now proven, not assumed: an eighteen step
+  lifecycle canary installs the plugin the shipped way, upgrades from
+  v2.1.1, proves a single hook chain, exercises the public actions,
+  proves an incomplete delivery is REFUSED, and leaves a clean
+  configuration behind. A separate canary proves the fence hook denies a
+  cross-fence write in a real headless session.
+- Current limitations live in `docs/limits/CURRENT.md` and contain only
+  what is true today: recovery covers compaction boundaries and not a hard
+  kill; the fence does not follow claims across worktrees and carries
+  three further parser and path gaps found by an outside-family review;
+  two database and input-output edges are named for later; and the hook
+  performance target of 40 percent was missed, with the measured numbers
+  published rather than a flattering estimate.
+- The comparative benchmark ran its first installed-arm protocol: 26 real
+  cells, both arms authenticated. The mechanism result is robust (the
+  plain arm violated the file fence both attempts, the installed arm was
+  blocked by the live hook both attempts). The judgment-graded cells do
+  not survive two different grader families, so no quality claim is made
+  from them. Internal evidence, one machine, one run.
+
+Two reviews attacked this release before it was cut, one inside the Claude
+family and one from OpenAI Codex; sixteen findings were reproduced and the
+release-critical ones fixed, including a documented install pairing that
+would have failed for a stranger, and a project store that was ignored
+only through a private file on the author's machine.
+
 ## 2.1.1, released 2026-08-07 (annotated tag v2.1.1 at commit 748e1f7, which alone carried VERSION 2.1.1 per rule 1)
 
 The tester release, cut overnight under the founder's recorded grant. What
