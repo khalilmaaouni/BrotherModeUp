@@ -96,8 +96,8 @@ EXIT_USAGE = 2
 
 #: The plugin identity this repository ships, exactly as
 #: scripts/release-smoke-install.sh installs it.
-MARKETPLACE_NAME = "brotherme-marketplace"
-PLUGIN_SPEC = "brotherme@%s" % MARKETPLACE_NAME
+MARKETPLACE_NAME = "brothermode-marketplace"
+PLUGIN_SPEC = "brothermode@%s" % MARKETPLACE_NAME
 
 INSTALL_TIMEOUT_SECONDS = 300
 
@@ -251,7 +251,7 @@ def install_plugin(env, notes, persistent=False):
                      % (version, _ascii(list_out)))
         return False
 
-    r_details = _run([claude_bin, "plugin", "details", "brotherme"], ROOT, env,
+    r_details = _run([claude_bin, "plugin", "details", "brothermode"], ROOT, env,
                      INSTALL_TIMEOUT_SECONDS)
     details_out = (r_details.stdout or "") + (r_details.stderr or "")
     r_hookcount = _run(

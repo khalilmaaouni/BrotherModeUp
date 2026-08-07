@@ -5783,12 +5783,25 @@ class TestTheSeventhCommandAndTheDeepTourAreWired(unittest.TestCase):
                           % (skill_name, invocation))
 
     def test_the_update_command_teaches_only_verified_lines(self):
-        text = self._text("commands", "brotherme-update.md")
-        for line in ("/plugin marketplace update brotherme-marketplace",
-                     "/plugin update brotherme",
+        """H-3, 2026-08-08: this pin used to check commands/brotherme-update.md
+        for the pre-rename `/plugin marketplace update brotherme-marketplace`
+        and `/plugin update brotherme` lines. Those lines cannot work for a v3
+        install: a marketplace update on the old plugin id `brotherme` never
+        becomes the new id `brothermode`, they are two different
+        registrations to Claude Code, and skills/update/SKILL.md itself says
+        so and refuses to send anyone through them. Pinning them as
+        'verified' was pinning a known-broken instruction. The check now
+        follows the same command's canonical v3 home, skills/update/SKILL.md,
+        and pins the lines that file actually teaches: uninstall the old
+        plugin, then add and install the new one fresh, both by their real
+        names."""
+        text = self._text("skills", "update", "SKILL.md")
+        for line in ("/plugin uninstall brotherme@brotherme-marketplace",
+                     "/plugin marketplace add khalilmaaouni/BrotherModeUp@<released-tag>",
+                     "/plugin install brothermode@brothermode-marketplace",
                      "git fetch --tags"):
             self.assertIn(line, text,
-                          "brotherme-update.md lost the verified update "
+                          "skills/update/SKILL.md lost the verified update "
                           "line %r; a beginner following this command "
                           "would be typing something nobody checked" % line)
 

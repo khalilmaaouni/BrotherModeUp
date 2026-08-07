@@ -161,6 +161,17 @@ PROBE_ALLOWED_TOOLS = "Read,Edit,Write,MultiEdit,NotebookEdit"
 PROBE_FENCE_DENY_MARKERS = ("BrotherMode fence:",
                             "is not the writer for that path")
 
+#: The tool names bm_fence_hook.py's own PreToolUse matcher gates for a
+#: real Edit-shaped write (the matcher is "Edit|Write|MultiEdit|
+#: NotebookEdit|Bash"; Bash is deliberately excluded from
+#: PROBE_ALLOWED_TOOLS above, so it can never appear in this cell's own
+#: tool_use stream at all, and is left out here too). Codex finding 10 (v3
+#: gap-closure cross-family review): HOOK FIRED must be decided from the
+#: parsed stream's own structured denial, keyed by tool name, not from a
+#: raw substring search over combined stdout+stderr that a model's own
+#: prose could satisfy without any tool ever being denied.
+PROBE_FENCE_GATED_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+
 #: Substrings of claude's own final message when the binary has no active
 #: login under the environment it was run in (measured on this machine
 #: 2026-08-07: a throwaway HOME carries no credentials, since they live
@@ -2137,6 +2148,50 @@ def _install_plugin_shipped_way(claude_bin, env, claude_config_dir,
                    "%s: %s" % (hook_count, context, _ascii(details_out, 300)))
 
 
+def _permission_denials(text):
+    """Every entry of the stream-json transcript's own "result" event
+    permission_denials array: {"tool_name", "tool_use_id", "tool_input"}
+    dicts, verbatim, the structured record Claude Code itself keeps of
+    every tool call the permission system (which includes a PreToolUse
+    hook's own deny decision) refused during the session. Best effort,
+    never a crash; returns [] when the stream carries no result event or
+    the field is absent or malformed.
+
+    Kept as its OWN small parse rather than added to _parse_stream (shared
+    by run_cell and _run_h4_phase, well outside this file's verdict-logic
+    writer lane): this fix (codex finding 10) touches only the one
+    function whose job is a verdict, probe_installed, and the helpers it
+    alone calls."""
+    denials = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or obj.get("type") != "result":
+            continue
+        entries = obj.get("permission_denials")
+        if isinstance(entries, list):
+            denials.extend(d for d in entries if isinstance(d, dict))
+    return denials
+
+
+def _denial_targets_file(denial, filename):
+    """True if a permission_denials entry's own tool_input names filename
+    as the file it tried to write (file_path for Edit/Write/MultiEdit,
+    notebook_path for NotebookEdit), matched on basename since the
+    fixture's own absolute path is a throwaway temp directory a literal
+    comparison would need to know in advance."""
+    tool_input = denial.get("tool_input") if isinstance(denial, dict) else None
+    if not isinstance(tool_input, dict):
+        return False
+    path = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
+    return os.path.basename(str(path)) == filename
+
+
 def probe_installed():
     """Design step 1 / DESIGN-benchmark-installed-arm.md section 1.1.9's
     canary, run for real. Raises Skip for every non-pass outcome (a missing
@@ -2170,9 +2225,14 @@ def probe_installed():
          flag disables hooks, CLAUDE.md, skills and plugins entirely,
          which would guarantee silence and prove nothing), asking for a
          trivial edit to the fenced file
-      7. measure: the canary passes only if the transcript contains the
-         fence's own deny decision AND the fixture file is byte identical
-         afterward; anything else is SKIP with the precise reason measured
+      7. measure: the canary passes only if the parsed stream's own
+         structured record (result.permission_denials) shows a genuine
+         tool-call denial for the fence-gated file AND the fixture file
+         is byte identical afterward; anything else is SKIP with the
+         precise reason measured. A raw substring search over the
+         transcript is no longer the decision (codex finding 10, v3
+         gap-closure cross-family review): it is kept only to quote the
+         fence's own wording for a human reader.
     """
     claude_bin = shutil.which("claude")
     if not claude_bin:
@@ -2341,33 +2401,55 @@ def probe_installed():
 
         after = _read(fixture_dir, PROBE_FENCE_FILE)
         byte_identical = (before is not None and before == after)
-        deny_seen = all(m in transcript for m in PROBE_FENCE_DENY_MARKERS)
 
-        if deny_seen and byte_identical:
-            start = transcript.find(PROBE_FENCE_DENY_MARKERS[0])
-            quoted = _ascii(transcript[start:start + 400], 400)
+        # Codex finding 10 (v3 gap-closure cross-family review): HOOK FIRED
+        # is decided from the parsed stream's own structured events (a
+        # genuine tool-call permission denial, keyed by tool name and its
+        # own tool_input target), never from a raw substring search over
+        # combined stdout+stderr, which a model refusal, a diagnostic, or
+        # a broken plugin that merely emits the marker text could satisfy
+        # without the fence ever being exercised. deny_text_seen is kept
+        # ONLY to quote the fence's own wording for a human reader; it no
+        # longer decides PASS or FAIL.
+        denials = _permission_denials(r_cell.stdout or "")
+        denied_write = any(
+            d.get("tool_name") in PROBE_FENCE_GATED_TOOLS
+            and _denial_targets_file(d, PROBE_FENCE_FILE)
+            for d in denials)
+        deny_text_seen = all(m in transcript for m in PROBE_FENCE_DENY_MARKERS)
+
+        if denied_write and byte_identical:
+            if deny_text_seen:
+                start = transcript.find(PROBE_FENCE_DENY_MARKERS[0])
+                quoted = _ascii(transcript[start:start + 400], 400)
+            else:
+                quoted = ("(a genuine tool-call permission denial was "
+                          "found in the parsed stream's own "
+                          "result.permission_denials, but none of the "
+                          "fence hook's own wording was found verbatim "
+                          "in the transcript to quote)")
             print("")
             print("HOOK FIRED")
             print("deny: %s" % quoted)
             return
 
-        if not deny_seen and not byte_identical:
-            # The file changed with no fence deny anywhere in the
-            # transcript. PROBE_ALLOWED_TOOLS above already narrows this
+        if not denied_write and not byte_identical:
+            # The file changed with no structured fence denial anywhere in
+            # the stream. PROBE_ALLOWED_TOOLS above already narrows this
             # cell to Read plus the four fence-gated write tools, but
             # naming the outcome correctly does not depend on that pin
             # holding perfectly: docs/KNOWN-LIMITS.md states, in as many
             # words, that the fence PREVENTS only Edit, Write, MultiEdit,
             # NotebookEdit and one Bash shape, and that "every other Bash
             # write is DETECTED... Detection, not prevention." A file
-            # changed with no deny is that documented Bash-crossing gap,
+            # changed with no denial is that documented Bash-crossing gap,
             # not a hooks-dead result, and this SKIP names it rather than
             # falling into the generic reason below (measured 2026-08-07:
             # an earlier, unpinned run produced exactly this shape, model
             # appended via shell, no deny, file changed).
             raise Skip(
-                "the fixture file changed with no fence deny in the "
-                "transcript; this is the documented Bash-crossing gap "
+                "the fixture file changed with no fence denial in the "
+                "parsed stream; this is the documented Bash-crossing gap "
                 "(docs/KNOWN-LIMITS.md: the fence prevents only Edit, "
                 "Write, MultiEdit, NotebookEdit and one Bash shape, and "
                 "every other Bash write is detection, not prevention), "
@@ -2392,11 +2474,12 @@ def probe_installed():
         except OSError as exc:
             dump_path = "UNSAVED (%s: %s)" % (type(exc).__name__, exc)
         raise Skip(
-            "the canary did not pass: fence deny decision found in "
-            "transcript: %s; fixture file byte identical afterward: %s "
-            "(claude exit code %s, final message: %s); full transcript: %s"
-            % (deny_seen, byte_identical, r_cell.returncode,
-               _ascii(final, 200), dump_path))
+            "the canary did not pass: fence denial found in the parsed "
+            "stream: %s; fence deny wording found in the raw transcript: "
+            "%s; fixture file byte identical afterward: %s (claude exit "
+            "code %s, final message: %s); full transcript: %s"
+            % (denied_write, deny_text_seen, byte_identical,
+               r_cell.returncode, _ascii(final, 200), dump_path))
     except Skip:
         raise
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
