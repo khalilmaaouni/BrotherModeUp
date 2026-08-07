@@ -1,0 +1,10 @@
+diff --git a/src/adder.py b/src/adder.py
+index a9225f0..2ee82e1 100644
+--- a/src/adder.py
++++ b/src/adder.py
+@@ -3,4 +3,4 @@
+ 
+ def add(a, b):
+     """The sum of a and b."""
+-    return a + b + 1
++    return a + b
