@@ -270,6 +270,18 @@ run of it as a test of the runbook, not just of the code.
    later refresh, per the CLI reference for `claude plugin marketplace add`
    at https://code.claude.com/docs/en/plugin-marketplaces, which is the
    mechanism this pin relies on.
+
+   IF THE TAG THIS STEP JUST BUMPED THE PIN TO is the first one cut after
+   the 2026-08-07 night rename: `README.md`, `docs/QUICKSTART.md` and
+   `docs/SETUP.md` each carry a "DATED, 2026-08-08" paragraph and a
+   `claude plugin install brotherme@brotherme-marketplace` line, both added
+   as a stopgap because `v2.1.1` (the tag pinned at the time) predates the
+   rename and installs under the OLD plugin id. Once the pin above moves to
+   a tag that actually carries the renamed tree, remove that paragraph in
+   the same change and change the plugin-install line back to `claude
+   plugin install brothermode@brothermode-marketplace` in all three files;
+   leaving the stopgap in place past this point would tell a reader to
+   install the wrong plugin id from a tag that no longer has that problem.
 3. **Generate the checksum manifest**, from the repository root, after steps
    1 and 2 are committed (the manifest must describe the exact tree being
    released, not an earlier one):
