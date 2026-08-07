@@ -435,7 +435,7 @@ def cmd_update(argv):
     _out("An update is available. Exact steps for your install path:")
     _out("")
     _out("Plugin install:")
-    _out("  /plugin marketplace update brotherme-marketplace")
+    _out("  /plugin marketplace update brothermode-marketplace")
     _out("  /plugin update brotherme")
     _out("  then restart Claude Code")
     _out("")

@@ -1,0 +1,11 @@
+---
+name: deliver
+description: Package the finished work into one delivery summary with the evidence that it works
+disable-model-invocation: true
+---
+
+Outcome to produce: one delivery packet the user can read, share, and act on, proving what was built and how it was checked.
+
+Enter the delivery flow of the brotherme skill. Run the mechanical command `python3 "${CLAUDE_PLUGIN_ROOT}/tools/brothermode_cli.py" deliver` (the packaged console script is `brothermode deliver`) to generate the delivery packet from that project's own records; never fill DELIVERY-PACKET.md by hand and never answer from memory of this conversation about what is done. A plugin install exports `${CLAUDE_PLUGIN_ROOT}` for skill and command content, so that path resolves on its own; on a clone install, where the variable is unset, run `python3 tools/brothermode_cli.py deliver` instead, from the BrotherMode root (`~/.claude/skills/brothermode`). Either way, run it from the user's project folder so it reads and writes that project's own records. Do not say "ready to deliver" unless a verifying check ran after the last edit and passed; if any check is missing or failing, say so plainly and list what remains instead of delivering.
+
+v3 note: this skill is the canonical replacement for the legacy `/brotherme-deliver` command (V3-FREEZE-2026-08-07.md decision 1). Its mechanical command now calls `tools/brothermode_cli.py deliver`, a thin pass-through to the exact `bm_project.py deliver` function the legacy command named. `disable-model-invocation: true` per plan section 3.3's side-effect table: delivery is a write with a real, user-controlled moment (packaging finished work for someone else to act on), exactly the class of action the official skills reference names `/deploy` to illustrate ("you don't want Claude deciding to deploy because your code looks ready").

@@ -64,6 +64,7 @@ Source = "https://github.com/khalilmaaouni/BrotherModeUp"
 Changelog = "https://github.com/khalilmaaouni/BrotherModeUp/blob/main/CHANGELOG.md"
 
 [project.scripts]
+brothermode = "brothermode_cli:cli"
 bm-store = "bm_store:main"
 bm-threads = "bm_threads:main"
 bm-telemetry = "bm_telemetry:main"
@@ -95,6 +96,7 @@ package-dir = { "" = "tools", "brotherme" = "brotherme" }
 # module here is a decision, and the packaging test in tools/test_bm.py
 # fails if this list and the shipping tools in tools/ disagree.
 py-modules = [
+    "brothermode_cli",
     "bm_store",
     "bm_learning",
     "bm_learn",

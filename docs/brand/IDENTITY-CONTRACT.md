@@ -1,6 +1,9 @@
 # BrotherMode identity contract
 
-Status: CURRENT as of 2026-08-04.
+Status: CURRENT as of 2026-08-04, PARTIALLY SUPERSEDED as of 2026-08-07 night.
+Section 8 records the supersession. Read section 8 before trusting the plugin
+id, the marketplace id, or the slash-command form anywhere below it: those
+three rows changed, the rest of this page did not.
 
 This page fixes the names this project uses, says which of them may appear in
 a page a user reads today, and says what a future rename would have to touch.
@@ -18,13 +21,13 @@ refuses a disagreement between that file, `.claude-plugin/plugin.json` and
 |---|---|---|
 | Product name, everything a user reads | `BrotherMode` | README.md, the pages under docs/, the launch drafts, project-template prose |
 | Persona voice | `BrotherME` | `skills/brotherme/SKILL.md` and the seven `/brotherme-*` commands, nowhere else as a current name |
-| Plugin id | `brotherme` | `.claude-plugin/plugin.json`, field `name` |
-| Marketplace id | `brotherme-marketplace` | `.claude-plugin/marketplace.json`, field `name` |
+| Plugin id | `brothermode` (v3, section 8; was `brotherme`) | `.claude-plugin/plugin.json`, field `name` |
+| Marketplace id | `brothermode-marketplace` (v3, section 8; was `brotherme-marketplace`) | `.claude-plugin/marketplace.json`, field `name` |
 | pip distribution name | `brothermode` | `pyproject.toml`, `[project] name` |
-| Python import package | `brotherme` | `brotherme/__init__.py`, `packages` in `pyproject.toml` |
+| Python import package | `brotherme` (unchanged in v3, section 8) | `brotherme/__init__.py`, `packages` in `pyproject.toml` |
 | Console script prefix | `bm-` | the console scripts in `pyproject.toml` |
 | Module file prefix | `bm_` | `tools/bm_*.py`, `mcp/bm_mcp_server.py` |
-| Slash commands | `/brothermode` for the expert skill, `/brotherme-*` for the seven guided commands | root `SKILL.md`, `commands/` |
+| Slash commands | `/brothermode` for the expert skill; `/brothermode:start`, `:status`, `:next`, `:review`, `:deliver`, `:view`, `:help`, `:doctor`, `:update` for the nine v3 canonical skills (section 8); `/brotherme-*` survives as fifteen legacy command shims |
 | Durable-state environment prefix | `BROTHERMODE_` | 15 distinct names across `scripts/` and `tools/` |
 | Code-identity environment variable | `BROTHERME_CONFIG` | `scripts/setup.py` |
 | Skill root on disk | `~/.claude/skills/brothermode` | `scripts/install.py` |
@@ -162,3 +165,58 @@ exclusions with the reason in a comment rather than pretending they pass:
 alongside legitimate persona speech, and
 `docs/specs/canonical-project-protocol.md`, which cites the dated source plan
 by the title it was written under. Both are copy changes, and both are open.
+
+## 8. The v3 revision, 2026-08-07 night: the two-namespace rule is reversed
+for the plugin id and the marketplace id, and held everywhere else
+
+Section 2 above states the split between `brothermode` (durable state) and
+`brotherme` (code identity) is "permanent and intentional... not drift
+waiting to be tidied up." That statement was true on 2026-08-04 and it was
+knowingly reversed, in part, by the founder on 2026-08-07 night.
+
+**What changed.** The plugin id and the marketplace id move from the code-
+identity namespace to the durable-state spelling: plugin id `brotherme` ->
+`brothermode`; marketplace id `brotherme-marketplace` -> `brothermode-
+marketplace`. The public skill surface moves from the flat `/brotherme-*`
+command layout to `skills/<name>/SKILL.md`, invoked as `/brothermode:start`,
+`:status`, `:next`, `:review`, `:deliver`, `:view`, `:help`, `:doctor`,
+`:update`. The full-auto trio (`auto`, `auto-status`, `stop`) and the
+founder-mode quartet (`brief`, `decisions`, `handback`, `handover-pack`)
+become hidden internal skills under the same plugin: reachable, behavior
+preserved, not part of the nine advertised in `/help` or a first-run menu.
+
+**What did not change.** The Python import package stays `brotherme/`
+(`brotherme/__init__.py`, `brotherme/core/schema.py`). The consent config
+stays `~/.brotherme/config.json` and `BROTHERME_CONFIG`. The pip
+distribution name, the console script prefix `bm-`, and the module prefix
+`bm_` were already `brothermode`-independent per section 2 and stay exactly
+as section 2 describes. These three surfaces sit outside the file-ownership
+fence this revision's dispatch was given (they are `brotherme/`, `scripts/
+setup.py`, and `scripts/uninstall.py`, none of them assigned to the lane
+that made this change), and renaming the Python package specifically would
+touch `tools/bm_store.py`'s by-path module loader, which is runtime core
+this dispatch was told not to refactor. They remain a named, open item, not
+a silent omission: `product.identity.json`'s `v3_revision.not_renamed_this_
+run` records them so the next change that touches them starts from a
+written list instead of rediscovering the gap.
+
+**Authority.** `BrotherModeUp-handovers/V3-FREEZE-2026-08-07.md`, founder
+decision 1 ("full rename to `brothermode`... superseding the afternoon
+keep-brotherme answer with the conflict stated") and freeze answer 5. The
+architecture refutation's ruling B3 (`v3/architecture-refutation.md`)
+adjudicated the twelve break surfaces this reversal costs an existing
+install (section 5 above) as accepted wholesale for the plugin id and the
+marketplace id, with the upgrade path itself ruled separately under B4:
+v2 installs are declared abandoned rather than upgraded, with a migration
+note owed to the pilot, not a `/plugin marketplace update` that silently
+resolves to nothing.
+
+**What this means for section 2's "permanent and intentional."** It no
+longer describes the plugin id or the marketplace id. It still describes
+the Python import package and the consent config, for the reason given
+above: not because the split is philosophically right there and wrong
+elsewhere, but because closing it fully was out of scope for the dispatch
+that made this call. A future revision that finishes the unification, or
+that decides to leave the Python package and consent config split
+permanently after all, records that decision here the same way this one
+did: what changed, what was weighed, what it cost, and who authorized it.
