@@ -41,6 +41,19 @@ USAGE
   python3 scripts/benchmark_comparative.py --task T1 --arm A
       run one cell for real and write its artifacts
   optional with --task: --arm A|B (required), --model <id>, --run-id <id>
+  python3 scripts/benchmark_comparative.py --probe-installed
+      the M19-class go/no-go canary for the installed arm (design step 1,
+      docs/program/absolute-lead/DESIGN-benchmark-installed-arm.md section
+      1.1.9): builds a throwaway HOME, CLAUDE_CONFIG_DIR and
+      BROTHERME_CONFIG, installs the plugin the shipped way, grants
+      consent the shipped way, seeds a rival fence claim on one fixture
+      file, and drives ONE real headless claude session asking for a
+      trivial edit to that file. Exits 0 printing HOOK FIRED with the
+      deny quoted on a pass, exits 1 printing SKIP: <reason> on anything
+      else (a missing or unauthenticated claude binary, a failed install
+      or consent step, or the hook staying silent). Writes nothing
+      outside its own throwaway temporary directories, which it deletes
+      on exit.
   exit codes: 0 requested operation succeeded, 1 a SKIP, a harness defect or
   broken calibration, 2 bad arguments
 
@@ -79,6 +92,54 @@ CELL_TIMEOUT_SECONDS = 1800
 T2_LINE_CAP = 40
 
 ARMS = ("A", "B")
+
+# ---------------------------------------------------------------------------
+# --probe-installed: design step 1's canary (DESIGN-benchmark-installed-arm.md
+# section 1.1.9). Its own constants, kept apart from the six-task constants
+# above because the canary is not a task and never appears in TASKS/TASK_ORDER.
+# ---------------------------------------------------------------------------
+
+#: Wall clock cap for the canary's one headless cell. Kept far below
+#: CELL_TIMEOUT_SECONDS on purpose: the canary's task is a single trivial
+#: edit, never a real T1-T6 task, and a canary that needed 30 minutes to
+#: answer a yes/no question would be a design defect, not a slow machine.
+PROBE_TIMEOUT_SECONDS = 300
+
+#: The plugin identity this repository ships, exactly as
+#: scripts/release-smoke-install.sh installs it.
+PROBE_MARKETPLACE_NAME = "brotherme-marketplace"
+PROBE_PLUGIN_SPEC = "brotherme@%s" % PROBE_MARKETPLACE_NAME
+
+#: The one fixture file the rival session fences and the canary prompt asks
+#: to edit.
+PROBE_FENCE_FILE = "canary.txt"
+PROBE_FENCE_FILE_SEED = "line one\n"
+
+#: An arbitrary, fixed rival session id. The headless canary session gets
+#: its own id from the real claude binary (a fresh one every run), so this
+#: fixed string can never collide with it; what matters is that the two
+#: differ, not what either one is.
+PROBE_RIVAL_SESSION_ID = "bm-probe-installed-rival-session"
+
+PROBE_PROMPT = (
+    "Read %s and append the single line 'edited by probe' to the end of "
+    "it. Work only inside this repository." % PROBE_FENCE_FILE)
+
+#: The two literal substrings inside tools/bm_fence_hook.py's
+#: ownership-conflict deny reason (decide(), the "foreign" branch: see
+#: "This session is %s, so it is not the writer for that path."). Both are
+#: required before the canary calls the fence fired, so a different refusal
+#: shape, or model prose that happens to echo one phrase alone, cannot be
+#: mistaken for the fence's own deny.
+PROBE_FENCE_DENY_MARKERS = ("BrotherMode fence:",
+                            "is not the writer for that path")
+
+#: Substrings of claude's own final message when the binary has no active
+#: login under the environment it was run in (measured on this machine
+#: 2026-08-07: a throwaway HOME carries no credentials, since they live
+#: under the real HOME, not under CLAUDE_CONFIG_DIR). Either alone is
+#: enough: this is a SKIP reason to state plainly, not a guess to narrow.
+PROBE_AUTH_FAILURE_MARKERS = ("Not logged in", "login")
 
 
 class Skip(Exception):
@@ -851,6 +912,274 @@ def run_cell(task_id, arm, model, run_id):
 
 
 # ---------------------------------------------------------------------------
+# --probe-installed: design step 1's canary. Builds a throwaway environment,
+# installs the plugin the shipped way, and drives ONE real headless claude
+# session to measure, not assume, whether the fence hook fires on the live
+# path (the M19 lesson: an in-process proof passing while the live path never
+# executes the hook is exactly the failure this function exists to catch).
+# Every write this function makes lives under its own throwaway temporary
+# directories, deleted in the finally block; it writes nothing to EVIDENCE
+# and nothing to the repository.
+# ---------------------------------------------------------------------------
+
+def _probe_env(home_dir, claude_config_dir, broth_config):
+    """The one throwaway environment used for every subprocess call the
+    canary makes: the real environment with every GIT_ name stripped (git
+    honours GIT_DIR/GIT_WORK_TREE over cwd, the same class of bug
+    scripts/rehearse_fresh_install.py's build_env fixed, reproduced
+    2026-08-06), every existing BrotherMode-recognized variable stripped so
+    nothing about this machine's own dogfood install leaks in, and HOME,
+    CLAUDE_CONFIG_DIR, BROTHERME_CONFIG pointed at the throwaway paths this
+    probe built and will destroy."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    for key in ("BROTHERMODE_VAULT", "BROTHERMODE_ROOT",
+                "BROTHERMODE_REGISTRIES", "BROTHERME_CONFIG"):
+        env.pop(key, None)
+    env.pop("BM_FENCE_SESSION_ID", None)
+    env["HOME"] = home_dir
+    env["CLAUDE_CONFIG_DIR"] = claude_config_dir
+    env["BROTHERME_CONFIG"] = broth_config
+    return env
+
+
+def probe_installed():
+    """Design step 1 / DESIGN-benchmark-installed-arm.md section 1.1.9's
+    canary, run for real. Raises Skip for every non-pass outcome (a missing
+    or unauthenticated claude binary, a failed install or consent step, or
+    the fence staying silent); main() turns that into "SKIP: <reason>" and
+    exit 1, exactly as dry_run and run_cell already do. On a pass this
+    prints HOOK FIRED plus the quoted deny and returns normally, and main()
+    turns that into exit 0.
+
+    THE SEVEN MOVES, in order:
+      1. confirm a claude binary exists at all (a missing one is SKIP, not
+         a crash)
+      2. build a throwaway HOME, CLAUDE_CONFIG_DIR and fixture directory
+      3. install the plugin the shipped way: `claude plugin marketplace
+         add <this tree>` then `claude plugin install
+         brotherme@brotherme-marketplace`, with the same three asserts
+         scripts/release-smoke-install.sh already makes (success lines,
+         the version matching VERSION, the hook group count from
+         tools/bm_project_facts.py --field hook_count), reused verbatim
+         rather than reinvented
+      4. grant consent the shipped way: scripts/setup.py flag mode against
+         BROTHERME_CONFIG inside the throwaway HOME, exactly as
+         scripts/rehearse_fresh_install.py step 4 does; without this the
+         consent gate would rightly hold the product back and the canary
+         would measure the gate, not the fence
+      5. seed the fixture: one file, committed, then fenced by a RIVAL
+         session whose label is materialized through the fence tool's own
+         --session-id path, so the claim is a real claim and not a
+         fabricated label
+      6. drive ONE real headless `claude -p` session, no --safe-mode (that
+         flag disables hooks, CLAUDE.md, skills and plugins entirely,
+         which would guarantee silence and prove nothing), asking for a
+         trivial edit to the fenced file
+      7. measure: the canary passes only if the transcript contains the
+         fence's own deny decision AND the fixture file is byte identical
+         afterward; anything else is SKIP with the precise reason measured
+    """
+    claude_bin = shutil.which("claude")
+    if not claude_bin:
+        raise Skip("no claude binary on PATH; install Claude Code or run "
+                   "from a machine that has it")
+
+    dirs_made = []
+    try:
+        home_dir = os.path.realpath(tempfile.mkdtemp(prefix="bm-probe-home-"))
+        dirs_made.append(home_dir)
+        claude_config_dir = os.path.realpath(
+            tempfile.mkdtemp(prefix="bm-probe-claude-config-"))
+        dirs_made.append(claude_config_dir)
+        fixture_dir = os.path.realpath(
+            tempfile.mkdtemp(prefix="bm-probe-fixture-"))
+        dirs_made.append(fixture_dir)
+
+        broth_config = os.path.join(home_dir, ".brotherme", "config.json")
+        env = _probe_env(home_dir, claude_config_dir, broth_config)
+
+        print("probe-installed: throwaway HOME %s" % home_dir)
+        print("probe-installed: throwaway CLAUDE_CONFIG_DIR %s"
+              % claude_config_dir)
+        print("probe-installed: throwaway fixture %s" % fixture_dir)
+
+        # Install the product the shipped way (design 1.1.2): the same two
+        # commands and the same three asserts scripts/release-smoke-
+        # install.sh already makes, reused verbatim rather than reinvented.
+        r_add = _run([claude_bin, "plugin", "marketplace", "add", ROOT],
+                    cwd=ROOT, env=env, timeout=PROBE_TIMEOUT_SECONDS)
+        add_out = (r_add.stdout or "") + (r_add.stderr or "")
+        if r_add.returncode != 0 or "Successfully added marketplace" not in add_out:
+            raise Skip("claude plugin marketplace add did not succeed: "
+                       "exit %s, output: %s"
+                       % (r_add.returncode, _ascii(add_out, 300)))
+
+        r_install = _run([claude_bin, "plugin", "install", PROBE_PLUGIN_SPEC],
+                        cwd=ROOT, env=env, timeout=PROBE_TIMEOUT_SECONDS)
+        install_out = (r_install.stdout or "") + (r_install.stderr or "")
+        if (r_install.returncode != 0
+                or "Successfully installed plugin" not in install_out):
+            raise Skip("claude plugin install did not succeed: exit %s, "
+                       "output: %s"
+                       % (r_install.returncode, _ascii(install_out, 300)))
+
+        with open(os.path.join(ROOT, "VERSION")) as fh:
+            version = fh.read().strip()
+        r_list = _run([claude_bin, "plugin", "list"], cwd=ROOT, env=env,
+                      timeout=PROBE_TIMEOUT_SECONDS)
+        list_out = (r_list.stdout or "") + (r_list.stderr or "")
+        if (PROBE_PLUGIN_SPEC not in list_out
+                or ("Version: %s" % version) not in list_out):
+            raise Skip("installed plugin does not match this tree's VERSION "
+                       "(%s) in `claude plugin list`: %s"
+                       % (version, _ascii(list_out, 300)))
+
+        r_details = _run([claude_bin, "plugin", "details", "brotherme"],
+                        cwd=ROOT, env=env, timeout=PROBE_TIMEOUT_SECONDS)
+        details_out = (r_details.stdout or "") + (r_details.stderr or "")
+        r_hookcount = _run([sys.executable,
+                           os.path.join(ROOT, "tools", "bm_project_facts.py"),
+                           "--field", "hook_count"], cwd=ROOT)
+        hook_count = (r_hookcount.stdout or "").strip()
+        if not hook_count or ("Hooks (%s)" % hook_count) not in details_out:
+            raise Skip("installed plugin's hook group count does not match "
+                       "tools/bm_project_facts.py --field hook_count (%r): %s"
+                       % (hook_count, _ascii(details_out, 300)))
+
+        # Consent, the shipped way (design 1.1.3, rehearse_fresh_install.py
+        # step 4): scripts/setup.py flag mode against BROTHERME_CONFIG
+        # inside the throwaway HOME.
+        vault_dir = os.path.join(home_dir, "BrotherModeVault")
+        r_setup = _run([sys.executable,
+                       os.path.join(ROOT, "scripts", "setup.py"),
+                       "--vault", vault_dir, "--mode", "plugin",
+                       "--accept-notice"],
+                       cwd=ROOT, env=env, timeout=PROBE_TIMEOUT_SECONDS)
+        if r_setup.returncode != 0 or not os.path.isfile(broth_config):
+            raise Skip("scripts/setup.py flag-mode consent did not "
+                       "complete: exit %s, output: %s"
+                       % (r_setup.returncode,
+                          _ascii((r_setup.stdout or "")
+                                + (r_setup.stderr or ""), 300)))
+
+        # The fixture (design 1.1.8/1.1.9): one file, seeded, committed,
+        # then fenced by a RIVAL session whose label is materialized
+        # through the fence tool's own --session-id path.
+        _write(fixture_dir, PROBE_FENCE_FILE, PROBE_FENCE_FILE_SEED)
+        _init_repo(fixture_dir)
+
+        r_store_init = _run([sys.executable,
+                            os.path.join(ROOT, "tools", "bm_store.py"), "init"],
+                            cwd=fixture_dir, env=env,
+                            timeout=PROBE_TIMEOUT_SECONDS)
+        if r_store_init.returncode != 0:
+            raise Skip("tools/bm_store.py init did not succeed in the "
+                       "fixture: exit %s, output: %s"
+                       % (r_store_init.returncode,
+                          _ascii((r_store_init.stdout or "")
+                                + (r_store_init.stderr or ""), 300)))
+
+        r_label = _run([sys.executable,
+                       os.path.join(ROOT, "tools", "bm_fence_hook.py"),
+                       "session-label", "--session-id", PROBE_RIVAL_SESSION_ID],
+                       cwd=fixture_dir, env=env, timeout=PROBE_TIMEOUT_SECONDS)
+        rival_label = (r_label.stdout or "").strip()
+        if r_label.returncode != 0 or not rival_label:
+            raise Skip("tools/bm_fence_hook.py session-label did not "
+                       "produce a rival label: exit %s, output: %s"
+                       % (r_label.returncode,
+                          _ascii((r_label.stdout or "") + (r_label.stderr or ""),
+                                300)))
+
+        r_claim = _run([sys.executable,
+                       os.path.join(ROOT, "tools", "bm_store.py"), "claim",
+                       "probe-installed-canary", "--lifetime", "ephemeral",
+                       "--objective",
+                       "hold the canary fixture file during the "
+                       "probe-installed headless-hook canary",
+                       "--files", PROBE_FENCE_FILE,
+                       "--session", rival_label],
+                       cwd=fixture_dir, env=env, timeout=PROBE_TIMEOUT_SECONDS)
+        if r_claim.returncode != 0:
+            raise Skip("tools/bm_store.py claim did not succeed for the "
+                       "rival fence: exit %s, output: %s"
+                       % (r_claim.returncode,
+                          _ascii((r_claim.stdout or "") + (r_claim.stderr or ""),
+                                300)))
+
+        before = _read(fixture_dir, PROBE_FENCE_FILE)
+
+        # The canary itself (design 1.1.6/1.1.9): one real, non-interactive
+        # headless session, the same invocation shape as every other cell,
+        # deliberately WITHOUT --safe-mode: that flag disables the
+        # operator's hooks, CLAUDE.md, skills and plugins entirely, which
+        # would guarantee the fence stays silent and prove nothing at all.
+        # max-turns is capped small on purpose: the task is one trivial
+        # edit to one file, not a real T1-T6 task.
+        argv = [claude_bin, "-p", PROBE_PROMPT,
+               "--max-turns", "5",
+               "--output-format", "stream-json", "--verbose",
+               "--no-session-persistence",
+               "--permission-mode", "bypassPermissions"]
+        print("probe-installed: running the canary cell: %s"
+              % " ".join(argv[:2] + ["<prompt>"] + argv[3:]))
+        try:
+            r_cell = _run(argv, cwd=fixture_dir, env=env,
+                         timeout=PROBE_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            raise Skip("the canary's headless session hit the %ds probe "
+                       "timeout; a harness limit, not a measured hook "
+                       "result" % PROBE_TIMEOUT_SECONDS)
+
+        transcript = (r_cell.stdout or "") + (r_cell.stderr or "")
+        _model, _commands, final, parsed_any = _parse_stream(r_cell.stdout or "")
+        if not parsed_any and not transcript.strip():
+            raise Skip("the headless claude session produced no output at "
+                       "all (exit code %s); on this machine that usually "
+                       "means the binary is not logged in or not "
+                       "authorized" % r_cell.returncode)
+        if any(m in final for m in PROBE_AUTH_FAILURE_MARKERS):
+            # Measured, not assumed (2026-08-07): under a throwaway HOME
+            # this machine's claude binary returns exactly this final
+            # message, because its login credentials live under the real
+            # HOME, not under CLAUDE_CONFIG_DIR. The fully isolated
+            # environment design 1.1.1 asks for cannot authenticate here;
+            # that is a fact about this machine, stated plainly rather
+            # than folded into the generic "deny not seen" reason below.
+            raise Skip("the claude binary is not authenticated under the "
+                       "throwaway HOME this canary built; claude's own "
+                       "final message was: %s" % _ascii(final, 200))
+
+        after = _read(fixture_dir, PROBE_FENCE_FILE)
+        byte_identical = (before is not None and before == after)
+        deny_seen = all(m in transcript for m in PROBE_FENCE_DENY_MARKERS)
+
+        if deny_seen and byte_identical:
+            start = transcript.find(PROBE_FENCE_DENY_MARKERS[0])
+            quoted = _ascii(transcript[start:start + 400], 400)
+            print("")
+            print("HOOK FIRED")
+            print("deny: %s" % quoted)
+            return
+
+        raise Skip(
+            "the canary did not pass: fence deny decision found in "
+            "transcript: %s; fixture file byte identical afterward: %s "
+            "(claude exit code %s, final message: %s)"
+            % (deny_seen, byte_identical, r_cell.returncode,
+               _ascii(final, 200)))
+    except Skip:
+        raise
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        raise Skip("the probe-installed canary hit an unexpected error "
+                   "before it could reach a verdict: %s: %s"
+                   % (type(exc).__name__, exc))
+    finally:
+        for d in dirs_made:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Calibration: every deterministic check must FAIL on an untouched fixture.
 # ---------------------------------------------------------------------------
 
@@ -931,12 +1260,13 @@ def _list_check_rows(task_id):
 # ---------------------------------------------------------------------------
 
 USAGE = ("usage: benchmark_comparative.py --list | --dry-run [--task Tn] | "
-         "--task Tn --arm A|B [--model <id>] [--run-id <id>]")
+         "--task Tn --arm A|B [--model <id>] [--run-id <id>] | "
+         "--probe-installed")
 
 
 def _parse_args(argv):
     opts = {"list": False, "dry_run": False, "task": None, "arm": None,
-            "model": None, "run_id": None}
+            "model": None, "run_id": None, "probe_installed": False}
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -944,6 +1274,8 @@ def _parse_args(argv):
             opts["list"] = True
         elif a == "--dry-run":
             opts["dry_run"] = True
+        elif a == "--probe-installed":
+            opts["probe_installed"] = True
         elif a in ("--task", "--arm", "--model", "--run-id"):
             if i + 1 >= len(argv):
                 raise ValueError("%s needs a value" % a)
@@ -977,6 +1309,17 @@ def main(argv):
             return 2
         try:
             return dry_run(opts["task"])
+        except Skip as exc:
+            print("SKIP: %s" % exc)
+            return 1
+    if opts["probe_installed"]:
+        if opts["task"] or opts["arm"] or opts["model"] or opts["run_id"]:
+            print("benchmark_comparative: --probe-installed takes no other "
+                  "options")
+            return 2
+        try:
+            probe_installed()
+            return 0
         except Skip as exc:
             print("SKIP: %s" % exc)
             return 1

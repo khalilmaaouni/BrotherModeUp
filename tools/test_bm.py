@@ -4628,8 +4628,9 @@ class LookupApplySplitTest(unittest.TestCase):
         Resolving --record used to happen before retrieval and outside the
         block that turns write failures into a partial status, so a stale or
         mistyped work id aborted the whole run: exit 2, EMPTY stdout, not one
-        rule shown. SKILL.md ships the sentence "never read a nonzero exit as
-        'no rules'", so an agent following the law it was given would read that
+        rule shown. references/learned-rules.md ships the sentence (moved
+        from SKILL.md, R2) "never read a nonzero exit as 'no rules'", so an
+        agent following the law it was given would read that
         empty run as a partial success and do substantial work with zero
         founder rules surfaced. The rules print, the status is loud, and the
         remedy converges: re-running the identical command cannot fix a bad
@@ -4768,7 +4769,16 @@ class LookupApplySplitTest(unittest.TestCase):
     def test_skill_md_names_apply_and_no_unrecorded_substantial_path(self):
         """The law is the thing an agent actually follows. If SKILL.md still
         told it to run a read-only command before substantial work, every fix
-        above would be decoration."""
+        above would be decoration.
+
+        R2 (2026-08-07) moved the command semantics, exit codes, work
+        identity, receipts and approval mechanics out of SKILL.md into
+        references/learned-rules.md; SKILL.md keeps only the unconditional
+        law, the apply invocation, and the routing pointer to that file."""
+        FULL_APPLY_INVOCATION = (
+            'python3 tools/bm_learn.py apply --query '
+            '"<what you are about to do>" --session <session-id> '
+            '(--record <work-uuid> | --new-record <name>)')
         with io.open(os.path.join(os.path.dirname(HERE), "SKILL.md"),
                      encoding="utf-8") as f:
             src = f.read()
@@ -4777,13 +4787,31 @@ class LookupApplySplitTest(unittest.TestCase):
         law = head[1].split("\n## ", 1)[0]
         self.assertIn("bm_learn.py apply --query", law)
         self.assertIn("--session", law)
+        self.assertIn("references/learned-rules.md", law,
+                      "the core no longer routes to the mechanics file")
+        with io.open(os.path.join(os.path.dirname(HERE), "references",
+                                  "learned-rules.md"), encoding="utf-8") as f:
+            ref = f.read()
         for dead in ("bm_learn.py relevant --query",
                      "--record-applications"):
-            self.assertNotIn(dead, law,
-                             "the law still names %r, which records nothing "
-                             "unless a flag is remembered" % dead)
+            for name, text in (("SKILL.md", law),
+                               ("references/learned-rules.md", ref)):
+                self.assertNotIn(dead, text,
+                                 "%s still names %r, which records nothing "
+                                 "unless a flag is remembered" % (name, dead))
         # lookup may be mentioned, but never as the substantial-work command.
-        self.assertIn("NOT a substantial-work path", law)
+        # That sentence moved to the reference along with the rest of the
+        # command semantics.
+        self.assertIn("NOT a substantial-work path", ref)
+        # The apply invocation is deliberately dual-homed: an inline copy in
+        # SKILL.md so the unconditional law survives even when no reference
+        # is loaded, and the full command block in the reference. Pinning
+        # both makes drift between them mechanically visible.
+        self.assertIn(FULL_APPLY_INVOCATION, law,
+                      "the full apply invocation drifted out of SKILL.md")
+        self.assertIn(FULL_APPLY_INVOCATION, ref,
+                      "the full apply invocation drifted out of "
+                      "references/learned-rules.md")
 
 
 class TestPostAuditLoopP7PureRanking(unittest.TestCase):
