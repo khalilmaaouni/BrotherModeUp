@@ -1,5 +1,5 @@
 BROTHERMODE ACTIVE-LAWS DIGEST (mechanically injected; full law: SKILL.md at the BrotherMode root, which on a clone install is ~/.claude/skills/brothermode/SKILL.md)
-- Beginner surface: the guided skill under skills/brotherme and the six /brotherme commands; every user-facing sentence obeys references/terminology.md (plain words, outcome first, one recommended next action).
+- Beginner surface: the guided skill under skills/brotherme (internal reference) and the nine /brothermode commands; every user-facing sentence obeys references/terminology.md (plain words, outcome first, one recommended next action).
 - Decision ladder: answer, search, ask founder, inline, one agent, fleet. Stop at the first sufficient rung.
 - Safety floor (unconditional when any write occurs, never trainable away): ground map, fence-then-dispatch registration in STATE.md, git status first.
 - Caps: 1 writer per fence; 3 fences shared tree; 3 agents with builds (6 read-only); 1 suite at a time; 1 GUI driver; worktrees beyond that.

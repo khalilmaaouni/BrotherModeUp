@@ -47,14 +47,14 @@ claude plugin list >"$WORK/list.log" 2>&1 || fail "plugin list"
 grep -q "brothermode@brothermode-marketplace" "$WORK/list.log" || { cat "$WORK/list.log"; fail "installed plugin missing from list"; }
 grep -q "Version: $VERSION_FILE" "$WORK/list.log" || { cat "$WORK/list.log"; fail "installed version does not match VERSION ($VERSION_FILE)"; }
 
-claude plugin details brotherme >"$WORK/details.log" 2>&1 || fail "plugin details"
+claude plugin details brothermode >"$WORK/details.log" 2>&1 || fail "plugin details"
 HOOK_COUNT=$(python3 "$ROOT/tools/bm_project_facts.py" --field hook_count)
 grep -q "Hooks ($HOOK_COUNT)" "$WORK/details.log" || { cat "$WORK/details.log"; fail "hook group count is not $HOOK_COUNT"; }
 grep -q "Skills (" "$WORK/details.log" || fail "no skills registered"
 
-claude plugin uninstall brotherme >"$WORK/uninstall.log" 2>&1 || { cat "$WORK/uninstall.log"; fail "uninstall"; }
+claude plugin uninstall brothermode >"$WORK/uninstall.log" 2>&1 || { cat "$WORK/uninstall.log"; fail "uninstall"; }
 claude plugin list >"$WORK/list2.log" 2>&1 || fail "plugin list after uninstall"
-grep -q "brotherme@" "$WORK/list2.log" && { cat "$WORK/list2.log"; fail "plugin still listed after uninstall"; }
+grep -q "brothermode@" "$WORK/list2.log" && { cat "$WORK/list2.log"; fail "plugin still listed after uninstall"; }
 
 python3 - "$CLAUDE_CONFIG_DIR/settings.json" <<'PYEOF' || fail "settings not clean after uninstall"
 import json, sys

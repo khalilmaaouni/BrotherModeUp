@@ -1,8 +1,11 @@
 # BrotherMode STATE (active session registry)
 
-Copy this file into each project as STATE.md. It is the single source of truth for
-in-flight work: any compaction, kill, or new session resumes from this file, never
-from memory. Update it at every milestone, not at session end.
+Copy this file into each project as STATE.md. Authority is split by domain: the
+project's store is the sole authority for project truth, and this file's fence
+registry section below is the sole authority for live fence claims, the surface
+the fence hook actually reads. Any compaction, kill, or new session resumes
+in-flight fence state from this file, never from memory. Update it at every
+milestone, not at session end.
 
 ## Session YYYY-MM-DD: <one-line objective>
 
