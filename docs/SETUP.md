@@ -34,10 +34,27 @@ Code's own plugin manager, proven end to end by
 `scripts/release-smoke-install.sh` on every release. Paste once in any
 terminal.
 
+DATED, 2026-08-08: v3 has not been tagged yet, and `v2.1.1` below is still the
+last tag that resolves. It predates the night rename this project made to its
+own command and skill names, so it registers its plugin under the OLD id,
+`brotherme`, not `brothermode`, and it ships the old flat
+`commands/brotherme-*.md` surface, not the nine `/brothermode:*` skills this
+project ships today. The pairing below is the one that actually works
+against that tag, reproduced in a throwaway `CLAUDE_CONFIG_DIR` on
+2026-08-08. If you want today's tree instead, use the development clone
+command below (`--branch main`), which tracks the moving branch rather than
+a tag. Once v3 is tagged, `docs/RELEASE.md` step 2b re-pins this page and
+the pairing below starts installing v3.
+
 ```bash
 claude plugin marketplace add khalilmaaouni/BrotherModeUp@v2.1.1
-claude plugin install brothermode@brothermode-marketplace
+claude plugin install brotherme@brotherme-marketplace
 ```
+
+Pasting `claude plugin install brothermode@brothermode-marketplace` after the
+same marketplace add fails instead, with `Plugin "brothermode" not found in
+marketplace "brothermode-marketplace"`: that plugin id does not exist in the
+v2 marketplace this tag ships.
 
 `@v2.1.1` pins the marketplace add itself to the released tag rather than
 the repository's moving default branch, generated from the same fact the
@@ -76,6 +93,14 @@ The path matters: Claude Code discovers skills under `~/.claude/skills/`, and th
 ```bash
 ls ~/.claude/skills/brothermode/SKILL.md
 ```
+
+Same dated fact as the boring install above: `v2.1.1` predates the night
+rename, so this checkout carries the old flat `commands/brotherme-*.md`
+surface and the single `skills/brotherme/SKILL.md` conductor, not the nine
+`/brothermode:*` skills this project ships today. The engine underneath
+(`tools/bm_*.py`, `scripts/install.py`, `scripts/doctor.py`) is the same
+either way; only the command and skill names differ. If you want today's
+tree, use the development clone below instead.
 
 Working on BrotherMode's own code instead of just using it? Use the separate
 development command, which tracks the moving `main` branch on purpose and
