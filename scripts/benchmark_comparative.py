@@ -988,9 +988,27 @@ def probe_installed():
     try:
         home_dir = os.path.realpath(tempfile.mkdtemp(prefix="bm-probe-home-"))
         dirs_made.append(home_dir)
-        claude_config_dir = os.path.realpath(
-            tempfile.mkdtemp(prefix="bm-probe-claude-config-"))
-        dirs_made.append(claude_config_dir)
+        # The login lives in CLAUDE_CONFIG_DIR, measured 2026-08-07 (both
+        # throwaway-config probes came back "not logged in" while the real
+        # config dir holds the session). Copying credential files into a
+        # throwaway is refused by the constitution, so the one sanctioned
+        # path is BM_BENCH_AUTH_CONFIG: a founder-authenticated persistent
+        # folder the canary reuses for auth, NEVER appended to dirs_made and
+        # so never deleted. Everything else (HOME, fixture) stays throwaway.
+        # A persistent folder does accumulate plugin and marketplace
+        # registrations across runs; if a later run SKIPs on the add or
+        # install assert, the quoted output says so and the remedy is a
+        # fresh authenticated folder, not a widened assert.
+        auth_config = os.environ.get("BM_BENCH_AUTH_CONFIG", "").strip()
+        if auth_config:
+            claude_config_dir = os.path.realpath(auth_config)
+            if not os.path.isdir(claude_config_dir):
+                raise Skip("BM_BENCH_AUTH_CONFIG names no directory: %s"
+                           % claude_config_dir)
+        else:
+            claude_config_dir = os.path.realpath(
+                tempfile.mkdtemp(prefix="bm-probe-claude-config-"))
+            dirs_made.append(claude_config_dir)
         fixture_dir = os.path.realpath(
             tempfile.mkdtemp(prefix="bm-probe-fixture-"))
         dirs_made.append(fixture_dir)
@@ -999,8 +1017,9 @@ def probe_installed():
         env = _probe_env(home_dir, claude_config_dir, broth_config)
 
         print("probe-installed: throwaway HOME %s" % home_dir)
-        print("probe-installed: throwaway CLAUDE_CONFIG_DIR %s"
-              % claude_config_dir)
+        print("probe-installed: %s CLAUDE_CONFIG_DIR %s"
+              % ("persistent founder-authenticated" if auth_config
+                 else "throwaway", claude_config_dir))
         print("probe-installed: throwaway fixture %s" % fixture_dir)
 
         # Install the product the shipped way (design 1.1.2): the same two
