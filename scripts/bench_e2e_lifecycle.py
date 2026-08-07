@@ -112,12 +112,21 @@ canary for real)
       empty
 
 Exits 0 printing every step's verdict on a full pass. Exits 1 printing
-"SKIP: <reason>" on the first move that cannot be proven here (a missing
-claude binary, a failed install, an unexpected deliver acceptance, or any
-other honest non-pass), the same Skip discipline probe_installed uses: a
-SKIP is never a pass and never a silent success. A harness defect (an
-unexpected exception) is also reported as SKIP, never as a crash with no
-explanation.
+"SKIP: <reason>" when this machine cannot check something here (a missing
+claude binary, a failed install, a clone or mechanical subprocess
+problem), the same Skip discipline probe_installed uses: a SKIP is never a
+pass and never a silent success. A harness defect (an unexpected
+exception) is also reported as SKIP, never as a crash with no explanation.
+
+H-4 (v3 gap-closure Claude-family review): SKIP and FAIL are two different
+words for two different facts, and this canary keeps them apart. Exits 2
+printing "FAIL: <reason>" when the product itself did the wrong thing and
+this canary CAUGHT it: deliver accepting incomplete evidence instead of
+refusing, the expected refusal wording missing, more than one plugin
+registered after the uninstall-v2-first migration, or a plugin remnant
+left behind after uninstall. Those are the safety properties this canary
+exists to prove; a FAIL there is a real regression, never conflated with
+"this machine has no claude binary" under one shared exit code.
 
 USAGE
   python3 scripts/bench_e2e_lifecycle.py
@@ -164,6 +173,15 @@ BC = _load_benchmark_comparative()
 Skip = BC.Skip
 _run = BC._run
 _ascii = BC._ascii
+
+
+class Fail(Exception):
+    """A genuine product defect this canary CAUGHT, distinct from Skip
+    ("this machine cannot check that here"). H-4 (v3 gap-closure
+    Claude-family review): SKIP was doing two incompatible jobs (a missing
+    claude binary and an accepted delivery on incomplete evidence read the
+    same, exit 1). main() turns a Fail into exit 2 and a Skip into exit 1;
+    the two are never conflated."""
 
 #: Wall clock caps, one per subprocess family. All local mechanics (no
 #: network beyond `git clone` of THIS repository's own tag, which is also
@@ -249,11 +267,64 @@ def _step(verdicts, detail=""):
 
 
 def _bm_project_bin():
+    """tools/bm_project.py, the checkout's OWN copy: deliberately unchanged
+    by codex finding 6's fix. Steps 12 (task seeding) and the store-init
+    fixture machinery this file's own module docstring already names as
+    "fixture build machinery... not part of the measured boundary" (see
+    THE EIGHTEEN STEPS above, steps 10/12); the measured CLI boundary is
+    tools/brothermode_cli.py alone (steps 11, 13 to 17), which
+    _installed_cli_bin below resolves against the INSTALLED plugin."""
     return os.path.join(ROOT, "tools", "bm_project.py")
 
 
-def _brothermode_cli_bin():
-    return os.path.join(ROOT, "tools", "brothermode_cli.py")
+def _installed_plugin_root(claude_config_dir, plugin_spec):
+    """The installed plugin's own root directory, read from Claude Code's
+    OWN bookkeeping file (plugins/installed_plugins.json's installPath),
+    never guessed from the plugins/cache/<marketplace>/<name>/<version>/
+    directory naming convention. Measured 2026-08-08 against a real
+    throwaway `claude plugin install`: that file's shape is
+    {"plugins": {"<spec>": [{"scope", "installPath", "version", ...}]}}.
+    Returns None if the file is missing, unparseable, or names no entry
+    for this plugin spec whose installPath actually exists on disk; the
+    caller turns that into an honest SKIP naming the fact, never a silent
+    fall-through to the source tree (codex finding 6, v3 gap-closure
+    cross-family review)."""
+    reg_path = os.path.join(claude_config_dir, "plugins",
+                            "installed_plugins.json")
+    try:
+        with open(reg_path) as fh:
+            reg = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    entries = (reg.get("plugins") or {}).get(plugin_spec) or []
+    if not isinstance(entries, list):
+        return None
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        install_path = entry.get("installPath")
+        if install_path and os.path.isdir(install_path):
+            return install_path
+    return None
+
+
+def _installed_cli_bin(claude_config_dir):
+    """tools/brothermode_cli.py under the INSTALLED plugin's own root
+    (_installed_plugin_root), not the checkout this canary's own source
+    lives in. Codex finding 6 (v3 gap-closure cross-family review):
+    `_cli_run` used to always resolve to the checkout's copy, so every
+    CLI-boundary step (start, status, next, view, deliver, doctor)
+    exercised source-tree adapters even after "installing" the plugin,
+    and a missing, corrupt or stale installed CLI could still receive the
+    advertised lifecycle PASS. Returns None when the installed plugin
+    exposes no such file (no root resolved, or the file is absent under
+    that root); the caller raises Skip naming that fact rather than
+    silently driving the checkout instead."""
+    root = _installed_plugin_root(claude_config_dir, BC.PROBE_PLUGIN_SPEC)
+    if root is None:
+        return None
+    candidate = os.path.join(root, "tools", "brothermode_cli.py")
+    return candidate if os.path.isfile(candidate) else None
 
 
 def _clone_v2_tag(env, dirs_made):
@@ -362,23 +433,43 @@ def _verify_v3_identity(claude_bin, env):
         raise Skip("claude plugin details brothermode's Skills(...) line "
                    "is missing canonical public skill(s) %s: %s"
                    % (missing, _ascii(details_out, 300)))
-    return version
+    # Verdict-line honesty (v3 gap-closure G2): the found count printed at
+    # the call site must come from what was actually parsed out of
+    # details_out, not from NINE_CANONICAL_SKILLS compared against itself
+    # (which would always read N/N regardless of what this function
+    # measured). By this point every canonical skill IS present (the
+    # `missing` check above already raised otherwise), so found always
+    # equals the total here; the point is that the number printed is a
+    # real count of `names`, not two copies of the same constant.
+    found = len(NINE_CANONICAL_SKILLS) - len(missing)
+    return version, found, len(NINE_CANONICAL_SKILLS)
 
 
 def _verify_single_plugin(claude_bin, env):
     """Step 8: after the uninstall-v2-first migration, `claude plugin list
     --json` must show EXACTLY one plugin, this tree's own
     brothermode@brothermode-marketplace. This is the measured proof
-    behind ruling B4's prose claim, not a restatement of it."""
+    behind ruling B4's prose claim, not a restatement of it.
+
+    H-4: "two plugins registered after migration" is one of the two named
+    safety properties this canary exists to prove, so a REAL measurement
+    that disagrees (the command ran, JSON parsed, and it names more than
+    one plugin or the wrong one) is a Fail. A command that could not be
+    checked here at all (a subprocess or JSON-parse problem, entries is
+    None) stays Skip: this canary genuinely could not tell, which is a
+    different fact from telling and not liking the answer."""
     r_list = _run([claude_bin, "plugin", "list", "--json"], cwd=ROOT, env=env,
                   timeout=CLAUDE_TIMEOUT_SECONDS)
     try:
         entries = json.loads(r_list.stdout or "null")
     except ValueError:
         entries = None
-    if (not isinstance(entries, list) or len(entries) != 1
-            or entries[0].get("id") != BC.PROBE_PLUGIN_SPEC):
-        raise Skip("claude plugin list --json does not show exactly one "
+    if entries is None or not isinstance(entries, list):
+        raise Skip("claude plugin list --json produced no parseable list "
+                   "after the uninstall-v2-first migration step: %s"
+                   % _ascii(r_list.stdout or "", 300))
+    if len(entries) != 1 or entries[0].get("id") != BC.PROBE_PLUGIN_SPEC:
+        raise Fail("claude plugin list --json does not show exactly one "
                    "plugin (%s) registered after the uninstall-v2-first "
                    "migration step: %s"
                    % (BC.PROBE_PLUGIN_SPEC, _ascii(r_list.stdout or "", 300)))
@@ -425,13 +516,16 @@ def _seed_ready_task(env, fixture_dir):
                    % (r.returncode, _ascii(out, 300)))
 
 
-def _cli_run(env, fixture_dir, *args):
-    argv = [sys.executable, _brothermode_cli_bin()] + list(args)
+def _cli_run(env, fixture_dir, cli_bin, *args):
+    """Drives the INSTALLED plugin's own tools/brothermode_cli.py
+    (cli_bin, resolved once by _installed_cli_bin and threaded through
+    every step below), never the checkout's copy (codex finding 6)."""
+    argv = [sys.executable, cli_bin] + list(args)
     return _run(argv, cwd=fixture_dir, env=env, timeout=TOOL_TIMEOUT_SECONDS)
 
 
-def _drive_start(env, fixture_dir):
-    r = _cli_run(env, fixture_dir, "start", "--project-id", PROJECT_ID,
+def _drive_start(env, fixture_dir, cli_bin):
+    r = _cli_run(env, fixture_dir, cli_bin, "start", "--project-id", PROJECT_ID,
                 "--name", PROJECT_NAME, "--goal", PROJECT_GOAL,
                 "--actor-type", "model", "--actor-name", ACTOR_NAME)
     out = (r.stdout or "") + (r.stderr or "")
@@ -441,8 +535,8 @@ def _drive_start(env, fixture_dir):
     return out.strip()
 
 
-def _drive_status(env, fixture_dir):
-    r = _cli_run(env, fixture_dir, "status", "--project-id", PROJECT_ID)
+def _drive_status(env, fixture_dir, cli_bin):
+    r = _cli_run(env, fixture_dir, cli_bin, "status", "--project-id", PROJECT_ID)
     out = (r.stdout or "") + (r.stderr or "")
     if r.returncode != 0 or "Goal:" not in out:
         raise Skip("brothermode_cli status did not succeed: exit %s, "
@@ -450,8 +544,8 @@ def _drive_status(env, fixture_dir):
     return out.strip()
 
 
-def _drive_next(env, fixture_dir):
-    r = _cli_run(env, fixture_dir, "next", "--project-id", PROJECT_ID)
+def _drive_next(env, fixture_dir, cli_bin):
+    r = _cli_run(env, fixture_dir, cli_bin, "next", "--project-id", PROJECT_ID)
     out = (r.stdout or "") + (r.stderr or "")
     if r.returncode != 0 or TASK_TITLE not in out:
         raise Skip("brothermode_cli next did not recommend the seeded "
@@ -460,8 +554,8 @@ def _drive_next(env, fixture_dir):
     return out.strip()
 
 
-def _drive_view(env, fixture_dir):
-    r = _cli_run(env, fixture_dir, "view", "--project-id", PROJECT_ID,
+def _drive_view(env, fixture_dir, cli_bin):
+    r = _cli_run(env, fixture_dir, cli_bin, "view", "--project-id", PROJECT_ID,
                 "--actor-type", "model", "--actor-name", ACTOR_NAME)
     out = (r.stdout or "") + (r.stderr or "")
     page = os.path.join(fixture_dir, "PROJECT-VIEW.html")
@@ -471,11 +565,16 @@ def _drive_view(env, fixture_dir):
     return out.strip()
 
 
-def _drive_deliver_refused(env, fixture_dir):
-    r = _cli_run(env, fixture_dir, "deliver", "--project-id", PROJECT_ID)
+def _drive_deliver_refused(env, fixture_dir, cli_bin):
+    """H-4: this is one of the safety properties the canary exists to
+    prove, so its violation is a FAIL (a real regression this canary
+    caught), never a SKIP. Both named shapes of that violation (deliver
+    ACCEPTING incomplete evidence instead of refusing, and the expected
+    refusal wording missing from an otherwise-nonzero exit) raise Fail."""
+    r = _cli_run(env, fixture_dir, cli_bin, "deliver", "--project-id", PROJECT_ID)
     out = (r.stdout or "") + (r.stderr or "")
     if r.returncode == 0 or DELIVER_REFUSAL_MARKER not in out:
-        raise Skip("brothermode_cli deliver did not refuse the way "
+        raise Fail("brothermode_cli deliver did not refuse the way "
                    "incomplete evidence should make it refuse (wanted a "
                    "nonzero exit and %r in the output): exit %s, "
                    "output: %s" % (DELIVER_REFUSAL_MARKER, r.returncode,
@@ -483,8 +582,8 @@ def _drive_deliver_refused(env, fixture_dir):
     return out.strip()
 
 
-def _drive_doctor(env, fixture_dir, settings_path):
-    r = _cli_run(env, fixture_dir, "doctor", "--settings", settings_path)
+def _drive_doctor(env, fixture_dir, cli_bin, settings_path):
+    r = _cli_run(env, fixture_dir, cli_bin, "doctor", "--settings", settings_path)
     out = (r.stdout or "") + (r.stderr or "")
     if "BrotherMode doctor:" not in out or "proven," not in out:
         raise Skip("brothermode_cli doctor did not produce a real, "
@@ -495,6 +594,13 @@ def _drive_doctor(env, fixture_dir, settings_path):
 
 
 def _uninstall_v3_and_verify_clean(claude_bin, env, claude_config_dir):
+    """H-4: "settings.json still carries a plugin remnant after uninstall"
+    is the second named safety property this canary exists to prove, so a
+    REAL, checked measurement that finds a remnant is a Fail. The
+    mechanical steps that get there (the uninstall/remove commands
+    themselves, reading back `plugin list --json`, reading settings.json
+    off disk) stay Skip when they cannot be completed at all: that is
+    "cannot check this here", not "checked, and it is wrong"."""
     r_un = _run([claude_bin, "plugin", "uninstall", "brothermode"],
                cwd=ROOT, env=env, timeout=CLAUDE_TIMEOUT_SECONDS)
     if r_un.returncode != 0:
@@ -516,8 +622,11 @@ def _uninstall_v3_and_verify_clean(claude_bin, env, claude_config_dir):
         entries = json.loads(r_list.stdout or "null")
     except ValueError:
         entries = None
+    if not isinstance(entries, list):
+        raise Skip("claude plugin list --json produced no parseable list "
+                   "after uninstall: %s" % _ascii(r_list.stdout or "", 300))
     if entries != []:
-        raise Skip("claude plugin list --json is not empty after "
+        raise Fail("claude plugin list --json is not empty after "
                    "uninstall: %s" % _ascii(r_list.stdout or "", 300))
     settings_path = os.path.join(claude_config_dir, "settings.json")
     try:
@@ -532,7 +641,7 @@ def _uninstall_v3_and_verify_clean(claude_bin, env, claude_config_dir):
     if settings.get("extraKnownMarketplaces"):
         remnants["extraKnownMarketplaces"] = settings["extraKnownMarketplaces"]
     if remnants:
-        raise Skip("settings.json at %s still carries a plugin remnant "
+        raise Fail("settings.json at %s still carries a plugin remnant "
                    "after uninstall: %s" % (settings_path, remnants))
     return "enabledPlugins={}, extraKnownMarketplaces={}"
 
@@ -585,9 +694,26 @@ def run_lifecycle():
             "the e2e lifecycle canary's v3 install step")
         _step(verdicts, BC.PROBE_PLUGIN_SPEC)
 
-        version = _verify_v3_identity(claude_bin, env)
+        # codex 6: resolve the INSTALLED plugin's own tools/brothermode_cli.py
+        # now, once, right after the install step establishes it, and drive
+        # every CLI-boundary step below against THIS path, never the
+        # checkout's. If the installed plugin exposes no CLI entry at all,
+        # say so plainly rather than silently falling back to the source
+        # tree and proving something else.
+        cli_bin = _installed_cli_bin(claude_config_dir)
+        if cli_bin is None:
+            raise Skip(
+                "the installed plugin (%s, under CLAUDE_CONFIG_DIR %s) "
+                "exposes no tools/brothermode_cli.py at its own installPath "
+                "(read from plugins/installed_plugins.json); this canary "
+                "cannot drive the CLI boundary against the installed copy, "
+                "and will not silently fall back to the checkout's own "
+                "copy to prove it instead"
+                % (BC.PROBE_PLUGIN_SPEC, claude_config_dir))
+
+        version, found, total = _verify_v3_identity(claude_bin, env)
         _step(verdicts, "version=%s, %d/%d canonical skills present"
-             % (version, len(NINE_CANONICAL_SKILLS), len(NINE_CANONICAL_SKILLS)))
+             % (version, found, total))
 
         _verify_single_plugin(claude_bin, env)
         _step(verdicts, "exactly one plugin (%s) registered"
@@ -601,26 +727,26 @@ def run_lifecycle():
         BC._init_brothermode_store(fixture_dir)
         _step(verdicts, fixture_dir)
 
-        start_out = _drive_start(env, fixture_dir)
+        start_out = _drive_start(env, fixture_dir, cli_bin)
         _step(verdicts, start_out)
 
         _seed_ready_task(env, fixture_dir)
         _step(verdicts, TASK_TITLE)
 
-        status_out = _drive_status(env, fixture_dir)
+        status_out = _drive_status(env, fixture_dir, cli_bin)
         _step(verdicts, status_out.splitlines()[0] if status_out else "")
 
-        next_out = _drive_next(env, fixture_dir)
+        next_out = _drive_next(env, fixture_dir, cli_bin)
         _step(verdicts, next_out.splitlines()[0] if next_out else "")
 
-        view_out = _drive_view(env, fixture_dir)
+        view_out = _drive_view(env, fixture_dir, cli_bin)
         _step(verdicts, view_out.splitlines()[0] if view_out else "")
 
-        deliver_out = _drive_deliver_refused(env, fixture_dir)
+        deliver_out = _drive_deliver_refused(env, fixture_dir, cli_bin)
         _step(verdicts, deliver_out)
 
         settings_path = os.path.join(claude_config_dir, "settings.json")
-        doctor_summary = _drive_doctor(env, fixture_dir, settings_path)
+        doctor_summary = _drive_doctor(env, fixture_dir, cli_bin, settings_path)
         _step(verdicts, doctor_summary)
 
         clean = _uninstall_v3_and_verify_clean(claude_bin, env,
@@ -629,6 +755,8 @@ def run_lifecycle():
 
         return verdicts
     except Skip:
+        raise
+    except Fail:
         raise
     except Exception as exc:
         raise Skip("the e2e lifecycle canary hit an unexpected error "
@@ -649,6 +777,9 @@ def main(argv):
         return 2
     try:
         verdicts = run_lifecycle()
+    except Fail as exc:
+        print("FAIL: %s" % exc)
+        return 2
     except Skip as exc:
         print("SKIP: %s" % exc)
         return 1

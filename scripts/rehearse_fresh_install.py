@@ -52,6 +52,7 @@ its comments, or its output.
 """
 
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -300,14 +301,15 @@ def step1_clone(paths, result):
 #   docs/evidence/2026-08-01-fresh-home-rehearsal.md for the full account.
 #
 #   This step now PARSES hooks/hooks.json (parse_hook_programs) and drives
-#   EVERY program named on EVERY hook line, however many programs one line
-#   runs, with a payload shaped for that program's own hook contract
-#   (_payload_for_invocation). An invocation this file has no payload for
-#   is a hard FAIL, not a silent skip, because silently skipping an
-#   unrecognized program is exactly how the old list went stale. The
-#   assertion is no longer "the three programs I already knew about wrote
-#   nothing": it is that the fresh HOME holds ZERO files BrotherMode wrote,
-#   full stop (Python's own bytecode cache under Library/Caches excepted;
+#   EVERY hook entry's own real command, however many programs one entry's
+#   command chains together, run via `sh -c` exactly once per entry (the
+#   same shape the real hook runner uses; see _command_for_entry and
+#   _payload_for_entry). A hook entry this file has no payload for is a
+#   hard FAIL, not a silent skip, because silently skipping an unrecognized
+#   entry is exactly how the old list went stale. The assertion is no
+#   longer "the three programs I already knew about wrote nothing": it is
+#   that the fresh HOME holds ZERO files BrotherMode wrote, full stop
+#   (Python's own bytecode cache under Library/Caches excepted;
 #   see IGNORED_HOME_PREFIXES).
 #
 #   Numbered "step 0", not inserted into the seven-step STEP_TITLES
@@ -350,18 +352,33 @@ _PROGRAM_RE = re.compile(
 
 
 def parse_hook_programs(hooks_json_path, result):
-    """Every BrotherMode program invocation named in hooks/hooks.json,
-    found by regex-scanning each hook's own command string rather than by
-    a hand-maintained list beside it (see the block comment above for why
-    a hand-maintained list is the exact bug this replaces). A hook whose
-    command does not match the expected shape, or a hooks.json with no
-    "hooks" object at all, fails this step loudly (result.failed already
-    called) rather than silently contributing zero invocations: a probe
-    that can go quiet on a hook it does not understand is no safer than
-    the list it replaces.
+    """Every BrotherMode hook ENTRY named in hooks/hooks.json (one entry per
+    "command" string: a simple one-program line, or a compound `sh -c
+    '...; ...'` chain that pipes ONE captured stdin into several programs
+    in a row), found by regex-scanning each entry's own command string
+    rather than by a hand-maintained list beside it (see the block comment
+    above for why a hand-maintained list is the exact bug this replaces).
+    A hook whose command does not match the expected shape, or a
+    hooks.json with no "hooks" object at all, fails this step loudly
+    (result.failed already called) rather than silently contributing zero
+    entries: a probe that can go quiet on a hook it does not understand is
+    no safer than the list it replaces.
 
-    Returns a list of dicts with keys event, matcher (may be None), interp,
-    rel_path, args (a list), command_raw; or None on any parse failure."""
+    Codex finding 7 (v3 gap-closure cross-family review): this used to
+    return one dict PER MATCHED PROGRAM, and the caller ran each program as
+    its own isolated subprocess with its own synthetic stdin. That never
+    executed the real command Claude Code's own hook runner executes (for
+    Stop and PreCompact, a single `sh -c '...'` chain where every program
+    shares ONE piped stdin captured once by `p=$(cat)`), so broken piping,
+    quoting, conditionals, or an added write the regex does not recognize
+    could pass unexercised. This now groups matches by their OWN raw
+    command string instead, so the caller can hand that exact string to
+    `sh -c` once, matching the real runtime's own execution shape.
+
+    Returns a list of dicts with keys event, matcher (may be None),
+    command_raw, and programs (a list of {interp, rel_path, args} dicts
+    parsed from command_raw, kept for building the one shared payload the
+    whole entry needs); or None on any parse failure."""
     try:
         with io.open(hooks_json_path, encoding="utf-8") as fh:
             spec = json.load(fh)
@@ -372,7 +389,7 @@ def parse_hook_programs(hooks_json_path, result):
     if not isinstance(hooks_by_event, dict):
         result.failed("%s has no top-level \"hooks\" object" % hooks_json_path)
         return None
-    invocations = []
+    entries = []
     for event, groups in hooks_by_event.items():
         for group in groups or []:
             matcher = group.get("matcher") if isinstance(group, dict) else None
@@ -383,23 +400,23 @@ def parse_hook_programs(hooks_json_path, result):
                     result.failed(
                         "hooks.json event %s has a command with no "
                         "recognizable CLAUDE_PLUGIN_ROOT program invocation "
-                        "(add a case to _PROGRAM_RE or _payload_for_invocation "
+                        "(add a case to _PROGRAM_RE or _payload_for_entry "
                         "before trusting this probe again): %r"
                         % (event, command))
                     return None
-                for m in matches:
-                    invocations.append({
-                        "event": event,
-                        "matcher": matcher,
-                        "interp": m.group("interp"),
-                        "rel_path": m.group("relpath"),
-                        "args": m.group("args").split(),
-                        "command_raw": command,
-                    })
-    if not invocations:
-        result.failed("%s named no program invocations at all" % hooks_json_path)
+                programs = [{"interp": m.group("interp"),
+                            "rel_path": m.group("relpath"),
+                            "args": m.group("args").split()} for m in matches]
+                entries.append({
+                    "event": event,
+                    "matcher": matcher,
+                    "command_raw": command,
+                    "programs": programs,
+                })
+    if not entries:
+        result.failed("%s named no hook entries at all" % hooks_json_path)
         return None
-    return invocations
+    return entries
 
 
 def _load_stopwarn_floor(paths, result):
@@ -484,43 +501,67 @@ def _build_probe_transcripts(tmp_root, stopwarn_floor, result):
     return small, big, big_bytes, canary
 
 
-def _command_for_invocation(paths, inv):
-    full = os.path.join(paths["target"], *inv["rel_path"].lstrip("/").split("/"))
-    if inv["interp"] == "sh":
-        return ["sh", full] + inv["args"]
-    return [sys.executable, full] + inv["args"]
+def _command_for_entry(entry):
+    """The REAL command Claude Code's own hook runner executes for this
+    entry: `entry["command_raw"]` handed to `sh -c` verbatim, exactly once,
+    whatever shape it is (a bare `python3 "${CLAUDE_PLUGIN_ROOT}/..."` line,
+    or a compound `sh -c '...; ...'` chain, which then nests a second,
+    inner `sh -c` the way the real runtime's own invocation does: this
+    outer shell parses the already-quoted inner `sh -c '...'` text as its
+    own single command line, exactly as it would if Claude Code itself
+    handed the whole "command" string to /bin/sh -c). `${CLAUDE_PLUGIN_ROOT}`
+    is expanded by THIS shell, from the CLAUDE_PLUGIN_ROOT the caller sets
+    in the environment passed to run(), not by Python-side path
+    substitution: codex finding 7 (v3 gap-closure cross-family review)
+    is exactly that a probe which reconstructs child processes from the
+    parsed program list, instead of running the string a real shell
+    receives, can silently drop piping, quoting, conditionals or an
+    appended write the parser's own regex does not recognize."""
+    return ["sh", "-c", entry["command_raw"]]
 
 
-def _payload_for_invocation(inv, repo, session_id, transcripts):
-    """The stdin JSON body for one parsed hook invocation, shaped the way
-    hooks/hooks.json actually pipes to it. Returns None for an invocation
-    this function does not recognize; the caller treats that as a hard
-    failure (see parse_hook_programs's own docstring), never a silent
-    skip."""
+def _payload_for_entry(entry, repo, session_id, transcripts):
+    """The ONE stdin JSON body for a whole hook entry, shaped the way
+    hooks/hooks.json actually pipes it in. Keyed by event (plus, for
+    PreToolUse, by which program the entry's own matcher gates), never by
+    an individual program: a compound Stop or PreCompact chain captures its
+    stdin exactly once (`p=$(cat)`) and pipes an IDENTICAL copy of it into
+    every program in the chain, so every program in one entry shares this
+    single payload by construction, the same way the real shell does it.
+    Returns None for an entry this function does not recognize; the caller
+    treats that as a hard failure (see parse_hook_programs's own
+    docstring), never a silent skip."""
     small_tp, big_tp, canary_tp = transcripts
-    key = (os.path.basename(inv["rel_path"]), tuple(inv["args"]))
-    if key == ("bm_sessionstart.sh", ()):
+    event = entry["event"]
+    programs = {(os.path.basename(p["rel_path"]), tuple(p["args"]))
+               for p in entry["programs"]}
+    if event == "SessionStart":
         return json.dumps({"cwd": repo, "session_id": session_id,
                            "hook_event_name": "SessionStart"})
-    if key == ("bm_telemetry.py", ("outcomes-append",)):
+    if event == "SessionEnd":
         return json.dumps({"transcript_path": small_tp, "session_id": session_id,
                            "cwd": repo, "reason": "test",
                            "hook_event_name": "SessionEnd"})
-    if key == ("bm_telemetry.py", ("stop-warn",)):
+    if event == "Stop":
         # Over STOPWARN_MIN_BYTES, the one thing this payload must get right
         # for the probe to be meaningful: a transcript UNDER the floor would
-        # short-circuit before the write path is even reached, and a probe
-        # that never reaches the write path proves nothing about it.
+        # short-circuit stop-warn before its write path is even reached, and
+        # a probe that never reaches the write path proves nothing about it.
+        # Every OTHER program in this same compound chain (bm_lead.py
+        # watchdog --tick, bm_view.py render --if-stale, bm_view.py alert
+        # --tick) reads this identical payload too, exactly as `p=$(cat)`
+        # makes them, so none of them needs its own recognized case here.
         return json.dumps({"session_id": session_id, "transcript_path": big_tp,
                            "cwd": repo, "hook_event_name": "Stop"})
-    if key == ("bm_autosave.py", ("precompact",)):
-        return json.dumps({"cwd": repo, "session_id": session_id,
-                           "hook_event_name": "PreCompact", "trigger": "auto"})
-    if key == ("bm_telemetry.py", ("precompact-brief",)):
+    if event == "PreCompact":
+        # bm_autosave.py precompact and bm_telemetry.py precompact-brief
+        # share this same piped stdin too; canary_tp lets the leak check
+        # (CANARY_SENTENCE must never reach the fresh HOME) mean something
+        # for precompact-brief specifically.
         return json.dumps({"transcript_path": canary_tp, "session_id": session_id,
                            "cwd": repo, "hook_event_name": "PreCompact",
                            "trigger": "auto"})
-    if key == ("bm_fence_hook.py", ()):
+    if event == "PreToolUse" and ("bm_fence_hook.py", ()) in programs:
         return json.dumps({"session_id": session_id, "cwd": repo,
                            "tool_name": "Edit",
                            "tool_use_id": "probe-tool-use-edit",
@@ -528,13 +569,13 @@ def _payload_for_invocation(inv, repo, session_id, transcripts):
                                "file_path": os.path.join(repo, "would-be-edited.txt"),
                                "old_string": "v1", "new_string": "v2"},
                            "hook_event_name": "PreToolUse"})
-    if key == ("bm_bash_audit.py", ("pre",)):
+    if event == "PreToolUse" and ("bm_bash_audit.py", ("pre",)) in programs:
         return json.dumps({"session_id": session_id, "cwd": repo,
                            "tool_name": "Bash",
                            "tool_use_id": "probe-tool-use-bash",
                            "tool_input": {"command": "echo probe"},
                            "hook_event_name": "PreToolUse"})
-    if key == ("bm_bash_audit.py", ("post",)):
+    if event == "PostToolUse" and ("bm_bash_audit.py", ("post",)) in programs:
         return json.dumps({"session_id": session_id, "cwd": repo,
                            "tool_name": "Bash",
                            "tool_use_id": "probe-tool-use-bash",
@@ -548,12 +589,30 @@ def _brothermode_refs(repo, git_env):
     return [line for line in (r.stdout or "").splitlines() if line.strip()]
 
 
+def _file_digest(full):
+    """sha256 of a file's actual bytes, chunked the same way
+    scripts/doctor.py's own check_checksums reads a file (65536-byte
+    chunks), or None on any read failure. Codex finding 8 (v3 gap-closure
+    cross-family review): a manifest keyed on byte COUNT alone lets a hook
+    rewrite an existing file with different same-length content and still
+    compare equal; hashing the content is what actually backs this probe's
+    own "byte-for-byte unchanged" claim."""
+    digest = hashlib.sha256()
+    try:
+        with io.open(full, "rb") as fh:
+            for chunk in iter(lambda: fh.read(65536), b""):
+                digest.update(chunk)
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
 def _home_manifest(fake_home):
-    """Every file under the fake HOME as {relpath: size}, skipping
+    """Every file under the fake HOME as {relpath: sha256 digest}, skipping
     IGNORED_HOME_PREFIXES (the interpreter's own bytecode cache, not a
     BrotherMode write). Compared before and after this step drives every
-    hook program: any new key is a file BrotherMode wrote before consent
-    existed."""
+    hook program: any new key, or any digest that changed on an existing
+    key, is a file BrotherMode wrote or rewrote before consent existed."""
     out = {}
     for root, _dirs, files in os.walk(fake_home):
         for f in files:
@@ -561,10 +620,7 @@ def _home_manifest(fake_home):
             rel = os.path.relpath(full, fake_home).replace(os.sep, "/")
             if any(rel == p or rel.startswith(p + "/") for p in IGNORED_HOME_PREFIXES):
                 continue
-            try:
-                out[rel] = os.path.getsize(full)
-            except OSError:
-                out[rel] = None
+            out[rel] = _file_digest(full)
     return out
 
 
@@ -592,8 +648,8 @@ def _grep_tree_for_text(root_dir, needle):
 
 
 def step0_preconsent_probe(paths, base_env, result):
-    invocations = parse_hook_programs(HOOKS_JSON_PATH, result)
-    if invocations is None:
+    entries = parse_hook_programs(HOOKS_JSON_PATH, result)
+    if entries is None:
         return False
     stopwarn_floor = _load_stopwarn_floor(paths, result)
     if stopwarn_floor is None:
@@ -629,6 +685,12 @@ def step0_preconsent_probe(paths, base_env, result):
         fh.write("untracked WIP that must never be touched\n")
 
     env = dict(base_env)
+    # The real hook runner expands ${CLAUDE_PLUGIN_ROOT} itself, inside the
+    # shell it hands the "command" string to; this probe's own
+    # _command_for_entry now runs that exact string via `sh -c` (codex
+    # finding 7), so the expansion must come from THIS environment
+    # variable too, never from Python-side path substitution.
+    env["CLAUDE_PLUGIN_ROOT"] = paths["target"]
     cfg_path = env.get("BROTHERME_CONFIG")
     if cfg_path and os.path.exists(cfg_path):
         result.failed("the probe's own precondition is broken: a consent "
@@ -650,21 +712,20 @@ def step0_preconsent_probe(paths, base_env, result):
 
     session_id = "preconsent-probe-session"
     exits_ok = True
-    for inv in invocations:
-        payload = _payload_for_invocation(
-            inv, repo, session_id, (small_tp, big_tp, canary_tp))
+    for entry in entries:
+        payload = _payload_for_entry(
+            entry, repo, session_id, (small_tp, big_tp, canary_tp))
         if payload is None:
             result.failed(
-                "hooks.json names a program this probe has no payload for: "
-                "%s %s %s (event %s, command: %r). Add a case to "
-                "_payload_for_invocation before trusting this probe again."
-                % (inv["interp"], inv["rel_path"], " ".join(inv["args"]),
-                   inv["event"], inv["command_raw"]))
+                "hooks.json names a hook entry this probe has no payload "
+                "for (event %s, command: %r). Add a case to "
+                "_payload_for_entry before trusting this probe again."
+                % (entry["event"], entry["command_raw"]))
             return False
-        cmd = _command_for_invocation(paths, inv)
+        cmd = _command_for_entry(entry)
         r = run(cmd, cwd=repo, env=env, input_text=payload, timeout=60)
-        matcher_suffix = (", matcher=%s" % inv["matcher"]) if inv["matcher"] else ""
-        label = "%s (%s hook%s)" % (shortcmd(cmd), inv["event"], matcher_suffix)
+        matcher_suffix = (", matcher=%s" % entry["matcher"]) if entry["matcher"] else ""
+        label = "%s (%s hook%s)" % (shortcmd(cmd), entry["event"], matcher_suffix)
         result.note("%s: exit %s" % (label, r.returncode))
         if r.stdout.strip():
             result.note("  stdout: %r" % r.stdout.strip()[:300])
@@ -687,11 +748,13 @@ def step0_preconsent_probe(paths, base_env, result):
 
     result.note("git for-each-ref refs/brothermode/ before: %r" % before_refs)
     result.note("git for-each-ref refs/brothermode/ after:  %r" % after_refs)
-    result.note("probe repo's full tree walk unchanged: %s (%d file(s))"
+    result.note("probe repo's full tree walk unchanged (sha256 per file, "
+               "not byte count): %s (%d file(s))"
                % (tree_untouched, len(after_tree)))
-    result.note("fresh HOME unchanged, ignoring %s: %s (%d file(s) before, "
-               "%d after)" % (", ".join(IGNORED_HOME_PREFIXES), home_untouched,
-                              len(before_home), len(after_home)))
+    result.note("fresh HOME unchanged (sha256 per file, not byte count), "
+               "ignoring %s: %s (%d file(s) before, %d after)"
+               % (", ".join(IGNORED_HOME_PREFIXES), home_untouched,
+                  len(before_home), len(after_home)))
     if new_home_files:
         result.note("new file(s) written under the fresh HOME: %s"
                    % ", ".join(new_home_files[:20]))
@@ -700,13 +763,15 @@ def step0_preconsent_probe(paths, base_env, result):
     if (exits_ok and refs_empty and refs_untouched and tree_untouched
             and home_untouched and canary_absent):
         result.passed(
-            "all %d program invocation(s) parsed from hooks/hooks.json "
-            "(every program on every hook line, not one per event) exited "
-            "0 and wrote nothing at all: refs/brothermode/ stayed empty, "
-            "the probe repo's tree (%d file(s)) is byte-for-byte unchanged, "
-            "the fresh HOME (%d file(s)) is unchanged, and the canary "
-            "sentence never landed anywhere in it"
-            % (len(invocations), len(after_tree), len(after_home)))
+            "all %d hook entry(ies) parsed from hooks/hooks.json (every "
+            "entry's own real command, run once via sh -c exactly as the "
+            "real hook runner runs it, not one reconstructed process per "
+            "matched program) exited 0 and wrote nothing at all: "
+            "refs/brothermode/ stayed empty, the probe repo's tree (%d "
+            "file(s)) is byte-for-byte unchanged (sha256 comparison), the "
+            "fresh HOME (%d file(s)) is unchanged (sha256 comparison), and "
+            "the canary sentence never landed anywhere in it"
+            % (len(entries), len(after_tree), len(after_home)))
         return True
     result.failed(
         "exits_ok=%s refs_empty=%s refs_untouched=%s tree_untouched=%s "
@@ -844,8 +909,37 @@ def step4_setup(paths, env, result):
 # step 5: scripts/doctor.py --json
 # ---------------------------------------------------------------------------
 
-REQUIRED_PASS_KEYS = ("fence", "consent", "vault", "duplicate_install",
-                      "settings_json")
+# Codex finding 9 (v3 gap-closure cross-family review): this used to omit
+# "version", "runtime", "store" and "mode_wiring" from the required-PASS
+# set with no comment at all, so a real FAIL on any of those four (a
+# broken installed-runtime or hook-wiring defect, exactly the class doctor
+# exists to catch) could not fail this step. Every key doctor.py's own
+# --json ever returns must now appear in EXACTLY ONE of the two sets
+# below, and step5_doctor asserts that coverage itself: an unclassified
+# key (doctor.py grows a new check nobody has judged here) is a hard
+# failure, not a silent gap.
+REQUIRED_PASS_KEYS = ("fence", "version", "runtime", "consent", "vault",
+                      "duplicate_install", "mode_wiring", "settings_json")
+
+# Keys allowed to be something other than PASS here, each with the reason
+# committed in code rather than left to a reader's memory.
+EXCLUDED_KEYS = {
+    "checksums": "a live development tree, not a clean checked-out "
+                 "release, so CHECKSUMS.sha256 disagreeing is expected "
+                 "here (doctor reports it FAIL, honestly; this probe "
+                 "does not assert on it)",
+    "store": "step 5 runs BEFORE step 6 ever creates a project store "
+             "under the fake HOME, so check_store_health SKIPs here by "
+             "ordering, every run, not by a defect",
+}
+
+# scripts/doctor.py's own EXIT_OK/EXIT_PROBLEMS, duplicated here rather
+# than imported (doctor.py is a script, not a library, the same reason
+# _mask_home is duplicated in this file instead of imported). doctor.py's
+# own non-strict rule: EXIT_OK when payload["failed"] == 0, EXIT_PROBLEMS
+# otherwise; this probe never passes --strict, so a SKIP never flips it.
+DOCTOR_EXIT_OK = 0
+DOCTOR_EXIT_PROBLEMS = 1
 
 
 def step5_doctor(paths, env, result):
@@ -861,10 +955,9 @@ def step5_doctor(paths, env, result):
         result.note("stderr: " + r.stderr.strip()[:2000])
         result.failed("stdout was not valid JSON (%s)" % exc)
         return False
-    by_key = {c["key"]: c for c in payload.get("checks", [])}
-    for key in ("fence", "version", "runtime", "consent", "vault",
-               "duplicate_install", "store", "mode_wiring", "checksums",
-               "settings_json"):
+    checks = payload.get("checks", [])
+    by_key = {c["key"]: c for c in checks}
+    for key in sorted(set(REQUIRED_PASS_KEYS) | set(EXCLUDED_KEYS)):
         c = by_key.get(key)
         if c is None:
             result.note("no entry in the JSON for check: %s" % key)
@@ -872,17 +965,49 @@ def step5_doctor(paths, env, result):
         first_line = (c.get("message") or "").splitlines()[0] if c.get("message") else ""
         result.note("%-18s %-4s %s" % (key, c.get("status"), first_line[:140]))
 
+    unclassified = sorted(set(by_key) - set(REQUIRED_PASS_KEYS) - set(EXCLUDED_KEYS))
     unmet = [k for k in REQUIRED_PASS_KEYS
             if by_key.get(k, {}).get("status") != "PASS"]
-    checksums_status = by_key.get("checksums", {}).get("status")
-    result.note("checksums status recorded as-is: %s (a live development "
-               "tree, not a clean checked-out release, so CHECKSUMS.sha256 "
-               "disagreeing is expected here; this key is not in the "
-               "asserted set)" % checksums_status)
+    for key, reason in sorted(EXCLUDED_KEYS.items()):
+        result.note("%s status recorded as-is: %s (excluded: %s)"
+                   % (key, by_key.get(key, {}).get("status"), reason))
+
+    # codex 9's other half: READ AND ENFORCE the process exit code, not
+    # just log it. doctor.py's own non-strict rule is "EXIT_OK iff no
+    # check FAILED anywhere" (scripts/doctor.py main(), fail_count over
+    # ALL checks, not only the ones this probe requires); payload["failed"]
+    # is that same count, straight from the JSON this probe already
+    # parsed. Comparing the two catches doctor.py's PROCESS exit code
+    # disagreeing with its own JSON verdict, without wrongly demanding
+    # exit 0 on a run where the (excluded, expected) checksums FAIL
+    # legitimately makes doctor's own exit code nonzero.
+    expected_exit = DOCTOR_EXIT_OK if payload.get("failed") == 0 else DOCTOR_EXIT_PROBLEMS
+    exit_code_honest = (r.returncode == expected_exit)
+    result.note("doctor's own JSON says failed=%s; expected process exit "
+               "%s for that; actual process exit was %s (match: %s)"
+               % (payload.get("failed"), expected_exit, r.returncode,
+                  exit_code_honest))
+
+    if unclassified:
+        result.failed(
+            "doctor.py --json returned check key(s) this probe has not "
+            "judged (add each to REQUIRED_PASS_KEYS or EXCLUDED_KEYS "
+            "with a stated reason before trusting this probe again): %s"
+            % ", ".join(unclassified))
+        return False
+    if not exit_code_honest:
+        result.failed(
+            "doctor.py's process exit code (%s) does not match what its "
+            "own JSON verdict (failed=%s) implies (expected %s)"
+            % (r.returncode, payload.get("failed"), expected_exit))
+        return False
     if unmet:
         result.failed("status was not PASS for: %s" % ", ".join(unmet))
         return False
-    result.passed("status PASS for: %s" % ", ".join(REQUIRED_PASS_KEYS))
+    result.passed("status PASS for: %s; exit code %s matches the JSON "
+                 "verdict; excluded key(s) %s recorded with their reason"
+                 % (", ".join(REQUIRED_PASS_KEYS), r.returncode,
+                    ", ".join(sorted(EXCLUDED_KEYS))))
     return True
 
 
@@ -1023,15 +1148,15 @@ def step6_project(paths, env, result):
 # ---------------------------------------------------------------------------
 
 def _vault_manifest(vault_dir):
+    """Every file under the vault as {relpath: sha256 digest} (see
+    _file_digest and _home_manifest's own docstrings: codex finding 8, a
+    byte-count manifest cannot catch a same-length rewrite)."""
     out = {}
     for root, _dirs, files in os.walk(vault_dir):
         for f in files:
             full = os.path.join(root, f)
             rel = os.path.relpath(full, vault_dir)
-            try:
-                out[rel] = os.path.getsize(full)
-            except OSError:
-                out[rel] = None
+            out[rel] = _file_digest(full)
     return out
 
 
@@ -1065,8 +1190,8 @@ def step7_uninstall(paths, env, before_manifest, result):
                % (hooks_gone, paths["target"]))
     result.note("consent_gone=%s (%s does not exist)"
                % (consent_gone, paths["config"]))
-    result.note("vault_untouched=%s (%d file(s) before, %d after, byte-size "
-               "manifest identical: %s)" % (vault_untouched,
+    result.note("vault_untouched=%s (%d file(s) before, %d after, "
+               "content-hash manifest identical: %s)" % (vault_untouched,
                                              len(before_manifest),
                                              len(after_manifest),
                                              vault_untouched))

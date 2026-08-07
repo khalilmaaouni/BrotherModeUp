@@ -204,15 +204,34 @@ Requirements: Claude Code (CLI or desktop app) with skills enabled, Python 3.9
 or newer using the standard library only with nothing to install, and git.
 
 **The plugin way (two lines, inside Claude Code).** This repository is its own
-plugin marketplace: add it once, install from it, and the nine /brothermode
-commands, the guided skill, and the six hooks register on the next start.
-Upgrading later is one `/plugin` update from the same source; uninstalling
-removes the plugin and leaves your project data and vault untouched.
+plugin marketplace: add it once, install from it, and the six hooks register
+on the next start. Upgrading later is one `/plugin` update from the same
+source; uninstalling removes the plugin and leaves your project data and
+vault untouched.
+
+DATED, 2026-08-08: v3 has not been tagged yet, and `v2.1.1` below is still the
+last tag that resolves. It predates the night rename this project made to its
+own command and skill names, so it registers its plugin under the OLD id,
+`brotherme`, not `brothermode`, and it ships the old flat
+`commands/brotherme-*.md` surface, not the nine `/brothermode:*` skills the
+rest of this page describes. The pairing below is the one that actually works
+against that tag, reproduced in a throwaway `CLAUDE_CONFIG_DIR` on 2026-08-08:
 
 ```bash
 claude plugin marketplace add khalilmaaouni/BrotherModeUp@v2.1.1
-claude plugin install brothermode@brothermode-marketplace
+claude plugin install brotherme@brotherme-marketplace
 ```
+
+Pasting `claude plugin install brothermode@brothermode-marketplace` after the
+same marketplace add fails instead, with `Plugin "brothermode" not found in
+marketplace "brothermode-marketplace"`: that plugin id does not exist in the
+v2 marketplace this tag ships. If you want today's tree (the nine
+`/brothermode:*` skills, the hidden internal skills, the current command
+surface), skip this path for now and use the development clone further down
+this page, which tracks the moving `main` branch rather than a tag. Once v3
+is tagged, `docs/RELEASE.md` step 2b re-pins this section to it, and the
+pairing above starts installing v3 exactly as the rest of this page
+describes.
 
 The `@v2.1.1` pins the marketplace add itself to the released tag rather
 than the repository's moving default branch. Anthropic's plugin
@@ -290,6 +309,14 @@ purpose, and `python3 tools/bm_project_facts.py --field version` prints what
 this checkout claims. Do not run both paths at once on one machine: the plugin
 wires the same six hooks the clone's installer wires, so a machine carrying
 both runs every hook twice (docs/KNOWN-LIMITS.md records this; pick one).
+
+Same dated fact as the plugin way above: `v2.1.1` predates the night rename,
+so this checkout carries the old flat `commands/brotherme-*.md` surface and
+the single `skills/brotherme/SKILL.md` conductor, not the nine
+`/brothermode:*` skills the rest of this page describes. The engine
+underneath (`tools/bm_*.py`, `scripts/install.py`, `scripts/doctor.py`) is
+the same either way; only the command and skill names differ. If you want
+today's tree, use the development clone below instead.
 
 Working on BrotherMode's own code, rather than just using it? Use the separate
 development command instead, which tracks the moving `main` branch on purpose
