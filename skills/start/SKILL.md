@@ -1,9 +1,9 @@
 ---
+name: start
 description: Start a project with a short guided conversation that ends in one clear project brief
 argument-hint: <what you want to build or achieve>
+disable-model-invocation: true
 ---
-
-> LEGACY v2 COMPATIBILITY SHIM (V3-FREEZE-2026-08-07.md decision 1; refutation ruling B4/B5, `v3/architecture-refutation.md`). Legacy surface: `/brotherme-start` under the pre-rename `brotherme` plugin id. Replacement: `/brothermode:start` at `skills/start/SKILL.md`. Reason: the founder's 2026-08-07 night namespace rename retired the flat `commands/` layout as the canonical public surface (finding F2, `standards-gap.md`); this file is kept, unchanged below, only so a v2 install or a v2 habit still resolves during the migration window. Test: `tools/test_bm.py`'s `TestTheSeventhCommandAndTheDeepTourAreWired` (the fifteen-command inventory pin) and the naming/ACTIVE_DOCS scan in `tools/test_bm_docs.py` still exercise this exact file and path; do not rename or delete it without updating both. Removal condition: the v3.0.0 tag, at the release court described in freeze answer 14, once `claude plugin validate` and a repository grep show no live consumer of `/brotherme-start` remains.
 
 The user wants to start a project. Their goal, in their own words: $ARGUMENTS
 
@@ -25,7 +25,7 @@ Every question travels as a decision card in the shape of references/kickoff.md,
 
 ## Minute four: their yes, then the first thing written, then the first page
 
-FIRST RUN IN A PROJECT, do this before anything mechanical: a brand new project folder has no records yet, and `bm_project.py start` REFUSES rather than creating them, with a message naming `bm_store.py init`. That refusal is correct engine behaviour and it is the wrong thing for a beginner's first minute, so never let them see it. Run `python3 "${CLAUDE_PLUGIN_ROOT}/tools/bm_store.py" init` in the user's project folder yourself, once, before the first `bm_project.py` command, and say one plain sentence about what it did ("set this folder up to remember your project"). If it is already set up, the command says so and nothing is harmed. Same install-path rule as below.
+FIRST RUN IN A PROJECT, do this before anything mechanical: a brand new project folder has no records yet, and `bm_project.py start` REFUSES rather than creating them, with a message naming `bm_store.py init`. That refusal is correct engine behaviour and it is the wrong thing for a beginner's first minute, so never let them see it. Run `python3 "${CLAUDE_PLUGIN_ROOT}/tools/bm_store.py" init` in the user's project folder yourself, once, before the first mechanical `start` command, and say one plain sentence about what it did ("set this folder up to remember your project"). If it is already set up, the command says so and nothing is harmed. Same install-path rule as below.
 
 Say two things at that moment, in this order, and never skip the second:
 
@@ -34,7 +34,7 @@ Say two things at that moment, in this order, and never skip the second:
 
 RECORD THE OUTCOME FIRST, once the user has said in their own words what they want: run `python3 "${CLAUDE_PLUGIN_ROOT}/tools/bm_lead.py" outcome --project-id <id> --set "<their words>"` (the packaged console script is `bm-lead outcome`), then continue the guided kickoff. There is one command that records what the user is trying to achieve, and this is it, so the goal the status view reads back later is the goal they actually stated rather than a paraphrase gathered twice. Same install-path rule as below.
 
-Then, and only then, write the first page: run `python3 "${CLAUDE_PLUGIN_ROOT}/tools/bm_view.py" render --project-id <id>` (the packaged console script is `bm-view render`) and offer it to them. It will be nearly empty, and that is the point: every section says what will fill it and names the one thing that fills it, and the counter at the top says how many of the eight setup steps are genuinely done, counted from real records rather than claimed. At this moment it reads 2 of 8, and saying so is honest in both directions: something real has happened, and most of it has not.
+Then, and only then, write the first page: run `python3 "${CLAUDE_PLUGIN_ROOT}/tools/brothermode_cli.py" view --project-id <id>` (the packaged console script is `brothermode view`) and offer it to them. It will be nearly empty, and that is the point: every section says what will fill it and names the one thing that fills it, and the counter at the top says how many of the eight setup steps are genuinely done, counted from real records rather than claimed. At this moment it reads 2 of 8, and saying so is honest in both directions: something real has happened, and most of it has not.
 
 ## Minutes four to nine: one real piece of their own project, finished
 
@@ -44,10 +44,12 @@ Do not describe what this product will do for them. Take the smallest genuine pi
 
 Rewrite the page once the first piece is done, and let it do the explaining: the drawing of the stages shows where they are, the stages not reached yet read as waiting rather than missing, and every section still empty says what will be there. The first catch-up arrives at the first change of phase rather than on a clock, so a first run gets one without waiting half an hour for it.
 
-Offer three commands during this whole stretch and no more: `/brotherme-start`, `/brotherme-status`, `/brotherme-next`. The others introduce themselves when they become useful, and a user who has met three commands and used all three is further along than one who was handed fourteen.
+Offer three commands during this whole stretch and no more: `/brothermode:start`, `/brothermode:status`, `/brothermode:next`. The others introduce themselves when they become useful, and a user who has met three commands and used all three is further along than one who was handed nine.
 
 The first time a decision is put to them, the last option on the card is their own: they can take the decision and the work under it back. That option is not a closing courtesy, it is on every card and on the page, and it is offered before they think to ask.
 
 ## The mechanical command that records the brief
 
-Once the goal, scope, and first decision are settled, run the mechanical command `python3 "${CLAUDE_PLUGIN_ROOT}/tools/bm_project.py" start` with the gathered details: it creates the project record in that project's own records and regenerates CANVAS.md from those rows. A plugin install exports `${CLAUDE_PLUGIN_ROOT}` for skill and command content, so that path resolves on its own; on a clone install, where the variable is unset, run `python3 tools/bm_project.py start` instead, from the BrotherMode root (`~/.claude/skills/brothermode`). Either way, run it from the user's project folder so it reads and writes that project's own records. Never fill CANVAS.md by hand and never answer from memory of this conversation about what the project record holds; the command's own output is the only source of truth. If the goal above is empty, ask for it in one sentence before anything else.
+Once the goal, scope, and first decision are settled, run the mechanical command `python3 "${CLAUDE_PLUGIN_ROOT}/tools/brothermode_cli.py" start` (the packaged console script is `brothermode start`) with the gathered details: it creates the project record in that project's own records and regenerates CANVAS.md from those rows. A plugin install exports `${CLAUDE_PLUGIN_ROOT}` for skill and command content, so that path resolves on its own; on a clone install, where the variable is unset, run `python3 tools/brothermode_cli.py start` instead, from the BrotherMode root (`~/.claude/skills/brothermode`). Either way, run it from the user's project folder so it reads and writes that project's own records. Never fill CANVAS.md by hand and never answer from memory of this conversation about what the project record holds; the command's own output is the only source of truth. If the goal above is empty, ask for it in one sentence before anything else.
+
+v3 note: this skill is the canonical replacement for the legacy `/brotherme-start` command (V3-FREEZE-2026-08-07.md decision 1). It calls only `tools/brothermode_cli.py`, the one deterministic public runtime boundary (freeze answer 4), for the one verb the boundary owns (`start`). The doorway, store-init failsafe and outcome-recording calls above stay direct calls to their own internal tools: none of the three is a CLI verb, and none is new work this run adds; freeze answer 4 names `bm_project.py`, `bm_lead.py` and `bm_view.py` as the internal adapters behind the boundary, not surfaces the boundary itself must cover on day one.

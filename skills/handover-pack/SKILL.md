@@ -1,8 +1,8 @@
 ---
+name: handover-pack
 description: Generate the handover pages that let another person take this project over
+disable-model-invocation: true
 ---
-
-> LEGACY v2 COMPATIBILITY SHIM (V3-FREEZE-2026-08-07.md decision 1; refutation ruling B4/B5, `v3/architecture-refutation.md`). Legacy surface: `/brotherme-handover-pack` under the pre-rename `brotherme` plugin id. Replacement: `/brothermode:handover-pack` at `skills/handover-pack/SKILL.md` (an internal, hidden skill: reachable by exact name, not part of the nine advertised in `/help`). Reason: the founder's 2026-08-07 night namespace rename retired the flat `commands/` layout as the canonical public surface (finding F2, `standards-gap.md`); this file is kept, unchanged below, only so a v2 install or a v2 habit still resolves during the migration window. Test: `tools/test_bm.py`'s `TestTheSeventhCommandAndTheDeepTourAreWired` (the fifteen-command inventory pin) and the naming/ACTIVE_DOCS scan in `tools/test_bm_docs.py` still exercise this exact file and path; do not rename or delete it without updating both. Removal condition: the v3.0.0 tag, at the release court described in freeze answer 14, once `claude plugin validate` and a repository grep show no live consumer of `/brotherme-handover-pack` remains.
 
 Outcome to produce: one folder of generated pages, written from that project's own records, that a person who was not in this conversation can read and act on.
 
@@ -22,4 +22,6 @@ Who this is for: a business analyst or a project lead who has to take the projec
 
 Two properties worth telling the user in plain words. The pages are generated, so regenerating them changes nothing unless the records changed, and a page written today still reads the same a month from now because it only shows what was known at the moment it covers. The pack covers one project: a folder holding several projects produces one set of pages per project rather than a merged view, and no page implies otherwise.
 
-If the project has no records yet, say so plainly and point at `/brotherme-start`; do not generate a folder of empty pages.
+If the project has no records yet, say so plainly and point at `/brothermode:start`; do not generate a folder of empty pages.
+
+v3 note: this skill is the internal, hidden replacement for the legacy `/brotherme-handover-pack` command (V3-FREEZE-2026-08-07.md decision 1, refutation ruling B5). `disable-model-invocation: true` fits: like `deliver`, it is a generation action producing a real output someone else acts on, a moment the user should control rather than Claude triggering because a conversation looked handover-shaped. It does not call `tools/brothermode_cli.py`: `bm_lead.py handover-pack` is not one of the ten verbs the boundary owns, so this stays a documented internal-adapter exception per ruling H4.

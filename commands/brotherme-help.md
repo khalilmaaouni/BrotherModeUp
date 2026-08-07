@@ -2,6 +2,8 @@
 description: Explain what BrotherMode does and how to use it, in plain language
 ---
 
+> LEGACY v2 COMPATIBILITY SHIM (V3-FREEZE-2026-08-07.md decision 1; refutation ruling B4/B5, `v3/architecture-refutation.md`). Legacy surface: `/brotherme-help` under the pre-rename `brotherme` plugin id. Replacement: `/brothermode:help` at `skills/help/SKILL.md`. Reason: the founder's 2026-08-07 night namespace rename retired the flat `commands/` layout as the canonical public surface (finding F2, `standards-gap.md`); this file is kept, unchanged below, only so a v2 install or a v2 habit still resolves during the migration window. Test: `tools/test_bm.py`'s `TestTheSeventhCommandAndTheDeepTourAreWired` (the fifteen-command inventory pin) and the naming/ACTIVE_DOCS scan in `tools/test_bm_docs.py` still exercise this exact file and path; do not rename or delete it without updating both. Removal condition: the v3.0.0 tag, at the release court described in freeze answer 14, once `claude plugin validate` and a repository grep show no live consumer of `/brotherme-help` remains.
+
 Outcome to produce: a short, plain-language orientation that ends in ONE question, not a list of everything the product can do. No setup steps that involve editing files, and no internal machinery.
 
 ## What to say first, and it is three sentences
