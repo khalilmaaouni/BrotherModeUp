@@ -39,12 +39,12 @@ say "source: $SRC"
 claude plugin marketplace add "$SRC" >"$WORK/add.log" 2>&1 || { cat "$WORK/add.log"; fail "marketplace add"; }
 grep -q "Successfully added marketplace" "$WORK/add.log" || { cat "$WORK/add.log"; fail "add gave no success line"; }
 
-claude plugin install brotherme@brotherme-marketplace >"$WORK/install.log" 2>&1 || { cat "$WORK/install.log"; fail "plugin install"; }
+claude plugin install brothermode@brothermode-marketplace >"$WORK/install.log" 2>&1 || { cat "$WORK/install.log"; fail "plugin install"; }
 grep -q "Successfully installed plugin" "$WORK/install.log" || { cat "$WORK/install.log"; fail "install gave no success line"; }
 
 VERSION_FILE=$(cat "$ROOT/VERSION")
 claude plugin list >"$WORK/list.log" 2>&1 || fail "plugin list"
-grep -q "brotherme@brotherme-marketplace" "$WORK/list.log" || { cat "$WORK/list.log"; fail "installed plugin missing from list"; }
+grep -q "brothermode@brothermode-marketplace" "$WORK/list.log" || { cat "$WORK/list.log"; fail "installed plugin missing from list"; }
 grep -q "Version: $VERSION_FILE" "$WORK/list.log" || { cat "$WORK/list.log"; fail "installed version does not match VERSION ($VERSION_FILE)"; }
 
 claude plugin details brotherme >"$WORK/details.log" 2>&1 || fail "plugin details"
