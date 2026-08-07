@@ -109,7 +109,7 @@ controller added, about 4,400 are the engine and its command line and the rest
 are behavioral tests, including the tests that six adversarial refutation
 rounds produced. Those rounds are why the number moved twice in one day: each
 one reproduced a defect with a probe, and each reproduction became a permanent
-test rather than a note. Two shipping tools import subprocess, both for LOCAL execution and neither for the network: bm_autosave.py drives git (never a push, never a remote), and bm_controller.py (the Full-Auto controller) runs each unit's deterministic done-check as a local command. Both are named exceptions in the no-network test, per file and per module, so no third tool inherits the allowance quietly.
+test rather than a note. Three shipping tools import subprocess, each for LOCAL execution: bm_autosave.py drives git (never a push, never a remote), bm_controller.py (the Full-Auto controller) runs each unit's deterministic done-check as a local command, and brothermode_cli.py (the v3 public boundary) dispatches its ten verbs to the existing local tools, with one stated network exception: its update check runs a single read-only `git ls-remote --tags` against the configured remote, a network READ that writes nothing and pushes nothing. All three are named exceptions in the no-network test, per file and per module, so no fourth tool inherits the allowance quietly.
 
 The small-toolchain promise still stands: if the
 NON-test line count starts climbing like this, the honest move is to withdraw

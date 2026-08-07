@@ -1,6 +1,7 @@
 ---
 name: brotherme
-description: Guides a person with no technical background from an idea to a verified result. Use when the user starts a project, asks where a project stands, asks what to do next, asks for a review of work, or asks to wrap up and deliver. Verified on Claude Code; this plugin packaging is a release candidate.
+description: v3 internal reference for BrotherMode's guided beginner flows (kickoff detail, the deep tour, the guided-loop delegation pattern). Not a direct entry point; the public /brothermode:start, :status, :next, :review, :deliver, :view and :help skills are the ones that answer the user's request, and each points into the relevant section here. Verified on Claude Code; this plugin packaging is a release candidate.
+user-invocable: false
 ---
 
 <!-- The product is BrotherMode. BrotherME below is the guided persona voice, per the naming decision ratified 2026-08-04. -->

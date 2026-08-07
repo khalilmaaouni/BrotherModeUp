@@ -1,8 +1,8 @@
 ---
+name: stop
 description: Stop the Full-Auto controller run right now, draining in-flight work and releasing every held claim
+disable-model-invocation: true
 ---
-
-> LEGACY v2 COMPATIBILITY SHIM (V3-FREEZE-2026-08-07.md decision 1; refutation ruling B4/B5, `v3/architecture-refutation.md`). Legacy surface: `/brotherme-stop` under the pre-rename `brotherme` plugin id. Replacement: `/brothermode:stop` at `skills/stop/SKILL.md` (an internal, hidden skill: reachable by exact name, not part of the nine advertised in `/help`). Reason: the founder's 2026-08-07 night namespace rename retired the flat `commands/` layout as the canonical public surface (finding F2, `standards-gap.md`); this file is kept, unchanged below, only so a v2 install or a v2 habit still resolves during the migration window. Test: `tools/test_bm.py`'s `TestTheSeventhCommandAndTheDeepTourAreWired` (the fifteen-command inventory pin) and the naming/ACTIVE_DOCS scan in `tools/test_bm_docs.py` still exercise this exact file and path; do not rename or delete it without updating both. Removal condition: the v3.0.0 tag, at the release court described in freeze answer 14, once `claude plugin validate` and a repository grep show no live consumer of `/brotherme-stop` remains.
 
 Outcome to produce: the controller run for this project is stopped, cleanly, with the user told exactly what state it landed in.
 
@@ -11,3 +11,5 @@ Enter the Full-Auto stop flow. This is the kill switch on the RUN itself (distin
 Run the mechanical command `python3 tools/bm_controller.py stop --project <id> --controller-id <the same id the run was started or resumed with> --actor-name <the user's name>`; never answer from memory of this conversation about what state the run was in. This command never fails hard: if there is no run at all, or it already reached a terminal state, it says so and does nothing further. Otherwise it drains any in-flight unit (recording whatever result had already arrived, never inventing one), releases every fence it held, and reports the state it moved from and to.
 
 Tell the user plainly what happened and, if any unit was left mid-flight when the stop landed, name it: nothing is lost, but that unit will need a fresh dispatch the next time the run resumes.
+
+v3 note: this skill is the internal, hidden replacement for the legacy `/brotherme-stop` command (V3-FREEZE-2026-08-07.md decision 1, refutation ruling B5). It stays user-invocable by explicit name with `disable-model-invocation: true`: a kill switch is exactly the action a founder must be able to reach directly and immediately, without depending on Claude choosing to route a natural-language message to the right skill (see skills/auto/SKILL.md's v3 note for the full reasoning on this choice). It does not call `tools/brothermode_cli.py`: `bm_controller.py stop` is not one of the ten verbs the boundary owns, so this stays a documented internal-adapter exception per ruling H4.
