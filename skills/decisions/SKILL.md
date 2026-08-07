@@ -1,8 +1,8 @@
 ---
+name: decisions
 description: Show the decisions waiting on you, highest stakes first, each with a recommended option
+user-invocable: false
 ---
-
-> LEGACY v2 COMPATIBILITY SHIM (V3-FREEZE-2026-08-07.md decision 1; refutation ruling B4/B5, `v3/architecture-refutation.md`). Legacy surface: `/brotherme-decisions` under the pre-rename `brotherme` plugin id. Replacement: `/brothermode:decisions` at `skills/decisions/SKILL.md` (an internal, hidden skill: reachable by exact name, not part of the nine advertised in `/help`). Reason: the founder's 2026-08-07 night namespace rename retired the flat `commands/` layout as the canonical public surface (finding F2, `standards-gap.md`); this file is kept, unchanged below, only so a v2 install or a v2 habit still resolves during the migration window. Test: `tools/test_bm.py`'s `TestTheSeventhCommandAndTheDeepTourAreWired` (the fifteen-command inventory pin) and the naming/ACTIVE_DOCS scan in `tools/test_bm_docs.py` still exercise this exact file and path; do not rename or delete it without updating both. Removal condition: the v3.0.0 tag, at the release court described in freeze answer 14, once `claude plugin validate` and a repository grep show no live consumer of `/brotherme-decisions` remains.
 
 Outcome to produce: the open decisions this project is waiting on, one card each, highest stakes first, in plain language the user can answer without reading any machinery.
 
@@ -15,3 +15,5 @@ The last option on every card is always the same one, and it is not optional: th
 Two honesty rules apply to every card. A claim that rests on reasoning rather than on a check that ran says so, in the words the command prints, and is never read out as a settled fact. A decision that a person judged to be a founder's call rather than one the records detected says that too, on the card, so the user knows which kind of question they are answering.
 
 If nothing is waiting, say so plainly in one line and name the one recommended next step instead. Do not manufacture a decision to fill the space.
+
+v3 note: this skill is the internal, hidden replacement for the legacy `/brotherme-decisions` command (V3-FREEZE-2026-08-07.md decision 1, refutation ruling B5). `user-invocable: false` fits: it is a read-only surfacing of decisions already on file, the same class of question the public `status`/`next` skills already field under Allowed classification. It does not call `tools/brothermode_cli.py`: `bm_lead.py decisions` is not one of the ten verbs the boundary owns, so this stays a documented internal-adapter exception per ruling H4.

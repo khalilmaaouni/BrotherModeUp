@@ -109,8 +109,8 @@ PROBE_TIMEOUT_SECONDS = 300
 
 #: The plugin identity this repository ships, exactly as
 #: scripts/release-smoke-install.sh installs it.
-PROBE_MARKETPLACE_NAME = "brotherme-marketplace"
-PROBE_PLUGIN_SPEC = "brotherme@%s" % PROBE_MARKETPLACE_NAME
+PROBE_MARKETPLACE_NAME = "brothermode-marketplace"
+PROBE_PLUGIN_SPEC = "brothermode@%s" % PROBE_MARKETPLACE_NAME
 
 #: The one fixture file the rival session fences and the canary prompt asks
 #: to edit.
@@ -2087,7 +2087,7 @@ def _install_plugin_shipped_way(claude_bin, env, claude_config_dir,
         try:
             with open(reg_path) as fh:
                 reg = json.load(fh)
-            source = (reg.get("brotherme-marketplace", {})
+            source = (reg.get(PROBE_MARKETPLACE_NAME, {})
                       .get("source", {}).get("path", ""))
         except (OSError, ValueError) as exc:
             raise Skip("marketplace add said %r but %s is unreadable for "
@@ -2124,7 +2124,7 @@ def _install_plugin_shipped_way(claude_bin, env, claude_config_dir,
                    "(%s) in `claude plugin list` for %s: %s"
                    % (version, context, _ascii(list_out, 300)))
 
-    r_details = _run([claude_bin, "plugin", "details", "brotherme"],
+    r_details = _run([claude_bin, "plugin", "details", "brothermode"],
                     cwd=ROOT, env=env, timeout=PROBE_TIMEOUT_SECONDS)
     details_out = (r_details.stdout or "") + (r_details.stderr or "")
     r_hookcount = _run([sys.executable,
@@ -2152,7 +2152,7 @@ def probe_installed():
       2. build a throwaway HOME, CLAUDE_CONFIG_DIR and fixture directory
       3. install the plugin the shipped way: `claude plugin marketplace
          add <this tree>` then `claude plugin install
-         brotherme@brotherme-marketplace`, with the same three asserts
+         brothermode@brothermode-marketplace`, with the same three asserts
          scripts/release-smoke-install.sh already makes (success lines,
          the version matching VERSION, the hook group count from
          tools/bm_project_facts.py --field hook_count), reused verbatim

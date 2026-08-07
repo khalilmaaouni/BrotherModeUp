@@ -1,12 +1,11 @@
 ---
+name: view
 description: Write the page that shows where this project stands, and offer it to the user
 ---
 
-> LEGACY v2 COMPATIBILITY SHIM (V3-FREEZE-2026-08-07.md decision 1; refutation ruling B4/B5, `v3/architecture-refutation.md`). Legacy surface: `/brotherme-view` under the pre-rename `brotherme` plugin id. Replacement: `/brothermode:view` at `skills/view/SKILL.md`. Reason: the founder's 2026-08-07 night namespace rename retired the flat `commands/` layout as the canonical public surface (finding F2, `standards-gap.md`); this file is kept, unchanged below, only so a v2 install or a v2 habit still resolves during the migration window. Test: `tools/test_bm.py`'s `TestTheSeventhCommandAndTheDeepTourAreWired` (the fifteen-command inventory pin) and the naming/ACTIVE_DOCS scan in `tools/test_bm_docs.py` still exercise this exact file and path; do not rename or delete it without updating both. Removal condition: the v3.0.0 tag, at the release court described in freeze answer 14, once `claude plugin validate` and a repository grep show no live consumer of `/brotherme-view` remains.
-
 Outcome to produce: one page the user can open, showing where the project stands right now, plus one line in the chat saying what it is a picture of and what it is waiting on.
 
-Run the mechanical command `python3 "${CLAUDE_PLUGIN_ROOT}/tools/bm_view.py" render --project-id <id>` (the packaged console script is `bm-view render`) and read its output; never describe the page from memory of this conversation and never write any part of it by hand. A plugin install exports `${CLAUDE_PLUGIN_ROOT}` for skill and command content, so that path resolves on its own; on a clone install, where the variable is unset, run `python3 tools/bm_view.py render --project-id <id>` instead, from the BrotherMode root (`~/.claude/skills/brothermode`). Either way, run it from the user's project folder so it reads that project's own records.
+Run the mechanical command `python3 "${CLAUDE_PLUGIN_ROOT}/tools/brothermode_cli.py" view --project-id <id>` (the packaged console script is `brothermode view`) and read its output; never describe the page from memory of this conversation and never write any part of it by hand. A plugin install exports `${CLAUDE_PLUGIN_ROOT}` for skill and command content, so that path resolves on its own; on a clone install, where the variable is unset, run `python3 tools/brothermode_cli.py view --project-id <id>` instead, from the BrotherMode root (`~/.claude/skills/brothermode`). Either way, run it from the user's project folder so it reads that project's own records.
 
 The command writes one file, `PROJECT-VIEW.html`, at the top of the user's project folder, beside `CANVAS.md`. It is one self contained file: no fonts, no images and nothing fetched from anywhere when it opens, so it opens with no internet connection and it can be kept, copied, or attached to an email.
 
@@ -35,3 +34,5 @@ Never promise a picture in the terminal, a page that refreshes itself, or a scre
 ## Honesty rules for this command
 
 Read out only what the command printed. If a section of the page has nothing in it yet, the page already says what will fill it and the one thing that fills it, so read that out rather than apologising for an empty project. If the command refuses, report it with the error card format in `references/kickoff.md` (What happened, Impact, Recommended action, What remains safe) and never print raw output at the user unless they ask to see exactly what happened.
+
+v3 note: this skill is the canonical replacement for the legacy `/brotherme-view` command (V3-FREEZE-2026-08-07.md decision 1). Its mechanical command now calls `tools/brothermode_cli.py view`, a thin pass-through to the exact `bm_view.py render` function the legacy command named, per freeze answer 4 ("view: tools/bm_view.py render... NON-AUTHORITATIVE, a render, never a source of truth"). Nothing about that non-authoritative status changed: this skill still writes nothing by itself, it only reaches the internal tool that already owns the write.

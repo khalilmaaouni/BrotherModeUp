@@ -1155,7 +1155,14 @@ class TestProjectSecurityClaims(unittest.TestCase):
                    # done-check as a LOCAL command through subprocess, the same
                    # local-only posture as bm_autosave driving git. It makes no
                    # network call; SECURITY.md documents this beside the git one.
-                   "bm_controller.py": {"subprocess"}}
+                   "bm_controller.py": {"subprocess"},
+                   # brothermode_cli.py (v3 Lane B) dispatches the ten public
+                   # verbs to the existing local tools through subprocess, and
+                   # its update check runs ONE read-only `git ls-remote
+                   # --tags` against the configured remote: a network READ,
+                   # never a write, never a push, documented in SECURITY.md
+                   # beside the other two exceptions.
+                   "brothermode_cli.py": {"subprocess"}}
         for n in sorted(os.listdir(tools)):
             if not n.endswith(".py") or n.startswith("test_"):
                 continue
@@ -5738,26 +5745,42 @@ class TestTheSeventhCommandAndTheDeepTourAreWired(unittest.TestCase):
 
     def test_the_five_store_backed_commands_name_the_mechanical_command(self):
         """Loop 2 WP-C, decision D-3 (docs/superpowers/specs/2026-08-01-
-        loop2-mechanical-commands-design.md): the five store-backed command
-        files must literally name their tools/bm_project.py invocation, not
-        just describe a flow in prose. A command file that never names the
+        loop2-mechanical-commands-design.md): the five store-backed skill
+        files must literally name their mechanical invocation, not just
+        describe a flow in prose. A skill file that never names the
         mechanical command leaves the model free to answer from memory of
         the conversation instead of running the one thing that actually
-        knows the project's state."""
+        knows the project's state.
+
+        H3 INVERSION, 2026-08-08 (V3-FREEZE-2026-08-07.md ruling H3, item 1;
+        authorized by freeze answer 4, "Skills call ONLY it [the
+        brothermode CLI]. tools/bm_*.py become internal adapters behind
+        it"): this test used to pin `python3 tools/bm_project.py <verb>`
+        inside the five legacy commands/brotherme-*.md files, mandating the
+        exact pre-v3 wiring the freeze retires on purpose. The protected
+        behavior (a beginner-facing file must name its real mechanical
+        command rather than let the model answer from memory) is retired
+        for NOTHING and moves house: it now pins the v3 canonical
+        skills/<name>/SKILL.md files against their brothermode CLI
+        invocation instead of the retired direct tool call. This is the
+        rewrite ruling H3 names as closure under plan section 17
+        (inversion, not deletion, of a pin whose protected behavior is
+        deliberately retired)."""
         expected = {
-            "brotherme-start.md": "python3 tools/bm_project.py start",
-            "brotherme-status.md": "python3 tools/bm_project.py status",
-            "brotherme-next.md": "python3 tools/bm_project.py next",
-            "brotherme-review.md": "python3 tools/bm_project.py review",
-            "brotherme-deliver.md": "python3 tools/bm_project.py deliver",
+            "start": "python3 \"${CLAUDE_PLUGIN_ROOT}/tools/brothermode_cli.py\" start",
+            "status": "python3 \"${CLAUDE_PLUGIN_ROOT}/tools/brothermode_cli.py\" status",
+            "next": "python3 \"${CLAUDE_PLUGIN_ROOT}/tools/brothermode_cli.py\" next",
+            "review": "python3 \"${CLAUDE_PLUGIN_ROOT}/tools/brothermode_cli.py\" review",
+            "deliver": "python3 \"${CLAUDE_PLUGIN_ROOT}/tools/brothermode_cli.py\" deliver",
         }
-        for filename, invocation in expected.items():
-            text = self._text("commands", filename)
+        for skill_name, invocation in expected.items():
+            text = self._text("skills", skill_name, "SKILL.md")
             self.assertIn(invocation, text,
-                          "%s lost its mechanical command %r; a beginner "
-                          "command file that does not name the real "
-                          "command it runs leaves the model free to "
-                          "answer from memory instead" % (filename, invocation))
+                          "skills/%s/SKILL.md lost its mechanical command "
+                          "%r; a beginner skill file that does not name "
+                          "the real command it runs leaves the model free "
+                          "to answer from memory instead"
+                          % (skill_name, invocation))
 
     def test_the_update_command_teaches_only_verified_lines(self):
         text = self._text("commands", "brotherme-update.md")
@@ -6931,7 +6954,19 @@ class TestUserFacingFilesNeverTeachPathInference(unittest.TestCase):
 
     Calibration: this test was made to fail once on purpose by pasting the
     old ritual sentence back into commands/brotherme-status.md, confirmed
-    red, then the paste was removed and the test confirmed green again."""
+    red, then the paste was removed and the test confirmed green again.
+
+    H3 INVERSION, 2026-08-08 (V3-FREEZE-2026-08-07.md ruling H3, item 3;
+    v3/architecture-refutation.md): the v3 rename adds nine canonical skill
+    directories under skills/ and prepends a shim banner to every file in
+    commands/, which shifts every line number this pin used to key on.
+    `_user_facing_files()` now scans the widened v3 file set (commands/ plus
+    every skills/*/SKILL.md, not only skills/brotherme/SKILL.md), and
+    `known_bare` below is keyed by (path, matched invocation text) rather
+    than (path, line number), so a banner or a reflow cannot silently
+    invalidate an entry the way a line-numbered allowlist would. This is
+    the rewrite ruling H3 named as the acceptance condition for closing
+    item 3, done before any of the files it names moved or grew a banner."""
 
     ROOT = os.path.dirname(HERE)
 
@@ -6943,7 +6978,8 @@ class TestUserFacingFilesNeverTeachPathInference(unittest.TestCase):
 
     def _user_facing_files(self):
         out = sorted(glob.glob(os.path.join(self.ROOT, "commands", "*.md")))
-        out.append(os.path.join(self.ROOT, "skills", "brotherme", "SKILL.md"))
+        out.extend(sorted(glob.glob(
+            os.path.join(self.ROOT, "skills", "*", "SKILL.md"))))
         return out
 
     def test_no_command_or_skill_file_teaches_the_model_to_infer_the_path(self):
@@ -6966,38 +7002,61 @@ class TestUserFacingFilesNeverTeachPathInference(unittest.TestCase):
         preferred command itself, or as the named bare fallback for a
         clone install next to one). A bare invocation with no
         ${CLAUDE_PLUGIN_ROOT} anywhere on its line is the same unresolved-
-        path problem in a different shape."""
+        path problem in a different shape.
+
+        H3 INVERSION, 2026-08-08: `known_bare` used to be a set of exact
+        "path:line" strings, which the class docstring's own H3 note
+        already explains breaks the moment a file grows a banner or a
+        section moves. It is now a set of (path, matched invocation text)
+        pairs: the same invocation string can legitimately recur on more
+        than one line in the same file (commands/brotherme-auto.md names
+        `python3 tools/bm_controller.py` on three separate lines), and a
+        set naturally covers all of them under one entry rather than
+        needing one line-numbered entry per occurrence."""
         bare_invocation = re.compile(r"python3\s+\"?tools/bm_\w+\.py\"?")
-        offenders = []
+        offenders = []  # (path, matched_text, line_number) for the message
         for path in self._user_facing_files():
             text = _read(path)
             for i, line in enumerate(text.splitlines(), start=1):
-                if bare_invocation.search(line) and "CLAUDE_PLUGIN_ROOT" not in line:
-                    offenders.append("%s:%d" % (os.path.relpath(path, self.ROOT), i))
-        # Known bare invocations that predate this fix and are not part of
-        # the ritual this pin guards (no install-path prose sits beside
-        # them either way): left alone deliberately, tracked here by name
-        # so a NEW bare invocation still fails the test.
+                m = bare_invocation.search(line)
+                if m and "CLAUDE_PLUGIN_ROOT" not in line:
+                    offenders.append((os.path.relpath(path, self.ROOT).replace(
+                        os.sep, "/"), m.group(0), i))
+        # Known bare invocations that predate the 2026-08-07 fix, or that
+        # the v3 rename's commands/ shim banners and skills/ split carried
+        # forward unchanged, and that are not part of the ritual this pin
+        # guards (no install-path prose sits beside them either way): left
+        # alone deliberately, tracked here BY CONTENT so a NEW bare
+        # invocation still fails the test even if an old one shifts lines.
         known_bare = {
-            "commands/brotherme-auto-status.md:7",
-            "commands/brotherme-auto.md:10",
-            "commands/brotherme-auto.md:12",
-            "commands/brotherme-auto.md:14",
-            "commands/brotherme-auto.md:15",
-            "commands/brotherme-stop.md:9",
-            "commands/brotherme-next.md:13",
-            "commands/brotherme-status.md:13",
-            "commands/brotherme-handback.md:28",
-            "skills/brotherme/SKILL.md:43",
-            "skills/brotherme/SKILL.md:47",
+            ("commands/brotherme-auto-status.md", "python3 tools/bm_project.py"),
+            ("commands/brotherme-auto.md", "python3 tools/bm_autonomy.py"),
+            ("commands/brotherme-auto.md", "python3 tools/bm_controller.py"),
+            ("commands/brotherme-stop.md", "python3 tools/bm_controller.py"),
+            ("commands/brotherme-next.md", "python3 tools/bm_project.py"),
+            ("commands/brotherme-status.md", "python3 tools/bm_project.py"),
+            ("commands/brotherme-handback.md", "python3 tools/bm_view.py"),
+            ("skills/brotherme/SKILL.md", "python3 tools/bm_view.py"),
+            ("skills/brotherme/SKILL.md", "python3 tools/bm_docs.py"),
+            # v3 skills/ carrying the same documented internal-adapter
+            # exceptions their commands/ predecessors already had (H4:
+            # these tools are not among the ten verbs the brothermode CLI
+            # boundary owns, so they stay direct calls; see each file's
+            # own v3 note).
+            ("skills/auto/SKILL.md", "python3 tools/bm_autonomy.py"),
+            ("skills/auto/SKILL.md", "python3 tools/bm_controller.py"),
+            ("skills/stop/SKILL.md", "python3 tools/bm_controller.py"),
+            ("skills/status/SKILL.md", "python3 tools/bm_project.py"),
+            ("skills/handback/SKILL.md", "python3 tools/bm_view.py"),
         }
-        new_offenders = [o for o in offenders if o not in known_bare]
+        new_offenders = [(p, t, i) for (p, t, i) in offenders
+                         if (p, t) not in known_bare]
         self.assertEqual(
             new_offenders, [],
             "new bare tools/bm_*.py invocation(s) with no ${CLAUDE_PLUGIN_ROOT} "
             "anywhere on the line: %r (if this is a deliberate new bare spot "
-            "outside the scope of the 2026-08-07 fix, add it to known_bare "
-            "with a reason)" % new_offenders)
+            "outside the scope of the 2026-08-07 fix, add its (path, matched "
+            "text) pair to known_bare with a reason)" % new_offenders)
 
 
 if __name__ == "__main__":

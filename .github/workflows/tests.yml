@@ -91,6 +91,14 @@ jobs:
         run: python3 tools/test_bm_docs.py
       - name: Run the installer suite
         run: python3 tools/test_install.py
+      # v3 rename (V3-FREEZE-2026-08-07.md answer 4): tools/brothermode_cli.py
+      # is the one deterministic public runtime boundary, added to test_all.py's
+      # SUITES the same day. The inventory gate in test_bm.py and in
+      # test_all.py itself refuses a suite that is in the local gate but
+      # unreached by any CI step, so this step lands in the same change as the
+      # SUITES entry rather than after it.
+      - name: Run the brothermode CLI boundary suite
+        run: python3 tools/test_brothermode_cli.py
       - name: Run the cross-runtime adapter suite
         run: python3 tools/test_bm_runtimes.py
       # The loop estimate ledger, landed 2026-07-31. Stdlib only and

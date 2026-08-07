@@ -196,6 +196,19 @@ SUITES = (
     # environment dependent suites at the end: class B and class C need a
     # claude binary on PATH and skip without one, but class A always runs.
     "test_bm_plugin_install.py",
+    # tools/brothermode_cli.py, the one deterministic public runtime
+    # boundary named in V3-FREEZE-2026-08-07.md answer 4: a thin dispatch
+    # layer over tools/bm_project.py, tools/bm_lead.py, tools/bm_view.py,
+    # scripts/doctor.py, tools/bm_autosave.py and scripts/install.py. NO
+    # APOSTROPHE ANYWHERE IN THIS COMMENT, ON PURPOSE (see the file level
+    # note above). Placed right before the largest suite, after every
+    # adapter it wraps has already proven sound in its own suite above:
+    # the load bearing test in this suite runs its own status subcommand
+    # and the real bm_lead.py status side by side as two subprocesses and
+    # diffs their stdout byte for byte, so the adapters must already be
+    # trustworthy before this suite can say anything meaningful about the
+    # boundary in front of them.
+    "test_brothermode_cli.py",
     "test_bm.py",
 )
 
