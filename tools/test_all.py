@@ -148,6 +148,16 @@ SUITES = (
     # about how long they took, only that the page is generated from a real
     # run and refuses the numbers it cannot take honestly.
     "test_bm_hookbench.py",
+    # The status line and footer links, the 2026-08-05 answer 7 named in
+    # docs/program/absolute-lead/DESIGN-visual-surface.md section 14, item
+    # 1: tools/bm_statusline.py, a fail silent script BrotherMode ships but
+    # does not install, and the footerLinksRegexes calibration against
+    # docs/STATUS-LINE.md. NO APOSTROPHE ANYWHERE IN THIS COMMENT, ON
+    # PURPOSE (see the file-level note above). Placed right after the hook
+    # cost benchmark suite: both are small, fast, stdlib and filesystem
+    # only additions that read the same tools/bm_lead.py collector the
+    # visual surface suites above already proved sound.
+    "test_bm_statusline.py",
     "test_install.py",
     # Loop 3 WP-D (2026-08-01): the consent gate suite for scripts/setup.py,
     # tools/bm_sessionstart.sh, and the SessionEnd path in tools/bm_telemetry.py.
