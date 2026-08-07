@@ -55,14 +55,18 @@ project's own posture for an absent optional precondition.
 No em or en dashes anywhere in this file or its output.
 """
 
+import contextlib
 import importlib.util
+import inspect
 import io
 import json
 import os
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -131,9 +135,20 @@ class TestTheLiveCanaryFileExists(unittest.TestCase):
         for attr in ("STEP_NAMES", "TOTAL_STEPS", "NINE_CANONICAL_SKILLS",
                     "DELIVER_REFUSAL_MARKER", "V2_TAG", "V2_PLUGIN_NAME",
                     "V2_MARKETPLACE_NAME", "V2_PLUGIN_SPEC",
-                    "V2_EXPECTED_VERSION", "run_lifecycle", "main"):
+                    "V2_EXPECTED_VERSION", "run_lifecycle", "main",
+                    "Fail", "Skip", "_installed_cli_bin",
+                    "_installed_plugin_root"):
             self.assertTrue(hasattr(mod, attr),
                            "scripts/bench_e2e_lifecycle.py has no %s" % attr)
+
+    def test_fail_is_a_distinct_exception_from_skip(self):
+        """H-4 (v3 gap-closure Claude-family review): SKIP and FAIL must be
+        two different words for two different facts, never the same
+        exception wearing two names."""
+        mod = _lifecycle_module()
+        self.assertTrue(issubclass(mod.Fail, Exception))
+        self.assertFalse(issubclass(mod.Fail, mod.Skip))
+        self.assertFalse(issubclass(mod.Skip, mod.Fail))
 
 
 class TestStepListIsPinned(unittest.TestCase):
@@ -327,6 +342,265 @@ class TestNoLiveClaudePromptSession(unittest.TestCase):
             "canary must not do (that proof already exists in "
             "scripts/benchmark_comparative.py's probe_installed): %s"
             % offenders)
+
+
+class TestInstalledCliResolution(unittest.TestCase):
+    """Codex finding 6 (v3 gap-closure cross-family review): the CLI
+    boundary steps must drive the INSTALLED plugin's own
+    tools/brothermode_cli.py, resolved from Claude Code's own
+    plugins/installed_plugins.json (measured 2026-08-08 against a real
+    throwaway `claude plugin install`), never the checkout's copy and
+    never a guessed cache-directory path. Every test here builds its own
+    synthetic CLAUDE_CONFIG_DIR under a temp directory; no `claude`
+    binary is invoked anywhere in this class."""
+
+    def setUp(self):
+        self.mod = _lifecycle_module()
+        self.tmp = tempfile.mkdtemp(prefix="bm-e2e-pins-cfgdir-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def _write_registry(self, spec, install_path):
+        plugins_dir = os.path.join(self.tmp, "plugins")
+        os.makedirs(plugins_dir, exist_ok=True)
+        with io.open(os.path.join(plugins_dir, "installed_plugins.json"),
+                     "w", encoding="utf-8") as fh:
+            json.dump({"version": 2, "plugins": {
+                spec: [{"scope": "user", "installPath": install_path,
+                       "version": "0.0.0-test"}]}}, fh)
+
+    def test_resolves_the_installpath_the_real_registry_names(self):
+        install_root = os.path.join(self.tmp, "installed-copy")
+        os.makedirs(os.path.join(install_root, "tools"))
+        cli = os.path.join(install_root, "tools", "brothermode_cli.py")
+        with io.open(cli, "w", encoding="utf-8") as fh:
+            fh.write("# stub\n")
+        self._write_registry(self.mod.BC.PROBE_PLUGIN_SPEC, install_root)
+        self.assertEqual(
+            install_root,
+            self.mod._installed_plugin_root(self.tmp, self.mod.BC.PROBE_PLUGIN_SPEC))
+        self.assertEqual(cli, self.mod._installed_cli_bin(self.tmp))
+
+    def test_missing_registry_file_resolves_to_none(self):
+        self.assertIsNone(
+            self.mod._installed_plugin_root(self.tmp, self.mod.BC.PROBE_PLUGIN_SPEC))
+        self.assertIsNone(self.mod._installed_cli_bin(self.tmp))
+
+    def test_registry_naming_a_different_spec_resolves_to_none(self):
+        install_root = os.path.join(self.tmp, "installed-copy")
+        os.makedirs(os.path.join(install_root, "tools"))
+        io.open(os.path.join(install_root, "tools", "brothermode_cli.py"),
+               "w").close()
+        self._write_registry("brotherme@brotherme-marketplace", install_root)
+        self.assertIsNone(
+            self.mod._installed_plugin_root(self.tmp, self.mod.BC.PROBE_PLUGIN_SPEC))
+
+    def test_installpath_naming_no_cli_file_resolves_cli_to_none(self):
+        """The installed plugin's root exists (the registry entry is real)
+        but carries no tools/brothermode_cli.py: the exact 'the installed
+        plugin exposes no CLI entry' case codex finding 6 names."""
+        install_root = os.path.join(self.tmp, "installed-copy-no-cli")
+        os.makedirs(os.path.join(install_root, "tools"))
+        self._write_registry(self.mod.BC.PROBE_PLUGIN_SPEC, install_root)
+        self.assertEqual(
+            install_root,
+            self.mod._installed_plugin_root(self.tmp, self.mod.BC.PROBE_PLUGIN_SPEC))
+        self.assertIsNone(self.mod._installed_cli_bin(self.tmp))
+
+    def test_installpath_naming_a_directory_that_does_not_exist_is_skipped(self):
+        self._write_registry(self.mod.BC.PROBE_PLUGIN_SPEC,
+                             os.path.join(self.tmp, "does-not-exist"))
+        self.assertIsNone(
+            self.mod._installed_plugin_root(self.tmp, self.mod.BC.PROBE_PLUGIN_SPEC))
+
+    def test_malformed_registry_json_resolves_to_none_not_a_crash(self):
+        plugins_dir = os.path.join(self.tmp, "plugins")
+        os.makedirs(plugins_dir)
+        with io.open(os.path.join(plugins_dir, "installed_plugins.json"),
+                     "w", encoding="utf-8") as fh:
+            fh.write("{not valid json")
+        self.assertIsNone(
+            self.mod._installed_plugin_root(self.tmp, self.mod.BC.PROBE_PLUGIN_SPEC))
+
+
+class TestCliRunAndDriversUseTheInstalledBin(unittest.TestCase):
+    """Structural pins: _cli_run and every _drive_* function must take a
+    cli_bin argument (so a caller cannot accidentally revert to a single,
+    checkout-rooted default), and run_lifecycle's own source must resolve
+    it through _installed_cli_bin, never through a bare ROOT-joined path."""
+
+    def test_cli_run_requires_a_cli_bin_argument(self):
+        mod = _lifecycle_module()
+        params = list(inspect.signature(mod._cli_run).parameters)
+        self.assertIn("cli_bin", params,
+                     "_cli_run no longer takes a cli_bin argument; codex "
+                     "finding 6's fix threads the installed plugin's own "
+                     "CLI path through every caller explicitly")
+
+    def test_every_drive_function_takes_cli_bin(self):
+        mod = _lifecycle_module()
+        for name in ("_drive_start", "_drive_status", "_drive_next",
+                    "_drive_view", "_drive_deliver_refused", "_drive_doctor"):
+            fn = getattr(mod, name)
+            params = list(inspect.signature(fn).parameters)
+            self.assertIn("cli_bin", params,
+                         "%s no longer takes cli_bin" % name)
+
+    def test_run_lifecycle_resolves_the_installed_bin(self):
+        text = _read(LIFECYCLE_PY)
+        self.assertIn("_installed_cli_bin(claude_config_dir)", text,
+                     "run_lifecycle no longer resolves the CLI boundary "
+                     "against the installed plugin's own path")
+
+
+class TestFailSkipSplit(unittest.TestCase):
+    """H-4 (v3 gap-closure Claude-family review): each of the three named
+    product-safety assertions must raise Fail, not Skip, when it is
+    actually CHECKED and found wrong; a mechanical problem that prevents
+    the check from running at all must still raise Skip. Every test here
+    monkeypatches the module's own _run (never a live claude/subprocess
+    call) so this stays deterministic and claude-binary-free."""
+
+    def setUp(self):
+        self.mod = _lifecycle_module()
+
+    class _FakeProc(object):
+        def __init__(self, returncode=0, stdout="", stderr=""):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    def test_verify_single_plugin_fails_on_two_plugins_registered(self):
+        two = json.dumps([{"id": self.mod.BC.PROBE_PLUGIN_SPEC},
+                          {"id": "brotherme@brotherme-marketplace"}])
+        with mock.patch.object(self.mod, "_run",
+                               return_value=self._FakeProc(0, two)):
+            with self.assertRaises(self.mod.Fail):
+                self.mod._verify_single_plugin("claude", {})
+
+    def test_verify_single_plugin_skips_on_unparseable_output(self):
+        with mock.patch.object(self.mod, "_run",
+                               return_value=self._FakeProc(0, "not json")):
+            with self.assertRaises(self.mod.Skip):
+                self.mod._verify_single_plugin("claude", {})
+
+    def test_verify_single_plugin_passes_on_exactly_one(self):
+        one = json.dumps([{"id": self.mod.BC.PROBE_PLUGIN_SPEC}])
+        with mock.patch.object(self.mod, "_run",
+                               return_value=self._FakeProc(0, one)):
+            self.mod._verify_single_plugin("claude", {})  # must not raise
+
+    def test_uninstall_verify_fails_on_a_remaining_plugin(self):
+        with mock.patch.object(
+                self.mod, "_run",
+                side_effect=[self._FakeProc(0, ""), self._FakeProc(0, ""),
+                            self._FakeProc(0, json.dumps(
+                                [{"id": self.mod.BC.PROBE_PLUGIN_SPEC}]))]):
+            with self.assertRaises(self.mod.Fail):
+                self.mod._uninstall_v3_and_verify_clean(
+                    "claude", {}, os.path.join(tempfile.gettempdir(),
+                                               "bm-e2e-pins-nonexistent"))
+
+    def test_uninstall_verify_fails_on_a_settings_json_remnant(self):
+        tmp = tempfile.mkdtemp(prefix="bm-e2e-pins-cfgdir2-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        with io.open(os.path.join(tmp, "settings.json"), "w",
+                    encoding="utf-8") as fh:
+            json.dump({"enabledPlugins": {"brothermode": True}}, fh)
+        with mock.patch.object(
+                self.mod, "_run",
+                side_effect=[self._FakeProc(0, ""), self._FakeProc(0, ""),
+                            self._FakeProc(0, "[]")]):
+            with self.assertRaises(self.mod.Fail):
+                self.mod._uninstall_v3_and_verify_clean("claude", {}, tmp)
+
+    def test_uninstall_verify_skips_on_a_mechanical_uninstall_failure(self):
+        with mock.patch.object(self.mod, "_run",
+                               return_value=self._FakeProc(1, "", "boom")):
+            with self.assertRaises(self.mod.Skip):
+                self.mod._uninstall_v3_and_verify_clean(
+                    "claude", {}, os.path.join(tempfile.gettempdir(),
+                                               "bm-e2e-pins-nonexistent2"))
+
+    def test_deliver_refused_fails_when_deliver_accepts_instead(self):
+        with mock.patch.object(self.mod, "_run",
+                               return_value=self._FakeProc(0, "delivered")):
+            with self.assertRaises(self.mod.Fail):
+                self.mod._drive_deliver_refused({}, ".", "cli.py")
+
+    def test_deliver_refused_fails_when_the_refusal_wording_is_missing(self):
+        with mock.patch.object(self.mod, "_run",
+                               return_value=self._FakeProc(1, "", "some "
+                                                              "other error")):
+            with self.assertRaises(self.mod.Fail):
+                self.mod._drive_deliver_refused({}, ".", "cli.py")
+
+    def test_deliver_refused_passes_on_the_real_refusal(self):
+        out = "deliver refused: tasks have not reached the terminal state"
+        with mock.patch.object(self.mod, "_run",
+                               return_value=self._FakeProc(1, out)):
+            self.mod._drive_deliver_refused({}, ".", "cli.py")  # no raise
+
+
+class TestMainExitCodes(unittest.TestCase):
+    """main()'s own exception-to-exit-code mapping, exercised for real by
+    monkeypatching run_lifecycle (never a live canary run): Fail must exit
+    2, Skip must exit 1, distinctly, per H-4's acceptance condition."""
+
+    def setUp(self):
+        self.mod = _lifecycle_module()
+
+    def _run_main_captured(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = self.mod.main([])
+        return code, out.getvalue()
+
+    def test_fail_exits_2(self):
+        with mock.patch.object(self.mod, "run_lifecycle",
+                               side_effect=self.mod.Fail("a real regression")):
+            code, printed = self._run_main_captured()
+        self.assertEqual(2, code)
+        self.assertIn("FAIL: a real regression", printed)
+
+    def test_skip_exits_1(self):
+        with mock.patch.object(self.mod, "run_lifecycle",
+                               side_effect=self.mod.Skip("no claude binary")):
+            code, printed = self._run_main_captured()
+        self.assertEqual(1, code)
+        self.assertIn("SKIP: no claude binary", printed)
+
+    def test_pass_exits_0(self):
+        with mock.patch.object(self.mod, "run_lifecycle",
+                               return_value=[("step", "detail")]):
+            code, printed = self._run_main_captured()
+        self.assertEqual(0, code)
+        self.assertIn("PASSED", printed)
+
+
+class TestVerdictLineHonesty(unittest.TestCase):
+    """v3 gap-closure G2 (verdict lines built from constants rather than
+    parsed measurements): step 7's own printed count must come from what
+    _verify_v3_identity actually found in `claude plugin details`'s own
+    Skills(...) line, not from NINE_CANONICAL_SKILLS compared against
+    itself (which would read N/N regardless of what was measured)."""
+
+    def test_verify_v3_identity_returns_a_measured_found_count(self):
+        mod = _lifecycle_module()
+        sig = inspect.signature(mod._verify_v3_identity)
+        self.assertEqual(["claude_bin", "env"], list(sig.parameters))
+
+    def test_run_lifecycle_does_not_print_the_same_constant_twice(self):
+        """Regression pin for the exact bug this fixes: the old call site
+        read '(version, len(NINE_CANONICAL_SKILLS),
+        len(NINE_CANONICAL_SKILLS))', printing the identical constant as
+        both the numerator and the denominator regardless of measurement."""
+        text = _read(LIFECYCLE_PY)
+        offender = ("len(NINE_CANONICAL_SKILLS), len(NINE_CANONICAL_SKILLS)")
+        self.assertNotIn(
+            offender, text,
+            "run_lifecycle prints the same NINE_CANONICAL_SKILLS constant "
+            "as both the numerator and the denominator of the canonical "
+            "skills count, which is not a measurement")
 
 
 if __name__ == "__main__":
