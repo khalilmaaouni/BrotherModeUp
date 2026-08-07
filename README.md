@@ -209,31 +209,16 @@ on the next start. Upgrading later is one `/plugin` update from the same
 source; uninstalling removes the plugin and leaves your project data and
 vault untouched.
 
-DATED, 2026-08-08: v3 has not been tagged yet, and `v2.1.1` below is still the
-last tag that resolves. It predates the night rename this project made to its
-own command and skill names, so it registers its plugin under the OLD id,
-`brotherme`, not `brothermode`, and it ships the old flat
-`commands/brotherme-*.md` surface, not the nine `/brothermode:*` skills the
-rest of this page describes. The pairing below is the one that actually works
-against that tag, reproduced in a throwaway `CLAUDE_CONFIG_DIR` on 2026-08-08:
-
 ```bash
-claude plugin marketplace add khalilmaaouni/BrotherModeUp@v2.1.1
-claude plugin install brotherme@brotherme-marketplace
+claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.0.0
+claude plugin install brothermode@brothermode-marketplace
 ```
 
-Pasting `claude plugin install brothermode@brothermode-marketplace` after the
-same marketplace add fails instead, with `Plugin "brothermode" not found in
-marketplace "brothermode-marketplace"`: that plugin id does not exist in the
-v2 marketplace this tag ships. If you want today's tree (the nine
-`/brothermode:*` skills, the hidden internal skills, the current command
-surface), skip this path for now and use the development clone further down
-this page, which tracks the moving `main` branch rather than a tag. Once v3
-is tagged, `docs/RELEASE.md` step 2b re-pins this section to it, and the
-pairing above starts installing v3 exactly as the rest of this page
-describes.
+Already running v2? Uninstall it first (`claude plugin uninstall brotherme`). The plugin identity changed at v3.0.0, so the old and new
+ids are different plugins to Claude Code and installing both leaves two
+hook chains wired at once.
 
-The `@v2.1.1` pins the marketplace add itself to the released tag rather
+The `@v3.0.0` pins the marketplace add itself to the released tag rather
 than the repository's moving default branch. Anthropic's plugin
 marketplace format resolves an `owner/repo@ref` source to that exact
 branch or tag on every add and every later update, per the CLI reference
@@ -296,7 +281,7 @@ future session should come from a fixed, checkable snapshot; a moving branch
 feeding auto-run code was the weakest link the original external audit named.
 
 ```bash
-git clone --branch v2.1.1 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v3.0.0 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 That tag is not typed by hand: it is generated from the same release fact every
@@ -310,7 +295,7 @@ this checkout claims. Do not run both paths at once on one machine: the plugin
 wires the same six hooks the clone's installer wires, so a machine carrying
 both runs every hook twice (docs/KNOWN-LIMITS.md records this; pick one).
 
-Same dated fact as the plugin way above: `v2.1.1` predates the night rename,
+Same dated fact as the plugin way above: `v3.0.0` predates the night rename,
 so this checkout carries the old flat `commands/brotherme-*.md` surface and
 the single `skills/brotherme/SKILL.md` conductor, not the nine
 `/brothermode:*` skills the rest of this page describes. The engine
