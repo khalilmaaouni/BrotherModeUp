@@ -4,7 +4,7 @@ description: Generate the handover pages that let another person take this proje
 
 Outcome to produce: one folder of generated pages, written from that project's own records, that a person who was not in this conversation can read and act on.
 
-Enter the handover flow of the brotherme skill. Run the mechanical command `python3 tools/bm_lead.py handover-pack --project-id <id>` (the packaged console script is `bm-lead handover-pack`) and read its output; never write any of these pages by hand and never fill a gap in them from memory of this conversation. That path is relative to the BrotherME install folder, not the user's project folder: a plugin install runs it from the plugin's own root, a clone install runs it from `~/.claude/skills/brothermode`; prefix that install path onto the command, and still run it from the user's project folder so it reads and writes that project's own records.
+Enter the handover flow of the brotherme skill. Run the mechanical command `python3 "${CLAUDE_PLUGIN_ROOT}/tools/bm_lead.py" handover-pack --project-id <id>` (the packaged console script is `bm-lead handover-pack`) and read its output; never write any of these pages by hand and never fill a gap in them from memory of this conversation. A plugin install exports `${CLAUDE_PLUGIN_ROOT}` for skill and command content, so that path resolves on its own; on a clone install, where the variable is unset, run `python3 tools/bm_lead.py handover-pack --project-id <id>` instead, from the BrotherMode root (`~/.claude/skills/brothermode`). Either way, run it from the user's project folder so it reads and writes that project's own records.
 
 Seven pages are written into a `Handover` folder at the top of the user's project, in reading order:
 
