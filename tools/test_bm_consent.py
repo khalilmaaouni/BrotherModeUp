@@ -1019,7 +1019,7 @@ class DoctorTenChecksCase(unittest.TestCase):
                            "command": "python3 " + fence_path,
                            "timeout": 10}],
             }]},
-            "enabledPlugins": {"brotherme@some-marketplace": True},
+            "enabledPlugins": {"brothermode@some-marketplace": True},
         })
         r = self.run_doctor()
         checks = self._checks(r.stdout)
