@@ -930,13 +930,23 @@ def _probe_env(home_dir, claude_config_dir, broth_config):
     2026-08-06), every existing BrotherMode-recognized variable stripped so
     nothing about this machine's own dogfood install leaks in, and HOME,
     CLAUDE_CONFIG_DIR, BROTHERME_CONFIG pointed at the throwaway paths this
-    probe built and will destroy."""
+    probe built and will destroy.
+
+    home_dir=None keeps the REAL home, for the authenticated persistent
+    path only. Two facts measured 2026-08-07 make that sound: the login
+    rides the real home's keychain (auth status is loggedIn false under
+    any other HOME, whatever CLAUDE_CONFIG_DIR says), and plugin state is
+    scoped entirely by CLAUDE_CONFIG_DIR (`claude plugin list` under the
+    persistent config dir shows ONLY the probe's own install, none of
+    this machine's dogfood plugins), so keeping the real home leaks the
+    keychain and nothing else the measurement depends on."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     for key in ("BROTHERMODE_VAULT", "BROTHERMODE_ROOT",
                 "BROTHERMODE_REGISTRIES", "BROTHERME_CONFIG"):
         env.pop(key, None)
     env.pop("BM_FENCE_SESSION_ID", None)
-    env["HOME"] = home_dir
+    if home_dir is not None:
+        env["HOME"] = home_dir
     env["CLAUDE_CONFIG_DIR"] = claude_config_dir
     env["BROTHERME_CONFIG"] = broth_config
     return env
@@ -988,19 +998,44 @@ def probe_installed():
     try:
         home_dir = os.path.realpath(tempfile.mkdtemp(prefix="bm-probe-home-"))
         dirs_made.append(home_dir)
-        claude_config_dir = os.path.realpath(
-            tempfile.mkdtemp(prefix="bm-probe-claude-config-"))
-        dirs_made.append(claude_config_dir)
+        # The login lives in CLAUDE_CONFIG_DIR, measured 2026-08-07 (both
+        # throwaway-config probes came back "not logged in" while the real
+        # config dir holds the session). Copying credential files into a
+        # throwaway is refused by the constitution, so the one sanctioned
+        # path is BM_BENCH_AUTH_CONFIG: a founder-authenticated persistent
+        # folder the canary reuses for auth, NEVER appended to dirs_made and
+        # so never deleted. Everything else (HOME, fixture) stays throwaway.
+        # A persistent folder accumulates plugin and marketplace
+        # registrations under its plugins/ subtree (measured 2026-08-07:
+        # the second run's add came back "already on disk" instead of
+        # "Successfully added marketplace"). The probe never deletes
+        # inside the founder's authenticated folder; instead, on the
+        # persistent path the two fresh-wording asserts below become
+        # postcondition checks: the registry file must name THIS tree as
+        # the marketplace source, and the unchanged `plugin list` assert
+        # must show this tree's VERSION installed.
+        auth_config = os.environ.get("BM_BENCH_AUTH_CONFIG", "").strip()
+        if auth_config:
+            claude_config_dir = os.path.realpath(auth_config)
+            if not os.path.isdir(claude_config_dir):
+                raise Skip("BM_BENCH_AUTH_CONFIG names no directory: %s"
+                           % claude_config_dir)
+        else:
+            claude_config_dir = os.path.realpath(
+                tempfile.mkdtemp(prefix="bm-probe-claude-config-"))
+            dirs_made.append(claude_config_dir)
         fixture_dir = os.path.realpath(
             tempfile.mkdtemp(prefix="bm-probe-fixture-"))
         dirs_made.append(fixture_dir)
 
         broth_config = os.path.join(home_dir, ".brotherme", "config.json")
-        env = _probe_env(home_dir, claude_config_dir, broth_config)
+        env = _probe_env(None if auth_config else home_dir,
+                         claude_config_dir, broth_config)
 
         print("probe-installed: throwaway HOME %s" % home_dir)
-        print("probe-installed: throwaway CLAUDE_CONFIG_DIR %s"
-              % claude_config_dir)
+        print("probe-installed: %s CLAUDE_CONFIG_DIR %s"
+              % ("persistent founder-authenticated" if auth_config
+                 else "throwaway", claude_config_dir))
         print("probe-installed: throwaway fixture %s" % fixture_dir)
 
         # Install the product the shipped way (design 1.1.2): the same two
@@ -1009,16 +1044,43 @@ def probe_installed():
         r_add = _run([claude_bin, "plugin", "marketplace", "add", ROOT],
                     cwd=ROOT, env=env, timeout=PROBE_TIMEOUT_SECONDS)
         add_out = (r_add.stdout or "") + (r_add.stderr or "")
-        if r_add.returncode != 0 or "Successfully added marketplace" not in add_out:
+        if r_add.returncode != 0 or (
+                "Successfully added marketplace" not in add_out
+                and not auth_config):
             raise Skip("claude plugin marketplace add did not succeed: "
                        "exit %s, output: %s"
                        % (r_add.returncode, _ascii(add_out, 300)))
+        if auth_config and "Successfully added marketplace" not in add_out:
+            # The persistent postcondition: whatever wording the CLI used,
+            # the registered marketplace must point at THIS tree, or the
+            # probe would measure some other checkout while naming this
+            # one in its verdict.
+            reg_path = os.path.join(claude_config_dir, "plugins",
+                                    "known_marketplaces.json")
+            try:
+                with open(reg_path) as fh:
+                    reg = json.load(fh)
+                source = (reg.get("brotherme-marketplace", {})
+                          .get("source", {}).get("path", ""))
+            except (OSError, ValueError) as exc:
+                raise Skip("marketplace add said %r but %s is unreadable: "
+                           "%s: %s" % (_ascii(add_out, 120), reg_path,
+                                       type(exc).__name__, exc))
+            if os.path.realpath(source) != os.path.realpath(ROOT):
+                raise Skip("the persistent config's marketplace source is "
+                           "%s, not this tree (%s); remove the stale "
+                           "registration and re-run" % (source, ROOT))
 
         r_install = _run([claude_bin, "plugin", "install", PROBE_PLUGIN_SPEC],
                         cwd=ROOT, env=env, timeout=PROBE_TIMEOUT_SECONDS)
         install_out = (r_install.stdout or "") + (r_install.stderr or "")
         if (r_install.returncode != 0
-                or "Successfully installed plugin" not in install_out):
+                or ("Successfully installed plugin" not in install_out
+                    and not auth_config)):
+            # On the persistent path an already-installed plugin may word
+            # this differently; the `plugin list` assert directly below
+            # is the postcondition that refuses if this tree's VERSION is
+            # not actually installed.
             raise Skip("claude plugin install did not succeed: exit %s, "
                        "output: %s"
                        % (r_install.returncode, _ascii(install_out, 300)))
@@ -1162,12 +1224,29 @@ def probe_installed():
             print("deny: %s" % quoted)
             return
 
+        # A no-verdict cell is only diagnosable from its transcript, and
+        # the throwaway directories are gone by the time anyone asks; so
+        # the transcript is persisted OUTSIDE them, next to the earlier
+        # blocked-probe evidence, and the SKIP names the file.
+        dump_dir = os.path.join(os.path.expanduser("~"), "Documents",
+                                "BrotherModeUp-handovers",
+                                "BENCH-blocked-probes")
+        dump_path = os.path.join(
+            dump_dir, "probe-cell-%s.txt"
+            % datetime.datetime.now(datetime.timezone.utc)
+            .strftime("%Y%m%dT%H%M%SZ"))
+        try:
+            os.makedirs(dump_dir, exist_ok=True)
+            with open(dump_path, "w") as fh:
+                fh.write(transcript)
+        except OSError as exc:
+            dump_path = "UNSAVED (%s: %s)" % (type(exc).__name__, exc)
         raise Skip(
             "the canary did not pass: fence deny decision found in "
             "transcript: %s; fixture file byte identical afterward: %s "
-            "(claude exit code %s, final message: %s)"
+            "(claude exit code %s, final message: %s); full transcript: %s"
             % (deny_seen, byte_identical, r_cell.returncode,
-               _ascii(final, 200)))
+               _ascii(final, 200), dump_path))
     except Skip:
         raise
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
