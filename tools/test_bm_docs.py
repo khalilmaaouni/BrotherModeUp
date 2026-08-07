@@ -4987,6 +4987,7 @@ class TestNoDashes(unittest.TestCase):
                                        os.path.join("tools", "bm_docs_export.py"),
                                        os.path.join("tools", "test_bm_docs.py"),
                                        os.path.join("references", "visual-surface.md"),
+                                       os.path.join("references", "learned-rules.md"),
                                        os.path.join("tools", "bm_visual.py"),
                                        os.path.join("tools", "bm_view.py"),
                                        os.path.join("tools", "test_bm_visual.py"),
