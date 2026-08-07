@@ -275,12 +275,27 @@ class TestDoctorIsByteIdenticalToDirectScript(unittest.TestCase):
         self.assertEqual(wrapped.stdout, direct.stdout)
 
     def test_doctor_json_flag_forwards(self):
+        # This test proves the FLAG FORWARDS, not that the tree sits at a
+        # push boundary: doctor legitimately exits 1 mid-train when the
+        # manifest check finds files newer than the last CHECKSUMS
+        # rebuild, which happens by design between a wave's commits and
+        # its manifest-last rebuild (M18). Pinning exit 0 here made the
+        # gate order-dependent, measured 2026-08-08 (check 9 FAIL, 31
+        # files newer than the manifest, every other check PASS).
         env = _clean_env()
         wrapped = _run(CLI_PATH, ["doctor", "--json"], REPO, env=env)
-        self.assertEqual(wrapped.returncode, 0, wrapped.stdout + wrapped.stderr)
+        self.assertIn(wrapped.returncode, (0, 1),
+                      wrapped.stdout + wrapped.stderr)
         payload = json.loads(wrapped.stdout)
         self.assertIn("checks", payload)
         self.assertEqual(len(payload["checks"]), 10)
+        if wrapped.returncode == 1:
+            failing = [c["id"] for c in payload["checks"]
+                       if c.get("status") == "FAIL"]
+            self.assertEqual(failing, [9],
+                             "doctor may only be red mid-train on the "
+                             "manifest check; any other FAIL is real: %r"
+                             % failing)
 
 
 # ---------------------------------------------------------------------------
