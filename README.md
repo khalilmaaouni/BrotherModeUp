@@ -1,10 +1,18 @@
 # BrotherMode
 
-**Your autonomous product team, with receipts.**
+**Claude Code for serious work: memory, guardrails, and proof.**
 
 From goal to verified delivery.
 
-Describe the outcome. BrotherMode plans, builds, checks, and delivers it.
+Describe the outcome. BrotherMode keeps the decisions, the ownership of every
+file, and the evidence intact from the first sentence to the delivery packet.
+
+The long-term vision is an autonomous product team. That is stated here as the
+direction, not as the claim: what is proven today is the memory, the
+guardrails and the proof, each with its evidence in the register below. The
+founder chose this narrower headline on 2026-08-07, over keeping the broader
+one, precisely because three independent reviews said the broader one ran
+ahead of the evidence.
 
 BrotherMode is a Claude Code plugin: a written set of working rules plus a
 small toolchain of Python and shell scripts. You install it once, and from then
@@ -103,7 +111,7 @@ Four states and no others, read out of `capabilities.status.json`, updated 2026-
 
 | Capability | What proves it, or why it is not offered |
 |---|---|
-| Single writer per file for supported write tools, refused by a hook; other writes detected, not contained | Conflicting writes are refused for the Claude Code write tools (Edit, Write, MultiEdit, NotebookEdit) and readable apply_patch envelopes on the Bash leg, wired by hooks/hooks.json and proven by tools/test_bm_fence_hook.py. Other shell and external writes are detected where possible by tools/bm_bash_audit.py but are NOT contained. Hooks are cooperative enforcement: no container or operating system sandbox is provided. Enforcement inside a live Codex session is not yet rehearsed and docs/RUNTIMES.md states that split. |
+| Single writer per file for supported write tools, refused by a hook; other writes detected, not contained | Conflicting writes are refused for the Claude Code write tools (Edit, Write, MultiEdit, NotebookEdit) and readable apply_patch envelopes on the Bash leg, wired by hooks/hooks.json and proven by tools/test_bm_fence_hook.py. Other shell and external writes are detected where possible by tools/bm_bash_audit.py but are NOT contained. Hooks are cooperative enforcement: no container or operating system sandbox is provided. MEASURED 2026-08-07 on OpenAI Codex CLI 0.146.0: the fence does NOT fire in the codex exec path. A live run overwrote a file another session had claimed, twice, and a marker probe proved the PreToolUse hook never executed, with config syntax, project trust and hook-trust bypass all ruled out (docs/mistakes/M19-the-codex-fence-does-not-fire-in-exec-mode.md). Under Codex, BrotherMode is an instruction file plus a working command line, not an enforcement layer. |
 | Durable local store that survives a crash and can be recovered | tools/bm_store.py holds the state and tools/test_bm_store.py exercises recovery; the store job in .github/workflows/tests.yml runs that suite on Linux, macOS and Windows. |
 | Current pages are held to the facts read out of the tree | tools/test_bm_docs.py refuses a current page carrying a stale count, a stale version, or a dated record that declares no status; docs/ba/QA-GATES.md states the gates. |
 | Guided beginner flow on Claude Code | skills/brotherme/SKILL.md drives the flow, commands/brotherme-start.md is its entry point, and docs/QUICKSTART.md is the install path a beginner follows. |
@@ -126,6 +134,7 @@ Four states and no others, read out of `capabilities.status.json`, updated 2026-
 | A scripted first fifteen minutes with three commands and something to look at at each step | PROVEN: commands/brotherme-start.md carries the opening block that writes nothing before consent and the first page after it, commands/brotherme-help.md asks one question instead of listing every command, and tools/test_bm_view.py drives the path from an empty folder and fails if a fourth command is offered before the first piece of work completes, if anything is written before consent, or if a section with no rows renders blank instead of the short note tools/bm_view.py holds for it. OPEN, and this is the whole gap: fifteen minutes is a target, no first run by a person who has never used this has been measured, and the checks are structural rather than behavioural. |
 | Four levels of alert where exactly one interrupts, computed from the records rather than stored | PROVEN: tools/bm_visual.py computes the levels as one function over rows with no table behind them, so a condition that clears takes its alert with it and nothing has to be dismissed, and tools/test_bm_visual.py holds the four anti noise rules to that (at most one interrupting alert on screen, at most two levels in any one message, no promotion by age, one interrupt per cause per catch-up window). NOT PROVEN: that the ladder keeps a reader engaged, which is a claim about a person rather than about code. OPEN: hooks/hooks.json runs the check when a session stops, so it cannot fire inside a turn that never ends, which is the limit docs/KNOWN-LIMITS.md already records for the half hour catch-up. |
 | The offer to take a decision and the work under it back, on screen whether or not a decision is open | PROVEN: tools/bm_view.py renders the standing panel on every page, its wording comes byte for byte from tools/bm_lead.py rather than being retyped, tools/test_bm_view.py fails a page that drops it and fails a drawn decision whose last branch is not the handback, and tools/bm_store.py already refuses to record a key decision that offers no handback at all. NOT PROVEN, and by design: nothing on the page can act on the project, the control copies a prompt the reader pastes back into the session, and docs/KNOWN-LIMITS.md states that as a limit rather than dressing it up. OPEN: no handback by anyone outside this project is recorded. |
+| What the hooks cost per action, measured on a stated machine, with the parts nobody measured named as unmeasured | MEASURED: tools/bm_hookbench.py reads which programs fire at which event from hooks/hooks.json, feeds each one the payload shape docs/HOOKS.md documents, and times it against a store built for the run inside a temporary directory with HOME and every BrotherMode variable pinned there. It reports, per user action, the cost of each program AND the cost of the whole chain (the four Stop programs share one budget, so those are two different numbers), each as a median with its spread over a stated number of repetitions, plus the machine and interpreter the run was taken on, and the exit codes and fail open lines the run actually produced. docs/PERFORMANCE.md is generated from that run and carries the record it was rendered from; tools/test_bm_hookbench.py re-renders the page from that record and fails on one differing byte, so a number cannot be typed onto the page by hand, and it also refuses a sandbox whose fence fails open rather than reporting the cost of a hook that checked nothing. NOT MEASURED, named on the page rather than estimated: the fork, the exec and the interpreter bootstrap every hook process pays before any code of this project runs, which is why every published total is a LOWER BOUND (the tool runs the programs in process because tools/test_bm.py bans import subprocess in shipping modules and its allowlist does not name this one); the SessionStart hook, which is a shell script; store lock contention frequency in real use; hook failure frequency in the field; and the share of real sessions hitting a warning or a false refusal, which needs telemetry this project deliberately does not collect. OPEN: the numbers are one machine, one operating system and one Python version, and nothing here says what they are on anyone else's. |
 
 **Experimental**, built or planned, not measured.
 
@@ -201,26 +210,61 @@ Upgrading later is one `/plugin` update from the same source; uninstalling
 removes the plugin and leaves your project data and vault untouched.
 
 ```bash
-claude plugin marketplace add khalilmaaouni/BrotherModeUp
+claude plugin marketplace add khalilmaaouni/BrotherModeUp@v2.1.1
 claude plugin install brotherme@brotherme-marketplace
 ```
 
-Those are plain shell commands: paste them into any terminal once and every
-Claude Code surface on the machine, the desktop app included, loads the
-plugin from then on. Inside the terminal client the slash forms (`/plugin
-marketplace add ...`, `/plugin install ...`) do the same thing
-interactively. The two lines are generated by `python3
-tools/bm_project_facts.py --field install_command_plugin`, the same
-mechanism that pins every other install fact on these pages.
+The `@v2.1.1` pins the marketplace add itself to the released tag rather
+than the repository's moving default branch. Anthropic's plugin
+marketplace format resolves an `owner/repo@ref` source to that exact
+branch or tag on every add and every later update, per the CLI reference
+for `claude plugin marketplace add` at
+https://code.claude.com/docs/en/plugin-marketplaces. `docs/RELEASE.md`
+step 2b makes re-pinning this line to the newly cut tag an explicit
+release step, and `tools/test_bm_docs.py` fails this page if the pin ever
+disagrees with `install_target_tag` (`python3 tools/bm_project_facts.py
+--field install_target_tag`).
 
-Proven, not promised: `scripts/release-smoke-install.sh` runs this exact
-flow inside a throwaway configuration on every release: marketplace add,
-install, the installed version matched against `VERSION`, all hook groups
-registered, then a clean uninstall that leaves settings untouched. A
-release whose smoke run does not print PASSED does not ship
-(docs/RELEASE.md names the step). The desktop app cannot run `/plugin`
-itself, founder-reproduced 2026-08-06; it consumes what the terminal
-installs, which is why the paste happens in a terminal once.
+Those are plain shell commands: paste them into any terminal once. Inside
+the terminal client, the interactive `/plugin marketplace add ...` and
+`/plugin install ...` forms do the same thing.
+
+The word "install" covers three different things here, and vendor
+documentation draws the line between them differently than an earlier
+version of this page did:
+
+- **Adding this repository as a marketplace, the first time.** Vendor
+  documentation shows this done from `/plugin marketplace add` or the
+  `claude plugin marketplace add` shell command above, both run from a
+  terminal-backed Claude Code surface (see "Add marketplaces" at
+  https://code.claude.com/docs/en/discover-plugins); it does not document
+  a desktop-app GUI path for registering a brand new marketplace source.
+  That is the one step this page asks you to run in a terminal, once.
+- **Installing a plugin from a marketplace already configured, inside the
+  desktop app, no terminal needed.** Once the marketplace above has been
+  added, the desktop app's own **+** button next to the prompt box, then
+  **Plugins**, then **Add plugin**, opens a plugin browser over your
+  configured marketplaces, official and third party alike, and installs
+  from there without a terminal (see "Install plugins" at
+  https://code.claude.com/docs/en/desktop). This project's own proof,
+  `scripts/release-smoke-install.sh`, exercises the terminal path only;
+  the desktop browser is a vendor-documented path this project has not
+  separately verified.
+- **Installing through the terminal client.** The two lines above, or the
+  interactive `/plugin` panel, which vendor documentation describes as
+  opening in the terminal CLI, not the desktop app (see
+  https://code.claude.com/docs/en/discover-plugins). Founder-reproduced
+  2026-08-06 against the desktop app directly: the `/plugin` slash form
+  itself does not run there, which is the narrow, still-true fact behind
+  the older wording on this page; it never meant the desktop app cannot
+  install plugins at all.
+
+Proven, not promised: `scripts/release-smoke-install.sh` runs the terminal
+path end to end inside a throwaway configuration on every release:
+marketplace add, install, the installed version matched against `VERSION`,
+all hook groups registered, then a clean uninstall that leaves settings
+untouched. A release whose smoke run does not print PASSED does not ship
+(docs/RELEASE.md names the step).
 
 **Updating.** Type `/brotherme-update` and it walks you through it, or run the
 two lines it wraps yourself: `/plugin marketplace update brotherme-marketplace`,
