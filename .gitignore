@@ -1,6 +1,12 @@
 # Live per-user state never belongs in the shared repo; copy STATE.template.md
 # into your projects instead.
 STATE.md
+# The project store: live per-project state, and never committable. It was
+# ignored only through .git/info/exclude on the author's machine until
+# 2026-08-08, when the release court's fresh clone proved a stranger hits
+# the store's own safety refusal ("git does NOT ignore .brothermode")
+# the first time they run BrotherMode inside a clone.
+.brothermode/
 # Same reason: the work registry records real working paths, which can be
 # home directories or client and project names on someone's machine.
 threads/
