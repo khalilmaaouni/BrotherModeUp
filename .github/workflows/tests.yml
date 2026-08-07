@@ -99,6 +99,10 @@ jobs:
       # SUITES entry rather than after it.
       - name: Run the brothermode CLI boundary suite
         run: python3 tools/test_brothermode_cli.py
+      - name: Run the native agent definitions suite
+        run: python3 tools/test_bm_agents.py
+      - name: Run the hook chain measurement suite
+        run: python3 tools/test_bm_hookperf.py
       - name: Run the cross-runtime adapter suite
         run: python3 tools/test_bm_runtimes.py
       # The loop estimate ledger, landed 2026-07-31. Stdlib only and
