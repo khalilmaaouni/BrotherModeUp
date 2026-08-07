@@ -203,47 +203,6 @@ class TestHelpAndDispatch(unittest.TestCase):
 # status: THE LOAD-BEARING CONTRACT. Real store, read-only.
 # ---------------------------------------------------------------------------
 
-class TestStatusIsByteIdenticalToBmLead(unittest.TestCase):
-    """The proof this whole boundary rests on: brothermode_cli.py status
-    is not a re-description of tools/bm_lead.py's status, it IS tools/
-    bm_lead.py's status, reached through one more layer of dispatch.
-    Both sides run as real subprocesses against this worktree's real,
-    live project store, read-only (bm_lead.py's cmd_status never
-    writes), with an identical environment so nothing outside the two
-    binaries themselves can explain a difference."""
-
-    def test_status_stdout_is_byte_identical(self):
-        env = _clean_env()
-        wrapped = _run(CLI_PATH, ["status", "--project-id", REAL_PROJECT_ID],
-                       REPO, env=env)
-        direct = _run(LEAD_PATH, ["status", "--project-id", REAL_PROJECT_ID],
-                      REPO, env=env)
-        self.assertEqual(direct.returncode, 0, direct.stdout + direct.stderr)
-        self.assertEqual(wrapped.returncode, direct.returncode,
-                         "exit codes differ: wrapped=%r direct=%r"
-                         % (wrapped.returncode, direct.returncode))
-        self.assertEqual(wrapped.stdout, direct.stdout,
-                         "brothermode_cli.py status must be byte-identical "
-                         "to tools/bm_lead.py status; this is the run's "
-                         "load-bearing contract")
-        self.assertEqual(wrapped.stderr, direct.stderr)
-
-    def test_status_ic_flag_forwards_unchanged(self):
-        """Proves argv forwards past the first flag too, not only the
-        bare subcommand: --ic changes bm_lead.py's own output (an
-        engineering-view block is appended), so this fails if the CLI
-        ever stops passing the rest of argv straight through."""
-        env = _clean_env()
-        wrapped = _run(CLI_PATH,
-                       ["status", "--project-id", REAL_PROJECT_ID, "--ic"],
-                       REPO, env=env)
-        direct = _run(LEAD_PATH,
-                      ["status", "--project-id", REAL_PROJECT_ID, "--ic"],
-                      REPO, env=env)
-        self.assertEqual(wrapped.stdout, direct.stdout)
-        self.assertIn("Engineering view:", wrapped.stdout)
-
-
 # ---------------------------------------------------------------------------
 # next: real store, read-only (bm_project.py's cmd_next issues no write).
 # ---------------------------------------------------------------------------
@@ -361,6 +320,68 @@ class ThrowawayCase(unittest.TestCase):
         prerequisite state (a task to review, for example) that is not
         itself one of this boundary's ten verbs."""
         return _run(PROJECT_PATH, list(args), self.root, env=self.env)
+
+
+
+class TestStatusIsByteIdenticalToBmLead(ThrowawayCase):
+    """The proof this whole boundary rests on: brothermode_cli.py status
+    is not a re-description of tools/bm_lead.py's status, it IS tools/
+    bm_lead.py's status, reached through one more layer of dispatch.
+    Both sides run as real subprocesses with an identical environment so
+    nothing outside the two binaries themselves can explain a difference.
+
+    HERMETIC SINCE 2026-08-08, and the release court is why: this class
+    used to read the author's own live store and the project id that
+    happened to exist in it, so it passed in a warm worktree and FAILED
+    in a fresh clone of the same commit ("no store exists"), which is
+    exactly the environment CI and a contributor run. It now seeds its
+    own throwaway store and project, so the load-bearing contract is
+    proven everywhere rather than only here."""
+
+    PROJECT = "byte-identity-fixture"
+
+    def setUp(self):
+        super(TestStatusIsByteIdenticalToBmLead, self).setUp()
+        # bm_lead refuses before consent, so the fixture grants it the
+        # shipped way, the same call every mutating class here makes.
+        self.consent()
+        seeded = _run(CLI_PATH, ["start", "--project-id", self.PROJECT,
+                                 "--name", "Byte identity fixture",
+                                 "--actor-name", "tester"],
+                      self.root, env=self.env)
+        self.assertEqual(seeded.returncode, 0,
+                         seeded.stdout + seeded.stderr)
+
+    def test_status_stdout_is_byte_identical(self):
+        env = self.env
+        wrapped = _run(CLI_PATH, ["status", "--project-id", self.PROJECT],
+                       self.root, env=env)
+        direct = _run(LEAD_PATH, ["status", "--project-id", self.PROJECT],
+                      self.root, env=env)
+        self.assertEqual(direct.returncode, 0, direct.stdout + direct.stderr)
+        self.assertEqual(wrapped.returncode, direct.returncode,
+                         "exit codes differ: wrapped=%r direct=%r"
+                         % (wrapped.returncode, direct.returncode))
+        self.assertEqual(wrapped.stdout, direct.stdout,
+                         "brothermode_cli.py status must be byte-identical "
+                         "to tools/bm_lead.py status; this is the run's "
+                         "load-bearing contract")
+        self.assertEqual(wrapped.stderr, direct.stderr)
+
+    def test_status_ic_flag_forwards_unchanged(self):
+        """Proves argv forwards past the first flag too, not only the
+        bare subcommand: --ic changes bm_lead.py's own output (an
+        engineering-view block is appended), so this fails if the CLI
+        ever stops passing the rest of argv straight through."""
+        env = self.env
+        wrapped = _run(CLI_PATH,
+                       ["status", "--project-id", self.PROJECT, "--ic"],
+                       self.root, env=env)
+        direct = _run(LEAD_PATH,
+                      ["status", "--project-id", self.PROJECT, "--ic"],
+                      self.root, env=env)
+        self.assertEqual(wrapped.stdout, direct.stdout)
+        self.assertIn("Engineering view:", wrapped.stdout)
 
 
 # ---------------------------------------------------------------------------
