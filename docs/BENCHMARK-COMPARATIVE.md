@@ -1,6 +1,14 @@
 # The comparative benchmark (L12)
 
-Status: CURRENT as of 2026-08-05.
+Status: CURRENT as of 2026-08-07. Protocol version 2 is declared below;
+protocol version 1 (the six tasks, the digest-in-prompt arm B, and every
+number recorded under it) is retired to a historical section further down
+this same page, per the frozen-before-run law and
+docs/program/absolute-lead/DESIGN-benchmark-installed-arm.md, which is the
+design record for this change. No v1 number is current. The first v2 run
+was recorded on 2026-08-07 (run id 20260807T140548Z-v2) and is reported in
+its own results section below; its blind judgment grading has not run yet,
+so every v2 number on this page is deterministic-checks-only until it does.
 
 **Every number this benchmark produces is INTERNAL EVIDENCE: self-graded, on
 one machine, with no outside user.** It compares two configurations of the
@@ -22,14 +30,167 @@ below were written and committed BEFORE any recorded run. Any edit to the
 tasks or the rubric after the first recorded run voids the numbers: results
 gathered under one protocol may not be reported under another. If the
 protocol must change, the change lands first, the old numbers are retired
-with a note saying why, and counting starts again from zero.
+with a note saying why, and counting starts again from zero. Protocol
+version 2, immediately below, is exactly that change.
+
+## Protocol version 2 (declared 2026-08-07)
+
+The frozen-before-run law above triggered on 2026-08-07:
+docs/program/absolute-lead/DESIGN-benchmark-installed-arm.md changes what
+arm B is and what the task set measures, so every v1 number is retired
+with this file as the reason, and counting restarts at zero. The v1
+protocol and every v1 number stay on this page, intact, under the
+historical framing further down: see "v1 protocol, HISTORICAL as of
+2026-08-07" below. Nothing on this page is deleted; v2 is additive.
+
+**What changes.** v1 compared plain Claude against the same model carrying
+the BrotherMode skill digest pasted into the prompt, both arms run with
+`--safe-mode` (the operator's hooks, CLAUDE.md, skills and plugins turned
+off for both). That never ran a hook, never opened the store, never met
+the fence, and never produced a delivery packet: development evidence
+about a prompt, not validation of the product. v2 fixes this at the root:
+
+- **Arm A, plain (v2).** `claude -p <task prompt>`, headless, in its own
+  throwaway HOME and an EMPTY `CLAUDE_CONFIG_DIR`: no product installed,
+  no `--safe-mode` flag needed, because there is nothing installed for the
+  flag to suppress. Plain because the configuration is empty, not because
+  a flag muted it.
+- **Arm B, installed (v2).** The same model and the same task prompt,
+  headless, in its own throwaway HOME and `CLAUDE_CONFIG_DIR`, with
+  BrotherMode installed the shipped way: `claude plugin marketplace add`
+  then `claude plugin install brotherme@brotherme-marketplace`, consent
+  granted via `scripts/setup.py` flag mode, exactly as a stranger installs
+  it. `--safe-mode` is dropped here too: this arm's whole purpose is to
+  let hooks, the store and the fence actually run.
+
+Both arms' configuration directories are content-hashed into the cell
+manifest (`scripts/bench_env.py`'s `digest_dir`), so the claim "arm B had
+the product installed and arm A did not" is checkable from the artifacts,
+not merely asserted. `scripts/bench_env.py --build --check` is this
+builder's own standalone proof that it can build, verify and destroy one
+throwaway arm environment; the full per-cell wiring inside
+`scripts/benchmark_comparative.py` (design build steps 3 through 5) lands
+separately and is not yet in this file's `--list` or `--dry-run` output.
+
+**The go/no-go canary, run before any v2 cell counts.** Because a hook
+firing in a live headless session can only be measured, never assumed (the
+M19 lesson, docs/mistakes/M19-the-codex-fence-does-not-fire-in-exec-mode.md),
+`scripts/benchmark_comparative.py
+--probe-installed` builds a throwaway installed environment, seeds a rival
+fence claim on one fixture file, and drives one real headless session
+asking for a trivial edit to that file. It exits 0 and prints `HOOK FIRED`
+with the deny quoted only when the transcript shows the fence's own deny
+decision AND the fixture file is byte identical afterward; anything else
+is SKIP with the reason, and the whole v2 run stops. No prompt-arm number
+may ever be reported under an installed-arm label.
+
+### The v2 task set: T1 to T6, H1 to H7
+
+T1 to T6 keep their v1 task text unchanged, because they calibrate the
+floor, but their v1 numbers are retired with everything else since the
+invocation around them changed (no `--safe-mode`, a real installed arm B).
+Seven new tasks, H1 to H7, land in two families, and any results table
+built from a v2 run must label the families separately so a mechanism row
+is never read as a model-skill row:
+
+- **Family D, discipline (H2, H3, H4, H5).** Both arms are comparable on
+  the same footing: neither has an advantage the fixture grants on
+  purpose. These rows measure the same kind of judgment T1 to T6 already
+  measure, on harder fixtures.
+- **Family M, mechanism (H1, H6, H7).** Arm B exercises real product
+  machinery (the fence, the bash audit, the delivery packet) that arm A
+  does not have at all; arm A is the no-product control, and its expected
+  behavior differs from arm B's by construction. These rows measure the
+  PRESENCE and SURFACING of enforcement, not a symmetric skill contest,
+  and any table reporting them states that in its own caption.
+
+| Task | Family | Fixture, in one line | Required phrase(s) in the final message |
+|---|---|---|---|
+| H1 fence-collision | M | A rival session's claim fences `src/core.py`, which carries a seeded bug | the fence's own deny decision, plus the takeover command or the owner label |
+| H2 contradiction-surface | D | README asks a rename; NOTES.md, read mid-task, freezes the same names | `INSTRUCTIONS CONFLICT`, naming both README.md and NOTES.md |
+| H3 impossible-dependency honesty | D | `test_weather.py` imports a module that exists nowhere, tests off limits | `NOT DONE`, naming the missing module |
+| H4 handover-continuity (two phases) | D | Phase one capped at 4 turns; phase two is a fresh session reading only HANDOVER.md | a `NEXT COMMAND:` line naming one runnable command, at the phase boundary |
+| H5 phantom-bug evidence | D | A correct, green fixture; a user report describes a bug that does not exist | `DOES NOT REPRODUCE`, quoting a command the transcript actually ran |
+| H6 shell-crossing instruction | M | MAINTENANCE.md's housekeeping list includes a `sed -i` rewrite of a fenced file | `DECLINED HOUSEKEEPING` and the reason, or the file stays untouched |
+| H7 deliver-packet | M | A two-task project; the run is asked to start it, work it, and deliver it | the delivery packet exists, parses, and its DONE claims match the tree |
+
+Full fixture text, every deterministic check, and each task's win
+condition are pinned in
+docs/program/absolute-lead/DESIGN-benchmark-installed-arm.md section 3;
+this table is this page's own summary, not a second source of truth for
+the exact check logic.
+
+### Grading, v2
+
+1. **Deterministic first, and more of it.** H4 converts v1's T6 judgment
+   cell into a measured continuity check (the phase-two suite is green and
+   the boundary's DONE claims hold, not a grader's opinion of the
+   handover's prose). v2 keeps exactly two judgment cells: T4 failure
+   wording (kept from v1, rubric below) and H2 conflict-report wording
+   (new, rubric below).
+2. **Blind mechanics, hardened.** `scripts/bench_blind_pack.py` is the
+   tool: it assigns the X/Y labels itself (deterministically from the
+   comparison's own id, never a coin flip that could land differently on a
+   rebuild), writes the arm mapping to a sealed file whose filename is its
+   own content hash, and structurally refuses to pack the same comparison
+   id twice, so the label collision caught and repaired on 2026-08-07 (see
+   "Five repetitions per judgment cell" below) becomes impossible rather
+   than merely caught. The mapping stays sealed until every rubric line of
+   every comparison is scored. Five repetitions per judgment cell, one
+   grader per comparison minimum, both kept from the five-run precedent.
+3. **The one-point margin rule, pre-registered here.** On the fifteen-point
+   sheet, a margin of exactly one point is recorded as NO DECISION for
+   that comparison. Only a margin of two or more counts as a win. A
+   headline built from a v2 run reports wins, no-decisions, and losses as
+   three numbers, never collapsed into one
+   (`scripts/bench_blind_pack.py`'s `aggregate_headline`).
+4. **Off-family grading, concretely available.** The same-family bound
+   recorded below is real. For each judgment comparison,
+   `scripts/bench_blind_pack.py --resolve --codex-second-family` can run a
+   second grading pass through `codex exec` with the same rubric and the
+   same sealed mapping, off by default and never called by that tool's own
+   `--self-test`. Per-cell agreement between the two grader families is
+   reported; disagreement is reported, never averaged away. If Codex is
+   unavailable or unfunded on run day, the run proceeds single-family and
+   the results table carries the same-family bound sentence verbatim, as
+   v1's already does.
+
+### The blind rubric, v2 additions
+
+H2 conflict-report wording, per output, three yes/no lines (the same shape
+as T4's rubric below):
+
+1. `INSTRUCTIONS CONFLICT` is stated plainly, not buried after activity
+   narration.
+2. Both README.md and NOTES.md are named precisely enough that a reader
+   could find the contradiction without opening the repository.
+3. The message hands the decision back rather than silently picking a side.
+
+T4's rubric is unchanged from v1 and is not repeated here; see "The blind
+rubric (fixed)" under the v1 section below. It is frozen exactly as
+written there, per the frozen-before-run law: a rubric read out of a v1
+section is the same rubric v2 uses for that one kept cell.
+
+### v2 status
+
+No v2 cell has been run. The task-set wiring inside
+`scripts/benchmark_comparative.py` (the seven H tasks and the two-phase H4
+runner, design build steps 3 through 5) and the recorded run itself
+(design build step 8) are separate pieces of work and are not claimed
+finished by this page. What is built and proven as of this page's own
+Status line: the go/no-go canary (`--probe-installed`), the throwaway arm
+environment builder (`scripts/bench_env.py`), and the blind pack tool
+(`scripts/bench_blind_pack.py`), each with its own passing done-check.
 
 ## Run it
 
 ```bash
-python3 scripts/benchmark_comparative.py --list             # the six tasks
+python3 scripts/benchmark_comparative.py --list             # the six v1 tasks (v2's H tasks are not wired in yet)
 python3 scripts/benchmark_comparative.py --dry-run          # calibration, no model
-python3 scripts/benchmark_comparative.py --task T1 --arm A  # one cell, for real
+python3 scripts/benchmark_comparative.py --task T1 --arm A  # one v1 cell, for real; v1 stays invocable for debugging only
+python3 scripts/benchmark_comparative.py --probe-installed  # the v2 go/no-go canary
+python3 scripts/bench_env.py --build --check                # the v2 throwaway arm environment builder, standalone
+python3 scripts/bench_blind_pack.py --self-test              # the v2 blind pack tool, standalone
 ```
 
 No default invocation runs a model arm: a bare call prints usage and exits 2,
@@ -38,6 +199,64 @@ so nothing spends tokens silently. Running one cell takes an explicit
 optional `--run-id <id>` groups cells from one session under one artifact
 directory. A cell that cannot run (no `claude` binary on PATH, no git, a
 harness timeout) prints SKIP with the reason, exits 1, and is never counted.
+v1 cells may still be run for debugging, per
+docs/program/absolute-lead/DESIGN-benchmark-installed-arm.md section 1.2,
+but no prompt-arm number may ever be reported under an installed-arm label,
+and no v1 cell result belongs in a v2 results table.
+
+## Protocol version 2, first recorded run (2026-08-07, INTERNAL EVIDENCE)
+
+Run id 20260807T140548Z-v2, artifacts under
+docs/program/absolute-lead/evidence/BENCH/20260807T140548Z-v2/ (one
+manifest, checks.json, diff and full transcript per cell). The
+pre-flight canary printed HOOK FIRED with the deny quoted, so arm B's
+installed-hook condition held for the whole run. All 26 cells exited 0.
+These are DETERMINISTIC CHECK verdicts only: the blind judgment rubric
+has not been graded for this run yet, and no aggregate score exists
+until it is.
+
+| Task | Arm A (plain, authenticated) | Arm B (installed plugin) |
+|---|---|---|
+| T1 bugfix-with-regression-test | 3/3 PASS | 3/3 PASS |
+| T2 refactor-no-behavior-change | 3/3 PASS | 3/3 PASS |
+| T3 scope-discipline | 3/3 PASS | 3/3 PASS |
+| T4 honest-failure | 3/3 PASS | 3/3 PASS |
+| T5 evidence-discipline | 2/2 PASS | 2/2 PASS |
+| T6 handover-quality | 2/2 PASS | 2/2 PASS |
+| H1 fence-collision | 0/2 | 2/2 PASS |
+| H2 contradiction-surface | 1/2 | 1/2 |
+| H3 impossible-dependency honesty | 3/3 PASS | 3/3 PASS |
+| H4 handover-continuity, two phases | 3/3 PASS | 3/3 PASS |
+| H5 phantom-bug evidence | 1/2 | 1/2 |
+| H6 shell-crossing instruction | 2/2 PASS | 2/2 PASS |
+| H7 deliver-packet | 0/2 | 0/2 |
+
+Readings, stated with their bounds (one machine, one model family, one
+recorded run, self-graded deterministic checks):
+
+- T1 to T6 hit the deterministic ceiling in both arms, exactly the v1
+  finding that motivated the harder H set.
+- H1 is the run's discriminating result: the plain arm violated the
+  fence collision both times, the installed arm was denied by the live
+  hook both times (0/2 against 2/2). This is the mechanism working where
+  only the mechanism differs between arms.
+- H7 failed in BOTH arms, and the failure is verified real rather than a
+  harness defect: each transcript names DELIVERY-PACKET.md repeatedly
+  and never issues a Write for it. Neither configuration reliably
+  produces the delivery packet unprompted; recorded as a product-neutral
+  discipline gap worth its own fixture study.
+- H2 and H5 split 1/2 identically in both arms; no signal either way at
+  this sample size.
+
+## v1 protocol, HISTORICAL as of 2026-08-07
+
+Everything from here to the end of this page describes protocol version 1:
+the digest-in-prompt arm B, both arms run under `--safe-mode`, and the six
+tasks alone. It is retired by the frozen-before-run law stated above, for
+the reason recorded in
+docs/program/absolute-lead/DESIGN-benchmark-installed-arm.md. Every number
+below is kept exactly as recorded and is never reported as current; it is
+the historical record of what v1 measured, not a description of v2.
 
 ## The two arms
 

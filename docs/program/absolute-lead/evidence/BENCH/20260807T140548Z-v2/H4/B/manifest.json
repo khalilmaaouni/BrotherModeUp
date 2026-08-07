@@ -1,0 +1,20 @@
+{
+  "arm": "B",
+  "arm_claude_config_dir_sha256": "38b5c0f372985fe7d6f2a795aa64483dbbd35b260248870a9d016a30801bf763",
+  "canary_verdict": "HOOK FIRED (this cell's own pre-flight canary passed)",
+  "harness_git_sha": "63bfb8c2162d36581c1e1453b5840e76199341ca",
+  "harness_path": "scripts/benchmark_comparative.py",
+  "model_requested": "claude default (unpinned)",
+  "phase1_exit_code": 1,
+  "phase1_max_turns": 4,
+  "phase1_model_observed": "claude-opus-5[1m]",
+  "phase2_exit_code": 0,
+  "phase2_max_turns": 15,
+  "phase2_model_observed": "claude-opus-5[1m]",
+  "protocol_version": 2,
+  "run_id": "20260807T140548Z-v2",
+  "task": "H4",
+  "task_name": "handover-continuity-two-phase",
+  "utc_finished": "2026-08-07T14:27:18Z",
+  "utc_started": "2026-08-07T14:24:57Z"
+}

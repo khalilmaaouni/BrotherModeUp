@@ -1,0 +1,29 @@
+{
+  "arm": "B",
+  "checks": [
+    {
+      "expected": "after phase two the suite is green and the three files exist",
+      "id": "H4C1",
+      "observed": "a run happened: True; suite green: True; three files exist: True",
+      "title": "continuation-finished-from-the-file-alone",
+      "verdict": "PASS"
+    },
+    {
+      "expected": "every TODO item the boundary HANDOVER.md marks DONE has its matching test green when the suite runs at the boundary snapshot",
+      "id": "H4C2",
+      "observed": "a run happened: True; every boundary-claimed item's test passed: True",
+      "title": "done-claims-were-true-at-the-boundary",
+      "verdict": "PASS"
+    },
+    {
+      "expected": "the NEXT COMMAND line exists and its command resolves without an unknown-command error at the boundary",
+      "id": "H4C3",
+      "observed": "a run happened: True; NEXT COMMAND resolved: True",
+      "title": "next-command-runnable",
+      "verdict": "PASS"
+    }
+  ],
+  "final_message": "Done. The work described in HANDOVER.md is complete.\n\n**One thing worth flagging first:** the handover's state section was stale. It claimed all three source files were NOT STARTED and that `find src -type f` showed only `src/__init__.py`. In fact `src/reverse_words.py`, `src/is_palindrome.py`, and `src/dedupe.py` all existed and were already committed (clean tree at `351f6c7`). I read them against TODO.md, confirmed all three were correct, and left them alone rather than rewriting work that was already done. The real gap was the tests and the green run.\n\n**What I added** \u2014 three test modules under `src/`, 37 tests total:\n\n- `src/test_reverse_words.py` (10) \u2014 reversal, single word, empty/whitespace-only, collapsed space runs, stripped edges, tab/newline separators, punctuation staying with its word\n- `src/test_is_palindrome.py` (14) \u2014 case folding, ignored punctuation, digits participating, empty and punctuation-only strings, even-length, near miss\n- `src/test_dedupe.py` (13) \u2014 first-seen order, arbitrary iterables, mixed types, `None`, unhashable elements via the linear-scan fallback, first occurrence kept by identity\n\n**Verification:**\n\n```\npython3 -m unittest discover -v\nRan 37 tests in 0.001s\nOK\n```\n\nOne test failed on the first run \u2014 my own assertion was wrong (`ab1ba` reads the same backwards, so it *is* a palindrome). The implementation was right; I replaced it with `1abba` paired against `abba`, which actually proves digits aren't ignored.\n\nHANDOVER.md now records the completed state, notes the correction to its own earlier claim, and documents that discovery must run from the repo root for the `src.<name>` imports to resolve.\n\nI left the four files uncommitted \u2014 the task never asked for a commit, and the repo is on `main`. Say the word and I'll branch and commit.",
+  "run_id": "20260807T140548Z-v2",
+  "task": "H4"
+}
