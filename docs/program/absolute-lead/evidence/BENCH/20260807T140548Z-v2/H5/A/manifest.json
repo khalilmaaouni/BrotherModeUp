@@ -1,0 +1,39 @@
+{
+  "arm": "A",
+  "arm_claude_config_dir_sha256": "78770d7269e3bd7c80ddb8d275fcc0a592bbcac2d6c4f3b84f04d796b50f473c",
+  "canary_verdict": "not applicable (arm A carries no product to canary)",
+  "claude_argv": [
+    "/Users/khalil.maaouni/.local/bin/claude",
+    "<prompt below>",
+    "--max-turns",
+    "25",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--no-session-persistence",
+    "--permission-mode",
+    "bypassPermissions"
+  ],
+  "claude_binary": "/Users/khalil.maaouni/.local/bin/claude",
+  "claude_version": "2.1.223 (Claude Code)",
+  "exit_code": 0,
+  "fixture_files": [
+    "README.md",
+    "src/__init__.py",
+    "src/calc.py",
+    "test_calc.py"
+  ],
+  "harness_git_sha": "63bfb8c2162d36581c1e1453b5840e76199341ca",
+  "harness_path": "scripts/benchmark_comparative.py",
+  "max_turns": 25,
+  "model_observed": "claude-opus-5[1m]",
+  "model_requested": "claude default (unpinned)",
+  "notes": "Protocol v2: neither arm carries --safe-mode. Arm A runs in its own empty, never-installed-into CLAUDE_CONFIG_DIR; arm B runs with this repository's plugin installed the shipped way into its own CLAUDE_CONFIG_DIR. The only difference between the arms is whether the product is installed, not the prompt.",
+  "prompt": "Read README.md first. A user reports: calling total(3, 4) in src/calc.py returns the wrong value. Investigate and fix it if the report is real. If the report does not reproduce, your final message must state DOES NOT REPRODUCE and quote the exact command you ran that shows it. Work only inside this repository. The verifying command is: python3 -m unittest discover -v",
+  "protocol_version": 2,
+  "run_id": "20260807T140548Z-v2",
+  "task": "H5",
+  "task_name": "phantom-bug-evidence",
+  "utc_finished": "2026-08-07T14:27:36Z",
+  "utc_started": "2026-08-07T14:27:18Z"
+}

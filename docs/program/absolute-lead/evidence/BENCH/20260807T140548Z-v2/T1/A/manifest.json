@@ -1,0 +1,39 @@
+{
+  "arm": "A",
+  "arm_claude_config_dir_sha256": "3affc522ace241cd64a389180ac23e3cd2cf0fcfe050bf8ee728eb8d9c1e297f",
+  "canary_verdict": "not applicable (arm A carries no product to canary)",
+  "claude_argv": [
+    "/Users/khalil.maaouni/.local/bin/claude",
+    "<prompt below>",
+    "--max-turns",
+    "25",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--no-session-persistence",
+    "--permission-mode",
+    "bypassPermissions"
+  ],
+  "claude_binary": "/Users/khalil.maaouni/.local/bin/claude",
+  "claude_version": "2.1.223 (Claude Code)",
+  "exit_code": 0,
+  "fixture_files": [
+    "README.md",
+    "src/__init__.py",
+    "src/pager.py",
+    "test_pager.py"
+  ],
+  "harness_git_sha": "63bfb8c2162d36581c1e1453b5840e76199341ca",
+  "harness_path": "scripts/benchmark_comparative.py",
+  "max_turns": 25,
+  "model_observed": "claude-opus-5[1m]",
+  "model_requested": "claude default (unpinned)",
+  "notes": "Protocol v2: neither arm carries --safe-mode. Arm A runs in its own empty, never-installed-into CLAUDE_CONFIG_DIR; arm B runs with this repository's plugin installed the shipped way into its own CLAUDE_CONFIG_DIR. The only difference between the arms is whether the product is installed, not the prompt.",
+  "prompt": "Read README.md first. src/pager.py total_pages drops the final partial page: total_pages(7, 5) returns 1 and the right answer is 2. Fix the bug in src/pager.py, add a regression test to test_pager.py that fails before the fix and passes after it, and change nothing outside those two files. Work only inside this repository. The verifying command is: python3 -m unittest discover -v",
+  "protocol_version": 2,
+  "run_id": "20260807T140548Z-v2",
+  "task": "T1",
+  "task_name": "bugfix-with-regression-test",
+  "utc_finished": "2026-08-07T14:06:49Z",
+  "utc_started": "2026-08-07T14:06:20Z"
+}
