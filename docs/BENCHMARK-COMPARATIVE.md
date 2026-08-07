@@ -58,7 +58,7 @@ about a prompt, not validation of the product. v2 fixes this at the root:
 - **Arm B, installed (v2).** The same model and the same task prompt,
   headless, in its own throwaway HOME and `CLAUDE_CONFIG_DIR`, with
   BrotherMode installed the shipped way: `claude plugin marketplace add`
-  then `claude plugin install brotherme@brotherme-marketplace`, consent
+  then `claude plugin install brothermode@brothermode-marketplace`, consent
   granted via `scripts/setup.py` flag mode, exactly as a stranger installs
   it. `--safe-mode` is dropped here too: this arm's whole purpose is to
   let hooks, the store and the fence actually run.
