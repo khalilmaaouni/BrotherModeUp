@@ -103,6 +103,8 @@ jobs:
         run: python3 tools/test_bm_agents.py
       - name: Run the hook chain measurement suite
         run: python3 tools/test_bm_hookperf.py
+      - name: Run the lifecycle canary pin suite
+        run: python3 tools/test_bm_e2e_pins.py
       - name: Run the cross-runtime adapter suite
         run: python3 tools/test_bm_runtimes.py
       # The loop estimate ledger, landed 2026-07-31. Stdlib only and
