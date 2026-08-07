@@ -35,26 +35,26 @@ Real commands, described rather than transcribed. There is no screenshot on
 this page standing in for a session you have not had yet, and the wording your
 session uses will be its own. Type these into Claude Code once it is installed.
 
-1. `/brotherme-start I run a bakery and want a one-page site: our story,
+1. `/brothermode:start I run a bakery and want a one-page site: our story,
    photos, opening hours, and cake pre-orders.`
    It sizes up the goal and asks only the questions whose answers change the
    scope, one decision at a time, recommended option first. It ends with one
    written project brief (`CANVAS.md`, generated from the project's own
    records) and a first decision to make, with a time and cost range given as
    a range rather than a promise.
-2. `/brotherme-status` prints where the project stands, in plain language,
+2. `/brothermode:status` prints where the project stands, in plain language,
    read out of those records rather than out of the conversation.
-3. `/brotherme-next` recommends the single next step, and says why that one.
+3. `/brothermode:next` recommends the single next step, and says why that one.
 4. Work happens. Before any part of the session writes to a file, the claim is
    recorded; a second session that tries to write a claimed file is refused by
    a hook, not by a reminder in a prompt.
-5. `/brotherme-review` checks the work against the written definition of done
+5. `/brothermode:review` checks the work against the written definition of done
    and reports what passes and what does not, bad news first.
-6. `/brotherme-deliver` writes the delivery packet: what was built, every check
+6. `/brothermode:deliver` writes the delivery packet: what was built, every check
    that ran after the last change, and what was left out on purpose. If a check
    is missing or failing it says so instead of delivering.
 
-Nothing in that sequence asks you to read a log. `/brotherme-help` explains any
+Nothing in that sequence asks you to read a log. `/brothermode:help` explains any
 of it again in plain language.
 
 ## What you get out of it
@@ -204,14 +204,14 @@ Requirements: Claude Code (CLI or desktop app) with skills enabled, Python 3.9
 or newer using the standard library only with nothing to install, and git.
 
 **The plugin way (two lines, inside Claude Code).** This repository is its own
-plugin marketplace: add it once, install from it, and the seven /brotherme
+plugin marketplace: add it once, install from it, and the nine /brothermode
 commands, the guided skill, and the six hooks register on the next start.
 Upgrading later is one `/plugin` update from the same source; uninstalling
 removes the plugin and leaves your project data and vault untouched.
 
 ```bash
 claude plugin marketplace add khalilmaaouni/BrotherModeUp@v2.1.1
-claude plugin install brotherme@brotherme-marketplace
+claude plugin install brothermode@brothermode-marketplace
 ```
 
 The `@v2.1.1` pins the marketplace add itself to the released tag rather
@@ -266,9 +266,9 @@ all hook groups registered, then a clean uninstall that leaves settings
 untouched. A release whose smoke run does not print PASSED does not ship
 (docs/RELEASE.md names the step).
 
-**Updating.** Type `/brotherme-update` and it walks you through it, or run the
-two lines it wraps yourself: `/plugin marketplace update brotherme-marketplace`,
-then `/plugin update brotherme`. Updating never touches your projects or your
+**Updating.** Type `/brothermode:update` and it walks you through it, or run the
+two lines it wraps yourself: `/plugin marketplace update brothermode-marketplace`,
+then `/plugin update brothermode`. Updating never touches your projects or your
 records.
 
 **The pinned clone (the most-proven path).** This clones an immutable, tagged

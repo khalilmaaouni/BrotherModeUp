@@ -36,7 +36,7 @@ terminal.
 
 ```bash
 claude plugin marketplace add khalilmaaouni/BrotherModeUp@v2.1.1
-claude plugin install brotherme@brotherme-marketplace
+claude plugin install brothermode@brothermode-marketplace
 ```
 
 `@v2.1.1` pins the marketplace add itself to the released tag rather than

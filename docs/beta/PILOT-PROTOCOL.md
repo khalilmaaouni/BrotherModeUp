@@ -22,18 +22,18 @@ chat box.
 1. Install by following the install section of docs/QUICKSTART.md exactly:
    copy its one clone command into the Terminal app, run the setup step it
    shows, and answer the consent question yourself. Then open Claude Code.
-2. Run /brotherme-help in the app and read what it prints.
+2. Run /brothermode:help in the app and read what it prints.
 3. THE FIXED FIRST TASK, about 30 minutes: start a project called
    "reading-list" whose goal is a small personal reading list page: three
-   books, one paragraph each, one HTML file. Use /brotherme-start, let the
+   books, one paragraph each, one HTML file. Use /brothermode:start, let the
    flow guide you, and accept its recommendations unless you disagree.
 4. Produce the artifact (the page) through the flow.
-5. Run /brotherme-status and say aloud, in one sentence, where the project
+5. Run /brothermode:status and say aloud, in one sentence, where the project
    stands. Write that sentence down; it is measure 5.
 6. Close the session mid-project on purpose.
-7. Come back later (hours or a day) and resume with /brotherme-next. Do NOT
+7. Come back later (hours or a day) and resume with /brothermode:next. Do NOT
    re-explain the project; the product must remember it.
-8. Run /brotherme-review or /brotherme-deliver to close the task.
+8. Run /brothermode:review or /brothermode:deliver to close the task.
 9. Then use it on a small piece of YOUR OWN real work for the rest of the
    week, however you like.
 
@@ -45,7 +45,7 @@ chat box.
 4. How many times did you have to recover by hand (delete something, start
    over, edit a file the product should have handled)?
 5. Your one-sentence answer to "where does the project stand" after
-   /brotherme-status, written at the time.
+   /brothermode:status, written at the time.
 6. After the flow told you something was done, did you know WHAT had been
    checked? Yes or no, plus one line.
 7. Did resume work without re-explaining the project? Yes or no.

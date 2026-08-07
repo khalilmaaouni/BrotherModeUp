@@ -34,7 +34,7 @@ claude plugin marketplace add khalilmaaouni/BrotherModeUp@v2.1.1
 ```
 
 ```bash
-claude plugin install brotherme@brotherme-marketplace
+claude plugin install brothermode@brothermode-marketplace
 ```
 
 The `@v2.1.1` pins the marketplace add to the released tag, generated from
@@ -61,22 +61,22 @@ do the same thing as the two commands above. Then, in any Claude Code
 session, type:
 
 ```
-/brotherme-help
+/brothermode:help
 ```
 
 That command explains what you have and what to do next in plain language.
-When you are ready to try it on something real, type `/brotherme-start` and
+When you are ready to try it on something real, type `/brothermode:start` and
 describe what you want in your own words; it will guide you from there, one
 decision at a time. The first time you start a project it asks where your
 private project memory should live before writing anything there; if that
 question is ever skipped, the automatic session records fall back to a folder
 called `BrotherModeVault` in your home folder, and you can ask to move it.
 
-To remove it later: `claude plugin uninstall brotherme` in a terminal, or `/plugin uninstall brotherme` inside the terminal client.
+To remove it later: `claude plugin uninstall brothermode` in a terminal, or `/plugin uninstall brothermode` inside the terminal client.
 
-To update later: type `/brotherme-update` and it walks you through it, or run
+To update later: type `/brothermode:update` and it walks you through it, or run
 the two lines it wraps yourself: `/plugin marketplace update
-brotherme-marketplace`, then `/plugin update brotherme`, then restart Claude
+brothermode-marketplace`, then `/plugin update brothermode`, then restart Claude
 Code. That is the whole path. The rest of this page is Path 2 and applies only
 if you skipped Path 1.
 
