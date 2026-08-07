@@ -121,9 +121,10 @@ was exercised by hand for this document.
   `bm_learn.py rebuild-index` rebuilds it atomically.
 
 - **Skill-driven retrieval (Loop 11A).** `SKILL.md` requires a Claude session
-  to run retrieval before substantial work and to name which rule IDs it
-  applied. This is "Stage A": the skill pulls rules, nothing pushes them at
-  you automatically yet (see Loop 11B below).
+  to run retrieval before substantial work; the mechanics, including naming
+  which rule IDs it applied, live in `references/learned-rules.md` (moved
+  there in R2, 2026-08-07). This is "Stage A": the skill pulls rules, nothing
+  pushes them at you automatically yet (see Loop 11B below).
 
 - **Conflict detection and supersession (Loop 6).** Approving a rule that
   plainly reverses a live rule ("always push through the desktop app" against
