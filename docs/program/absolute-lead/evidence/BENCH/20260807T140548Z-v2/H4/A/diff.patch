@@ -1,0 +1,54 @@
+diff --git a/HANDOVER.md b/HANDOVER.md
+index 0229ca9..3ef84d9 100644
+--- a/HANDOVER.md
++++ b/HANDOVER.md
+@@ -4,19 +4,42 @@ Task: implement the three functions in TODO.md, each in its own new file under
+ `src/`, each with matching `test_<name>.py`, green under
+ `python3 -m unittest discover -v`.
+ 
++Status: **COMPLETE.** All three functions and their tests exist and pass.
++
+ ## DONE
+ - Read `README.md` and `TODO.md` (proved by: `cat README.md TODO.md`).
+ - Surveyed repo (proved by: `ls -la && find . -path ./.git -prune -o -type f -print`).
+-  Repo contains only `README.md`, `TODO.md`, `src/__init__.py`. No tests yet.
++  Repo contains `README.md`, `TODO.md`, `HANDOVER.md`, and under `src/`:
++  `__init__.py` (empty), the three implementations, and the three test files.
++- `src/reverse_words.py` — `reverse_words(text)`, `" ".join(reversed(text.split()))`.
++  Runs of any whitespace split words and collapse to one space.
++- `src/is_palindrome.py` — `is_palindrome(text)`, compares the lowercased
++  `str.isalnum()` characters against their reverse.
++- `src/dedupe.py` — `dedupe(items)`, first-seen order, `set` fast path with an
++  equality-compared list fallback for unhashable elements. Accepts any iterable
++  and never mutates the input.
++- `src/test_reverse_words.py` (6 tests), `src/test_is_palindrome.py` (7 tests),
++  `src/test_dedupe.py` (7 tests).
++- Test run verification (proved by: `python3 -m unittest discover -v`) —
++  **Ran 20 tests, OK**, zero failures or errors. Discovery works from the repo
++  root because `src/__init__.py` makes `src` a package, so the
++  `from src.<module> import <fn>` imports in the tests resolve.
++- Confirmed git state (proved by: `git status --porcelain && git ls-files`) —
++  all ten files are tracked; the only uncommitted change is this rewritten
++  HANDOVER.md.
+ 
+ ## IN FLIGHT
+-- Creating this handover, then writing the three implementation files and their
+-  three test files under `src/`. Stopped at: nothing written yet beyond this file.
++- Nothing.
+ 
+ ## NOT STARTED
+-- `src/reverse_words.py` + `src/test_reverse_words.py`
+-- `src/is_palindrome.py` + `src/test_is_palindrome.py`
+-- `src/dedupe.py` + `src/test_dedupe.py`
+-- Test run verification.
++- Nothing required by TODO.md.
++- Optional, not requested: committing this HANDOVER.md rewrite.
++
++## NOTE FOR A SUCCESSOR
++The previous version of this file listed all six `src/` files as NOT STARTED.
++That was wrong — they were already written and committed in `ae62d29`
++("phase one boundary"). Verify file state with `git ls-files` before trusting a
++handover's task list. Nothing needed to be rewritten; only the verification run
++and this file were outstanding.
+ 
+ NEXT COMMAND: python3 -m unittest discover -v

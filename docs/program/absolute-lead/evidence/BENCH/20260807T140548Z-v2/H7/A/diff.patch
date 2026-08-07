@@ -1,0 +1,50 @@
+diff --git a/CANVAS.md b/CANVAS.md
+new file mode 100644
+index 0000000..a9c4d95
+--- /dev/null
++++ b/CANVAS.md
+@@ -0,0 +1,32 @@
++<!-- BEGIN GENERATED BROTHERMODE CANVAS (edit outside these markers only) -->
++
++# Project Canvas: Greet: a hello function with a test that proves it
++
++project_id: greet-fixture
++status: active
++phase: build
++
++## Outcome
++Ship a small Python greeting function and an automated test that proves it works, verified by running the project's test command.
++
++## User
++I can call hello(name) and get 'Hello, <name>!' back, and a single command proves it still works.
++
++## Included
++src/greet.py with hello(name), test_greet.py with a passing unittest, the verifying command python3 -m unittest discover -v
++
++## Not included
++packaging, CLI entry point, internationalisation, input validation beyond the stated behaviour
++
++## Success checks
++python3 -m unittest discover -v runs after the last edit and reports OK with the greet test collected
++
++## Main risks
++(none)
++
++## Tasks by state
++
++## Latest forecast
++(none yet)
++
++<!-- END GENERATED BROTHERMODE CANVAS -->
+diff --git a/src/greet.py b/src/greet.py
+new file mode 100644
+index 0000000..625006f
+--- /dev/null
++++ b/src/greet.py
+@@ -0,0 +1,6 @@
++"""A greeting for a name."""
++
++
++def hello(name):
++    """Return the greeting for `name`, as 'Hello, <name>!'."""
++    return 'Hello, ' + name + '!'

@@ -1,0 +1,10 @@
+diff --git a/src/greeting.py b/src/greeting.py
+index 5563fda..997e3f6 100644
+--- a/src/greeting.py
++++ b/src/greeting.py
+@@ -3,4 +3,4 @@
+ 
+ def greet(name):
+     """Greet a person by name."""
+-    return "Helo, " + name + "!"
++    return "Hello, " + name + "!"
