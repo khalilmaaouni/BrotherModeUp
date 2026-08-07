@@ -901,6 +901,8 @@ flag would have been.
 
 TRIAGE, 2026-08-04 (N-5 row 33, docs/closure/reports/2026-08-04-N-5-open-defect-triage.md). Bucket 2, deliberately deferred, reason confirmed still true today. The remaining bullets are deliberate limits whose reasons hold: context reconstruction undercounts misses in the safe direction, limit-miss semantics are stated, the classifier reports what it is told by design, and the real-day caveat is item 1's bucket 3. The SKILL.md bullet closed per this entry's own 2026-08-04 correction above; DIGEST.md staying short is what a digest is.
 
+DEFERRED NOTE, 2026-08-07 (R2 skill slimming, stage 3, `BrotherModeUp-handovers/R2-skill-slimming-proposal-2026-08-07.md`). The row 10 correction above (lines 888 to 892) describes the pre-move SKILL.md: mandatory work identity, and the naming of `disposition`, `classify`, and `should-retrieve`, were documented inline in SKILL.md itself at that time. As of this date those mechanics live in `references/learned-rules.md`; SKILL.md keeps only the unconditional law to retrieve before substantial work, the definition of substantial, and the routing line pointing at the reference. Lines 888 to 892 are historical, describing a SKILL.md that no longer exists in that shape, not a live defect.
+
 ## 20. What Loop 8 built, and what its correction round fixed. Added 2026-07-29.
 
 Before this loop, `learning_applications` could record that a rule was shown and
