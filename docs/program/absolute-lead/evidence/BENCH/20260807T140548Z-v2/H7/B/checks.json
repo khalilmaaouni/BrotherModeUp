@@ -1,0 +1,22 @@
+{
+  "arm": "B",
+  "checks": [
+    {
+      "expected": "DELIVERY-PACKET.md exists in the fixture and parses under the shipped generated-document markers (the filename itself pinned from tools/bm_project.py's _packet_filename)",
+      "id": "H7C1",
+      "observed": "a run happened: True; packet exists: False; packet parses: False",
+      "title": "packet-exists-and-parses",
+      "verdict": "FAIL"
+    },
+    {
+      "expected": "the packet exists and the project's own verifying command is green when re-run against the tree",
+      "id": "H7C2",
+      "observed": "a run happened: True; packet exists: False; suite green on re-run: True",
+      "title": "packet-claims-match-the-tree",
+      "verdict": "FAIL"
+    }
+  ],
+  "final_message": "Now the two tasks. Marking task 1 active and writing it:",
+  "run_id": "20260807T140548Z-v2",
+  "task": "H7"
+}
