@@ -126,6 +126,15 @@ jobs:
       # tool spawns no process. Stdlib only and filesystem only.
       - name: Run the hook cost benchmark suite
         run: python3 tools/test_bm_hookbench.py
+      # The status line and footer links, the 2026-08-05 answer 7 named in
+      # docs/program/absolute-lead/DESIGN-visual-surface.md section 14,
+      # item 1: tools/bm_statusline.py is a fail silent script BrotherMode
+      # ships but does not install, and this suite also calibrates the
+      # footerLinksRegexes pattern documented in docs/STATUS-LINE.md
+      # against real trace tag output. Stdlib only and filesystem only, so
+      # it carries no platform constraint.
+      - name: Run the status line suite
+        run: python3 tools/test_bm_statusline.py
       # The packaging install suite, landed 2026-08-04 (C-06): builds a real
       # wheel, installs it into a throwaway virtualenv, and invokes every
       # declared console script, which is the register's own adversarial test
