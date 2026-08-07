@@ -70,6 +70,24 @@ USER-FACING STRINGS NAME NO REPO-RELATIVE PATH
   unit's own definition; nothing here composes a path relative to this
   repository's checkout location.
 
+THE UNATTENDED PREFLIGHT (see the section of the same name below)
+  `--unattended` on `start` or `step` refuses the run unless seven
+  preconditions hold. It changes NOTHING without that flag: interactive
+  behaviour is identical, pinned by
+  TestUnattendedPreflightLeavesInteractiveUseAlone.
+
+  Three of those preconditions are repository facts, and they are answered
+  by tools/bm_autosave.py, the only OTHER shipping module this repository
+  lets import `subprocess` (tools/test_bm.py's allowlist names exactly the
+  two). So the sentence below stays exactly true of THIS file, and here is
+  the part it does not say: under `--unattended`, and only then, the
+  preflight calls a sibling module that starts git processes of its own.
+  That is the boundary tools/test_bm_controller.py's own
+  _execution_primitive_offences docstring already declares it cannot see,
+  used deliberately and named here rather than discovered later. Reusing
+  bm_autosave.py is the point: one snapshot mechanism, not two stories
+  about what is recoverable.
+
 Python 3.9, standard library only. No network. The only `subprocess` call
 site is SubprocessCheckRunner.run, and it exists to run the founder's OWN
 done_check/verifier/rollback commands, never anything this file invents.
@@ -4660,18 +4678,557 @@ def _drive_until_parked(engine, project_id, max_steps):
 
 
 # ---------------------------------------------------------------------------
+# THE UNATTENDED PREFLIGHT: what must be true BEFORE a run nobody is
+# watching may start.
+#
+# Founder posture, 2026-08-06. docs/FULL-AUTO.md's own "READ THIS BEFORE ANY
+# UNATTENDED RUN" block stated this target in prose and told the founder to
+# do it by hand; this section is that prose turned into a gate. The goal it
+# serves is BOUNDED DAMAGE, not more capability: an unattended run may only
+# start on a machine where the harm it could do can be seen and undone.
+#
+# INTERACTIVE USE IS UNTOUCHED, and that is the load-bearing property of
+# this whole section. Nothing below runs unless `--unattended` is passed on
+# the command line. No default changes, no environment variable is read
+# unless that flag is present, and no existing code path gains a branch that
+# can fire without it, so a founder sitting at the keyboard gets byte for
+# byte the behaviour they had before. The regression guard is
+# TestUnattendedPreflightLeavesInteractiveUseAlone in
+# tools/test_bm_controller.py.
+#
+# THE TWO FENCE CONDITIONS REFUSE, THEY DO NOT SET (the choice stated, here
+# and in unattended_preflight's own docstring). BM_FENCE_MODE and
+# BM_FENCE_STRICT are read by tools/bm_fence_hook.py, and that hook runs as
+# a SEPARATE PROCESS spawned by the runtime from the runtime's own
+# environment (hooks/hooks.json), never as a child of this one. A value this
+# process wrote into its own os.environ would therefore reach nothing at
+# all, and a controller that "turned enforcement on" while the hook kept
+# reading the old value would be worse than one that refuses: it would
+# report a protection nobody has. So the controller refuses, and names the
+# exact command that really does change what the hook reads.
+# ---------------------------------------------------------------------------
+
+#: The seven reason codes an unattended start can refuse with, one per
+#: precondition, as NAMED CONSTANTS rather than literals at each raise site.
+#: One place to enumerate them from is what lets UNATTENDED_REFUSAL_HELP
+#: below and the tests both be checked against the same list: a reason code
+#: that reaches a founder with no plain-language rewrite is this
+#: repository's own twice-recorded defect (docs/mistakes/
+#: M08-new-refusals-had-no-plain-language-twice.md).
+UNATTENDED_NO_IDENTITY = "unattended-no-identity"
+UNATTENDED_FENCE_ADVISORY = "unattended-fence-advisory"
+UNATTENDED_FENCE_NOT_STRICT = "unattended-fence-not-strict"
+UNATTENDED_NO_REPOSITORY = "unattended-no-repository"
+UNATTENDED_DIRTY_TREE = "unattended-dirty-tree"
+UNATTENDED_FOREIGN_CLAIM = "unattended-foreign-claim"
+UNATTENDED_NO_SNAPSHOT = "unattended-no-snapshot"
+
+#: The exact remediation for the two fence conditions, as the founder would
+#: type it. Constants, not literals inside a sentence, because each is
+#: quoted in two places here and once again in docs/FULL-AUTO.md, and a
+#: drifted copy would send somebody to the wrong variable.
+UNATTENDED_FENCE_MODE_COMMAND = "export BM_FENCE_MODE=enforced"
+UNATTENDED_FENCE_STRICT_COMMAND = "export BM_FENCE_STRICT=1"
+
+#: reason code -> (what we were doing, what is wrong, what to do next), the
+#: same three-part shape tools/bm_visual.py's REFUSAL_HELP uses, so a
+#: founder meets a sentence rather than a code. It lives HERE and not in
+#: bm_visual.py because that map is enumerated from tools/bm_store.py's own
+#: source, and these seven are the CONTROLLER's refusals, which that scanner
+#: cannot see. Naming them in bm_visual.py's map as well is a separate,
+#: named cross-writer ask, recorded rather than assumed.
+UNATTENDED_REFUSAL_HELP = {
+    UNATTENDED_NO_IDENTITY: (
+        "getting ready to run on its own, with nobody watching",
+        "the run has no stable name for itself, or its records could not "
+        "be read, so a second attempt could not tell that it was the same "
+        "run coming back",
+        "Give the run the same session name every time you start it, and "
+        "check that BrotherMode is set up in this folder."),
+    UNATTENDED_FENCE_ADVISORY: (
+        "checking that the file protection is really switched on",
+        "the protection is in advise-only mode, which means that when it "
+        "cannot check a write it lets the write through and prints a note "
+        "nobody is awake to read",
+        "Switch it to refusing mode in the same terminal you start the run "
+        "from, then start again: " + UNATTENDED_FENCE_MODE_COMMAND),
+    UNATTENDED_FENCE_NOT_STRICT: (
+        "checking that the file protection refuses unclaimed edits",
+        "edits to files no piece of work has claimed would be allowed "
+        "through, which is the shape an unwatched run's mistakes take most "
+        "often",
+        "Turn the stricter setting on in the same terminal you start the "
+        "run from, then start again: " + UNATTENDED_FENCE_STRICT_COMMAND),
+    UNATTENDED_NO_REPOSITORY: (
+        "finding the version history this run could be undone from",
+        "this folder is not a tracked project, or it is not sitting on a "
+        "named branch, so there would be no way to put the files back",
+        "Run it from a tracked project on its own branch, and check that "
+        "branch out by name first."),
+    UNATTENDED_DIRTY_TREE: (
+        "checking that nothing unfinished is already in the way",
+        "files are already changed here, and an unwatched run on top of "
+        "them makes your work and its work impossible to tell apart "
+        "afterwards",
+        "Save or set aside what you were doing, or name each changed file "
+        "when you start so it is on record that you meant to leave it."),
+    UNATTENDED_FOREIGN_CLAIM: (
+        "checking that nobody else is holding the files this run will "
+        "write",
+        "another session already claimed one of them, and two writers over "
+        "one file is the failure this product exists to prevent",
+        "Wait for that session to finish, or have it hand the files over, "
+        "then start again."),
+    UNATTENDED_NO_SNAPSHOT: (
+        "taking the safety copy this run could be rewound to",
+        "the safety copy could not be taken, so there would be nothing to "
+        "rewind to if the run went wrong",
+        "Check that the project's version history is healthy, then start "
+        "again."),
+}
+
+
+class UnattendedGitFacts(object):
+    """The four repository facts the preflight needs, and the one snapshot
+    it may take, all answered by tools/bm_autosave.py.
+
+    WHY THAT MODULE AND NOT A SECOND ONE. tools/test_bm.py's own
+    no-subprocess scan names exactly two shipping modules that may import
+    `subprocess`: tools/bm_autosave.py and this file. bm_autosave.py already
+    owns the recovery snapshot, already runs every git call through one
+    sanitised-environment funnel (its own `_run_git`), and already resolves
+    the repository root once so a call made from a subdirectory still covers
+    the whole tree. A second snapshot mechanism would be a second story
+    about what is recoverable, which is exactly the thing a founder cannot
+    check at 3am. So this class is a thin reader over that module and
+    invents nothing.
+
+    WHY IT IS A CLASS AND NOT FOUR FUNCTIONS. It is the seam the tests
+    replace. Every condition below takes its repository facts through one
+    injected object, so tools/test_bm_controller.py exercises all seven
+    refusals against a fake with no repository, no git binary and no
+    snapshot, deterministically, in the same hermetic style the engine tests
+    already use for the worker and the check runner.
+
+    The sibling module is loaded LAZILY, on first use. An interactive
+    command must not pay for, or be exposed to, a module it will never
+    reach: without `--unattended` nothing here is ever constructed, and
+    nothing here is ever loaded."""
+
+    def __init__(self, autosave=None):
+        self._autosave = autosave
+
+    def _module(self):
+        if self._autosave is None:
+            self._autosave = _load("bm_autosave")
+        return self._autosave
+
+    def toplevel(self, start_dir):
+        """The repository root containing `start_dir`, or None when there is
+        no repository. bm_autosave.resolve_toplevel's own answer, which
+        also covers git being unavailable at all: its runner answers rc 127
+        rather than raising."""
+        return self._module().resolve_toplevel(start_dir)
+
+    def branch(self, toplevel):
+        """The checked-out branch NAME, or None when there is not one.
+
+        A detached HEAD answers the literal string 'HEAD', and that is a
+        None here rather than a name: commits made on a detached HEAD are
+        reachable from no branch, so an unattended run that made twenty of
+        them would leave the founder with nothing to check out in the
+        morning."""
+        result = self._module()._run_git(
+            toplevel, "rev-parse", "--abbrev-ref", "HEAD")
+        if result.returncode != 0:
+            return None
+        name = (result.stdout or "").strip()
+        if not name or name == "HEAD":
+            return None
+        return name
+
+    def modified_paths(self, toplevel):
+        """Every path `git status --porcelain` reports as staged, changed,
+        untracked or conflicted, or None when git could not answer at all
+        (which is a refusal below, never an all-clear).
+
+        Untracked files COUNT. The snapshot captures them, and a founder who
+        left a scratch file in the tree has left something an unattended run
+        can trip over; both facts point the same way.
+
+        ONE HONEST LIMIT, stated rather than implied: git quotes a path
+        whose name needs escaping (`core.quotePath`, on by default), and the
+        surrounding quotes are stripped here without un-escaping what is
+        inside them. Such a path is therefore compared, and must be
+        acknowledged, in the spelling this function returns. The refusal
+        prints that exact spelling, so it stays actionable rather than
+        becoming a guessing game."""
+        result = self._module()._run_git(toplevel, "status", "--porcelain")
+        if result.returncode != 0:
+            return None
+        paths = []
+        for line in (result.stdout or "").splitlines():
+            if len(line) < 4:
+                continue
+            entry = line[3:].strip()
+            if " -> " in entry:
+                entry = entry.split(" -> ", 1)[1].strip()
+            if len(entry) > 1 and entry.startswith('"') and entry.endswith('"'):
+                entry = entry[1:-1]
+            if entry:
+                paths.append(entry)
+        return paths
+
+    def recovery_point(self, toplevel, session_id):
+        """(ok, detail): is there a snapshot this run could be rewound to,
+        AFTER this call.
+
+        Precondition 5 is "a recovery snapshot exists, or is created before
+        the first write", and this is that sentence in order: take one now,
+        and only if taking one failed, ask whether an earlier one is still
+        on record. A snapshot whose answer is 'clean' is a success and not a
+        failure: it means the tree already matches the last commit, so the
+        commit itself is the recovery point."""
+        mod = self._module()
+        result = mod.snapshot(toplevel, session_id, "unattended preflight")
+        if result.get("ok"):
+            return True, (result.get("reason") or "saved")
+        existing = mod.list_snapshot_refs(toplevel,
+                                          mod.worktree_id_for(toplevel))
+        if existing:
+            return True, ("an earlier snapshot is still on record (%s)"
+                          % (existing[-1][0],))
+        return False, (result.get("reason") or "the snapshot did not publish")
+
+
+def _unattended_identity(store, project_id, session_id):
+    """Precondition 7: the records are readable, and this run has a name it
+    will still have on the next invocation.
+
+    Both halves are ONE condition because they fail the same way. A run with
+    no stable session identity gets a fresh `cli-<random>` on every process
+    (see _actor), so the driver guard sees a foreign session on the second
+    call, the recovery snapshot it took is filed under a name nothing looks
+    for again, and every fence it holds looks like somebody else's. Reading
+    the contract is the store probe: it is the read every later step depends
+    on, so a store that cannot answer it cannot run anything anyway."""
+    if not (session_id or "").strip():
+        return (UNATTENDED_NO_IDENTITY,
+                "an unattended run needs a stable --session-id, because "
+                "without one every invocation invents a fresh identity: the "
+                "next process would be refused as a foreign driver, and the "
+                "recovery snapshot this one takes would be filed under a "
+                "name nothing looks for again. Pass the SAME --session-id on "
+                "every call of this run.")
+    try:
+        store.latest_contract(project_id, raw=True)
+    except Exception as exc:
+        return (UNATTENDED_NO_IDENTITY,
+                "this project's records could not be read (%s: %s), so "
+                "nothing here can be judged. Run the doctor before starting "
+                "anything unattended."
+                % (type(exc).__name__, exc))
+    return None
+
+
+def _unattended_fence_mode(env):
+    """Precondition 1: fence enforcement is really on for this run.
+
+    fence_mode and enforced_mode in tools/bm_fence_hook.py read exactly this
+    variable, lowercased and stripped, with anything unrecognised falling
+    back to ADVISORY. The comparison here is deliberately that same one,
+    spelled the same way, so the two cannot come to disagree about what
+    'enforced' means."""
+    raw = (env.get("BM_FENCE_MODE") or "").strip().lower()
+    if raw == "enforced":
+        return None
+    return (UNATTENDED_FENCE_ADVISORY,
+            "the write fence is ADVISORY for this run (BM_FENCE_MODE=%r), so "
+            "a write it cannot check is allowed through with a warning "
+            "nobody is awake to read. Run this in the same shell that starts "
+            "the run, then start again:\n    %s"
+            % (env.get("BM_FENCE_MODE") or "", UNATTENDED_FENCE_MODE_COMMAND))
+
+
+def _unattended_fence_strict(env):
+    """Precondition 2: claim-before-edit is being enforced too.
+
+    tools/bm_fence_hook.py reads BM_FENCE_STRICT as SET unless it is empty
+    or '0'; the same reading is used here, for the same reason the mode
+    check above uses that file's own."""
+    raw = (env.get("BM_FENCE_STRICT") or "").strip()
+    if raw not in ("", "0"):
+        return None
+    return (UNATTENDED_FENCE_NOT_STRICT,
+            "BM_FENCE_STRICT is not set, so an edit to a file no active "
+            "record has claimed is allowed through. That is the ordinary "
+            "shape of an unwatched run's mistake. Run this in the same shell "
+            "that starts the run, then start again:\n    %s"
+            % (UNATTENDED_FENCE_STRICT_COMMAND,))
+
+
+def _unattended_repository(git, root):
+    """Precondition 3: a repository is detected and a branch is named.
+
+    Returns (finding_or_None, toplevel_or_None), so the two later conditions
+    that need the repository root do not ask for it a second time and cannot
+    end up judging a different tree."""
+    toplevel = git.toplevel(root)
+    if not toplevel:
+        return ((UNATTENDED_NO_REPOSITORY,
+                 "%s is not inside a git repository, or git could not be run "
+                 "here, so there is no history an unattended run could be "
+                 "undone from. Start it from a tracked project."
+                 % (root,)), None)
+    branch = git.branch(toplevel)
+    if not branch:
+        return ((UNATTENDED_NO_REPOSITORY,
+                 "the repository at %s has no branch checked out (a detached "
+                 "HEAD). Commits made from there are reachable from no "
+                 "branch, so a night of them would be unfindable in the "
+                 "morning. Check a branch out by name first."
+                 % (toplevel,)), toplevel)
+    return None, toplevel
+
+
+def _unattended_clean_tree(git, toplevel, acknowledged):
+    """Precondition 4: the working tree is clean, OR every existing
+    modification was named on the command line.
+
+    Named PER PATH, not blanket-acknowledged. A single flag meaning "yes, I
+    know it is dirty" becomes a habit, and a habit acknowledges the file the
+    founder forgot about just as readily as the one they meant. Naming each
+    path is evidence the acknowledgement was written after reading the list,
+    and a file that appears after that list was read still stops the run."""
+    if toplevel is None:
+        return None
+    modified = git.modified_paths(toplevel)
+    if modified is None:
+        return (UNATTENDED_DIRTY_TREE,
+                "git could not report the state of the working tree at %s, "
+                "so it cannot be called clean. An unattended run does not "
+                "start on an unknown tree." % (toplevel,))
+    known = set(acknowledged or ())
+    unacknowledged = [p for p in modified if p not in known]
+    if not unacknowledged:
+        return None
+    return (UNATTENDED_DIRTY_TREE,
+            "the working tree at %s already carries %d change(s) nobody has "
+            "acknowledged, so this run's work could not be told apart from "
+            "yours afterwards. Either clean the tree, or name each one "
+            "exactly as printed here:\n%s"
+            % (toplevel, len(unacknowledged),
+               "\n".join("    --acknowledge-modified %s" % p
+                         for p in unacknowledged)))
+
+
+def _unattended_write_paths(store, project_id):
+    """The paths this run may write: the live contract's own allowed_paths,
+    which is the only boundary that exists before a unit graph does.
+
+    An empty list when there is no contract at all, and that is honest
+    rather than lenient: with no contract every gate_check refuses, so such
+    a run writes nothing and there is nothing for a foreign claim to collide
+    with."""
+    contract = store.latest_contract(project_id, raw=True)
+    if contract is None:
+        return []
+    return list(contract.get("allowed_paths") or [])
+
+
+def _unattended_foreign_claim(store, root, session_id, project_id):
+    """Precondition 6: no OTHER session holds an active claim over a path
+    this run may write.
+
+    THE OVERLAP RULE IS NOT COPIED. bs.paths_overlap is the same primitive
+    Store._find_overlap uses, so "do these two paths collide?" keeps one
+    implementation in this product and this is a caller of it, never a
+    second opinion. What is done here and not there is the ENUMERATION:
+    Store._find_overlap returns the FIRST colliding record and stops, which
+    is right for a claim that is about to be written and wrong here, because
+    the first hit is often this same run's own fence from the previous
+    invocation, and stopping there would hide a real foreign holder behind
+    it. So every active record is walked, and the ones belonging to this
+    session are skipped by name.
+
+    store.dump(raw=True) is the read: the store's own public export, which
+    works on a read-only handle and which tools/bm_autosave.py and
+    tools/bm_threads.py already use to enumerate records. Nothing read here
+    is printed; only the collision answer leaves this function."""
+    write_paths = _unattended_write_paths(store, project_id)
+    if not write_paths:
+        return None
+    try:
+        norm = bs._normalize_files(write_paths, root)
+    except Exception as exc:
+        return (UNATTENDED_FOREIGN_CLAIM,
+                "the contract's allowed paths could not be resolved against "
+                "%s (%s: %s), so no claim over them could be ruled out."
+                % (root, type(exc).__name__, exc))
+    tables = store.dump(raw=True)
+    holders = {}
+    for row in tables.get("records") or []:
+        if row.get("state") == "active":
+            holders[row.get("lifecycle_uuid")] = row
+    for claim in tables.get("claims") or []:
+        holder = holders.get(claim.get("lifecycle_uuid"))
+        if holder is None:
+            continue
+        if (holder.get("session_id") or "") == session_id:
+            continue
+        for path in norm:
+            if bs.paths_overlap(path, claim.get("path") or ""):
+                return (UNATTENDED_FOREIGN_CLAIM,
+                        "the active record %r (session %r) already claims "
+                        "%r, which overlaps %r in this project's allowed "
+                        "paths. Two writers over one path is the failure "
+                        "this product exists to prevent, so the run does not "
+                        "start. Wait for that record to be parked, completed "
+                        "or adopted."
+                        % (holder.get("name"),
+                           holder.get("session_id") or "",
+                           claim.get("path"), path))
+    return None
+
+
+def _unattended_snapshot(git, toplevel, session_id):
+    """Precondition 5: a recovery snapshot exists, or one is taken now.
+
+    Evaluated LAST of the seven, deliberately. It is the only condition with
+    an effect on disk, and a preflight that refuses should leave nothing
+    behind: the six read-only conditions all have to pass before this one
+    writes a single ref."""
+    if toplevel is None:
+        return None
+    ok, detail = git.recovery_point(toplevel, session_id)
+    if ok:
+        return None
+    return (UNATTENDED_NO_SNAPSHOT,
+            "no recovery snapshot could be taken or found for %s (%s), so "
+            "there would be nothing to rewind to. An unattended run does not "
+            "start without one." % (toplevel, detail))
+
+
+def unattended_preflight(store, root, project_id, session_id,
+                         acknowledged=(), env=None, git=None):
+    """The seven conditions an unattended run must meet, as a list of
+    (reason_code, sentence) findings. An empty list means "start it".
+
+    THE CHOICE, STATED. Conditions 1 and 2 (BM_FENCE_MODE=enforced and
+    BM_FENCE_STRICT=1) REFUSE; this function never sets the effective policy
+    for the run itself. Those variables are read by tools/bm_fence_hook.py,
+    which the RUNTIME spawns as its own process from its own environment, so
+    nothing this process writes into its own os.environ can reach it.
+    Setting them here would produce a controller that believes enforcement
+    is on while the hook doing the enforcing reads the old value, which is
+    worse than refusing: it would report a protection nobody has. The
+    refusal names the exact command instead.
+
+    EVERY READ-ONLY CONDITION IS EVALUATED, not only the first, because the
+    founder running this is about to walk away and a preflight that reveals
+    one problem per attempt costs them the evening. The findings come back
+    in a fixed order and the CLI raises on the first one's code, so each
+    condition is still a single named refusal with a single named reason.
+
+    `store`, `env` and `git` are the three seams: the tests hand this a
+    throwaway store, a plain dictionary and a fake repository object, so all
+    seven refusals are exercised with no real environment, no git binary and
+    no snapshot anywhere."""
+    env = os.environ if env is None else env
+    git = UnattendedGitFacts() if git is None else git
+    findings = []
+    identity = _unattended_identity(store, project_id, session_id)
+    if identity is not None:
+        findings.append(identity)
+    for finding in (_unattended_fence_mode(env),
+                    _unattended_fence_strict(env)):
+        if finding is not None:
+            findings.append(finding)
+    repository, toplevel = _unattended_repository(git, root)
+    if repository is not None:
+        findings.append(repository)
+    dirty = _unattended_clean_tree(git, toplevel, acknowledged)
+    if dirty is not None:
+        findings.append(dirty)
+    if identity is None:
+        # A store that could not be read cannot be asked about claims
+        # either, and asking anyway would report a second failure that is
+        # really the first one wearing a different name.
+        foreign = _unattended_foreign_claim(store, root, session_id,
+                                            project_id)
+        if foreign is not None:
+            findings.append(foreign)
+    if findings:
+        # Nothing is written while anything else is wrong: the snapshot is
+        # the one condition with an effect, so it never runs on a machine
+        # this function is already about to refuse.
+        return findings
+    snapshot = _unattended_snapshot(git, toplevel, session_id)
+    if snapshot is not None:
+        findings.append(snapshot)
+    return findings
+
+
+def unattended_refusal_text(findings):
+    """The founder-facing block for a refused unattended start: every
+    finding, each one rewritten through UNATTENDED_REFUSAL_HELP so a reason
+    code never reaches a person on its own (defect M08), each one carrying
+    the engine's own sentence underneath it."""
+    lines = ["this run was asked to start UNATTENDED, and %d of the seven "
+             "safety conditions %s not met"
+             % (len(findings), "is" if len(findings) == 1 else "are")]
+    for code, sentence in findings:
+        context, hint, next_action = UNATTENDED_REFUSAL_HELP[code]
+        lines.append("")
+        lines.append("  [%s] while %s" % (code, context))
+        lines.append("  what is wrong: %s." % (hint,))
+        lines.append("  what to do: %s" % (next_action,))
+        lines.append("  detail: %s" % (sentence,))
+    return "\n".join(lines)
+
+
+def _refuse_unless_unattended_ready(kv, store, project_id):
+    """The one call site shape both `start` and `step` use. A no-op unless
+    --unattended was passed, which is what keeps interactive use identical.
+
+    `step` is gated as well as `start` because an unattended driver is a
+    loop, and a loop calling `step` directly would walk straight past a gate
+    that only guarded `start`."""
+    if not kv.get("unattended"):
+        return
+    findings = unattended_preflight(
+        store, _root(), project_id, kv.get("session-id") or "",
+        acknowledged=kv.get("acknowledge-modified") or [])
+    if not findings:
+        return
+    raise bs.OwnershipRefused(
+        findings[0][0], unattended_refusal_text(findings),
+        details={"reasons": [code for code, _sentence in findings]})
+
+
+#: The two flags the preflight adds, and the one of them that repeats. Named
+#: once and spliced into both commands' flag tuples, so `start` and `step`
+#: cannot drift into offering different halves of the same gate.
+_UNATTENDED_FLAGS = ("unattended", "acknowledge-modified")
+_UNATTENDED_REPEATABLE = ("acknowledge-modified",)
+_UNATTENDED_USAGE = ("[--unattended (needs --session-id)] "
+                     "[--acknowledge-modified PATH ...]")
+
+
+# ---------------------------------------------------------------------------
 # start
 # ---------------------------------------------------------------------------
 
 _START_FLAGS = ("project", "outcome", "done-definition", "workflow-version",
-                "controller-id", "max-steps", "json") + _ACTOR_FLAGS
+                "controller-id", "max-steps", "json") + _ACTOR_FLAGS \
+               + _UNATTENDED_FLAGS
 
 
 def _start_usage():
     return ("usage: start --project ID [--outcome T --done-definition T] "
             "[--workflow-version N] --controller-id ID [--max-steps N] "
             "--actor-name NAME [--actor-type human|model] "
-            "[--session-id SID] [--json]")
+            "[--session-id SID] [--json] " + _UNATTENDED_USAGE)
 
 
 def cmd_start(argv):
@@ -4688,7 +5245,8 @@ def cmd_start(argv):
         argv, _START_FLAGS,
         wants_value=("project", "outcome", "done-definition",
                      "workflow-version", "controller-id",
-                     "max-steps") + _ACTOR_FLAGS)
+                     "max-steps") + _ACTOR_FLAGS,
+        repeatable=_UNATTENDED_REPEATABLE)
     usage = _start_usage()
     project_id = _require(kv, "project", usage)
     controller_id = _require(kv, "controller-id", usage)
@@ -4696,6 +5254,10 @@ def cmd_start(argv):
     max_steps = _int_flag(kv, "max-steps", usage, default=500, minimum=1)
     store = _store()
     try:
+        # The unattended gate, BEFORE the run row is read and long before
+        # anything is dispatched. A no-op without --unattended, which is
+        # what leaves interactive `start` byte for byte what it was.
+        _refuse_unless_unattended_ready(kv, store, project_id)
         run = store.get_run(project_id, raw=True)
         engine = _engine(store, controller_id, actor, actor["session_id"])
         if run is None:
@@ -4728,23 +5290,34 @@ def cmd_start(argv):
 # step
 # ---------------------------------------------------------------------------
 
-_STEP_FLAGS = ("project", "controller-id", "json") + _ACTOR_FLAGS
+_STEP_FLAGS = ("project", "controller-id", "json") + _ACTOR_FLAGS \
+              + _UNATTENDED_FLAGS
 
 
 def cmd_step(argv):
     """One pass of the resumable loop through the CLI. Refuses ('no-run')
     if the project has no controller run yet, the same refusal
-    ControllerEngine.step() itself raises; this command adds no
-    pre-check of its own, matching the thin-CLI law."""
+    ControllerEngine.step() itself raises; this command adds no pre-check
+    of its own to the ordinary path, matching the thin-CLI law.
+
+    The ONE exception, and it is opt-in by flag: `--unattended` runs the
+    preflight first (see _refuse_unless_unattended_ready). `step` is gated
+    as well as `start` because an unattended driver is a loop, and a loop
+    calling `step` directly would walk past a gate that only guarded
+    `start`. Without the flag this line is a return and nothing else, so
+    the sentence above stays true of every interactive call."""
     _pos, kv = _parse(argv, _STEP_FLAGS,
-                      wants_value=("project", "controller-id") + _ACTOR_FLAGS)
+                      wants_value=("project", "controller-id") + _ACTOR_FLAGS,
+                      repeatable=_UNATTENDED_REPEATABLE)
     usage = ("usage: step --project ID --controller-id ID --actor-name "
-             "NAME [--actor-type human|model] [--session-id SID] [--json]")
+             "NAME [--actor-type human|model] [--session-id SID] [--json] "
+             + _UNATTENDED_USAGE)
     project_id = _require(kv, "project", usage)
     controller_id = _require(kv, "controller-id", usage)
     actor = _actor(kv, usage)
     store = _store()
     try:
+        _refuse_unless_unattended_ready(kv, store, project_id)
         engine = _engine(store, controller_id, actor, actor["session_id"])
         summary = engine.step(project_id)
     finally:

@@ -1,16 +1,16 @@
 ---
-description: Explain what BrotherME does and how to use it, in plain language
+description: Explain what BrotherMode does and how to use it, in plain language
 ---
 
 Outcome to produce: a short, plain-language orientation that ends in ONE question, not a list of everything the product can do. No setup steps that involve editing files, and no internal machinery.
 
 ## What to say first, and it is three sentences
 
-1. What BrotherME does: it turns an idea into a verified result, with a guided start, honest time and cost ranges, clear status, and a checked delivery.
+1. What BrotherMode does: it turns an idea into a verified result, with a guided start, honest time and cost ranges, clear status, and a checked delivery.
 2. What it will want from them: their goal in their own words, and a decision now and then. Everything else it does itself and reports back.
 3. That normal use is plain conversation. Commands exist, and each one introduces itself at the moment it becomes useful, so nobody has to memorise a list.
 
-Then ask exactly ONE question, and stop. Offer the deep tour as the recommended option for a user who wants to see where everything stands (one page laying out project progress, the decisions taken, the process drawings, and, for anyone who wants to help build, how this project is put together), then ask whether they would like that tour or would rather just say what they want to accomplish. On the deep-tour answer, enter the deep tour flow in the brotherme skill. Honest limit either way: a project with no BrotherME record yet gets a static tour of the product instead of the live view, and the page it builds says plainly which one it is showing.
+Then ask exactly ONE question, and stop. Offer the deep tour as the recommended option for a user who wants to see where everything stands (one page laying out project progress, the decisions taken, the process drawings, and, for anyone who wants to help build, how this project is put together), then ask whether they would like that tour or would rather just say what they want to accomplish. On the deep-tour answer, enter the deep tour flow in the brotherme skill. Honest limit either way: a project with no BrotherMode record yet gets a static tour of the product instead of the live view, and the page it builds says plainly which one it is showing.
 
 Do not print the command list unless they ask for it. That is the whole change to this command: a list of fourteen things at minute zero is what people bounce off, and the three below are all anyone needs to begin.
 
@@ -35,6 +35,6 @@ Say in the same breath that the catch-up and the handover pages are normally run
 
 ## The honesty answers, unchanged, and one question away
 
-- What is verified: BrotherME is verified on Claude Code. This plugin install path is new and has been installed exactly once, on the author's machine from a local copy of the repository; the git-clone install described in the repository README is the verified path. The honest list of what is and is not proven is docs/KNOWN-LIMITS.md inside the installed BrotherME folder, readable right here without visiting the repository.
+- What is verified: BrotherMode is verified on Claude Code. The plugin install path is proven on every release by scripts/release-smoke-install.sh, which drives the real client end to end in a throwaway configuration and which docs/RELEASE.md makes a step no release may skip; the pinned tagged clone remains the immutable option for auditors. The honest list of what is and is not proven is docs/KNOWN-LIMITS.md inside the installed BrotherMode folder, readable right here without visiting the repository.
 - What is true about their records: your project's records are the one place a project's real status lives; CANVAS.md, the page that shows where the project stands, and the delivery packet are all generated from those records for reading, never edited by hand and never the source of truth themselves.
-- Your data is yours: ask for an export and BrotherME writes everything it has recorded about your project to one file you can keep. Ask for a purge and BrotherME permanently erases the project's data, keeping only the record that a purge happened, so a deletion can never hide itself.
+- Your data is yours: ask for an export and BrotherMode writes everything it has recorded about your project to one file you can keep. Ask for a purge and BrotherMode permanently erases the project's data, keeping only the record that a purge happened, so a deletion can never hide itself.
