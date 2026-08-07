@@ -166,10 +166,10 @@ for that date.
 Tags exist now, so this is the install instruction, not a future one:
 
 ```bash
-git clone --branch v2.1.1 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v3.0.0 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
-`--branch v2.1.1` checks out that exact tag, not a moving branch head. It
+`--branch v3.0.0` checks out that exact tag, not a moving branch head. It
 is the public install target, not necessarily the identity the tree on `main`
 currently carries: `python3 tools/bm_project_facts.py --field
 install_target_tag` prints the tag every onboarding page pins, and `python3
@@ -338,13 +338,17 @@ through preparing it.
 
 ## What has and has not happened, stated honestly
 
-CURRENT STATE, 2026-08-07, second entry: `v2.1.1` EXISTS, annotated tag
-`522ee64` dereferencing to the release-cut commit `748e1f7`, pushed and
-verified by ls-remote, with the full gate green on that exact tree
-(`python3 tools/test_all.py` closing ALL GREEN, exit 0; the dated count
-lives in CHANGELOG.md). `VERSION`
-now reads `2.2.0.dev1` per rule 3. `install_target_tag` is `v2.1.1` and
-every page pins it. Cut by the session under the founder's grant, recorded
+CURRENT STATE, 2026-08-08: `v3.0.0` is the release identity. `VERSION`
+reads `3.0.0` on the release-cut commit alone, per rule 1, and
+`install_target_tag` is `v3.0.0` with every page pinning it. This is the
+identity release: the plugin id and marketplace changed from `brotherme`
+to `brothermode`, so an existing v2 install must be uninstalled before
+this one is installed, and every install page says so where a reader
+meets it. The prior entry (`v2.1.1`, annotated tag `522ee64` at commit
+`748e1f7`) stays below as history.
+
+Older, kept dated: `install_target_tag` was `v2.1.1` and every page
+pinned it. Cut by the session under the founder's grant, recorded
 verbatim in the session registry.
 
 The entry below is the cut itself, minutes earlier, kept dated rather than
