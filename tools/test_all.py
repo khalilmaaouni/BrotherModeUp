@@ -139,6 +139,10 @@ SUITES = (
     # so the inventory gate never runs past an unlisted suite.
     "test_bm_agents.py",
     "test_bm_hookperf.py",
+    # v3 Wave C (2026-08-08): the lifecycle canary step pins. The live
+    # canary script itself stays unregistered like probe-installed, it
+    # needs a real claude binary; these pins are fast and deterministic.
+    "test_bm_e2e_pins.py",
     "test_bm_fence_hook.py",
     # Loop 6 WP-G (2026-08-01): the Bash-write detection suite for
     # tools/bm_bash_audit.py. Placed right after the fence hook suite it
