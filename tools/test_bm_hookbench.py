@@ -399,11 +399,38 @@ class TestARealMeasurement(unittest.TestCase):
     latency: it asserts the record is complete, honest about its machine, and
     that taking it left this repository alone."""
 
+    #: Bytecode cache directory this suite is responsible for NOT creating.
+    PYCACHE = os.path.join(HERE, "__pycache__")
+
     @classmethod
     def setUpClass(cls):
         cls.before = cls._tree_snapshot()
+        cls.pycache_before = cls._pycache_state()
         cls.record = hb.measure(reps=1)
         cls.after = cls._tree_snapshot()
+        cls.pycache_after = cls._pycache_state()
+
+    @classmethod
+    def _pycache_state(cls):
+        """What tools/__pycache__ looks like right now, or None if absent.
+
+        The earlier form of the check asserted the directory did not exist AT
+        ALL, which is a claim this suite does not own: in the full gate other
+        suites import modules from tools/ first, so on a machine with no cache
+        checked out the directory is already there before this suite starts.
+        That is somebody else's write, and it made the check fail on
+        continuous integration while passing on a developer machine that ran
+        this suite alone, twice, which is the shape of a check that tests its
+        environment rather than its subject. What this suite owns is whether
+        THIS measurement wrote anything, so the state is compared across the
+        run instead. It still fails if the measurement creates the directory,
+        adds a file to it, or rewrites one.
+        """
+        if not os.path.isdir(cls.PYCACHE):
+            return None
+        return sorted(
+            (name, os.stat(os.path.join(cls.PYCACHE, name)).st_mtime_ns)
+            for name in os.listdir(cls.PYCACHE))
 
     @staticmethod
     def _tree_snapshot():
@@ -418,10 +445,13 @@ class TestARealMeasurement(unittest.TestCase):
                          "a measurement changed the contents of this "
                          "checkout; it is supposed to work entirely inside a "
                          "temporary directory")
-        self.assertFalse(
-            os.path.isdir(os.path.join(HERE, "__pycache__")),
-            "the measured imports wrote a bytecode cache into tools/; "
-            "sys.pycache_prefix is supposed to send it to the sandbox")
+        self.assertEqual(
+            self.pycache_before, self.pycache_after,
+            "the measurement changed tools/__pycache__; the sandbox sets both "
+            "sys.pycache_prefix and sys.dont_write_bytecode so that the "
+            "measured imports cache into the throwaway directory and nowhere "
+            "else. A cache that already existed before the run is another "
+            "suite's business, not this one's.")
 
     def test_every_action_reports_a_chain_and_its_programs(self):
         self.assertTrue(self.record["actions"])
