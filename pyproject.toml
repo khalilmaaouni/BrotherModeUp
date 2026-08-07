@@ -80,6 +80,7 @@ bm-autonomy = "bm_autonomy:cli"
 bm-controller = "bm_controller:cli"
 bm-lead = "bm_lead:cli"
 bm-view = "bm_view:cli"
+bm-statusline = "bm_statusline:main"
 
 [tool.setuptools]
 # "" (the root) maps to tools/, where every flat py-module below lives.
@@ -117,6 +118,7 @@ py-modules = [
     "bm_visual",
     "bm_view",
     "bm_hookbench",
+    "bm_statusline",
 ]
 # brotherme/core/schema.py is library code tools/bm_store.py loads by path
 # (see _schema() there); without this the wheel/sdist never contain it and
