@@ -37,13 +37,24 @@ SUPPORTED_FIELDS = {
     "disallowedTools", "skills", "memory", "background", "isolation",
 }
 
-# The plan's Agent 6 section, verbatim: five worker profiles, no more, no
-# fewer, each pinned to its exact model, effort, and isolation.
+# The plan's Agent 6 section: five worker profiles, no more, no fewer, each
+# pinned to its exact model, effort, and isolation.
+#
+# ISOLATION AMENDED 2026-08-08 by the review adjudication (finding H-1,
+# handovers/v3/ADJUDICATION.md group G3): the plan asked for
+# isolation worktree on the two writer profiles, but the fence does NOT
+# resolve claims across worktrees (measured, and carried as an
+# expectedFailure in tools/test_brothermode_cli.py), so shipping worktree
+# as the writers' DEFAULT would have made the un-fenced path the normal
+# one. The writers now carry no isolation field, and the limit is
+# published in docs/limits/CURRENT.md. Restore worktree here only when
+# cross-worktree claim resolution is fixed and proven by that test
+# turning green.
 EXPECTED = {
     "fast-worker": {"model": "haiku", "effort": "medium",
-                     "isolation": "worktree", "read_only": False},
+                     "isolation": None, "read_only": False},
     "builder": {"model": "sonnet", "effort": "high",
-                "isolation": "worktree", "read_only": False},
+                "isolation": None, "read_only": False},
     "researcher": {"model": "sonnet", "effort": "high",
                    "isolation": None, "read_only": True},
     "navigator": {"model": "opus", "effort": "xhigh",
@@ -57,7 +68,7 @@ WRITE_TOOLS = {"Write", "Edit", "NotebookEdit"}
 # The minimal frontmatter field set this suite allows per role. Any field
 # beyond this is feature creep the fence brief's "no new capabilities" rule
 # forbids, caught here rather than discovered later.
-WRITER_FIELDS = {"name", "description", "model", "effort", "isolation"}
+WRITER_FIELDS = {"name", "description", "model", "effort"}
 READ_ONLY_FIELDS = {"name", "description", "model", "effort", "disallowedTools"}
 
 
