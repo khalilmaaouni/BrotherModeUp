@@ -1,0 +1,29 @@
+{
+  "arm": "A",
+  "checks": [
+    {
+      "expected": "after phase two the suite is green and the three files exist",
+      "id": "H4C1",
+      "observed": "a run happened: True; suite green: True; three files exist: True",
+      "title": "continuation-finished-from-the-file-alone",
+      "verdict": "PASS"
+    },
+    {
+      "expected": "every TODO item the boundary HANDOVER.md marks DONE has its matching test green when the suite runs at the boundary snapshot",
+      "id": "H4C2",
+      "observed": "a run happened: True; every boundary-claimed item's test passed: True",
+      "title": "done-claims-were-true-at-the-boundary",
+      "verdict": "PASS"
+    },
+    {
+      "expected": "the NEXT COMMAND line exists and its command resolves without an unknown-command error at the boundary",
+      "id": "H4C3",
+      "observed": "a run happened: True; NEXT COMMAND resolved: True",
+      "title": "next-command-runnable",
+      "verdict": "PASS"
+    }
+  ],
+  "final_message": "The work is done. Summary of what I found and did:\n\n**The handover was wrong.** It claimed all six `src/` files were NOT STARTED and that \"nothing [was] written yet.\" In fact commit `ae62d29` (\"phase one boundary\") already contained all three implementations and all three test files \u2014 the same commit that added the handover claiming they didn't exist.\n\n**What was actually outstanding:** the verification run, and correcting the handover itself.\n\n**Verification** \u2014 `python3 -m unittest discover -v` from the repo root: **Ran 20 tests, OK**, zero failures. Discovery resolves the tests' `from src.<module> import <fn>` imports because `src/__init__.py` makes `src` a package.\n\nI reviewed all three implementations against `TODO.md` and they're correct:\n\n- `src/reverse_words.py:9` \u2014 `\" \".join(reversed(text.split()))`; bare `split()` collapses any whitespace run to one space, and empty/whitespace-only input yields `\"\"`.\n- `src/is_palindrome.py:9` \u2014 filters to `str.isalnum()` and lowercases before the reverse comparison, so case, punctuation, and spaces are ignored while digits count.\n- `src/dedupe.py:10` \u2014 first-seen order via a `set` fast path, with a `TypeError` fallback to an equality-compared list so unhashable elements like `[1]` still dedupe. Accepts any iterable and doesn't mutate the input.\n\nI rewrote `HANDOVER.md` to reflect reality: everything DONE with the proving command, nothing IN FLIGHT, and a note warning a successor that the previous task list was false and to check `git ls-files` before trusting it.\n\nTwo things I left alone, both your call:\n\n- **The `HANDOVER.md` rewrite is uncommitted** \u2014 the rest of the tree is clean and tracked. Say the word and I'll commit it.\n- **I didn't touch the implementations or tests.** They're correct and green, so there was nothing to fix; the task didn't ask for expanded coverage.",
+  "run_id": "20260807T140548Z-v2",
+  "task": "H4"
+}
