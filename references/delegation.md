@@ -43,8 +43,11 @@ looking at rendered output. Each runtime maps the profiles to whatever models
 it currently offers. Per-runtime mapping example, Claude Code as configured on
 this machine today (an example of a mapping, never the routing law itself):
 Fast Worker maps to haiku, Builder and Researcher map to sonnet, Navigator and
-Reviewer map to opus. Unclear which profile fits: inherit the session default
-model rather than guessing.
+Reviewer map to opus. That mapping is also encoded as native plugin agents in
+agents/ (fast-worker, builder, researcher, navigator, reviewer, no additional
+role classes); this law stays the policy authority for when each is used, the
+agent files are only the native invocation surface. Unclear which profile
+fits: inherit the session default model rather than guessing.
 Every brief stands alone: goal, exact readable and writable files, the fence, the
 constraints, the return format, a runnable done-check, and its token budget. A brief
 that cannot name its files is not ready; explore first. Two additions proven by
