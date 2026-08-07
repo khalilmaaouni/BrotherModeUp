@@ -1,0 +1,38 @@
+diff --git a/CANVAS.md b/CANVAS.md
+new file mode 100644
+index 0000000..4bd3965
+--- /dev/null
++++ b/CANVAS.md
+@@ -0,0 +1,32 @@
++<!-- BEGIN GENERATED BROTHERMODE CANVAS (edit outside these markers only) -->
++
++# Project Canvas: Greet fixture
++
++project_id: greet-fixture
++status: (none)
++phase: kickoff
++
++## Outcome
++A working hello() function with a passing test, verified by the project's own test command.
++
++## User
++Fixture project: write src/greet.py with hello(name), and test_greet.py with a passing unittest. Verifying command: python3 -m unittest discover -v
++
++## Included
++src/greet.py holding a hello(name) function that returns the greeting exactly as specified, test_greet.py holding a passing unittest for hello
++
++## Not included
++packaging or publishing, any file outside this repository, extra features beyond the two named files
++
++## Success checks
++python3 -m unittest discover -v runs and reports OK with at least one test, hello with the name World returns the exact greeting string specified in the README
++
++## Main risks
++unittest discovery may not import a module under src/ unless the package path is handled
++
++## Tasks by state
++
++## Latest forecast
++(none yet)
++
++<!-- END GENERATED BROTHERMODE CANVAS -->
