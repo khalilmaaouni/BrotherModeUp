@@ -69,8 +69,8 @@ MARKETPLACE_JSON = os.path.join(ROOT, ".claude-plugin", "marketplace.json")
 INSTALL_PY = os.path.join(ROOT, "scripts", "install.py")
 COMMANDS_DIR = os.path.join(ROOT, "commands")
 VERSION_FILE = os.path.join(ROOT, "VERSION")
-PLUGIN_NAME = "brotherme"
-MARKETPLACE_NAME = "brotherme-marketplace"
+PLUGIN_NAME = "brothermode"
+MARKETPLACE_NAME = "brothermode-marketplace"
 PLUGIN_ID = "brothermode@brothermode-marketplace"
 PLUGIN_ROOT_TOKEN = "${CLAUDE_PLUGIN_ROOT}"
 
@@ -119,6 +119,21 @@ def _sha256_file(path):
     with io.open(path, "rb") as fh:
         h.update(fh.read())
     return h.hexdigest()
+
+
+def _skill_root_entries():
+    """Immediate subdirectory names under skills/, sorted. This is the
+    on-disk truth `claude plugin details` counts into its Skills(...) line:
+    confirmed live against the renamed plugin, where plugin.json carries no
+    "skills" key at all (removed as redundant per standards finding F4) yet
+    the CLI still printed "Skills (32)  auto, auto-status, brief, ..."
+    covering every one of these directories plus every commands/*.md file.
+    The manifest's own skills array is gone by design; the directory
+    listing is what both the CLI and this suite now check against."""
+    skills_root = os.path.join(ROOT, "skills")
+    return sorted(
+        d for d in os.listdir(skills_root)
+        if os.path.isdir(os.path.join(skills_root, d)))
 
 
 def _excluded_name(name):
@@ -182,18 +197,30 @@ class TestPluginManifestsAgreeWithTheTree(unittest.TestCase):
             "VERSION=%r but: %s" % (version, "; ".join(mismatches)))
 
     def test_every_skill_path_the_plugin_manifest_declares_resolves(self):
+        """Renamed truth (F4): plugin.json no longer carries a "skills"
+        field at all. Verified live against the renamed plugin: with that
+        key absent, `claude plugin details brothermode` still printed
+        "Skills (32)  auto, auto-status, brief, ..." naming every skills/
+        subdirectory, proving the CLI discovers skills/*/SKILL.md from disk
+        rather than reading this manifest field, which is why F4 called the
+        field redundant and removed it. Two invariants survive that
+        discovery: plugin.json must not reintroduce the redundant field,
+        and every directory the CLI would discover under skills/ must
+        actually resolve to a real SKILL.md."""
         plugin = _read_json(PLUGIN_JSON)
-        skills = plugin.get("skills", [])
-        self.assertTrue(skills, "plugin.json declares no skills")
-        bad = []
-        for entry in skills:
-            resolved = os.path.normpath(os.path.join(ROOT, entry))
-            if not os.path.isfile(os.path.join(resolved, "SKILL.md")):
-                bad.append("%s -> %s" % (entry, resolved))
+        self.assertNotIn(
+            "skills", plugin,
+            "plugin.json declares a skills field again; F4 removed it as "
+            "redundant because the CLI discovers skills/*/SKILL.md from "
+            "disk, not from this manifest")
+        entries = _skill_root_entries()
+        self.assertTrue(entries, "skills/ contains no subdirectories")
+        skills_root = os.path.join(ROOT, "skills")
+        bad = [d for d in entries
+              if not os.path.isfile(os.path.join(skills_root, d, "SKILL.md"))]
         self.assertEqual(
             [], bad,
-            "skill entry(ies) do not resolve to a directory containing "
-            "SKILL.md: %s" % "; ".join(bad))
+            "skills/ subdirectory(ies) do not contain SKILL.md: %s" % bad)
 
     def test_the_marketplace_entry_points_at_this_repository(self):
         marketplace = _read_json(MARKETPLACE_JSON)
@@ -505,6 +532,13 @@ class TestPluginInstallFromATempCopy(unittest.TestCase):
             "%s" % (names, expected_events, m.group(0)))
 
     def test_plugin_details_inventory_counts_the_commands_and_the_skill(self):
+        """Renamed truth (F4): plugin.json's "skills" field is gone, so the
+        expected count can no longer read it. Confirmed live: with that
+        field absent, `claude plugin details brothermode` printed
+        "Skills (32)" for a tree with 15 commands/*.md files and 17
+        skills/ subdirectories (15 + 17 = 32), so the CLI's Skills(...)
+        count is commands/*.md plus every skills/ subdirectory, not the
+        (now absent) manifest list."""
         stdout = self.details_result.stdout
         m = re.search(r"Skills \((\d+)\)", stdout)
         self.assertIsNotNone(
@@ -512,13 +546,13 @@ class TestPluginInstallFromATempCopy(unittest.TestCase):
             % stdout)
         count = int(m.group(1))
         command_files = glob.glob(os.path.join(COMMANDS_DIR, "*.md"))
-        plugin_skills = _read_json(PLUGIN_JSON).get("skills", [])
-        expected = len(command_files) + len(plugin_skills)
+        skill_dirs = _skill_root_entries()
+        expected = len(command_files) + len(skill_dirs)
         self.assertEqual(
             expected, count,
-            "line reports Skills(%d) but commands/*.md=%d + plugin.json "
-            "skills=%d: %s" % (count, len(command_files), len(plugin_skills),
-                               stdout))
+            "line reports Skills(%d) but commands/*.md=%d + skills/ "
+            "subdirectories=%d: %s" % (count, len(command_files),
+                                       len(skill_dirs), stdout))
 
     def test_no_machine_state_reaches_the_installed_copy(self):
         self.assertTrue(self.install_path, self.list_result.stdout)
