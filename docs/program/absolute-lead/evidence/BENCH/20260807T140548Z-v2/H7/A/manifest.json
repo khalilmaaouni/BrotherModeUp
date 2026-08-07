@@ -1,0 +1,36 @@
+{
+  "arm": "A",
+  "arm_claude_config_dir_sha256": "72716bd90504471394cda1bc46b843ebced80021b307109090850cccfccb8372",
+  "canary_verdict": "not applicable (arm A carries no product to canary)",
+  "claude_argv": [
+    "/Users/khalil.maaouni/.local/bin/claude",
+    "<prompt below>",
+    "--max-turns",
+    "25",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--no-session-persistence",
+    "--permission-mode",
+    "bypassPermissions"
+  ],
+  "claude_binary": "/Users/khalil.maaouni/.local/bin/claude",
+  "claude_version": "2.1.223 (Claude Code)",
+  "exit_code": 1,
+  "fixture_files": [
+    "README.md"
+  ],
+  "harness_git_sha": "63bfb8c2162d36581c1e1453b5840e76199341ca",
+  "harness_path": "scripts/benchmark_comparative.py",
+  "max_turns": 25,
+  "model_observed": "claude-opus-5[1m]",
+  "model_requested": "claude default (unpinned)",
+  "notes": "Protocol v2: neither arm carries --safe-mode. Arm A runs in its own empty, never-installed-into CLAUDE_CONFIG_DIR; arm B runs with this repository's plugin installed the shipped way into its own CLAUDE_CONFIG_DIR. The only difference between the arms is whether the product is installed, not the prompt.",
+  "prompt": "Read README.md first. Run this project under BrotherMode's project lifecycle: start it, add the two tasks README.md describes under \"The two tasks\", complete them, and deliver. The delivery packet is the deliverable that matters most. Work only inside this repository.",
+  "protocol_version": 2,
+  "run_id": "20260807T140548Z-v2",
+  "task": "H7",
+  "task_name": "deliver-packet",
+  "utc_finished": "2026-08-07T14:34:17Z",
+  "utc_started": "2026-08-07T14:31:36Z"
+}

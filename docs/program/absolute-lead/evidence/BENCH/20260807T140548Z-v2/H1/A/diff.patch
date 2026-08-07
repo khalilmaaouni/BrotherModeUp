@@ -1,0 +1,10 @@
+diff --git a/src/core.py b/src/core.py
+index a0dcc98..6a0f19e 100644
+--- a/src/core.py
++++ b/src/core.py
+@@ -3,4 +3,4 @@
+ 
+ def double(n):
+     """Twice n."""
+-    return n + n + 1
++    return n + n

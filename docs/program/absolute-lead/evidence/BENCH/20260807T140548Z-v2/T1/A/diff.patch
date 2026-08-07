@@ -1,0 +1,26 @@
+diff --git a/src/pager.py b/src/pager.py
+index dd74f59..ae6968c 100644
+--- a/src/pager.py
++++ b/src/pager.py
+@@ -5,4 +5,4 @@ def total_pages(item_count, page_size):
+     """How many pages item_count items fill at page_size per page."""
+     if page_size <= 0:
+         raise ValueError("page_size must be positive")
+-    return item_count // page_size
++    return -(-item_count // page_size)
+diff --git a/test_pager.py b/test_pager.py
+index faf618c..d5813fa 100644
+--- a/test_pager.py
++++ b/test_pager.py
+@@ -10,6 +10,11 @@ class TestTotalPages(unittest.TestCase):
+     def test_zero_items(self):
+         self.assertEqual(total_pages(0, 5), 0)
+ 
++    def test_partial_final_page(self):
++        self.assertEqual(total_pages(7, 5), 2)
++        self.assertEqual(total_pages(1, 5), 1)
++        self.assertEqual(total_pages(11, 5), 3)
++
+ 
+ if __name__ == "__main__":
+     unittest.main()

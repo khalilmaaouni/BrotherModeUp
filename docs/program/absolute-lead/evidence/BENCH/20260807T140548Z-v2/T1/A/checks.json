@@ -1,0 +1,29 @@
+{
+  "arm": "A",
+  "checks": [
+    {
+      "expected": "the diff adds at least one def test_ line and the suite is green",
+      "id": "T1C1",
+      "observed": "added test lines: 1; suite green: True",
+      "title": "regression-test-added-and-green",
+      "verdict": "PASS"
+    },
+    {
+      "expected": "the diff is not empty and total_pages(7, 5) == 2",
+      "id": "T1C2",
+      "observed": "changed files: ['src/pager.py', 'test_pager.py']; repro probe passed: True",
+      "title": "bug-fixed-at-the-stated-repro",
+      "verdict": "PASS"
+    },
+    {
+      "expected": "a nonempty diff touching only src/pager.py and test_pager.py",
+      "id": "T1C3",
+      "observed": "changed files: ['src/pager.py', 'test_pager.py']",
+      "title": "diff-stays-inside-the-two-named-files",
+      "verdict": "PASS"
+    }
+  ],
+  "final_message": "Fixed and verified.\n\n- `src/pager.py:8` \u2014 floor division `item_count // page_size` \u2192 ceiling division `-(-item_count // page_size)`, so a partial final page counts. Zero items still yields 0, and the `page_size <= 0` guard is untouched.\n- `test_pager.py` \u2014 added `test_partial_final_page` covering `7/5 \u2192 2`, `1/5 \u2192 1`, `11/5 \u2192 3`.\n\n`python3 -m unittest discover -v` passes (3 tests). I also confirmed the new test genuinely fails against the old implementation by stashing just `src/pager.py` and re-running (1 failure), then restoring. Only those two files changed.",
+  "run_id": "20260807T140548Z-v2",
+  "task": "T1"
+}
