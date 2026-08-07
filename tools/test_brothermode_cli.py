@@ -623,7 +623,7 @@ class TestUpdateAgainstALocalTagRepository(unittest.TestCase):
         self.assertEqual(code, 0, text)
         self.assertIn("An update is available", text)
         self.assertIn("v2.5.0", text)
-        self.assertIn("/plugin marketplace update brotherme-marketplace",
+        self.assertIn("/plugin marketplace update brothermode-marketplace",
                       text)
         self.assertIn("git fetch --tags", text)
         self.assertIn("git checkout v2.5.0", text)

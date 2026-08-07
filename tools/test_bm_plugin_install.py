@@ -71,7 +71,7 @@ COMMANDS_DIR = os.path.join(ROOT, "commands")
 VERSION_FILE = os.path.join(ROOT, "VERSION")
 PLUGIN_NAME = "brotherme"
 MARKETPLACE_NAME = "brotherme-marketplace"
-PLUGIN_ID = "brotherme@brotherme-marketplace"
+PLUGIN_ID = "brothermode@brothermode-marketplace"
 PLUGIN_ROOT_TOKEN = "${CLAUDE_PLUGIN_ROOT}"
 
 # The clone installer's own COPY_EXCLUDE_NAMES (scripts/install.py, confirmed

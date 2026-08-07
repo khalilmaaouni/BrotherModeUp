@@ -436,7 +436,7 @@ def cmd_update(argv):
     _out("")
     _out("Plugin install:")
     _out("  /plugin marketplace update brothermode-marketplace")
-    _out("  /plugin update brotherme")
+    _out("  /plugin update brothermode")
     _out("  then restart Claude Code")
     _out("")
     _out("Pinned clone (inside the skill folder):")
