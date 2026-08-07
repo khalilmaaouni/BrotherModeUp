@@ -1649,16 +1649,43 @@ def _dir_digest(path):
 
 def _arm_a_environment(dirs_made):
     """Arm A per design section 1.1.5: plain because its configuration is
-    EMPTY, never because a flag muted it. A fresh throwaway HOME (for
-    BROTHERME_CONFIG only; the real HOME is kept for the environment dict
-    itself, see _probe_env) and a fresh, never-installed-into
-    CLAUDE_CONFIG_DIR. Returns (env, claude_config_dir)."""
+    EMPTY of any BrotherMode install, never because a flag muted it.
+
+    Authentication, measured 2026-08-07 on this run's own first launch:
+    a cell under an unauthenticated config dir dies in under a second
+    with "Not logged in", because the login needs BOTH the real HOME
+    keychain and a signed-in CLAUDE_CONFIG_DIR. So arm A mirrors arm B's
+    one sanctioned auth path with its own twin variable:
+    BM_BENCH_AUTH_CONFIG_PLAIN names a founder-authenticated persistent
+    folder that must NEVER have the plugin installed. The guard below
+    refuses a contaminated folder rather than silently running an arm A
+    that is not plain; the two variables are deliberately distinct so
+    one folder cannot serve both arms by accident. Unset, the old fully
+    throwaway behavior remains for environments where headless auth
+    works without a login (CI with an API key).
+    Returns (env, claude_config_dir)."""
     home_dir = os.path.realpath(tempfile.mkdtemp(prefix="bm-arm-a-home-"))
-    claude_config_dir = os.path.realpath(
-        tempfile.mkdtemp(prefix="bm-arm-a-config-"))
-    dirs_made += [home_dir, claude_config_dir]
+    dirs_made.append(home_dir)
+    plain_auth = os.environ.get("BM_BENCH_AUTH_CONFIG_PLAIN", "").strip()
+    if plain_auth:
+        claude_config_dir = os.path.realpath(plain_auth)
+        if not os.path.isdir(claude_config_dir):
+            raise Skip("BM_BENCH_AUTH_CONFIG_PLAIN names no directory: %s"
+                       % claude_config_dir)
+        marketplaces = os.path.join(claude_config_dir, "plugins",
+                                    "known_marketplaces.json")
+        if os.path.exists(marketplaces):
+            raise Skip("BM_BENCH_AUTH_CONFIG_PLAIN folder %s has plugin "
+                       "registrations, so arm A would not be plain; use a "
+                       "folder that has never had a plugin installed"
+                       % claude_config_dir)
+    else:
+        claude_config_dir = os.path.realpath(
+            tempfile.mkdtemp(prefix="bm-arm-a-config-"))
+        dirs_made.append(claude_config_dir)
     broth_config = os.path.join(home_dir, ".brotherme", "config.json")
-    env = _probe_env(home_dir, claude_config_dir, broth_config)
+    env = _probe_env(None if plain_auth else home_dir, claude_config_dir,
+                     broth_config)
     return env, claude_config_dir
 
 
