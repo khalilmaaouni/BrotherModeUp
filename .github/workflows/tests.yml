@@ -116,6 +116,16 @@ jobs:
       # hook that reports the cross-fence write the fence hook cannot block.
       - name: Run the bash audit suite
         run: python3 tools/test_bm_bash_audit.py
+      # The hook cost benchmark, landed 2026-08-07 (D6): tools/bm_hookbench.py
+      # times the real hook programs against a throwaway store and generates
+      # docs/PERFORMANCE.md from the run. The suite asserts nothing about how
+      # long anything took, because a latency assertion on a shared runner is a
+      # flake generator; it asserts that the chain is read from
+      # hooks/hooks.json, that the sandbox makes the fence do real work, that
+      # the page re-renders from its own record byte for byte, and that the
+      # tool spawns no process. Stdlib only and filesystem only.
+      - name: Run the hook cost benchmark suite
+        run: python3 tools/test_bm_hookbench.py
       # The packaging install suite, landed 2026-08-04 (C-06): builds a real
       # wheel, installs it into a throwaway virtualenv, and invokes every
       # declared console script, which is the register's own adversarial test

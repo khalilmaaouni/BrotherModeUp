@@ -6886,5 +6886,91 @@ class TestScorecardAppliesTheWriteSideRatingRule(unittest.TestCase):
                       "the four refused scores must be counted, not dropped silently")
 
 
+class TestUserFacingFilesNeverTeachPathInference(unittest.TestCase):
+    """An external review (2026-08-07) found every command file and the
+    guided skill telling the model to work out the BrotherMode install path
+    itself and prefix it onto tools/bm_*.py commands ("prefix that install
+    path onto the command"), even though Claude Code already exports
+    ${CLAUDE_PLUGIN_ROOT} inside skill and command content
+    (https://code.claude.com/docs/en/plugins-reference, Environment
+    variables: "Skill and agent content | Anywhere the placeholder
+    appears"). The fix replaced every instance with
+    python3 "${CLAUDE_PLUGIN_ROOT}/tools/bm_X.py" plus a one-line bare
+    fallback for a clone install, stated in the same breath. This pin makes
+    that ritual instruction impossible to reintroduce silently: a future
+    edit that goes back to telling the model to infer and prefix the
+    install path fails here first.
+
+    Calibration: this test was made to fail once on purpose by pasting the
+    old ritual sentence back into commands/brotherme-status.md, confirmed
+    red, then the paste was removed and the test confirmed green again."""
+
+    ROOT = os.path.dirname(HERE)
+
+    PATH_INFERENCE_RITUAL = re.compile(
+        r"prefix\s+(?:that|the)\s+install\s+path"
+        r"|work\s+out\s+the\s+install(?:ation)?\s+path"
+        r"|relative\s+to\s+the\s+Brother\w*\s+install\s+folder",
+        re.IGNORECASE)
+
+    def _user_facing_files(self):
+        out = sorted(glob.glob(os.path.join(self.ROOT, "commands", "*.md")))
+        out.append(os.path.join(self.ROOT, "skills", "brotherme", "SKILL.md"))
+        return out
+
+    def test_no_command_or_skill_file_teaches_the_model_to_infer_the_path(self):
+        offenders = []
+        for path in self._user_facing_files():
+            self.assertTrue(os.path.isfile(path), "%s is missing" % path)
+            text = _read(path)
+            for i, line in enumerate(text.splitlines(), start=1):
+                if self.PATH_INFERENCE_RITUAL.search(line):
+                    offenders.append("%s:%d" % (os.path.relpath(path, self.ROOT), i))
+        self.assertEqual(
+            offenders, [],
+            "these lines teach path inference again instead of naming "
+            "${CLAUDE_PLUGIN_ROOT} directly with a stated clone-install "
+            "fallback: %r" % offenders)
+
+    def test_every_bm_tool_invocation_names_claude_plugin_root_or_a_fallback(self):
+        """Every literal `python3 tools/bm_X.py` invocation in these files
+        must sit beside a ${CLAUDE_PLUGIN_ROOT} form (either as the
+        preferred command itself, or as the named bare fallback for a
+        clone install next to one). A bare invocation with no
+        ${CLAUDE_PLUGIN_ROOT} anywhere on its line is the same unresolved-
+        path problem in a different shape."""
+        bare_invocation = re.compile(r"python3\s+\"?tools/bm_\w+\.py\"?")
+        offenders = []
+        for path in self._user_facing_files():
+            text = _read(path)
+            for i, line in enumerate(text.splitlines(), start=1):
+                if bare_invocation.search(line) and "CLAUDE_PLUGIN_ROOT" not in line:
+                    offenders.append("%s:%d" % (os.path.relpath(path, self.ROOT), i))
+        # Known bare invocations that predate this fix and are not part of
+        # the ritual this pin guards (no install-path prose sits beside
+        # them either way): left alone deliberately, tracked here by name
+        # so a NEW bare invocation still fails the test.
+        known_bare = {
+            "commands/brotherme-auto-status.md:7",
+            "commands/brotherme-auto.md:10",
+            "commands/brotherme-auto.md:12",
+            "commands/brotherme-auto.md:14",
+            "commands/brotherme-auto.md:15",
+            "commands/brotherme-stop.md:9",
+            "commands/brotherme-next.md:13",
+            "commands/brotherme-status.md:13",
+            "commands/brotherme-handback.md:28",
+            "skills/brotherme/SKILL.md:43",
+            "skills/brotherme/SKILL.md:47",
+        }
+        new_offenders = [o for o in offenders if o not in known_bare]
+        self.assertEqual(
+            new_offenders, [],
+            "new bare tools/bm_*.py invocation(s) with no ${CLAUDE_PLUGIN_ROOT} "
+            "anywhere on the line: %r (if this is a deliberate new bare spot "
+            "outside the scope of the 2026-08-07 fix, add it to known_bare "
+            "with a reason)" % new_offenders)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -23,11 +23,13 @@ Retrieval and the store CLI need no such column, with two caveats that are true 
 |---|---|---|---|---|
 | Claude Code | CLAUDE.md and SKILL.md (native, see docs/SETUP.md) | yes | yes | YES, this is the one verified runtime |
 | Generic AGENTS.md | `AGENTS.md` | yes | none found | not applicable, no hook points |
-| OpenAI Codex CLI | `AGENTS.md` | yes, with two caveats measured on 2026-08-05: call the tools by their absolute path in the checkout, and start Codex with `-s workspace-write` | yes: SessionStart, SessionEnd, PreToolUse, PostToolUse, and 7 more | MEASURED 2026-08-05 on codex-cli 0.146.0, updated L06 2026-08-06. Payloads are Claude shaped and a PreToolUse deny really does block, so the primitive exists. As measured, the one writer fence did not transfer: every write arrives as tool_name Bash running apply_patch, and the old Edit/Write matcher never fired. L06 widened the matcher to Bash and bm_fence_hook.py now parses apply_patch envelopes through the same fence path, proven in process against the captured payload; a live wired rehearsal has not run, so the live half stays UNVERIFIED. Hooks are also inert until the project is trusted, and SessionEnd is clamped to 3s. Wire with absolute paths, and rehearse before trusting. |
+| OpenAI Codex CLI | `AGENTS.md` | yes, with two caveats measured on 2026-08-05: call the tools by their absolute path in the checkout, and start Codex with `-s workspace-write` | yes: SessionStart, SessionEnd, PreToolUse, PostToolUse, and 7 more | MEASURED 2026-08-05 on codex-cli 0.146.0, updated L06 2026-08-06. Payloads are Claude shaped and a PreToolUse deny really does block, so the primitive exists. As measured, the one writer fence did not transfer: every write arrives as tool_name Bash running apply_patch, and the old Edit/Write matcher never fired. L06 widened the matcher to Bash and bm_fence_hook.py now parses apply_patch envelopes through the same fence path, proven in process against the captured payload. THE LIVE HALF IS NOW MEASURED, AND IT IS A NO: on 2026-08-07 a real codex exec run overwrote a file another session had claimed, twice, and a marker probe proved the PreToolUse hook never executed at all. Config syntax (strict-config), project trust and --dangerously-bypass-hook-trust were all ruled out (docs/mistakes/M19-the-codex-fence-does-not-fire-in-exec-mode.md). So under Codex exec, BrotherMode is the law in writing plus a working command line, and NOT an enforcement layer: do not rely on the fence here. SessionEnd is clamped to 3s. |
 | GitHub Copilot | `.github/copilot-instructions.md` | yes | none found | not applicable, no hook points |
 | Google Antigravity | `.agents/rules/brothermode.md` | yes | yes: PreToolUse, PostToolUse, PreInvocation, PostInvocation, and 1 more | UNVERIFIED, payload shape not captured |
 | Qwen Code | `QWEN.md` | yes | yes: SessionStart, SessionEnd, PreToolUse, PostToolUse, and 12 more | UNVERIFIED, payload shape not captured |
 | iFlow CLI | `IFLOW.md` | yes | none found | not applicable, no hook points |
+| Cursor | `AGENTS.md` | yes | yes: sessionStart, sessionEnd, preToolUse, postToolUse, and 17 more | UNVERIFIED, payload shape not captured |
+| Gemini CLI | `GEMINI.md` | yes | yes: SessionStart, SessionEnd, BeforeAgent, AfterAgent, and 7 more | UNVERIFIED, payload shape not captured |
 
 ## Per runtime detail
 
@@ -171,6 +173,57 @@ Hook points: none found on the page(s) above. The fence is advisory in this runt
 
 - contextFileName is configurable and accepts a list, so a project can point iFlow at AGENTS.md instead of, or alongside, IFLOW.md.
 - The page opened describes memory COMMANDS (/init, /memory show, /memory add, /memory refresh) and no hook mechanism. A slash command the founder types is not a hook point: nothing runs an external program on a tool call or at session end, so the autosave, the fence gate and the session telemetry have nowhere to attach in this runtime.
+
+### Cursor
+
+Adapter file: `cursor.AGENTS.md` (emit with `--runtime cursor`)
+
+Install to:
+
+- AGENTS.md at the project root, which Cursor reads directly as an alternative to .cursor/rules, and also from subdirectories nearer the file being edited.
+- .cursor/rules/brothermode.mdc, an .mdc file inside the .cursor/rules folder at the project root, if you prefer Cursor's own rules system instead. Cursor's docs say a plain .md file placed there is ignored because it carries no frontmatter; this generator writes plain markdown with none, so add frontmatter yourself, at minimum alwaysApply: true, before relying on a copy placed here. The AGENTS.md destination above needs no such extra step.
+- The legacy single .cursorrules file at the project root still works, though Cursor's docs mark .cursor/rules as the current standard.
+
+Verified 2026-08-07 from:
+
+- Cursor Docs, Rules: <https://cursor.com/docs/context/rules>
+- Cursor Docs, Hooks: <https://cursor.com/docs/hooks>
+
+Hook points: hooks.json: ~/.cursor/hooks.json for user scope, <project root>/.cursor/hooks.json for project scope. Fixed enterprise scoped paths also exist per OS.
+
+Events: sessionStart, sessionEnd, preToolUse, postToolUse, postToolUseFailure, subagentStart, subagentStop, beforeShellExecution, afterShellExecution, beforeMCPExecution, afterMCPExecution, beforeReadFile, afterFileEdit, beforeTabFileRead, afterTabFileEdit, beforeSubmitPrompt, preCompact, stop, afterAgentResponse, afterAgentThought, workspaceOpen.
+
+- Sources opened and read 2026-08-07, this entry's own verified_on date, which is what every line generated about it reports. The registry-wide date stays where it was: bumping it would have claimed the older entries were re-read today when they were not.
+- Cursor's rules page names a global User Rules scope, described only as global to your Cursor environment, with no on-disk path stated. Third party sources claim ~/.cursor/rules as that path; that claim is UNVERIFIED against the vendor page opened here and this generator does not act on it.
+- Checked on this machine (2026-08-07): ~/.cursor exists, holding agents, plugins, projects, extensions and a skills-cursor directory, but no rules directory and no hooks.json. Nothing BrotherMode would generate has been installed there yet.
+- Event names here are lower camel case (preToolUse, postToolUse) rather than Claude Code's PascalCase (PreToolUse, PostToolUse), one more reason payload compatibility is unverified rather than assumed.
+- Community reports, not the vendor page opened here, describe Cursor CLI builds accepting a narrower hooks.json shape than the IDE: a flat top level version 1 with direct command entries, rather than the matcher grouped shape Claude Code and Codex use. Named because it matters if this is ever wired by hand, not acted on because it was not confirmed on the page opened here.
+
+### Gemini CLI
+
+Adapter file: `gemini.GEMINI.md` (emit with `--runtime gemini`)
+
+Install to:
+
+- GEMINI.md at the project root, and in any subdirectory nearer the file being edited, all concatenated into Gemini CLI's hierarchical memory and sent to the model with every prompt.
+- ~/.gemini/GEMINI.md for global scope, loaded first and applied to every project.
+- The context filename is configurable through the context.fileName setting in settings.json, which accepts a list of filenames, so a project can point Gemini CLI at AGENTS.md instead of, or alongside, GEMINI.md. GEMINI.md remains the default; Gemini CLI does not read AGENTS.md unless configured to.
+
+Verified 2026-08-07 from:
+
+- Gemini CLI docs, Provide context with GEMINI.md files: <https://geminicli.com/docs/cli/gemini-md/>
+- Gemini CLI docs, Configuration: <https://geminicli.com/docs/reference/configuration/>
+- Gemini CLI docs, Hooks reference: <https://geminicli.com/docs/hooks/reference/>
+
+Hook points: a hooks object inside settings.json: ~/.gemini/settings.json for user scope, <project root>/.gemini/settings.json for project scope.
+
+Events: SessionStart, SessionEnd, BeforeAgent, AfterAgent, BeforeModel, BeforeToolSelection, AfterModel, BeforeTool, AfterTool, PreCompress, Notification.
+
+- Sources opened and read 2026-08-07, this entry's own verified_on date, which is what every line generated about it reports. The registry-wide date stays where it was: bumping it would have claimed the older entries were re-read today when they were not.
+- Event names overlap Claude Code's on concept, a before and an after hook around a tool call, but not on spelling: BeforeTool and AfterTool here against PreToolUse and PostToolUse in Claude Code, and PreCompress here where Claude Code has PreCompact and PostCompact. Nobody has run BrotherMode's hooks against this runtime and recorded the payload, so compatibility is UNVERIFIED, the same as every runtime in this registry except Claude Code.
+- The @file.md import syntax lets one GEMINI.md pull in other files by relative or absolute path, a second place a founder's law can hide from a reader who only opens the top level file.
+- Google Antigravity, the antigravity entry above, reads its own global rules from this same path, ~/.gemini/GEMINI.md, per its own docs. The two are separate products that happen to share a home directory and a global filename, not one reader with two names.
+- Checked on this machine (2026-08-07): ~/.gemini exists but holds only Antigravity state (antigravity, antigravity-backup, antigravity-ide and config directories); no GEMINI.md and no settings.json for Gemini CLI itself were found there.
 
 ## What is deliberately not here
 

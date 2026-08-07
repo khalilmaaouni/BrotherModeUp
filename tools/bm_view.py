@@ -283,7 +283,10 @@ VIEW_SECTIONS = (
     ("needs-you", "Waiting on you", "_sec_needs_you", "needs-you"),
     ("next-step", "Your next step", "_sec_next_step", "next-step"),
     ("pipeline", "The path of the work", "_sec_pipeline", "pipeline"),
+    ("progress", "How far each lane has moved", "_sec_progress",
+     "progress"),
     ("counts", "How much, against what limit", "_sec_counts", "counts"),
+    ("risks", "What could still go wrong", "_sec_risks", "risks"),
     ("decisions", "Decisions waiting for your answer", "_sec_decisions",
      "decisions"),
     ("insights", "What I now believe, and what proved it", "_sec_insights",
@@ -291,6 +294,8 @@ VIEW_SECTIONS = (
     ("gates", "What has to be true before this ships", "_sec_gates",
      "gates"),
     ("lanes", "Who holds the pen", "_sec_lanes", "lanes"),
+    ("documents", "What each finished piece produced", "_sec_documents",
+     "documents"),
     ("timeline", "The story so far", "_sec_timeline", "timeline"),
     ("your-move", "Your move", "_sec_your_move", "your-move"),
     ("help", "About this page", "_sec_help", "help"),
@@ -331,10 +336,22 @@ EMPTY_STATES = {
                 "the current one marked NOW.",
         "action": "Start the work",
         "command": "/brotherme-start"},
+    "progress": {
+        "title": "Progress by lane will build here",
+        "body": "As pieces of work are planned, each one shows its lane, "
+                "how far it has moved, and what checked it.",
+        "action": "Ask for the next step",
+        "command": "/brotherme-next"},
     "counts": {
         "title": "The counts will build here",
         "body": "Plain counts of checks passed and the work budget "
                 "used, each against its agreed limit.",
+        "action": "See where things stand",
+        "command": "/brotherme-status"},
+    "risks": {
+        "title": "You are clear of open risks right now",
+        "body": "When something could still go wrong, it lands here with "
+                "what would settle it and who is watching it.",
         "action": "See where things stand",
         "command": "/brotherme-status"},
     "decisions": {
@@ -361,6 +378,12 @@ EMPTY_STATES = {
                 "this shows who owns each open step.",
         "action": "Ask for the next step",
         "command": "/brotherme-next"},
+    "documents": {
+        "title": "What gets produced will be listed here",
+        "body": "Each finished piece of work shows the paths it produced "
+                "and the checks that ran on it.",
+        "action": "See where things stand",
+        "command": "/brotherme-status"},
     "timeline": {
         "title": "The story of the work will build here",
         "body": "Each short catch-up lands here in order, so you can "
@@ -399,9 +422,15 @@ SECTION_HELP = {
     "pipeline": ("Where the work is on its path.",
                  "The stages of the work drawn left to right, with the "
                  "current one marked NOW."),
+    "progress": ("Each piece of work, its lane, and how far it has moved.",
+                 "One bar per piece of work inside its own lane, plus "
+                 "what is finished and what is blocked and on what."),
     "counts": ("The numbers, each against its limit.",
                "Checks passed, work budget used and findings, each as a "
                "number against its agreed limit."),
+    "risks": ("What could still go wrong, and what would settle it.",
+              "Each open risk with what would settle it and who is "
+              "watching it, the most pressing first."),
     "decisions": ("Open choices, the highest stakes first.",
                   "Each open choice with a recommendation, what else was "
                   "weighed, and the option to take it back."),
@@ -414,6 +443,9 @@ SECTION_HELP = {
     "lanes": ("Who owns each open step right now.",
               "Drawn only when the work is split between more than one "
               "owner."),
+    "documents": ("What each finished piece produced, as a path.",
+                  "Every finished piece of work with the paths it "
+                  "produced and the checks that ran on it, timed."),
     "timeline": ("The catch-ups, oldest first.",
                  "Every catch-up in order, so the run replays forwards "
                  "from the beginning."),
@@ -630,8 +662,86 @@ def _sec_pipeline(ctx):
     return bv.to_svg(bv.diagram_pipeline(ctx["facts"]))
 
 
+def _task_label_by_id(tasks):
+    """A plain title for every task id this page knows about, so a
+    blocking id (DESIGN-progress-surface.md item 2's own field) reaches
+    the founder as a name rather than as a raw identifier: an id is a
+    trace attribute, never body text, everywhere else on this page."""
+    return {t.get("task_id"): (t.get("title") or t.get("task_id") or "")
+            for t in tasks if t.get("task_id")}
+
+
+def _sec_progress(ctx):
+    """DESIGN-progress-surface.md item 3: the timeline shape plus what is
+    finished and what is next, one lane at a time. Blank when the
+    records hold no pieces of work at all, which is a real answer."""
+    progress = ctx["progress"]
+    lanes = progress.get("lanes") or []
+    if not lanes:
+        return ""
+    labels = _task_label_by_id(ctx["tasks"])
+    parts = []
+    drawn = bv.diagram_timeline(progress)
+    if drawn:
+        parts.append(bv.to_svg(drawn))
+    for lane in lanes:
+        items = lane["items"]
+        finished = len([i for i in items
+                        if i["state"] in bv.FINISHED_TASK_STATES])
+        parts.append('<h3>%s</h3><p>%d of %d finished in this lane.</p>'
+                     % (_esc(lane["lane"]), finished, len(items)))
+        rows = []
+        for item in items:
+            waiting_on = [labels.get(bid) or "a piece no longer on record"
+                         for bid in item["blocked_by"]]
+            line = "%s, %s" % (item["label"], item["state"])
+            if waiting_on:
+                line += " (waiting on: %s)" % "; ".join(waiting_on)
+            if item["state"] == "blocked":
+                line += ". %s" % (item["action"]
+                                  or "no action recorded yet")
+            line += (". Last check: %s"
+                     % (item["evidence_ref"] or "no check recorded yet"))
+            rows.append('<li data-bm-trace="t:%s">%s</li>'
+                       % (_esc(item["task_id"]), _esc(line)))
+        parts.append("<ul>%s</ul>" % "".join(rows))
+    return "".join(parts)
+
+
 def _sec_counts(ctx):
     return bv.to_svg(bv.counts_rows(ctx["facts"]))
+
+
+def _sec_risks(ctx):
+    """DESIGN-progress-surface.md item 4: risks come from insights of
+    kind RISK and from alerts_now, sorted by the alert ladder's own rung
+    order. A risk with no mitigation recorded prints those words rather
+    than an empty line, because a blank line reads as safe."""
+    everything = ctx["insights"]
+    superseded = {r.get("supersedes") for r in everything
+                  if r.get("supersedes")}
+    risk_rows = {r.get("insight_id"): r for r in everything
+                if r.get("kind") == "RISK"
+                and r.get("insight_id") not in superseded}
+    rung_order = {rung: i for i, rung in enumerate(bv.RUNGS)}
+    risk_alerts = sorted(
+        [a for a in ctx["alerts"] if a["kind"] == "open-risk"],
+        key=lambda a: rung_order.get(a["rung"], len(rung_order)))
+    if not risk_alerts:
+        return ""
+    parts = []
+    for a in risk_alerts:
+        row = risk_rows.get(a["row_id"]) or {}
+        owner = (row.get("actor_name") or "").strip() or "BrotherMode"
+        mitigation = (a["action"] or "").strip() or "no mitigation recorded"
+        parts.append(
+            '<article class="bm-decision" data-bm-trace="i:%s">'
+            '<p><strong>%s</strong></p><p>%s</p>'
+            '<p>What would settle it: %s</p><p>Watched by: %s</p>'
+            '</article>'
+            % (_esc(a["row_id"]), _esc(a["subject"]), _esc(a["message"]),
+               _esc(mitigation), _esc(owner)))
+    return "".join(parts)
 
 
 def _sec_decisions(ctx):
@@ -684,6 +794,47 @@ def _sec_gates(ctx):
 def _sec_lanes(ctx):
     drawn = bv.diagram_lanes(ctx["facts"])
     return bv.to_svg(drawn) if drawn else ""
+
+
+def _sec_documents(ctx):
+    """DESIGN-progress-surface.md item 3: what each finished piece of
+    work produced, as a path, plus the checks that ran and their own
+    timestamps, read from evidence rows. Blank until something is
+    finished, which is a real answer for a project just starting out."""
+    finished = [t for t in ctx["tasks"]
+                if (t.get("status") or "") in bv.FINISHED_TASK_STATES]
+    project_checks = ctx["project_evidence"]
+    if not finished and not project_checks:
+        return ""
+    parts = []
+    if project_checks:
+        items = "".join(
+            "<li>%s, %s</li>"
+            % (_esc(c.get("kind") or "a check"), _esc(c.get("created_at")
+                                                       or ""))
+            for c in project_checks)
+        parts.append("<h3>Checks for the whole project</h3><ul>%s</ul>"
+                     % items)
+    for t in finished:
+        task_id = t.get("task_id") or ""
+        outputs = t.get("expected_outputs") or []
+        if isinstance(outputs, str):
+            outputs = []
+        checks = ctx["evidence_by_task"].get(task_id) or []
+        label = t.get("title") or task_id
+        out_items = ("".join("<li><code>%s</code></li>" % _esc(p)
+                             for p in outputs)
+                    or "<li>no path recorded</li>")
+        check_items = ("".join(
+            "<li>%s, %s</li>" % (_esc(c.get("kind") or "a check"),
+                                 _esc(c.get("created_at") or ""))
+            for c in checks) or "<li>no check recorded</li>")
+        parts.append(
+            '<article data-bm-trace="t:%s"><p><strong>%s</strong></p>'
+            '<p>Produced:</p><ul>%s</ul>'
+            '<p>Checks that ran:</p><ul>%s</ul></article>'
+            % (_esc(task_id), _esc(label), out_items, check_items))
+    return "".join(parts)
 
 
 def _sec_timeline(ctx):
@@ -741,22 +892,35 @@ def _sec_help(ctx):
 _SECTION_RENDERERS = {
     "_sec_header": _sec_header, "_sec_needs_you": _sec_needs_you,
     "_sec_next_step": _sec_next_step, "_sec_pipeline": _sec_pipeline,
-    "_sec_counts": _sec_counts, "_sec_decisions": _sec_decisions,
+    "_sec_progress": _sec_progress,
+    "_sec_counts": _sec_counts, "_sec_risks": _sec_risks,
+    "_sec_decisions": _sec_decisions,
     "_sec_insights": _sec_insights, "_sec_gates": _sec_gates,
-    "_sec_lanes": _sec_lanes, "_sec_timeline": _sec_timeline,
+    "_sec_lanes": _sec_lanes, "_sec_documents": _sec_documents,
+    "_sec_timeline": _sec_timeline,
     "_sec_your_move": _sec_your_move, "_sec_help": _sec_help,
 }
 
 
 def render_page(status, alerts, insights, briefings, decisions, facts,
-                milestones):
+                milestones, tasks=(), progress=None, project_evidence=(),
+                evidence_by_task=None):
     """The whole document, pure over its inputs. Returns (html, fp) where
     fp is the fingerprint over the rendered body with the fingerprint
     slot still empty, so the printed value describes the content rather
-    than itself."""
+    than itself.
+
+    tasks, progress, project_evidence and evidence_by_task are the
+    progress surface loop's own additions (DESIGN-progress-surface.md):
+    progress is bv.progress_facts' own dict, and the other three are the
+    rows build_page already read to build it, kept here too so the
+    progress, risks and documents sections never re-derive them."""
     ctx = {"status": status, "alerts": alerts, "insights": insights,
            "briefings": briefings, "decisions": decisions, "facts": facts,
-           "milestones": milestones}
+           "milestones": milestones, "tasks": list(tasks or []),
+           "progress": progress or {"lanes": []},
+           "project_evidence": list(project_evidence or []),
+           "evidence_by_task": evidence_by_task or {}}
     sections = []
     for anchor, heading, renderer_name, empty_key in VIEW_SECTIONS:
         body = _SECTION_RENDERERS[renderer_name](ctx)
@@ -783,7 +947,13 @@ def render_page(status, alerts, insights, briefings, decisions, facts,
 def build_page(store, project_id):
     """Gather every input through the existing collectors and accessors,
     then render. No collector of its own: the eight fields are bl's, the
-    drawing facts are bv's, and everything else is a store accessor."""
+    drawing facts and the progress facts are bv's, and everything else is
+    a store accessor.
+
+    tasks, dependencies and per-task evidence are read here, once, the
+    same rule visual_facts follows for its own reads, then handed to
+    bv.progress_facts (which opens no store of its own) so the progress,
+    risks and documents sections never issue a query directly."""
     status = bl.collect_status(store, project_id)
     facts = bv.visual_facts(store, project_id)
     alerts = bv.alerts_now(store, project_id)
@@ -791,8 +961,18 @@ def build_page(store, project_id):
     briefings = store.list_briefings(project_id, raw=True)
     decisions = _ranked_decisions(store, project_id)
     milestones = setup_milestones(store, project_id)
+    tasks = store.list_tasks(project_id, raw=True)
+    dependencies = store.list_dependencies(project_id, raw=True)
+    evidence_by_task = {t["task_id"]: store.list_evidence(
+        "task", t["task_id"], raw=True) for t in tasks if t.get("task_id")}
+    project_evidence = store.list_evidence("project", project_id, raw=True)
+    progress = bv.progress_facts({"tasks": tasks,
+                                  "dependencies": dependencies,
+                                  "evidence": evidence_by_task})
     return render_page(status, alerts, insights, briefings, decisions,
-                       facts, milestones)
+                       facts, milestones, tasks=tasks, progress=progress,
+                       project_evidence=project_evidence,
+                       evidence_by_task=evidence_by_task)
 
 
 # ---------------------------------------------------------------------------
