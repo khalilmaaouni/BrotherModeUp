@@ -1149,8 +1149,13 @@ def gantt_facts(rows):
     if days:
         lo = min(days, key=lambda p: p[1])
         hi = max(days, key=lambda p: p[1])
+        # span_days, not "days": design section 4.2 gives ONE authority
+        # for durations on the page (bl.render_forecast_lines), and this
+        # module may not format one of its own. The number here is
+        # geometry, never prose: it is the divisor that scales a bar into
+        # the fixed track, and it is deliberately never printed.
         window = {"start": lo[0], "end": hi[0],
-                  "days": hi[1] - lo[1] + 1}
+                  "span_days": hi[1] - lo[1] + 1}
     order, groups = [], {}
     for t in tasks:
         task_id = t.get("task_id") or ""
@@ -1394,7 +1399,7 @@ def diagram_gantt(facts):
                 end = _day(item["end"]) or start
                 n["offset_days"] = start[1] - _day(window["start"])[1]
                 n["span_days"] = max(1, end[1] - start[1] + 1)
-                n["window_days"] = window["days"]
+                n["window_days"] = window["span_days"]
             else:
                 # No dates: fall back to the lifecycle fill the timeline
                 # shape already draws, so the bar still says something
@@ -1407,8 +1412,8 @@ def diagram_gantt(facts):
     if dropped_nodes or dropped_phases:
         over = (" %d task(s) and %d phase(s) are past this page's stated "
                 "cap and are not drawn." % (dropped_nodes, dropped_phases))
-    when = ("The window runs %s to %s, %d days."
-            % (window["start"], window["end"], window["days"])
+    when = ("The window runs %s to %s."
+            % (window["start"], window["end"])
             if window else
             "No dates are recorded yet, so the bars show how far each "
             "piece has moved rather than how long it took.")

@@ -1453,7 +1453,7 @@ class TestGanttFacts(unittest.TestCase):
                    completed="2026-08-09T00:00:00Z")]}
         self.assertEqual(bv.gantt_facts(rows)["window"],
                          {"start": "2026-08-01", "end": "2026-08-09",
-                          "days": 9})
+                          "span_days": 9})
 
     def test_no_dates_anywhere_means_no_window_and_the_bars_say_so(self):
         """Founder decision 2026-08-08: real dates where recorded,
