@@ -4,7 +4,7 @@ Use these pages to install BrotherMode, run the normal development workflow, ver
 
 ## Start Here
 
-1. [Getting Started](tutorials/getting-started.md): complete one small development task end to end.
+1. [Getting Started](tutorials/getting-started.md): complete one small development task end to end. It ends with a fully runnable terminal walkthrough, in a throwaway directory, showing the real output of every step.
 2. [Workflow Map](reference/workflow-map.md): see the normal command order and optional paths.
 3. [Command Reference](reference/commands.md): look up one command without reading the whole guide.
 
