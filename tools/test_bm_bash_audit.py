@@ -560,6 +560,153 @@ class ControlStateLossIsDetected(BashAuditBase):
 
 
 # ---------------------------------------------------------------------------
+# 2026-08-08: raising an alert used to BREAK `bm_store.py verify` permanently.
+# Store.raise_alert writes an attribution row carrying whatever project_id its
+# caller hands it, and verify reports every attribution row whose project_id
+# names no projects row. This hook handed it ALERT_PROJECT_ID, which nothing
+# ever registered, so the FIRST fence-breach alert any install ever raised
+# turned a healthy store into one verify reported a problem on, forever. The
+# fix is tools/bm_bash_audit.py's _alert_project_id; these are its tests, and
+# the CHECK is verify itself, not a re-reading of the same assumption.
+# ---------------------------------------------------------------------------
+
+class AlertsLeaveTheStoreVerifiable(BashAuditBase):
+
+    def founder_project(self, project_id):
+        """One ordinary project row, the way a founder's own `bm_project
+        start` would leave it: the beginner model this hook defers to."""
+        now = bs.now_iso()
+        with bs.Store(self.root, create=False) as store:
+            store.upsert_project(
+                {"project_id": project_id, "name": project_id,
+                 "created_at": now, "updated_at": now},
+                {"actor_type": "human", "actor_name": "founder"})
+
+    def breach(self, tool_use_id, text):
+        """One full PreToolUse/write/PostToolUse cycle by a session that does
+        not own the fence, asserting the alert really was recorded: a cycle
+        that silently raised nothing would make every check below vacuous."""
+        r1 = self.run_hook("pre", self.OTHER, tool_use_id=tool_use_id)
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        self.write_file("src/mine.txt", text)
+        r2 = self.run_hook("post", self.OTHER, tool_use_id=tool_use_id)
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        self.assertIn("fence-breach alert was raised", r2.stderr)
+
+    def projects(self):
+        with bs.Store(self.root, create=False) as store:
+            return store.list_projects(raw=True)
+
+    def hook_project(self):
+        with bs.Store(self.root, create=False) as store:
+            return store.get_project(ba.ALERT_PROJECT_ID, raw=True)
+
+    def attribution(self, project_id):
+        with bs.Store(self.root, create=False) as store:
+            return store.list_attribution(project_id, limit=1000, raw=True)
+
+    def test_a_fence_breach_alert_leaves_verify_reporting_no_problem(self):
+        owner = self.label(self.OWNER)
+        self.claim("mine", ["src/mine.txt"], owner)
+        self.assertEqual(bs.verify(self.root), [],
+                         "the store was already unhealthy BEFORE the alert; "
+                         "this test would prove nothing")
+
+        self.breach("toolu_verify_breach", "tampered by a foreign session\n")
+
+        self.assertEqual(len(self.alerts(raw=True)), 1)
+        self.assertEqual(bs.verify(self.root), [],
+                         "raising an alert left the store reporting a "
+                         "problem; this is the regression this class exists "
+                         "for")
+
+    def test_a_control_loss_alert_leaves_verify_reporting_no_problem(self):
+        """The other raiser (_raise_control_alert) reached raise_alert by its
+        own path and would have gone on writing dangling rows if only the
+        breach path had been fixed."""
+        owner = self.label(self.OWNER)
+        self.claim("mine", ["src/mine.txt"], owner)
+        token = fh.token_path(self.root, self.OWNER)
+        self.assertTrue(os.path.isfile(token), "no owner token to remove")
+
+        r1 = self.run_hook("pre", self.OTHER, tool_use_id="toolu_verify_ctl")
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        os.remove(token)
+        r2 = self.run_hook("post", self.OTHER, tool_use_id="toolu_verify_ctl")
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        self.assertIn("fence-control-loss alert was raised", r2.stderr)
+
+        self.assertEqual(len(self.alerts(raw=True)), 1)
+        self.assertEqual(bs.verify(self.root), [])
+
+    def test_the_hook_project_is_registered_exactly_once(self):
+        """Idempotence, and the reason it matters: this hook runs on EVERY
+        Bash call, so a registration that re-ran per alert would overwrite
+        the row and file a fresh project.upserted event every time."""
+        owner = self.label(self.OWNER)
+        self.claim("mine", ["src/mine.txt"], owner)
+
+        self.breach("toolu_once_a", "tampered once\n")
+        self.breach("toolu_once_b", "tampered twice\n")
+
+        self.assertEqual(len(self.alerts(raw=True)), 2)
+        ids = [p["project_id"] for p in self.projects()]
+        self.assertEqual(ids, [ba.ALERT_PROJECT_ID], ids)
+        upserts = [e for e in self.attribution(ba.ALERT_PROJECT_ID)
+                   if e.get("event_type") == "project.upserted"]
+        self.assertEqual(len(upserts), 1, upserts)
+        raised = [e for e in self.attribution(ba.ALERT_PROJECT_ID)
+                  if e.get("event_type") == "alert.raised"]
+        self.assertEqual(len(raised), 2, raised)
+        self.assertEqual(bs.verify(self.root), [])
+
+    def test_a_lone_founder_project_is_used_instead_of_registering_one(self):
+        """The blast-radius half. Six call sites across bm_project.py,
+        bm_statusline.py, bm_view.py and bm_lead.py branch on
+        len(list_projects()), so a hook that added its own row to a
+        one-project store would silently blank the founder's status line,
+        rename CANVAS.md, and make `bm_project start` refuse."""
+        owner = self.label(self.OWNER)
+        self.claim("mine", ["src/mine.txt"], owner)
+        self.founder_project("founder-project")
+
+        self.breach("toolu_lone", "tampered by a foreign session\n")
+
+        self.assertIsNone(self.hook_project(),
+                          "the hook registered a second project in a store "
+                          "that already had exactly one")
+        ids = [p["project_id"] for p in self.projects()]
+        self.assertEqual(ids, ["founder-project"], ids)
+        raised = [e for e in self.attribution("founder-project")
+                  if e.get("event_type") == "alert.raised"]
+        self.assertEqual(len(raised), 1, raised)
+        self.assertEqual(raised[0]["actor_name"], "bm_bash_audit")
+        self.assertEqual(bs.verify(self.root), [])
+
+    def test_several_founder_projects_fall_back_to_the_hooks_own(self):
+        """Two projects is the case where picking one would be a guess. The
+        count is already plural, so registering a row flips nothing."""
+        owner = self.label(self.OWNER)
+        self.claim("mine", ["src/mine.txt"], owner)
+        self.founder_project("project-one")
+        self.founder_project("project-two")
+
+        self.breach("toolu_several", "tampered by a foreign session\n")
+
+        self.assertIsNotNone(self.hook_project())
+        raised = [e for e in self.attribution(ba.ALERT_PROJECT_ID)
+                  if e.get("event_type") == "alert.raised"]
+        self.assertEqual(len(raised), 1, raised)
+        for pid in ("project-one", "project-two"):
+            self.assertEqual(
+                [e for e in self.attribution(pid)
+                 if e.get("event_type") == "alert.raised"], [],
+                "the alert was attributed to a founder project that this "
+                "hook had no basis for choosing")
+        self.assertEqual(bs.verify(self.root), [])
+
+
+# ---------------------------------------------------------------------------
 # C-02 (2026-08-03), the REFUSE half. One test per mutation form the closure
 # register's reproduction used, each asserting BOTH directions on that form:
 # refused under BM_FENCE_MODE=enforced INSIDE A BROTHERMODE PROJECT, allowed
