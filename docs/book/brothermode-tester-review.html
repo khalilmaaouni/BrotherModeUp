@@ -1,0 +1,191 @@
+<title>BrotherMode: your first week, and what we need you to tell us</title>
+
+<style>
+:root {
+  --paper:#FAF8F4; --paper-2:#F3F0E9; --ink:#22302C; --muted:#5C6B66; --faint:#5E6C67;
+  --accent:#1D6A5C; --accent-soft:#E9F1ED; --amber:#96590A; --amber-soft:#F8EFE2;
+  --brick:#8C3A2B; --brick-soft:#F8ECE8; --line:#DDE4E0; --line-strong:#C4CFC9;
+  --code-bg:#1B2724; --code-ink:#E4EDE9;
+  --display:"Iowan Old Style","Palatino Linotype",Palatino,"Hoefler Text",Georgia,serif;
+  --body:"Avenir Next","Segoe UI",-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+@media (prefers-color-scheme: dark){:root{
+  --paper:#101A17; --paper-2:#17231F; --ink:#E4EBE8; --muted:#A3B2AC; --faint:#8B9A94;
+  --accent:#58BCAA; --accent-soft:#16241F; --amber:#E0A55A; --amber-soft:#241B10;
+  --brick:#E39079; --brick-soft:#271713; --line:#26332E; --line-strong:#38473F;
+  --code-bg:#080D0B; --code-ink:#D7E4DF;}}
+:root[data-theme="dark"]{
+  --paper:#101A17; --paper-2:#17231F; --ink:#E4EBE8; --muted:#A3B2AC; --faint:#8B9A94;
+  --accent:#58BCAA; --accent-soft:#16241F; --amber:#E0A55A; --amber-soft:#241B10;
+  --brick:#E39079; --brick-soft:#271713; --line:#26332E; --line-strong:#38473F;
+  --code-bg:#080D0B; --code-ink:#D7E4DF;}
+:root[data-theme="light"]{
+  --paper:#FAF8F4; --paper-2:#F3F0E9; --ink:#22302C; --muted:#5C6B66; --faint:#5E6C67;
+  --accent:#1D6A5C; --accent-soft:#E9F1ED; --amber:#96590A; --amber-soft:#F8EFE2;
+  --brick:#8C3A2B; --brick-soft:#F8ECE8; --line:#DDE4E0; --line-strong:#C4CFC9;
+  --code-bg:#1B2724; --code-ink:#E4EDE9;}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:1.02rem;line-height:1.68;-webkit-text-size-adjust:100%}
+a{color:var(--accent);text-underline-offset:.18em}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:2px}
+.wrap{max-width:46rem;margin:0 auto;padding:0 1.25rem 6rem}
+header.top{border-bottom:2px solid var(--ink);padding:4rem 0 2rem;margin-bottom:2.5rem}
+h1{font-family:var(--display);font-weight:600;font-size:clamp(2.1rem,5.5vw,3.2rem);line-height:1.06;letter-spacing:-.02em;margin:0 0 .8rem;text-wrap:balance}
+.sub{font-family:var(--display);font-size:clamp(1.1rem,2.6vw,1.4rem);line-height:1.4;color:var(--muted);margin:0 0 1.6rem;max-width:34ch}
+.imprint{display:flex;flex-wrap:wrap;gap:.35rem 2rem;font-family:var(--mono);font-size:.7rem;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);border-top:1px solid var(--line);padding-top:1.1rem}
+.imprint b{color:var(--muted);font-weight:600}
+h2{font-family:var(--display);font-weight:600;font-size:1.6rem;line-height:1.2;letter-spacing:-.01em;margin:3rem 0 .8rem;padding-top:1.2rem;border-top:1px solid var(--line-strong);text-wrap:balance}
+h3{font-family:var(--body);font-weight:650;font-size:1rem;letter-spacing:.02em;margin:2.2rem 0 .6rem;color:var(--accent)}
+p,ul,ol{max-width:64ch}
+p{margin:0 0 1.05rem}
+ul,ol{padding-left:1.15rem}
+li{margin-bottom:.5rem}
+.lede{font-family:var(--display);font-size:1.22rem;line-height:1.5;max-width:52ch;margin:0 0 1.4rem}
+code{font-family:var(--mono);font-size:.88em;background:var(--paper-2);border:1px solid var(--line);border-radius:2px;padding:.05em .3em;overflow-wrap:anywhere}
+pre{background:var(--code-bg);color:var(--code-ink);font-family:var(--mono);font-size:.83rem;line-height:1.6;padding:1rem 1.1rem;border-radius:3px;overflow-x:auto;margin:0 0 1.3rem;max-width:64ch}
+pre code{background:none;border:0;padding:0;color:inherit;font-size:1em}
+.panel{background:var(--paper-2);border:1px solid var(--line);border-radius:3px;padding:1.15rem 1.35rem .3rem;margin:0 0 1.7rem;max-width:64ch}
+.panel>:last-child{margin-bottom:1rem}
+.panel-title{font-family:var(--mono);font-size:.64rem;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:0 0 .65rem}
+.panel.accent{background:var(--accent-soft);border-color:var(--accent)}
+.panel.accent .panel-title{color:var(--accent)}
+.panel.caution{background:var(--amber-soft);border-color:var(--amber)}
+.panel.caution .panel-title{color:var(--amber)}
+.panel.refusal{background:var(--brick-soft);border-color:var(--brick)}
+.panel.refusal .panel-title{color:var(--brick)}
+ol.q{list-style:none;padding-left:0;counter-reset:q}
+ol.q>li{counter-increment:q;position:relative;padding-left:2.6rem;margin-bottom:1.5rem;max-width:64ch}
+ol.q>li::before{content:counter(q);position:absolute;left:0;top:.05rem;font-family:var(--mono);font-size:.78rem;color:var(--accent);border:1px solid var(--line-strong);border-radius:2px;width:1.8rem;height:1.6rem;display:flex;align-items:center;justify-content:center}
+.scale{display:block;font-family:var(--mono);font-size:.72rem;line-height:1.55;color:var(--muted);margin-bottom:.3rem}
+.answer{display:block;border:1px dashed var(--line-strong);border-radius:3px;min-height:2.6rem;margin-top:.5rem;padding:.5rem .7rem;font-family:var(--mono);font-size:.72rem;color:var(--faint)}
+.thesis{font-family:var(--display);font-size:1.24rem;line-height:1.45;border-top:1px solid var(--line-strong);border-bottom:1px solid var(--line-strong);padding:1.3rem 0;margin:2.2rem 0;max-width:52ch;text-wrap:balance}
+.foot{border-top:2px solid var(--ink);margin-top:4rem;padding-top:1.4rem;font-size:.88rem;color:var(--muted);max-width:64ch}
+@media print{.answer{min-height:3.2rem}h2{break-after:avoid}ol.q>li{break-inside:avoid}}
+</style>
+
+<div class="wrap">
+
+<header class="top">
+  <h1>Your first week with BrotherMode</h1>
+  <p class="sub">You are one of the first people outside this project to install it. Your week is the first outside evidence this product has.</p>
+  <div class="imprint">
+    <span><b>Time asked of you</b> one real week, then twenty minutes</span>
+    <span><b>Questions</b> fifteen</span>
+    <span><b>Collected automatically</b> nothing</span>
+  </div>
+</header>
+
+<p class="lede">This is not a satisfaction survey. It is the only way one specific gap in this project gets closed, and the gap is named on its own roadmap.</p>
+
+<p>BrotherMode's roadmap has six proof rungs, from planned up to certified. Rung five is <strong>verified externally</strong>: checked by somebody outside the project, on a machine the project does not own. That rung is empty. The roadmap prints it empty rather than hiding it, and nothing anyone writes in this repository can fill it.</p>
+
+<p>You can. That is the whole reason you were sent this.</p>
+
+<h2>Before you start</h2>
+
+<p>Read the booklet first if you have not: it explains what this is, what it refuses to do, and when it is not worth the overhead. Twenty minutes, and it will make the week make sense.</p>
+
+<p>Then install it by following <code>README.md</code> in the repository rather than any steps retyped here. Retyped steps drift; that page is held truthful by the project's own tests.</p>
+
+<div class="panel caution">
+  <p class="panel-title">Two things to know before you hit a wall</p>
+  <p>On <strong>Windows</strong> the installer refuses to run natively. Install inside WSL instead; the README covers it. This is a known limit, not you doing it wrong.</p>
+  <p>If you use the <code>/plugin</code> install path, that path has been run very few times before yours, and by the author. Your run is a real test of it either way, and a rough one is useful information rather than a failure on your part.</p>
+</div>
+
+<h2>Use it on something real</h2>
+
+<p>One real piece of work over the week. Not a project invented for the occasion, because an invented project will not put pressure on the parts that matter: crossing sessions, more than one thing running at once, a decision only you can make, a definition of done somebody would hold you to.</p>
+
+<div class="panel refusal">
+  <p class="panel-title">Report a break the moment it happens</p>
+  <p>Do not save it for the end of the week. The moment something breaks, write down what you were doing, what you expected, and what happened instead, and send it. A week-old memory of a bug is worth much less than a fresh one, and you will forget the detail that mattered.</p>
+</div>
+
+<h2>The fifteen questions</h2>
+
+<p>Answer every one you can. Scales run 1 to 5 and both ends are described in words, so a bare number never has to carry the meaning alone. Skip one only if it genuinely does not apply, and say why.</p>
+
+<h3>Install</h3>
+<ol class="q">
+  <li><span class="scale">1 = did not work, could not get it running &nbsp;|&nbsp; 5 = worked exactly as written, no snags</span>Did the install work on the first try?<span class="answer">your answer</span></li>
+  <li>Where, if anywhere, did you hesitate or get stuck? Quote the exact step or line if you can.<span class="answer">your answer</span></li>
+  <li>Roughly how long did install take, start to finish? A best estimate is fine.<span class="answer">your answer</span></li>
+</ol>
+
+<h3>The first fifteen minutes</h3>
+<ol class="q" start="4">
+  <li><span class="scale">1 = no idea, I was guessing &nbsp;|&nbsp; 5 = completely obvious what to do next</span>Once it was installed, did you know what to do next?<span class="answer">your answer</span></li>
+  <li>What did you expect to happen in the first fifteen minutes that did not happen?<span class="answer">your answer</span></li>
+</ol>
+
+<h3>Real use</h3>
+<ol class="q" start="6">
+  <li>What did you actually use it for this week? Describe the real work in your own words.<span class="answer">your answer</span></li>
+  <li>Was there anything you tried using it for and then stopped? What, and why did you stop?<span class="answer">your answer</span></li>
+</ol>
+
+<h3>The safety story</h3>
+<ol class="q" start="8">
+  <li>Did you ever see it refuse to do something, or stop and ask before going ahead? If yes, describe what happened as exactly as you can remember.<span class="answer">your answer</span></li>
+  <li><span class="scale">1 = did not trust it, felt like it was in my way &nbsp;|&nbsp; 5 = trusted it completely, the reason made sense &nbsp;|&nbsp; blank if it never happened</span>If it refused or stopped you, how much did you trust the reason it gave?<span class="answer">your answer</span></li>
+  <li>Did that refusal, if any, change how you worked, for better or worse?<span class="answer">your answer</span></li>
+</ol>
+
+<h3>The writing</h3>
+<ol class="q" start="11">
+  <li><span class="scale">1 = confusing or condescending &nbsp;|&nbsp; 5 = clear and respectful throughout</span>How did the tone of what it wrote to you feel, overall?<span class="answer">your answer</span></li>
+  <li>Quote one sentence, if you can find one, that was confusing, wrong, or talked down to you.<span class="answer">your answer</span></li>
+</ol>
+
+<h3>The honest killer question</h3>
+<ol class="q" start="13">
+  <li><span class="scale">1 = no, I would not &nbsp;|&nbsp; 5 = yes, without hesitation</span>If nobody asked you to, would you keep using it next week?<span class="answer">your answer</span></li>
+  <li>Why, or why not? <strong>This answer matters more than any other one here.</strong> Be blunt. A polite answer is worth nothing to us.<span class="answer">your answer</span></li>
+</ol>
+
+<h3>Anything else</h3>
+<ol class="q" start="15">
+  <li>Anything we did not think to ask: a rough edge, a pleasant surprise, or a question this page did not answer.<span class="answer">your answer</span></li>
+</ol>
+
+<h2>What we do with your answers, and what we will not</h2>
+
+<p>This process collects nothing automatically. No telemetry is taken from your machine. Nothing reaches us unless you type it and send it yourself. We do not read your files, your project folder, or anything else on your machine to fill gaps in what you tell us.</p>
+
+<p>We will use your answers to decide what to fix before anyone else installs this, and to write down honestly what a first week outside this project actually looked like. We will not share your answers outside this project, and we will not quote you anywhere public, without asking you first.</p>
+
+<div class="panel accent">
+  <p class="panel-title">What would help most</p>
+  <p>A low score with a specific reason is worth more to us than a high score. If you abandoned it on day three, that is the single most valuable thing you can send, and question 14 is where to say so.</p>
+</div>
+
+<h2>How to send it back</h2>
+
+<p>Two ways, your choice.</p>
+
+<p><strong>On GitHub.</strong> The repository is public, so you do not need to be given access. Three templates, pick the one that fits:</p>
+
+<ul>
+  <li><a href="https://github.com/khalilmaaouni/BrotherModeUp/issues/new?template=week-one-feedback.md">Week one feedback</a>, for the fifteen questions above.</li>
+  <li><a href="https://github.com/khalilmaaouni/BrotherModeUp/issues/new?template=install-problem.md">Install problem</a>, if you never got it running.</li>
+  <li><a href="https://github.com/khalilmaaouni/BrotherModeUp/issues/new?template=friction.md">Friction</a>, for one small thing that annoyed you, when it is not worth a whole report.</li>
+</ul>
+
+<p>Two things about that route, said plainly rather than discovered later: it needs a GitHub account, and <strong>what you file is public</strong>.</p>
+
+<p><strong>Or send it straight to whoever gave you this link.</strong> If any answer would be blunter in private, use this route. Question 14 is the one we actually need honest, and people soften in public. A private, unflattering answer is worth more to us than a polite public one.</p>
+
+<p>There is no third option, and no form, email address or chat channel we have not named on this page.</p>
+
+<p class="thesis">A low score with a reason attached moves this project. A high score with nothing behind it does not.</p>
+
+<footer class="foot">
+  <p><strong>Where this came from.</strong> The questions on this page are the questionnaire in <code>docs/FEEDBACK.md</code>, which is the canonical version in the repository. This page exists so it can be sent to somebody who does not have access to the repository. If the two ever disagree, <code>docs/FEEDBACK.md</code> is right and this page is the defect.</p>
+  <p><strong>An honest limit of this page.</strong> Nothing checks that these two stay in step. It is a second copy, and second copies drift. If you are reading this long after it was sent to you, open the repository version.</p>
+  <p><strong>What this page is not.</strong> It is not a contract, not a support channel, and not a promise that anything you report gets fixed. It is a request for evidence from outside, which this project currently has none of.</p>
+</footer>
+
+</div>
