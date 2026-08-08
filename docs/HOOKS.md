@@ -420,6 +420,21 @@ pointed at the same file:
   (`redact_text`, then `mask_absolute_paths`) before it is stored, so a founder-typed
   record name cannot smuggle a secret or an absolute path into the row unmasked.
 
+**Which project an alert is filed under.** An alert's attribution row has to name a
+project, and a fence is not project-scoped: records and claims carry no `project_id` at
+all, so there is no project a fence-breach alert intrinsically belongs to. If the store
+holds exactly one project, that one is used, because one project per folder is the model
+`tools/bm_project.py` documents and that is where the founder's own pages already look.
+Otherwise, with no project or with several, the hook registers its own bookkeeping row
+(`brothermode-bash-audit`) and files the alert there. That row is not the founder's work,
+so `bm_store.py`'s `SYSTEM_PROJECT_IDS` names it and `Store.list_projects()` hides it by
+default: without that, a breach on a fresh install would make the bookkeeping row the
+only project in the store, and `bm_project start` would refuse the founder's own first
+project as a second one, while the status line and the progress page named the
+bookkeeping row as their work. `list_projects(include_system=True)` still returns every
+row, and `dump()` and `verify()` read the table directly, so nothing is hidden from an
+audit or an export.
+
 This hook is **detection, not prevention, for every ordinary write** (D-1's own words):
 by the time the alert exists, the write already happened. It has a decision to make in
 exactly one situation, added by C-02 and described below (BM_FENCE_MODE=enforced, and
