@@ -157,8 +157,62 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2.8rem 0; max-width: 
 
 .foot { border-top: 2px solid var(--ink); margin-top: 5rem; padding-top: 1.6rem; font-size: 0.9rem; color: var(--muted); max-width: 68ch; }
 
+
+/* ---------- language toggle: no javascript ---------- */
+.langradio { position: absolute; left: -9999px; width: 1px; height: 1px; }
+.langbar {
+  position: sticky; top: 0; z-index: 40;
+  display: flex; gap: 0; justify-content: flex-end;
+  background: var(--paper); border-bottom: 1px solid var(--line);
+  padding: 0.45rem 1.25rem;
+  max-width: none;
+}
+.langbar label {
+  font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--muted); cursor: pointer; padding: 0.3rem 0.85rem;
+  border: 1px solid var(--line); border-radius: 2px; margin-left: -1px; background: var(--paper);
+}
+.langbar label:first-of-type { border-radius: 2px 0 0 2px; }
+.langbar label:last-of-type { border-radius: 0 2px 2px 0; }
+.langbar label:hover { color: var(--accent); }
+#bm-en:checked ~ .langbar label[for="bm-en"],
+#bm-ja:checked ~ .langbar label[for="bm-ja"] {
+  color: var(--paper); background: var(--accent); border-color: var(--accent);
+}
+.langradio:focus-visible ~ .langbar label { outline: 2px solid var(--accent); outline-offset: 2px; }
+.edition { display: none; }
+#bm-en:checked ~ .edition[data-lang="en"] { display: block; }
+#bm-ja:checked ~ .edition[data-lang="ja"] { display: block; }
+
+/* ---------- Japanese typography ---------- */
+[lang="ja"] {
+  font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", YuGothic,
+               "Noto Sans JP", "Meiryo", sans-serif;
+  line-height: 1.9;
+  font-size: 1rem;
+}
+[lang="ja"] .tagline, [lang="ja"] .category, [lang="ja"] h2.part-head,
+[lang="ja"] h3, [lang="ja"] .statement, [lang="ja"] .lede,
+[lang="ja"] .thesis, [lang="ja"] .scene p, [lang="ja"] .cover-kicker {
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "Noto Serif JP", serif;
+  font-style: normal;
+  letter-spacing: 0.01em;
+}
+[lang="ja"] .tagline { letter-spacing: -0.01em; line-height: 1.18; }
+[lang="ja"] .category { font-size: clamp(1.1rem, 2.6vw, 1.5rem); }
+[lang="ja"] p, [lang="ja"] li { max-width: 42em; }
+[lang="ja"] .lede, [lang="ja"] .thesis { max-width: 34em; line-height: 1.75; }
+[lang="ja"] .statement { max-width: 20em; line-height: 1.4; }
+[lang="ja"] .scene p { line-height: 1.85; }
+[lang="ja"] .part-blurb { max-width: 40em; }
+[lang="ja"] figcaption { line-height: 1.8; }
+[lang="ja"] table { line-height: 1.75; }
+[lang="ja"] .pillars { letter-spacing: 0.14em; }
+[lang="ja"] pre, [lang="ja"] code { font-family: var(--mono); line-height: 1.65; }
+
 @media print {
-  nav.toc { display: none; }
+  nav.toc, .langbar { display: none; }
+  .edition { display: block !important; }
   .shell { display: block; max-width: none; }
   section.part { break-before: page; }
   pre, table, figure, .panel { break-inside: avoid; }
@@ -167,6 +221,14 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2.8rem 0; max-width: 
 
 <a class="skip" href="#pain">Skip to the briefing</a>
 
+<input type="radio" name="bm-lang" id="bm-en" class="langradio" checked>
+<input type="radio" name="bm-lang" id="bm-ja" class="langradio">
+<div class="langbar" role="group" aria-label="Language / 言語">
+  <label for="bm-en">English</label><label for="bm-ja">日本語</label>
+</div>
+
+
+<div class="edition" data-lang="en" lang="en">
 <header class="cover">
   <div class="cover-inner">
     <p class="eyebrow-brand">BrotherMode</p>
@@ -1373,4 +1435,1022 @@ python3 scripts/doctor.py</code></pre>
 </footer>
 
 </main>
+</div>
+</div>
+
+<div class="edition" data-lang="ja" lang="ja">
+
+<header class="cover">
+  <div class="cover-inner">
+    <p class="eyebrow-brand">BrotherMode</p>
+    <h1 class="tagline">Claudeと作る。<span class="b">主導権は渡さない。</span></h1>
+    <p class="category">Claude Code のための信頼性レイヤー。</p>
+    <div class="cover-body">
+      <p>Claudeはコードを書き、調べ、分析し、デバッグし、作れます。</p>
+      <p>難しくなるのは、その作業が<strong>プロジェクト</strong>になったときです。</p>
+      <p>一回の会話より長く続くとき。</p>
+      <p>二つのセッションが同時に走っているとき。</p>
+      <p>昨日決めたことが今日効いてくるとき。</p>
+      <p>中断されたセッションが、自力で再開しなければならないとき。</p>
+      <p>「完了」が「エージェントがそう言った」以上の意味を持つ必要があるとき。</p>
+      <p class="big">BrotherModeは、そのためにあります。</p>
+    </div>
+    <p class="pillars">覚えている &nbsp;&middot;&nbsp; 守る &nbsp;&middot;&nbsp; 証明する</p>
+    <p class="cover-kicker">作業はClaudeがやる。BrotherModeは、その作業が崩れないようにし、主張したことを検証可能にします。</p>
+    <div class="imprint">
+      <span><b>対象</b> 一人で作る創業者と個人開発者</span>
+      <span><b>対象バージョン</b> v3.0.0</span>
+      <span><b>参照日</b> 2026年8月8日</span>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+
+<nav class="toc" aria-label="目次">
+  <p class="toc-title">目次</p>
+  <details class="toc-wrap" open>
+    <summary>目次</summary>
+    <ol>
+      <li><span class="part">第一幕</span><a href="#ja-pain">痛み</a>
+        <ol>
+          <li><a href="#ja-pm">AIの進行管理役になっている</a></li>
+          <li><a href="#ja-killer">鎮痛剤</a></li>
+          <li><a href="#ja-med">治療</a></li>
+          <li><a href="#ja-overwrite">静かな上書き</a></li>
+          <li><a href="#ja-pillars">覚え、守り、証明する</a></li>
+          <li><a href="#ja-what">何であり、何でないか</a></li>
+        </ol>
+      </li>
+      <li><span class="part">第二幕</span><a href="#ja-week">一人、一製品、一週間</a>
+        <ol>
+          <li><a href="#ja-mon">月曜：枠を決める</a></li>
+          <li><a href="#ja-tue">火曜：再開する</a></li>
+          <li><a href="#ja-wed">水曜：安全に任せる</a></li>
+          <li><a href="#ja-rec">水曜：落ちる</a></li>
+          <li><a href="#ja-thu">木曜：正しく失敗する</a></li>
+          <li><a href="#ja-fri">金曜：引き渡す</a></li>
+        </ol>
+      </li>
+      <li><span class="part">第三幕</span><a href="#ja-judge">あなたの判断</a>
+        <ol>
+          <li><a href="#ja-hats">すでに全役をこなしている</a></li>
+          <li><a href="#ja-projects">四つのプロジェクト</a></li>
+          <li><a href="#ja-today">今日できること</a></li>
+          <li><a href="#ja-cost">導入する価値がある条件</a></li>
+        </ol>
+      </li>
+      <li><span class="part">第四幕</span><a href="#ja-fit">立ち位置</a>
+        <ol>
+          <li><a href="#ja-why">なぜもう一つのプラグインか</a></li>
+          <li><a href="#ja-sum">痛み、鎮痛剤、治療</a></li>
+          <li><a href="#ja-not">できないこと</a></li>
+        </ol>
+      </li>
+      <li><span class="part">第五幕</span><a href="#ja-how">仕組みと信頼の根拠</a>
+        <ol>
+          <li><a href="#ja-arch">構造</a></li>
+          <li><a href="#ja-ctrl">制御、スキル、ワーカー</a></li>
+          <li><a href="#ja-mem">記憶と忘却</a></li>
+          <li><a href="#ja-doc">文書と引き継ぎ</a></li>
+          <li><a href="#ja-proven">何がどこまで証明されているか</a></li>
+          <li><a href="#ja-first">最初のプロジェクト</a></li>
+        </ol>
+      </li>
+    </ol>
+  </details>
+</nav>
+
+<main>
+
+<section class="part" id="ja-pain">
+  <span class="part-label">第一幕</span>
+  <h2 class="part-head">痛み</h2>
+  <p class="part-blurb">短い六節です。何がうまくいっていないのか、何がそれをすぐ止めるのか、何が再発を止めるのか、そしてこの仕組みの発端になった一件。</p>
+
+  <h3 id="ja-pm">AIの進行管理役になる必要はないはずです</h3>
+  <p class="lede">Claudeに任せる作業が増えるほど、目に見えない調整作業があなたに返ってきます。</p>
+  <p>あなたはすでに全部の帽子をかぶっています。創業者、プロダクトマネージャー、実装者、レビュアー、アナリスト、リリース担当。Claudeのおかげで実行能力は去年とは比べものになりません。それは良い知らせです。</p>
+  <p>誰も警告してくれないのはこの先です。AIが増えると、調整が増えます。</p>
+
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>結局あなたがやっていること</th><th>発生する頻度</th></tr></thead>
+    <tbody>
+      <tr><td>すでに伝えた文脈を、もう一度説明する</td><td>新しいセッションのたびに</td></tr>
+      <tr><td>誰も書き留めなかった決定を覚えておく</td><td>その決定が戻ってくるたびに</td></tr>
+      <tr><td>どのエージェントがどのファイルを触っているか把握する</td><td>二つ動かすたびに</td></tr>
+      <tr><td>中断されたセッションがどこで止まったか復元する</td><td>クラッシュのたび、圧縮のたびに</td></tr>
+      <tr><td>実際に何が変わったのかを調べる</td><td>レビューのたびに</td></tr>
+      <tr><td>チェックを自分で走らせ直す</td><td>「完了」を信じきれないたびに</td></tr>
+      <tr><td>その「完了」が本物か判断する</td><td>毎回</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="statement wide">結局あなたが、自分のAIの記憶であり、交通整理であり、品質ゲートになります。</p>
+
+  <figure><svg viewBox="0 0 640 300" role="img" aria-labelledby="ja-pain-title">
+      <title id="ja-pain-title">二つの配置の比較。ひとつ目では、記憶、交通整理、品質確認を本人が担っています。ふたつ目では、その三つがBrotherModeへ移り、本人には判断と意図だけが残ります。</title>
+      <defs>
+        <marker id="ar-ja" markerWidth="9" markerHeight="8" refX="8.2" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+          <path d="M0.4 0.7 L9 4 L0.4 7.3 L2.4 4 z" fill="currentColor" opacity="0.62"/>
+        </marker>
+      </defs>
+
+      <text class="svg-label" x="0" y="12" fill="currentColor" opacity="0.85">Today</text>
+      <text class="svg-big" x="112" y="40" fill="currentColor">YOU</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M118 50 L52 74" marker-end="url(#ar-ja)"/><path d="M126 50 L126 74" marker-end="url(#ar-ja)"/><path d="M134 50 L200 74" marker-end="url(#ar-ja)"/>
+      </g>
+      <g class="svg-body" fill="currentColor" opacity="0.95">
+        <text x="10" y="90">memory</text><text x="98" y="90">traffic control</text><text x="192" y="90">quality</text>
+      </g>
+      <g class="svg-small" fill="currentColor" opacity="0.85">
+        <text x="10" y="106">you re-explain</text><text x="98" y="106">you referee</text><text x="192" y="106">you re-check</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M34 116 L112 142" marker-end="url(#ar-ja)"/><path d="M126 116 L126 142" marker-end="url(#ar-ja)"/><path d="M208 116 L142 142" marker-end="url(#ar-ja)"/>
+      </g>
+      <text class="svg-big" x="96" y="160" fill="currentColor">CLAUDE</text>
+      <text class="svg-small" x="0" y="186" fill="currentColor" opacity="0.9">Three jobs you never signed up for,</text>
+      <text class="svg-small" x="0" y="200" fill="currentColor" opacity="0.9">sitting between you and the work.</text>
+
+      <line x1="290" y1="0" x2="290" y2="290" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+
+      <text class="svg-label" x="320" y="12" fill="currentColor" opacity="0.85">With BrotherMode</text>
+      <text class="svg-big" x="440" y="40" fill="currentColor">YOU</text>
+      <text class="svg-small" x="320" y="60" fill="currentColor" opacity="0.9">judgment, intent, the decisions only you can make</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none"><path d="M452 70 L452 94" marker-end="url(#ar-ja)"/></g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="320" y="98" width="276" height="74" rx="3"/></g>
+      <text class="svg-title" x="334" y="120" fill="currentColor">BROTHERMODE</text>
+      <g class="svg-small" fill="currentColor" opacity="0.92">
+        <text x="334" y="138">memory that outlives the session</text>
+        <text x="334" y="152">ownership that refuses a collision</text>
+        <text x="334" y="166">a gate that requires fresh evidence</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none"><path d="M452 172 L452 196" marker-end="url(#ar-ja)"/></g>
+      <text class="svg-big" x="412" y="214" fill="currentColor">CLAUDE</text>
+      <text class="svg-small" x="320" y="236" fill="currentColor" opacity="0.9">reasoning, tools, workers</text>
+      <line x1="320" y1="254" x2="638" y2="254" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-small" x="320" y="272" fill="currentColor" opacity="0.95">Your judgment stays with you.</text>
+      <text class="svg-small" x="320" y="288" fill="currentColor" opacity="0.95">The coordination does not have to.</text>
+    </svg>
+    <figcaption>ここで判断が取り上げられることは一つもありません。移るのは判断と判断のあいだの事務作業、つまり覚えること、交通整理すること、確認し直すことです。この三つが製品のすべてです。</figcaption>
+  </figure>
+
+  <h3 id="ja-killer">鎮痛剤：調整を頭の外に出す</h3>
+  <p>初日に痛みが止まるものが四つあります。</p>
+
+  <figure><svg viewBox="0 0 640 250" role="img" aria-labelledby="ja-killer-title">
+      <title id="ja-killer-title">四つの転換。あなたが覚えるのがプロジェクトが覚えるに、あなたが裁くのが作業に所有権があるに、あなたが復元するのが状態が再開するに、あなたが確認し直すのが完了に証拠が要るに変わります。</title>
+      <g class="svg-label" fill="currentColor" opacity="0.85"><text x="0" y="14">Without</text><text x="326" y="14">With</text></g>
+      <line x1="0" y1="24" x2="638" y2="24" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+      <g class="svg-title" fill="currentColor">
+        <text x="0" y="54">YOU remember</text><text x="0" y="108">YOU referee</text><text x="0" y="162">YOU reconstruct</text><text x="0" y="216">YOU re-check</text>
+      </g>
+      <g class="svg-small" fill="currentColor" opacity="0.88">
+        <text x="0" y="70">re-explaining the project every session</text>
+        <text x="0" y="124">watching which agent touches what</text>
+        <text x="0" y="178">working out where the crash stopped it</text>
+        <text x="0" y="232">deciding whether done is real</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.4"><path d="M258 48 L316 48"/><path d="M258 102 L316 102"/><path d="M258 156 L316 156"/><path d="M258 210 L316 210"/></g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="322" y="32" width="316" height="34" rx="3"/><rect x="322" y="86" width="316" height="34" rx="3"/>
+        <rect x="322" y="140" width="316" height="34" rx="3"/><rect x="322" y="194" width="316" height="34" rx="3"/>
+      </g>
+      <g class="svg-title" fill="currentColor">
+        <text x="336" y="54">the PROJECT remembers</text><text x="336" y="108">the WORK has ownership</text>
+        <text x="336" y="162">the STATE resumes</text><text x="336" y="216">DONE has evidence</text>
+      </g>
+    </svg>
+    <figcaption>左の列は、応募した覚えのない職務内容だと思って読んでください。右の列は、ディスク上の記録、ファイルの所有権、スナップショット、そしてゲートが実際に買ってくれるものです。</figcaption>
+  </figure>
+
+  <p class="statement">一人でも、レバレッジは大きく、子守は少なく。</p>
+
+  <p class="evidence">記憶と復旧、所有権による拒否、証拠の規律は、いずれも能力レジスタで certified とされ、それぞれ名前の付いたテストが背後にあります。プロジェクトページは beta です。第五幕に、各項目の欠落を併記した全レジスタがあります。</p>
+
+  <h3 id="ja-med">治療：同じ失敗が「いつものやり方」になるのを止める</h3>
+  <p>今日の中断されたセッションを直すことにも価値はあります。ただ、面白いのはそこではありません。</p>
+  <p>面白いのは、四つの失敗が何度も戻ってくること、そしてそれぞれが同じループの別々の工程で閉じられることです。</p>
+
+  <figure><svg viewBox="0 0 640 344" role="img" aria-labelledby="ja-med-title">
+      <title id="ja-med-title">枠決めから学習まで七工程のループと、次のプロジェクトへの戻り。四つの再発する失敗が、それを閉じる工程の横に置かれています。健忘は枠決めと決定、衝突は宣言、偽の完了は検査と引き渡し、繰り返す失敗は学習です。</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="150" y="8" width="140" height="30" rx="3"/><rect x="150" y="56" width="140" height="30" rx="3"/>
+        <rect x="150" y="104" width="140" height="30" rx="3"/><rect x="150" y="152" width="140" height="30" rx="3"/>
+        <rect x="150" y="200" width="140" height="30" rx="3"/><rect x="150" y="248" width="140" height="30" rx="3"/>
+        <rect x="150" y="296" width="140" height="30" rx="3"/>
+      </g>
+      <g class="svg-title" fill="currentColor">
+        <text x="164" y="28">FRAME</text><text x="164" y="76">DECIDE</text><text x="164" y="124">CLAIM</text>
+        <text x="164" y="172">BUILD</text><text x="164" y="220">CHECK</text><text x="164" y="268">DELIVER</text><text x="164" y="316">LEARN</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M220 38 L220 56" marker-end="url(#ar-ja)"/><path d="M220 86 L220 104" marker-end="url(#ar-ja)"/>
+        <path d="M220 134 L220 152" marker-end="url(#ar-ja)"/><path d="M220 182 L220 200" marker-end="url(#ar-ja)"/>
+        <path d="M220 230 L220 248" marker-end="url(#ar-ja)"/><path d="M220 278 L220 296" marker-end="url(#ar-ja)"/>
+        <path d="M150 311 L96 311 L96 23 L150 23" marker-end="url(#ar-ja)"/>
+      </g>
+      <text class="svg-small" x="0" y="160" fill="currentColor" opacity="0.85">carried to</text>
+      <text class="svg-small" x="0" y="174" fill="currentColor" opacity="0.85">the next one</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.3">
+        <path d="M290 52 L336 52"/><path d="M290 119 L336 119"/><path d="M290 240 L336 240"/><path d="M290 311 L336 311"/>
+      </g>
+      <g class="svg-title" fill="currentColor">
+        <text x="344" y="56">amnesia</text><text x="344" y="123">collision</text><text x="344" y="244">false completion</text><text x="344" y="315">repeated mistakes</text>
+      </g>
+      <g class="svg-small" fill="currentColor" opacity="0.85">
+        <text x="344" y="72">the goal and the decision are written down</text>
+        <text x="344" y="139">one writer per file, refused by a program</text>
+        <text x="344" y="260">a check must run after the last edit</text>
+        <text x="344" y="331">written where you have to trip over it</text>
+      </g>
+    </svg>
+    <figcaption>失敗はループの外側ではなく内側にあります。第五工程でチェックが落ちれば作業は第四工程へ戻り、赤いチェックを緑の引き渡しに変えるフラグは存在しません。</figcaption>
+  </figure>
+
+  <p><strong>鎮痛剤は、今日のプロジェクトを制御しやすくします。治療は、あなたの働き方そのものを、ごまかしにくく、忘れにくく、静かに壊れにくくするためのものです。</strong></p>
+
+  <div class="panel caution">
+    <p class="panel-title">「治療」の主張の正直な大きさ</p>
+    <p>上の七工程のうち六つは機械が強制します。最後の LEARN だけは他より薄く、その薄さを買う前に正確に知っておくべきです。</p>
+    <p>修正学習の仕組みは実際に動くコードです。修正を捕捉し、人間が確認したレシートを経てルールに昇格させ、後から理由付きで取り出し、手戻りを防いだかどうかを採点します。しかし<strong>能力レジスタに状態が登録されておらず</strong>、<strong>スラッシュコマンドもなく</strong>、日常の操作面にも出てきません。そのページ自身が、実際の創業者の作業は一時間も通していないと記録しています。ループを閉じる週次レビューは人間の二十分であり、セッション開始時に催促されるだけで、代わりに実行してくれるものはありません。</p>
+    <p>つまり治療とは、この仕組みがあなたに求め、思い出させてくる規律です。効果が示された学習ではありませんし、自動でもありません。週次レビューを誰もやらないなら、あなたはコストだけ払って鎮痛剤だけを受け取ることになります。</p>
+  </div>
+
+  <h3 id="ja-overwrite">静かな上書き</h3>
+  <div class="scene">
+    <p>ある窓では、Claudeが価格ロジックをリファクタリングしています。</p>
+    <p>二十分後、同じ機能にフィールドを足すため、別のセッションを開きます。実際の一日はそういうものです。</p>
+    <p>最初のセッションが共有ファイルを一つ握ったままだったことを、あなたは忘れています。</p>
+    <p>両方とも完走します。両方とも成功を報告します。片方が、もう片方の九十分の作業を静かに消しました。</p>
+    <p>クラッシュもしていません。警告も出ていません。</p>
+  </div>
+  <p>これがこの仕組みの発端になった一件です。起きたときは二人で操作していましたが、窓を二つ開けた瞬間に一人にも起きます。つまりほぼ毎日です。</p>
+
+  <p class="statement wide">プロンプトの中の規則は制御ではありません。制御とは、実際に走るチェックです。</p>
+
+  <figure><svg viewBox="0 0 640 214" role="img" aria-labelledby="ja-ctl-title">
+      <title id="ja-ctl-title">同じ規則を二通りに述べたもの。プロンプトの一行としてなら助言にとどまります。指示される側が遵守を判断する側でもあるからです。書き込みフックのプログラムとしてなら制御になります。実行前に所有権と照合され、許可か拒否かが決まります。</title>
+      <text class="svg-label" x="0" y="14" fill="currentColor" opacity="0.85">As a line in a prompt</text>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.3"><rect x="0" y="24" width="246" height="40" rx="3"/></g>
+      <text class="svg-body" x="14" y="49" fill="currentColor" opacity="0.9">"do not overwrite other work"</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.4" fill="none"><path d="M123 64 L123 86" marker-end="url(#ar-ja)"/></g>
+      <text class="svg-title" x="14" y="106" fill="currentColor" opacity="0.8">advisory</text>
+      <text class="svg-small" x="14" y="124" fill="currentColor" opacity="0.88">the thing being instructed is also</text>
+      <text class="svg-small" x="14" y="138" fill="currentColor" opacity="0.88">the thing judging its own compliance</text>
+
+      <line x1="290" y1="0" x2="290" y2="196" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+
+      <text class="svg-label" x="320" y="14" fill="currentColor" opacity="0.85">As a program on the write hook</text>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="320" y="24" width="246" height="30" rx="3"/></g>
+      <text class="svg-body" x="334" y="44" fill="currentColor" opacity="0.95">a write is attempted</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none"><path d="M443 54 L443 70" marker-end="url(#ar-ja)"/></g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="320" y="74" width="246" height="30" rx="3"/></g>
+      <text class="svg-body" x="334" y="94" fill="currentColor" opacity="0.95">who owns this file right now?</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M443 104 L443 118 L380 118 L380 132" marker-end="url(#ar-ja)"/><path d="M443 118 L516 118 L516 132" marker-end="url(#ar-ja)"/>
+      </g>
+      <g class="svg-title" fill="currentColor"><text x="342" y="150">ALLOWED</text><text x="482" y="150">REFUSED</text></g>
+      <text class="svg-title" x="320" y="180" fill="currentColor" opacity="0.9">a control</text>
+      <text class="svg-small" x="320" y="196" fill="currentColor" opacity="0.9">a separate program answers, before the tool call runs</text>
+    </svg>
+    <figcaption>違いは規則の書き方の厳しさではなく、誰が判断するかです。左では、モデルが自分の遵守を自分で裁いています。右では、別のプログラムが先に答えます。</figcaption>
+  </figure>
+
+  <h3 id="ja-pillars">覚えている、守る、証明する</h3>
+  <p>本物のプロジェクトに必要で、会話では保証できないものが三つあります。</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>柱</th><th>意味</th><th>併せて見るべき限界</th></tr></thead>
+    <tbody>
+      <tr><th>覚えている</th><td>目標、決定、タスク、所有権、証拠、次の意図が永続的な記録に残るため、プロジェクトが会話より長く生き延びます。コンテキストが圧縮される直前に、追跡外のファイルも含めた作業ツリー全体が、ローカルのgit参照へスナップショットされます。</td><td>スナップショットは救助であってバックアップサービスではありません。あなたの <code>.git</code> の中にあり、それが消えれば一緒に消えます。復旧した作業の所有者限定権限はPOSIXのみで、Windowsでは効きません。</td></tr>
+      <tr><th>守る</th><td>二つのワーカーが同じファイルに書くことはできません。二人目は、書き込みが実行される前にプログラムによって拒否されます。後から丁寧にお願いされるのではありません。</td><td>OSレベルのサンドボックスではありません。対応している編集ツールは拒否できますが、素のシェル書き込みは事後に検知されるだけで、防止はされません。検証済みなのはClaude Codeのみで、別のランタイムで計測したところ拒否は一度も発火しませんでした。</td></tr>
+      <tr><th>証明する</th><td>完了とはゲートの結果であって、エージェントの自信ではありません。検証コマンドが最後の編集の後に走り、通り、引用されなければなりません。</td><td>ゲートが証明するのは走ったチェックです。選んだ受け入れ基準があなたの事業にとって正しかったかどうかは教えてくれません。</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 id="ja-what">何であり、そうではない三つのこと</h3>
+  <p class="lede">BrotherModeはClaude Codeのための信頼性レイヤーです。プロジェクトの記憶、AIワーカー、そして証拠を、セッションをまたいで一つにまとめておきます。</p>
+
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>これではない</th><th>理由</th></tr></thead>
+    <tbody>
+      <tr><th>別のAIモデル</th><td>知能はClaudeのままです。推論は一切足しませんし、足すと主張したこともありません。</td></tr>
+      <tr><th>プロンプト集</th><td>重要な制御はモデル自身の判断の外側に、終了コードを持つプログラムとして置かれています。</td></tr>
+      <tr><th>エージェントの品揃え</th><td>目的はエージェントの最大数ではありません。正しい範囲で最小限の委任です。</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="thesis">多くのツールはClaudeにもっと多くをやらせます。BrotherModeは、Claudeがやったことをもっと信頼できるようにします。</p>
+</section>
+
+<section class="part" id="ja-week">
+  <span class="part-label">第二幕</span>
+  <h2 class="part-head">一人、一製品、一週間</h2>
+  <p class="part-blurb">あなた一人で、アプリのオフラインモードを出します。最後の画面をキャッシュし、再接続で同期し、いまどちらの状態かを利用者に見せる。五日間。コマンドは、その週が必要とした場所にだけ登場します。</p>
+
+  <span class="daymark">月曜</span>
+  <h3 id="ja-mon">三十ページの仕様ではなく、成果から始める</h3>
+  <pre><code>/brothermode:start オフラインモード。最後の画面をキャッシュし、
+再接続で同期し、いまどちらの状態かを利用者に見せる。</code></pre>
+  <p>一文です。返ってくるのは計画ではありません。範囲を変える答えを持つ質問だけを聞く短い対話で、そのあと要件書が書かれ、決定が一つ差し出されます。</p>
+
+  <figure><svg viewBox="0 0 640 214" role="img" aria-labelledby="ja-card-title">
+      <title id="ja-card-title">決定カードの形。問いはひとつ、結果は二つか三つ、推奨が理由付きで先頭、代替はそれぞれ引き換えを一行で。そして最後の枝は常に、読み手が決定とその下の作業を自分の手に取り戻すことです。</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="0" y="60" width="190" height="56" rx="3"/></g>
+      <text class="svg-title" x="14" y="84" fill="currentColor">What should sync do</text>
+      <text class="svg-small" x="14" y="102" fill="currentColor" opacity="0.88">on a conflict?</text>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="284" y="6" width="354" height="52" rx="3"/><rect x="284" y="66" width="354" height="44" rx="3"/><rect x="284" y="118" width="354" height="44" rx="3"/>
+      </g>
+      <g class="svg-body" fill="currentColor" opacity="0.95">
+        <text x="298" y="26">Last write wins</text><text x="298" y="86">Keep both, let the user pick</text><text x="298" y="138">Take this decision back yourself</text>
+      </g>
+      <g class="svg-small" fill="currentColor" opacity="0.88">
+        <text x="298" y="42">RECOMMENDED. Why: nothing here is co-edited, so</text>
+        <text x="298" y="56">the conflict case is rare and cheap.</text>
+        <text x="298" y="102">Tradeoff: a screen nobody has designed yet.</text>
+        <text x="298" y="154">Always present. Never dropped to shorten the card.</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M190 88 L236 88 L236 32 L284 32" marker-end="url(#ar-ja)"/><path d="M236 88 L284 88" marker-end="url(#ar-ja)"/><path d="M236 88 L236 140 L284 140" marker-end="url(#ar-ja)"/>
+      </g>
+      <line x1="0" y1="182" x2="638" y2="182" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-small" x="0" y="200" fill="currentColor" opacity="0.9">The last branch is enforced in the storage engine: a key decision offering no handback cannot be recorded at all.</text>
+    </svg>
+    <figcaption>曖昧さを合意だと偽らずに、Claudeは速く動けます。あなたの選択は、他に何を検討したか、何があればひっくり返るかと一緒に記録されます。木曜に理由を思い出せなくなったとき、これが効きます。</figcaption>
+  </figure>
+
+  <span class="daymark">火曜</span>
+  <h3 id="ja-tue">「どこまでやったっけ」と二度と聞かない</h3>
+  <pre><code>/brothermode:status</code></pre>
+  <p>八つの項目が返ります。すべて会話ではなくプロジェクト自身の記録から計算されます。以下は2026年8月8日に使い捨てリポジトリへ実行した、印字されたままの実出力です。</p>
+
+  <pre><code>Goal: Cache the last screen, sync on reconnect, and show the user which state they are in.
+Direction: not agreed yet
+Progress: 1 of 5 tasks accepted
+Time remaining: 3 days to 8 days (likely 5 days)
+  work budget: input ?, output ?, total 600k to 1.1M
+  confidence: medium
+  next reforecast: (not stated)
+Decision needed: none
+Risk: 1 open
+  The offline banner clips its second line on a small phone
+Evidence: no executed evidence recorded yet
+Next step: agree what I am allowed to do on your behalf
+  why: the outcome is recorded, and nothing can run until you authorise it
+  run: bm-autonomy sign --project-id offline-mode</code></pre>
+
+  <p>この出力が「やらないこと」を見てください。方針を勝手に作らないので「まだ合意していない」と書きます。裸の日付は嘘の約束なので出さず、予測は必ず確信度付きの幅になります。持っていない証拠を主張しません。そして推奨される次の一歩はタスクですらなく、あなたへの権限の要求です。許可が出るまで何も走らないからです。</p>
+
+  <span class="daymark">水曜 午前</span>
+  <h3 id="ja-wed">交通整理役にならずに任せる</h3>
+  <p>二つ同時に動かしたい。月曜の事故が起きるのは、まさにそこです。</p>
+
+  <figure><svg viewBox="0 0 640 276" role="img" aria-labelledby="ja-deleg-title">
+      <title id="ja-deleg-title">あなたが成果を決め、二人のビルダーが重ならないファイル集合で範囲を切った作業を持ち、読み取り専用のレビュアーが両方を見ます。片方がすでに所有されたファイルへ手を伸ばすと、書き込みの実行前に所有権の照合で拒否されます。</title>
+      <text class="svg-big" x="286" y="20" fill="currentColor">YOU</text>
+      <text class="svg-small" x="232" y="36" fill="currentColor" opacity="0.9">choose the outcome and the boundaries</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M294 44 L176 66" marker-end="url(#ar-ja)"/><path d="M306 44 L436 66" marker-end="url(#ar-ja)"/>
+      </g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="66" y="72" width="200" height="46" rx="3"/><rect x="364" y="72" width="200" height="46" rx="3"/>
+      </g>
+      <g class="svg-title" fill="currentColor"><text x="80" y="92">Builder A</text><text x="378" y="92">Builder B</text></g>
+      <g class="svg-small" fill="currentColor" opacity="0.9"><text x="80" y="108">owns the sync engine files</text><text x="378" y="108">owns the banner files</text></g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M166 118 L266 140" marker-end="url(#ar-ja)"/><path d="M464 118 L366 140" marker-end="url(#ar-ja)"/>
+      </g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42"><rect x="244" y="146" width="144" height="40" rx="3"/></g>
+      <text class="svg-title" x="258" y="166" fill="currentColor">Reviewer</text>
+      <text class="svg-small" x="258" y="183" fill="currentColor" opacity="0.9">read only, cannot edit</text>
+      <line x1="0" y1="204" x2="638" y2="204" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-small" x="0" y="222" fill="currentColor" opacity="0.95">If B reaches for a file A owns: ownership check, then REFUSED, before the write runs.</text>
+      <text class="svg-small" x="0" y="236" fill="currentColor" opacity="0.95">Overlap queues; it never runs in parallel.</text>
+      <text class="svg-small" x="0" y="252" fill="currentColor" opacity="0.9">A reviewer that can edit is not a reviewer: three of the five worker profiles cannot write files at all.</text>
+      <text class="svg-small" x="0" y="266" fill="currentColor" opacity="0.9">Beyond a few parallel writers, each gets its own git worktree.</text>
+    </svg>
+    <figcaption>並列化が役に立つのは、修復作業を増やさない場合だけです。所有権の宣言はワーカーの起動前に書かれ、対象ファイル、境界、成果に対する実行可能なチェックを含みます。</figcaption>
+  </figure>
+
+  <p class="statement wide">エージェントを増やすことが目的ではありません。正しい範囲で最小限の委任が目的です。</p>
+
+  <span class="daymark">水曜 午後</span>
+  <h3 id="ja-rec">落ちたセッションの代償は、数分であるべきです</h3>
+  <div class="scene"><p>作業中にノートPCがスリープする。コンテキストが埋まる。うっかり窓を閉じる。</p></div>
+
+  <figure><svg viewBox="0 0 640 190" role="img" aria-labelledby="ja-rec-title">
+      <title id="ja-rec-title">セッションが中断されます。決定、タスク、宣言、次の意図がすでにディスク上にあり、圧縮の前に作業ツリーがスナップショットされているため、次のセッションは記憶ではなく既知の状態から再開します。</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42"><rect x="0" y="20" width="146" height="40" rx="3"/></g>
+      <text class="svg-title" x="14" y="45" fill="currentColor">Session A</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none"><path d="M146 40 L196 40" marker-end="url(#ar-ja)"/></g>
+      <g stroke="currentColor" stroke-width="1.4" opacity="0.8"><path d="M206 26 L232 54"/><path d="M232 26 L206 54"/></g>
+      <text class="svg-small" x="196" y="72" fill="currentColor" opacity="0.9">interrupted</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none"><path d="M246 40 L292 40" marker-end="url(#ar-ja)"/></g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="298" y="10" width="340" height="60" rx="3"/></g>
+      <text class="svg-title" x="312" y="30" fill="currentColor">what was already on disk</text>
+      <text class="svg-small" x="312" y="46" fill="currentColor" opacity="0.92">decisions, tasks, claims, next intent, and a snapshot</text>
+      <text class="svg-small" x="312" y="60" fill="currentColor" opacity="0.92">of the whole tree taken before compaction</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none"><path d="M468 70 L468 96" marker-end="url(#ar-ja)"/></g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42"><rect x="376" y="100" width="184" height="40" rx="3"/></g>
+      <text class="svg-title" x="390" y="125" fill="currentColor">Session B resumes</text>
+      <line x1="0" y1="158" x2="638" y2="158" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-small" x="0" y="176" fill="currentColor" opacity="0.9">The snapshot is a rescue, not a cloud backup service. It lives in your own .git directory and goes when that goes.</text>
+    </svg>
+    <figcaption>継続性は、あなたが維持し続ける習慣ではなく仕組みの一部です。最初の一週間でほとんどの人が実感するのは、この一点です。</figcaption>
+  </figure>
+
+  <span class="daymark">木曜</span>
+  <h3 id="ja-thu">自分が間違っていると気づく最良のタイミングは、利用者が気づく前です</h3>
+  <pre><code>/brothermode:review</code></pre>
+  <p>すべて終わったように見えます。これは、あなたをがっかりさせることが仕事である唯一のコマンドです。</p>
+
+  <figure><svg viewBox="0 0 640 200" role="img" aria-labelledby="ja-rev-title">
+      <title id="ja-rev-title">完成したように見える作業がレビューに入り、新しいチェックが走ります。通れば引き渡しへ、落ちれば作業は構築工程へ戻ります。失敗はループの外ではなく内側に描かれています。</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="0" y="20" width="144" height="40" rx="3"/><rect x="190" y="20" width="144" height="40" rx="3"/><rect x="380" y="20" width="158" height="40" rx="3"/>
+      </g>
+      <g class="svg-title" fill="currentColor"><text x="14" y="45">looks finished</text><text x="204" y="45">:review</text><text x="394" y="45">fresh checks run</text></g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M144 40 L190 40" marker-end="url(#ar-ja)"/><path d="M334 40 L380 40" marker-end="url(#ar-ja)"/>
+        <path d="M459 60 L459 84 L548 84" marker-end="url(#ar-ja)"/><path d="M459 84 L352 84" marker-end="url(#ar-ja)"/>
+      </g>
+      <g class="svg-title" fill="currentColor"><text x="554" y="88">PASS</text><text x="296" y="88">FAIL</text></g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M572 94 L572 118" marker-end="url(#ar-ja)"/><path d="M314 94 L314 118 L72 118 L72 62" marker-end="url(#ar-ja)"/>
+      </g>
+      <text class="svg-title" x="486" y="136" fill="currentColor">ready to deliver</text>
+      <text class="svg-small" x="86" y="114" fill="currentColor" opacity="0.9">back to the work, always</text>
+      <line x1="0" y1="156" x2="638" y2="156" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-small" x="0" y="174" fill="currentColor" opacity="0.95">There is no flag that turns a red check into a green delivery.</text>
+      <text class="svg-small" x="0" y="192" fill="currentColor" opacity="0.9">Fifteen points are applied, failures first, each carrying the evidence that proves it or the reason it does not.</text>
+    </svg>
+    <figcaption>木曜、スクリーンショットのチェックが落ちます。デスクトップ幅では正しく表示されるバナーが、小さな端末では二行目が切れていました。誰も小さな端末を見ていなかったからです。十五項目のうち四つが、実際の失敗の大半を捕まえます。チェックは最後の編集の後に走ること、そのテストが意図した欠陥で落ちうること、相応の作業には独立したレビュアーが付くこと、そして残る不確実性が黙殺されずに明記されること。</figcaption>
+  </figure>
+
+  <span class="daymark">金曜</span>
+  <h3 id="ja-fri">胸を張れるものを引き渡す</h3>
+  <pre><code>/brothermode:deliver</code></pre>
+  <p>引き渡し書は手書きではなく記録から生成されるため、主張と記録の中身が食い違うことはありません。何を作り、何をいつ検査し、何が落ちて直り、何を意図的に除外し、どんな不確実性が残るかに答えます。そして、すべての受け入れチェックが最後の編集の後に生まれた証拠を持たない限り、「引き渡し可能」という言葉を拒否します。</p>
+
+  <div class="panel caution">
+    <p class="panel-title">引き渡し書の二つの限界</p>
+    <p>証明するのは記録された検証です。選んだ受け入れ基準が事業にとって正しかったかどうかは分かりません。その判断はあなたのものです。</p>
+    <p>そして、こちらから頼む必要があります。このプロジェクト自身の内部比較では、引き渡し書の課題は両方の構成で失敗しました。頼まれずに確実に生成する構成は、どちらでもありませんでした。コマンドを実行してください。証拠が勝手に現れると考えないでください。</p>
+  </div>
+
+  <figure><svg viewBox="0 0 640 240" role="img" aria-labelledby="ja-wk-title">
+      <title id="ja-wk-title">五日間を五列で。月曜は枠決め、火曜は再開、水曜は委任とクラッシュからの復帰、木曜はチェックの失敗と差し戻し、金曜は引き渡し。二つの瞬間に印が付いています。中断と、失敗したチェックです。</title>
+      <g class="svg-label" fill="currentColor" opacity="0.85">
+        <text x="0" y="14">Mon</text><text x="128" y="14">Tue</text><text x="256" y="14">Wed</text><text x="384" y="14">Thu</text><text x="512" y="14">Fri</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.16">
+        <line x1="0" y1="22" x2="0" y2="200"/><line x1="128" y1="22" x2="128" y2="200"/><line x1="256" y1="22" x2="256" y2="200"/><line x1="384" y1="22" x2="384" y2="200"/><line x1="512" y1="22" x2="512" y2="200"/><line x1="638" y1="22" x2="638" y2="200"/>
+      </g>
+      <g class="svg-title" fill="currentColor">
+        <text x="6" y="44">Frame</text><text x="134" y="44">Resume</text><text x="262" y="44">Delegate</text><text x="390" y="44">Verify</text><text x="518" y="44">Deliver</text>
+      </g>
+      <g fill="currentColor" opacity="0.18">
+        <rect x="2" y="56" width="120" height="16" rx="2"/><rect x="130" y="82" width="124" height="16" rx="2"/>
+        <rect x="258" y="108" width="124" height="16" rx="2"/><rect x="258" y="132" width="124" height="16" rx="2"/>
+        <rect x="386" y="158" width="124" height="16" rx="2"/><rect x="514" y="180" width="124" height="16" rx="2"/>
+      </g>
+      <g class="svg-small" fill="currentColor" opacity="0.95">
+        <text x="8" y="68">goal in, brief out</text>
+        <text x="136" y="94">status, project page</text>
+        <text x="264" y="120">builder A, sync engine</text>
+        <text x="264" y="144">builder B, the banner</text>
+        <text x="392" y="170">a check FAILS</text>
+        <text x="520" y="192">evidence, then packet</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1.3" opacity="0.75"><path d="M320 100 L320 130"/></g>
+      <text class="svg-small" x="324" y="100" fill="currentColor" opacity="0.95">the crash, and it costs minutes</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.5" fill="none"><path d="M448 174 L448 210 L300 210 L300 152" marker-end="url(#ar-ja)"/></g>
+      <text class="svg-small" x="306" y="206" fill="currentColor" opacity="0.92">a failed check sends work back, never forward</text>
+      <line x1="0" y1="222" x2="638" y2="222" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-small" x="0" y="236" fill="currentColor" opacity="0.9">An illustration drawn for this booklet. The tool draws five shapes of its own and does not draw timelines.</text>
+    </svg>
+    <figcaption>この一週間の主張を担うのは二か所です。水曜のクラッシュが一日ではなく数分で済むこと。木曜の失敗したチェックが作業を後ろへ戻すこと。あとは普通の一週間です。</figcaption>
+  </figure>
+</section>
+
+<section class="part" id="ja-judge">
+  <span class="part-label">第三幕</span>
+  <h2 class="part-head">あなたの判断</h2>
+  <p class="part-blurb">何があなたのものとして残り、何を引き取ってもらえるのか。そして、そもそも導入コストに見合うのかを判断する正直な基準。</p>
+
+  <h3 id="ja-hats">あなたはすでにチームです</h3>
+  <p>五つの帽子を、一日のうちに何度もかぶり替えています。それぞれについて、この仕組みが実際にすることと、最初の一週間であなたが煩わしく感じる部分を書きます。</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>役割</th><th>あなたの問い</th><th>してくれること</th><th>煩わしく感じる部分</th></tr></thead>
+    <tbody>
+      <tr><th>創業者</th><td>そもそも何を達成しようとしているのか</td><td>成果の枠組み、範囲の内外、覆る条件付きで記録される決定、そしていつでも決定を取り戻せる選択肢。</td><td>動く前に必ず聞いてきます。勢いが欲しい日には摩擦に感じます。</td></tr>
+      <tr><th>実装者</th><td>次にClaudeに何をやらせるか</td><td>理由付きの推奨される次の一歩、範囲を切った作業、ファイルの所有権、セッションをまたぐ継続性。</td><td>書く前にファイルを宣言するのは事務作業に感じます。最初の衝突が拒否されるまでは。</td></tr>
+      <tr><th>レビュアー</th><td>これは本当に動くのか</td><td>最後の編集後の新しいチェック、相応の作業への独立レビュー、明記された不確実性。</td><td>木曜にあなたをがっかりさせる設計です。それが機能であっても、痛いものは痛い。</td></tr>
+      <tr><th>アナリスト</th><td>この数字を信じてよいのか</td><td>提示前の二度目の独立した導出と、それが不可能だった数字の隣に置かれる「未検証」の語。</td><td>問い合わせる前にテーブルを記述して数行見るのは儀式に感じます。名前が嘘をついていた列を捕まえるまでは。</td></tr>
+      <tr><th>オーナー</th><td>出荷できるか、引き継げるか</td><td>引き渡し書、誰でも開けるプロジェクトページ、記録から生成される引き継ぎ資料。</td><td>「まだ予測していません」と出る頻度。それは情報なのですが、欠落に見えなくなるまで一週間かかります。</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="thesis">この責任を取り除くものではありません。責任と責任のあいだの調整コストを下げるものです。</p>
+
+  <h3 id="ja-projects">実際に走らせているかもしれない四つのプロジェクト</h3>
+  <p>同じループが、四つの違う場所で効きます。自分の一週間に似ているものを探してください。</p>
+
+  <h4>モバイルアプリの機能を作る</h4>
+  <figure><svg viewBox="0 0 640 104" role="img" aria-labelledby="ja-app-flow">
+      <title id="ja-app-flow">モバイルの機能。成果の枠を決め、ファイルを宣言し、作り、実機サイズでスクリーンショットにより証明し、それからようやく引き渡します。モバイルの作業が静かに失敗するのは、たいていこの工程です。</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="0" y="16" width="104" height="34" rx="3"/><rect x="126" y="16" width="112" height="34" rx="3"/>
+        <rect x="260" y="16" width="96" height="34" rx="3"/><rect x="378" y="16" width="140" height="34" rx="3"/><rect x="540" y="16" width="98" height="34" rx="3"/>
+      </g>
+      <g class="svg-body" fill="currentColor" opacity="0.95">
+        <text x="12" y="38">frame it</text><text x="138" y="38">claim the files</text><text x="272" y="38">build</text><text x="390" y="38">screenshot proof</text><text x="552" y="38">deliver</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M104 33 L120 33" marker-end="url(#ar-ja)"/><path d="M238 33 L254 33" marker-end="url(#ar-ja)"/>
+        <path d="M356 33 L372 33" marker-end="url(#ar-ja)"/><path d="M518 33 L534 33" marker-end="url(#ar-ja)"/>
+      </g>
+      <g fill="none" stroke="currentColor" stroke-width="1.6" opacity="0.7"><rect x="378" y="16" width="140" height="34" rx="3"/></g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.5" fill="none"><path d="M448 50 L448 78 L308 78 L308 54" marker-end="url(#ar-ja)"/></g>
+      <text class="svg-small" x="314" y="74" fill="currentColor" opacity="0.92">clipped on a small phone, so back it goes</text>
+      <text class="svg-small" x="0" y="98" fill="currentColor" opacity="0.9">Verification is a render and a look. Reading the layout code and concluding it looks right is a named violation, not a shortcut.</text>
+    </svg>
+    <figcaption>「ビルドが通る」と「動く」がもっとも乖離するのがモバイルです。ここで効くゲートは、実際に壊れるサイズでの視覚的な証拠を要求するものです。そのサイズは、あなたが開発していたサイズではまずありません。</figcaption>
+  </figure>
+
+  <h4>マーケティングサイトやフロントエンド</h4>
+  <figure><svg viewBox="0 0 640 104" role="img" aria-labelledby="ja-fe-flow">
+      <title id="ja-fe-flow">フロントエンド。着手前に視覚的な参照を指定し、スタイルシートとテンプレートの所有者を分け、描画して検証し、デプロイはあなたに差し戻します。</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="0" y="16" width="142" height="34" rx="3"/><rect x="164" y="16" width="150" height="34" rx="3"/>
+        <rect x="336" y="16" width="118" height="34" rx="3"/><rect x="476" y="16" width="162" height="34" rx="3"/>
+      </g>
+      <g class="svg-body" fill="currentColor" opacity="0.95">
+        <text x="12" y="38">name the reference</text><text x="176" y="38">split the ownership</text><text x="348" y="38">render and look</text><text x="488" y="38">deploy is yours</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M142 33 L158 33" marker-end="url(#ar-ja)"/><path d="M314 33 L330 33" marker-end="url(#ar-ja)"/><path d="M454 33 L470 33" marker-end="url(#ar-ja)"/>
+      </g>
+      <text class="svg-small" x="0" y="70" fill="currentColor" opacity="0.9">before any layout</text>
+      <text class="svg-small" x="0" y="84" fill="currentColor" opacity="0.9">exists at all</text>
+      <text class="svg-small" x="176" y="70" fill="currentColor" opacity="0.9">stylesheet and templates get</text>
+      <text class="svg-small" x="176" y="84" fill="currentColor" opacity="0.9">different owners, so neither waits</text>
+      <text class="svg-small" x="476" y="70" fill="currentColor" opacity="0.9">prepared and handed back,</text>
+      <text class="svg-small" x="476" y="84" fill="currentColor" opacity="0.9">never pushed for you</text>
+    </svg>
+    <figcaption>ここにデプロイボタンはありません。意図的です。公開は、この仕組みが実行せずに準備して差し戻す動作の一つです。今夜中に公開URLが欲しいだけなら、ホスティング型のビルダーのほうが速く、それは正直な事実です。</figcaption>
+  </figure>
+
+  <h4>間違えられない数字</h4>
+  <figure><svg viewBox="0 0 640 104" role="img" aria-labelledby="ja-num-flow">
+      <title id="ja-num-flow">数字の課題。問い合わせる前にスキーマを記述して数行を見て、数字を導出し、独立した別経路でもう一度導出し、両者が一致するか未検証と明記されたときにだけ提示します。</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="0" y="16" width="158" height="34" rx="3"/><rect x="180" y="16" width="110" height="34" rx="3"/>
+        <rect x="312" y="16" width="176" height="34" rx="3"/><rect x="510" y="16" width="128" height="34" rx="3"/>
+      </g>
+      <g class="svg-body" fill="currentColor" opacity="0.95">
+        <text x="12" y="38">describe and sample</text><text x="192" y="38">derive it</text><text x="324" y="38">derive it again, differently</text><text x="522" y="38">then show it</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M158 33 L174 33" marker-end="url(#ar-ja)"/><path d="M290 33 L306 33" marker-end="url(#ar-ja)"/><path d="M488 33 L504 33" marker-end="url(#ar-ja)"/>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.5" fill="none"><path d="M400 50 L400 74 L235 74 L235 54" marker-end="url(#ar-ja)"/></g>
+      <text class="svg-small" x="241" y="70" fill="currentColor" opacity="0.92">they disagree, so nothing is shown yet</text>
+      <text class="svg-small" x="0" y="98" fill="currentColor" opacity="0.9">Use the column names that came back, not the ones you expected. That step catches a column whose name lied.</text>
+    </svg>
+    <figcaption>間違った数字を捕まえる最も安い瞬間は、一度でも見せる前です。二つ目の経路が本当に不可能なら、その数字は「未検証」の語を脚注ではなく数字の隣に付けたまま出ます。</figcaption>
+  </figure>
+
+  <h4>失敗できないリリース</h4>
+  <figure><svg viewBox="0 0 640 104" role="img" aria-labelledby="ja-rel-flow">
+      <title id="ja-rel-flow">リリース。まず現状を把握し、取り返しのつかないコマンドは実行せず切り戻しと共に下書きし、あなたが実行し、結果は終了コードではなく状態を読み返して確認します。</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="0" y="16" width="122" height="34" rx="3"/><rect x="144" y="16" width="166" height="34" rx="3"/>
+        <rect x="332" y="16" width="130" height="34" rx="3"/><rect x="484" y="16" width="154" height="34" rx="3"/>
+      </g>
+      <g class="svg-body" fill="currentColor" opacity="0.95">
+        <text x="12" y="38">map the ground</text><text x="156" y="38">draft the command</text><text x="344" y="38">you run it</text><text x="496" y="38">read the state back</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M122 33 L138 33" marker-end="url(#ar-ja)"/><path d="M310 33 L326 33" marker-end="url(#ar-ja)"/><path d="M462 33 L478 33" marker-end="url(#ar-ja)"/>
+      </g>
+      <text class="svg-small" x="156" y="70" fill="currentColor" opacity="0.9">with its rollback beside it,</text>
+      <text class="svg-small" x="156" y="84" fill="currentColor" opacity="0.9">never executed for you</text>
+      <text class="svg-small" x="484" y="70" fill="currentColor" opacity="0.9">never assumed from</text>
+      <text class="svg-small" x="484" y="84" fill="currentColor" opacity="0.9">an exit code</text>
+    </svg>
+    <figcaption>公開、削除、支払い、サインイン。この四つが、この仕組みが手を止めてキーボードをあなたに返す場所です。設定ではなく境界であり、セッション内のどんな指示でも解除されません。</figcaption>
+  </figure>
+
+  <h3 id="ja-today">今日できること</h3>
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>やりたいこと</th><th>起きること</th></tr></thead>
+    <tbody>
+      <tr><th>本物のプロジェクトを始める</th><td>一文が、合意された要件書と最初の決定になります。</td></tr>
+      <tr><th>やり直さずに明日続ける</th><td>説明し直すのではなく、永続的なプロジェクト記憶から再開します。</td></tr>
+      <tr><th>いまどこにいるか聞く</th><td>会話の記憶ではなく記録から読まれた八項目。</td></tr>
+      <tr><th>次の一手を知る</th><td>推奨される一つの行動と、それである理由。</td></tr>
+      <tr><th>作業の一部を任せる</th><td>すべてを大群にせず、範囲を切ったワーカーで。</td></tr>
+      <tr><th>並列作業をより安全に</th><td>ファイル所有権と隔離された作業領域で衝突を減らし、本物の衝突は拒否されます。</td></tr>
+      <tr><th>完了と言う前にレビューする</th><td>欠けた証拠や古い証拠が、前提にされず表に出ます。</td></tr>
+      <tr><th>中断した作業を復旧する</th><td>永続状態とツリーのスナップショットから再開します。</td></tr>
+      <tr><th>証拠付きで引き渡す</th><td>何を作り、何を検査し、何を除外し、何が不確実かを書いた引き渡し書。</td></tr>
+      <tr><th>誰かに引き継ぐ</th><td>現在のプロジェクトページと、生成される引き継ぎ資料。<span class="stamp s-beta">beta</span></td></tr>
+      <tr><th>さらに自律的に進める</th><td>署名された成果を、再起動をまたいで検査済みの成果物まで運ぶ永続コントローラー。いつでも停止と差し戻しが可能です。<span class="stamp s-beta">beta</span>。成果、完了の定義、許可されたフォルダを明示した署名済みの承認がない限り、開始を拒否します。</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 id="ja-cost">導入コストに見合うのはどんなときか</h3>
+  <div class="panel accent">
+    <p class="panel-title">四つの問い、この順番で</p>
+    <ol>
+      <li><strong>これらのファイルに、複数のセッションやワーカーが触れる可能性はありますか。</strong> はい：拒否の仕組みが要ります。</li>
+      <li><strong>この作業は一つのセッションより長く続きますか。</strong> はい：記録が要ります。</li>
+      <li><strong>間違えると、金銭、信用、切り戻しのいずれかを失いますか。</strong> はい：ゲートが要ります。</li>
+      <li><strong>週次レビューを本当に実行しますか。</strong> いいえ：もっと軽いものを使い、鎮痛剤だけ受け取ってください。</li>
+    </ol>
+  </div>
+
+  <div class="panel refusal">
+    <p class="panel-title">もっと軽いものを使うべきとき</p>
+    <ul class="tick">
+      <li>その場で答えが完結する一回きりの質問。</li>
+      <li>二度と走らせない使い捨てスクリプト。</li>
+      <li>発想を広げている最中で、儀式が勢いを殺すとき。</li>
+      <li>検証が自明なほど小さな作業。</li>
+    </ul>
+  </div>
+
+  <p class="statement wide">本気の作業には構造が要ります。小さな作業には要りません。</p>
+</section>
+
+<section class="part" id="ja-fit">
+  <span class="part-label">第四幕</span>
+  <h2 class="part-head">立ち位置</h2>
+  <p class="part-blurb">何を最適化しているのか、それが他のエコシステムとどう違うのか、そして製品の境界がどこにあるのか。</p>
+
+  <h3 id="ja-why">なぜもう一つのClaude Codeプラグインなのか</h3>
+  <p>プラグインはスキル、エージェント、フック、外部ツールサーバー、言語サーバー、バックグラウンド監視、既定設定を積めます。この選択肢は誰にでも開かれています。違うのは、何にそれを使うかです。</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>多くのAIツールが最適化するもの</th><th>これが最適化するもの</th></tr></thead>
+    <tbody>
+      <tr><td>Claudeにできることの数</td><td>崩れない作業</td></tr>
+      <tr><td>エージェントの数</td><td>明確な責任</td></tr>
+      <tr><td>並列実行の速さ</td><td>境界のある並列実行</td></tr>
+      <tr><td>自律性の高さ</td><td>制御された自律性</td></tr>
+      <tr><td>より良いプロンプト</td><td>プロンプトでは足りない場所での決定的な制御</td></tr>
+      <tr><td>最終的な答え</td><td>検証された引き渡し</td></tr>
+      <tr><td>一回の良いセッション</td><td>セッションをまたぐ継続性</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <figure><svg viewBox="0 0 640 200" role="img" aria-labelledby="ja-map-title">
+      <title id="ja-map-title">五種類のツールを、それぞれ何のためのものかで配置。方法論は働き方を定め、エージェント群は専門能力を足し、オーケストレーションは何人動かすかを決め、サンドボックスは影響範囲を封じ込め、BrotherModeはそのいずれの周りにも継続性と所有権と証拠を置きます。</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.35">
+        <rect x="0" y="16" width="120" height="60" rx="3"/><rect x="128" y="16" width="120" height="60" rx="3"/>
+        <rect x="256" y="16" width="120" height="60" rx="3"/><rect x="384" y="16" width="120" height="60" rx="3"/>
+      </g>
+      <g fill="none" stroke="currentColor" stroke-width="1.6" opacity="0.7"><rect x="0" y="96" width="504" height="60" rx="3"/></g>
+      <g class="svg-title" fill="currentColor">
+        <text x="12" y="38">Methodology</text><text x="140" y="38">Agent ecosystem</text><text x="268" y="38">Orchestration</text><text x="396" y="38">Sandboxes</text>
+        <text x="14" y="120">BrotherMode</text>
+      </g>
+      <g class="svg-small" fill="currentColor" opacity="0.9">
+        <text x="12" y="56">how work</text><text x="12" y="70">should be done</text>
+        <text x="140" y="56">more specialist</text><text x="140" y="70">capability</text>
+        <text x="268" y="56">how many workers</text><text x="268" y="70">execute</text>
+        <text x="396" y="56">contain what workers</text><text x="396" y="70">can affect</text>
+        <text x="14" y="138">continuity, ownership and evidence around whichever of the above you use</text>
+      </g>
+      <line x1="0" y1="172" x2="638" y2="172" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-small" x="0" y="190" fill="currentColor" opacity="0.9">Where it fits, not who wins. A sandbox contains a bad task better than this does, and that is a real gap.</text>
+    </svg>
+    <figcaption>同業のツールは、これが得意でないことを得意としています。サンドボックス型のランタイムは暴走した作業を封じ込めますが、これは協調的なフックだけでコンテナを持ちません。エディタ常駐型はより多くの提供元に届きます。ホスティング型は公開URLまではるかに速く着きます。</figcaption>
+  </figure>
+
+  <p class="thesis">多くのツールはClaudeにもっと多くをやらせます。これは、Claudeがやったことをもっと信頼できるようにします。</p>
+
+  <h3 id="ja-sum">痛み、鎮痛剤、治療</h3>
+  <div class="tw">
+  <table>
+    <thead><tr><th>痛み</th><th>鎮痛剤</th><th>治療</th></tr></thead>
+    <tbody>
+      <tr><td>健忘</td><td>永続するプロジェクト記憶</td><td>すべてのセッションより長く残る記録</td></tr>
+      <tr><td>調整の負担</td><td>いつでも聞ける状態</td><td>既定としての範囲を切った委任</td></tr>
+      <tr><td>衝突</td><td>所有権と拒否</td><td>習慣ではなく規則としての一ファイル一書き手</td></tr>
+      <tr><td>中断された作業</td><td>復旧</td><td>仕組みの一部としての継続性</td></tr>
+      <tr><td>根拠のない自信</td><td>レビューと新しいチェック</td><td>黙殺されず明記される不確実性</td></tr>
+      <tr><td>繰り返す失敗</td><td>引き渡しの証拠</td><td>つまずかざるを得ない場所に置かれた失敗の履歴。<em>ただし週次レビューを実行するなら</em></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p><strong>鎮痛剤は今日のプロジェクトを楽にします。治療は明日のプロジェクトを壊れにくくするためのもので、最後の行だけは保証ではなく条件を背負っています。</strong></p>
+
+  <h3 id="ja-not">できないこと</h3>
+  <p>信頼とは、境界がどこにあるかを知ることでもあります。見える状態で判断できるように、はっきり書きます。</p>
+
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>境界</th><th>あなたにとっての意味</th></tr></thead>
+    <tbody>
+      <tr><th>OSサンドボックスではない</th><td>フックは協調的な強制です。対応する編集ツールは拒否できますが、素のシェル書き込みは事後に検知されるだけで防止されません。</td></tr>
+      <tr><th>検証済みは一つのランタイムのみ</th><td>Claude Code上では拒否は機械です。別のランタイムで計測したところ一度も発火せず、そこでは指示書と動くコマンドラインにすぎません。</td></tr>
+      <tr><th>証明するのはチェックであって妥当性ではない</th><td>記録された検証は証明します。その基準が正しかったかどうかは教えません。</td></tr>
+      <tr><th>専門家のレビューの代わりにはならない</th><td>セキュリティレビューでも、ドメイン専門家でも、本番安全性の認証でもありません。</td></tr>
+      <tr><th>生産性の主張はしない</th><td>実務では使われてきましたが、実プロジェクトで計測されたことは一度もありません。提示される生産性の数字はすべて作り話です。</td></tr>
+      <tr><th>一部の機能はまだbeta</th><td>コントローラー、自律契約、差し戻し、引き継ぎ資料、公開されるプロジェクトページには、それぞれ名前の付いた欠落があります。</td></tr>
+      <tr><th>際どいところで代行しない</th><td>資格情報は入力しません。支払いもしません。削除と公開は準備して差し戻し、実行はあなたが行います。</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="part" id="ja-how">
+  <span class="part-label">第五幕</span>
+  <h2 class="part-head">仕組みと、信頼してよい根拠</h2>
+  <p class="part-blurb">気にする理由ができたところで、ようやく機械の話をします。</p>
+
+  <h3 id="ja-arch">責任で見る構造</h3>
+  <figure><svg viewBox="0 0 640 250" role="img" aria-labelledby="ja-arch-title">
+      <title id="ja-arch-title">責任による四層。あなたが判断と権限を持ち、BrotherModeが記憶、所有権、復旧、検証、証拠を持ち、Claude Codeがスキルとワーカーを供給し、結果がプロジェクトです。</title>
+      <text class="svg-big" x="286" y="22" fill="currentColor">YOU</text>
+      <text class="svg-small" x="228" y="38" fill="currentColor" opacity="0.9">judgment, authority, the decisions only you can make</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none"><path d="M300 46 L300 66" marker-end="url(#ar-ja)"/></g>
+      <g fill="none" stroke="currentColor" stroke-width="1.4" opacity="0.6"><rect x="116" y="70" width="380" height="72" rx="3"/></g>
+      <text class="svg-title" x="130" y="90" fill="currentColor">BROTHERMODE</text>
+      <g class="svg-small" fill="currentColor" opacity="0.92">
+        <text x="130" y="108">memory   ownership   recovery</text>
+        <text x="130" y="124">verification   evidence</text>
+        <text x="350" y="108">what a conversation</text><text x="350" y="124">cannot guarantee</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M216 142 L176 168" marker-end="url(#ar-ja)"/><path d="M396 142 L436 168" marker-end="url(#ar-ja)"/>
+      </g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="56" y="172" width="200" height="34" rx="3"/><rect x="356" y="172" width="200" height="34" rx="3"/>
+      </g>
+      <g class="svg-title" fill="currentColor"><text x="70" y="193">Claude skills</text><text x="370" y="193">Claude workers</text></g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M156 206 L286 226" marker-end="url(#ar-ja)"/><path d="M456 206 L326 226" marker-end="url(#ar-ja)"/>
+      </g>
+      <text class="svg-big" x="282" y="244" fill="currentColor">PROJECT</text>
+    </svg>
+    <figcaption>積層ではなく分業として読んでください。真ん中の帯は知能を足しません。会話が約束できないものを足します。だからこそ、あなたの権限とClaudeの実行のあいだに位置しています。</figcaption>
+  </figure>
+
+  <h3 id="ja-ctrl">制御、スキル、ワーカー</h3>
+  <h4>お願いではなくプログラムである三つの制御</h4>
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>制御</th><th>すること</th><th>明示された限界</th></tr></thead>
+    <tbody>
+      <tr><th>書き込みの拒否</th><td>ツール呼び出しの実行前に走り、他の有効な宣言が覆うファイルへの書き込みを止めます。</td><td>設計上フェイルオープンし、その理由を述べます。だから拒否は常に本物の衝突を意味し、壊れたフックを意味しません。任意のシェル書き込みは対象外です。</td></tr>
+      <tr><th>スナップショット</th><td>コンテキスト圧縮の直前に、追跡外のファイルも含む作業ツリー全体を取得します。</td><td>ローカルのgit参照で、pushされることはありません。救助であってバックアップサービスではありません。</td></tr>
+      <tr><th>コストの記録</th><td>そのセッションが実際に使ったトークン、ツール呼び出し、時間を、モデルではなくフックが書きます。</td><td>同意するまで何も記録されず、同意前の書き込みはテストが拒否します。</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>自分の成績を自分で報告するモデルは証拠になりません。三つ目がフックによって書かれるのは、そのためです。</p>
+
+  <figure><svg viewBox="0 0 640 216" role="img" aria-labelledby="ja-lad-title">
+      <title id="ja-lad-title">委任のはしご。直接答えるところから小さな部隊までの六段。最初に足りた段で止まるため、大半の作業はワーカーに届きません。</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.3">
+        <line x1="0" y1="36" x2="638" y2="36"/><line x1="0" y1="66" x2="638" y2="66"/><line x1="0" y1="96" x2="638" y2="96"/>
+        <line x1="0" y1="126" x2="638" y2="126"/><line x1="0" y1="156" x2="638" y2="156"/><line x1="0" y1="186" x2="638" y2="186"/>
+      </g>
+      <g class="svg-label" fill="currentColor" opacity="0.85">
+        <text x="0" y="32">1</text><text x="0" y="62">2</text><text x="0" y="92">3</text><text x="0" y="122">4</text><text x="0" y="152">5</text><text x="0" y="182">6</text>
+      </g>
+      <g class="svg-body" fill="currentColor" opacity="0.92">
+        <text x="24" y="32">Answer directly</text><text x="24" y="62">One lookup</text><text x="24" y="92">Ask you</text>
+        <text x="24" y="122">Work inline</text><text x="24" y="152">One worker</text><text x="24" y="182">A small fleet</text>
+      </g>
+      <g class="svg-small" fill="currentColor" opacity="0.85">
+        <text x="210" y="32">when knowledge settles it</text><text x="210" y="62">when one pass settles it</text>
+        <text x="210" y="92">when your one-minute answer saves an hour</text><text x="210" y="122">one file, one seam, one decision</text>
+        <text x="210" y="152">isolated, parallel or context-heavy work</text><text x="210" y="182">genuine scale only, and capped</text>
+      </g>
+      <text class="svg-small" x="0" y="208" fill="currentColor" opacity="0.9">Reaching rung six for a rung two question is scored as a failure, not as diligence.</text>
+    </svg>
+    <figcaption>上限は楽観ではなく実測です。著者のマシンでは、ビルドデータベースが一つしかないためにワーカーが上限で死にました。一人で作る人ほどこれを強く感じます。もっと動かしたくなる誘惑が常にあるからです。</figcaption>
+  </figure>
+
+  <h3 id="ja-mem">記憶、忘却、そして習慣にすぎない部分</h3>
+  <p>記憶は二つあり、これを混同するのが失望への最短経路です。</p>
+  <p><strong>プロジェクト記録</strong>はプロジェクトごとで、機械が書きます。目標、決定、タスク、宣言、証拠。状態表示と引き渡しが読むのはこれで、certified の側です。</p>
+  <p><strong>ヴォールト</strong>は別物です。あなたが所有する、リポジトリの外にあるマークダウンのただのフォルダで、プロジェクトそのものより長く残すべきものを入れます。概要、未処理項目、セッションログ、そして再発見するはめになる失敗の記録です。</p>
+
+  <figure><svg viewBox="0 0 640 262" role="img" aria-labelledby="ja-mem-title">
+      <title id="ja-mem-title">二つの記憶を並べたもの。プロジェクト記録は機械が書き、プロジェクトごとで、certified です。ヴォールトはあなたが所有するマークダウンのフォルダで、プロジェクトをまたぎ、どのプロジェクトよりも長く残すものを入れます。ヴォールトを支える規律は三つ、選んで思い出すこと、積極的に忘れること、そして結び付けることです。</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="0" y="16" width="300" height="92" rx="3"/></g>
+      <text class="svg-title" x="14" y="38" fill="currentColor">The project record</text>
+      <g class="svg-small" fill="currentColor" opacity="0.92">
+        <text x="14" y="56">machine written, one per project</text>
+        <text x="14" y="72">objectives, decisions, tasks, claims, evidence</text>
+        <text x="14" y="88">what status and delivery read from</text>
+        <text x="14" y="102">certified</text>
+      </g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="338" y="16" width="300" height="92" rx="3"/></g>
+      <text class="svg-title" x="352" y="38" fill="currentColor">The vault</text>
+      <g class="svg-small" fill="currentColor" opacity="0.92">
+        <text x="352" y="56">plain markdown you own, across projects</text>
+        <text x="352" y="72">overviews, open items, session logs, failures</text>
+        <text x="352" y="88">what outlives any one project</text>
+        <text x="352" y="102">a folder, not a service</text>
+      </g>
+      <text class="svg-label" x="0" y="136" fill="currentColor" opacity="0.85">Three disciplines that keep the vault useful rather than hoarding</text>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.4">
+        <rect x="0" y="146" width="204" height="60" rx="3"/><rect x="218" y="146" width="204" height="60" rx="3"/><rect x="436" y="146" width="202" height="60" rx="3"/>
+      </g>
+      <g class="svg-title" fill="currentColor"><text x="14" y="168">Selective recall</text><text x="232" y="168">Active forgetting</text><text x="450" y="168">Linking</text></g>
+      <g class="svg-small" fill="currentColor" opacity="0.9">
+        <text x="14" y="186">read what the task needs,</text><text x="14" y="200">never the whole vault</text>
+        <text x="232" y="186">superseded notes move to an</text><text x="232" y="200">archive, leaving a pointer</text>
+        <text x="450" y="186">notes link to what they build</text><text x="450" y="200">on or contradict</text>
+      </g>
+      <line x1="0" y1="222" x2="638" y2="222" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-small" x="0" y="238" fill="currentColor" opacity="0.92">Recall is a query, not a tour. A memory system that only grows becomes noise,</text>
+      <text class="svg-small" x="0" y="252" fill="currentColor" opacity="0.92">which is why forgetting is a designed step rather than neglect.</text>
+    </svg>
+    <figcaption>忘却は皆が飛ばす規律であり、半年後にヴォールトがまだ読む価値を持つかを決めるのはこれです。置き換えられた記録は削除ではなく、参照を残してアーカイブへ移ります。痕跡は残り、雑音は残りません。</figcaption>
+  </figure>
+
+  <h4>Obsidian、そしてそれが任意である理由</h4>
+  <p>ヴォールトはすでにObsidianのヴォールトです。フォルダを開けばリンクはクリックでき、バックリンクが参照元を見せ、グラフがプロジェクトと失敗と決定のつながりを描きます。無料で、設定は不要です。</p>
+  <p>そして依存ではありません。プロジェクト自身がそう明記しています。フック、コマンドライン、拒否の仕組みのいずれも、Obsidianが入っているか、動いているか、一度でも開かれたかを見ていません。角括弧のリンクはどのエディタでもそのまま読めます。Obsidianは同じフォルダに対する、より心地よい窓にすぎません。</p>
+
+  <div class="panel caution">
+    <p class="panel-title">改善の仕組みが、まだ得ていないもの</p>
+    <p>能力レジスタに状態がなく、日常のコマンドもなく、そのページ自身が実際の創業者の作業を一時間も通していないと記録しています。ループを閉じる週次レビューは人間の二十分で、代わりに実行してくれるものはありません。</p>
+    <p>改善は、あなたが望まなければ起きない部分だと考えてください。覚えることと忘れることは関与しなくても起きますが、学習は起きません。</p>
+  </div>
+
+  <h3 id="ja-doc">文書と、誰かへの引き継ぎ</h3>
+  <p>ここでの文書は、手書きして放置され腐るものではなく、記録されたものから生成されます。一つのコマンドが番号付きのフォルダをプロジェクトに書き、深さはあなたに選ばせず自分で測ります。</p>
+
+  <figure><svg viewBox="0 0 640 246" role="img" aria-labelledby="ja-doc-title">
+      <title id="ja-doc-title">文書はプロジェクト記録とディスク上のファイルから番号付きフォルダへ投影されます。深さは、追跡ファイル数、作業記録数、決定数、関与人数などの指標からツール自身が測ります。別に、引き継ぐ人のために七ページが読む順に書かれます。</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="0" y="16" width="180" height="56" rx="3"/></g>
+      <text class="svg-title" x="14" y="38" fill="currentColor">the record</text>
+      <text class="svg-small" x="14" y="56" fill="currentColor" opacity="0.9">plus the files as they are</text>
+      <text class="svg-small" x="14" y="70" fill="currentColor" opacity="0.9">on disk right now</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none"><path d="M180 44 L216 44" marker-end="url(#ar-ja)"/></g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="222" y="16" width="180" height="56" rx="3"/></g>
+      <text class="svg-title" x="236" y="38" fill="currentColor">projected, not typed</text>
+      <text class="svg-small" x="236" y="56" fill="currentColor" opacity="0.9">regenerate rather than edit,</text>
+      <text class="svg-small" x="236" y="70" fill="currentColor" opacity="0.9">except inside human markers</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none"><path d="M402 44 L438 44" marker-end="url(#ar-ja)"/></g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="444" y="16" width="194" height="56" rx="3"/></g>
+      <text class="svg-title" x="458" y="38" fill="currentColor">a numbered folder</text>
+      <text class="svg-small" x="458" y="56" fill="currentColor" opacity="0.9">business, technical, decisions,</text>
+      <text class="svg-small" x="458" y="70" fill="currentColor" opacity="0.9">handover, generated</text>
+      <text class="svg-label" x="0" y="102" fill="currentColor" opacity="0.85">The depth is measured, not chosen</text>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.4">
+        <rect x="0" y="112" width="204" height="46" rx="3"/><rect x="218" y="112" width="204" height="46" rx="3"/><rect x="436" y="112" width="202" height="46" rx="3"/>
+      </g>
+      <g class="svg-title" fill="currentColor"><text x="14" y="132">Tier 1</text><text x="232" y="132">Tier 2</text><text x="450" y="132">Tier 3</text></g>
+      <g class="svg-small" fill="currentColor" opacity="0.9">
+        <text x="14" y="150">a small, single-thread project</text>
+        <text x="232" y="150">many files, several threads</text>
+        <text x="450" y="150">more than one contributor</text>
+      </g>
+      <text class="svg-small" x="0" y="178" fill="currentColor" opacity="0.92">Depth moves up on its own from signals it can count, and never moves down on its own. To go down you say so.</text>
+      <line x1="0" y1="196" x2="638" y2="196" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-label" x="0" y="216" fill="currentColor" opacity="0.85">And when somebody else takes over</text>
+      <text class="svg-small" x="0" y="234" fill="currentColor" opacity="0.92">seven pages in reading order: situation, decisions, risks, calibrations, learnings, timeline, handbacks</text>
+    </svg>
+    <figcaption>階層は、追跡されているファイル数、独立した作業の筋の数、記録された決定の数、関与した人数といった数えられる指標から計算されます。上へは自分で上がり、下がるのはあなたがそう言ったときだけです。</figcaption>
+  </figure>
+
+  <h4>引き継ぎ資料、一ページずつ</h4>
+  <p>一つのコマンドが、あなたの会話に一度も参加していない人が通しで読めるフォルダを書きます。</p>
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>ページ</th><th>答えること</th></tr></thead>
+    <tbody>
+      <tr><th>状況</th><td>どこまで来たか、何が承認されたか、上限に対していくら使ったか、どれだけ受理されたか、現在の予測、そして人にしか片付けられない未処理。</td></tr>
+      <tr><th>決定</th><td>すべての決定を新しい順に、他に何を検討したか、何があれば変わったかと共に。</td></tr>
+      <tr><th>リスク</th><td>まだ開いているもの。それぞれ、何があれば決着するかと共に。</td></tr>
+      <tr><th>較正</th><td>ガードが本当に効くと示すために意図的に壊したチェック。何を壊し、何が観測されたか。</td></tr>
+      <tr><th>学び</th><td>読む人が自力で再発見するはめになること。</td></tr>
+      <tr><th>時系列</th><td>すべての進捗報告を古い順に。走りを前向きに再生できます。</td></tr>
+      <tr><th>差し戻し</th><td>あなたが取り戻したすべての決定と、開発者が作業を引き継ぐためのページ。</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>四つ目が変わり種です。較正とは、ガードが捕まえることを示すために誰かが意図的に壊したチェックのことです。一度も落ちたことのないテストは、落ちうる証拠にはならないからです。</p>
+
+  <div class="panel caution">
+    <p class="panel-title">ここまで全部にかかる限界</p>
+    <p>引き継ぎ資料は <span class="stamp s-beta">beta</span> で、このプロジェクトの外の人が読んだことは一度もありません。あなたが最初なら、資料が答えられなかった問いはすべてあなたの理解の欠落ではなく資料の欠陥です。そう伝えてもらうことが、いちばん役に立ちます。</p>
+  </div>
+
+  <h3 id="ja-proven">何が、どこまで証明されているか</h3>
+  <p>すべての能力が四つの状態のどれかを持ち、レジスタファイルから読まれます。ページとレジスタが食い違えば、テストが文書を落とします。</p>
+
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>状態</th><th>意味</th><th>該当するもの</th></tr></thead>
+    <tbody>
+      <tr><th><span class="stamp s-certified">certified</span></th><td>名前の付いた証拠によって、このツリー内で証明済み。</td><td>一ファイル一書き手。永続ストアと復旧。ツリーから読んだ事実に縛られたページ。ガイド付きの流れ。macOSとLinuxでの継続的インテグレーション。同意を条件とするコスト記録。二コマンドの導入。</td></tr>
+      <tr><th><span class="stamp s-beta">beta</span></th><td>本物だが、隣に名前の付いた欠落がある。</td><td>Windows。コントローラーと自律契約。決定記録と進捗報告。差し戻しと引き継ぎ資料。公開されるプロジェクトページ。フックのコスト計測。</td></tr>
+      <tr><th><span class="stamp s-experimental">experimental</span></th><td>作られた、または計画されたが、未計測。数字は存在しない。</td><td>Webビルドの引き渡し。デプロイプレビュー。ベンチマーク基盤。</td></tr>
+      <tr><th><span class="stamp s-unsupported">unsupported</span></th><td>提供せず、提供する計画もない。</td><td>単独での本番公開。金銭の支出。各種認証。専門家レビューの代替。複数人の調整。自身の安全規則の変更。</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <figure><svg viewBox="0 0 640 230" role="img" aria-labelledby="ja-rung-title">
+      <title id="ja-rung-title">計画済みから certified までの六つの証明段位。第五段の外部検証は今日の時点で空です。このプロジェクトの外の誰も、まだ何も検査していません。</title>
+      <g stroke="currentColor" stroke-width="1" opacity="0.3">
+        <line x1="0" y1="36" x2="638" y2="36"/><line x1="0" y1="66" x2="638" y2="66"/><line x1="0" y1="96" x2="638" y2="96"/>
+        <line x1="0" y1="126" x2="638" y2="126"/><line x1="0" y1="156" x2="638" y2="156"/><line x1="0" y1="186" x2="638" y2="186"/>
+      </g>
+      <g class="svg-label" fill="currentColor" opacity="0.85">
+        <text x="0" y="32">6</text><text x="0" y="62">5</text><text x="0" y="92">4</text><text x="0" y="122">3</text><text x="0" y="152">2</text><text x="0" y="182">1</text>
+      </g>
+      <g class="svg-title" fill="currentColor">
+        <text x="24" y="32">Certified</text><text x="24" y="62">Verified externally</text><text x="24" y="92">Verified in CI</text>
+        <text x="24" y="122">Verified locally</text><text x="24" y="152">Implemented</text><text x="24" y="182">Planned</text>
+      </g>
+      <g class="svg-small" fill="currentColor" opacity="0.88">
+        <text x="220" y="32">named evidence plus a test that goes red when the claim stops being true</text>
+        <text x="220" y="62">checked by somebody outside, on a machine this project does not own</text>
+        <text x="220" y="92">the evidence names a job running where the author cannot touch it</text>
+        <text x="220" y="122">names a file or test here, passing on the machine it was written on</text>
+        <text x="220" y="152">built, described, and not measured</text>
+        <text x="220" y="182">named, with no evidence behind it yet</text>
+      </g>
+      <g fill="currentColor" opacity="0.1"><rect x="18" y="42" width="620" height="26" rx="2"/></g>
+      <line x1="0" y1="198" x2="638" y2="198" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-small" x="0" y="208" fill="currentColor" opacity="0.92">Rung five is EMPTY today, and the shaded band prints it empty rather than hiding it.</text>
+      <text class="svg-small" x="0" y="222" fill="currentColor" opacity="0.9">Rung six is how strong the proof inside this tree is; rung five is who did the checking.</text>
+    </svg>
+    <figcaption>提供されているものの大半は、自分のツリーに対しては certified でありながら、外部の誰にも検査されていません。公表するには居心地の悪い一文ですが、公表しています。</figcaption>
+  </figure>
+
+  <div class="panel">
+    <p class="panel-title">計測された結果が一つ、出典が自ら課した制限のとおりに</p>
+    <p>このプロジェクトは、同じモデルの二つの構成を、BrotherModeの有無で内部比較しています。ある課題では、別セッションの宣言がファイルを押さえた状態で作業を求めます。結果はこうです。</p>
+    <pre><code>| H1 fence-collision | 0/2 | 2/2 PASS |</code></pre>
+    <p>無しでは二回中ゼロ。有りでは二回中二回。プロンプトにはできないことを、仕組みがやっています。</p>
+    <p>そして制限を、出典ページ自身の言葉で。<em>「このベンチマークが出すすべての数字は内部証拠である。自己採点であり、一台のマシン上であり、外部の利用者はいない。同じモデルの二構成を互いに比較しているだけであり、他社製品との順位付けではない。」</em> ブラインド採点は未実施です。制御が効いている証拠として読み、何かに対するスコアとしては読まないでください。</p>
+  </div>
+
+  <h3 id="ja-first">最初のプロジェクト</h3>
+  <p class="statement wide">本当に大事な仕事で試してください。</p>
+  <p>複数のセッションにまたがり、ファイルが数個あり、本物の完了の定義があり、あなたにしかできない決定が少なくとも一つあるものを選んでください。使い捨てスクリプトからは何も学べません。</p>
+
+  <pre><code><span class="c"># ターミナルで一度だけ</span>
+claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.0.0
+claude plugin install brothermode@brothermode-marketplace
+
+<span class="c"># 拒否の仕組みも含め、自分のマシンで配線を確認する</span>
+python3 scripts/doctor.py</code></pre>
+
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>いつ</th><th>実行するもの</th></tr></thead>
+    <tbody>
+      <tr><td>今日</td><td><code>/brothermode:start</code> に、成果を一文で</td></tr>
+      <tr><td>そのあと</td><td>普通に作業する。書く前にファイルを宣言させる。</td></tr>
+      <tr><td>翌朝</td><td>何か説明し直す前に <code>/brothermode:status</code></td></tr>
+      <tr><td>完了と言う前</td><td><code>/brothermode:review</code></td></tr>
+      <tr><td>証拠が緑になったら</td><td><code>/brothermode:deliver</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>必要なものは多くありません。Claude Code、標準ライブラリのみで動くPython 3.9以上、そしてgit。アカウントもサーバーもサブスクリプションも、専用のAPIキーもありません。ツールはネットワーク通信を行わず、それは信じるのではなく一分以内に自分で確認できます。</p>
+
+  <p class="thesis">Claudeにもっと任せる。プロジェクトの主導権は手放さない。</p>
+</section>
+
+<footer class="foot">
+  <p><strong>この冊子の作り方。</strong> すべての主張は2026年8月8日にv3.0.0のBrotherModeリポジトリから読み取りました。能力状態のレジスタ、ロードマップの証明段位、状態表示と予測と委任と完了定義の各リファレンス、十七のスキルすべてのフロントマター、そして二つの限界レジスタです。第二幕の状態出力とプロジェクトページの見出しは、使い捨てリポジトリに対してコマンドラインを実行して取得した実出力を、印字されたまま貼っています。</p>
+  <p><strong>第二幕の登場人物は例示で、機械は例示ではありません。</strong> 示したコマンドはすべて実在し、効く規則もすべて実在し、挙げた限界はすべてファイルに辿れます。図はこの冊子のために描いたものです。ツール自身は五つの形だけを描き、その中にタイムラインはありません。</p>
+  <p><strong>この日本語版について。</strong> 図中のラベルは英語のままにしてあります。日本語の文字は横幅が約二倍あり、翻訳すると十九点すべての図版の組版が崩れるためです。各図のキャプションと読み上げ用のタイトルは日本語にしてあり、図の内容は日本語だけで完全に理解できます。これはこのプロジェクト自身の規則、「キャプションが同じ内容を文章で述べることで、図は任意のものになる」に沿っています。</p>
+  <p><strong>この冊子が主張しないこと。</strong> 生産性の数字は出しません。計測されたことがないからです。テスト件数も出しません。件数は動くもので、食い違いを見た読者には古いページか壊れた環境かの区別がつかないからです。他製品との順位付けもしません。それを裏付ける実行が行われていないからです。</p>
+</footer>
+
+</main>
+</div>
 </div>
