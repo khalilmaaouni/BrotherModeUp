@@ -1042,6 +1042,24 @@ class TestContinueLaunchCommandShape(unittest.TestCase):
                            "read as a directory, so the prompt must come "
                            "first (relay-1.log, 2026-08-08)")
 
+    def test_no_permission_mode_is_set_unless_one_is_asked_for(self):
+        """The security posture of the whole verb, pinned. A shipped tool
+        that hard-coded bypassPermissions would hand every stranger who
+        installs BrotherMode a one-word way to detach an ungated agent,
+        driven by a packet whose text other models wrote. Flagged in
+        review on 2026-08-08; the default is now inherit-the-settings, and
+        loosening it is typed per launch."""
+        argv = self.cont.launch_argv("/tmp/HANDOFF-PACKET.md", "/tmp/proj")
+        self.assertNotIn("--permission-mode", argv)
+        self.assertNotIn("bypassPermissions", argv)
+        asked = self.cont.launch_argv("/tmp/HANDOFF-PACKET.md", "/tmp/proj",
+                                      permission_mode="bypassPermissions")
+        self.assertEqual(asked[3], "--permission-mode")
+        self.assertEqual(asked[4], "bypassPermissions")
+        self.assertEqual(asked[2], argv[2],
+                         "the prompt must stay at argv[2] whether or not a "
+                         "permission mode was asked for")
+
     def test_printable_command_is_a_nohup_line_a_human_can_paste(self):
         argv = self.cont.launch_argv("/tmp/HANDOFF-PACKET.md", "/tmp/proj")
         line = self.cont.printable_command(argv, "/tmp/relay.log")

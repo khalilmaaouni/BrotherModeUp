@@ -474,6 +474,12 @@ def _section_contract(lines, packet_path, command_line):
                  "itself the right to launch a session, and that refusal "
                  "is correct.")
     lines.append("")
+    lines.append("The successor runs under whatever your installed "
+                 "settings already allow, so its writes and commands are "
+                 "gated the same way yours are. Loosening that is an "
+                 "explicit choice, typed per launch as `--permission-mode "
+                 "MODE`, never a default this tool picks for you.")
+    lines.append("")
     lines.append("Run it from the project root. Every path in this packet "
                  "is relative to that root, because a generated document "
                  "masks absolute paths and an absolute path here would "
@@ -557,7 +563,8 @@ def launch_prompt(packet_path, project_id):
     return PROMPT_TEMPLATE % {"packet": packet_path, "project": project_id}
 
 
-def launch_argv(packet_path, root, project_id="", extra_dirs=()):
+def launch_argv(packet_path, root, project_id="", extra_dirs=(),
+                permission_mode=None):
     """The successor's argv. THE PROMPT IS argv[2], immediately after -p,
     and every flag comes after it. That is not style: `--add-dir` is
     variadic, so a prompt written after it is read as one more directory
@@ -565,10 +572,23 @@ def launch_argv(packet_path, root, project_id="", extra_dirs=()):
     stdin or as a prompt argument when using --print". That exact failure
     killed the first relay launch of 2026-08-08 (relay-1.log), and
     tools/test_brothermode_cli.py pins the position so it cannot come
-    back."""
-    argv = ["claude", "-p", launch_prompt(packet_path, project_id),
-            "--permission-mode", "bypassPermissions",
-            "--add-dir", root]
+    back.
+
+    NO PERMISSION MODE IS SET BY DEFAULT, and that default is the whole
+    security posture of this verb. The successor inherits whatever the
+    installed Claude Code settings already allow, so every write, command
+    and network action it takes is gated exactly as the founder's own
+    session would be. An unattended relay that needs more says so out
+    loud with --permission-mode, per launch, in a command printed in full
+    before it runs: a shipped tool that hard-coded bypassPermissions
+    would hand every stranger who installs BrotherMode a one-word way to
+    detach an ungated agent, and it would do it from a packet whose text
+    other models wrote. Flagged in review on 2026-08-08 and fixed the
+    same hour; the founder's own relay passes the flag by hand."""
+    argv = ["claude", "-p", launch_prompt(packet_path, project_id)]
+    if permission_mode:
+        argv.extend(["--permission-mode", permission_mode])
+    argv.extend(["--add-dir", root])
     for extra in extra_dirs:
         argv.append(extra)
     return argv
@@ -620,12 +640,14 @@ def spawn_successor(argv, log_path, cwd=None):
 # continue
 # ---------------------------------------------------------------------------
 
-_CONTINUE_FLAGS = ("project-id", "root", "out", "log", "dry-run", "json")
+_CONTINUE_FLAGS = ("project-id", "root", "out", "log", "dry-run", "json",
+                   "permission-mode")
 
 
 def cmd_continue(argv):
     _pos, kv = _parse(argv, _CONTINUE_FLAGS,
-                      wants_value=("project-id", "root", "out", "log"))
+                      wants_value=("project-id", "root", "out", "log",
+                                   "permission-mode"))
     root = kv.get("root")
     if not root:
         # bs.require_root() is the ONE root resolver every sibling adapter
@@ -667,7 +689,8 @@ def cmd_continue(argv):
         # be run from the project root.
         packet_rel = os.path.relpath(packet_path, root)
         log_rel = os.path.relpath(log_path, root)
-        argv_out = launch_argv(packet_rel, ".", project_id=project_id)
+        argv_out = launch_argv(packet_rel, ".", project_id=project_id,
+                               permission_mode=kv.get("permission-mode"))
         command_line = printable_command(argv_out, log_rel)
         text = render_packet(store, project_id, packet_rel, command_line)
         if text is None:
@@ -728,7 +751,7 @@ def main(argv):
              "start the next session.")
         _out("")
         _out("  continue  [--project-id ID] [--root PATH] [--out FILE] "
-             "[--log PATH] [--dry-run] [--json]")
+             "[--log PATH] [--permission-mode MODE] [--dry-run] [--json]")
         return 0
     cmd = argv[0]
     if cmd not in COMMANDS:
