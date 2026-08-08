@@ -99,7 +99,13 @@ Use `bash` only for shell commands:
 claude plugin install brothermode@brothermode-marketplace
 ```
 
-Do not invent exact output strings when the product does not guarantee them. Instead document stable invariants, such as "Doctor reports no FAIL checks" or "delivery writes DELIVERY-PACKET.md or refuses."
+Never invent output. A fabricated transcript teaches the reader to expect something the product does not print, and it is worse than no example at all.
+
+Do show real output when you have captured it. A page may quote the exact text a command printed, provided the text was copied from an actual run and the page says so. Paths, identifiers, and timings differ between machines, so tell the reader which parts will differ.
+
+Where the exact wording is not guaranteed, for example anything a model composes in conversation, document the stable invariant instead: "Doctor reports no FAIL checks", or "delivery writes DELIVERY-PACKET.md or refuses and names what is missing".
+
+Refusal messages are the most valuable output to quote, because a reader searching for the text on their screen is a reader in trouble.
 
 ## Verification Rule
 
