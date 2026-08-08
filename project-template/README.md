@@ -30,6 +30,14 @@ conditions under which we would stop building or retire it.
 
 ## Where things are
 
+`PROGRESS.html` is this project's progress page: open it in a browser to see
+where the work stands. Refresh it at every closed loop, and keep it inside its
+brevity budget (300 characters for the summary line, 250 for a card, 240 for
+an evidence line), which is part of the contract, not a style note. Anything
+longer is moved into the collapsed history at the foot of the page, never
+deleted. The rule and its comment live in the file itself and in
+`references/status-view.md` in the main BrotherMode repository.
+
 See `STRUCTURE.md` for a full map of every file and folder in this template
 and what belongs in it. The short version: `ARCHITECTURE.md` for the one-page
 technical map, `decisions/` for why past choices were made, `docs/` for the
