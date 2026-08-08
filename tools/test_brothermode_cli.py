@@ -696,17 +696,13 @@ class TestH1CrossWorktreeFenceClaimResolution(unittest.TestCase):
     bm_store.resolve_root directly before this test was written), which
     is the only mechanism this defect depends on.
 
-    RULING: the fix belongs to tools/bm_fence_hook.py's canonical_target
-    or tools/bm_store.py's resolve_root, neither of which is in this
-    change's fence (tools/brothermode_cli.py and this file are the only
-    two files this change may write). Per the ruling's own text: "if the
-    fix exceeds a narrow diff it becomes a published limit instead."
-    Narrowing canonical_target correctly for every existing caller
-    (bm_fence_hook's own claim-vs-write comparison, plus whatever else
-    calls resolve_root with refuse_past_git_boundary's default) is not a
-    diff this change's fence can safely attempt, so this test is marked
-    expectedFailure and cites the ruling rather than widening what this
-    change touches."""
+    CLOSED in the finalization run, 2026-08-08: canonical_target and
+    canonicalize_path both express paths through
+    bm_store.strip_worktree_segments, so a write reaching a shared file
+    through a linked worktree checkout compares by its
+    worktree-relative spelling, the one a claim on the plain path
+    stores. This test was the ruling's deliberately failing pin
+    (expectedFailure); it now asserts the fence really denies."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="brothermode-cli-h1-")
@@ -729,7 +725,6 @@ class TestH1CrossWorktreeFenceClaimResolution(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    @unittest.expectedFailure
     def test_a_claim_on_the_shared_file_should_deny_a_write_from_a_nested_worktree(self):
         # OWNER claims "pyproject.toml" the natural way: from the shared
         # root, the same string a founder running `bm_store.py claim

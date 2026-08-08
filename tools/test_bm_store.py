@@ -700,7 +700,12 @@ class TestFixRoundGates(unittest.TestCase):
             self.assertTrue(bs.paths_overlap("api", "api/pay.py"))
 
     def test_calibrated_gate2_case_fold_per_platform_with_ntpath_substituted(self):
-        with mock.patch.object(bs.os.path, "normcase", ntpath.normcase):
+        # H4 made the fold a two-input decision (platform OR probed
+        # filesystem). This test simulates case-SENSITIVE platforms, so it
+        # pins the probe input too; earlier Store constructions in this
+        # process may have armed the sticky flag on a folding volume.
+        with mock.patch.object(bs, "_FS_CASE_INSENSITIVE", False), \
+             mock.patch.object(bs.os.path, "normcase", ntpath.normcase):
             with mock.patch.object(bs.sys, "platform", "win32"):
                 self.assertTrue(bs.paths_overlap("API/Pay.PY", "api/pay.py"))
             with mock.patch.object(bs.sys, "platform", "darwin"):
@@ -719,6 +724,11 @@ class TestFixRoundGates(unittest.TestCase):
         nfd = unicodedata.normalize("NFD", "src/café_日本.py")
         nfc = unicodedata.normalize("NFC", "src/café_日本.py")
         self.assertNotEqual(nfd, nfc, "the two spellings must differ as text")
+        # H4: pin the probe half of the fold decision; this test simulates
+        # platform behavior, so the sticky flag must not leak in.
+        self._h4_flag = mock.patch.object(bs, "_FS_CASE_INSENSITIVE", False)
+        self._h4_flag.start()
+        self.addCleanup(self._h4_flag.stop)
         for platform_name in ("darwin", "win32"):
             with mock.patch.object(bs.sys, "platform", platform_name):
                 self.assertTrue(bs.paths_overlap(nfd, nfc), platform_name)
@@ -3075,12 +3085,47 @@ class TestWindowsSafety(unittest.TestCase):
         # differing only by case must NOT be reported as the same file,
         # or every claim on a case-sensitive filesystem (ext4) would
         # over-block unrelated work.
-        with mock.patch.object(bs.sys, "platform", "linux"):
+        with mock.patch.object(bs, "_FS_CASE_INSENSITIVE", False), \
+             mock.patch.object(bs.sys, "platform", "linux"):
             self.assertFalse(bs.paths_overlap("API/Pay.PY", "api/pay.py"))
 
 # ---------------------------------------------------------------------------
 # Behavior tests, one per API promise.
 # ---------------------------------------------------------------------------
+
+class TestFilesystemCaseProbe(unittest.TestCase):
+    """H4 (cross-family review 2026-08-08, finding 3): case folding decided
+    by the actual filesystem, not by sys.platform alone. A case-insensitive
+    mount on Linux (SMB, WSL drvfs, casefolded ext4) let a different-case
+    claim slip past paths_overlap because the old gate read 'linux' and
+    never folded."""
+
+    def test_probe_returns_a_cached_bool(self):
+        with tempfile.TemporaryDirectory() as d:
+            first = bs.fs_case_insensitive(d)
+            self.assertIsInstance(first, bool)
+            self.assertEqual(first, bs.fs_case_insensitive(d))
+
+    def test_insensitive_mount_closes_the_case_bypass_on_any_platform(self):
+        """With the module fold flag armed (as a probe of an insensitive
+        mount arms it), a different-case spelling of a claimed path
+        overlaps even where sys.platform says case-sensitive."""
+        with mock.patch.object(bs.sys, "platform", "linux"), \
+             mock.patch.object(bs, "_FS_CASE_INSENSITIVE", True):
+            self.assertTrue(bs.paths_overlap("SRC/App.py", "src/app.py"))
+
+    def test_note_fs_case_arms_the_fold_from_a_probe(self):
+        """note_fs_case is sticky in one direction only: a probe that finds
+        an insensitive filesystem arms the fold, and nothing disarms it,
+        which errs toward a refusal and never toward an unread bypass."""
+        with tempfile.TemporaryDirectory() as d:
+            expected = bs.fs_case_insensitive(d)
+            with mock.patch.object(bs, "_FS_CASE_INSENSITIVE", False):
+                bs.note_fs_case(d)
+                self.assertEqual(bs._FS_CASE_INSENSITIVE, expected)
+                bs.note_fs_case(d)
+                self.assertEqual(bs._FS_CASE_INSENSITIVE, expected)
+
 
 class TestResolveRoot(unittest.TestCase):
     def test_env_var_wins(self):
@@ -3089,6 +3134,32 @@ class TestResolveRoot(unittest.TestCase):
                 root, source = bs.resolve_root(start=d)
                 self.assertEqual(os.path.realpath(root), os.path.realpath(d))
                 self.assertEqual(source, "env")
+
+    def test_env_var_outside_start_is_skipped_when_asked(self):
+        """H3 (cross-family review 2026-08-08, finding 2): with
+        env_must_contain_start=True, a BROTHERMODE_ROOT naming a tree
+        unrelated to `start` is skipped and resolution walks up from
+        `start`, so a hook can never be redirected to a foreign store."""
+        with tempfile.TemporaryDirectory() as foreign, \
+             tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, ".brothermode"))
+            with mock.patch.dict(os.environ, {"BROTHERMODE_ROOT": foreign}):
+                root, source = bs.resolve_root(
+                    start=d, env_must_contain_start=True)
+            self.assertEqual(os.path.realpath(root), os.path.realpath(d))
+            self.assertEqual(source, "marker")
+
+    def test_env_var_containing_start_still_wins_when_asked(self):
+        """The legitimate attach-to-parent use survives the H3 check: when
+        `start` sits inside the env root, the env answer still wins."""
+        with tempfile.TemporaryDirectory() as d:
+            sub = os.path.join(d, "nested")
+            os.makedirs(sub)
+            with mock.patch.dict(os.environ, {"BROTHERMODE_ROOT": d}):
+                root, source = bs.resolve_root(
+                    start=sub, env_must_contain_start=True)
+            self.assertEqual(os.path.realpath(root), os.path.realpath(d))
+            self.assertEqual(source, "env")
 
     def test_marker_found_walking_up(self):
         with tempfile.TemporaryDirectory() as d:
