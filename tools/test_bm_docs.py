@@ -4976,6 +4976,93 @@ class TestNoUnbackedAbsolutes(unittest.TestCase):
             [rel + ":9 production ready"])
 
 
+# The two skills a session enters when it is finishing: the delivery flow and
+# the Full-Auto kill switch. Phase C step 2 of the 2026-08-08 finalization plan
+# puts the continuity instruction in both, because those are the two places a
+# session actually stops.
+CLOSING_FLOW_SKILLS = (os.path.join("skills", "deliver", "SKILL.md"),
+                       os.path.join("skills", "stop", "SKILL.md"))
+
+# The four phrasings the instruction must carry, each pinned for a reason a
+# reviewer can check rather than for style:
+#   the plugin form      the path a plugin install resolves, the same funnel
+#                        every other mechanical command in these skills uses
+#   the clone form       the command a clone install runs, where the variable
+#                        is unset; a skill that names only one of the two
+#                        leaves half the installed base with a dead command
+#   the packaged name    what a user types when the console script is on PATH
+#   the dry run          the flag that writes the packet and launches nothing,
+#                        which is the only safe way to rehearse a handover
+CONTINUE_PLUGIN_FORM = ('"${CLAUDE_PLUGIN_ROOT}/tools/brothermode_cli.py" '
+                        'continue')
+CONTINUE_CLONE_FORM = "python3 tools/brothermode_cli.py continue"
+CONTINUE_PACKAGED_NAME = "brothermode continue"
+CONTINUE_DRY_RUN = "--dry-run"
+
+# The condition and the law, in the plan's own words. The condition keeps the
+# instruction from reading as "always launch a successor"; the law is the
+# sentence that makes stopping without one a stated failure rather than a
+# judgement call at three in the morning.
+CONTINUITY_CONDITION = "open work remains"
+CONTINUITY_LAW = "Silence is the only forbidden outcome"
+
+
+class TestContinuityIsWiredIntoTheClosingFlows(unittest.TestCase):
+    """Protects: Phase C step 2 of PLAN.md (2026-08-08), the founder's
+    correction after a session closed its loop, reported, and stopped, leaving
+    the program to be restarted by hand.
+
+    `brothermode continue` existing is not the fix. The fix is that the two
+    flows a session enters when it is finishing TELL it to run the verb while
+    work is still open. This class pins that instruction text so a later edit
+    to either skill cannot quietly drop it, and pins the verb against the CLI's
+    own verb list so the documented command can never name a verb the runtime
+    boundary does not own."""
+
+    def test_both_closing_skills_name_the_continue_command_in_both_forms(self):
+        missing = []
+        for rel in CLOSING_FLOW_SKILLS:
+            text = read(rel)
+            for phrase in (CONTINUE_PLUGIN_FORM, CONTINUE_CLONE_FORM,
+                           CONTINUE_PACKAGED_NAME, CONTINUE_DRY_RUN):
+                if phrase not in text:
+                    missing.append("%s is missing %r" % (rel, phrase))
+        self.assertEqual(missing, [], "; ".join(missing))
+
+    def test_both_closing_skills_state_the_condition_and_the_law(self):
+        missing = []
+        for rel in CLOSING_FLOW_SKILLS:
+            text = read(rel)
+            for phrase in (CONTINUITY_CONDITION, CONTINUITY_LAW):
+                if phrase not in text:
+                    missing.append("%s is missing %r" % (rel, phrase))
+        self.assertEqual(missing, [], "; ".join(missing))
+
+    def test_the_documented_verb_is_one_the_cli_actually_owns(self):
+        """The instruction is only as good as the verb behind it. This runs the
+        boundary's own help and reads the verb out of it, so renaming or
+        dropping `continue` in tools/brothermode_cli.py fails here instead of
+        surfacing as a dead command in a closing session."""
+        r = subprocess.run(
+            [sys.executable, os.path.join(ROOT, "tools", "brothermode_cli.py"),
+             "--help"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True)
+        self.assertIn("continue", r.stdout,
+                      "brothermode_cli.py --help does not list the continue "
+                      "verb the closing skills tell sessions to run: %s%s"
+                      % (r.stdout, r.stderr))
+
+    def test_the_closing_skills_carry_no_em_or_en_dash(self):
+        offenders = []
+        for rel in CLOSING_FLOW_SKILLS:
+            for i, line in enumerate(read(rel).split("\n"), 1):
+                if "\u2013" in line or "\u2014" in line:
+                    offenders.append("%s:%d" % (rel, i))
+        self.assertEqual(offenders, [], "em or en dash found at %s"
+                         % ", ".join(offenders))
+
+
 class TestNoDashes(unittest.TestCase):
     """The project's own copy rule, enforced on the files this suite governs."""
 
