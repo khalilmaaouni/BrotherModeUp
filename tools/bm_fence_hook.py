@@ -887,7 +887,8 @@ def decide(payload):
         cwd = payload.get("cwd")
         if not isinstance(cwd, str) or not cwd.strip():
             cwd = None
-        root, _source = bs.resolve_root(cwd or None)
+        root, _source = bs.resolve_root(cwd or None,
+                                        env_must_contain_start=True)
         if root is None:
             raise _FailOpen("no BrotherMode project root found from %s"
                             % (cwd or os.getcwd()), "no-root")

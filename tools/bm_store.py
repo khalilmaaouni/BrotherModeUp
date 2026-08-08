@@ -302,7 +302,8 @@ def _walk_up(start):
     return out
 
 
-def resolve_root(start=None, refuse_past_git_boundary=False):
+def resolve_root(start=None, refuse_past_git_boundary=False,
+                 env_must_contain_start=False):
     """Return (root_path, source), source in ("env", "marker", "git"), or
     (None, None) when nothing anchors a project here.
 
@@ -339,12 +340,30 @@ def resolve_root(start=None, refuse_past_git_boundary=False):
     turn the only remedy into another dead end. A caller that also needs to
     validate an explicitly-set root against its own expectations (as
     bm_autosave does, comparing against its snapshot's toplevel) still has
-    to do that itself; this parameter does not cover it."""
+    to do that itself; this parameter does not cover it.
+
+    env_must_contain_start (H3, cross-family review 2026-08-08, finding 2)
+    is likewise OPT-IN and defaults OFF. The hooks pass it: an inherited
+    BROTHERMODE_ROOT naming a tree UNRELATED to the work in front of a hook
+    used to win outright, redirecting the fence to a foreign store whose
+    empty claim table read as 'nothing fenced here', while the real
+    project's claims went unconsulted. With this flag, the env answer is
+    honored only when the effective start sits inside (or is) the env
+    root; otherwise the env answer is skipped and resolution continues
+    from start exactly as if the variable were unset, so the fence stays
+    live on the store that actually owns the write. CLI and test callers,
+    where pointing at a project from anywhere is the documented use of the
+    variable, keep the old trust by default."""
     env = os.environ.get("BROTHERMODE_ROOT")
     if env:
         p = os.path.realpath(env)
         if os.path.isdir(p):
-            return p, "env"
+            if env_must_contain_start:
+                probe = os.path.realpath(start or os.getcwd())
+                if probe == p or probe.startswith(p + os.sep):
+                    return p, "env"
+            else:
+                return p, "env"
     cur = os.path.realpath(start or os.getcwd())
     chain = _walk_up(cur)
     for d in chain:

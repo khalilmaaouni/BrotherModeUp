@@ -1178,6 +1178,26 @@ class CodexApplyPatchRefuteRound2(FenceHookBase):
         decision, _n = self.decide(self.bash(self.OTHER, cmd))
         self.assertIn("src/app.py", self.assertDenied(decision))
 
+    # -- H3 from the same review: a foreign BROTHERMODE_ROOT must not -----
+    # -- redirect this hook to the wrong store ----------------------------
+
+    def test_foreign_env_root_does_not_disarm_the_fence(self):
+        """H3 (cross-family review 2026-08-08, finding 2): an inherited
+        BROTHERMODE_ROOT naming a tree unrelated to the write's own project
+        used to win root resolution outright, so the hook consulted a
+        foreign store, found no claims, and allowed the fenced write. With
+        the env answer scoped to trees that contain the hook's cwd, the
+        walk finds the real project and the fence stays live. Must DENY."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        foreign = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, foreign, ignore_errors=True)
+        os.environ["BROTHERMODE_ROOT"] = foreign
+        p = payload(self.OTHER, self.root, tool_name="Edit",
+                    tool_input={"file_path":
+                                os.path.join(self.root, "src", "app.py")})
+        decision, _n = self.decide(p)
+        self.assertIn("src/app.py", self.assertDenied(decision))
+
     # -- H2 from the 2026-08-08 cross-family review: the two parser -------
     # -- shapes that bypassed this fence, now pinned shut -----------------
 

@@ -3090,6 +3090,32 @@ class TestResolveRoot(unittest.TestCase):
                 self.assertEqual(os.path.realpath(root), os.path.realpath(d))
                 self.assertEqual(source, "env")
 
+    def test_env_var_outside_start_is_skipped_when_asked(self):
+        """H3 (cross-family review 2026-08-08, finding 2): with
+        env_must_contain_start=True, a BROTHERMODE_ROOT naming a tree
+        unrelated to `start` is skipped and resolution walks up from
+        `start`, so a hook can never be redirected to a foreign store."""
+        with tempfile.TemporaryDirectory() as foreign, \
+             tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, ".brothermode"))
+            with mock.patch.dict(os.environ, {"BROTHERMODE_ROOT": foreign}):
+                root, source = bs.resolve_root(
+                    start=d, env_must_contain_start=True)
+            self.assertEqual(os.path.realpath(root), os.path.realpath(d))
+            self.assertEqual(source, "marker")
+
+    def test_env_var_containing_start_still_wins_when_asked(self):
+        """The legitimate attach-to-parent use survives the H3 check: when
+        `start` sits inside the env root, the env answer still wins."""
+        with tempfile.TemporaryDirectory() as d:
+            sub = os.path.join(d, "nested")
+            os.makedirs(sub)
+            with mock.patch.dict(os.environ, {"BROTHERMODE_ROOT": d}):
+                root, source = bs.resolve_root(
+                    start=sub, env_must_contain_start=True)
+            self.assertEqual(os.path.realpath(root), os.path.realpath(d))
+            self.assertEqual(source, "env")
+
     def test_marker_found_walking_up(self):
         with tempfile.TemporaryDirectory() as d:
             os.makedirs(os.path.join(d, ".brothermode"))
