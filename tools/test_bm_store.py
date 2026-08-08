@@ -21963,6 +21963,79 @@ class TestSchema18TaskPhase(unittest.TestCase):
         self.assertNotIn(("tasks", "phase"), bs._DUMP_SAFE_COLUMNS)
 
 
+class TestSystemProjectsAreNotFounderWork(unittest.TestCase):
+    """2026-08-08. list_projects answers a founder-facing question, so it
+    hides the rows the product registered for its own bookkeeping. What that
+    prevents, end to end, is in tools/test_bm_bash_audit.py; these are the
+    store's own half."""
+
+    SYS = "brothermode-bash-audit"
+
+    def test_the_registry_names_the_bash_audit_row(self):
+        self.assertIn(self.SYS, bs.SYSTEM_PROJECT_IDS)
+
+    def _seeded(self, store):
+        """One founder project and one system row, in that order."""
+        store.upsert_project(_project(), _actor())
+        now = bs.now_iso()
+        store.upsert_project(
+            {"project_id": self.SYS, "name": "bookkeeping",
+             "created_at": now, "updated_at": now}, _actor())
+
+    def test_a_system_row_is_hidden_by_default_and_shown_on_request(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._seeded(store)
+                self.assertEqual(
+                    [p["project_id"] for p in store.list_projects(raw=True)],
+                    ["proj1"])
+                self.assertEqual(
+                    sorted(p["project_id"] for p in store.list_projects(
+                        raw=True, include_system=True)),
+                    sorted(["proj1", self.SYS]))
+
+    def test_a_store_holding_only_a_system_row_reads_as_no_projects(self):
+        """The case the whole change exists for: a fresh install where the
+        product filed a record before the founder started anything. Zero is
+        the honest answer to "how many projects are here"."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                now = bs.now_iso()
+                store.upsert_project(
+                    {"project_id": self.SYS, "name": "bookkeeping",
+                     "created_at": now, "updated_at": now}, _actor())
+                self.assertEqual(store.list_projects(raw=True), [])
+                self.assertEqual(
+                    len(store.list_projects(raw=True, include_system=True)), 1)
+                self.assertIsNotNone(store.get_project(self.SYS, raw=True),
+                                      "get_project names one row by id and "
+                                      "must not start hiding it")
+
+    def test_the_read_only_store_hides_them_identically(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._seeded(store)
+            with bs.ReadOnlyStore(d) as ro:
+                self.assertEqual(
+                    [p["project_id"] for p in ro.list_projects(raw=True)],
+                    ["proj1"])
+                self.assertEqual(
+                    len(ro.list_projects(raw=True, include_system=True)), 2)
+
+    def test_a_dump_still_carries_every_row(self):
+        """Hiding is a founder-facing default on ONE accessor, never a hole
+        in the export: dump() and verify() read the table directly, so an
+        audit of this store still sees everything that is in it."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._seeded(store)
+                dumped = store.dump(raw=True)
+            self.assertEqual(
+                sorted(p["project_id"] for p in dumped["projects"]),
+                sorted(["proj1", self.SYS]))
+            self.assertEqual(bs.verify(d), [])
+
+
 if __name__ == "__main__":
     # The leak check lives in the runner, so it applies to every test without
     # each of the ~40 TestCase classes having to opt in. Running this file
