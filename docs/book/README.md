@@ -24,78 +24,71 @@ HTML in a browser and printing to PDF, then update this note with the new date.
 |---|---|
 | `brothermode-for-dummies.html` | the book. One self-contained file, inline CSS, diagrams as inline SVG, no external reference of any kind. Open it by double clicking it. |
 | `brothermode-for-dummies.pdf` | the PDF export, 56 pages, produced from the HTML on 2026-07-30. See the note below on how, and on what that means for regenerating it. |
-| `brothermode-team-briefing.html` | the team briefing, a different book for a different reader. See below. |
+| `brothermode-solo-builder-booklet.html` | THE OFFICIAL BOOKLET for this project. Written for solo founders and individual contributors deciding whether to adopt it. See below. |
 
-## The team briefing (added 2026-08-08)
+## The official booklet (2026-08-08)
 
-`brothermode-team-briefing.html` is written for a working engineering and
-analytics team, not for a first-time beginner. Where the dummies book teaches
-someone who has never heard the word hook, the briefing answers the four
-questions a developer actually asks: what is this, what does it refuse to do,
-how is it different from every other Claude Code plugin, and how do I run my own
-project on it.
+`brothermode-solo-builder-booklet.html` is THE official HTML artefact about
+this project. The founder settled that on 2026-08-08. Anything else in this
+folder is either a different audience kept for a stated reason, or history.
 
-Its shape, and why: part zero is a two-page summary anyone can read, and it
-carries the largest limit (never measured on a real project) on its second page
-rather than in an appendix. Part two is the full feature register, every
-capability with its role AND its limit, plus the four capability states. Part
-three is the differentiation chapter, which names peers directly and labels
-every peer claim a desk assessment, following the fairness rules in
-`docs/market/CATEGORY.md`. Part four walks six end-to-end projects, one per
-work-nature profile in `references/profiles.md`. Part five is six personas with
-what each will like and what each will resent. Parts six and seven are the
-inherited rules and the look-up reference.
+It is written for a solo founder or individual contributor deciding whether to
+adopt this, and it is ordered pain first: what goes wrong when you hand serious
+work to Claude, what relieves that immediately, what stops it coming back, and
+only then the machinery. Five acts, 19 diagrams, roughly 5,700 words.
 
-Three outside structures shaped it, each read from the page itself on
-2026-08-08: Diátaxis (<https://diataxis.fr>) for keeping tutorial, how-to,
-reference and explanation apart; SQLite's "when to use" page
-(<https://www.sqlite.org/whentouse.html>) for the three-part honesty structure
-of part three; and The Good Docs Project README template
-(<https://www.thegooddocsproject.dev/template/readme>), which treats a
-limitations section as OPTIONAL, which is what makes putting it on page two a
-deliberate departure rather than a convention.
+Tagline: **Build with Claude. Stay in control.** Category line: **The
+reliability layer for Claude Code.** Both were checked against
+`docs/brand/IDENTITY-CONTRACT.md` and the naming test before use; neither
+touches a governed name token.
 
-Same self-containment rules as the dummies book: no `<script>`, no `<link>`, no
-`<img>`, no `@import`, no external font. Diagrams are hand-written inline SVG.
-Verify with the same greps below.
+It is policed. Because it sits under `docs/` with no date in its filename,
+`current_pages()` in `tools/test_bm_docs.py` picks it up, so
+`TestCurrentPagesUseTheCanonicalNames` and `TestNoUnbackedAbsolutes` both run
+against it. What does NOT run against it is `TestNoDashes`, scoped to a
+different file list, and any check that a feature description in it is still
+true. A renamed command would fail nothing here.
 
-HONEST LIMITS OF THIS FILE, stated rather than implied:
+Three blocks in it are real captured tool output, not mock-ups: the eight-field
+status, the section headings of a generated project page, and the node labels
+of the three drawings that page produced. They were captured by running a
+project through `tools/brothermode_cli.py` against a throwaway repository
+outside this tree, and pasted exactly as printed.
 
-- It is PARTLY held by `tools/test_bm_docs.py`, and an earlier version of this
-  note wrongly said it was not held at all. Corrected 2026-08-08. Because the
-  file sits under `docs/` and carries no date in its name, `current_pages()`
-  picks it up, so two rules run against it: `TestCurrentPagesUseTheCanonicalNames`
-  and `TestNoUnbackedAbsolutes`. Verify with:
+HONEST LIMITS, stated rather than implied:
 
-      python3 -c "import importlib.util;s=importlib.util.spec_from_file_location('t','tools/test_bm_docs.py');m=importlib.util.module_from_spec(s);
-      exec('try:\n s.loader.exec_module(m)\nexcept SystemExit:\n pass');print([p for p in m.current_pages() if 'team-briefing' in p])"
+- Nobody outside this project has read it.
+- It has no pinned test of its own, the way the dummies book has
+  `TestTheAdoptionBook`. Adding one is the most useful follow-up for this file.
+- No PDF export. Any browser's print dialogue produces one; the file carries a
+  print stylesheet with a page break per act.
 
-  What does NOT run against it: `TestNoDashes`, which is scoped to `ACTIVE_DOCS`
-  plus an explicit file list this page is not on, and any check that a feature
-  description in it is still true. The dummies book additionally has
-  `TestTheAdoptionBook`, which re-runs one of its walkthroughs against the real
-  command line; this book has no equivalent. So a renamed command would not
-  fail anything here, and the page would go stale quietly. That gap is the
-  most useful follow-up available for this file.
-- It quotes no test count and no productivity number, for the reasons the file
-  itself states in its closing note.
-- No PDF export exists. Any browser's print dialogue produces one; the file
-  carries a print stylesheet with a page break per part.
-- It was rendered and inspected at desktop width and at 375 pixels wide, and its
-  text contrast was audited in both light and dark themes with zero failures at
-  the 4.5 to 1 threshold. It has not been read end to end by anyone but its
-  author.
+### What was retired, and why it is not simply gone
 
-REORGANIZED 2026-08-01 after the founder rated the tour-shaped book 1 of 5:
-the book is now task-first, per the ratified rebuild spec
-(docs/superpowers/specs/2026-08-01-docs-rebuild-after-1of5-design.md). It
-opens with a one-screen cheat sheet, then four parts: DO (three short
-tutorials, 217 words to first proven success), SOLVE (the how-to chapters),
-UNDERSTAND (philosophy and architecture, behind a divider no first-time
-reader must cross), and LOOK UP (references, glossary, and a task index that
-maps "I want to..." questions to anchors). All sixteen original chapters
-survive inside the parts with their numbers and anchors unchanged, each still
-ending in a "try this now" the reader can actually run.
+`brothermode-team-briefing.html` was removed on 2026-08-08. It was a good book
+aimed at an internal engineering team, superseded when the founder chose the
+solo-builder framing, which is also the framing `README.md` and
+`docs/market/CATEGORY.md` already used ("built to scale down to one person
+doing the work of several roles, not up to a team").
+
+It is not lost. Recover it with:
+
+    git show d4f2f91:docs/book/brothermode-team-briefing.html > restored.html
+
+### Why the other HTML files in this repository stayed
+
+Two of them cannot be deleted without turning the gate red, which is a fact
+about the tests rather than a preference:
+
+- `brothermode-for-dummies.html` is pinned at `tools/test_bm_docs.py:3406`,
+  where `TestTheAdoptionBook` re-runs one of its walkthroughs against the real
+  command line.
+- `../brotherme-explained.html` is pinned by four assertions in
+  `tools/test_bm.py`.
+
+Retiring either one means removing its test in the same change, which is a
+separate decision with its own review. `PROJECT-VIEW.html` is generated output
+rather than a document, and `../one-pager.src.html` is a source file.
 
 ## How to read it offline
 
