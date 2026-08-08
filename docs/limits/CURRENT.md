@@ -97,81 +97,24 @@ breakdown above, will undercount the real surface by more than three times.
   container or operating system sandbox is provided; every guarantee above
   depends on Claude Code actually running the hook it was told to run.
 
-## The fence hook and the store: six measured holes (2026-08-08)
+## The fence hook and the store: two measured holes remain (of six, 2026-08-08)
 
-Found in the same closure pass that produced the rest of this page,
-reproduced against the exact files and line numbers named below rather than
-asserted from a description. None of the five code-level holes is fixed
-here: each sits in `tools/bm_fence_hook.py` or `tools/bm_store.py`, the
-fence's own core, and this closure's own rule forbids touching that core to
-close a review finding with anything but a narrow, safe diff; each stays a
-published limit instead, with the fix it needs stated plainly so it is not
-lost. The sixth item is a configuration change this pass DID make, listed
-here because it exists to answer the first hole below.
+Six holes were found and reproduced by the 2026-08-08 review pass against
+exact files and line numbers. Four were CLOSED by the finalization run of
+2026-08-08, each with a regression test that was red before its fix and
+green after (the commits carry the evidence): H1, claims now resolve
+across git worktree boundaries through
+`bm_store.strip_worktree_segments`, applied to both writes and declared
+claims; H2, the heredoc parser reads `command`-builtin prefixes and
+hyphenated delimiters; H3, an inherited `BROTHERMODE_ROOT` naming a tree
+unrelated to a hook's own cwd no longer redirects the hooks to a foreign
+store; H4, case folding is decided by a probe of the project's actual
+filesystem, not by `sys.platform` alone. Sub-agent worktree isolation,
+removed while H1 stood, is restored as the writers' default.
 
-- **Sub-agent profiles no longer default to a separate git worktree.** Was
-  `isolation: worktree` in `agents/builder.md` and `agents/fast-worker.md`;
-  removed 2026-08-08, because the fence does not resolve a claim across a
-  worktree boundary (the next entry), so the isolation those two profiles
-  asked for by default was quietly weaker than it looked: a claim filed
-  inside the worktree and a write from outside it, or the reverse, could
-  pass each other unrefused. A caller that still wants worktree isolation
-  for an unrelated reason (a genuinely parallel, disjoint-file task) can
-  request it explicitly; it is no longer the default for scoped
-  implementation or bulk mechanical work.
-- **The fence does not resolve a claim across a git worktree boundary
-  (H1).** A nested worktree (for example `.claude/worktrees/<name>/`)
-  carries no `.brothermode/` of its own, so `tools/bm_store.py`'s
-  `resolve_root` (line 305) climbs to the OUTER repository that does.
-  `tools/bm_fence_hook.py`'s `canonical_target` (line 340) then computes
-  the write's target relative to that OUTER root, which is the
-  worktree-prefixed path (`.claude/worktrees/<name>/<file>`), never the
-  plain path a claim filed on `<file>` inside the worktree actually stores.
-  A claim on a file shared between the outer tree and a worktree therefore
-  matches neither the worktree's own write nor a second worktree's, and the
-  fence allows a write it should deny. Reproduced directly against
-  `resolve_root` and `canonical_target`; the fix belongs to one or both of
-  those two functions, judged too wide a diff for this closure to attempt
-  safely, so it stays a published limit rather than a rushed patch to the
-  fence's own core.
-- **An `apply_patch` heredoc is unparsed, and therefore unfenced, in two
-  common shapes.** `tools/bm_fence_hook.py`'s `_command_word` (line 453)
-  takes the first token on a heredoc's operator line as the command, with
-  no special case for the `command` builtin, so `command apply_patch
-  <<'PATCH'` is read as the command `command`, not `apply_patch`, and its
-  body is never checked. Separately, `_find_heredoc_ops` (line 476) only
-  accepts alphanumeric characters and underscore inside a quoted heredoc
-  delimiter, so a delimiter such as `'PATCH-END'` fails its own
-  closing-quote check and the whole heredoc is dropped rather than parsed.
-  Both paths return zero parsed bodies, and `decide()` (line 787) takes the
-  empty-bodies allow path with no claim check at all. Reproduced directly
-  by calling `apply_patch_bodies()`: one parsed body for a plain
-  `apply_patch <<'PATCH'`, zero for either variant above. Under Codex CLI
-  every file write arrives as exactly this kind of heredoc
-  (`docs/mistakes/M19-the-codex-fence-does-not-fire-in-exec-mode.md`), so
-  this is a real bypass for two plausible command shapes, not a contrived
-  one.
-- **`BROTHERMODE_ROOT`, if set in the environment, is never cross-checked
-  against the file actually being written.** `resolve_root` (`tools/
-  bm_store.py`, line 343) reads `os.environ.get("BROTHERMODE_ROOT")` and
-  gives it absolute precedence over the hook payload's own `cwd` whenever
-  it names an existing directory, with no check that it has anything to do
-  with the write in front of it. A stale or simply wrong inherited value
-  makes the fence hook consult the wrong store; the real write target then
-  canonicalizes outside that mistaken root and is silently allowed.
-  Reproduced by reading the call path from `bm_fence_hook.py` into
-  `resolve_root` through to the allow decision; no test in this project's
-  suites exercises a stale or hostile inherited `BROTHERMODE_ROOT` value,
-  only scrubbing it from a test's own environment to avoid pollution.
-- **Path case-folding is decided by `sys.platform`, not by the filesystem
-  actually in use.** `tools/bm_store.py`'s `_CASE_INSENSITIVE_PLATFORMS =
-  ("win32", "darwin")` (line 486) treats every Linux mount as
-  case-sensitive. A case-insensitive Linux mount (SMB, CIFS, WSL's
-  `drvfs`, a casefolded ext4 volume) can map `src/Foo.py` and `src/foo.py`
-  to the same file while the fence's own `paths_overlap` (line 564) still
-  treats them as two different claims, so a foreign claim can be worked
-  around with a different case spelling on such a mount. Not currently
-  caught anywhere in this project's suites.
+The two below remain open, published rather than fixed, until the
+store-edges pass of the finalization plan lands.
+
 - **A WAL journal mode request is never confirmed to have taken effect.**
   `Store.__init__` (`tools/bm_store.py`, line 6216) runs `PRAGMA
   journal_mode=WAL` and discards the value SQLite hands back, which names

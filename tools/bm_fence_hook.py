@@ -371,6 +371,14 @@ def canonical_target(root, raw, cwd=None):
     if rel_posix == ".." or rel_posix.startswith("../"):
         return None
     rel_posix = posixpath.normpath(rel_posix)
+    # H1: a write reaching a file through a linked worktree checkout is a
+    # write to the same logical file, so the fence compares its
+    # worktree-relative spelling, the one a claim on the plain path
+    # stores. Store module unimportable is the documented fail-open class
+    # and leaves the historical spelling untouched.
+    bs_mod = _load_store_module()
+    if bs_mod is not None and hasattr(bs_mod, "strip_worktree_segments"):
+        rel_posix = bs_mod.strip_worktree_segments(root_real, rel_posix)
     return rel_posix
 
 
@@ -457,17 +465,28 @@ def _command_word(prefix):
     Isolates the segment after the last shell separator (';', '&', '|', which
     together cover ';', '&', '|', '&&', '||' and pipelines), then returns the
     basename of the first token that is not a leading NAME=value environment
-    assignment. So 'apply_patch ' gives apply_patch, 'FOO=bar apply_patch '
-    skips the assignment and gives apply_patch, 'cat > doc ' gives cat, and
-    'true | apply_patch ' gives apply_patch. An empty or unparseable prefix
-    gives '', which matches no gated command and therefore allows."""
+    assignment and not the shell's `command` builtin. So 'apply_patch ' gives
+    apply_patch, 'FOO=bar apply_patch ' skips the assignment and gives
+    apply_patch, 'cat > doc ' gives cat, 'true | apply_patch ' gives
+    apply_patch, and 'command apply_patch ' (with or without option tokens
+    such as -p) gives apply_patch, because `command` runs the word after it:
+    H2 first shape, cross-family review 2026-08-08. `command -v X` names X
+    without running it; treating it as X errs toward a refusal, never toward
+    an unread write. An empty or unparseable prefix gives '', which matches
+    no gated command and therefore allows."""
     cut = 0
     for i, ch in enumerate(prefix):
         if ch in ";&|":
             cut = i + 1
+    behind_command_builtin = False
     for tok in prefix[cut:].split():
         eq = tok.find("=")
         if eq > 0 and _is_shell_identifier(tok[:eq]):
+            continue
+        if tok == "command":
+            behind_command_builtin = True
+            continue
+        if behind_command_builtin and tok.startswith("-"):
             continue
         return os.path.basename(tok)
     return ""
@@ -508,8 +527,19 @@ def _find_heredoc_ops(line):
             quote = line[j]
             j += 1
         start = j
-        while j < n and (line[j].isalnum() or line[j] == "_"):
-            j += 1
+        if quote:
+            # Quoted delimiter: any character up to the matching quote is
+            # legal, including hyphens ('PATCH-END' was H2's second bypass
+            # shape, cross-family review 2026-08-08: the old alnum-only scan
+            # stopped at the hyphen, read the quote as unbalanced, and
+            # dropped the operator, so the body was never read).
+            while j < n and line[j] != quote:
+                j += 1
+        else:
+            # Unquoted: the word characters a real delimiter uses. Hyphen,
+            # dot and plus are legal in shell words and appear in the wild.
+            while j < n and (line[j].isalnum() or line[j] in "_-.+"):
+                j += 1
         delim = line[start:j]
         if quote:
             if j < n and line[j] == quote:
@@ -865,10 +895,14 @@ def decide(payload):
         cwd = payload.get("cwd")
         if not isinstance(cwd, str) or not cwd.strip():
             cwd = None
-        root, _source = bs.resolve_root(cwd or None)
+        root, _source = bs.resolve_root(cwd or None,
+                                        env_must_contain_start=True)
         if root is None:
             raise _FailOpen("no BrotherMode project root found from %s"
                             % (cwd or os.getcwd()), "no-root")
+        # H4: fold case where this project's filesystem folds it, not
+        # where sys.platform guesses it does.
+        bs.note_fs_case(root)
 
         rows = active_claims(root)
         if not rows:
