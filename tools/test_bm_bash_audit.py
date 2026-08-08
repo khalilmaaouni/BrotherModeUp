@@ -183,6 +183,21 @@ class BashAuditBase(unittest.TestCase):
             return store.list_attribution(ba.ALERT_PROJECT_ID, limit=1000,
                                           raw=raw)
 
+    def verify(self):
+        """`python3 tools/bm_store.py verify` against this fixture's store,
+        run exactly as a founder runs it: the real CLI, in a subprocess,
+        with the project root as cwd. A CompletedProcess, so a test can
+        assert on the exit code AND the sentence, since verify says
+        "healthy, 0 problem(s)" on stdout and exits 0 only when it means
+        it."""
+        return subprocess.run(
+            [sys.executable, STORE_PATH, "verify"],
+            text=True, capture_output=True, cwd=self.root)
+
+    def projects(self, include_system=False):
+        with bs.Store(self.root, create=False) as store:
+            return store.list_projects(raw=True, include_system=include_system)
+
     def snapshot_path(self, session_id, tool_use_id):
         return ba.snapshot_path(self.root, bs, session_id, tool_use_id)
 
@@ -557,6 +572,156 @@ class ControlStateLossIsDetected(BashAuditBase):
         detected = r2.stderr.index("DETECTED a Bash write across a fence")
         recorded = r2.stderr.index("fence-breach alert was raised")
         self.assertLess(detected, recorded)
+
+
+# ---------------------------------------------------------------------------
+# 2026-08-08: the alert path leaves the store HEALTHY, not merely written to.
+#
+# The defect these tests exist for: ba.ALERT_PROJECT_ID was a constant nothing
+# anywhere created. An alert's attribution event names a project, and
+# attribution.project_id carries no REFERENCES clause on purpose (bm_store.py
+# _LOOP1_DDL's comment says why), so the write succeeded and `bm_store.py
+# verify` reported "attribution event <id> references missing project
+# 'brothermode-bash-audit'" from then on, forever. That single problem turned
+# doctor check 7 red, which turned test_brothermode_cli.py red, which turned
+# test_all.py red on every machine in the repo.
+#
+# EVERY EXISTING TEST IN THIS FILE PASSED THROUGHOUT. They asserted the alert
+# row, its severity, its category, its message and its actor, and never once
+# asked whether the store was still consistent afterwards. This fixture never
+# creates a project either, which is exactly the real, first-alert-on-a-fresh
+# -machine case, so the bug was not merely unnoticed: it was reproduced by
+# every run and inspected by none. That is the lesson of section 5.3 in
+# docs/HANDOVER-2026-08-02-full-auto-phase1.md written out again, so the
+# check is now the last thing the alert path is asked for: verify, clean.
+# ---------------------------------------------------------------------------
+
+class TheAlertPathLeavesTheStoreHealthy(BashAuditBase):
+
+    def _breach(self, slug="toolu_health", claim=True):
+        """One foreign-session Bash write across a fence, end to end through
+        the real hook. Returns the post phase's CompletedProcess.
+
+        claim=False reuses the fence an earlier call already made: a second
+        claim on the same path is refused as an overlap, correctly, so a
+        test wanting a SECOND breach across the SAME fence must not ask for
+        one."""
+        owner = self.label(self.OWNER)
+        if claim:
+            self.claim("mine-" + slug, ["src/mine.txt"], owner)
+        r1 = self.run_hook("pre", self.OTHER, tool_use_id=slug)
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        # The content includes the slug: detection is a hash comparison, so
+        # a second breach writing the SAME bytes as the first would be a
+        # file that did not change and would correctly raise nothing.
+        self.write_file("src/mine.txt",
+                        "tampered by a foreign session (%s)\n" % slug)
+        r2 = self.run_hook("post", self.OTHER, tool_use_id=slug)
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        return r2
+
+    def test_the_store_starts_healthy(self):
+        """The baseline, stated rather than assumed: if this fails, every
+        other assertion in this class is measuring the fixture, not the
+        alert path."""
+        r = self.verify()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("healthy, 0 problem(s)", r.stdout)
+
+    def test_a_breach_alert_on_a_store_with_no_project_leaves_verify_clean(self):
+        r2 = self._breach()
+        self.assertIn("fence-breach alert was raised", r2.stderr)
+        self.assertEqual(len(self.alerts(raw=True)), 1)
+
+        r = self.verify()
+        self.assertEqual(
+            r.returncode, 0,
+            "raising a fence-breach alert damaged the store:\n%s%s"
+            % (r.stdout, r.stderr))
+        self.assertIn("healthy, 0 problem(s)", r.stdout)
+        self.assertNotIn("missing project", r.stdout)
+
+    def test_a_control_loss_alert_on_a_store_with_no_project_leaves_verify_clean(self):
+        """The second alert path, which raises through the same helper. Both
+        are asserted because 'the other one was fixed' is precisely how the
+        first one came to be written without a project in the first place."""
+        owner = self.label(self.OWNER)
+        self.claim("mine", ["src/mine.txt"], owner)
+        token = fh.token_path(self.root, self.OWNER)
+        self.assertTrue(os.path.isfile(token), "no owner token to remove")
+
+        r1 = self.run_hook("pre", self.OTHER, tool_use_id="toolu_ctlhealth")
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        os.remove(token)
+        r2 = self.run_hook("post", self.OTHER, tool_use_id="toolu_ctlhealth")
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        self.assertIn("fence-control-loss alert was raised", r2.stderr)
+
+        r = self.verify()
+        self.assertEqual(
+            r.returncode, 0,
+            "raising a fence-control-loss alert damaged the store:\n%s%s"
+            % (r.stdout, r.stderr))
+        self.assertIn("healthy, 0 problem(s)", r.stdout)
+
+    def test_the_alert_project_id_is_registered_in_the_store_module(self):
+        """The two constants that have to agree. bm_store.SYSTEM_PROJECTS is
+        what licenses this id to be created on demand; an id renamed on one
+        side and not the other would refuse every alert this hook raises, at
+        the one moment the founder most needs the record."""
+        self.assertIn(ba.ALERT_PROJECT_ID, bs.SYSTEM_PROJECTS)
+
+    def test_the_project_row_is_created_once_however_many_alerts_land(self):
+        self._breach(slug="toolu_once_a")
+        rows_after_one = self.projects(include_system=True)
+        self._breach(slug="toolu_once_b", claim=False)
+        self.assertEqual(len(self.alerts(raw=True)), 2,
+                         "the second breach did not raise its own alert")
+        rows_after_two = self.projects(include_system=True)
+        self.assertEqual(len(rows_after_one), 1, rows_after_one)
+        self.assertEqual([p["project_id"] for p in rows_after_two],
+                         [ba.ALERT_PROJECT_ID])
+        self.assertEqual(rows_after_one[0]["created_at"],
+                         rows_after_two[0]["created_at"],
+                         "the second alert re-created or overwrote the "
+                         "project row instead of leaving it alone")
+
+        r = self.verify()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("healthy, 0 problem(s)", r.stdout)
+
+    def test_the_founders_own_project_is_still_the_only_one_after_an_alert(self):
+        """The reason system projects are hidden by default, as a behaviour
+        rather than a preference. One project per folder is the beginner
+        model, and tools/bm_statusline.py, tools/bm_view.py, tools/bm_lead.py
+        and tools/bm_project.py all resolve THE project by counting rows. If
+        the row this hook creates counted, the product would answer "not
+        exactly one" from the first alert onwards: a blank status line, a
+        briefing hook that returns silently, and CANVAS.md written under a
+        per-project name instead."""
+        now = bs.now_iso()
+        with bs.Store(self.root, create=False) as store:
+            store.upsert_project(
+                {"project_id": "founder-project", "name": "The real work",
+                 "created_at": now, "updated_at": now},
+                {"actor_type": "human", "actor_name": "founder"})
+        self.assertEqual([p["project_id"] for p in self.projects()],
+                         ["founder-project"])
+
+        self._breach(slug="toolu_only")
+
+        self.assertEqual(
+            [p["project_id"] for p in self.projects()], ["founder-project"],
+            "the alert path's own project is being counted as founder work")
+        self.assertEqual(
+            sorted(p["project_id"] for p in self.projects(include_system=True)),
+            ["brothermode-bash-audit", "founder-project"],
+            "include_system=True must still show every row; hiding is a "
+            "default, not a filter nothing can turn off")
+
+        r = self.verify()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("healthy, 0 problem(s)", r.stdout)
 
 
 # ---------------------------------------------------------------------------

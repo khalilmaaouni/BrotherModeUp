@@ -412,6 +412,13 @@ _SLOT_DOMAIN = "bm-bash-audit-slot-v1|"
 # later), short enough that a crashed session's leftovers do not linger.
 SNAPSHOT_TTL_SECONDS = 24 * 60 * 60
 
+# The project every alert this file raises is attributed to. It is REGISTERED
+# in tools/bm_store.py's SYSTEM_PROJECTS, and that registration is what makes
+# it creatable on demand; the two must stay in step, which
+# test_bm_bash_audit.py asserts directly. Until 2026-08-08 nothing anywhere
+# created this row, so every alert raised here left an attribution event
+# pointing at a project that did not exist and `bm_store.py verify` reported
+# the dangling reference forever after. See _raise_alert_row below.
 ALERT_PROJECT_ID = "brothermode-bash-audit"
 ALERT_SEVERITY = "high"
 ALERT_CATEGORY = "fence-breach"
@@ -622,6 +629,40 @@ def _control_findings(root, bs, fh, before):
     return out
 
 
+def _raise_alert_row(bs, root, alert, actor):
+    """Open a writable Store, make sure this hook's own project row is there,
+    raise ONE alert, close it. THE ONLY place either alert path in this file
+    writes, so the project can never be ensured on one path and forgotten on
+    the next one somebody adds.
+
+    ensure_system_project is what closes the 2026-08-08 defect: an alert's
+    attribution event names a project, attribution.project_id carries no
+    REFERENCES clause on purpose (tools/bm_store.py's _LOOP1_DDL comment says
+    why), and nothing created ALERT_PROJECT_ID, so every alert this hook ever
+    raised left a dangling reference that `bm_store.py verify` reported for
+    good. Asking here rather than having raise_alert create what it finds
+    missing is deliberate: raise_alert's project_id is caller data, and a
+    store that invents a row for any id handed to it turns a typo into a junk
+    project instead of a reported problem (the section 5.3 lesson in
+    docs/HANDOVER-2026-08-02-full-auto-phase1.md). This hook is not passing
+    data, it is naming its own registered constant. See
+    Store.ensure_system_project's docstring for the same argument from the
+    store's side.
+
+    Ordering matters and is not incidental: the project row lands FIRST, in
+    its own transaction, so the alert is never committed against a project
+    that is not there yet. A failure here raises exactly as a failed
+    raise_alert already did, and the caller's fail-open handling is
+    unchanged; the detection line both alert paths print BEFORE calling this
+    is what makes a breach audible even when nothing can be recorded."""
+    store = bs.Store(root, create=False)
+    try:
+        store.ensure_system_project(ALERT_PROJECT_ID, actor)
+        store.raise_alert(alert, ALERT_PROJECT_ID, actor)
+    finally:
+        store.close()
+
+
 def _raise_control_alert(bs, root, code, offending_session_id):
     """One alert row for one control finding. Same shape, severity and actor
     as _raise_breach_alert, different category, and a message built entirely
@@ -656,11 +697,7 @@ def _raise_control_alert(bs, root, code, offending_session_id):
         "actor_name": "bm_bash_audit",
         "session_id": offending_session_id,
     }
-    store = bs.Store(root, create=False)
-    try:
-        store.raise_alert(alert, ALERT_PROJECT_ID, actor)
-    finally:
-        store.close()
+    _raise_alert_row(bs, root, alert, actor)
 
 
 def _remove_snapshot_best_effort(path):
@@ -757,11 +794,7 @@ def _raise_breach_alert(bs, root, rel_path, entry, offending_session_id):
         "actor_name": "bm_bash_audit",
         "session_id": offending_session_id,
     }
-    store = bs.Store(root, create=False)
-    try:
-        store.raise_alert(alert, ALERT_PROJECT_ID, actor)
-    finally:
-        store.close()
+    _raise_alert_row(bs, root, alert, actor)
     safe_path = bs.mask_absolute_paths(bs.redact_text(rel_path))
     _warn("bm_bash_audit: a Bash write outside its fence changed %s; a "
          "high-severity fence-breach alert was raised and needs a human."

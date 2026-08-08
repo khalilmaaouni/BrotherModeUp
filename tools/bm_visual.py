@@ -2740,6 +2740,12 @@ REFUSAL_HELP = {
         "the save could not be done in one go on this system, and a "
         "half written file is worse than no file",
         "Check the disk has space, then ask again."),
+    "not-a-system-project": (
+        "filing a record BrotherMode keeps for itself",
+        "that project name is not one BrotherMode is allowed to create on "
+        "its own, and it will not invent a project nobody started",
+        "Start the project yourself if it is real work, or ask me to check "
+        "the store for a misspelled name."),
     "not-found": (
         "finding what you named",
         "there is no record with that name",
