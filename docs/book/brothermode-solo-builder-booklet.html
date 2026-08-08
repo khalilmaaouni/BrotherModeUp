@@ -142,7 +142,7 @@ dl.facts dt { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.08
 dl.facts dd { margin: 0; }
 
 figure { margin: 2.2rem 0; max-width: 68ch; }
-figure svg { display: block; width: 100%; height: auto; }
+figure svg { display: block; width: 100%; height: auto; stroke-linecap: round; stroke-linejoin: round; }
 figcaption { font-size: 0.85rem; line-height: 1.55; color: var(--muted); margin-top: 0.7rem; border-top: 1px solid var(--line); padding-top: 0.6rem; }
 .svg-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; }
 .svg-title { font-family: var(--body); font-size: 13px; font-weight: 650; }
@@ -229,6 +229,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2.8rem 0; max-width: 
         <a href="#judgment">Your judgment</a>
         <ol>
           <li><a href="#hats">The hats you already wear</a></li>
+          <li><a href="#projects">Four projects you might run</a></li>
           <li><a href="#today">What it lets you do today</a></li>
           <li><a href="#overhead">When it earns its overhead</a></li>
         </ol>
@@ -248,6 +249,8 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2.8rem 0; max-width: 
         <ol>
           <li><a href="#arch">The architecture</a></li>
           <li><a href="#controls">Controls, skills, workers</a></li>
+          <li><a href="#memory">Memory and forgetting</a></li>
+          <li><a href="#paperwork">Documentation and handover</a></li>
           <li><a href="#states">What is proven, and how</a></li>
           <li><a href="#outside">What still needs outside proof</a></li>
           <li><a href="#first">Your first project</a></li>
@@ -293,7 +296,11 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2.8rem 0; max-width: 
   <figure>
     <svg viewBox="0 0 640 300" role="img" aria-labelledby="pain-title">
       <title id="pain-title">Two arrangements compared. In the first, the person personally carries memory, traffic control and quality checking between themselves and Claude. In the second, those three jobs move into BrotherMode, and the person keeps only judgment and intent.</title>
-      <defs><marker id="ar" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7 z" fill="currentColor" opacity="0.5"/></marker></defs>
+      <defs>
+        <marker id="ar" markerWidth="9" markerHeight="8" refX="8.2" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+          <path d="M0.4 0.7 L9 4 L0.4 7.3 L2.4 4 z" fill="currentColor" opacity="0.62"/>
+        </marker>
+      </defs>
 
       <text class="svg-label" x="0" y="12" fill="currentColor" opacity="0.85">Today</text>
       <text class="svg-big" x="112" y="40" fill="currentColor">YOU</text>
@@ -378,35 +385,37 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2.8rem 0; max-width: 
   <p>The interesting part is that four failures keep coming back, and each one is closed by a different step in the same loop.</p>
 
   <figure>
-    <svg viewBox="0 0 640 330" role="img" aria-labelledby="med-title">
+    <svg viewBox="0 0 640 344" role="img" aria-labelledby="med-title">
       <title id="med-title">A seven step loop from frame to learn and back to the next project, with the four recurring failures placed beside the step that closes each: amnesia at frame and decide, collision at claim, false completion at check and deliver, and repeated mistakes at learn.</title>
       <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
-        <rect x="150" y="8" width="140" height="34" rx="3"/><rect x="150" y="54" width="140" height="34" rx="3"/>
-        <rect x="150" y="100" width="140" height="34" rx="3"/><rect x="150" y="146" width="140" height="34" rx="3"/>
-        <rect x="150" y="192" width="140" height="34" rx="3"/><rect x="150" y="238" width="140" height="34" rx="3"/>
-        <rect x="150" y="284" width="140" height="34" rx="3"/>
+        <rect x="150" y="8" width="140" height="30" rx="3"/><rect x="150" y="56" width="140" height="30" rx="3"/>
+        <rect x="150" y="104" width="140" height="30" rx="3"/><rect x="150" y="152" width="140" height="30" rx="3"/>
+        <rect x="150" y="200" width="140" height="30" rx="3"/><rect x="150" y="248" width="140" height="30" rx="3"/>
+        <rect x="150" y="296" width="140" height="30" rx="3"/>
       </g>
       <g class="svg-title" fill="currentColor">
-        <text x="164" y="30">FRAME</text><text x="164" y="76">DECIDE</text><text x="164" y="122">CLAIM</text>
-        <text x="164" y="168">BUILD</text><text x="164" y="214">CHECK</text><text x="164" y="260">DELIVER</text><text x="164" y="306">LEARN</text>
+        <text x="164" y="28">FRAME</text><text x="164" y="76">DECIDE</text><text x="164" y="124">CLAIM</text>
+        <text x="164" y="172">BUILD</text><text x="164" y="220">CHECK</text><text x="164" y="268">DELIVER</text><text x="164" y="316">LEARN</text>
       </g>
-      <g stroke="currentColor" stroke-width="1" opacity="0.4" fill="none">
-        <path d="M220 42 L220 54" marker-end="url(#ar)"/><path d="M220 88 L220 100" marker-end="url(#ar)"/>
-        <path d="M220 134 L220 146" marker-end="url(#ar)"/><path d="M220 180 L220 192" marker-end="url(#ar)"/>
-        <path d="M220 226 L220 238" marker-end="url(#ar)"/><path d="M220 272 L220 284" marker-end="url(#ar)"/>
-        <path d="M150 301 L96 301 L96 25 L150 25" marker-end="url(#ar)"/>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M220 38 L220 56" marker-end="url(#ar)"/><path d="M220 86 L220 104" marker-end="url(#ar)"/>
+        <path d="M220 134 L220 152" marker-end="url(#ar)"/><path d="M220 182 L220 200" marker-end="url(#ar)"/>
+        <path d="M220 230 L220 248" marker-end="url(#ar)"/><path d="M220 278 L220 296" marker-end="url(#ar)"/>
+        <path d="M150 311 L96 311 L96 23 L150 23" marker-end="url(#ar)"/>
       </g>
-      <text class="svg-small" x="0" y="158" fill="currentColor" opacity="0.85">carried to</text>
-      <text class="svg-small" x="0" y="172" fill="currentColor" opacity="0.85">the next one</text>
-      <g stroke="currentColor" stroke-width="1" opacity="0.3"><path d="M290 48 L340 48"/><path d="M290 117 L340 117"/><path d="M290 226 L340 226"/><path d="M290 301 L340 301"/></g>
+      <text class="svg-small" x="0" y="160" fill="currentColor" opacity="0.85">carried to</text>
+      <text class="svg-small" x="0" y="174" fill="currentColor" opacity="0.85">the next one</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.3">
+        <path d="M290 52 L336 52"/><path d="M290 119 L336 119"/><path d="M290 240 L336 240"/><path d="M290 311 L336 311"/>
+      </g>
       <g class="svg-title" fill="currentColor">
-        <text x="348" y="52">amnesia</text><text x="348" y="121">collision</text><text x="348" y="230">false completion</text><text x="348" y="305">repeated mistakes</text>
+        <text x="344" y="56">amnesia</text><text x="344" y="123">collision</text><text x="344" y="244">false completion</text><text x="344" y="315">repeated mistakes</text>
       </g>
       <g class="svg-small" fill="currentColor" opacity="0.85">
-        <text x="348" y="68">the goal and the decision are written down</text>
-        <text x="348" y="137">one writer per file, refused by a program</text>
-        <text x="348" y="246">a check must run after the last edit</text>
-        <text x="348" y="321">what went wrong is written where you trip over it</text>
+        <text x="344" y="72">the goal and the decision are written down</text>
+        <text x="344" y="139">one writer per file, refused by a program</text>
+        <text x="344" y="260">a check must run after the last edit</text>
+        <text x="344" y="331">written where you have to trip over it</text>
       </g>
     </svg>
     <figcaption>Failure is inside the loop, not beside it. A failed check at step five sends the work back to step four, and there is no flag that turns a red check into a green delivery.</figcaption>
@@ -539,7 +548,7 @@ and show the user which state they are in.</code></pre>
       </g>
       <g class="svg-small" fill="currentColor" opacity="0.88">
         <text x="298" y="42">RECOMMENDED. Why: nothing here is co-edited, so</text>
-        <text x="298" y="54">the conflict case is rare and cheap.</text>
+        <text x="298" y="56">the conflict case is rare and cheap.</text>
         <text x="298" y="102">Tradeoff: a screen nobody has designed yet.</text>
         <text x="298" y="154">Always present. Never dropped to shorten the card.</text>
       </g>
@@ -615,7 +624,7 @@ How much, against what limit The story so far
       </g>
       <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42"><rect x="244" y="146" width="144" height="40" rx="3"/></g>
       <text class="svg-title" x="258" y="166" fill="currentColor">Reviewer</text>
-      <text class="svg-small" x="258" y="180" fill="currentColor" opacity="0.9">read only, cannot edit</text>
+      <text class="svg-small" x="258" y="183" fill="currentColor" opacity="0.9">read only, cannot edit</text>
       <line x1="0" y1="204" x2="638" y2="204" stroke="currentColor" stroke-width="1" opacity="0.25"/>
       <text class="svg-small" x="0" y="222" fill="currentColor" opacity="0.95">If B reaches for a file A owns: ownership check, then REFUSED, before the write runs.</text>
       <text class="svg-small" x="0" y="236" fill="currentColor" opacity="0.95">Overlap queues; it never runs in parallel.</text>
@@ -721,8 +730,8 @@ How much, against what limit The story so far
         <rect x="386" y="158" width="124" height="16" rx="2"/><rect x="514" y="180" width="124" height="16" rx="2"/>
       </g>
       <g class="svg-small" fill="currentColor" opacity="0.95">
-        <text x="8" y="68">goal in, brief and decision out</text>
-        <text x="136" y="94">status and the project page</text>
+        <text x="8" y="68">goal in, brief out</text>
+        <text x="136" y="94">status, project page</text>
         <text x="264" y="120">builder A, sync engine</text>
         <text x="264" y="144">builder B, the banner</text>
         <text x="392" y="170">a check FAILS</text>
@@ -782,6 +791,99 @@ How much, against what limit The story so far
   </div>
 
   <p class="thesis">It does not remove these responsibilities. It reduces the coordination cost between them.</p>
+
+  <h3 id="projects">Four projects you might actually be running</h3>
+  <p>The same loop, four different places where it bites. Find the one that looks like your week.</p>
+
+  <h4>Building a mobile app feature</h4>
+  <figure>
+    <svg viewBox="0 0 640 104" role="img" aria-labelledby="app-flow">
+      <title id="app-flow">A mobile feature: frame the outcome, claim the files, build, then prove it on a real device size with a screenshot, and only then deliver. The screenshot step is where most mobile work silently fails.</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="0" y="16" width="104" height="34" rx="3"/><rect x="126" y="16" width="112" height="34" rx="3"/>
+        <rect x="260" y="16" width="96" height="34" rx="3"/><rect x="378" y="16" width="140" height="34" rx="3"/><rect x="540" y="16" width="98" height="34" rx="3"/>
+      </g>
+      <g class="svg-body" fill="currentColor" opacity="0.95">
+        <text x="12" y="38">frame it</text><text x="138" y="38">claim the files</text><text x="272" y="38">build</text><text x="390" y="38">screenshot proof</text><text x="552" y="38">deliver</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M104 33 L120 33" marker-end="url(#ar)"/><path d="M238 33 L254 33" marker-end="url(#ar)"/>
+        <path d="M356 33 L372 33" marker-end="url(#ar)"/><path d="M518 33 L534 33" marker-end="url(#ar)"/>
+      </g>
+      <g fill="none" stroke="currentColor" stroke-width="1.6" opacity="0.7"><rect x="378" y="16" width="140" height="34" rx="3"/></g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.5" fill="none"><path d="M448 50 L448 78 L308 78 L308 54" marker-end="url(#ar)"/></g>
+      <text class="svg-small" x="314" y="74" fill="currentColor" opacity="0.92">clipped on a small phone, so back it goes</text>
+      <text class="svg-small" x="0" y="98" fill="currentColor" opacity="0.9">Verification is a render and a look. Reading the layout code and concluding it looks right is a named violation, not a shortcut.</text>
+    </svg>
+    <figcaption>Mobile is where "it compiles" and "it works" diverge most. The gate that matters here is the one demanding visual proof at the size things actually break, which is never the size you developed at.</figcaption>
+  </figure>
+
+  <h4>A marketing site or a front end</h4>
+  <figure>
+    <svg viewBox="0 0 640 104" role="img" aria-labelledby="fe-flow">
+      <title id="fe-flow">A front end: name the visual reference before starting, split ownership so the stylesheet and the templates have different owners, verify by rendering, then hand the deploy back to you.</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="0" y="16" width="142" height="34" rx="3"/><rect x="164" y="16" width="150" height="34" rx="3"/>
+        <rect x="336" y="16" width="118" height="34" rx="3"/><rect x="476" y="16" width="162" height="34" rx="3"/>
+      </g>
+      <g class="svg-body" fill="currentColor" opacity="0.95">
+        <text x="12" y="38">name the reference</text><text x="176" y="38">split the ownership</text><text x="348" y="38">render and look</text><text x="488" y="38">deploy is yours</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M142 33 L158 33" marker-end="url(#ar)"/><path d="M314 33 L330 33" marker-end="url(#ar)"/><path d="M454 33 L470 33" marker-end="url(#ar)"/>
+      </g>
+      <text class="svg-small" x="0" y="70" fill="currentColor" opacity="0.9">before any layout</text>
+      <text class="svg-small" x="0" y="84" fill="currentColor" opacity="0.9">exists at all</text>
+      <text class="svg-small" x="176" y="70" fill="currentColor" opacity="0.9">stylesheet and templates get</text>
+      <text class="svg-small" x="176" y="84" fill="currentColor" opacity="0.9">different owners, so neither waits</text>
+      <text class="svg-small" x="476" y="70" fill="currentColor" opacity="0.9">prepared and handed back,</text>
+      <text class="svg-small" x="476" y="84" fill="currentColor" opacity="0.9">never pushed for you</text>
+    </svg>
+    <figcaption>There is no deploy button here, and that is deliberate. Publishing is one of the actions this system prepares and hands back rather than performing. If a live URL tonight is the whole goal, a hosted builder beats this outright.</figcaption>
+  </figure>
+
+  <h4>A number you have to be right about</h4>
+  <figure>
+    <svg viewBox="0 0 640 104" role="img" aria-labelledby="num-flow">
+      <title id="num-flow">A numbers question: describe the schema and sample rows before querying, derive the figure, derive it a second time by an independent route, and only show it when the two agree or it is labelled unverified.</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="0" y="16" width="158" height="34" rx="3"/><rect x="180" y="16" width="110" height="34" rx="3"/>
+        <rect x="312" y="16" width="176" height="34" rx="3"/><rect x="510" y="16" width="128" height="34" rx="3"/>
+      </g>
+      <g class="svg-body" fill="currentColor" opacity="0.95">
+        <text x="12" y="38">describe and sample</text><text x="192" y="38">derive it</text><text x="324" y="38">derive it again, differently</text><text x="522" y="38">then show it</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M158 33 L174 33" marker-end="url(#ar)"/><path d="M290 33 L306 33" marker-end="url(#ar)"/><path d="M488 33 L504 33" marker-end="url(#ar)"/>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.5" fill="none"><path d="M400 50 L400 74 L235 74 L235 54" marker-end="url(#ar)"/></g>
+      <text class="svg-small" x="241" y="70" fill="currentColor" opacity="0.92">they disagree, so nothing is shown yet</text>
+      <text class="svg-small" x="0" y="98" fill="currentColor" opacity="0.9">Use the column names that came back, not the ones you expected. That step catches a column whose name lied.</text>
+    </svg>
+    <figcaption>The cheapest moment to catch a wrong number is before it is shown once. If a second route is genuinely impossible, the figure still ships, carrying the word unverified next to the number rather than in a footnote.</figcaption>
+  </figure>
+
+  <h4>A release you cannot afford to botch</h4>
+  <figure>
+    <svg viewBox="0 0 640 104" role="img" aria-labelledby="rel-flow">
+      <title id="rel-flow">A release: the state is mapped first, the irreversible command is drafted with its rollback rather than executed, you run it, and the resulting state is read back rather than assumed from an exit code.</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="0" y="16" width="122" height="34" rx="3"/><rect x="144" y="16" width="166" height="34" rx="3"/>
+        <rect x="332" y="16" width="130" height="34" rx="3"/><rect x="484" y="16" width="154" height="34" rx="3"/>
+      </g>
+      <g class="svg-body" fill="currentColor" opacity="0.95">
+        <text x="12" y="38">map the ground</text><text x="156" y="38">draft the command</text><text x="344" y="38">you run it</text><text x="496" y="38">read the state back</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M122 33 L138 33" marker-end="url(#ar)"/><path d="M310 33 L326 33" marker-end="url(#ar)"/><path d="M462 33 L478 33" marker-end="url(#ar)"/>
+      </g>
+      <text class="svg-small" x="156" y="70" fill="currentColor" opacity="0.9">with its rollback beside it,</text>
+      <text class="svg-small" x="156" y="84" fill="currentColor" opacity="0.9">never executed for you</text>
+      <text class="svg-small" x="484" y="70" fill="currentColor" opacity="0.9">never assumed from</text>
+      <text class="svg-small" x="484" y="84" fill="currentColor" opacity="0.9">an exit code</text>
+    </svg>
+    <figcaption>Publishing, deletion, payment and sign-in are the four places this system stops and hands you the keyboard. That is a boundary rather than a setting, and no instruction in a session lifts it.</figcaption>
+  </figure>
 
   <h3 id="today">What it lets you do today</h3>
 
@@ -862,14 +964,14 @@ How much, against what limit The story so far
       </g>
       <g fill="none" stroke="currentColor" stroke-width="1.6" opacity="0.7"><rect x="0" y="96" width="504" height="60" rx="3"/></g>
       <g class="svg-title" fill="currentColor">
-        <text x="12" y="38">Methodology</text><text x="140" y="38">Agent ecosystems</text><text x="268" y="38">Orchestration</text><text x="396" y="38">Sandboxes</text>
+        <text x="12" y="38">Methodology</text><text x="140" y="38">Agent ecosystem</text><text x="268" y="38">Orchestration</text><text x="396" y="38">Sandboxes</text>
         <text x="14" y="120">BrotherMode</text>
       </g>
       <g class="svg-small" fill="currentColor" opacity="0.9">
-        <text x="12" y="56">how work</text><text x="12" y="68">should be done</text>
-        <text x="140" y="56">more specialist</text><text x="140" y="68">capability</text>
-        <text x="268" y="56">how many workers</text><text x="268" y="68">execute</text>
-        <text x="396" y="56">contain what workers</text><text x="396" y="68">can affect</text>
+        <text x="12" y="56">how work</text><text x="12" y="70">should be done</text>
+        <text x="140" y="56">more specialist</text><text x="140" y="70">capability</text>
+        <text x="268" y="56">how many workers</text><text x="268" y="70">execute</text>
+        <text x="396" y="56">contain what workers</text><text x="396" y="70">can affect</text>
         <text x="14" y="138">continuity, ownership and evidence around whichever of the above you use</text>
       </g>
       <line x1="0" y1="172" x2="638" y2="172" stroke="currentColor" stroke-width="1" opacity="0.25"/>
@@ -1026,6 +1128,126 @@ How much, against what limit The story so far
     <figcaption>The caps are measured rather than optimistic: on the author's machine, workers died at the limits because one build database serialises everything. Solo builders feel this most, because the temptation is always to run more.</figcaption>
   </figure>
 
+  <h3 id="memory">Memory: remembering, forgetting, and the part that is only a habit</h3>
+
+  <p>There are two memories, and confusing them is the fastest way to be disappointed by this.</p>
+
+  <p>The <strong>project record</strong> is per project and machine-written: objectives, decisions, tasks, claims, evidence. That is what status and delivery read from, and it is the certified half.</p>
+
+  <p>The <strong>vault</strong> is different. It is a plain folder of markdown you own, outside any repository, holding what should outlive the project itself. Overviews, open items, session logs, and the failures you would otherwise rediscover.</p>
+
+  <figure>
+    <svg viewBox="0 0 640 262" role="img" aria-labelledby="mem-title">
+      <title id="mem-title">Two memories side by side. The project record is machine written, per project and certified. The vault is a folder of markdown you own, across projects, holding what outlives any one project. Three disciplines govern the vault: selective recall, active forgetting, and linking.</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="0" y="16" width="300" height="92" rx="3"/></g>
+      <text class="svg-title" x="14" y="38" fill="currentColor">The project record</text>
+      <g class="svg-small" fill="currentColor" opacity="0.92">
+        <text x="14" y="56">machine written, one per project</text>
+        <text x="14" y="72">objectives, decisions, tasks, claims, evidence</text>
+        <text x="14" y="88">what status and delivery read from</text>
+        <text x="14" y="102">certified</text>
+      </g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="338" y="16" width="300" height="92" rx="3"/></g>
+      <text class="svg-title" x="352" y="38" fill="currentColor">The vault</text>
+      <g class="svg-small" fill="currentColor" opacity="0.92">
+        <text x="352" y="56">plain markdown you own, across projects</text>
+        <text x="352" y="72">overviews, open items, session logs, failures</text>
+        <text x="352" y="88">what outlives any one project</text>
+        <text x="352" y="102">a folder, not a service</text>
+      </g>
+      <text class="svg-label" x="0" y="136" fill="currentColor" opacity="0.85">Three disciplines that keep the vault useful rather than hoarding</text>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.4">
+        <rect x="0" y="146" width="204" height="60" rx="3"/><rect x="218" y="146" width="204" height="60" rx="3"/><rect x="436" y="146" width="202" height="60" rx="3"/>
+      </g>
+      <g class="svg-title" fill="currentColor"><text x="14" y="168">Selective recall</text><text x="232" y="168">Active forgetting</text><text x="450" y="168">Linking</text></g>
+      <g class="svg-small" fill="currentColor" opacity="0.9">
+        <text x="14" y="186">read what the task needs,</text><text x="14" y="200">never the whole vault</text>
+        <text x="232" y="186">superseded notes move to an</text><text x="232" y="200">archive, leaving a pointer</text>
+        <text x="450" y="186">notes link to what they build</text><text x="450" y="200">on or contradict</text>
+      </g>
+      <line x1="0" y1="222" x2="638" y2="222" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-small" x="0" y="238" fill="currentColor" opacity="0.92">Recall is a query, not a tour. A memory system that only grows becomes noise,</text>
+      <text class="svg-small" x="0" y="252" fill="currentColor" opacity="0.92">which is why forgetting is a designed step rather than neglect.</text>
+    </svg>
+    <figcaption>Forgetting is the discipline people skip, and it is the one that decides whether the vault is still worth reading in six months. Superseded notes are archived with a pointer left behind rather than deleted, so the trail survives without the clutter.</figcaption>
+  </figure>
+
+  <h4>Obsidian, and why it is optional</h4>
+  <p>The vault is already an Obsidian vault. Open the folder and the links become clickable, backlinks show what references the note you are reading, and the graph draws how projects, failures and decisions connect. It is free, and there is nothing to configure.</p>
+  <p>It is also not a dependency, and the project is blunt about that. Nothing in the hooks, the command line or the fence checks whether Obsidian is installed, running, or has ever been opened. The bracket links stay perfectly readable as plain text in any editor. Obsidian is a nicer window onto the same folder.</p>
+
+  <h4>Improving, and the honest size of it</h4>
+  <p>Corrections you make can be captured, promoted into a rule behind a human-confirmed receipt, retrieved later with the reason shown, and graded on whether they prevented rework. Nothing in the system, automatic capture included, can approve or promote its own candidate.</p>
+  <div class="panel caution">
+    <p class="panel-title">What that machinery has not yet earned</p>
+    <p>It carries no state in the capability register and no command on the everyday surface, and its own page records that not one hour of real founder work has gone through it. The weekly review that closes the loop is twenty minutes of a person's time, nagged at session start, and nothing performs it for you.</p>
+    <p>Treat improving as the part of this you have to want. The remembering and the forgetting happen whether or not you engage; the learning does not.</p>
+  </div>
+
+  <h3 id="paperwork">Documentation, and handing the project to someone else</h3>
+
+  <p>Documentation here is generated from what was recorded, not written by hand and then left to rot. One command writes a numbered folder into your project, and it scales its own depth to the project rather than asking you to choose.</p>
+
+  <figure>
+    <svg viewBox="0 0 640 246" role="img" aria-labelledby="doc-title">
+      <title id="doc-title">Documentation is projected from the project record and the files on disk into a numbered folder, at a tier the tool measures for itself from signals like tracked files, work records, decisions and contributors. Separately, a handover pack writes seven pages in reading order for somebody taking the project over.</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="0" y="16" width="180" height="56" rx="3"/></g>
+      <text class="svg-title" x="14" y="38" fill="currentColor">the record</text>
+      <text class="svg-small" x="14" y="56" fill="currentColor" opacity="0.9">plus the files as they are</text>
+      <text class="svg-small" x="14" y="70" fill="currentColor" opacity="0.9">on disk right now</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none"><path d="M180 44 L216 44" marker-end="url(#ar)"/></g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="222" y="16" width="180" height="56" rx="3"/></g>
+      <text class="svg-title" x="236" y="38" fill="currentColor">projected, not typed</text>
+      <text class="svg-small" x="236" y="56" fill="currentColor" opacity="0.9">regenerate rather than edit,</text>
+      <text class="svg-small" x="236" y="70" fill="currentColor" opacity="0.9">except inside human markers</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none"><path d="M402 44 L438 44" marker-end="url(#ar)"/></g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="444" y="16" width="194" height="56" rx="3"/></g>
+      <text class="svg-title" x="458" y="38" fill="currentColor">a numbered folder</text>
+      <text class="svg-small" x="458" y="56" fill="currentColor" opacity="0.9">business, technical, decisions,</text>
+      <text class="svg-small" x="458" y="70" fill="currentColor" opacity="0.9">handover, generated</text>
+      <text class="svg-label" x="0" y="102" fill="currentColor" opacity="0.85">The depth is measured, not chosen</text>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.4">
+        <rect x="0" y="112" width="204" height="46" rx="3"/><rect x="218" y="112" width="204" height="46" rx="3"/><rect x="436" y="112" width="202" height="46" rx="3"/>
+      </g>
+      <g class="svg-title" fill="currentColor"><text x="14" y="132">Tier 1</text><text x="232" y="132">Tier 2</text><text x="450" y="132">Tier 3</text></g>
+      <g class="svg-small" fill="currentColor" opacity="0.9">
+        <text x="14" y="150">a small, single-thread project</text>
+        <text x="232" y="150">many files, several threads</text>
+        <text x="450" y="150">more than one contributor</text>
+      </g>
+      <text class="svg-small" x="0" y="178" fill="currentColor" opacity="0.92">Depth moves up on its own from signals it can count, and never moves down on its own. To go down you say so.</text>
+      <line x1="0" y1="196" x2="638" y2="196" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-label" x="0" y="216" fill="currentColor" opacity="0.85">And when somebody else takes over</text>
+      <text class="svg-small" x="0" y="234" fill="currentColor" opacity="0.92">seven pages in reading order: situation, decisions, risks, calibrations, learnings, timeline, handbacks</text>
+    </svg>
+    <figcaption>The tier is computed from things the tool can count, such as how many files are tracked, how many separate threads of work exist, how many decisions were recorded and how many people have contributed. It ratchets upward on its own and only comes down when you say so.</figcaption>
+  </figure>
+
+  <h4>The handover pack, page by page</h4>
+  <p>One command writes a folder somebody who was in none of your conversations can read straight through.</p>
+
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>Page</th><th>What it answers</th></tr></thead>
+    <tbody>
+      <tr><th>Situation</th><td>Where it stands, what was authorised, what has been spent against the ceilings, how much is accepted, the current forecast, and anything only a person can clear.</td></tr>
+      <tr><th>Decisions</th><td>Every decision, newest first, each with what else was weighed and what would have changed it.</td></tr>
+      <tr><th>Risks</th><td>What is still open, each with what would settle it.</td></tr>
+      <tr><th>Calibrations</th><td>The checks deliberately broken to prove a guard actually bites, with what was broken and what was observed.</td></tr>
+      <tr><th>Learnings</th><td>What a reader would otherwise have to rediscover.</td></tr>
+      <tr><th>Timeline</th><td>Every catch-up in order, oldest first, so the run can be replayed forwards.</td></tr>
+      <tr><th>Handbacks</th><td>Every decision you took back, each with the page a developer picks the work up from.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>The fourth one is the unusual entry. A calibration is a check somebody deliberately broke to prove the guard would catch it, because a test that has never failed is not evidence that it can.</p>
+
+  <div class="panel caution">
+    <p class="panel-title">The limit on all of this</p>
+    <p>Handover packs are <span class="stamp s-beta">beta</span> and nobody outside the project has ever read one. If you are the first, every question the pack cannot answer is a defect in the pack rather than a gap in you, and saying so is the most useful thing you can send back.</p>
+  </div>
+
   <h3 id="states">What is proven, and how strongly</h3>
 
   <p>Every capability carries one of four states, read out of a register file, with a test that fails the documentation when a page and the register disagree.</p>
@@ -1067,10 +1289,9 @@ How much, against what limit The story so far
         <text x="220" y="182">named, with no evidence behind it yet</text>
       </g>
       <g fill="currentColor" opacity="0.1"><rect x="18" y="42" width="620" height="26" rx="2"/></g>
-      <text class="svg-label" x="24" y="80" fill="currentColor" opacity="0.9">EMPTY today, and printed empty rather than hidden</text>
       <line x1="0" y1="198" x2="638" y2="198" stroke="currentColor" stroke-width="1" opacity="0.25"/>
-      <text class="svg-small" x="0" y="208" fill="currentColor" opacity="0.9">Rung six is how strong the proof inside this tree is. Rung five is who did the checking.</text>
-      <text class="svg-small" x="0" y="222" fill="currentColor" opacity="0.9">A thing can be certified while rung five stays empty.</text>
+      <text class="svg-small" x="0" y="208" fill="currentColor" opacity="0.92">Rung five is EMPTY today, and the shaded band prints it empty rather than hiding it.</text>
+      <text class="svg-small" x="0" y="222" fill="currentColor" opacity="0.9">Rung six is how strong the proof inside this tree is; rung five is who did the checking.</text>
     </svg>
     <figcaption>Most of what this offers sits at certified against its own tree while nobody outside has ever checked it. That is uncomfortable to publish, and it is published.</figcaption>
   </figure>
