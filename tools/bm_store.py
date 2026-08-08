@@ -78,7 +78,7 @@ import sys
 import unicodedata
 import uuid
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
@@ -2165,12 +2165,22 @@ _TABLES_VIEW = ("views",)
 
 _TABLES_V17 = _TABLES_V16 + _TABLES_VIEW
 
+# Schema 18 (Phase 5, the progress view) adds a COLUMN, not a table:
+# tasks.phase. The tuple is therefore identical to schema 17's, and it
+# still gets its own name and its own entry below for the same reason
+# every schema above got one. The map is what stops a healthy store being
+# quarantined for the crime of predating an upgrade, and it answers "which
+# tables must exist at version N", which schema 18 does not change. An
+# alias rather than a copy, so the two can never drift apart by editing.
+_TABLES_V18 = _TABLES_V17
+
 _TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3,
                       4: _TABLES_V4, 5: _TABLES_V5, 6: _TABLES_V6,
                       7: _TABLES_V7, 8: _TABLES_V8, 9: _TABLES_V9,
                       10: _TABLES_V10, 11: _TABLES_V11, 12: _TABLES_V12,
                       13: _TABLES_V13, 14: _TABLES_V14, 15: _TABLES_V15,
-                      16: _TABLES_V16, 17: _TABLES_V17}
+                      16: _TABLES_V16, 17: _TABLES_V17,
+                      18: _TABLES_V18}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -2682,6 +2692,23 @@ _NOTES_INDEX_STATEMENTS = _split_ddl(_NOTES_INDEX_DDL)
 # unverifiable rather than pretending the anchor was checked.
 _NOTES_V8_COLUMN = ("anchor_line_hash", "TEXT NOT NULL DEFAULT ''")
 
+# Schema 18 (Phase 5, the progress view, founder decision 2026-08-08). ONE
+# additive column on tasks: the phase a piece of work belongs to.
+#
+# WHY A COLUMN AND NOT A DERIVATION. A Gantt groups by phase, and the two
+# ways to get one are to record it or to infer it from the task's title.
+# Inference was offered and refused: the tick contract this whole surface
+# exists to serve says a box ticks on a record, and a grouping parsed out
+# of prose is a guess wearing a record's clothes. The projects table has
+# carried its own `phase` since schema 1 for the same reason.
+#
+# DEFAULT ''. An empty phase means "not recorded" (every task written
+# before schema 18, and every one created without the flag afterwards).
+# The renderer draws those in their own unphased group and SAYS they are
+# unphased, rather than filing them under whichever phase happens to be
+# current, which would be a guess the founder never made.
+_TASKS_V18_COLUMN = ("phase", "TEXT NOT NULL DEFAULT ''")
+
 # Schema 10 (LOOP 3, 2026-07-30): two columns added to learning_applications,
 # not a widened shown_to_model. shown_to_model's own CHECK(shown_to_model IN
 # (0,1)) cannot be altered in SQLite (ALTER TABLE has no MODIFY/DROP
@@ -2872,7 +2899,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   evidence TEXT NOT NULL DEFAULT '[]',
   blockers TEXT NOT NULL DEFAULT '[]',
   started_at TEXT,
-  completed_at TEXT
+  completed_at TEXT,
+  phase TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS dependencies (
   task_id TEXT NOT NULL REFERENCES tasks(task_id),
@@ -4539,6 +4567,38 @@ def _migrate_16_to_17(conn):
         conn.execute(statement)
 
 
+def _migrate_17_to_18(conn):
+    """Schema 17 to 18 (Phase 5, the progress view): add tasks.phase.
+    ADDITIVE ONLY.
+
+    One ALTER TABLE ADD COLUMN with a NOT NULL DEFAULT, which SQLite
+    performs without rewriting a row and which cannot lose data: every
+    existing task keeps every field it had and arrives with an empty
+    phase, drawn as unphased rather than as belonging to anything.
+
+    GUARDED ON PRAGMA table_info rather than assumed absent, for the same
+    reason _migrate_7_to_8 states: this step also runs from
+    _ensure_schema for a brand new store, where the column is already in
+    the CREATE TABLE text, and ADD COLUMN on an existing name is a hard
+    sqlite3 error that would refuse to open a fresh store.
+
+    Same contract as every migration before it: it runs inside the
+    caller's BEGIN EXCLUSIVE, so it must never commit, roll back, or open
+    a transaction of its own.
+
+    What it deliberately does NOT do: it does not backfill a phase for a
+    single existing task. There is nothing to backfill FROM. The only
+    available source would be the project's current phase, which says
+    where the project is now, not where a task written three weeks ago
+    belonged, and stamping every historical task with today's phase would
+    make the very first Gantt this feature draws a fiction. Empty says
+    "nobody recorded one", which is exactly true."""
+    have = {r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+    name, decl = _TASKS_V18_COLUMN
+    if name not in have:
+        conn.execute("ALTER TABLE tasks ADD COLUMN %s %s" % (name, decl))
+
+
 _MIGRATIONS = {
     1: _migrate_1_to_2,
     2: _migrate_2_to_3,
@@ -4556,6 +4616,7 @@ _MIGRATIONS = {
     14: _migrate_14_to_15,
     15: _migrate_15_to_16,
     16: _migrate_16_to_17,
+    17: _migrate_17_to_18,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -4758,6 +4819,11 @@ _DUMP_SCRUB_ONLY_COLUMNS = frozenset((
     ("projects", "project_type"), ("projects", "phase"),
     ("projects", "experience_level"),
     ("tasks", "priority"),
+    # tasks.phase (schema 18) joins this set for exactly the reason
+    # projects.phase is already in it: `--phase` is free text a founder
+    # types, carries no ENUMS entry, and has already had a client codename
+    # typed into its project-level twin. Legible but scrubbed.
+    ("tasks", "phase"),
     ("attribution", "event_type"),
     ("alerts", "category"),
     ("evidence", "kind"), ("evidence", "subject_type"),
@@ -12241,8 +12307,8 @@ class Store(object):
                   "write_scope, expected_outputs, acceptance_checks, "
                   "time_forecast, token_forecast, confidence, actual_time, "
                   "actual_tokens, evidence, blockers, started_at, "
-                  "completed_at) "
-                  "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  "completed_at, phase) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                   (task.task_id, task.project_id, task.title,
                    task.user_value or "", task.reason or "", task.status,
                    task.priority or "",
@@ -12260,7 +12326,8 @@ class Store(object):
                    task.actual_tokens or "",
                    json.dumps(task.evidence or []),
                    json.dumps(task.blockers or []),
-                   task.started_at, task.completed_at))
+                   task.started_at, task.completed_at,
+                   task.phase or ""))
             for dep in task.depends_on or []:
                 _exec(self,
                       "INSERT OR IGNORE INTO dependencies "
