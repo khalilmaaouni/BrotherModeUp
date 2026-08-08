@@ -609,6 +609,7 @@ each remaining HTML file in this repository is still here.
 | `scripts/install.py`, `scripts/uninstall.py` | Wire and unwire the hooks in `~/.claude/settings.json`, backing it up first, touching no hook entry they did not write |
 | `scripts/doctor.py` | Ten environment checks with plain-language remediation (table in docs/SETUP.md); the deepest proves the wired fence is LIVE by simulating a blocked foreign write and an allowed owner write in a throwaway project |
 | `docs/QUICKSTART.md` | The literal ten-minute path, with expected output at every step |
+| `docs/engineering/` | The engineering onboarding pack for a development team: a task-oriented README, one runnable first-project tutorial, the workflow map, the command reference, and the per-stage verification page. Ships as a standalone zip in the same folder |
 | `docs/SETUP.md` | The fuller installation and hooks reference |
 | `docs/HOOKS.md` | What each hook receives, what the fence can refuse, and the exact contract it implements |
 | `docs/RELEASE.md` | The release discipline: tags, checksums, and the steps a machine must refuse to take on its own |
