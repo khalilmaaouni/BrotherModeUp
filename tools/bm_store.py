@@ -17599,6 +17599,120 @@ def _require_positional(argv, print_usage):
     return argv[0]
 
 
+# The one spelling of the help flag, read by main()'s help gate. Named here,
+# next to the text it prints, so the gate and the registry cannot drift.
+_HELP_FLAG = "--help"
+
+# THE USAGE REGISTRY, one entry per command in _COMMANDS below (a structural
+# test asserts that pairing in both directions, so a new command cannot ship
+# without its own usage text).
+#
+# It exists because `--help` used to mean thirteen different things. `_parse_kv`
+# treats "--help" as an ordinary flag key, so every command decided its own
+# fate: the ones taking a positional refused it through _require_positional
+# (usage, exit 2); the ones with an allow-list called it an unrecognized flag
+# (exit 2, no usage at all); and `dashboard`/`verify`, which read no argv,
+# simply RAN. `dashboard --help` therefore executed the dashboard, rewrote
+# STATE.md, saved a timestamped backup and pruned old ones (observed
+# 2026-08-08). In a tool whose whole premise is that one writer owns a file at
+# a time, a reader orienting themselves silently rewrote the fence registry
+# other sessions read, and the one flag every CLI offers for finding out what a
+# command does could not be used to find out what a command does.
+#
+# Element 0 is the signature (printed after "usage: "); the rest are notes,
+# printed verbatim and indented in place. Every line is a module-authored
+# constant with zero founder influence, which is what lets _print_usage use
+# _out_unprotected.
+_USAGE = {
+    "init": (
+        "init [--acknowledge-quarantine]",
+        "  --acknowledge-quarantine continues past an unacknowledged "
+        "quarantine directory; the directory itself is never deleted.",
+    ),
+    "claim": (
+        "claim <name> --lifetime persistent|ephemeral --objective TEXT "
+        "[--files PATH ...] [--release-files] [--owner X] [--session SID] "
+        "[--tier T] [--check CMD]",
+        "  --files with at least one path REPLACES the fence (on a reclaim).",
+        "  --release-files explicitly releases every file (on a reclaim); "
+        "omitting --files entirely LEAVES the existing fence untouched, "
+        "it can never be dropped by accident.",
+        "  On a reclaim, omitting --objective/--tier/--check/--owner LEAVES "
+        "each untouched; typing the flag, even with an empty value, sets it.",
+    ),
+    "park": (
+        "park <lifecycle_uuid> --version N [--session SID] [--note TEXT] "
+        "[--handover \"<heading>\"]",
+    ),
+    "resume": (
+        "resume <lifecycle_uuid> --version N [--session SID] [--note TEXT] "
+        "[--handover \"<heading>\"]",
+    ),
+    "complete": (
+        "complete <lifecycle_uuid> --version N --evidence TEXT [--session SID] "
+        "[--note TEXT] [--handover \"<heading>\"]",
+    ),
+    "adopt": (
+        "adopt <lifecycle_uuid> --version N [--session SID] [--note TEXT] "
+        "[--adopt-from-live-session]  (required to adopt a record that is "
+        "currently active under a different, live session) "
+        "[--handover \"<heading>\"]",
+    ),
+    "checkpoint": (
+        "checkpoint <lifecycle_uuid> --version N --next TEXT "
+        "[--blockers TEXT] [--files-note TEXT] [--body TEXT]",
+    ),
+    "decide": (
+        "decide <lifecycle_uuid> --version N --topic T --text TEXT",
+    ),
+    "dashboard": (
+        "dashboard",
+        "  Prints the generated STATE.md view AND rewrites STATE.md on disk, "
+        "keeping a timestamped backup of the previous one. It WRITES: it is "
+        "not a read-only look at the store.",
+    ),
+    "dump": (
+        "dump [--raw]",
+        "  Read-only. --raw prints every non-structural text field "
+        "UNREDACTED (cleartext), including founder prose an ordinary dump "
+        "withholds entirely; treat that output like the database file itself.",
+    ),
+    "verify": (
+        "verify",
+        "  Read-only. Exits 2 when it finds problems, listing each one.",
+    ),
+    "handovers": (
+        "handovers",
+        "  Read-only: lists the handovers nobody has acknowledged yet.",
+    ),
+    "handover-ack": (
+        "handover-ack --handover <handover_uuid>",
+        "  Acknowledges ONE handover so it stops rendering into STATE.md. "
+        "The row stays; re-running it is a no-op that says so.",
+    ),
+}
+
+
+def _print_usage(cmd):
+    """Print one command's usage block. THE ONLY source of usage text for
+    that command, so the `--help` gate in main() and the refusals below
+    (a missing positional, a missing --version) can never drift apart.
+
+    _out_unprotected, not _out (see THE OUTPUT FUNNEL): this is a fixed
+    module constant with zero founder influence, exactly like main()'s own
+    __doc__ help, so there is nothing to redact, requiring a working
+    redactor to show usage would be wrong, and _out()'s blanket
+    _sanitize_for_display would mangle this multi-line block's own newlines
+    into literal \\x0a text."""
+    lines = _USAGE.get(cmd)
+    if not lines:
+        # Belt to the structural test's braces: a command registered in
+        # _COMMANDS with no _USAGE entry fails that test, so this line is
+        # unreachable in a shipped tree. It still refuses to be a traceback.
+        lines = ("%s (no usage text is registered for this command)" % cmd,)
+    _out_unprotected("\n".join(("usage: " + lines[0],) + tuple(lines[1:])))
+
+
 def _default_cli_session_id():
     """A fresh, unguessable session id for THIS process (GATE 3, fix-round
     2026-07-26): two independent CLI invocations that both omit --session
@@ -17652,15 +17766,7 @@ def cmd_init(argv):
 
 
 def _cmd_claim_usage():
-    _out("usage: claim <name> --lifetime persistent|ephemeral --objective TEXT "
-         "[--files PATH ...] [--release-files] [--owner X] [--session SID] "
-         "[--tier T] [--check CMD]")
-    _out("  --files with at least one path REPLACES the fence (on a reclaim).")
-    _out("  --release-files explicitly releases every file (on a reclaim); "
-         "omitting --files entirely LEAVES the existing fence untouched, "
-         "it can never be dropped by accident.")
-    _out("  On a reclaim, omitting --objective/--tier/--check/--owner LEAVES "
-         "each untouched; typing the flag, even with an empty value, sets it.")
+    _print_usage("claim")
 
 
 def cmd_claim(argv):
@@ -17715,18 +17821,23 @@ def cmd_claim(argv):
          % (rec.name, rec.lifecycle_uuid, rec.version, rec.session_id))
 
 
-def _cmd_transition(argv, to_state, usage):
+def _cmd_transition(argv, to_state, cmd_name):
+    # cmd_name, not the usage TEXT (2026-08-08): the four callers below used
+    # to pass their usage line inline, which is why `--help` had to be taught
+    # each command's text separately. It now comes from _USAGE, the one place
+    # both this refusal and the --help gate read.
+    #
     # D1/D2-class fix (fence sweep, 2026-07-30): same shape as cmd_claim --
     # `park --version 3` with no lifecycle_uuid in front used to read
     # "--version" as the uuid. See _require_positional's docstring.
-    lifecycle_uuid = _require_positional(argv, lambda: _out("usage: %s" % usage))
+    lifecycle_uuid = _require_positional(argv, lambda: _print_usage(cmd_name))
     kv = _parse_kv(argv[1:])
     _reject_unknown_flags("transition", kv,
         ("version", "session", "note", "evidence", "adopt-from-live-session",
          "handover"))
     ver_raw = kv.get("version")
     if not ver_raw:
-        _out("usage: %s" % usage)
+        _print_usage(cmd_name)
         _out("  --version is required (optimistic concurrency: pass the version you last saw)")
         sys.exit(2)
     expected_version = int(ver_raw[0])
@@ -17781,34 +17892,24 @@ def cmd_park(argv):
     # _reject_unknown_flags's "transition" allow-list (shared by park/resume/
     # complete/adopt) but appeared in none of their usage lines, making the
     # whole person-to-person handover mechanism undiscoverable from the CLI.
-    _cmd_transition(argv, "parked",
-                     "park <lifecycle_uuid> --version N [--session SID] [--note TEXT] "
-                     "[--handover \"<heading>\"]")
+    # It is documented in each command's _USAGE entry above.
+    _cmd_transition(argv, "parked", "park")
 
 
 def cmd_resume(argv):
-    _cmd_transition(argv, "active",
-                     "resume <lifecycle_uuid> --version N [--session SID] [--note TEXT] "
-                     "[--handover \"<heading>\"]")
+    _cmd_transition(argv, "active", "resume")
 
 
 def cmd_complete(argv):
-    _cmd_transition(argv, "complete",
-                     "complete <lifecycle_uuid> --version N --evidence TEXT [--session SID] "
-                     "[--note TEXT] [--handover \"<heading>\"]")
+    _cmd_transition(argv, "complete", "complete")
 
 
 def cmd_adopt(argv):
-    _cmd_transition(argv, "adopted",
-                     "adopt <lifecycle_uuid> --version N [--session SID] [--note TEXT] "
-                     "[--adopt-from-live-session]  (required to adopt a record that is "
-                     "currently active under a different, live session) "
-                     "[--handover \"<heading>\"]")
+    _cmd_transition(argv, "adopted", "adopt")
 
 
 def _cmd_checkpoint_usage():
-    _out("usage: checkpoint <lifecycle_uuid> --version N --next TEXT "
-         "[--blockers TEXT] [--files-note TEXT] [--body TEXT]")
+    _print_usage("checkpoint")
 
 
 def cmd_checkpoint(argv):
@@ -17844,7 +17945,7 @@ def cmd_checkpoint(argv):
 
 
 def _cmd_decide_usage():
-    _out("usage: decide <lifecycle_uuid> --version N --topic T --text TEXT")
+    _print_usage("decide")
 
 
 def cmd_decide(argv):
@@ -17942,7 +18043,7 @@ def cmd_handover_ack(argv):
     _reject_unknown_flags("handover-ack", kv, ("handover",))
     handover_uuid = " ".join(kv.get("handover", []))
     if not handover_uuid:
-        _out("usage: handover-ack --handover <handover_uuid>")
+        _print_usage("handover-ack")
         sys.exit(2)
     root, _source = require_root()
     store = Store(root, create=False)
@@ -18017,7 +18118,31 @@ def main(argv=None):
         # (reproduced during this round). See THE OUTPUT FUNNEL note.
         _out_unprotected((__doc__ or "").strip())
         _out_unprotected("\ncommands: %s" % ", ".join(sorted(_COMMANDS)))
-        sys.exit(0 if cmd == "" else 2)
+        # `--help` in the COMMAND slot is a request for this text, not a
+        # mistyped command: exit 0, the same as bare `bm_store.py`. It used
+        # to print exactly this and exit 2.
+        sys.exit(0 if cmd in ("", _HELP_FLAG) else 2)
+    if _HELP_FLAG in rest:
+        # THE HELP GATE, and the ONE place it lives (2026-08-08). Before it,
+        # `--help` meant thirteen different things (see _USAGE's note), the
+        # worst of them `dashboard --help`, which ran the dashboard for real:
+        # a founder orienting themselves silently rewrote STATE.md, the fence
+        # registry other sessions read, and left a timestamped backup behind.
+        #
+        # Here rather than inside each cmd_*, for three reasons: a command
+        # added later inherits it without anyone remembering to; nothing this
+        # module can do to the store can possibly have happened yet; and it
+        # runs BEFORE resolve_root(), so usage is readable outside a project
+        # and cannot be blocked by a broken or missing one.
+        #
+        # "--help" ANYWHERE in argv, not only in argv[0]: _parse_kv splits on
+        # the "--" prefix, so "--help" can never legitimately be a flag's
+        # VALUE, which means no existing invocation loses a meaning it had.
+        # "-h" is deliberately NOT accepted: it CAN be a value ("--note -h"),
+        # and silently turning a note into a help screen is the same class of
+        # surprise this gate exists to remove.
+        _print_usage(cmd)
+        sys.exit(0)
     root_for_warning, _src = resolve_root()
     _warn_if_unacknowledged_quarantine(root_for_warning)
     try:
