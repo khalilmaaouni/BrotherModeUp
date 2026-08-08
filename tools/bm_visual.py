@@ -49,6 +49,7 @@ Python 3.9, standard library only. No network, at render time or ever.
 No em or en dashes anywhere in this file, its comments, or its output.
 """
 
+import datetime
 import importlib.util
 import os
 import re
@@ -121,6 +122,17 @@ TOKENS_LIGHT = {
     "node-ink": "#1A1D21",
     "node-rule": "#5B6470",
     "node-tint": "#EFF1F4",
+    # THE PROGRESS SURFACE (Phase 5, founder decision 2026-08-08). Petrol
+    # on paper is the house design language for progress pages; the four
+    # status colours above are NOT touched, because one accent cannot
+    # carry four meanings and a colourblind reader has to be able to tell
+    # blocked from done. So: accent decorates, status still signifies.
+    # Measured with this module's own contrast_ratio, not assumed: 4.89
+    # here and 5.95 in the dark table, both above the 4.5 floor and both
+    # ahead of settled-rule's 3.42.
+    "accent": "#0E7A6F",
+    "accent-tint": "#E4EFED",
+    "paper": "#F7F8F6",
 }
 
 TOKENS_DARK = {
@@ -151,6 +163,11 @@ TOKENS_DARK = {
     "node-ink": "#E9ECF1",
     "node-rule": "#8A93A0",
     "node-tint": "#1E242C",
+    # The progress surface, dark side. Petrol lifted for slate, and slate
+    # itself as the paper: same pairing, same measurement (5.95).
+    "accent": "#3AA893",
+    "accent-tint": "#10241F",
+    "paper": "#141B22",
 }
 
 # (theme, foreground token, background token, WCAG floor). 4.5:1 for text,
@@ -285,6 +302,11 @@ body { background: var(--bm-page); color: var(--bm-body); }
 .bm-bar-track { fill: var(--bm-idle-tint); stroke: var(--bm-idle-rule); }
 .bm-bar-fill { fill: var(--bm-for-info-tint);
                stroke: var(--bm-for-info-rule); }
+.bm-phase-label { fill: var(--bm-accent); font-weight: 600; }
+.bm-span { fill: var(--bm-accent); stroke: var(--bm-accent); }
+.bm-tick-on { fill: var(--bm-accent); stroke: var(--bm-accent); }
+.bm-tick-off { fill: var(--bm-accent-tint); stroke: var(--bm-idle-rule); }
+.bm-progress-surface { background: var(--bm-paper); }
 .bm-alert { padding: .5rem .75rem; margin: 0 0 .75rem 0; }
 .bm-rung-bar { display: inline-block; width: 100%%; }
 .bm-needs-you { border-left: 6px solid var(--bm-needs-you-rule);
@@ -490,16 +512,31 @@ def _ascii(text):
 
 
 # ---------------------------------------------------------------------------
-# 5. THE SIX SHAPES, AND NOTHING ELSE
+# 5. THE SEVEN SHAPES, AND NOTHING ELSE
 #
-# Six allowed shapes against roughly twenty five available (five plus the
-# timeline the progress surface loop added). Graphic economy is the
-# point, not a side effect. The ban is enforced by Diagram() raising, not
-# by prose, because a ban enforced by prose gets broken in month three by
-# somebody with a really good reason for a pie chart.
+# Seven allowed shapes against roughly twenty five available. Graphic
+# economy is the point, not a side effect. The ban is enforced by
+# Diagram() raising, not by prose, because a ban enforced by prose gets
+# broken in month three by somebody with a really good reason for a pie
+# chart.
+#
+# The seventh is "gantt" (Phase 5, founder decision 2026-08-08). Admitted
+# deliberately rather than folded into "timeline", because the two answer
+# different questions and share only a word: timeline draws how far a
+# piece has moved through its lifecycle, grouped by who owns it; gantt
+# draws how long a piece took, grouped by the phase it belongs to. Fusing
+# them would have meant one shape whose bars mean two things depending on
+# the data, which is worse than seven honest shapes.
+#
+# The count in this heading and in Diagram()'s refusal is maintained by
+# hand and was WRONG until this loop: it read "five" while SHAPES already
+# held six, because the timeline addition widened the tuple and left the
+# sentence behind. Fixed here, and the refusal below now derives its
+# count from the tuple so the two can never disagree again.
 # ---------------------------------------------------------------------------
 
-SHAPES = ("pipeline", "gates", "lanes", "fork", "counts", "timeline")
+SHAPES = ("pipeline", "gates", "lanes", "fork", "counts", "timeline",
+          "gantt")
 
 CAPS = {
     "pipeline": {"nodes": 7, "edges": 6, "lanes": 0, "outcomes": 0},
@@ -511,6 +548,12 @@ CAPS = {
     # nothing points from one to the next. Lane cap and node cap copied
     # from "lanes", the shape it is closest to in shape.
     "timeline": {"nodes": 9, "edges": 0, "lanes": 4, "outcomes": 0},
+    # The progress surface. A programme has more phases than a project has
+    # owners, so the lane cap is higher than "timeline"'s four; the node
+    # cap is the number of task bars one page can carry before it stops
+    # being readable. Both are stated caps, and anything past them is
+    # NAMED on the page rather than silently dropped.
+    "gantt": {"nodes": 40, "edges": 0, "lanes": 12, "outcomes": 0},
 }
 
 # The closed mapping from a founder's question to a shape. A judgement
@@ -564,7 +607,7 @@ def Diagram(shape, nodes, edges, title, desc, caption):
     object with behaviour. Two emitters render it: to_svg for the page and
     to_text for a terminal.
 
-    Raises ValueError when the shape is not one of the five, when a node
+    Raises ValueError when the shape is not one of the seven, when a node
     carries a status word outside STATUS_LEXICON, when the status word is
     not IN the label (colour is never the carrier, so the word has to be
     on the drawing), or when any cap in CAPS is exceeded. A caller with
@@ -572,9 +615,11 @@ def Diagram(shape, nodes, edges, title, desc, caption):
     shrinks the font and it never quietly drops the twelfth row."""
     if shape not in SHAPES:
         raise ValueError(
-            "unknown shape %r (allowed: %s). Five shapes and nothing else: "
-            "a sixth requires deleting one."
-            % (shape, ", ".join(SHAPES)))
+            "unknown shape %r (allowed: %s). %d shapes and nothing else: "
+            "one more requires deleting one. (The count is read from "
+            "SHAPES itself, because the hand-maintained one in this "
+            "sentence was already stale once.)"
+            % (shape, ", ".join(SHAPES), len(SHAPES)))
     nodes = list(nodes or [])
     edges = list(edges or [])
     caps = CAPS[shape]
@@ -1026,6 +1071,136 @@ def progress_facts(rows):
 
 
 # ---------------------------------------------------------------------------
+# 7c. THE PROGRESS SURFACE (Phase 5, founder decision 2026-08-08)
+#
+# The Gantt. Same rule as 7b above and for the same reason: pure over
+# already-gathered rows, no store handle, no SQL, and above all no clock.
+# A page whose geometry moved because it was rendered on a Tuesday could
+# never be byte-identical on rerun, which is the one property that makes
+# "have the records changed?" answerable by comparing bytes.
+# ---------------------------------------------------------------------------
+
+# The group a task with no recorded phase draws under. Its own name, said
+# out loud on the page, rather than being filed under whichever phase
+# happens to be current: see bm_store._TASKS_V18_COLUMN for why an
+# unrecorded phase must never be inferred.
+UNPHASED = "no phase recorded"
+
+
+def _day(stamp):
+    """The calendar day of an ISO timestamp, as a (text, ordinal) pair,
+    or None when there is nothing parseable there.
+
+    Deliberately strict and deliberately narrow: it reads the leading
+    YYYY-MM-DD and nothing else. A value it cannot read is dropped and
+    reported as undated, never repaired into a nearby date, because a
+    repaired date would put a bar somewhere no record puts it."""
+    if not isinstance(stamp, str):
+        return None
+    head = stamp.strip()[:10]
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", head):
+        return None
+    try:
+        y, m, d = (int(p) for p in head.split("-"))
+        return head, datetime.date(y, m, d).toordinal()
+    except ValueError:
+        return None
+
+
+def gantt_facts(rows):
+    """The progress surface's own data function, over the same `rows`
+    shape progress_facts takes (section 7b), plus each task's recorded
+    `phase` (schema 18).
+
+    Returns:
+
+        phases   [{"phase", "items", "ticked", "total"}, ...], in the
+                 order the phases FIRST appear in the rows, which is
+                 list_tasks' insertion order; the unphased group, when it
+                 exists, sorts last because it is a remainder and not a
+                 stage of the plan
+        window   {"start", "end", "days"} spanning the earliest recorded
+                 date to the latest, or None when nothing is dated at all
+        ticked   how many items across every phase are ticked
+        total    how many items there are
+
+    Each item carries task_id, label, state, ticked, evidence_ref,
+    dated, start, end, open_ended.
+
+    THE TICK CONTRACT, and its honest limit. `ticked` is True only when
+    the task is in a finished state AND at least one evidence row is on
+    record for it. That is the strongest thing these records can prove.
+    They CANNOT prove the check ran after the last edit, which is what
+    the contract asks of a human; nothing in the store observes edits.
+    The page therefore says what a tick means in those words rather than
+    letting the reader assume more, and the gap is stated here so that
+    the next person to touch this function knows it is a known limit and
+    not an oversight."""
+    rows = rows or {}
+    tasks = list(rows.get("tasks") or [])
+    evidence_by_task = rows.get("evidence") or {}
+    days = []
+    for t in tasks:
+        for key in ("started_at", "completed_at"):
+            parsed = _day(t.get(key))
+            if parsed:
+                days.append(parsed)
+    window = None
+    if days:
+        lo = min(days, key=lambda p: p[1])
+        hi = max(days, key=lambda p: p[1])
+        # span_days, not "days": design section 4.2 gives ONE authority
+        # for durations on the page (bl.render_forecast_lines), and this
+        # module may not format one of its own. The number here is
+        # geometry, never prose: it is the divisor that scales a bar into
+        # the fixed track, and it is deliberately never printed.
+        window = {"start": lo[0], "end": hi[0],
+                  "span_days": hi[1] - lo[1] + 1}
+    order, groups = [], {}
+    for t in tasks:
+        task_id = t.get("task_id") or ""
+        phase = (t.get("phase") or "").strip() or UNPHASED
+        if phase not in groups:
+            order.append(phase)
+            groups[phase] = []
+        started = _day(t.get("started_at"))
+        completed = _day(t.get("completed_at"))
+        evidence = evidence_by_task.get(task_id) or []
+        ref = (evidence[-1].get("ref") or "") if evidence else ""
+        # An open bar: a real start, no recorded end. It runs to the edge
+        # of the window, which is the last date anything was recorded on,
+        # and says open_ended so the page can draw that edge as unfinished
+        # rather than as a completion nobody wrote down.
+        end = completed[0] if completed else (
+            window["end"] if (started and window) else "")
+        groups[phase].append({
+            "task_id": task_id,
+            "label": _flat(t.get("title") or task_id),
+            "state": t.get("status") or "",
+            "ticked": bool(t.get("status") in FINISHED_TASK_STATES
+                           and ref),
+            "evidence_ref": ref,
+            "dated": bool(started or completed),
+            "start": started[0] if started else (
+                completed[0] if completed else ""),
+            "end": end,
+            "open_ended": bool(started and not completed),
+        })
+    phases = [{"phase": p, "items": groups[p],
+               "ticked": len([i for i in groups[p] if i["ticked"]]),
+               "total": len(groups[p])}
+              for p in order if p != UNPHASED]
+    if UNPHASED in groups:
+        phases.append({"phase": UNPHASED, "items": groups[UNPHASED],
+                       "ticked": len([i for i in groups[UNPHASED]
+                                      if i["ticked"]]),
+                       "total": len(groups[UNPHASED])})
+    return {"phases": phases, "window": window,
+            "ticked": sum(p["ticked"] for p in phases),
+            "total": sum(p["total"] for p in phases)}
+
+
+# ---------------------------------------------------------------------------
 # 8. THE SIX BUILDERS
 #
 # Each is pure over visual_facts' dict, except diagram_timeline, which is
@@ -1183,6 +1358,75 @@ def diagram_fork(facts):
         % (_d(decision.get("claim") or ""), bl.HANDBACK_OPTION_TEXT))
 
 
+def diagram_gantt(facts):
+    """D7. "Where does the whole programme stand, phase by phase?" One
+    node per task, grouped into its phase, drawn as a time bar when the
+    records carry dates and as a lifecycle fill when they do not.
+
+    None when there is no work recorded: a picture of nothing teaches
+    nothing, the same rule the four optional builders above follow.
+
+    Pure over gantt_facts' own dict, never a store handle, for the reason
+    section 7c states."""
+    phases = [p for p in (facts or {}).get("phases") or [] if p["items"]]
+    if not phases:
+        return None
+    cap = CAPS["gantt"]
+    window = facts.get("window")
+    dropped_phases = max(0, len(phases) - cap["lanes"])
+    phases = phases[:cap["lanes"]]
+    nodes, dropped_nodes = [], 0
+    for pi, phase in enumerate(phases):
+        for ii, item in enumerate(phase["items"]):
+            if len(nodes) >= cap["nodes"]:
+                dropped_nodes += 1
+                continue
+            status = _TIMELINE_STATUS_WORD.get(item["state"], "waiting")
+            if item["dated"]:
+                detail = "%s to %s%s" % (
+                    item["start"], item["end"],
+                    ", still open" if item["open_ended"] else "")
+            else:
+                detail = "no dates recorded"
+            n = node("gt%d_%d" % (pi, ii),
+                     "%s, %s" % (item["label"], status), status,
+                     detail=detail, lane=phase["phase"])
+            n["ticked"] = item["ticked"]
+            n["evidence_ref"] = item["evidence_ref"]
+            n["dated"] = item["dated"]
+            if item["dated"] and window:
+                start = _day(item["start"])
+                end = _day(item["end"]) or start
+                n["offset_days"] = start[1] - _day(window["start"])[1]
+                n["span_days"] = max(1, end[1] - start[1] + 1)
+                n["window_days"] = window["span_days"]
+            else:
+                # No dates: fall back to the lifecycle fill the timeline
+                # shape already draws, so the bar still says something
+                # true rather than drawing nothing at all.
+                n["value"] = _TASK_STATE_INDEX.get(item["state"], 0) + 1
+                n["limit"] = len(TASK_STATES)
+            nodes.append(n)
+    ticked, total = facts["ticked"], facts["total"]
+    over = ""
+    if dropped_nodes or dropped_phases:
+        over = (" %d task(s) and %d phase(s) are past this page's stated "
+                "cap and are not drawn." % (dropped_nodes, dropped_phases))
+    when = ("The window runs %s to %s."
+            % (window["start"], window["end"])
+            if window else
+            "No dates are recorded yet, so the bars show how far each "
+            "piece has moved rather than how long it took.")
+    return Diagram(
+        "gantt", nodes, [],
+        "Where the programme stands, phase by phase",
+        "One bar per piece of work, grouped into the phase its own record "
+        "names. %s A box is ticked only where the work is finished AND a "
+        "check is on record for it." % when,
+        "%d of %d pieces ticked, across %d phase(s). %s%s"
+        % (ticked, total, len(phases), when, over))
+
+
 def counts_rows(facts):
     """D5. "How much, against what limit?" Always drawable, because zero
     of zero is a real answer.
@@ -1258,6 +1502,10 @@ def diagram_timeline(progress):
 # ---------------------------------------------------------------------------
 
 _CHAR = 8
+# The progress surface's fixed track. Every Gantt bar is a fraction of
+# this many pixels, computed by integer division, which is what makes two
+# renders of the same rows the same bytes.
+_GANTT_TRACK = 480
 _PAD = 14
 _ROW = 44
 _GAP = 26
@@ -1373,6 +1621,63 @@ def to_svg(diagram):
             parts.append(_box(x, y, w, _ROW, n))
             x += w + _GAP
         width, height = max(x, qw + 20), y + _ROW + 10
+        body = "".join(parts)
+    elif shape == "gantt":
+        # THE PROGRESS SURFACE. Geometry from integers only: day counts
+        # scaled into a fixed track by integer division, never a measured
+        # font and never a clock, so the same rows emit the same bytes.
+        track, parts, y, width = _GANTT_TRACK, [], 10, 10
+        lanes = []
+        for n in nodes:
+            if n["lane"] not in lanes:
+                lanes.append(n["lane"])
+        column = 10 + _CHAR * (max(len(_node_text(n)) for n in nodes) + 3)
+        for lane in lanes:
+            parts.append('<text class="bm-phase-label" x="10" y="%d">%s</text>'
+                         % (y + 14, xml_escape(lane)))
+            y += 26
+            for n in [n for n in nodes if n["lane"] == lane]:
+                tick = "bm-tick-on" if n.get("ticked") else "bm-tick-off"
+                parts.append(
+                    '<rect class="%s" x="10" y="%d" width="12" height="12" '
+                    'rx="2"></rect>' % (tick, y + 2))
+                parts.append(
+                    '<text class="bm-node-label" x="30" y="%d">%s</text>'
+                    % (y + 13, xml_escape(_node_text(n))))
+                span = n.get("window_days")
+                if isinstance(span, int) and span > 0:
+                    off = max(0, min(int(track * n["offset_days"] / span),
+                                      track))
+                    wide = max(3, min(int(track * n["span_days"] / span),
+                                       track - off))
+                    parts.append(
+                        '<g role="img" aria-label="%s">'
+                        '<rect class="bm-bar-track" x="%d" y="%d" '
+                        'width="%d" height="10" rx="4"></rect>'
+                        '<rect class="bm-span" x="%d" y="%d" width="%d" '
+                        'height="10" rx="4"></rect></g>'
+                        % (xml_escape(n["detail"]), column, y + 3, track,
+                           column + off, y + 3, wide))
+                else:
+                    limit, value = n.get("limit"), n.get("value")
+                    if isinstance(limit, int) and limit > 0 and isinstance(
+                            value, int):
+                        filled = max(0, min(int(track * value / limit),
+                                             track))
+                        parts.append(
+                            '<g role="progressbar" aria-valuemin="0" '
+                            'aria-valuemax="%d" aria-valuenow="%d" '
+                            'aria-valuetext="%s">'
+                            '<rect class="bm-bar-track" x="%d" y="%d" '
+                            'width="%d" height="10" rx="4"></rect>'
+                            '<rect class="bm-bar-fill" x="%d" y="%d" '
+                            'width="%d" height="10" rx="4"></rect></g>'
+                            % (limit, value, xml_escape(n["detail"]),
+                               column, y + 3, track, column, y + 3, filled))
+                width = max(width, column + track + 10)
+                y += 24
+            y += 10
+        width, height = width, y
         body = "".join(parts)
     elif shape == "timeline":
         parts, y, width = [], 10, 260
