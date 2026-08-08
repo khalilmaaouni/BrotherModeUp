@@ -1,0 +1,1620 @@
+<title>BrotherMode: the team briefing</title>
+
+<style>
+:root {
+  --paper: #FAF8F4;
+  --paper-2: #F3F0E9;
+  --ink: #22302C;
+  --muted: #5C6B66;
+  --faint: #5E6C67;
+  --accent: #1D6A5C;
+  --accent-soft: #E9F1ED;
+  --amber: #96590A;
+  --amber-soft: #F8EFE2;
+  --brick: #8C3A2B;
+  --brick-soft: #F8ECE8;
+  --line: #DDE4E0;
+  --line-strong: #C4CFC9;
+  --code-bg: #1B2724;
+  --code-ink: #E4EDE9;
+  --code-dim: #8FAFA5;
+  --ok: #00543A;
+  --info-ink: #00436B;
+  --warn-ink: #6B4400;
+  --hot-ink: #8C2D00;
+  --display: "Iowan Old Style", "Palatino Linotype", Palatino, "Hoefler Text", Georgia, serif;
+  --body: "Avenir Next", "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #101A17;
+    --paper-2: #17231F;
+    --ink: #E4EBE8;
+    --muted: #A3B2AC;
+    --faint: #7F8E88;
+    --accent: #58BCAA;
+    --accent-soft: #16241F;
+    --amber: #E0A55A;
+    --amber-soft: #241B10;
+    --brick: #E39079;
+    --brick-soft: #271713;
+    --line: #26332E;
+    --line-strong: #38473F;
+    --code-bg: #080D0B;
+    --code-ink: #D7E4DF;
+    --code-dim: #7E9B92;
+    --ok: #5FD3AE;
+    --info-ink: #7FC4F5;
+    --warn-ink: #F0B95A;
+    --hot-ink: #FFA582;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #101A17;
+  --paper-2: #17231F;
+  --ink: #E4EBE8;
+  --muted: #A3B2AC;
+  --faint: #7F8E88;
+  --accent: #58BCAA;
+  --accent-soft: #16241F;
+  --amber: #E0A55A;
+  --amber-soft: #241B10;
+  --brick: #E39079;
+  --brick-soft: #271713;
+  --line: #26332E;
+  --line-strong: #38473F;
+  --code-bg: #080D0B;
+  --code-ink: #D7E4DF;
+  --code-dim: #7E9B92;
+  --ok: #5FD3AE;
+  --info-ink: #7FC4F5;
+  --warn-ink: #F0B95A;
+  --hot-ink: #FFA582;
+}
+:root[data-theme="light"] {
+  --paper: #FAF8F4;
+  --paper-2: #F3F0E9;
+  --ink: #22302C;
+  --muted: #5C6B66;
+  --faint: #5E6C67;
+  --accent: #1D6A5C;
+  --accent-soft: #E9F1ED;
+  --amber: #96590A;
+  --amber-soft: #F8EFE2;
+  --brick: #8C3A2B;
+  --brick-soft: #F8ECE8;
+  --line: #DDE4E0;
+  --line-strong: #C4CFC9;
+  --code-bg: #1B2724;
+  --code-ink: #E4EDE9;
+  --code-dim: #8FAFA5;
+  --ok: #00543A;
+  --info-ink: #00436B;
+  --warn-ink: #6B4400;
+  --hot-ink: #8C2D00;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 1.02rem;
+  line-height: 1.68;
+  -webkit-text-size-adjust: 100%;
+}
+
+.skip {
+  position: absolute; left: -9999px; top: 0;
+  background: var(--accent); color: var(--paper);
+  padding: 0.6rem 1rem; z-index: 50; text-decoration: none;
+}
+.skip:focus { left: 0; }
+
+a { color: var(--accent); text-underline-offset: 0.18em; }
+a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.shell {
+  max-width: 78rem;
+  margin: 0 auto;
+  padding: 0 1.25rem 5rem;
+  display: grid;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 62rem) {
+  .shell {
+    grid-template-columns: 15rem minmax(0, 1fr);
+    column-gap: 3.5rem;
+    align-items: start;
+  }
+}
+
+.masthead {
+  border-bottom: 1px solid var(--line-strong);
+  padding: 4rem 0 2rem;
+  margin-bottom: 2.5rem;
+}
+@media (min-width: 62rem) { .masthead { grid-column: 1 / -1; } }
+.masthead h1 {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: clamp(2.3rem, 6.2vw, 3.8rem);
+  line-height: 1.05;
+  letter-spacing: -0.018em;
+  margin: 0 0 0.6rem;
+  text-wrap: balance;
+}
+.masthead .sub {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: clamp(1.12rem, 2.5vw, 1.45rem);
+  line-height: 1.35;
+  color: var(--muted);
+  margin: 0 0 1.8rem;
+  max-width: 36ch;
+  text-wrap: balance;
+}
+.imprint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 2rem;
+  font-family: var(--mono);
+  font-size: 0.71rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.imprint b { color: var(--muted); font-weight: 600; }
+
+nav.toc { font-size: 0.9rem; line-height: 1.45; margin-bottom: 3rem; }
+@media (min-width: 62rem) {
+  nav.toc {
+    position: sticky;
+    top: 0;
+    max-height: 100vh;
+    overflow-y: auto;
+    padding: 2rem 1.5rem 3rem 0;
+    margin-bottom: 0;
+    border-right: 1px solid var(--line);
+  }
+}
+.toc-title {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin: 0 0 1rem;
+  display: none;
+}
+@media (min-width: 62rem) { .toc-title { display: block; } }
+details.toc-wrap {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 0.75rem 0;
+}
+details.toc-wrap > summary {
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  list-style: none;
+}
+details.toc-wrap > summary::-webkit-details-marker { display: none; }
+details.toc-wrap > summary::after { content: " +"; color: var(--faint); }
+details.toc-wrap[open] > summary::after { content: " -"; }
+@media (min-width: 62rem) {
+  details.toc-wrap { border: 0; padding: 0; }
+  details.toc-wrap > summary { display: none; }
+}
+nav.toc ol { list-style: none; margin: 0; padding: 0; }
+nav.toc > .toc-wrap > ol > li { margin-bottom: 1.05rem; }
+nav.toc .part {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 0.2rem;
+}
+nav.toc a { color: var(--muted); text-decoration: none; display: block; padding: 0.1rem 0; }
+nav.toc a:hover { color: var(--accent); }
+nav.toc ol ol { margin-top: 0.15rem; }
+nav.toc ol ol a { padding-left: 0.85rem; font-size: 0.85rem; color: var(--faint); }
+
+main { min-width: 0; padding-top: 1rem; }
+
+section.part { padding-top: 1rem; }
+section.part + section.part { margin-top: 4.5rem; }
+
+h2.part-head {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: clamp(1.75rem, 4.2vw, 2.45rem);
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.4rem;
+  padding-top: 1.5rem;
+  border-top: 2px solid var(--ink);
+  text-wrap: balance;
+}
+.part-label {
+  font-family: var(--mono);
+  font-size: 0.69rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--accent);
+  display: block;
+  margin-bottom: 0.85rem;
+}
+.part-blurb {
+  color: var(--muted);
+  font-size: 1.05rem;
+  max-width: 62ch;
+  margin: 0 0 2.6rem;
+}
+
+h3 {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 1.42rem;
+  line-height: 1.22;
+  letter-spacing: -0.008em;
+  margin: 3rem 0 0.7rem;
+  text-wrap: balance;
+}
+h4 {
+  font-weight: 650;
+  font-size: 1.01rem;
+  margin: 2.1rem 0 0.5rem;
+}
+p, ul, ol { max-width: 68ch; }
+p { margin: 0 0 1.1rem; }
+main ul, main ol { padding-left: 1.15rem; margin: 0 0 1.2rem; }
+main li { margin-bottom: 0.45rem; }
+strong { font-weight: 650; }
+
+.lede {
+  font-family: var(--display);
+  font-size: 1.26rem;
+  line-height: 1.5;
+  max-width: 58ch;
+  margin: 0 0 1.6rem;
+}
+
+.proof-line {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  line-height: 1.62;
+  color: var(--muted);
+  margin: -0.4rem 0 1.5rem;
+  max-width: 68ch;
+  overflow-wrap: anywhere;
+}
+.proof-line::before {
+  content: "proof";
+  color: var(--faint);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  margin-right: 0.6rem;
+}
+
+.stamp {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.63rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  padding: 0.14em 0.45em;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  white-space: nowrap;
+  vertical-align: 0.1em;
+}
+.s-certified { color: var(--ok); }
+.s-beta { color: var(--info-ink); }
+.s-experimental { color: var(--warn-ink); }
+.s-unsupported { color: var(--hot-ink); }
+
+.tw { overflow-x: auto; margin: 0 0 1.8rem; border-bottom: 1px solid var(--line); }
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 33rem;
+  font-size: 0.93rem;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+thead th {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  border-bottom: 1px solid var(--line-strong);
+  padding: 0 0.9rem 0.55rem 0;
+  vertical-align: bottom;
+}
+tbody td, tbody th {
+  border-bottom: 1px solid var(--line);
+  padding: 0.7rem 0.9rem 0.7rem 0;
+  vertical-align: top;
+}
+tbody th { text-align: left; font-weight: 600; }
+tbody tr:last-child td, tbody tr:last-child th { border-bottom: 0; }
+table.tight tbody td, table.tight tbody th { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+table.tight tbody th { white-space: nowrap; }
+td code, th code { font-size: 0.86em; }
+
+pre {
+  background: var(--code-bg);
+  color: var(--code-ink);
+  font-family: var(--mono);
+  font-size: 0.83rem;
+  line-height: 1.65;
+  padding: 1rem 1.1rem;
+  border-radius: 3px;
+  overflow-x: auto;
+  margin: 0 0 1.4rem;
+  max-width: 68ch;
+}
+pre .c { color: var(--code-dim); }
+code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 0.05em 0.3em;
+  overflow-wrap: anywhere;
+}
+pre code { background: none; border: 0; padding: 0; font-size: 1em; color: inherit; }
+
+.panel {
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1.2rem 1.4rem 0.3rem;
+  margin: 0 0 1.8rem;
+  max-width: 68ch;
+}
+.panel > :last-child { margin-bottom: 1rem; }
+.panel h4 { margin-top: 0.2rem; }
+.panel-title {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin: 0 0 0.7rem;
+}
+.panel.caution { background: var(--amber-soft); border-color: var(--amber); }
+.panel.caution .panel-title { color: var(--amber); }
+.panel.refusal { background: var(--brick-soft); border-color: var(--brick); }
+.panel.refusal .panel-title { color: var(--brick); }
+.panel.accent { background: var(--accent-soft); border-color: var(--accent); }
+.panel.accent .panel-title { color: var(--accent); }
+
+.thesis {
+  font-family: var(--display);
+  font-size: 1.28rem;
+  line-height: 1.45;
+  border-top: 1px solid var(--line-strong);
+  border-bottom: 1px solid var(--line-strong);
+  padding: 1.4rem 0;
+  margin: 2.4rem 0;
+  max-width: 56ch;
+  text-wrap: balance;
+}
+.thesis .who {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.67rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-top: 0.8rem;
+}
+
+.case { margin: 0 0 3.2rem; }
+.case-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem 1rem;
+  border-bottom: 1px solid var(--line-strong);
+  padding-bottom: 0.5rem;
+  margin-bottom: 1.2rem;
+}
+.case-head h3 { margin: 0; font-size: 1.28rem; }
+.case-tag {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+dl.facts { margin: 0 0 1.2rem; max-width: 68ch; }
+dl.facts div {
+  display: grid;
+  grid-template-columns: 1fr;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--line);
+}
+@media (min-width: 34rem) {
+  dl.facts div { grid-template-columns: 9.5rem minmax(0, 1fr); column-gap: 1rem; }
+}
+dl.facts dt {
+  font-family: var(--mono);
+  font-size: 0.67rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding-top: 0.25rem;
+}
+dl.facts dd { margin: 0; }
+
+figure { margin: 2.2rem 0; max-width: 68ch; }
+figure svg { display: block; width: 100%; height: auto; }
+figcaption {
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--muted);
+  margin-top: 0.7rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.6rem;
+}
+.svg-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; }
+.svg-title { font-family: var(--body); font-size: 13px; font-weight: 650; }
+.svg-body { font-family: var(--body); font-size: 11.5px; }
+
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.8rem 0; max-width: 68ch; }
+
+.tick { list-style: none; padding-left: 0; }
+.tick li { padding-left: 1.5rem; position: relative; }
+.tick li::before {
+  content: "";
+  position: absolute;
+  left: 0.15rem;
+  top: 0.6em;
+  width: 0.5rem;
+  height: 0.5rem;
+  border: 1px solid var(--accent);
+  border-radius: 1px;
+}
+
+.foot {
+  border-top: 2px solid var(--ink);
+  margin-top: 5rem;
+  padding-top: 1.6rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+  max-width: 68ch;
+}
+.foot p { max-width: 68ch; }
+
+@media print {
+  nav.toc { display: none; }
+  .shell { display: block; max-width: none; }
+  section.part { break-before: page; }
+  pre, table, figure, .panel { break-inside: avoid; }
+}
+</style>
+
+<a class="skip" href="#start">Skip to the briefing</a>
+
+<div class="shell">
+
+<header class="masthead">
+  <h1>BrotherMode, for the people who have to use it</h1>
+  <p class="sub">What it is, what it refuses to do, and how to run your own project on it.</p>
+  <div class="imprint">
+    <span><b>Written for</b> the engineering and analytics team</span>
+    <span><b>Describes</b> v3.0.0</span>
+    <span><b>Read from the tree</b> 8 August 2026</span>
+    <span><b>Start with</b> part zero, two pages</span>
+  </div>
+</header>
+
+<nav class="toc" aria-label="Contents">
+  <p class="toc-title">Contents</p>
+  <details class="toc-wrap" open>
+    <summary>Contents</summary>
+    <ol>
+      <li>
+        <span class="part">Part zero</span>
+        <a href="#start">The two pages</a>
+        <ol>
+          <li><a href="#one-paragraph">In one paragraph</a></li>
+          <li><a href="#five-failures">The five failures</a></li>
+          <li><a href="#three-layers">The three layers</a></li>
+          <li><a href="#honest-cost">What it costs you</a></li>
+          <li><a href="#nine">The nine commands</a></li>
+          <li><a href="#skip-it">When to skip it</a></li>
+        </ol>
+      </li>
+      <li>
+        <span class="part">Part one</span>
+        <a href="#first-hour">Your first hour</a>
+      </li>
+      <li>
+        <span class="part">Part two</span>
+        <a href="#register">The feature register</a>
+        <ol>
+          <li><a href="#commands">Seventeen skills</a></li>
+          <li><a href="#hooks">The six events</a></li>
+          <li><a href="#agents">The five workers</a></li>
+          <li><a href="#record">The record</a></li>
+          <li><a href="#states">Certified to unsupported</a></li>
+        </ol>
+      </li>
+      <li>
+        <span class="part">Part three</span>
+        <a href="#versus">Why not just another plugin</a>
+      </li>
+      <li>
+        <span class="part">Part four</span>
+        <a href="#scenarios">Six projects, end to end</a>
+        <ol>
+          <li><a href="#sc-numbers">A numbers project</a></li>
+          <li><a href="#sc-web">A website</a></li>
+          <li><a href="#sc-product">A product feature</a></li>
+          <li><a href="#sc-research">Research and strategy</a></li>
+          <li><a href="#sc-content">Content and localisation</a></li>
+          <li><a href="#sc-ops">Ops and automation</a></li>
+        </ol>
+      </li>
+      <li>
+        <span class="part">Part five</span>
+        <a href="#people">Six people, six first weeks</a>
+      </li>
+      <li>
+        <span class="part">Part six</span>
+        <a href="#rules">The rules you inherit</a>
+      </li>
+      <li>
+        <span class="part">Part seven</span>
+        <a href="#lookup">Look up</a>
+        <ol>
+          <li><a href="#ref-commands">Command reference</a></li>
+          <li><a href="#ref-files">Underneath the skills</a></li>
+          <li><a href="#glossary">Glossary</a></li>
+          <li><a href="#index">I want to...</a></li>
+          <li><a href="#truth">Where the truth lives</a></li>
+        </ol>
+      </li>
+    </ol>
+  </details>
+</nav>
+
+<main>
+
+<!-- ===================== PART ZERO ===================== -->
+<section class="part" id="start">
+  <span class="part-label">Part zero</span>
+  <h2 class="part-head">The two pages everyone should read</h2>
+  <p class="part-blurb">Stop after this section and you will still know what BrotherMode is, what it costs you, and whether your next piece of work should use it. Everything after this is depth to reach for when you need it.</p>
+
+  <h3 id="one-paragraph">In one paragraph</h3>
+  <p class="lede">BrotherMode is not a prompt pack and it is not a smarter model. It is a set of working rules for a Claude Code session, plus the small toolchain that holds the session to those rules, plus the record that outlives it.</p>
+  <p>Installed, it changes three things about how Claude works on your repository. It agrees the shape of the work with you before it touches anything. It claims a file before writing to that file, and a second session reaching for a claimed file is refused by a program rather than by a polite reminder in a prompt. And it will not use the word done until a check has run after the last edit and passed, with the command quoted back to you.</p>
+  <p>Everything else in this booklet sits underneath those three sentences.</p>
+  <p class="proof-line"><code>SKILL.md</code> holds the law. <code>tools/bm_fence_hook.py</code> is the program that refuses. <code>references/definition-of-done.md</code> is the fifteen-point list that decides what done means.</p>
+
+  <h3 id="five-failures">The five failures it exists to close</h3>
+  <p>Nothing in this system is there because it sounded wise. Every rule is in the file because its absence already cost somebody a real afternoon. These are the five, and they are the honest reason to care.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Failure</th><th>What it looks like on a normal day</th><th>What closes it</th></tr></thead>
+    <tbody>
+      <tr><th>Amnesia</th><td>A new session re-explores what yesterday's session already knew, and you pay for the same reading twice.</td><td>A record on disk, read at the start and written at the close.</td></tr>
+      <tr><th>Collision</th><td>Two agents edit one file. The slower one wins. The other one's work is simply not there any more, and nothing announced it.</td><td>One writer per file, claimed before the write, refused by a hook.</td></tr>
+      <tr><th>Disproportion</th><td>Five subagents dispatched at a one-line question. Or one blind pass at a full audit.</td><td>A three-question triage, and a declared effort tier in every brief.</td></tr>
+      <tr><th>Unearned confidence</th><td>The word done with no command behind it. Numbers that were never derived twice.</td><td>A verifying command after the final edit, quoted. Ranges rather than single-point estimates.</td></tr>
+      <tr><th>Groundhog day</th><td>The same mistake paid for twice, because the first time was never written down anywhere the next session had to trip over it.</td><td>A mistakes ledger and a failures index, read before working in an area.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="proof-line"><code>docs/DESIGN.md</code> section 1 records all five with the law that closes each. <code>docs/mistakes/</code> holds the individual entries, one file per mistake.</p>
+
+  <h3 id="three-layers">The three layers, and why the order matters</h3>
+
+  <figure>
+    <svg viewBox="0 0 640 236" role="img" aria-labelledby="layers-title">
+      <title id="layers-title">Three layers. The law is what a session must do. The state is what is true right now, on disk. The telemetry is what actually happened, written by hooks rather than by the model.</title>
+      <defs>
+        <marker id="ar" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+          <path d="M0 0 L7 3.5 L0 7 z" fill="currentColor" opacity="0.45"/>
+        </marker>
+      </defs>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.32">
+        <rect x="6" y="30" width="194" height="132" rx="3"/>
+        <rect x="222" y="30" width="194" height="132" rx="3"/>
+        <rect x="438" y="30" width="196" height="132" rx="3"/>
+      </g>
+      <g class="svg-label" fill="currentColor" opacity="0.8">
+        <text x="6" y="20">Layer one</text>
+        <text x="222" y="20">Layer two</text>
+        <text x="438" y="20">Layer three</text>
+      </g>
+      <g class="svg-title" fill="currentColor">
+        <text x="22" y="58">The law</text>
+        <text x="238" y="58">The state</text>
+        <text x="454" y="58">The telemetry</text>
+      </g>
+      <g class="svg-body" fill="currentColor" opacity="0.8">
+        <text x="22" y="82">What a session must do.</text>
+        <text x="22" y="99">Classification, delegation,</text>
+        <text x="22" y="116">fences, honesty, memory.</text>
+        <text x="238" y="82">What is true right now.</text>
+        <text x="238" y="99">On disk, so a crashed or</text>
+        <text x="238" y="116">compacted session resumes</text>
+        <text x="238" y="133">from files, not recollection.</text>
+        <text x="454" y="82">What actually happened.</text>
+        <text x="454" y="99">Written by hooks the model</text>
+        <text x="454" y="116">does not control, so numbers</text>
+        <text x="454" y="133">cannot be flattered.</text>
+      </g>
+      <g class="svg-label" fill="currentColor" opacity="0.8">
+        <text x="22" y="152">SKILL.md</text>
+        <text x="238" y="152">STATE.md and the store</text>
+        <text x="454" y="152">hooks, outcomes.jsonl</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.4">
+        <path d="M200 95 L222 95" marker-end="url(#ar)"/>
+        <path d="M416 95 L438 95" marker-end="url(#ar)"/>
+      </g>
+      <g class="svg-body" fill="currentColor" opacity="0.8">
+        <text x="6" y="190">Law without state forgets.</text>
+        <text x="222" y="190">State without telemetry lies.</text>
+        <text x="438" y="190">Together, claims become checkable.</text>
+      </g>
+      <line x1="6" y1="206" x2="634" y2="206" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-label" x="6" y="226" fill="currentColor" opacity="0.8">Checkable is the property everything else depends on</text>
+    </svg>
+    <figcaption>The order is not decoration. Law without state forgets what it decided. State without telemetry can be edited into whatever story the session prefers. The three together make a claim checkable by somebody who was not in the room.</figcaption>
+  </figure>
+
+  <h3 id="honest-cost">What it costs you, and the gap you should know about first</h3>
+  <p>Bad news before good news is a rule this system applies to itself, so here it is at the front of the booklet rather than buried in an appendix.</p>
+
+  <div class="panel caution">
+    <p class="panel-title">The largest gap, stated plainly</p>
+    <p>This system has been used for real work. It has never been <em>measured</em> on a real project. There is no counted project, no recorded rework rate, and no comparison against working without it. Any productivity number you are ever shown for BrotherMode is invented, including one from me.</p>
+    <p class="proof-line"><code>docs/KNOWN-LIMITS.md</code>, section "Used for real, but never MEASURED on a real project". <code>docs/NOT-FINALIZED.md</code> item 1.</p>
+  </div>
+
+  <p>The other costs are ordinary and you will feel all of them in week one.</p>
+  <ul>
+    <li><strong>Tokens and time.</strong> Ceremony, verification and independent review are not free. On a one-line edit the overhead is pure waste, which the system itself scores as a failure mode called overthought.</li>
+    <li><strong>Twenty minutes a week from a human.</strong> The learning loop only closes if somebody runs the weekly review. Skip it and the loop silently stops, and what you are left with is a long prompt with extra steps.</li>
+    <li><strong>Defaults calibrated on one machine.</strong> Every threshold in the file was measured on the author's laptop. Re-measure on yours before treating any of them as physics.</li>
+    <li><strong>Enforcement only on Claude Code.</strong> Elsewhere the same rules ship as instruction files that nothing enforces. One runtime, the OpenAI Codex command line, was actually measured, and the answer was no: a live run overwrote a file another session had claimed, twice.</li>
+  </ul>
+  <p class="proof-line"><code>docs/DESIGN.md</code> section 9 states the tradeoff in the author's own words. <code>docs/RUNTIMES.md</code> carries the per-runtime table. <code>docs/mistakes/M19-the-codex-fence-does-not-fire-in-exec-mode.md</code> records the measurement.</p>
+
+  <p class="thesis">A rule in a prompt is not a control. A control is a check that runs.<span class="who">The sentence the whole system is built around</span></p>
+
+  <h3 id="nine">The nine commands you will actually use</h3>
+  <p>Seventeen skills ship. Nine are the everyday surface, and you can run a whole project knowing only these. Each one introduces itself at the moment it becomes useful, so nobody has to memorise the list.</p>
+
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>Command</th><th>What it gives you</th></tr></thead>
+    <tbody>
+      <tr><th><code>/brothermode:start</code></th><td>A short guided conversation that ends in one written project brief and one first decision.</td></tr>
+      <tr><th><code>/brothermode:status</code></th><td>Eight fields saying where the project stands, read out of the project's own records rather than out of the conversation.</td></tr>
+      <tr><th><code>/brothermode:next</code></th><td>The single best next step, and the reason it is that one.</td></tr>
+      <tr><th><code>/brothermode:review</code></th><td>The current work checked against the written definition of done. What passes, what does not, failures first.</td></tr>
+      <tr><th><code>/brothermode:deliver</code></th><td>The delivery packet: what was built, every check that ran after the last change, and what was left out on purpose.</td></tr>
+      <tr><th><code>/brothermode:view</code></th><td>One self-contained page showing the whole project state, drawings included, generated from the records.</td></tr>
+      <tr><th><code>/brothermode:help</code></th><td>Plain-language orientation ending in one question, not a list of everything the product can do.</td></tr>
+      <tr><th><code>/brothermode:doctor</code></th><td>Ten read-only checks on the install itself, each with a one-line fix a non-engineer can follow.</td></tr>
+      <tr><th><code>/brothermode:update</code></th><td>Your installed version against the newest release, and the exact update steps for your install path.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="proof-line">Counted from the frontmatter of every <code>skills/*/SKILL.md</code> in the tree at v3.0.0. Four further skills are advanced and four are internal. Part two lists all seventeen.</p>
+
+  <h3 id="skip-it">When to skip it entirely</h3>
+  <p>This is the section most tools do not write. Note that the industry's own standard README template treats a limitations or when-not-to-use section as <em>optional</em> guidance inside the project description. Here it is structural, and it sits on page two rather than in an appendix.</p>
+
+  <div class="panel">
+    <p class="panel-title">Reach for it when any of these is true</p>
+    <ul class="tick">
+      <li>The work spans more than one session, so something has to survive between them.</li>
+      <li>More than one agent or session could touch the same files.</li>
+      <li>A wrong number costs money, or a wrong claim costs credibility.</li>
+      <li>The step is irreversible: a release, a migration, a deletion, a publish.</li>
+      <li>Somebody who was not in the conversation will have to pick the work up later.</li>
+    </ul>
+  </div>
+
+  <div class="panel refusal">
+    <p class="panel-title">Do not reach for it when</p>
+    <ul class="tick">
+      <li>It is a one-shot question with a self-contained answer.</li>
+      <li>It is a throwaway script nobody will run twice.</li>
+      <li>You are brainstorming, and verification ceremony would kill the momentum.</li>
+      <li>Nobody on your team will ever run the weekly review. The loop is the point; without it you pay the overhead for nothing.</li>
+    </ul>
+    <p class="proof-line"><code>docs/DESIGN.md</code> section 10 states both lists.</p>
+  </div>
+
+  <p>That is the two pages. Everything below is reference.</p>
+</section>
+
+<!-- ===================== PART ONE ===================== -->
+<section class="part" id="first-hour">
+  <span class="part-label">Part one</span>
+  <h2 class="part-head">Your first hour</h2>
+  <p class="part-blurb">Install it, prove the install works, run one real project through to a delivery packet. An hour is honest for the first time, and about ten minutes every time after that.</p>
+
+  <h3>Install: two paths, and which one you want</h3>
+  <p>The plugin path is two lines and no folders to manage. The pinned clone is the path proven end to end the most times, and it is what an auditor should use, because it pins an immutable tag rather than a moving branch.</p>
+
+  <h4>The plugin path</h4>
+  <pre><code>claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.0.0
+claude plugin install brothermode@brothermode-marketplace</code></pre>
+  <p>Those are plain shell commands and you paste them into a terminal once. The <code>@v3.0.0</code> matters: it pins the marketplace to the released tag instead of the repository's moving default branch. The hook groups register on the next start.</p>
+  <p class="proof-line">The whole path runs on every release inside a throwaway configuration via <code>scripts/release-smoke-install.sh</code>: marketplace add, install, installed version matched against <code>VERSION</code>, every hook group registered, then a clean uninstall leaving settings untouched. A release whose smoke run does not print PASSED does not ship.</p>
+
+  <div class="panel caution">
+    <p class="panel-title">The thing that trips people</p>
+    <p>The desktop app cannot run the <code>/plugin</code> slash command itself. Run the two lines above in a terminal once, and the desktop app then consumes the installed plugin normally. Reproduced against the desktop app on 6 August 2026.</p>
+  </div>
+
+  <h4>The pinned clone</h4>
+  <pre><code>git clone --branch v3.0.0 --depth 1 \
+  https://github.com/khalilmaaouni/BrotherModeUp.git \
+  ~/.claude/skills/brothermode</code></pre>
+  <p>Do not run both paths on one machine. The plugin wires the same hook events the clone's installer wires, so a machine carrying both runs every hook twice. Pick one.</p>
+
+  <h4>Then prove it is actually wired</h4>
+  <pre><code>python3 scripts/doctor.py</code></pre>
+  <p>Ten checks, each read-only, each printing PASS, or FAIL with one plain-word fix, or SKIP with the reason nothing could be checked. The deepest of the ten is the one worth watching: it proves the fence is live on your machine by simulating a blocked foreign write and an allowed owner write inside a throwaway project. A check that crashes becomes its own FAIL naming the exception, so one broken check cannot hide the other nine.</p>
+  <p class="proof-line"><code>scripts/doctor.py</code>, table in <code>docs/SETUP.md</code>. Reachable from inside a session as <code>/brothermode:doctor</code>.</p>
+
+  <h3>Requirements, in full</h3>
+  <ul>
+    <li>Claude Code, terminal or desktop, with skills enabled.</li>
+    <li>Python 3.9 or newer, standard library only. There is nothing to install with pip.</li>
+    <li>git.</li>
+  </ul>
+  <p>No account, no server, no subscription, no API key of its own. The tools make no network calls, and that claim is checkable in under a minute rather than taken on faith:</p>
+  <pre><code>grep -rnE "^[[:space:]]*(import|from)[[:space:]]+(urllib|http|socket|requests)" tools/*.py
+<span class="c"># expect no output</span></code></pre>
+  <p class="proof-line">The ban is enforced on every shipping module by <code>tools/test_bm.py</code>, so it cannot regress quietly. The only thing that shells out at all is the autosave mechanism, and it only ever calls local <code>git</code>.</p>
+
+  <h3>Your first project, six moves</h3>
+  <p>Run these from inside the project folder you actually care about, not from the BrotherMode folder.</p>
+
+  <dl class="facts">
+    <div><dt>One</dt><dd><code>/brothermode:start</code> followed by your goal in your own words. It asks only the questions whose answers change the scope, one decision at a time, recommended option first. It ends with a written brief, a first decision, and a time and cost range given as a range rather than a promise.</dd></div>
+    <div><dt>Two</dt><dd><code>/brothermode:status</code> prints goal, direction, progress, time remaining, decision needed, risk, evidence, next step. Every field computed from the records. A field the records cannot answer says so in its own words rather than being smoothed over.</dd></div>
+    <div><dt>Three</dt><dd><code>/brothermode:next</code> recommends one step and says why that one. When a decision from you is what blocks progress, it brings you the decision instead of inventing work around it.</dd></div>
+    <div><dt>Four</dt><dd>Work happens. Before any part of the session writes to a file, the claim is recorded. A second session that tries to write a claimed file is refused by a hook.</dd></div>
+    <div><dt>Five</dt><dd><code>/brothermode:review</code> checks the work against the definition of done and reports what passes and what does not, failures first, each point carrying the evidence that proves it.</dd></div>
+    <div><dt>Six</dt><dd><code>/brothermode:deliver</code> writes the delivery packet from the records. If a check is missing or failing it says so and lists what remains, instead of delivering.</dd></div>
+  </dl>
+
+  <p>Nothing in that sequence asks you to read a log.</p>
+
+  <h3>What lands on your disk</h3>
+  <p>Know this before you start, because it is the part people otherwise discover by accident.</p>
+
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>Path</th><th>What it is</th></tr></thead>
+    <tbody>
+      <tr><th><code>.brothermode/store.sqlite3</code></th><td>The project's own records: objectives, decisions and directives as you typed them, before any redaction. The security page calls this the raw sensitive artifact.</td></tr>
+      <tr><th><code>STATE.md</code></th><td>The running state file at your project root: live claims, decisions, the never-forget list. Backed up before every rewrite, so <code>STATE.md.bak-*</code> files accumulate.</td></tr>
+      <tr><th><code>threads/</code></th><td>One folder per thread you started, whether or not you finished it.</td></tr>
+      <tr><th><code>refs/brothermode/autosave/</code></th><td>Local git references holding tree snapshots. Inside <code>.git</code>, never pushed.</td></tr>
+      <tr><th><code>.git/info/exclude</code></th><td>Three lines added so none of the above is committed by accident.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="proof-line">Measured on 26 July 2026 by installing, using and then removing the skill in a scratch project. <code>README.md</code> carries the three commands that remove all of it, and the verification that a clean tree is left behind.</p>
+</section>
+
+<!-- ===================== PART TWO ===================== -->
+<section class="part" id="register">
+  <span class="part-label">Part two</span>
+  <h2 class="part-head">The feature register</h2>
+  <p class="part-blurb">Every feature, what it is for, and what it does not do. The limit column is not a disclaimer. It is the reason you can trust the column beside it.</p>
+
+  <h3 id="commands">Seventeen skills in three tiers</h3>
+  <p>Nine everyday, four advanced, four internal. The internal four are never typed by you; Claude reaches for them when the situation calls for one, which is why they carry <code>user-invocable: false</code> in their own frontmatter.</p>
+
+  <h4>The nine everyday skills</h4>
+  <div class="tw">
+  <table>
+    <thead><tr><th>Skill</th><th>Role</th><th>Limit worth knowing</th></tr></thead>
+    <tbody>
+      <tr><th><code>:start</code></th><td>Guided kickoff. Produces the project brief and the first decision card.</td><td>You must run it. It never fires on its own, because starting a project is a moment you own.</td></tr>
+      <tr><th><code>:status</code></th><td>The eight-field view, every field computed from records.</td><td>Reports the project. The state of an autonomous controller run is a different skill.</td></tr>
+      <tr><th><code>:next</code></th><td>One ready task, chosen by highest priority then by whichever was added first.</td><td>Reads the records, never the conversation, and never the generated brief file.</td></tr>
+      <tr><th><code>:review</code></th><td>Applies the fifteen-point definition of done, with evidence per point.</td><td>It writes project state, so it is narrowed to fire only when you actually ask, never speculatively because a change looks complete.</td></tr>
+      <tr><th><code>:deliver</code></th><td>Generates the delivery packet from the records.</td><td>Manual only, on purpose. Packaging finished work for somebody else to act on is a real, user-controlled moment.</td></tr>
+      <tr><th><code>:view</code></th><td>Writes one self-contained page: the eight fields, the drawings, the history, the standing offer to take work back.</td><td>The file on disk is the promise. Publishing it as a shared page needs a paid plan and four further conditions.</td></tr>
+      <tr><th><code>:help</code></th><td>Three sentences and one question, not a menu.</td><td>Deliberately refuses to list every command.</td></tr>
+      <tr><th><code>:doctor</code></th><td>Ten read-only install checks with plain-word fixes.</td><td>Checks the install, not your project. SKIP is not a failure.</td></tr>
+      <tr><th><code>:update</code></th><td>Installed version against newest, plus the steps for your path.</td><td>Manual only. Updating never touches your projects or your records.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>The four advanced skills</h4>
+  <div class="tw">
+  <table>
+    <thead><tr><th>Skill</th><th>Role</th><th>Limit worth knowing</th></tr></thead>
+    <tbody>
+      <tr><th><code>:auto</code></th><td>Begins or resumes the durable controller that carries a signed outcome through to a checked deliverable, across kills and restarts.</td><td>Refuses to begin without a signed authorisation naming the outcome, the definition of done, the allowed folders and an optional budget. <span class="stamp s-beta">beta</span></td></tr>
+      <tr><th><code>:stop</code></th><td>The kill switch on a controller run. Drains in-flight work, records whatever result had already arrived, releases every claim it held.</td><td>Stops the run, not the authorisation. Pausing or revoking the contract is a separate act.</td></tr>
+      <tr><th><code>:handback</code></th><td>You take one decision and the work under it back, and get a page a developer can pick up from.</td><td>Nothing deleted, nothing hidden. A key decision that offers no handback cannot be recorded at all. <span class="stamp s-beta">beta</span></td></tr>
+      <tr><th><code>:handover-pack</code></th><td>Seven generated pages, in reading order, that let a person who was not in the conversation take the project over.</td><td>Nobody outside the project has ever read one. That is the honest empty rung. <span class="stamp s-beta">beta</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>The four internal skills</h4>
+  <p>You will see their output without typing their names: the six-line catch-up, the open decisions as cards with the highest stakes first, the controller run status, and the internal reference the public skills point into for the detail of a flow.</p>
+  <p class="proof-line">Tiers counted from the <code>user-invocable</code> and <code>disable-model-invocation</code> frontmatter of all seventeen <code>skills/*/SKILL.md</code> files at v3.0.0.</p>
+
+  <h3 id="hooks">The six events: what actually runs on your machine</h3>
+  <p>This is the part that separates BrotherMode from a document. A hook is a program Claude Code runs at a lifecycle moment. The installer wires programs to six events. One of them can say no.</p>
+
+  <figure>
+    <svg viewBox="0 0 640 224" role="img" aria-labelledby="hooks-title">
+      <title id="hooks-title">Six lifecycle events across one session. Session start injects the law digest. Pre tool use can refuse a write. Post tool use reports a shell write that crossed a claim. Stop checks whether a catch-up is due. Pre compact snapshots the tree. Session end appends the cost ledger.</title>
+      <line x1="16" y1="118" x2="624" y2="118" stroke="currentColor" stroke-width="1" opacity="0.45"/>
+      <g stroke="currentColor" stroke-width="1" opacity="0.5" fill="none">
+        <circle cx="42" cy="118" r="4.5"/>
+        <circle cx="198" cy="118" r="4.5"/>
+        <circle cx="318" cy="118" r="4.5"/>
+        <circle cx="432" cy="118" r="4.5"/>
+        <circle cx="524" cy="118" r="4.5"/>
+        <circle cx="606" cy="118" r="4.5"/>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.28">
+        <path d="M42 98 L42 113"/>
+        <path d="M198 98 L198 113"/>
+        <path d="M318 138 L318 123"/>
+        <path d="M432 98 L432 113"/>
+        <path d="M524 138 L524 123"/>
+        <path d="M606 98 L606 113"/>
+      </g>
+      <g class="svg-label" fill="currentColor" opacity="0.85">
+        <text x="16" y="52">SessionStart</text>
+        <text x="172" y="52">PreToolUse</text>
+        <text x="292" y="164">PostToolUse</text>
+        <text x="406" y="52">Stop</text>
+        <text x="498" y="164">PreCompact</text>
+        <text x="536" y="52">SessionEnd</text>
+      </g>
+      <g class="svg-body" fill="currentColor" opacity="0.8">
+        <text x="16" y="70">injects the law digest</text>
+        <text x="16" y="86">and a recovery pointer</text>
+        <text x="172" y="70">REFUSES a write to a file</text>
+        <text x="172" y="86">another claim covers</text>
+        <text x="292" y="182">reports a shell write</text>
+        <text x="292" y="198">that crossed a claim</text>
+        <text x="406" y="70">checks whether the</text>
+        <text x="406" y="86">catch-up is due</text>
+        <text x="498" y="182">snapshots the whole tree</text>
+        <text x="498" y="198">before compaction</text>
+        <text x="536" y="70">appends the cost</text>
+        <text x="536" y="86">ledger for the session</text>
+      </g>
+      <text class="svg-label" x="16" y="136" fill="currentColor" opacity="0.8">one session, left to right</text>
+    </svg>
+    <figcaption>Five hooks watch and record. One refuses. That asymmetry is the design: observation is cheap and can be everywhere, refusal is expensive and lives in exactly one place you can point at.</figcaption>
+  </figure>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Event</th><th>Program and role</th><th>Limit</th></tr></thead>
+    <tbody>
+      <tr>
+        <th>PreToolUse</th>
+        <td><code>bm_fence_hook.py</code>. The one hook that can refuse. It blocks a write to a file another live claim covers, whether the write arrives as an Edit, Write, MultiEdit or NotebookEdit call, or as a readable <code>apply_patch</code> envelope on the Bash leg.</td>
+        <td>By default it fails <em>open</em> and says why, so a refusal always means a genuine ownership conflict rather than a broken hook. It does not gate arbitrary shell writes. <span class="stamp s-certified">certified</span></td>
+      </tr>
+      <tr>
+        <th>PostToolUse</th>
+        <td><code>bm_bash_audit.py</code>. Detects a shell write that crossed a claim.</td>
+        <td>Detection, not containment. It tells you afterwards. It did not stop it.</td>
+      </tr>
+      <tr>
+        <th>SessionStart</th>
+        <td><code>bm_sessionstart.sh</code>. Injects the compressed law, any overdue-review nag, and a recovery pointer after a compaction.</td>
+        <td>A shell script, and the one hook whose cost has not been measured.</td>
+      </tr>
+      <tr>
+        <th>PreCompact</th>
+        <td><code>bm_autosave.py</code>. Snapshots your whole working tree, untracked files included, into a private local git reference right before context is compacted.</td>
+        <td>A rescue, not a backup service. It lives in your own <code>.git</code> and goes when that goes. Never pushed. <span class="stamp s-certified">certified</span></td>
+      </tr>
+      <tr>
+        <th>Stop</th>
+        <td><code>bm_telemetry.py stop-warn</code> and companions. Checks whether the half-hour catch-up is due, and writes nothing when it is not.</td>
+        <td>It cannot fire inside a turn that never ends. Its activity ceiling is a chosen constant rather than a measured one. <span class="stamp s-beta">beta</span></td>
+      </tr>
+      <tr>
+        <th>SessionEnd</th>
+        <td><code>bm_telemetry.py outcomes-append</code>. Writes what the session actually cost in tokens, tool calls and time.</td>
+        <td>Nothing is recorded until you consent. The gate is enforced by a test that drives every hook-wired command against a fresh home directory and fails if any of them writes first. <span class="stamp s-certified">certified</span></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="proof-line">Read from <code>hooks/hooks.json</code>. <code>python3 tools/bm_project_facts.py --field hook_events</code> prints the six events. <code>docs/HOOKS.md</code> states what each program receives and the exact contract the fence implements. <code>tools/test_bm_fence_hook.py</code> holds the refusal behaviour in place; <code>tools/test_bm_consent.py</code> holds the consent gate.</p>
+
+  <div class="panel refusal">
+    <p class="panel-title">What a refusal looks like from the inside</p>
+    <p>Two sessions are open on one repository. Session A claimed <code>src/pricing.py</code> ten minutes ago and is still working. Session B, which knows nothing about session A, decides that file needs an edit.</p>
+    <p>Session B's write does not land and then get reverted. It never lands. The hook returns a refusal before the tool call executes, naming the file and the claim covering it, and session B is told to coordinate. The honest thing about that message is that a Python program with an exit code produced it, not a model choosing to be careful.</p>
+    <p>The residual risk, stated rather than implied: a plain shell write, an <code>echo</code> into that file from Bash, is not gated. It is detected afterwards by the audit hook. Hooks are cooperative enforcement. There is no container and no operating system sandbox here.</p>
+  </div>
+
+  <h3 id="agents">The five workers, and how work reaches them</h3>
+  <p>Work is routed by what the task needs, never by a hard-coded model name. Five worker profiles ship as native agents, each with its tier and its rights already set. Three of the five cannot write files at all, which is a design choice rather than an omission: a reviewer that can edit is not a reviewer.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Worker</th><th>Reach for it when</th><th>Tier</th><th>Can write</th></tr></thead>
+    <tbody>
+      <tr><th>Navigator</th><td>Discovery, architecture, hard debugging, difficult tradeoffs, before the shape of the fix is known.</td><td>opus, effort xhigh</td><td>No</td></tr>
+      <tr><th>Builder</th><td>Scoped implementation and contract-driven refactoring, once the design and the file list are decided.</td><td>sonnet, effort high</td><td>Yes</td></tr>
+      <tr><th>Reviewer</th><td>Independent and adversarial review, judging, synthesis. Reviews another worker's output, never writes it.</td><td>opus, effort xhigh</td><td>No</td></tr>
+      <tr><th>Researcher</th><td>Current or external evidence that must cite a source.</td><td>sonnet, effort high</td><td>No</td></tr>
+      <tr><th>Fast Worker</th><td>Mechanical bulk: rename sweeps, inventory passes, repetitive migrations, generated-file maintenance.</td><td>haiku, effort medium</td><td>Yes</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="proof-line">Read from the frontmatter of <code>agents/*.md</code>. A sixth profile, Vision Worker, exists in the law for work judged by looking at rendered output; it has no separate agent file, because on Claude Code the session itself can look.</p>
+
+  <h4>The ladder that decides whether a worker is dispatched at all</h4>
+  <p>Not everything is an agent. The session climbs this ladder and stops at the first rung that suffices, which is the mechanism keeping a simple question from becoming a fleet.</p>
+  <ol>
+    <li>Answer directly from knowledge, currency-checked when the fact could be stale.</li>
+    <li>One search or documentation lookup, when a fact is verifiable in one pass.</li>
+    <li>Ask you, when the call is yours, or when your one-minute answer saves an hour.</li>
+    <li>Work inline, when the task is one file, one seam, one decision.</li>
+    <li>One worker, for isolated, parallel or context-heavy work.</li>
+    <li>A fleet, only for genuine scale.</li>
+  </ol>
+  <p>Concurrency is capped from lived evidence rather than optimism: one writer per claim, at most three live claims in a shared tree, at most three concurrent workers when builds are involved and six for read-only fleets, exactly one full test suite at a time, exactly one thing driving a graphical application at a time. Parallel writers beyond the shared-tree cap get their own git worktree, which turns the claim from a convention into a mechanism.</p>
+  <p class="proof-line"><code>references/delegation.md</code> carries the ladder, the caps and the measurement behind them: four of six workers died at the caps on the author's machine, where one simulator and one build database serialise everything.</p>
+
+  <h3 id="record">The record: four places, four jobs</h3>
+  <div class="tw">
+  <table>
+    <thead><tr><th>Where</th><th>Job</th><th>Lives</th></tr></thead>
+    <tbody>
+      <tr><th>The store</th><td>The project's own records: objectives, decisions, tasks, evidence, claims. Everything the commands read and write.</td><td><code>.brothermode/store.sqlite3</code>, per project</td></tr>
+      <tr><th><code>STATE.md</code></th><td>The human-readable running state: live claims, decisions, the never-forget list.</td><td>Your project root, regenerated, backed up before each rewrite</td></tr>
+      <tr><th>The vault</th><td>Long-term memory across projects: overviews, open items, session logs, and a failures index checked before working in any area.</td><td>A plain folder of markdown you own, outside the repository</td></tr>
+      <tr><th>The autosave</th><td>A snapshot of the whole tree, untracked files included, taken right before a compaction.</td><td>A private local git reference, never pushed</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>The vault is plain markdown on purpose. It survives every tool change, diffs cleanly in git, and stays legible to a human at two in the morning. It is also an Obsidian vault with no configuration at all: open the folder and the links become clickable and the graph draws itself.</p>
+  <p>Three disciplines keep it useful rather than hoarding. Recall is a query, not a tour, so a session reads what the task needs and never the whole vault. Superseded notes move to an archive with a pointer left behind, because a memory system that only grows becomes noise itself. And notes link to what they build on or contradict, so recall follows edges instead of scanning folders.</p>
+  <p class="proof-line"><code>docs/DESIGN.md</code> section 4 states the layout and the reasoning. <code>vault-template/</code> ships the folder ready to copy.</p>
+
+  <h3 id="states">Certified, beta, experimental, unsupported</h3>
+  <p>Every capability carries one of four states, and these are not marketing adjectives. They are read out of a register file, and a test fails the documentation when a page and the register disagree. That is the mechanism stopping a claim from quietly drifting out of the page it was written on.</p>
+
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>State</th><th>Means</th></tr></thead>
+    <tbody>
+      <tr><th><span class="stamp s-certified">certified</span></th><td>Proven in the tree today by the named evidence.</td></tr>
+      <tr><th><span class="stamp s-beta">beta</span></th><td>Real, with a named gap. The gap is written down beside it.</td></tr>
+      <tr><th><span class="stamp s-experimental">experimental</span></th><td>Built or planned, not measured. Read this as: no number exists.</td></tr>
+      <tr><th><span class="stamp s-unsupported">unsupported</span></th><td>Not offered, and no plan makes it offered.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>The register's own headlines, as of 6 August 2026. Read this before building an expectation on top of anything.</p>
+
+  <h4>Certified</h4>
+  <ul>
+    <li>Single writer per file for the supported write tools, refused by a hook. Other writes are detected, not contained.</li>
+    <li>A durable local store that survives a crash and can be recovered, with its suite running on Linux, macOS and Windows.</li>
+    <li>Current pages held to facts read out of the tree, so a stale count or a stale version fails the build.</li>
+    <li>The guided beginner flow on Claude Code.</li>
+    <li>Continuous integration on macOS and Linux, with fail-fast disabled so one platform cannot erase another's result.</li>
+    <li>Telemetry recorded only after you consent.</li>
+    <li>Two-command plugin install, proven end to end on every release.</li>
+  </ul>
+
+  <h4>Beta, each with its gap</h4>
+  <ul>
+    <li><strong>Windows.</strong> Only the store suite runs there. The installer refuses Windows and WSL works. There is no native Windows install lifecycle.</li>
+    <li><strong>The autonomy contract and the durable controller.</strong> Both measured, both tested across three operating systems, both carrying their own list of what they do not yet do, and neither piloted outside this project.</li>
+    <li><strong>The decision record and the catch-up built from it.</strong> Holds judgement rather than measurement, and no continuous integration run covers it yet.</li>
+    <li><strong>Handback and handover packs.</strong> Enforced by a refusal rather than a convention, and never used by anybody outside the project.</li>
+    <li><strong>The project page.</strong> The file on disk is proven. Publishing it as a shared page needs a paid plan and four further conditions, and that half is a separate promise.</li>
+    <li><strong>The hook cost measurement.</strong> Real, on one machine, one operating system, one Python version. Every published total is a lower bound, and the page names what was not measured rather than estimating it.</li>
+  </ul>
+
+  <h4>Experimental, meaning not measured</h4>
+  <ul>
+    <li>Delivering a web build through the guided flow.</li>
+    <li>Deployment previews attached to a delivery.</li>
+    <li>The benchmark harness that would let anyone compare runs. The method is written down. No run against the current tree is recorded, so no current number is claimed.</li>
+  </ul>
+
+  <h4>Unsupported, and on no roadmap</h4>
+  <ul>
+    <li>Publishing to production on its own. Cutting and publishing a release is a human-gated sequence, and the suite skips the release checks until a human has cut the tag.</li>
+    <li>Spending money on your behalf. There is no account and no server.</li>
+    <li>Legal or security certification of any kind.</li>
+    <li>Replacing a human specialist review.</li>
+    <li>Multi-user or enterprise project management. No shared server, no accounts, no coordination layer across people.</li>
+    <li>Changing its own safety rules.</li>
+  </ul>
+  <p class="proof-line">The register is <code>capabilities.status.json</code>. The block in <code>README.md</code> is generated from it by <code>python3 tools/bm_docs.py capability-status --write</code>, and <code>tools/test_bm_docs.py</code> fails if the two disagree. To change what any of this says, you change the register, not the page.</p>
+</section>
+
+<!-- ===================== PART THREE ===================== -->
+<section class="part" id="versus">
+  <span class="part-label">Part three</span>
+  <h2 class="part-head">Why not just another plugin</h2>
+  <p class="part-blurb">The honest answer needs three things: what a plugin can be, what almost all of them choose to be, and where the good ones genuinely beat this one. Everything said about a peer is a desk assessment read from that project's own public material, because no file in this repository can carry evidence about a codebase it does not own.</p>
+
+  <h3>What a Claude Code plugin can contain</h3>
+  <p>Per the official documentation, a plugin is a directory that can ship any of: skills, custom agents, hooks, MCP servers, language server configurations, background monitors, executables added to the shell path, and default settings. That is the full palette available to every plugin author, BrotherMode included.</p>
+  <p class="proof-line"><a href="https://code.claude.com/docs/en/plugins">code.claude.com/docs/en/plugins</a>, read 8 August 2026. The plugin structure table names each directory and its purpose.</p>
+
+  <h3>The axis that actually separates them</h3>
+  <p>Nearly every plugin in the ecosystem spends that palette on <strong>capability</strong>. More commands, more specialist agents, more integrations, more things Claude can now reach. That is a good trade, and it is why the ecosystem is worth having.</p>
+  <p>BrotherMode spends it on <strong>constraint and continuity</strong>. It adds one program that can refuse a tool call, and a record that outlives the session that wrote it. Those are the two things a session cannot give itself, because a session cannot remember what it never wrote down, and cannot be stopped by a rule it is also the judge of.</p>
+
+  <figure>
+    <svg viewBox="0 0 640 296" role="img" aria-labelledby="axis-title">
+      <title id="axis-title">Two axes. Capability added runs left to right. Constraint enforced by code runs bottom to top. Most plugin categories sit low. BrotherMode sits high on constraint with modest capability. Test-first skills sit high on one narrow constraint.</title>
+      <g stroke="currentColor" stroke-width="1" opacity="0.4">
+        <line x1="66" y1="248" x2="618" y2="248"/>
+        <line x1="66" y1="248" x2="66" y2="28"/>
+      </g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.14" stroke-dasharray="3 4">
+        <line x1="66" y1="140" x2="618" y2="140"/>
+        <line x1="342" y1="248" x2="342" y2="28"/>
+      </g>
+      <g class="svg-label" fill="currentColor" opacity="0.8">
+        <text x="66" y="272">capability added</text>
+        <text x="566" y="272">more</text>
+        <text x="0" y="20">constraint enforced by code</text>
+        <text x="20" y="250">none</text>
+      </g>
+      <g fill="currentColor">
+        <circle cx="146" cy="62" r="5" opacity="0.95"/>
+        <circle cx="252" cy="112" r="4.5" opacity="0.55"/>
+        <circle cx="452" cy="180" r="4.5" opacity="0.55"/>
+        <circle cx="392" cy="214" r="4.5" opacity="0.55"/>
+        <circle cx="152" cy="228" r="4.5" opacity="0.55"/>
+      </g>
+      <g class="svg-body" fill="currentColor">
+        <text x="158" y="58" opacity="0.95">BrotherMode</text>
+        <text x="158" y="74" opacity="0.8">one hook can refuse, plus a durable record</text>
+        <text x="264" y="108" opacity="0.8">Test-first skills</text>
+        <text x="264" y="124" opacity="0.8">strict on one practice, narrow by design</text>
+        <text x="330" y="176" opacity="0.8">Role-persona method packs</text>
+        <text x="330" y="192" opacity="0.8">many roles, discipline left to the human</text>
+        <text x="266" y="210" opacity="0.8">Agent runtimes</text>
+        <text x="266" y="226" opacity="0.8">broad tool reach, no opinion on process</text>
+        <text x="66" y="224" opacity="0.8">Prompt packs</text>
+        <text x="66" y="240" opacity="0.8">light, forkable, entirely advisory</text>
+      </g>
+    </svg>
+    <figcaption>Placement reflects each category's own stated design, not a benchmark. No score appears here in either direction, because the shared benchmark run that would earn one has not happened.</figcaption>
+  </figure>
+
+  <h3>Named, with one genuine strength each</h3>
+  <p>Every one of these beats BrotherMode at something. Read the middle column as true, not as politeness.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Peer</th><th>What it does better</th><th>What BrotherMode holds instead</th></tr></thead>
+    <tbody>
+      <tr>
+        <th>Superpowers</th>
+        <td>Enforces a strict test-first, red-green-refactor cycle as a Claude Code skill, refusing code written before a failing test exists. On that one practice it is stricter than BrotherMode's broader law set asks for by default.</td>
+        <td>A wider law covering memory, delegation, honesty and delivery, at the cost of that single-practice sharpness.</td>
+      </tr>
+      <tr>
+        <th>BMAD-METHOD</th>
+        <td>Around twenty specialist role personas covering a fuller software lifecycle, on workflows tied to no single model or editor.</td>
+        <td>Five worker profiles and a ladder that often decides not to dispatch at all.</td>
+      </tr>
+      <tr>
+        <th>Cline</th>
+        <td>Lives in the editor with plan and act as separate modes, human approval at every step, and model access through more than two dozen providers on your own key.</td>
+        <td>Deeper gating on one runtime rather than shallower reach across many.</td>
+      </tr>
+      <tr>
+        <th>OpenHands</th>
+        <td>Runs agent actions inside a sandboxed container by default rather than your own shell, so a task that goes wrong is contained rather than free to touch the host.</td>
+        <td>Cooperative hooks with no sandbox. This is a real gap, not a stylistic difference.</td>
+      </tr>
+      <tr>
+        <th>Open GSD</th>
+        <td>Drives its phase loop across several different agent command lines, so a team split across tools can share one process without standardising on a vendor.</td>
+        <td>Enforcement verified on exactly one runtime, and advisory files everywhere else.</td>
+      </tr>
+      <tr>
+        <th>Ruflo</th>
+        <td>Coordinates many specialist agents at once with memory shared across the group, so genuinely parallel specialist work does not serialise through one session.</td>
+        <td>Hard concurrency caps taken from measured failures, which cost parallelism on purpose.</td>
+      </tr>
+      <tr>
+        <th>Hosted builders</th>
+        <td>The fastest path from a sentence to a running link. Nothing to install, and the deploy button sits in the same window as the build.</td>
+        <td>Everything on your disk, in your repository, under no account and behind no credit meter. There is no BrotherMode hosting and no deploy button at all.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="proof-line"><code>docs/market/CATEGORY.md</code> holds the longer version, peer by peer, with the fairness rules it follows: no star counts, no install counts, no funding figures, and no score in either direction.</p>
+
+  <h3>The five things it gets mistaken for</h3>
+  <p>Each of these shares real surface with BrotherMode, which is why people reach for the comparison. Each paragraph gives the difference and what the other thing does better.</p>
+
+  <h4>Not merely a prompt pack</h4>
+  <p>A prompt pack is a folder of instructions a model reads and, at its own discretion, follows. BrotherMode's laws start the same way. The parts that matter most are not left to discretion: the single-writer rule is refused by a program, and the evidence rules the documentation is held to are checked by a test rather than trusted. A prompt pack is lighter to read, easier to fork line by line, and asks nothing of your machine beyond the words in the file.</p>
+
+  <h4>Not merely a methodology</h4>
+  <p>A methodology is a way of working somebody has to choose to follow each time. BrotherMode borrows the same shape and wires the parts a methodology leaves to discipline into code and continuous integration. A methodology travels to any tool, any model, any language, because it is only ever an idea written down. This enforcement is specific to one codebase and one hook surface.</p>
+
+  <h4>Not merely an agent runtime</h4>
+  <p>A runtime reads a prompt, takes actions and stops. BrotherMode runs on top of one rather than replacing it, and adds what a runtime does not supply: state that survives a crash, a registry that stops two sessions clobbering one file, and telemetry written by hooks rather than by the model, so the record cannot be flattered by the thing being graded. A runtime is more flexible and carries none of this overhead, which makes it right for tasks these laws were never written for.</p>
+
+  <h4>Not merely a hosted app builder</h4>
+  <p>A hosted builder runs the agent in the vendor's environment and hands back a deployed result. BrotherMode runs locally: every artifact, every decision record and every commit stays on your disk, in your repository. The hosted builder is faster to a live URL by a wide margin. Owning the artifact and owning the deploy step are the same tradeoff pointed in opposite directions.</p>
+
+  <h4>Not merely a project manager</h4>
+  <p>A project manager tracks work somebody else does. Here the same session that writes the plan also writes the code, runs the check, and updates the record from what the check actually said, so the tracking is a byproduct of doing the work rather than a second layer somebody keeps in sync by hand. A project manager is far better at coordinating several people, which is explicitly out of scope here.</p>
+
+  <h3>The structural argument, borrowed from people who write documentation for a living</h3>
+  <p>Three outside references shaped this booklet, and they are worth knowing because they are also a fair way to judge it.</p>
+  <ul>
+    <li><strong>Diátaxis</strong> separates documentation into four modes, tutorials, how-to guides, reference and explanation, and argues that mixing them is what makes documentation fail, because each mode serves a need the others conflict with. Django, Canonical, Cloudflare and Gatsby reorganised around it. Part one of this booklet is the tutorial, part four is how-to, parts two and seven are reference, and parts zero and three are explanation. They are kept apart on purpose.</li>
+    <li><strong>SQLite's guidance on when to use it</strong> is the model for part three. Three sections: where it works well, where something else may work better, and a checklist that ends by choosing a default. It is the most respected honesty structure in the field, and it works because the negative section is not a disclaimer, it is a decision aid.</li>
+    <li><strong>The Good Docs Project's README template</strong> is the interesting one, because it treats a limitations or when-not-to-use note as <em>optional</em> guidance inside the project description. That is the industry standard. Making it structural, and putting it on page two, is a deliberate departure.</li>
+  </ul>
+  <p class="proof-line"><a href="https://diataxis.fr/">diataxis.fr</a>, <a href="https://www.sqlite.org/whentouse.html">sqlite.org/whentouse.html</a>, <a href="https://www.thegooddocsproject.dev/template/readme">thegooddocsproject.dev/template/readme</a>. All three read 8 August 2026.</p>
+
+  <h3>Your checklist for choosing</h3>
+  <div class="panel accent">
+    <p class="panel-title">Four questions, in order</p>
+    <ol>
+      <li><strong>Will more than one session or agent ever touch these files?</strong> Yes: you want the refusal. No: keep reading.</li>
+      <li><strong>Will this work outlive one session?</strong> Yes: you want the record. No: keep reading.</li>
+      <li><strong>Does being wrong here cost money, credibility, or a rollback?</strong> Yes: you want the verification gate. No: keep reading.</li>
+      <li><strong>Will anyone run the weekly review?</strong> No: use something lighter. The loop is the point.</li>
+    </ol>
+    <p>Four noes means use a lighter tool, and spend the overhead somewhere it buys you something.</p>
+  </div>
+</section>
+
+<!-- ===================== PART FOUR ===================== -->
+<section class="part" id="scenarios">
+  <span class="part-label">Part four</span>
+  <h2 class="part-head">Six projects, end to end</h2>
+  <p class="part-blurb">One walkthrough for each kind of work the law recognises. Find your own job here.</p>
+
+  <p>BrotherMode does not treat all work the same. It picks the closest work profile at the start, and the profile sets which roles are at the table, which gates apply, and what counts as evidence. Six profiles ship, and the six walkthroughs below are one per profile.</p>
+  <p class="proof-line"><code>references/profiles.md</code> section 1 defines all six profiles with their default roles and gates.</p>
+
+  <div class="case" id="sc-numbers">
+    <div class="case-head">
+      <h3>A numbers project</h3>
+      <span class="case-tag">Data and financial analysis</span>
+    </div>
+    <p>A commercial analysis whose output is a set of figures somebody senior will act on. The failure mode here is not a crash. It is a number that is quietly wrong, presented with confidence, and repeated in three decks before anybody checks it.</p>
+
+    <dl class="facts">
+      <div><dt>At the table</dt><dd>Scientist, Analyst, senior Data Engineer, senior Data Product Manager. Four, on purpose, because a number that survives four different kinds of scrutiny is a different object from a number one person produced.</dd></div>
+      <div><dt>The gates</dt><dd>Never rebuild what the manifest says exists. Describe the schema and sample five rows before touching an unfamiliar table. Every headline number independently second-checked <em>before</em> it is shown, not after somebody asks. A numbers manifest per deliverable, re-run and compared before delivery.</dd></div>
+      <div><dt>The benchmark</dt><dd>A hostile board review. The question is not whether the number is defensible to you, it is whether it survives somebody trying to break it.</dd></div>
+    </dl>
+
+    <h4>The sequence</h4>
+    <ol>
+      <li><code>/brothermode:start</code> with the actual question, in business words. Kickoff asks only what changes scope: which period, which grain, which source is the system of record when two disagree.</li>
+      <li>The first decision card arrives before any query runs. Usually it is the grain, because getting that wrong invalidates everything downstream and it is cheap to settle now.</li>
+      <li>Exploration runs read-only. Describe the tables, sample five rows, and use the column names that came back rather than the ones anybody expected.</li>
+      <li>Each headline figure is computed, then computed again by an independent route: a different query, a row count, or one example checked by hand. A figure that cannot be second-checked in the time available is labelled unverified <em>at the number itself</em>, never in a footnote.</li>
+      <li><code>/brothermode:review</code> applies the definition of done. Three points bite hardest here: verification ran after the final edit, an independent reviewer looked at substantial work, and remaining uncertainty is stated rather than implied.</li>
+      <li><code>/brothermode:deliver</code> writes the packet. It refuses the words ready to deliver unless every acceptance check has evidence produced after the final edit.</li>
+    </ol>
+
+    <div class="panel">
+      <p class="panel-title">The failure this prevents</p>
+      <p>A headline figure shown once, then found wrong two weeks later, after it has been quoted in three places. The second-check rule is not thoroughness for its own sake. It is the cheapest possible moment to catch a wrong number, and the cost of catching it later grows with every slide it appears on.</p>
+    </div>
+
+    <div class="panel caution">
+      <p class="panel-title">Honest limit here</p>
+      <p>Nothing in BrotherMode checks your SQL. It enforces that a second derivation happened, that the two agreed, and that an unverified number is labelled. Whether the second derivation was a genuinely independent route is a judgement it cannot make for you.</p>
+    </div>
+  </div>
+
+  <div class="case" id="sc-web">
+    <div class="case-head">
+      <h3>A website</h3>
+      <span class="case-tag">Design and creative</span>
+    </div>
+    <p>A marketing site or a small product site: real copy, real images, a real deploy at the end. The failure mode is a session that reads its own CSS, decides it looks right, and ships something nobody looked at.</p>
+
+    <dl class="facts">
+      <div><dt>At the table</dt><dd>Designer, Product, Architect.</dd></div>
+      <div><dt>The gates</dt><dd>The project's own design grammar beats generic taste. Every visual specified precisely enough to build without interpretation. Motion honours a reduced-motion preference honestly. And the one that matters most: verify by looking at rendered output, never by reading code.</dd></div>
+      <div><dt>The benchmark</dt><dd>The most beautiful references in the category, named before work starts rather than after.</dd></div>
+    </dl>
+
+    <h4>The sequence</h4>
+    <ol>
+      <li><code>/brothermode:start</code> with what the site is for and who it is for. Kickoff pushes for the decisions that change scope: how many pages, whose brand rules apply, what has to stay editable later.</li>
+      <li>References are named up front. A benchmark chosen after the work exists is a justification, not a benchmark.</li>
+      <li>Build runs with one writer per file. If two people or two workers are on it, one owns the stylesheet and one owns the templates, disjointly, and the fence refuses an overlap rather than merging it badly.</li>
+      <li>Verification is visual. The page is rendered, a screenshot is taken, and what is on screen is described. Reading the code and concluding it looks right is a named violation.</li>
+      <li><code>/brothermode:review</code>, then <code>/brothermode:deliver</code>. The packet carries the checks that ran after the last edit.</li>
+    </ol>
+
+    <div class="panel caution">
+      <p class="panel-title">Honest limit here</p>
+      <p>Delivering a web build through the guided flow, and attaching a deployment preview to a delivery, are both marked <span class="stamp s-experimental">experimental</span> in the register, which here means exactly one thing: not measured. The pieces work. Nobody has counted a web delivery end to end. If a live URL tonight is the whole goal, a hosted builder gets you there faster, and this booklet said so on page two.</p>
+    </div>
+  </div>
+
+  <div class="case" id="sc-product">
+    <div class="case-head">
+      <h3>A product feature across several sessions</h3>
+      <span class="case-tag">Product build</span>
+    </div>
+    <p>A feature in an existing application, big enough to span days and more than one working session. This is the case BrotherMode was built for, and the one where the overhead most clearly pays.</p>
+
+    <dl class="facts">
+      <div><dt>At the table</dt><dd>Architect, Product, Designer, Safety, Project lead.</dd></div>
+      <div><dt>The gates</dt><dd>The repository's documented build and test commands, copied verbatim rather than invented. Zero new warnings. Screenshot or recording proof for anything visual. Safety and privacy invariants re-verified whenever touched. One health check at a stated interval after release, because shipped is not the end of the loop.</dd></div>
+      <div><dt>Extra laws</dt><dd>Single-writer claims. Human gates on releases, signing and project-file surgery. Every user-facing string through the project's translation contract, with all locales in the same change.</dd></div>
+    </dl>
+
+    <h4>The sequence, and where the session deaths happen</h4>
+    <ol>
+      <li>Day one: <code>/brothermode:start</code>, the brief, and the first architecture decision recorded with its alternatives and the condition that would flip it.</li>
+      <li>Work proceeds. Context fills. Right before it is compacted, the whole tree including untracked files is snapshotted to a local git reference.</li>
+      <li>Day two, a fresh session: <code>/brothermode:status</code>. Eight fields read out of the store. Nothing reconstructed from a conversation that no longer exists.</li>
+      <li>Day three, the session is killed mid-task. The next one resumes from the state file and the store, not from recollection, and the recovery pointer says where to look.</li>
+      <li>Day four, parallel work. Two claims, disjoint file sets, both registered before either worker launched. Fence then dispatch, never the reverse.</li>
+      <li><code>/brothermode:review</code>, then <code>/brothermode:deliver</code>, then the post-release health check at the interval stated when the work started.</li>
+    </ol>
+
+    <div class="panel">
+      <p class="panel-title">The failure this prevents</p>
+      <p>Day three's kill costing day three. It should cost minutes. That is the entire argument for writing state to disk instead of holding it in a conversation, and it is the one benefit every developer feels within a week.</p>
+    </div>
+  </div>
+
+  <div class="case" id="sc-research">
+    <div class="case-head">
+      <h3>Research and strategy</h3>
+      <span class="case-tag">Research and strategy</span>
+    </div>
+    <p>A deep dive ending in a recommendation somebody will act on. The failure mode is a confident summary built on a search result nobody opened.</p>
+
+    <dl class="facts">
+      <div><dt>At the table</dt><dd>Scientist, Product, Project lead.</dd></div>
+      <div><dt>The gates</dt><dd>Every claim carries the URL of a page actually opened and read, not one seen only in a result list. Each key claim cross-checked against an independent second source or an own calculation. A single-sourced fact says so in the same sentence as the fact. Anything that could have changed since training is verified against a current source rather than memory.</dd></div>
+      <div><dt>The benchmark</dt><dd>The strongest published analysis in the domain.</dd></div>
+    </dl>
+
+    <h4>The sequence</h4>
+    <ol>
+      <li>State the common-sense hypothesis first and try to validate it cheaply. Escalate to a full search only if the cheap check fails. Deep research on a question one lookup answers is scored as overthought.</li>
+      <li>Researcher workers gather evidence in parallel. They are read-only by design: a worker that can edit your files while gathering evidence is a worker whose evidence you cannot separate from its opinions.</li>
+      <li>Findings go to reviewers whose job is to <em>refute</em>, not confirm, and from different angles rather than three copies of the same check.</li>
+      <li>The recommendation names what is still missing, unverified, unread or only sampled. Leaving any of that unsaid counts as a failure to disclose, which is a rule about the writer rather than about the work.</li>
+    </ol>
+
+    <div class="panel">
+      <p class="panel-title">The one habit worth stealing even if you never install this</p>
+      <p>Hand a finding to somebody whose job is to kill it, and drop the finding if they manage. Confirmation is the cheapest thing a model produces and the least informative.</p>
+    </div>
+  </div>
+
+  <div class="case" id="sc-content">
+    <div class="case-head">
+      <h3>Content and localisation</h3>
+      <span class="case-tag">Content and localisation</span>
+    </div>
+    <p>Copy, translations, store metadata. The failure mode is a string that exists in one locale and silently reverts to the default in the others, discovered by a user.</p>
+
+    <dl class="facts">
+      <div><dt>At the table</dt><dd>Product, Designer, Editor.</dd></div>
+      <div><dt>The gates</dt><dd>Register and glossary respected per locale. Native quality over literal accuracy. Every key present in every locale <em>in the same change</em>, never as a follow-up. Copy touching safety routed through the project's human review ledger. And no dashes of the long or medium kind anywhere.</dd></div>
+      <div><dt>The benchmark</dt><dd>A native speaker reading it, not translation parity.</dd></div>
+    </dl>
+
+    <h4>The sequence</h4>
+    <ol>
+      <li>Before changing any user-facing string, every call site is found first and updated in the same change, with the count of sites touched reported back.</li>
+      <li>All locale files plus the default string in code move together. The check is mechanical: the key exists in each locale, or the change is not done.</li>
+      <li>Safety-adjacent copy stops at the human review gate. Not a suggestion, a stop.</li>
+      <li><code>/brothermode:review</code> includes the plain-language check: user-facing wording is held against a terminology map, so machinery terms do not leak into things people read.</li>
+    </ol>
+
+    <div class="panel caution">
+      <p class="panel-title">Honest limit here</p>
+      <p>The locale completeness rule is a law the session follows, not a program that runs. If your repository has a linter that fails on a missing key, that linter is the stronger control, and BrotherMode's job is to make sure it runs after the last edit.</p>
+    </div>
+  </div>
+
+  <div class="case" id="sc-ops">
+    <div class="case-head">
+      <h3>Ops and automation</h3>
+      <span class="case-tag">Ops and automation</span>
+    </div>
+    <p>Tooling, pipelines, anything that drives a machine. The failure mode is a command that ran, reported nothing, and left the world in a state nobody checked.</p>
+
+    <dl class="facts">
+      <div><dt>At the table</dt><dd>Architect, Security, Project lead.</dd></div>
+      <div><dt>The gates</dt><dd>Steps are idempotent. A destructive command prints exactly what it will affect and waits for confirmation before running. Credentials are never typed and never logged. A state change is verified by reading the resulting state, not by assuming the command worked.</dd></div>
+    </dl>
+
+    <h4>The sequence</h4>
+    <ol>
+      <li>Ground map first, always: what is already true before anything changes.</li>
+      <li>Anything irreversible is drafted, not run. The exact command and its rollback are written out for a human to execute. No session instruction lifts this.</li>
+      <li>Every boundary call, network, file, subprocess, decode, gets an explicit failure path that surfaces the error. Silent failure patterns are the specific thing the code checks hunt for.</li>
+      <li>Verification reads the resulting state back.</li>
+    </ol>
+
+    <div class="panel refusal">
+      <p class="panel-title">The hard floor here</p>
+      <p>Credentials are never entered. Payments are never made. Accounts are never created. Permanent deletion is never performed. Publishing is prepared and handed back. These are not defaults you can configure away. They are the boundary the whole system is built inside.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== PART FIVE ===================== -->
+<section class="part" id="people">
+  <span class="part-label">Part five</span>
+  <h2 class="part-head">Six people, six first weeks</h2>
+  <p class="part-blurb">Same system, six different experiences of it. Find yourself, read that one, and know in advance what is going to annoy you.</p>
+
+  <div class="case">
+    <div class="case-head"><h3>The analyst</h3><span class="case-tag">Numbers are the deliverable</span></div>
+    <dl class="facts">
+      <div><dt>You will like</dt><dd>That a figure cannot be shown to you as fact until it has been derived twice, and that when it could not be, the word unverified sits next to the number rather than in a footnote.</dd></div>
+      <div><dt>You will resent</dt><dd>The first week. Describing tables and sampling rows before querying feels like ceremony until the first time it catches a column that was not what its name suggested.</dd></div>
+      <div><dt>Day one</dt><dd><code>/brothermode:start</code> with the actual business question. Settle the grain in the first decision card.</dd></div>
+      <div><dt>Week one</dt><dd>The numbers manifest becomes the thing you check before every send. Your most-used command is <code>/brothermode:review</code>.</dd></div>
+    </dl>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><h3>The front-end developer</h3><span class="case-tag">If it is not on screen it does not exist</span></div>
+    <dl class="facts">
+      <div><dt>You will like</dt><dd>That nothing counts as verified because the code reads correctly. A render and a look, or it is not done.</dd></div>
+      <div><dt>You will resent</dt><dd>Claiming files. When you are moving fast across a stylesheet, a component and a template, registering the scope first feels like paperwork. It stops feeling that way the first time a parallel worker is refused instead of overwriting you.</dd></div>
+      <div><dt>Day one</dt><dd>Run <code>/brothermode:doctor</code> and watch the check that simulates a blocked write. Seeing the refusal happen is worth more than reading about it.</dd></div>
+      <div><dt>Week one</dt><dd>You stop reading status out of the conversation and start reading it from <code>/brothermode:view</code>.</dd></div>
+    </dl>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><h3>The backend and platform engineer</h3><span class="case-tag">Owns the thing that must not break</span></div>
+    <dl class="facts">
+      <div><dt>You will like</dt><dd>That the destructive path is drafted rather than run, and that the tools make no network calls, which you can prove with one grep rather than trust.</dd></div>
+      <div><dt>You will resent</dt><dd>That the fence is cooperative. There is no sandbox and no operating-system boundary. A shell write can cross a claim and only be reported afterwards. If that is unacceptable for your surface, say so early rather than discovering it in an incident.</dd></div>
+      <div><dt>Day one</dt><dd>Read <code>docs/HOOKS.md</code>, then <code>docs/KNOWN-LIMITS.md</code>. In that order. The second is longer than the first for a reason.</dd></div>
+      <div><dt>Week one</dt><dd>Decide which of your repositories this belongs in and which it does not. It is a real decision, and the honest answer is not all of them.</dd></div>
+    </dl>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><h3>The product manager</h3><span class="case-tag">Needs to know where things stand</span></div>
+    <dl class="facts">
+      <div><dt>You will like</dt><dd>Eight fields that answer where we are without you reading a single log, and estimates arriving as ranges with a confidence rather than a single number somebody will hold you to.</dd></div>
+      <div><dt>You will resent</dt><dd>How often a field says not forecast yet. That is information, and smoothing it into a sentence would be worse, but it takes a week to stop reading it as a gap.</dd></div>
+      <div><dt>Day one</dt><dd><code>/brothermode:status</code>, then <code>/brothermode:view</code> for the page you can actually share.</dd></div>
+      <div><dt>Week one</dt><dd>You learn that when a decision is what blocks progress, the system brings you the decision rather than inventing work around it. Answering fast is the single most useful thing you do all week.</dd></div>
+    </dl>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><h3>The sceptic</h3><span class="case-tag">Has seen tools like this before</span></div>
+    <dl class="facts">
+      <div><dt>You will like</dt><dd>That the limits register is longer and more specific than the feature list, and that a test fails the documentation when a page and the register disagree. That is unusual, and it is checkable.</dd></div>
+      <div><dt>You will resent</dt><dd>That the single biggest claim, that this reduces rework, has never been measured. The project says so itself, on its own front page. You are entitled to hold that against it.</dd></div>
+      <div><dt>Day one</dt><dd>Run <code>python3 tools/test_all.py</code> yourself. It ends ALL GREEN and exits zero, or it does not, and either way you learn something the pitch cannot tell you.</dd></div>
+      <div><dt>Week one</dt><dd>Pick one claim from part two and try to break it. If you succeed, that is the most valuable contribution anybody makes this month.</dd></div>
+    </dl>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><h3>The person who inherits the project</h3><span class="case-tag">Was in none of the conversations</span></div>
+    <dl class="facts">
+      <div><dt>You will like</dt><dd>That there is a handover pack: seven generated pages in reading order, written from records rather than from somebody's memory of what happened.</dd></div>
+      <div><dt>You will resent</dt><dd>That nobody outside the project has ever read one. You may be the first, which means you are also the test.</dd></div>
+      <div><dt>Day one</dt><dd><code>/brothermode:handover-pack</code>, then read the pages in the order they are numbered.</dd></div>
+      <div><dt>Week one</dt><dd>Anything the pack could not answer is a defect in the pack. Report it as one.</dd></div>
+    </dl>
+  </div>
+</section>
+
+<!-- ===================== PART SIX ===================== -->
+<section class="part" id="rules">
+  <span class="part-label">Part six</span>
+  <h2 class="part-head">The rules you inherit</h2>
+  <p class="part-blurb">Five rules will change your working day. Everything else in the law is downstream of these.</p>
+
+  <h3>One writer per file, claimed before the write</h3>
+  <p>The claim goes into the state file <em>before</em> a worker launches, never after. It names the objective, the exact files, the output format, the boundaries, the termination condition, the declared effort tier, and a runnable check on the outcome. A new claim must be disjoint from every live one. Overlap means queue, never parallel.</p>
+  <p>There is deliberately no time-based expiry. A law promising a lease that expires while no code expires anything is worse than no law. A claim is released by an explicit park, complete, adopt or transfer, and a dead session's claim is adopted at close by the coordinator, never by a clock.</p>
+  <p>A claim closes only with an evidence block written inline: the exact command that ran and its last lines.</p>
+  <div class="panel">
+    <p class="panel-title">The rule that catches the coordinator</p>
+    <p>Added after the coordinator wrote claims for three workers, dispatched them, then edited four files of its own with no claim for itself. Nothing collided, which was luck. When any worker is live, the coordinator's own files get a claim too. Being the one who writes the registry is the reason to be in it, not an exemption from it.</p>
+    <p class="proof-line"><code>references/fences.md</code>, and the incident record under <code>docs/mistakes/</code>.</p>
+  </div>
+
+  <h3>Done means a check that ran after the last edit</h3>
+  <p>Evidence gathered before the final edit proves nothing about what is being delivered. The full list runs to fifteen points and a review applies every one, but four are where most work actually fails.</p>
+  <ul class="tick">
+    <li>Verification runs after the final edit, not before it.</li>
+    <li>A calibration proves the test can fail for the intended defect. A test that cannot fail is not evidence.</li>
+    <li>An independent reviewer evaluates substantial work. The writer and the reviewer are never the same without a stated exception.</li>
+    <li>Remaining uncertainty is stated. Not implied, not omitted, stated.</li>
+  </ul>
+  <p class="proof-line"><code>references/definition-of-done.md</code> carries all fifteen. Done is never a state a worker declares about itself; it is the result of that checklist passing.</p>
+
+  <h3>Decisions come to you as cards, not as walls of text</h3>
+  <p>A decision arrives as one card: two to four options, the recommended one first with its reason, each alternative with its tradeoff on one line. Chat text carries the evidence and the context around the card, never the option list itself. A long text list of questions is treated as a failure, not a style choice.</p>
+  <p>The last option on every key decision card is always yours: take the decision and the work under it back. That option cannot be dropped to shorten the card, and it is enforced at the storage layer, which is the strongest form this could take. A key decision offering no handback cannot be recorded at all.</p>
+
+  <h3>Estimates are ranges with a confidence</h3>
+  <p>Costs already spent are facts and print as numbers. Anything still to come prints as a range with a confidence level, never as a single number. A field the records cannot answer says not forecast yet, and that stays in, because a smoothed-over sentence carries less information than an honest gap.</p>
+
+  <h3>The gates that stay yours, always</h3>
+  <div class="panel refusal">
+    <p class="panel-title">Never performed, under any instruction</p>
+    <ul class="tick">
+      <li>Entering credentials, passwords, tokens, card or account numbers.</li>
+      <li>Creating accounts or signing in as you.</li>
+      <li>Spending money on your behalf.</li>
+      <li>Permanent deletion.</li>
+      <li>Publishing or releasing on its own. Cutting a release is a human-gated sequence, and the suite skips the release checks until a human has cut the tag.</li>
+    </ul>
+    <p>Irreversible work is prepared and handed back: the exact command, with its rollback, for a person to run. A session instruction never waives one of these.</p>
+  </div>
+</section>
+
+<!-- ===================== PART SEVEN ===================== -->
+<section class="part" id="lookup">
+  <span class="part-label">Part seven</span>
+  <h2 class="part-head">Look up</h2>
+  <p class="part-blurb">The part you come back to rather than read.</p>
+
+  <h3 id="ref-commands">Command reference</h3>
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>Command</th><th>Tier</th><th>Can fire on its own</th></tr></thead>
+    <tbody>
+      <tr><th><code>/brothermode:start</code></th><td>Everyday</td><td>No, you run it</td></tr>
+      <tr><th><code>/brothermode:status</code></th><td>Everyday</td><td>Yes</td></tr>
+      <tr><th><code>/brothermode:next</code></th><td>Everyday</td><td>Yes</td></tr>
+      <tr><th><code>/brothermode:review</code></th><td>Everyday</td><td>Only on an explicit ask</td></tr>
+      <tr><th><code>/brothermode:deliver</code></th><td>Everyday</td><td>No, you run it</td></tr>
+      <tr><th><code>/brothermode:view</code></th><td>Everyday</td><td>Yes</td></tr>
+      <tr><th><code>/brothermode:help</code></th><td>Everyday</td><td>Yes</td></tr>
+      <tr><th><code>/brothermode:doctor</code></th><td>Everyday</td><td>Yes, on an install question</td></tr>
+      <tr><th><code>/brothermode:update</code></th><td>Everyday</td><td>No, you run it</td></tr>
+      <tr><th><code>/brothermode:auto</code></th><td>Advanced</td><td>No, you run it</td></tr>
+      <tr><th><code>/brothermode:stop</code></th><td>Advanced</td><td>No, you run it</td></tr>
+      <tr><th><code>/brothermode:handback</code></th><td>Advanced</td><td>No, you run it</td></tr>
+      <tr><th><code>/brothermode:handover-pack</code></th><td>Advanced</td><td>No, you run it</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Four further skills are internal and have no name you type: the catch-up, the decision cards, the controller run status, and the guided reference the public skills point into.</p>
+
+  <h3 id="ref-files">Underneath the skills</h3>
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>You want to</th><th>Run</th></tr></thead>
+    <tbody>
+      <tr><td>Run the gate the project itself gates on</td><td><code>python3 tools/test_all.py</code></td></tr>
+      <tr><td>Check the install and the live fence</td><td><code>python3 scripts/doctor.py</code></td></tr>
+      <tr><td>Print the facts documentation is allowed to state</td><td><code>python3 tools/bm_project_facts.py</code></td></tr>
+      <tr><td>See what the hooks cost per action on your machine</td><td><code>python3 tools/bm_hookbench.py</code></td></tr>
+      <tr><td>Restore a tree snapshot after a compaction</td><td><code>python3 tools/bm_autosave.py recover</code></td></tr>
+      <tr><td>Wire the same law into another AI coding runtime</td><td><code>python3 tools/bm_runtimes.py emit</code></td></tr>
+      <tr><td>Unwire the hooks before removing the skill</td><td><code>python3 scripts/uninstall.py</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 id="glossary">Glossary</h3>
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>Term</th><th>Means</th></tr></thead>
+    <tbody>
+      <tr><th>Claim, or fence</th><td>A registered statement that one worker owns one set of files right now. Written before a write, released explicitly, closed with an evidence block.</td></tr>
+      <tr><th>Done-check</th><td>A runnable command that proves an outcome. It must run after the last edit, and its output is quoted.</td></tr>
+      <tr><th>Project brief</th><td>The written outcome of the guided kickoff. Generated from the project's records, never typed by hand.</td></tr>
+      <tr><th>Delivery packet</th><td>The generated summary of what was built and every check that ran after the last change, including what was left out on purpose.</td></tr>
+      <tr><th>The store</th><td>The per-project database holding objectives, decisions, tasks and evidence. The source of truth every command reads.</td></tr>
+      <tr><th>The vault</th><td>Long-term memory across projects, as plain markdown you own, outside the repository.</td></tr>
+      <tr><th>Effort tier</th><td>A declared size for a piece of work: one session, a few workers, or a full audit. Declared in the brief, so an overrun is caught mechanically.</td></tr>
+      <tr><th>Work profile</th><td>Which of the six kinds of work this is. Sets the roles, the gates, and what counts as evidence.</td></tr>
+      <tr><th>Handback</th><td>You taking one decision and the work under it back, with nothing deleted and a page a developer can pick up from.</td></tr>
+      <tr><th>Not measured</th><td>An exact term with an exact meaning: no number exists. Never a synonym for it works fine.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 id="index">I want to...</h3>
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>I want to</th><th>Go to</th></tr></thead>
+    <tbody>
+      <tr><td>Understand this in two minutes</td><td><a href="#one-paragraph">In one paragraph</a></td></tr>
+      <tr><td>Decide whether my next task should use it</td><td><a href="#skip-it">When to skip it</a>, then the <a href="#versus">four-question checklist</a></td></tr>
+      <tr><td>Install it and prove it works</td><td><a href="#first-hour">Your first hour</a></td></tr>
+      <tr><td>Know exactly what runs on my machine</td><td><a href="#hooks">The six events</a></td></tr>
+      <tr><td>Find out what is not proven yet</td><td><a href="#states">Certified to unsupported</a></td></tr>
+      <tr><td>Argue that a different tool is better here</td><td><a href="#versus">Why not just another plugin</a></td></tr>
+      <tr><td>See how it runs on work like mine</td><td><a href="#scenarios">Six projects</a></td></tr>
+      <tr><td>Know what will annoy me</td><td><a href="#people">Six people</a></td></tr>
+      <tr><td>Understand why my write was refused</td><td><a href="#rules">One writer per file</a></td></tr>
+      <tr><td>Take a decision back into my own hands</td><td><code>/brothermode:handback</code></td></tr>
+      <tr><td>Remove it completely</td><td><code>README.md</code>, uninstall section: every file listed, three commands</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 id="truth">Where the truth lives when pages disagree</h3>
+  <p>This booklet is a reading of the repository, not the repository. When something here and something there disagree, the tree wins. In order of authority:</p>
+  <ol>
+    <li><strong>The code and its tests.</strong> <code>python3 tools/test_all.py</code> ending ALL GREEN is the strongest claim anyone can make about this system.</li>
+    <li><strong><code>capabilities.status.json</code>.</strong> The register. Every capability state on every page is generated from it.</li>
+    <li><strong><code>docs/KNOWN-LIMITS.md</code> and <code>docs/NOT-FINALIZED.md</code>.</strong> What is not proven, and the numbered defect register. Both are believed over the front page when they disagree with it.</li>
+    <li><strong><code>SKILL.md</code> and <code>references/</code>.</strong> The law itself, and the files it loads when a situation applies.</li>
+    <li><strong>This booklet.</strong> Last, and happily so.</li>
+  </ol>
+
+  <p class="thesis">The deliverable is not the code a worker wrote. It is the code a worker wrote, plus a passing check that ran after the last change, plus a written trail explaining why.<span class="who">What the word verified is doing in all of this</span></p>
+</section>
+
+<footer class="foot">
+  <p><strong>How this booklet was built.</strong> Every claim about BrotherMode was read out of the repository tree at v3.0.0 on 8 August 2026: the skill frontmatter, <code>hooks/hooks.json</code>, <code>capabilities.status.json</code>, <code>agents/</code>, the reference files, and the limits registers. Nothing here is quoted from memory of a conversation.</p>
+  <p><strong>External sources, each a page actually opened.</strong> The plugin component list is from <a href="https://code.claude.com/docs/en/plugins">code.claude.com/docs/en/plugins</a>. The four-mode documentation structure is Diátaxis, <a href="https://diataxis.fr/">diataxis.fr</a>, adopted by Django, Canonical, Cloudflare and Gatsby. The honesty structure of part three is SQLite's, <a href="https://www.sqlite.org/whentouse.html">sqlite.org/whentouse.html</a>. The README convention that treats limitations as optional is The Good Docs Project's, <a href="https://www.thegooddocsproject.dev/template/readme">thegooddocsproject.dev/template/readme</a>. Peer assessments are desk assessments read from each project's own public material, per the fairness rules in <code>docs/market/CATEGORY.md</code>.</p>
+  <p><strong>What this booklet does not do.</strong> It quotes no test count, because counts move with every test that lands, and a reader seeing a mismatch cannot tell a stale page from a broken install. It quotes no productivity number, because none has ever been measured. And it is not held by the documentation suite that holds the repository's own pages, so when it goes stale, it will go stale quietly. Check it against the tree.</p>
+</footer>
+
+</main>
+</div>
