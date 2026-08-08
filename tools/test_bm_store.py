@@ -2428,7 +2428,14 @@ class TestFixRound7(unittest.TestCase):
             lines = f.readlines()
         call_sites = [i for i, line in enumerate(lines, 1)
                       if "_out_unprotected(" in line and not line.lstrip().startswith(("def ", "#"))]
-        self.assertEqual(len(call_sites), 3,
+        # 3 -> 4 on 2026-08-08, reviewed: _print_usage joined the two named
+        # cases. Per-command usage text is the SAME class as main()'s __doc__
+        # help already listed here (a fixed module constant, zero founder
+        # influence, and a multi-line block whose own newlines blanket
+        # sanitizing would mangle), and requiring a working redactor to show a
+        # command's usage would be wrong for exactly the reason case (1)
+        # states. It is one call site, not one per command, on purpose.
+        self.assertEqual(len(call_sites), 4,
                           "_out_unprotected call sites changed (now at lines %s); review "
                           "and update this count deliberately" % call_sites)
 
@@ -4481,10 +4488,17 @@ class TestFenceSweepPositionalFlagRefusal(unittest.TestCase):
                 self.assertIn("no such record", str(ctx.exception))
 
     def test_claim_help_flag_is_refused_not_claimed_as_a_name(self):
+        # EXIT CODE CHANGED 2 -> 0 on 2026-08-08, deliberately: `--help` is
+        # now answered by main()'s help gate before cmd_claim runs at all, and
+        # an explicit request for help is a success, not a refusal. The
+        # property this test exists for is untouched and still asserted below:
+        # "--help" must never become a claimed record NAME. _require_positional
+        # still refuses any OTHER flag in the positional slot with exit 2, which
+        # the sibling test on --objective covers.
         with tempfile.TemporaryDirectory() as d:
             _run_cli(["init"], d)
             r = _run_cli(["claim", "--help"], d)
-            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertIn("usage: claim", r.stdout)
             data = json.loads(_run_cli(["dump"], d).stdout)
             self.assertEqual(data["records"], [],
@@ -4589,6 +4603,177 @@ class TestFenceSweepPositionalFlagRefusal(unittest.TestCase):
             self.assertEqual(data["records"][0]["name"], "--help")
         self.assertIs(bs._require_positional, original,
                       "the patch must not leak past its own `with` block")
+
+
+# -- `--help` is inert on every subcommand (2026-08-08) ---------------------
+
+def _project_fingerprint(root):
+    """Every file under root as path -> (size, mtime_ns, sha256).
+
+    mtime_ns alone would be too weak on a filesystem with coarse timestamps,
+    and a content hash alone cannot see a file REPLACED by identical bytes
+    (which is exactly what the dashboard did to an unchanged STATE.md), so
+    both are recorded. The path set is compared too: the defect's most
+    visible trace was a STATE.md.bak-<stamp> file appearing out of nowhere,
+    and neither a hash nor an mtime of STATE.md would have caught that."""
+    out = {}
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for name in sorted(filenames):
+            p = os.path.join(dirpath, name)
+            st = os.stat(p)
+            out[os.path.relpath(p, root)] = (st.st_size, st.st_mtime_ns,
+                                             _sha256_file(p))
+    return out
+
+
+class TestHelpFlagWritesNothing(unittest.TestCase):
+    """`bm_store.py dashboard --help` did not print usage. It RAN the
+    dashboard: rewrote STATE.md, saved a timestamped backup and pruned old
+    backups (observed 2026-08-08, in a real project). In a tool whose whole
+    premise is that one writer owns a file at a time, a person orienting
+    themselves silently rewrote the fence registry other sessions read, and
+    the one flag every CLI offers for finding out what a command does could
+    not be used to find out what a command does.
+
+    `dashboard` was the only WRITER, but it was not the only command that
+    got `--help` wrong: `verify` ran too (read-only, but it ignored the flag
+    entirely), the commands with an allow-list called it an unrecognized
+    flag with no usage at all, and the ones taking a positional printed
+    usage but exited 2. Hence: every command in the registry, no exceptions
+    list, so a command added later is covered the day it is registered."""
+
+    def _seeded_project(self):
+        """A project with a claimed record, a checkpoint, a decision and a
+        rendered STATE.md on disk: --help must be inert against a store that
+        has something in it, not only against an empty one."""
+        d = tempfile.mkdtemp(prefix="bm-help-")
+        self.addCleanup(shutil.rmtree, d, True)
+        r = _run_cli(["init"], d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        out = _run_cli(["claim", "helper", "--lifetime", "ephemeral",
+                        "--objective", "obj", "--session", "s1"], d).stdout
+        uuid_ = re.search(r"lifecycle ([0-9a-f]{32})", out).group(1)
+        r = _run_cli(["checkpoint", uuid_, "--version", "1", "--next", "n"], d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r = _run_cli(["dashboard"], d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(os.path.exists(os.path.join(d, "STATE.md")),
+                        "the fixture must leave a real STATE.md to protect")
+        return d
+
+    def test_help_on_every_registered_subcommand_prints_usage_and_writes_nothing(self):
+        d = self._seeded_project()
+        before = _project_fingerprint(d)
+        self.assertIn("STATE.md", before)
+        self.assertIn(os.path.join(".brothermode", "store.sqlite3"), before)
+        for cmd in sorted(bs._COMMANDS):
+            r = _run_cli([cmd, "--help"], d)
+            self.assertEqual(r.returncode, 0,
+                             "%s --help must exit 0: %s" % (cmd, r.stdout + r.stderr))
+            self.assertIn("usage: %s" % cmd, r.stdout,
+                          "%s --help must print its own usage" % cmd)
+            after = _project_fingerprint(d)
+            self.assertEqual(
+                after, before,
+                "%s --help changed the project on disk (size/mtime_ns/sha256 "
+                "per file). It must print usage and touch nothing." % cmd)
+
+    def test_help_is_inert_even_where_the_store_is_the_thing_being_asked_about(self):
+        """The named defect, isolated and stated in its own terms: STATE.md's
+        bytes AND its mtime survive `dashboard --help`, and no backup file is
+        left behind. dashboard is the one command whose ordinary job is to
+        write, so it is the one whose --help most needed a guard."""
+        d = self._seeded_project()
+        state = os.path.join(d, "STATE.md")
+        backups = lambda: sorted(n for n in os.listdir(d)
+                                 if n.startswith("STATE.md.bak-"))
+        sha_before, mtime_before = _sha256_file(state), os.stat(state).st_mtime_ns
+        # The fixture's own claim/checkpoint/dashboard each rewrote STATE.md
+        # and left a backup, which is correct: those commands WRITE. The
+        # question is only whether --help adds one more.
+        bak_before = backups()
+        r = _run_cli(["dashboard", "--help"], d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("usage: dashboard", r.stdout)
+        self.assertNotIn(bs._STATE_BEGIN, r.stdout,
+                         "--help must print usage, never the dashboard itself")
+        self.assertEqual(_sha256_file(state), sha_before)
+        self.assertEqual(os.stat(state).st_mtime_ns, mtime_before)
+        self.assertEqual(backups(), bak_before,
+                         "--help must not save a backup, because it must not rewrite")
+
+    def test_every_registered_command_has_usage_text_and_no_orphans(self):
+        """The registry pairing, in both directions: a command added to
+        _COMMANDS without a _USAGE entry would print a placeholder instead of
+        usage, and a _USAGE entry for a command nobody can run is dead text
+        that will drift."""
+        self.assertEqual(sorted(bs._USAGE), sorted(bs._COMMANDS))
+        for cmd, lines in sorted(bs._USAGE.items()):
+            self.assertTrue(lines and lines[0].startswith(cmd),
+                            "%s usage must lead with its own command name, got %r"
+                            % (cmd, lines[:1]))
+
+    def test_bare_help_flag_prints_the_command_list_and_exits_zero(self):
+        """`--help` with no subcommand printed this text already but exited 2,
+        so a caller checking exit codes read an explicit request for help as a
+        mistyped command."""
+        d = self._seeded_project()
+        r = _run_cli(["--help"], d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("commands: ", r.stdout)
+        r_bogus = _run_cli(["notacommand"], d)
+        self.assertEqual(r_bogus.returncode, 2,
+                         "a genuinely unknown command must still exit 2")
+
+    def test_help_works_outside_a_project_with_no_store_at_all(self):
+        """The gate runs before root resolution, so usage is readable from a
+        directory that has no project in it. A caller who cannot yet find the
+        command they need is exactly the caller who has not initialised
+        anything."""
+        with tempfile.TemporaryDirectory() as empty:
+            r = _run_cli(["claim", "--help"], empty)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("usage: claim", r.stdout)
+            self.assertEqual(os.listdir(empty), [],
+                             "--help must not create a project just to answer")
+
+    def test_help_still_reaches_usage_through_a_flag_that_precedes_it(self):
+        """`--help` ANYWHERE in argv, not only in argv[0]: someone half-way
+        through typing a command reaches for it at the end. _parse_kv splits
+        on the "--" prefix, so "--help" can never be another flag's VALUE,
+        which is what makes scanning the whole of argv safe."""
+        d = self._seeded_project()
+        before = _project_fingerprint(d)
+        r = _run_cli(["claim", "thing", "--lifetime", "ephemeral", "--help"], d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("usage: claim", r.stdout)
+        self.assertEqual(_project_fingerprint(d), before,
+                         "a trailing --help must not claim the record in front of it")
+
+    # -- CALIBRATION ------------------------------------------------------
+
+    def test_calibrated_dashboard_with_the_help_gate_bypassed_still_rewrites_state(self):
+        """CALIBRATION. cmd_dashboard is unchanged by this fix: it still
+        writes, by design. Call it directly with ["--help"], the way main()
+        used to, and the original defect reproduces in full (STATE.md
+        rewritten, a backup left behind). That is the proof the tests above
+        pass because of the gate in main(), and not because something else
+        quietly made the dashboard read-only."""
+        d = self._seeded_project()
+        state = os.path.join(d, "STATE.md")
+        backups = lambda: sorted(n for n in os.listdir(d)
+                                 if n.startswith("STATE.md.bak-"))
+        mtime_before, bak_before = os.stat(state).st_mtime_ns, backups()
+        with mock.patch.object(bs, "require_root", lambda *a, **k: (d, "test")):
+            bs.cmd_dashboard(["--help"])  # THE BUG: argv is never inspected
+        self.assertNotEqual(
+            os.stat(state).st_mtime_ns, mtime_before,
+            "REINJECTION CHECK: reaching cmd_dashboard with ['--help'] must "
+            "still rewrite STATE.md, the exact defect the gate in main() "
+            "now prevents from ever getting here")
+        self.assertNotEqual(backups(), bak_before,
+                            "REINJECTION CHECK: and must still leave one MORE "
+                            "backup behind than the fixture's own writes did")
 
 
 # ---------------------------------------------------------------------------
