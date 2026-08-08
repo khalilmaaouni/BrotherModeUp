@@ -21926,6 +21926,122 @@ class TestSchema18TaskPhase(unittest.TestCase):
         self.assertNotIn(("tasks", "phase"), bs._DUMP_SAFE_COLUMNS)
 
 
+class TestSystemProjects(unittest.TestCase):
+    """2026-08-08. ensure_system_project and the default that hides what it
+    creates. The defect behind both: tools/bm_bash_audit.py raised alerts
+    against a project id nothing anywhere created, so every alert left an
+    attribution event pointing at a missing project and verify() reported
+    the dangling reference for good."""
+
+    SYS = "brothermode-bash-audit"
+
+    def test_the_registry_holds_the_bash_audit_project(self):
+        self.assertIn(self.SYS, bs.SYSTEM_PROJECTS)
+        spec = bs.SYSTEM_PROJECTS[self.SYS]
+        self.assertTrue(spec.get("name"))
+        # Whatever the registry holds must be a project schema.Project
+        # accepts, or ensure_system_project would refuse at the moment it
+        # is needed most rather than at the moment the registry was edited.
+        for key in spec:
+            self.assertIn(key, bs._schema().Project.FIELDS, key)
+
+    def test_it_creates_the_row_once_and_says_which_call_did(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self.assertTrue(store.ensure_system_project(self.SYS,
+                                                            _actor()))
+                first = store.get_project(self.SYS, raw=True)
+                self.assertEqual(first["name"],
+                                  bs.SYSTEM_PROJECTS[self.SYS]["name"])
+                self.assertFalse(store.ensure_system_project(self.SYS,
+                                                             _actor()))
+                self.assertEqual(store.get_project(self.SYS, raw=True), first)
+
+    def test_it_leaves_an_existing_row_exactly_as_it_found_it(self):
+        """A founder who repaired this by hand, or an older version that
+        wrote a different name, must not have their row overwritten by the
+        next alert that lands."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(
+                    _project(self.SYS, name="Repaired by hand"), _actor())
+                self.assertFalse(store.ensure_system_project(self.SYS,
+                                                             _actor()))
+                self.assertEqual(
+                    store.get_project(self.SYS, raw=True)["name"],
+                    "Repaired by hand")
+
+    def test_it_refuses_any_id_that_is_not_registered(self):
+        """The whole reason the store does not simply create whatever
+        project id it is handed: a misspelled id must stay a reported
+        problem, never become a real row (section 5.3, "A typo'd project
+        name silently damaged the store")."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.ensure_system_project("brothermode-bash-audi",
+                                                 _actor())
+                self.assertEqual(ctx.exception.reason, "not-a-system-project")
+                self.assertIsNone(store.get_project("brothermode-bash-audi"))
+                self.assertEqual(
+                    store.list_projects(raw=True, include_system=True), [])
+
+    def test_a_created_row_leaves_an_alert_verifiable(self):
+        """End to end at the store layer: ensure, raise, verify clean. The
+        hook's own end of this is in tools/test_bm_bash_audit.py."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.ensure_system_project(self.SYS, _actor())
+                store.raise_alert(_alert(), self.SYS, _actor())
+            self.assertEqual(bs.verify(d), [])
+
+    def test_without_the_row_verify_reports_the_dangling_reference(self):
+        """The defect itself, pinned. If this ever stops reporting, the
+        check that catches a typo'd project id has gone quiet and every
+        test above is measuring nothing."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.raise_alert(_alert(), self.SYS, _actor())
+            problems = bs.verify(d)
+            self.assertEqual(len(problems), 1, problems)
+            self.assertIn("references missing project", problems[0])
+            self.assertIn(self.SYS, problems[0])
+
+    def test_list_projects_hides_system_rows_unless_asked(self):
+        """Why the default is exclude: four places in the product resolve
+        THE project by counting rows (bm_statusline, bm_view, bm_lead,
+        bm_project), and a row the product filed its own alerts under is
+        not a second project a founder started."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.ensure_system_project(self.SYS, _actor())
+                self.assertEqual(
+                    [p["project_id"] for p in store.list_projects(raw=True)],
+                    ["proj1"])
+                self.assertEqual(
+                    sorted(p["project_id"] for p in store.list_projects(
+                        raw=True, include_system=True)),
+                    sorted([self.SYS, "proj1"]))
+            with bs.ReadOnlyStore(d) as ro:
+                self.assertEqual(
+                    [p["project_id"] for p in ro.list_projects(raw=True)],
+                    ["proj1"])
+                self.assertEqual(
+                    len(ro.list_projects(raw=True, include_system=True)), 2)
+
+    def test_a_dump_still_carries_the_system_project(self):
+        """Hiding is a founder-facing default on ONE accessor, not a hole in
+        the export: dump() reads the projects table directly, so an audit of
+        this store still shows every row that exists."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.ensure_system_project(self.SYS, _actor())
+                dumped = store.dump(raw=True)
+        self.assertEqual([p["project_id"] for p in dumped["projects"]],
+                          [self.SYS])
+
+
 if __name__ == "__main__":
     # The leak check lives in the runner, so it applies to every test without
     # each of the ~40 TestCase classes having to opt in. Running this file

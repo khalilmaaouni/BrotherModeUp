@@ -83,6 +83,50 @@ STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
 
+# SYSTEM PROJECTS, 2026-08-08. A project row the PRODUCT ITSELF needs in order
+# to file its own records, never work a founder started. Today there is exactly
+# one: the project tools/bm_bash_audit.py files its fence-breach and
+# control-loss alerts under. Its id used to be a bare constant in that file
+# with nothing anywhere creating the row, so every alert it raised wrote an
+# attribution event pointing at a project that did not exist, and `verify`
+# reported that dangling reference forever after. Found 2026-08-08 by the
+# store it damaged, through the chain the code makes unavoidable: scripts/
+# doctor.py check 7 runs `bm_store.py verify` and FAILs on its exit code, and
+# tools/test_brothermode_cli.py asserts check 7 is not red, so one unowned
+# project id turned the whole gate red on any machine holding a store.
+#
+# WHY A REGISTRY HERE RATHER THAN A COLUMN ON projects: this constant answers
+# two questions, and neither of them needs schema.
+#   1. "May this project id be created on demand?" Membership here, and
+#      nothing else, licenses ensure_system_project to write a projects row.
+#      A project id that is merely misspelled is NOT in this dict, so it is
+#      still refused, still lands in `verify` as a dangling reference, and is
+#      never silently materialised as a junk project. That is the whole
+#      lesson of docs/HANDOVER-2026-08-02-full-auto-phase1.md section 5.3,
+#      "A typo'd project name silently damaged the store".
+#   2. "Is this project the founder's own work?" Same membership. One project
+#      per folder is the beginner model, and four places resolve "the only
+#      project" by counting rows (tools/bm_statusline.py, tools/bm_view.py,
+#      tools/bm_lead.py, tools/bm_project.py). Without this exclusion, the
+#      moment the product filed its first alert the founder's real project
+#      would stop being the only one, and each of those four would take its
+#      "not exactly one" branch: a blank status line, a briefing hook that
+#      returns silently, Handover-<id>/ instead of Handover/, and CANVAS.md
+#      written under a per-project name. list_projects() therefore hides
+#      these by default.
+# A projects column would have needed a schema migration to answer two
+# questions that a frozen constant answers exactly.
+SYSTEM_PROJECTS = {
+    "brothermode-bash-audit": {
+        "name": "BrotherMode bash audit alerts",
+        "goal": ("hold the fence-breach and control-loss alerts raised by "
+                 "tools/bm_bash_audit.py, so they have a project to be "
+                 "attributed to. Not founder work."),
+        "project_type": "system",
+        "status": "active",
+    },
+}
+
 # LOOP 4, 2026-07-30: the environment-provided active record for `apply`.
 # Named BM_* rather than BROTHERMODE_*, matching BM_FENCE_SESSION_ID and
 # BM_APPROVAL_RECEIPT (bm_fence_hook.py, bm_learn.py): every BROTHERMODE_*
@@ -12256,6 +12300,59 @@ class Store(object):
                                      action="upsert_project")
         return project.project_id
 
+    def ensure_system_project(self, project_id, actor):
+        """Make sure ONE registered system project (see SYSTEM_PROJECTS) has
+        a row, and return True if this call is what created it. Idempotent
+        and safe to call before every single write: an id that already has a
+        row is left EXACTLY as it is, whatever shape a founder or an earlier
+        version left it in, so this never overwrites and never surprises.
+
+        Refuses, writing nothing, for any id not in SYSTEM_PROJECTS. That
+        refusal is the point of the method existing at all: a project a
+        founder works in is created by `bm_project.py start`, deliberately,
+        with a name and a goal they typed, and a project id that reached
+        here by being misspelled somewhere must stay a visible problem in
+        `verify` rather than becoming a real row nobody meant to create.
+
+        WHY THE CALLER OWNS THIS AND raise_alert DOES NOT (2026-08-08): the
+        obvious alternative was for raise_alert to create any project it
+        found missing. That would have closed this same hole, and opened a
+        worse one. raise_alert's project_id is CALLER DATA (bm_project.py's
+        `alert raise --project-id ...` passes whatever was typed at it), so
+        auto-creating there would turn every typo into a junk project row,
+        silently, and would delete the one signal that catches it: the
+        dangling-reference check in verify(), which _LOOP1_DDL's own comment
+        says exists precisely because attribution.project_id carries no
+        REFERENCES clause. The caller, by contrast, is not passing data: it
+        is naming a constant it owns and this module has registered. So the
+        store owns HOW a system project is recorded and WHICH ids may be
+        created on demand; the caller owns WHEN, by asking."""
+        if project_id not in SYSTEM_PROJECTS:
+            raise OwnershipRefused(
+                "not-a-system-project",
+                "%r is not a registered system project, so it will not be "
+                "created on demand. A project a founder works in is started "
+                "with `bm_project.py start`; if this id reached here by "
+                "mistake, that is what `verify` is meant to keep telling "
+                "you." % (project_id,),
+                details={"project_id": project_id,
+                         "registered": sorted(SYSTEM_PROJECTS)})
+        row = _exec(self, "SELECT project_id FROM projects WHERE project_id=?",
+                    (project_id,)).fetchone()
+        if row is not None:
+            return False
+        ts = now_iso()
+        project = dict(SYSTEM_PROJECTS[project_id])
+        project.update({"project_id": project_id,
+                        "created_at": ts, "updated_at": ts})
+        # upsert_project, not a bare INSERT: it validates through
+        # schema.Project and writes its own attribution event in the same
+        # transaction as the row, so two hooks racing here both end with one
+        # project row and no half-written history (ON CONFLICT DO UPDATE
+        # settles the loser onto the identical canonical values).
+        self.upsert_project(project, actor)
+        return True
+
     def add_forecast(self, forecast_dict, actor):
         """Append ONE new forecast, with its attribution event
         ('forecast.added'), in ONE transaction. Append-only: this never
@@ -12869,15 +12966,29 @@ class Store(object):
         return _export_row(self.conn, "projects", dict(row),
                             S.Project.LIST_FIELDS, raw=raw)
 
-    def list_projects(self, raw=False):
-        """Every project, oldest first (created_at, project_id tie
-        break). Empty list if the store has none."""
+    def list_projects(self, raw=False, include_system=False):
+        """Every project A FOUNDER STARTED, oldest first (created_at,
+        project_id tie break). Empty list if the store has none.
+
+        include_system=False, the default, hides the rows the product
+        created for itself (SYSTEM_PROJECTS, whose comment carries the full
+        reasoning). Every caller of this method is asking a founder-facing
+        question -- how many projects are in this folder, which one is THE
+        one, does CANVAS.md need a per-project name -- and a row the
+        product filed its own alerts under is not an answer to any of them.
+        Default-exclude rather than opt-out on purpose: a new caller that
+        forgets the distinction gets the founder-facing answer, which is
+        the one it almost certainly wanted, instead of silently counting a
+        system row as a second project. Pass include_system=True to see
+        every row (nothing in the product does today; dump() and verify()
+        read the projects table directly and are unaffected by this)."""
         rows = _exec(self,
             "SELECT * FROM projects ORDER BY created_at ASC, "
             "project_id ASC").fetchall()
         S = _schema()
         return [_export_row(self.conn, "projects", dict(r),
-                             S.Project.LIST_FIELDS, raw=raw) for r in rows]
+                             S.Project.LIST_FIELDS, raw=raw) for r in rows
+                if include_system or r["project_id"] not in SYSTEM_PROJECTS]
 
     def list_tasks(self, project_id, status=None, raw=False):
         """Every task in `project_id`, INSERTION order: tasks carries no
@@ -16393,8 +16504,9 @@ class ReadOnlyStore(object):
     def get_project(self, project_id, raw=False):
         return Store.get_project(self, project_id, raw=raw)
 
-    def list_projects(self, raw=False):
-        return Store.list_projects(self, raw=raw)
+    def list_projects(self, raw=False, include_system=False):
+        return Store.list_projects(self, raw=raw,
+                                    include_system=include_system)
 
     def list_tasks(self, project_id, status=None, raw=False):
         return Store.list_tasks(self, project_id, status=status, raw=raw)

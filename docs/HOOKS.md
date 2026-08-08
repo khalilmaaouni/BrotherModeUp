@@ -420,6 +420,20 @@ pointed at the same file:
   (`redact_text`, then `mask_absolute_paths`) before it is stored, so a founder-typed
   record name cannot smuggle a secret or an absolute path into the row unmasked.
 
+**Which project the alert is filed under.** An alert's attribution event has to name a
+project, and this hook's alerts are not part of any project a founder started, so they
+are filed under a SYSTEM project (`brothermode-bash-audit`) that the hook creates on
+demand the first time it needs it, through `Store.ensure_system_project`. Only ids
+registered in `tools/bm_store.py`'s `SYSTEM_PROJECTS` can be created that way: a project
+id that is merely misspelled is still refused, and still shows up in
+`python3 tools/bm_store.py verify` as a dangling reference, which is the check that
+catches it. System projects are excluded from `Store.list_projects()` by default, so the
+one-project-per-folder model the rest of the product relies on (the status line, the
+progress view, the handover pages, `bm_project start`) still resolves the founder's own
+project as the only one after an alert has been filed. Before 2026-08-08 nothing created
+this row at all, and every alert this hook raised left a dangling reference behind that
+`verify` then reported for good.
+
 This hook is **detection, not prevention, for every ordinary write** (D-1's own words):
 by the time the alert exists, the write already happened. It has a decision to make in
 exactly one situation, added by C-02 and described below (BM_FENCE_MODE=enforced, and
