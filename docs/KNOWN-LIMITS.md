@@ -431,9 +431,13 @@ report. This project's code changes fast; re-run the
 reproduction steps in the release-blockers spec yourself rather than trust
 this file's dates once more time has passed. The general operating
 restrictions from the original audit still apply: run commands from the
-repository root, avoid glob fences, do not run two worktrees of one repo in
-parallel sessions, and never restore an autosave snapshot in place without
-inspecting it first in a separate worktree.
+repository root, avoid glob fences, and never restore an autosave snapshot
+in place without inspecting it first in a separate worktree. The audit's
+further restriction against running two worktrees of one repo in parallel
+sessions was lifted in the finalization run of 2026-08-08: the fence now
+resolves a claim and a write to the same logical file across a worktree
+boundary (the H1 fix, bm_store.strip_worktree_segments), which was the
+whole reason for that restriction.
 
 ## Used for real, but never MEASURED on a real project
 
