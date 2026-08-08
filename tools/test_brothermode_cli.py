@@ -775,5 +775,287 @@ class TestH1CrossWorktreeFenceClaimResolution(unittest.TestCase):
             "bm_store.py resolve_root, outside this change's fence.")
 
 
+# ---------------------------------------------------------------------------
+# continue: the handoff packet generator (Phase C step 1 of the 2026-08-08
+# finalization plan, "The continuity protocol"). These tests were written
+# and run RED before tools/bm_continue.py existed, which is the phase's own
+# stated law: "Done-check: contract tests in tools/test_brothermode_cli.py
+# for packet sections and dry-run; red first."
+#
+# WHAT THEY PIN
+#   1. The ten sections the founder fixed on 2026-08-08, present and IN
+#      ORDER, because a packet missing section 9 is a packet that loses a
+#      founder decision.
+#   2. Every section's content comes from STORE ROWS, not from prose the
+#      generator invented: each content test seeds one row and then finds
+#      that row's own text in the packet.
+#   3. --dry-run writes the packet, prints the launch command, and launches
+#      nothing.
+#   4. The prompt sits IMMEDIATELY after -p in the launch argv. That is not
+#      a style preference: `--add-dir` is variadic, so a prompt placed
+#      after it is swallowed as another directory and the successor session
+#      dies with "Input must be provided either through stdin or as a
+#      prompt argument when using --print". That exact failure killed the
+#      first relay launch of 2026-08-08 (relay-1.log in the handover
+#      folder), so it is pinned as a test rather than remembered.
+#   5. Two runs over the same rows produce byte-identical packets, the
+#      same generated-view law tools/bm_project.py's render_canvas obeys.
+# ---------------------------------------------------------------------------
+
+CONTINUE_SECTIONS = (
+    "## 1. North star and goals",
+    "## 2. Where we stand, one paragraph",
+    "## 3. Read next, in this order",
+    "## 4. Next actions, ordered",
+    "## 5. Evidence index",
+    "## 6. Telemetry",
+    "## 7. Lessons learnt",
+    "## 8. Features pipeline",
+    "## 9. Open founder decisions",
+    "## 10. The continuity contract for the successor",
+)
+
+
+class ContinueCase(ThrowawayCase):
+    """One throwaway project carrying at least one row behind every
+    section that reads rows, so a content assertion can never pass on a
+    hard-coded sentence."""
+
+    PROJECT = "continuity-fixture"
+    PACKET = "HANDOFF-PACKET.md"
+    ACTOR = {"actor_type": "model", "actor_name": "tester",
+             "session_id": "continue-fixture"}
+
+    def setUp(self):
+        super(ContinueCase, self).setUp()
+        r = self.project(
+            "start", "--project-id", self.PROJECT,
+            "--name", "Continuity fixture",
+            "--goal", "One clean main that IS the product",
+            "--user-outcome", "A founder opens one page and sees the truth",
+            "--success-criteria", "every done-check quoted green",
+            "--actor-name", "tester")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r = self.project("task", "add", "--project-id", self.PROJECT,
+                         "--task-id", "t-next", "--title",
+                         "wire the continue subcommand",
+                         "--priority", "high", "--actor-name", "tester")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r = self.project("task", "add", "--project-id", self.PROJECT,
+                         "--task-id", "t-later", "--title",
+                         "publish the progress view",
+                         "--priority", "medium", "--actor-name", "tester")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        # t-next reaches 'ready' AND files one evidence row in the same
+        # call, which is what puts it in section 4 and its evidence in
+        # section 5.
+        r = self.project("review", "t-next", "--project-id", self.PROJECT,
+                         "--to", "ready", "--kind", "command",
+                         "--ref", "python3 tools/test_brothermode_cli.py",
+                         "--reason", "ready to start", "--actor-name",
+                         "tester")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.evidence_id = r.stdout.split("evidence ", 1)[1].split(" ", 1)[0]
+
+        with bs.Store(self.root, create=False) as store:
+            # Section 9: a key decision nothing supersedes. control_offered
+            # is required for a DECISION row to exist at all (record_insight
+            # refusal R7), which is the store making the founder's choice
+            # unskippable rather than this test being thorough.
+            self.decision = store.record_insight(self.PROJECT, {
+                "kind": "DECISION",
+                "subject": "the launch switch",
+                "claim": "the successor launch needs a settings allow rule",
+                "evidence": "two classifier refusals, 2026-08-08",
+                "evidence_class": "EXECUTED",
+                "alternatives": [{"option": "leave a one-click chip instead",
+                                  "why_not": "the founder may be asleep"}],
+                "flip_condition": "the founder withdraws the allow rule",
+                "confidence": "high",
+                "decision_class": "GATE",
+                "control_offered": 1,
+            }, self.ACTOR)
+            # Section 3: a recorded view carries the published Gantt url.
+            store.record_view(self.PROJECT, {
+                "kind": "PROJECT_VIEW",
+                "rel_path": "PROJECT-VIEW.html",
+                "fingerprint": "0123456789ab",
+                "artifact_url": "https://claude.ai/code/artifact/fixture",
+                "published_at": bs.now_iso(),
+            }, self.ACTOR)
+            # Section 7: one lesson, in the words that would be recognised
+            # again.
+            store.add_procedural(
+                self.PROJECT,
+                "launched the successor with the prompt after --add-dir",
+                "failed",
+                "--add-dir is variadic so the prompt was swallowed",
+                "continue-fixture", self.ACTOR)
+
+    def packet_path(self):
+        return os.path.join(self.root, self.PACKET)
+
+    def read_packet(self):
+        with io.open(self.packet_path(), encoding="utf-8") as f:
+            return f.read()
+
+    def dry_run(self):
+        r = self.cli("continue", "--project-id", self.PROJECT, "--dry-run")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return r
+
+
+class TestContinuePacketSections(ContinueCase):
+
+    def test_help_names_the_continue_verb(self):
+        r = _run(CLI_PATH, ["--help"], REPO, env=_clean_env())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("continue", r.stdout,
+                      "help text does not name the continue subcommand")
+
+    def test_dry_run_writes_the_packet_with_the_ten_sections_in_order(self):
+        self.dry_run()
+        self.assertTrue(os.path.isfile(self.packet_path()),
+                        "continue --dry-run did not write %s" % self.PACKET)
+        text = self.read_packet()
+        positions = []
+        for heading in CONTINUE_SECTIONS:
+            self.assertIn(heading, text,
+                          "the packet is missing section heading %r"
+                          % heading)
+            positions.append(text.index(heading))
+        self.assertEqual(positions, sorted(positions),
+                         "the ten sections are present but out of order; "
+                         "the founder pinned this order on 2026-08-08")
+
+    def test_section_one_carries_the_goal_and_success_checks_from_the_row(self):
+        self.dry_run()
+        text = self.read_packet()
+        self.assertIn("One clean main that IS the product", text)
+        self.assertIn("A founder opens one page and sees the truth", text)
+        self.assertIn("every done-check quoted green", text)
+
+    def test_read_next_carries_the_recorded_artifact_url(self):
+        self.dry_run()
+        self.assertIn("https://claude.ai/code/artifact/fixture",
+                      self.read_packet())
+
+    def test_next_actions_carry_the_ready_task(self):
+        self.dry_run()
+        text = self.read_packet()
+        self.assertIn("t-next", text)
+        self.assertIn("wire the continue subcommand", text)
+
+    def test_evidence_index_carries_the_evidence_row(self):
+        self.dry_run()
+        text = self.read_packet()
+        self.assertIn(self.evidence_id, text)
+        self.assertIn("python3 tools/test_brothermode_cli.py", text)
+
+    def test_lessons_learnt_carries_the_procedural_row(self):
+        self.dry_run()
+        self.assertIn("--add-dir is variadic so the prompt was swallowed",
+                      self.read_packet())
+
+    def test_features_pipeline_carries_the_not_yet_ready_task(self):
+        self.dry_run()
+        text = self.read_packet()
+        self.assertIn("t-later", text)
+        self.assertIn("publish the progress view", text)
+
+    def test_open_founder_decisions_carry_the_unsuperseded_decision(self):
+        self.dry_run()
+        text = self.read_packet()
+        self.assertIn("the successor launch needs a settings allow rule",
+                      text)
+        self.assertIn("leave a one-click chip instead", text)
+
+    def test_two_runs_over_the_same_rows_are_byte_identical(self):
+        self.dry_run()
+        first = self.read_packet()
+        self.dry_run()
+        self.assertEqual(first, self.read_packet(),
+                         "the packet is a generated view: two runs over "
+                         "the same rows must be byte-identical, the same "
+                         "law render_canvas obeys")
+
+
+class TestContinueDryRunLaunchesNothing(ContinueCase):
+
+    def test_dry_run_prints_the_command_and_says_it_launched_nothing(self):
+        r = self.dry_run()
+        self.assertIn("nohup claude -p", r.stdout,
+                      "continue must print the exact launch command a human "
+                      "or a session can run")
+        self.assertIn(self.PACKET, r.stdout)
+        self.assertIn("launched nothing", r.stdout)
+
+    def test_dry_run_spawns_no_process(self):
+        """Structural, not hopeful: cmd_continue is called in process with
+        the module's own spawn function replaced, so a launch would be
+        recorded here and nothing can reach a real `claude` binary."""
+        cont = _load(os.path.join(HERE, "bm_continue.py"), "bm_continue")
+        spawned = []
+        out = io.StringIO()
+        real_stdout = sys.stdout
+        sys.stdout = out
+        try:
+            with mock.patch.object(cont, "spawn_successor",
+                                   side_effect=lambda *a, **k: spawned.append(a)):
+                code = cont.main(["continue", "--project-id", self.PROJECT,
+                                  "--root", self.root, "--dry-run"])
+        finally:
+            sys.stdout = real_stdout
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertEqual(spawned, [],
+                         "--dry-run launched a successor session")
+
+
+class TestContinueRefusesWhatItCannotGenerate(ContinueCase):
+
+    def test_unknown_project_refuses_and_writes_no_packet(self):
+        r = self.cli("continue", "--project-id", "not-a-project",
+                     "--dry-run")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("not-a-project", r.stderr)
+        self.assertFalse(os.path.isfile(self.packet_path()),
+                         "a refused continue must leave no packet behind")
+
+
+class TestContinueLaunchCommandShape(unittest.TestCase):
+    """Pure unit tests over the command builder: no store, no subprocess."""
+
+    def setUp(self):
+        self.cont = _load(os.path.join(HERE, "bm_continue.py"), "bm_continue")
+
+    def test_prompt_sits_immediately_after_dash_p(self):
+        argv = self.cont.launch_argv("/tmp/HANDOFF-PACKET.md", "/tmp/proj")
+        self.assertEqual(argv[0], "claude")
+        self.assertEqual(argv[1], "-p")
+        self.assertTrue(argv[2].strip(),
+                        "the prompt must be a non-empty argument")
+        self.assertIn("/tmp/HANDOFF-PACKET.md", argv[2])
+        self.assertNotIn(argv[2], ("--add-dir",))
+        add_dir = argv.index("--add-dir")
+        self.assertGreater(add_dir, 2,
+                           "--add-dir is variadic: anything after it is "
+                           "read as a directory, so the prompt must come "
+                           "first (relay-1.log, 2026-08-08)")
+
+    def test_printable_command_is_a_nohup_line_a_human_can_paste(self):
+        argv = self.cont.launch_argv("/tmp/HANDOFF-PACKET.md", "/tmp/proj")
+        line = self.cont.printable_command(argv, "/tmp/relay.log")
+        self.assertTrue(line.startswith("nohup claude -p "), line)
+        self.assertIn("/tmp/relay.log", line)
+        self.assertTrue(line.rstrip().endswith("&"), line)
+
+    def test_prompt_bounds_the_successor_to_one_turn(self):
+        argv = self.cont.launch_argv("/tmp/HANDOFF-PACKET.md", "/tmp/proj")
+        self.assertIn("one", argv[2].lower())
+        self.assertIn("turn", argv[2].lower(),
+                      "a headless session runs ONE turn then exits, so the "
+                      "prompt must bound the mission to one turn")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

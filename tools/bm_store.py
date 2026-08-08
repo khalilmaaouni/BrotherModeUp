@@ -4925,10 +4925,27 @@ _GENERIC_SLASH_SRC = (r"(?<![A-Za-z0-9_])/"
                       r"[^\s\x00-\x1f\x7f\"'`<>|,;:()\[\]{}/\\]"
                       + _ABS_PATH_BODY + r"*")
 
+# An https URL, matched FIRST so it wins at its own position and is handed
+# back untouched by _mask_one_path. Without it every URL in a generated
+# document came out as "https:/[PATH WITHHELD]": the scheme's own "//" is
+# preceded by ":", which is not a word character, so the generic-slash rule
+# matched there and ate the rest of the line. Found on 2026-08-08 by tools/
+# bm_continue.py, the first generated document that has to carry a
+# published page's URL; nothing shipped before it wrote a URL through this
+# funnel, which is why the gap survived this long.
+#
+# https ONLY, and that is the point rather than an omission: record_view's
+# own V5 refusal ('bad-artifact-url') already refuses to store anything but
+# https, precisely because a URL a renderer will put in an href is a
+# capability. A file:, a javascript: or a plain http: URL keeps no
+# exemption here, so this can never become a way to smuggle a local path
+# past the masker by writing a scheme in front of it.
+_HTTPS_URL_SRC = r"https://" + _ABS_PATH_BODY + r"*"
+
 _ABS_PATH_RE = re.compile(
-    "(?:%s)|(?:%s)|(?:%s)|(?:%s)|(?:%s)" %
-    (_QUOTED_PATH_SRC, _KNOWN_ROOT_SRC, _DRIVE_SRC, _UNC_SRC,
-     _GENERIC_SLASH_SRC))
+    "(?:%s)|(?:%s)|(?:%s)|(?:%s)|(?:%s)|(?:%s)" %
+    (_HTTPS_URL_SRC, _QUOTED_PATH_SRC, _KNOWN_ROOT_SRC, _DRIVE_SRC,
+     _UNC_SRC, _GENERIC_SLASH_SRC))
 
 PATH_WITHHELD_MARKER = "[PATH WITHHELD]"
 
@@ -4944,6 +4961,10 @@ def _mask_one_path(match):
     part of the match itself, so those two characters are put back around
     the marker rather than being swallowed with the path."""
     matched = match.group(0)
+    if matched.startswith("https://"):
+        # An https URL is not a filesystem path, and masking it destroys
+        # the one thing it exists for (see _HTTPS_URL_SRC above).
+        return matched
     if len(matched) >= 2 and matched[0] in "\"'`" and matched[-1] == matched[0]:
         return matched[0] + PATH_WITHHELD_MARKER + matched[0]
     kept = matched.rstrip(_ABS_PATH_TRAILING)
