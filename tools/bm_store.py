@@ -83,6 +83,36 @@ STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
 
+# SYSTEM PROJECTS, 2026-08-08. Project ids the PRODUCT registers for its own
+# bookkeeping, never work a founder started. Today there is exactly one: the
+# row tools/bm_bash_audit.py registers to attribute its fence-breach and
+# fence-control-loss alerts to when the store holds no single founder project
+# to file them under (see _alert_project_id there, which owns WHEN that row is
+# created; this constant owns only which ids are not founder work).
+#
+# WHY THIS EXISTS. list_projects() is how the product answers founder-facing
+# questions: how many projects are in this folder, which one is THE one, does
+# CANVAS.md need a per-project name. Six call sites across bm_project.py,
+# bm_statusline.py, bm_view.py and bm_lead.py branch on its count. The alert
+# path is careful never to flip that count from one to two, but it cannot
+# avoid flipping it from ZERO to one, because a store with no project at all
+# is exactly the case where it has nothing else to file an alert under. On a
+# fresh install where a breach fires before the founder starts anything, that
+# row then IS the only project, and the product answers every founder-facing
+# question with it: `bm_project start` refuses the founder's first project as
+# a second one, the status line names the bookkeeping row, and the progress
+# page renders it. Reproduced end to end on 2026-08-08; the tests that pin it
+# are in tools/test_bm_bash_audit.py.
+#
+# A frozenset rather than a column, because the question it answers ("is this
+# row founder work?") is decided by identity alone and needs no schema
+# migration to ask. It licenses nothing: creating this row stays the alert
+# path's own decision, so a project id that arrived here by being misspelled
+# is still not created, and still shows up in verify() as a dangling
+# attribution reference, which is the check that catches it (see
+# docs/HANDOVER-2026-08-02-full-auto-phase1.md section 5.3).
+SYSTEM_PROJECT_IDS = frozenset(["brothermode-bash-audit"])
+
 # LOOP 4, 2026-07-30: the environment-provided active record for `apply`.
 # Named BM_* rather than BROTHERMODE_*, matching BM_FENCE_SESSION_ID and
 # BM_APPROVAL_RECEIPT (bm_fence_hook.py, bm_learn.py): every BROTHERMODE_*
@@ -12890,15 +12920,32 @@ class Store(object):
         return _export_row(self.conn, "projects", dict(row),
                             S.Project.LIST_FIELDS, raw=raw)
 
-    def list_projects(self, raw=False):
-        """Every project, oldest first (created_at, project_id tie
-        break). Empty list if the store has none."""
+    def list_projects(self, raw=False, include_system=False):
+        """Every project A FOUNDER STARTED, oldest first (created_at,
+        project_id tie break). Empty list if the store has none.
+
+        include_system=False, the default, hides the rows the product
+        registered for its own bookkeeping (SYSTEM_PROJECT_IDS, whose
+        comment carries the reasoning and the reproduction). Every caller
+        of this method is asking a founder-facing question, and a row the
+        product filed its own alerts under is not an answer to any of
+        them. Default-exclude rather than opt-out on purpose: a new caller
+        that never heard of the distinction gets the founder-facing
+        answer, which is the one it wanted, instead of silently counting
+        bookkeeping as a project.
+
+        include_system=True returns every row, for a caller asking about
+        the TABLE rather than about the founder's work. Nothing in the
+        product needs it today: dump() and verify() read the projects
+        table directly and are untouched by this."""
         rows = _exec(self,
             "SELECT * FROM projects ORDER BY created_at ASC, "
             "project_id ASC").fetchall()
         S = _schema()
         return [_export_row(self.conn, "projects", dict(r),
-                             S.Project.LIST_FIELDS, raw=raw) for r in rows]
+                             S.Project.LIST_FIELDS, raw=raw) for r in rows
+                if include_system
+                or r["project_id"] not in SYSTEM_PROJECT_IDS]
 
     def list_tasks(self, project_id, status=None, raw=False):
         """Every task in `project_id`, INSERTION order: tasks carries no
@@ -16414,8 +16461,9 @@ class ReadOnlyStore(object):
     def get_project(self, project_id, raw=False):
         return Store.get_project(self, project_id, raw=raw)
 
-    def list_projects(self, raw=False):
-        return Store.list_projects(self, raw=raw)
+    def list_projects(self, raw=False, include_system=False):
+        return Store.list_projects(self, raw=raw,
+                                    include_system=include_system)
 
     def list_tasks(self, project_id, status=None, raw=False):
         return Store.list_tasks(self, project_id, status=status, raw=raw)
