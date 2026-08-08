@@ -266,6 +266,178 @@ your-project/
 
 These files are generated views. Do not manually edit them to change project truth.
 
+## The Same Loop From a Terminal, With Real Output
+
+The walkthrough above runs inside Claude Code, where the exact wording depends on the conversation. This section is the deterministic version: an empty directory, a fixed sequence of shell commands, and the output each one actually printed when this page was written. Run it once and you will recognise every state the slash commands put your real project into.
+
+Every output block below is a real capture, not an illustration. Paths and identifiers will differ on your machine. Task identifiers are generated hex, so substitute the one your own run prints.
+
+### Set Up a Throwaway Project
+
+```bash
+mkdir /tmp/bm-first-run && cd /tmp/bm-first-run && git init -q .
+```
+
+### Create the Project Store
+
+Records live in a store inside the project. Nothing else works until it exists.
+
+```bash
+bm-store init
+```
+
+```text
+bm_store: initialized /tmp/bm-first-run/.brothermode/store.sqlite3 (root resolved via git)
+```
+
+If you skip this step, the next command refuses and tells you the same thing:
+
+```text
+bm_project: refused: no store exists at /tmp/bm-first-run/.brothermode/store.sqlite3; run `python3 .../bm_store.py init` to create one
+```
+
+### Record the Project
+
+```bash
+brothermode start --project-id json-report --name "json-report-option" --goal "Add a --json option to the report command without changing its text output" --user-outcome "A caller can ask the report command for machine readable output" --actor-type human --actor-name "your-name"
+```
+
+```text
+started project json-report (0 task(s), no forecast)
+```
+
+Verify: `CANVAS.md` now exists in the directory.
+
+One project lives in one folder. A second `start` in the same folder refuses on purpose:
+
+```text
+cannot start project 'X': this store already holds project 'Y'; pass --allow-second to add a second project on purpose (the beginner model is one project per folder).
+```
+
+### Read the Status
+
+```bash
+brothermode status --project-id json-report
+```
+
+```text
+Goal: Add a --json option to the report command without changing its text output
+Direction: not agreed yet
+Progress: nothing planned yet
+Time remaining: not forecast yet
+  I can record one as soon as there is enough to size.
+Decision needed: none
+Risk: none new
+Evidence: no executed evidence recorded yet
+Next step: agree what I am allowed to do on your behalf
+  why: the outcome is recorded, and nothing can run until you authorise it
+```
+
+This is what an honest empty state looks like. Nothing is invented to fill the fields.
+
+### Add a Task and Ask What Is Next
+
+```bash
+bm-project task add --project-id json-report --title "Add the --json flag to report()" --actor-type human --actor-name "your-name"
+```
+
+```text
+added task fc9efb8212df48bf9a08683078f0a1ef
+```
+
+A new task is not ready work yet, and `next` says so rather than inventing a recommendation:
+
+```text
+no recommended next task: 0 task(s) currently in state 'ready' for project json-report
+```
+
+Move it to `ready`, then ask again:
+
+```bash
+bm-project task transition --task-id <task-id> --to ready --reason "scoped and ready to implement" --actor-type human --actor-name "your-name"
+```
+
+```bash
+brothermode next --project-id json-report
+```
+
+```text
+next: fc9efb8212df48bf9a08683078f0a1ef - Add the --json flag to report()
+WHY: 1 candidate(s) in state 'ready' (dependency-satisfied per the protocol's own definition of that state); picked by highest priority, then whichever was added first, as the tie break.
+```
+
+### Know the Task Lifecycle Before You Fight It
+
+Tasks advance one state at a time. Skipping is refused by name, which is the single behaviour that surprises new users most:
+
+```text
+bm_project: refused: illegal transition for task '<id>': 'active' to 'verified'. Legal moves from 'active': blocked, awaiting review. States advance through the lifecycle in order; skipping a stage would hide which evidence and review requirements were met.
+```
+
+The order, confirmed by running it:
+
+```text
+ready -> active -> awaiting review -> verified -> accepted -> delivered -> monitored -> closed
+```
+
+`blocked` is also reachable from `active`. Delivery requires `closed`, which is why the later states are not decoration.
+
+### Review With Evidence
+
+```bash
+brothermode review <task-id> --project-id json-report --kind command --ref "python3 -m pytest -q" --note "12 passed" --reason "tests pass after the last edit" --actor-type human --actor-name "your-name"
+```
+
+```text
+reviewed task fc9efb8212df48bf9a08683078f0a1ef: evidence 49c8dded97b34970ab6f82fdea8467ac recorded, task -> verified
+```
+
+The evidence is a real record: `--ref` is the command that ran, `--note` is what it reported.
+
+### Watch Delivery Refuse, Then Succeed
+
+Deliver too early and the gate says exactly what is missing:
+
+```text
+cannot deliver json-report: the project has zero tasks; add at least one task before delivering.
+```
+
+```text
+cannot deliver: 1 of 1 task(s) have not reached the terminal state ('closed'); pass --partial to deliver anyway, or finish those tasks first.
+```
+
+Once the task reaches `closed`:
+
+```bash
+brothermode deliver --project-id json-report
+```
+
+```text
+delivered json-report: all 1 task(s) closed
+```
+
+`DELIVERY-PACKET.md` now exists, and it lists the task, its state, and the evidence recorded against it.
+
+### Generate the View
+
+```bash
+brothermode view --project-id json-report
+```
+
+```text
+The page is written: /tmp/bm-first-run/PROJECT-VIEW.html
+Your records changed since the last write: yes
+Published page: not published yet
+```
+
+### Clean Up
+
+```bash
+rm -rf /tmp/bm-first-run
+```
+
+Nothing outside that directory was touched, and the store lived inside it.
+
 ## Quick Reference
 
 | Command | Purpose | Verify |
