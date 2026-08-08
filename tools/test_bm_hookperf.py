@@ -738,12 +738,14 @@ class TestRealChainMeasurement(unittest.TestCase):
 
 
 class TestProjectedConsolidation(unittest.TestCase):
-    """Sanity on the arithmetic, not on the size of the saving: this class
-    proves the projection is well formed (a real chain compared against a
-    smaller projected one, both positive, both attributable to a real
-    measured event), never that it clears 40 percent. Whatever the number
-    is, docs/evidence/v3/hook-performance.md publishes it, not this
-    assertion."""
+    """That the projection is well FORMED against a real measurement: three
+    rows, every published figure positive, every row attributable to a real
+    measured event. Never how big the saving is (whatever the number is,
+    docs/evidence/v3/hook-performance.md publishes it, not this assertion),
+    and never a comparison BETWEEN the two measurement passes: the
+    projected-versus-real invariant lives in
+    TestProjectionFormulaOnFixedInputs below, on inputs no runner can
+    change, for the reason its section comment gives."""
 
     @classmethod
     def setUpClass(cls):
@@ -767,15 +769,222 @@ class TestProjectedConsolidation(unittest.TestCase):
                                row["label"])
             self.assertIsNotNone(row["reduction_percent"], row["label"])
 
+
+# ---------------------------------------------------------------------------
+# The projection formula, proven on FIXED inputs.
+#
+# "A projection never costs more than the real chain it projects from" is a
+# property of the ARITHMETIC in projections(). It was asserted across two
+# separately sampled measurement passes: measure_real() and
+# measure_standalone_programs() are two runs, at two different moments, in
+# two different Sandboxes, each taking a two-repetition median. That made it
+# a property of the RUNNER instead. When the machine happens to be slower
+# during the standalone pass than during the real pass, the projected sum
+# legitimately exceeds the real median while the formula is perfectly
+# correct, and the check goes red having found nothing.
+#
+# It did, on GitHub's macOS runners, on two unrelated pull requests, with
+# different numbers each time (135.64 not <= 127.64 on PR 21; 164.82 not <=
+# 152.08 on PR 25) while ubuntu passed both times. That is the same defect
+# class as the doctor test fixed in PR 23, "the doctor test asserted a fact
+# about the machine": an assertion about the environment wearing the clothes
+# of an assertion about the code. See
+# docs/evidence/2026-08-08-ci-red-doctor-forwarding-test.md.
+#
+# So the invariant is proven below against inputs this file fixes itself,
+# built from the physical model the two passes are sampling:
+#
+#   standalone median of one program = bare startup + that program's work
+#   real chain median of one event   = shell wrapper overhead
+#                                      + sum over programs(bare startup + work)
+#
+# which is the whole of the old docstring's argument, made arithmetic. No
+# clock is read and no process is spawned, so the answer is identical on
+# every platform, under every load, in microseconds.
+#
+# The invariant is one-sided, so it cannot on its own see a formula that
+# UNDER-collapses (a _project() that forgot to subtract the startups it
+# stops paying still returns something smaller than the real chain). The
+# second test therefore pins every published figure to the model exactly,
+# which is where the sensitivity actually lives.
+# ---------------------------------------------------------------------------
+
+#: Matcher strings the live hooks/hooks.json uses for its two PreToolUse
+#: groups, carried into the fixture so it has the same shape as the record
+#: projections() reads in anger. TestManifestFanoutStatic already proves the
+#: manifest itself; nothing here asserts these strings.
+FENCE_MATCHER = "Edit|Write|MultiEdit|NotebookEdit|Bash"
+AUDIT_MATCHER = "Bash"
+
+
+def _fixture_timing(median_ms):
+    """A timing block shaped exactly like hb.summarize()'s output, with a
+    chosen median and no spread, so a fixture cannot accidentally depend on
+    a field summarize() does not publish."""
+    return {"samples": 2, "median_ms": median_ms, "min_ms": median_ms,
+            "p90_ms": median_ms, "max_ms": median_ms, "spread_factor": 1.0}
+
+
+def build_projection_fixture(bare_ms, wrapper_ms, stop_work, precompact_work,
+                             fence_work, audit_work, post_ms):
+    """A (real_record, standalone) pair projections() accepts, built from a
+    model rather than a clock: every python3 process pays `bare_ms` of
+    interpreter startup plus its own work, and a real chain pays `wrapper_ms`
+    on top for the sh -c/cat/printf wrapper the standalone runs bypass
+    entirely. The *_work figures are per-program milliseconds with startup
+    already excluded; `post_ms` is the PostToolUse command a Bash tool call
+    pays after the tool has run, which no consolidation can absorb."""
+
+    def _standalone(works, program_name):
+        return [{"program": "%s_%d.py" % (program_name, index), "args": [],
+                 "timing": _fixture_timing(bare_ms + work)}
+                for index, work in enumerate(works)]
+
+    def _chain(works):
+        return wrapper_ms + sum(bare_ms + work for work in works)
+
+    bash_pre_work = list(fence_work) + list(audit_work)
+    real_record = {
+        "bare_interpreter_startup_ms": _fixture_timing(bare_ms),
+        "actions": [
+            {"action": "One Stop event, at the end of every assistant turn",
+             "chain": _fixture_timing(_chain(stop_work)),
+             "commands": [{"event": "Stop",
+                           "timing": _fixture_timing(_chain(stop_work))}]},
+            {"action": "One PreCompact event, when the context is condensed",
+             "chain": _fixture_timing(_chain(precompact_work)),
+             "commands": [
+                 {"event": "PreCompact",
+                  "timing": _fixture_timing(_chain(precompact_work))}]},
+            {"action": "One Bash tool call",
+             "chain": _fixture_timing(_chain(bash_pre_work) + post_ms),
+             "commands": [
+                 {"event": "PreToolUse",
+                  "timing": _fixture_timing(_chain(bash_pre_work))},
+                 {"event": "PostToolUse", "timing": _fixture_timing(post_ms)}]},
+        ],
+    }
+    standalone = {
+        ("Stop", ""): _standalone(stop_work, "stop_program"),
+        ("PreCompact", ""): _standalone(precompact_work, "precompact_program"),
+        ("PreToolUse", FENCE_MATCHER): _standalone(fence_work, "fence_hook"),
+        ("PreToolUse", AUDIT_MATCHER): _standalone(audit_work, "bash_audit"),
+    }
+    return real_record, standalone
+
+
+class TestProjectionFormulaOnFixedInputs(unittest.TestCase):
+    """The projection arithmetic, driven by inputs this file fixes itself.
+    Nothing here reads a clock or spawns a process, so a loaded runner
+    cannot change the answer. See the section comment above."""
+
+    #: Each entry drives one full pass through projections(). The set is
+    #: chosen so the invariant cannot pass for an accidental reason.
+    FIXTURES = (
+        {"name": "a chain shaped like the live manifest's",
+         "bare_ms": 20.0, "wrapper_ms": 3.0,
+         "stop_work": [4.0, 6.0, 2.0, 8.0],
+         "precompact_work": [5.0, 1.0, 9.0],
+         "fence_work": [7.0], "audit_work": [3.0], "post_ms": 25.0},
+        # The worst case for the invariant: a shell wrapper that costs
+        # NOTHING, so the entire margin has to come from the startups a real
+        # chain pays N times and one process pays once. If the invariant
+        # only ever held because of shell overhead, this fixture breaks it.
+        {"name": "no shell overhead at all, the worst case for the margin",
+         "bare_ms": 20.0, "wrapper_ms": 0.0,
+         "stop_work": [4.0, 6.0, 2.0, 8.0],
+         "precompact_work": [5.0, 1.0, 9.0],
+         "fence_work": [7.0], "audit_work": [3.0], "post_ms": 25.0},
+        # One program per single-event chain: nothing left to collapse, the
+        # projection is the standalone median itself, and the margin is the
+        # wrapper alone. The degenerate end of the formula.
+        {"name": "one program per single-event chain, nothing to collapse",
+         "bare_ms": 20.0, "wrapper_ms": 3.0,
+         "stop_work": [4.0], "precompact_work": [5.0],
+         "fence_work": [7.0], "audit_work": [3.0], "post_ms": 25.0},
+        # Startup dominating the per-program work is the regime the whole
+        # projection exists to reason about, so it gets its own fixture.
+        {"name": "interpreter startup dominates the per-program work",
+         "bare_ms": 120.0, "wrapper_ms": 1.5,
+         "stop_work": [0.5, 0.25, 0.5, 0.25],
+         "precompact_work": [0.5, 0.5, 0.5],
+         "fence_work": [0.5], "audit_work": [0.25], "post_ms": 130.0},
+    )
+
+    @staticmethod
+    def _rows(fixture):
+        real_record, standalone = build_projection_fixture(
+            fixture["bare_ms"], fixture["wrapper_ms"], fixture["stop_work"],
+            fixture["precompact_work"], fixture["fence_work"],
+            fixture["audit_work"], fixture["post_ms"])
+        return projections(real_record, standalone)
+
+    #: Per row label: which per-program work list feeds it, and what tail it
+    #: carries that no consolidation can absorb.
+    @staticmethod
+    def _model_for(fixture, label):
+        if label == "One Stop event, at the end of every assistant turn":
+            return list(fixture["stop_work"]), 0.0
+        if label == "One PreCompact event, when the context is condensed":
+            return list(fixture["precompact_work"]), 0.0
+        if label == "One Bash tool call":
+            return (list(fixture["fence_work"]) + list(fixture["audit_work"]),
+                    fixture["post_ms"])
+        raise PerfError("fixture has no model for row %r" % label)
+
+    def test_three_rows_are_produced_from_a_fixture(self):
+        for fixture in self.FIXTURES:
+            labels = [r["label"] for r in self._rows(fixture)]
+            self.assertEqual(
+                sorted(labels),
+                sorted(["One Stop event, at the end of every assistant turn",
+                        "One PreCompact event, when the context is condensed",
+                        "One Bash tool call"]), fixture["name"])
+
     def test_projection_never_exceeds_the_real_chain_it_projects_from(self):
-        """A projection that costs MORE than the current real chain would
-        mean the arithmetic itself is broken (bare startup plus per-program
-        medians cannot exceed a chain that already pays N startups plus
-        those same medians plus shell overhead), so this is a correctness
-        check on the formula, not a performance claim."""
-        for row in self.rows:
-            self.assertLessEqual(row["projected_single_process_ms"],
-                                 row["real_chain_median_ms"], row["label"])
+        """A projection that costs MORE than the real chain it projects from
+        would mean the arithmetic itself is broken (bare startup plus
+        per-program medians cannot exceed a chain that already pays N
+        startups plus those same medians plus shell overhead), so this is a
+        correctness check on the formula, not a performance claim. Which is
+        precisely why its inputs are fixed: read off two live measurement
+        passes, it checked how busy the runner was between them instead."""
+        for fixture in self.FIXTURES:
+            for row in self._rows(fixture):
+                self.assertLessEqual(
+                    row["projected_single_process_ms"],
+                    row["real_chain_median_ms"],
+                    "%s: %s" % (fixture["name"], row["label"]))
+
+    def test_every_published_figure_equals_the_model_it_projects_from(self):
+        """The invariant above is one-sided. This is the two-sided check:
+        collapsing N programs into one process stops paying exactly N-1
+        interpreter startups and drops the shell wrapper, so every figure
+        projections() publishes is pinned to the model, to the cent. A
+        _project() that dropped the subtraction, flipped its sign, or used
+        the wrong count fails here even where the inequality still holds."""
+        for fixture in self.FIXTURES:
+            bare = fixture["bare_ms"]
+            wrapper = fixture["wrapper_ms"]
+            for row in self._rows(fixture):
+                where = "%s: %s" % (fixture["name"], row["label"])
+                work, tail = self._model_for(fixture, row["label"])
+                real = wrapper + sum(bare + w for w in work) + tail
+                projected = bare + sum(work) + tail
+                self.assertEqual(row["programs_collapsed"], len(work), where)
+                self.assertAlmostEqual(row["real_chain_median_ms"], real,
+                                       places=6, msg=where)
+                self.assertAlmostEqual(row["projected_single_process_ms"],
+                                       projected, places=6, msg=where)
+                self.assertAlmostEqual(
+                    real - projected, (len(work) - 1) * bare + wrapper,
+                    places=6,
+                    msg="%s: the saving is the startups the projection stops "
+                        "paying, plus the wrapper" % where)
+                self.assertAlmostEqual(
+                    row["reduction_percent"],
+                    round(100.0 * (real - projected) / real, 2),
+                    places=6, msg=where)
 
 
 class TestBlockersAreReal(unittest.TestCase):
