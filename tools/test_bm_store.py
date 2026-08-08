@@ -1002,6 +1002,21 @@ class TestFixRoundGates(unittest.TestCase):
                                  "the new migration, which is the guard "
                                  "working exactly as _migrate_15_to_16's "
                                  "own entry above records",
+            "_migrate_17_to_18": "a schema migration step, run INSIDE the "
+                                 "caller's BEGIN EXCLUSIVE (Phase 5, the "
+                                 "progress view: tasks.phase). Two bare "
+                                 "calls, both deliberate. The PRAGMA "
+                                 "table_info read is schema introspection, "
+                                 "the same category _text_columns is "
+                                 "exempted under below, and it is the guard "
+                                 "that lets one migration text serve both a "
+                                 "genuinely old store and _ensure_schema's "
+                                 "brand new one. The ALTER TABLE ADD COLUMN "
+                                 "takes the same exemption and the same "
+                                 "reason as _migrate_7_to_8 above: failing "
+                                 "mid-migration must roll the caller's "
+                                 "transaction back, not move the founder's "
+                                 "store aside",
         }
         with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
             source = f.read()
@@ -10991,7 +11006,13 @@ class TestLoop11ExportWithholdingPolicy(unittest.TestCase):
         the true enums (tasks.status, forecasts/tasks.confidence,
         attribution.actor_type, alerts.severity) that stayed on the
         full-safe list because the store itself already restricts them
-        to a known set of values."""
+        to a known set of values.
+
+        V2 (Phase 5, schema 18) adds one: tasks.phase. Decided the same
+        way and for the same reason as its project-level twin one line
+        above it, which is already here. `--phase` is free text with no
+        ENUMS entry, and the twin is on this list precisely because a
+        founder once typed a client codename into it."""
         self.assertEqual(sorted(bs._DUMP_SCRUB_ONLY_COLUMNS),
                           [("alerts", "category"),
                            ("attribution", "event_type"),
@@ -11003,6 +11024,7 @@ class TestLoop11ExportWithholdingPolicy(unittest.TestCase):
                            ("projects", "project_type"),
                            ("records", "name"), ("records", "tier"),
                            ("runtime_runs", "runtime"),
+                           ("tasks", "phase"),
                            ("tasks", "priority")])
 
     def test_export_policy_id_shaped_set_stays_closed(self):
@@ -21854,6 +21876,91 @@ class TestEmptyScopeRefusedAtSigning(unittest.TestCase):
                     _sign(store, allowed_paths=[],
                           risk_classes=["payment"])
                 self.assertEqual(ctx.exception.reason, "risk-class-is-floor")
+
+
+class TestSchema18TaskPhase(unittest.TestCase):
+    """Schema 17 to 18 (Phase 5, the progress view): tasks gain a recorded
+    `phase`, so a Gantt can group work by the phase it belongs to instead
+    of guessing one from a title. The founder chose a recorded field over
+    a derived one on 2026-08-08, for the reason the tick contract already
+    states: a grouping computed from prose is not a record.
+
+    ADDITIVE ONLY, and guarded on PRAGMA table_info the same way
+    _migrate_7_to_8 and _migrate_9_to_10 already guard theirs, because
+    this step also runs from _ensure_schema against a brand new store
+    where the column is already present."""
+
+    def test_schema_version_moves_from_17_to_18(self):
+        self.assertGreaterEqual(
+            bs.SCHEMA_VERSION, 18,
+            "Phase 5: SCHEMA_VERSION moved from 17 to at least 18")
+
+    def test_the_migrations_table_has_an_entry_for_schema_17(self):
+        self.assertIn(17, bs._MIGRATIONS)
+        self.assertIs(bs._MIGRATIONS[17], bs._migrate_17_to_18)
+
+    def test_a_brand_new_store_has_the_task_phase_column(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                have = {r[1] for r in store.conn.execute(
+                    "PRAGMA table_info(tasks)").fetchall()}
+                self.assertIn("phase", have)
+
+    def test_a_task_records_the_phase_it_was_created_under(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.create_task(_task("task-p", phase="Phase C"), _actor())
+                row = store.get_task("task-p", raw=True)
+                self.assertEqual(row["phase"], "Phase C")
+
+    def test_a_task_created_without_a_phase_has_an_empty_one(self):
+        """The absence of a phase is recorded as absent, never invented.
+        Same rule _migrate_7_to_8's docstring states for the anchor
+        fingerprint: an empty value says 'unknown', which is true."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.create_task(_task("task-q"), _actor())
+                self.assertEqual(store.get_task("task-q", raw=True)["phase"],
+                                 "")
+
+    def test_the_migration_is_safe_to_run_against_a_store_that_has_it(self):
+        """The guard, exercised directly: running the step twice must not
+        raise, because ADD COLUMN on an existing name is a hard sqlite3
+        error and _ensure_schema runs this against fresh stores too."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                bs._migrate_17_to_18(store.conn)
+                bs._migrate_17_to_18(store.conn)
+                have = {r[1] for r in store.conn.execute(
+                    "PRAGMA table_info(tasks)").fetchall()}
+                self.assertIn("phase", have)
+
+    def test_a_read_only_handle_can_read_dependencies(self):
+        """Regression pin for a defect Phase 5 found by rendering a real
+        page rather than by reading code: bm_view.build_page reads
+        dependencies, and ReadOnlyStore had no such accessor, so building
+        the founder page from a read-only handle raised AttributeError
+        before it drew a single section."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.create_task(_task("first"), _actor())
+                store.create_task(_task("second", depends_on=["first"]),
+                                  _actor())
+            with bs.ReadOnlyStore(d) as ro:
+                deps = ro.list_dependencies("proj1", raw=True)
+        self.assertEqual([(r["task_id"], r["depends_on_task_id"])
+                          for r in deps], [("second", "first")])
+
+    def test_the_phase_column_is_scrubbed_not_printed_verbatim(self):
+        """tasks.phase is free text a founder types, exactly like
+        projects.phase, so it belongs to the same scrub-only set rather
+        than to the structurally-safe list. A secret pasted into it must
+        not survive a dump."""
+        self.assertIn(("tasks", "phase"), bs._DUMP_SCRUB_ONLY_COLUMNS)
+        self.assertNotIn(("tasks", "phase"), bs._DUMP_SAFE_COLUMNS)
 
 
 if __name__ == "__main__":
