@@ -24,6 +24,54 @@ HTML in a browser and printing to PDF, then update this note with the new date.
 |---|---|
 | `brothermode-for-dummies.html` | the book. One self-contained file, inline CSS, diagrams as inline SVG, no external reference of any kind. Open it by double clicking it. |
 | `brothermode-for-dummies.pdf` | the PDF export, 56 pages, produced from the HTML on 2026-07-30. See the note below on how, and on what that means for regenerating it. |
+| `brothermode-team-briefing.html` | the team briefing, a different book for a different reader. See below. |
+
+## The team briefing (added 2026-08-08)
+
+`brothermode-team-briefing.html` is written for a working engineering and
+analytics team, not for a first-time beginner. Where the dummies book teaches
+someone who has never heard the word hook, the briefing answers the four
+questions a developer actually asks: what is this, what does it refuse to do,
+how is it different from every other Claude Code plugin, and how do I run my own
+project on it.
+
+Its shape, and why: part zero is a two-page summary anyone can read, and it
+carries the largest limit (never measured on a real project) on its second page
+rather than in an appendix. Part two is the full feature register, every
+capability with its role AND its limit, plus the four capability states. Part
+three is the differentiation chapter, which names peers directly and labels
+every peer claim a desk assessment, following the fairness rules in
+`docs/market/CATEGORY.md`. Part four walks six end-to-end projects, one per
+work-nature profile in `references/profiles.md`. Part five is six personas with
+what each will like and what each will resent. Parts six and seven are the
+inherited rules and the look-up reference.
+
+Three outside structures shaped it, each read from the page itself on
+2026-08-08: Diátaxis (<https://diataxis.fr>) for keeping tutorial, how-to,
+reference and explanation apart; SQLite's "when to use" page
+(<https://www.sqlite.org/whentouse.html>) for the three-part honesty structure
+of part three; and The Good Docs Project README template
+(<https://www.thegooddocsproject.dev/template/readme>), which treats a
+limitations section as OPTIONAL, which is what makes putting it on page two a
+deliberate departure rather than a convention.
+
+Same self-containment rules as the dummies book: no `<script>`, no `<link>`, no
+`<img>`, no `@import`, no external font. Diagrams are hand-written inline SVG.
+Verify with the same greps below.
+
+HONEST LIMITS OF THIS FILE, stated rather than implied:
+
+- It is NOT held by `tools/test_bm_docs.py`. Every claim in it was read out of
+  the tree at v3.0.0 on 2026-08-08 by hand, and nothing fails when it drifts.
+  The dummies book has a test (`TestTheAdoptionBook`); this one does not.
+- It quotes no test count and no productivity number, for the reasons the file
+  itself states in its closing note.
+- No PDF export exists. Any browser's print dialogue produces one; the file
+  carries a print stylesheet with a page break per part.
+- It was rendered and inspected at desktop width and at 375 pixels wide, and its
+  text contrast was audited in both light and dark themes with zero failures at
+  the 4.5 to 1 threshold. It has not been read end to end by anyone but its
+  author.
 
 REORGANIZED 2026-08-01 after the founder rated the tour-shaped book 1 of 5:
 the book is now task-first, per the ratified rebuild spec
