@@ -62,6 +62,7 @@ a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outli
 .hero-inner { max-width: 54rem; }
 .tagline { font-family: var(--display); font-weight: 600; font-size: clamp(2.6rem, 8vw, 5rem); line-height: 1.02; letter-spacing: -0.025em; margin: 0 0 1.2rem; text-wrap: balance; }
 .tagline .b { display: block; color: var(--accent); }
+.hero-category { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); margin: 0 0 1rem; }
 .hero-lede { font-family: var(--display); font-size: clamp(1.2rem, 2.8vw, 1.6rem); line-height: 1.42; color: var(--muted); margin: 0 0 1.6rem; max-width: 42ch; text-wrap: balance; }
 .hero-lede strong { color: var(--ink); font-weight: 600; }
 .hero-how { font-size: 0.98rem; color: var(--muted); max-width: 56ch; margin: 0 0 2rem; }
@@ -193,9 +194,10 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2.8rem 0; max-width: 
 
 <header class="hero">
   <div class="hero-inner">
-    <h1 class="tagline">From a sentence<span class="b">to something proven.</span></h1>
-    <p class="hero-lede">BrotherMode is the difference between an agent that <strong>says</strong> it finished and one that can <strong>show you</strong> it did.</p>
-    <p class="hero-how">This booklet is one story. A team who has never used it installs it on Monday and delivers on Friday, and every part of the product is introduced at the moment the week needs it. Read it straight through and you will have met all of it. The reference chapters are at the back, for after.</p>
+    <p class="hero-category">The reliability layer for Claude Code.</p>
+    <h1 class="tagline">Build with Claude.<span class="b">Stay in control.</span></h1>
+    <p class="hero-lede">Claude Code does the work. BrotherMode is what makes that work <strong>checkable</strong>: what each run changed, what it ran to check itself, and what it has <strong>not</strong> proven yet.</p>
+    <p class="hero-how">This booklet is one story, written for a team rather than for one builder. A team who has never used it installs it on Monday and delivers on Friday, and every part of the product is introduced at the moment the week needs it. Read it straight through and you will have met all of it. The reference chapters are at the back, for after.</p>
     <div class="imprint">
       <span><b>Written for</b> the engineering and analytics team</span>
       <span><b>Describes</b> v3.0.0</span>
