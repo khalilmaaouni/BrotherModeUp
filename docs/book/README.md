@@ -61,9 +61,22 @@ Verify with the same greps below.
 
 HONEST LIMITS OF THIS FILE, stated rather than implied:
 
-- It is NOT held by `tools/test_bm_docs.py`. Every claim in it was read out of
-  the tree at v3.0.0 on 2026-08-08 by hand, and nothing fails when it drifts.
-  The dummies book has a test (`TestTheAdoptionBook`); this one does not.
+- It is PARTLY held by `tools/test_bm_docs.py`, and an earlier version of this
+  note wrongly said it was not held at all. Corrected 2026-08-08. Because the
+  file sits under `docs/` and carries no date in its name, `current_pages()`
+  picks it up, so two rules run against it: `TestCurrentPagesUseTheCanonicalNames`
+  and `TestNoUnbackedAbsolutes`. Verify with:
+
+      python3 -c "import importlib.util;s=importlib.util.spec_from_file_location('t','tools/test_bm_docs.py');m=importlib.util.module_from_spec(s);
+      exec('try:\n s.loader.exec_module(m)\nexcept SystemExit:\n pass');print([p for p in m.current_pages() if 'team-briefing' in p])"
+
+  What does NOT run against it: `TestNoDashes`, which is scoped to `ACTIVE_DOCS`
+  plus an explicit file list this page is not on, and any check that a feature
+  description in it is still true. The dummies book additionally has
+  `TestTheAdoptionBook`, which re-runs one of its walkthroughs against the real
+  command line; this book has no equivalent. So a renamed command would not
+  fail anything here, and the page would go stale quietly. That gap is the
+  most useful follow-up available for this file.
 - It quotes no test count and no productivity number, for the reasons the file
   itself states in its closing note.
 - No PDF export exists. Any browser's print dialogue produces one; the file
