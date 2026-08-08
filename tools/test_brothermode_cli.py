@@ -60,6 +60,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -809,6 +810,621 @@ class TestH1CrossWorktreeFenceClaimResolution(unittest.TestCase):
             "prefixed while the claim is stored plain. Fix belongs to "
             "tools/bm_fence_hook.py canonical_target or tools/"
             "bm_store.py resolve_root, outside this change's fence.")
+
+
+# ---------------------------------------------------------------------------
+# continue: the handoff packet generator (Phase C step 1 of the 2026-08-08
+# finalization plan, "The continuity protocol"). These tests were written
+# and run RED before tools/bm_continue.py existed, which is the phase's own
+# stated law: "Done-check: contract tests in tools/test_brothermode_cli.py
+# for packet sections and dry-run; red first."
+#
+# WHAT THEY PIN
+#   1. The ten sections the founder fixed on 2026-08-08, present and IN
+#      ORDER, because a packet missing section 9 is a packet that loses a
+#      founder decision.
+#   2. Every section's content comes from STORE ROWS, not from prose the
+#      generator invented: each content test seeds one row and then finds
+#      that row's own text in the packet.
+#   3. --dry-run writes the packet, prints the launch command, and launches
+#      nothing.
+#   4. The prompt sits IMMEDIATELY after -p in the launch argv. That is not
+#      a style preference: `--add-dir` is variadic, so a prompt placed
+#      after it is swallowed as another directory and the successor session
+#      dies with "Input must be provided either through stdin or as a
+#      prompt argument when using --print". That exact failure killed the
+#      first relay launch of 2026-08-08 (relay-1.log in the handover
+#      folder), so it is pinned as a test rather than remembered.
+#   5. Two runs over the same rows produce byte-identical packets, the
+#      same generated-view law tools/bm_project.py's render_canvas obeys.
+# ---------------------------------------------------------------------------
+
+CONTINUE_SECTIONS = (
+    "## 1. North star and goals",
+    "## 2. Where we stand, one paragraph",
+    "## 3. Read next, in this order",
+    "## 4. Next actions, ordered",
+    "## 5. Evidence index",
+    "## 6. Telemetry",
+    "## 7. Lessons learnt",
+    "## 8. Features pipeline",
+    "## 9. Open founder decisions",
+    "## 10. The continuity contract for the successor",
+)
+
+
+class ContinueCase(ThrowawayCase):
+    """One throwaway project carrying at least one row behind every
+    section that reads rows, so a content assertion can never pass on a
+    hard-coded sentence."""
+
+    PROJECT = "continuity-fixture"
+    PACKET = "HANDOFF-PACKET.md"
+    ACTOR = {"actor_type": "model", "actor_name": "tester",
+             "session_id": "continue-fixture"}
+
+    def setUp(self):
+        super(ContinueCase, self).setUp()
+        r = self.project(
+            "start", "--project-id", self.PROJECT,
+            "--name", "Continuity fixture",
+            "--goal", "One clean main that IS the product",
+            "--user-outcome", "A founder opens one page and sees the truth",
+            "--success-criteria", "every done-check quoted green",
+            "--actor-name", "tester")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r = self.project("task", "add", "--project-id", self.PROJECT,
+                         "--task-id", "t-next", "--title",
+                         "wire the continue subcommand",
+                         "--priority", "high", "--actor-name", "tester")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r = self.project("task", "add", "--project-id", self.PROJECT,
+                         "--task-id", "t-later", "--title",
+                         "publish the progress view",
+                         "--priority", "medium", "--actor-name", "tester")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        # t-next reaches 'ready' AND files one evidence row in the same
+        # call, which is what puts it in section 4 and its evidence in
+        # section 5.
+        r = self.project("review", "t-next", "--project-id", self.PROJECT,
+                         "--to", "ready", "--kind", "command",
+                         "--ref", "python3 tools/test_brothermode_cli.py",
+                         "--reason", "ready to start", "--actor-name",
+                         "tester")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.evidence_id = r.stdout.split("evidence ", 1)[1].split(" ", 1)[0]
+
+        with bs.Store(self.root, create=False) as store:
+            # Section 9: a key decision nothing supersedes. control_offered
+            # is required for a DECISION row to exist at all (record_insight
+            # refusal R7), which is the store making the founder's choice
+            # unskippable rather than this test being thorough.
+            self.decision = store.record_insight(self.PROJECT, {
+                "kind": "DECISION",
+                "subject": "the launch switch",
+                "claim": "the successor launch needs a settings allow rule",
+                "evidence": "two classifier refusals, 2026-08-08",
+                "evidence_class": "EXECUTED",
+                "alternatives": [{"option": "leave a one-click chip instead",
+                                  "why_not": "the founder may be asleep"}],
+                "flip_condition": "the founder withdraws the allow rule",
+                "confidence": "high",
+                "decision_class": "GATE",
+                "control_offered": 1,
+            }, self.ACTOR)
+            # Section 3: a recorded view carries the published Gantt url.
+            store.record_view(self.PROJECT, {
+                "kind": "PROJECT_VIEW",
+                "rel_path": "PROJECT-VIEW.html",
+                "fingerprint": "0123456789ab",
+                "artifact_url": "https://claude.ai/code/artifact/fixture",
+                "published_at": bs.now_iso(),
+            }, self.ACTOR)
+            # Section 7: one lesson, in the words that would be recognised
+            # again.
+            store.add_procedural(
+                self.PROJECT,
+                "launched the successor with the prompt after --add-dir",
+                "failed",
+                "--add-dir is variadic so the prompt was swallowed",
+                "continue-fixture", self.ACTOR)
+
+    def packet_path(self):
+        return os.path.join(self.root, self.PACKET)
+
+    def read_packet(self):
+        with io.open(self.packet_path(), encoding="utf-8") as f:
+            return f.read()
+
+    def dry_run(self):
+        r = self.cli("continue", "--project-id", self.PROJECT, "--dry-run")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return r
+
+
+class TestContinuePacketSections(ContinueCase):
+
+    def test_help_names_the_continue_verb(self):
+        r = _run(CLI_PATH, ["--help"], REPO, env=_clean_env())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("continue", r.stdout,
+                      "help text does not name the continue subcommand")
+
+    def test_dry_run_writes_the_packet_with_the_ten_sections_in_order(self):
+        self.dry_run()
+        self.assertTrue(os.path.isfile(self.packet_path()),
+                        "continue --dry-run did not write %s" % self.PACKET)
+        text = self.read_packet()
+        positions = []
+        for heading in CONTINUE_SECTIONS:
+            self.assertIn(heading, text,
+                          "the packet is missing section heading %r"
+                          % heading)
+            positions.append(text.index(heading))
+        self.assertEqual(positions, sorted(positions),
+                         "the ten sections are present but out of order; "
+                         "the founder pinned this order on 2026-08-08")
+
+    def test_section_one_carries_the_goal_and_success_checks_from_the_row(self):
+        self.dry_run()
+        text = self.read_packet()
+        self.assertIn("One clean main that IS the product", text)
+        self.assertIn("A founder opens one page and sees the truth", text)
+        self.assertIn("every done-check quoted green", text)
+
+    def test_read_next_carries_the_recorded_artifact_url(self):
+        self.dry_run()
+        self.assertIn("https://claude.ai/code/artifact/fixture",
+                      self.read_packet())
+
+    def test_next_actions_carry_the_ready_task(self):
+        self.dry_run()
+        text = self.read_packet()
+        self.assertIn("t-next", text)
+        self.assertIn("wire the continue subcommand", text)
+
+    def test_evidence_index_carries_the_evidence_row(self):
+        self.dry_run()
+        text = self.read_packet()
+        self.assertIn(self.evidence_id, text)
+        self.assertIn("python3 tools/test_brothermode_cli.py", text)
+
+    def test_lessons_learnt_carries_the_procedural_row(self):
+        self.dry_run()
+        self.assertIn("--add-dir is variadic so the prompt was swallowed",
+                      self.read_packet())
+
+    def test_features_pipeline_carries_the_not_yet_ready_task(self):
+        self.dry_run()
+        text = self.read_packet()
+        self.assertIn("t-later", text)
+        self.assertIn("publish the progress view", text)
+
+    def test_open_founder_decisions_carry_the_unsuperseded_decision(self):
+        self.dry_run()
+        text = self.read_packet()
+        self.assertIn("the successor launch needs a settings allow rule",
+                      text)
+        self.assertIn("leave a one-click chip instead", text)
+
+    def test_two_runs_over_the_same_rows_are_byte_identical(self):
+        self.dry_run()
+        first = self.read_packet()
+        self.dry_run()
+        self.assertEqual(first, self.read_packet(),
+                         "the packet is a generated view: two runs over "
+                         "the same rows must be byte-identical, the same "
+                         "law render_canvas obeys")
+
+
+class TestContinueDryRunLaunchesNothing(ContinueCase):
+
+    def test_dry_run_prints_the_command_and_says_it_launched_nothing(self):
+        r = self.dry_run()
+        self.assertIn("nohup claude -p", r.stdout,
+                      "continue must print the exact launch command a human "
+                      "or a session can run")
+        self.assertIn(self.PACKET, r.stdout)
+        self.assertIn("launched nothing", r.stdout)
+
+    def test_dry_run_spawns_no_process(self):
+        """Structural, not hopeful: cmd_continue is called in process with
+        the module's own spawn function replaced, so a launch would be
+        recorded here and nothing can reach a real `claude` binary."""
+        cont = _load(os.path.join(HERE, "bm_continue.py"), "bm_continue")
+        spawned = []
+        out = io.StringIO()
+        real_stdout = sys.stdout
+        sys.stdout = out
+        try:
+            with mock.patch.object(cont, "spawn_successor",
+                                   side_effect=lambda *a, **k: spawned.append(a)):
+                code = cont.main(["continue", "--project-id", self.PROJECT,
+                                  "--root", self.root, "--dry-run"])
+        finally:
+            sys.stdout = real_stdout
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertEqual(spawned, [],
+                         "--dry-run launched a successor session")
+
+
+class TestContinueRefusesWhatItCannotGenerate(ContinueCase):
+
+    def test_unknown_project_refuses_and_writes_no_packet(self):
+        r = self.cli("continue", "--project-id", "not-a-project",
+                     "--dry-run")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("not-a-project", r.stderr)
+        self.assertFalse(os.path.isfile(self.packet_path()),
+                         "a refused continue must leave no packet behind")
+
+
+class TestContinueLaunchCommandShape(unittest.TestCase):
+    """Pure unit tests over the command builder: no store, no subprocess."""
+
+    def setUp(self):
+        self.cont = _load(os.path.join(HERE, "bm_continue.py"), "bm_continue")
+
+    def test_prompt_sits_immediately_after_dash_p(self):
+        argv = self.cont.launch_argv("/tmp/HANDOFF-PACKET.md", "/tmp/proj")
+        self.assertEqual(argv[0], "claude")
+        self.assertEqual(argv[1], "-p")
+        self.assertTrue(argv[2].strip(),
+                        "the prompt must be a non-empty argument")
+        self.assertIn("/tmp/HANDOFF-PACKET.md", argv[2])
+        self.assertNotIn(argv[2], ("--add-dir",))
+        add_dir = argv.index("--add-dir")
+        self.assertGreater(add_dir, 2,
+                           "--add-dir is variadic: anything after it is "
+                           "read as a directory, so the prompt must come "
+                           "first (relay-1.log, 2026-08-08)")
+
+    def test_no_permission_mode_is_set_unless_one_is_asked_for(self):
+        """The security posture of the whole verb, pinned. A shipped tool
+        that hard-coded bypassPermissions would hand every stranger who
+        installs BrotherMode a one-word way to detach an ungated agent,
+        driven by a packet whose text other models wrote. Flagged in
+        review on 2026-08-08; the default is now inherit-the-settings, and
+        loosening it is typed per launch."""
+        argv = self.cont.launch_argv("/tmp/HANDOFF-PACKET.md", "/tmp/proj")
+        self.assertNotIn("--permission-mode", argv)
+        self.assertNotIn("bypassPermissions", argv)
+        asked = self.cont.launch_argv("/tmp/HANDOFF-PACKET.md", "/tmp/proj",
+                                      permission_mode="bypassPermissions")
+        self.assertEqual(asked[3], "--permission-mode")
+        self.assertEqual(asked[4], "bypassPermissions")
+        self.assertEqual(asked[2], argv[2],
+                         "the prompt must stay at argv[2] whether or not a "
+                         "permission mode was asked for")
+
+    def test_printable_command_is_a_nohup_line_a_human_can_paste(self):
+        argv = self.cont.launch_argv("/tmp/HANDOFF-PACKET.md", "/tmp/proj")
+        line = self.cont.printable_command(argv, "/tmp/relay.log")
+        self.assertTrue(line.startswith("nohup claude -p "), line)
+        self.assertIn("/tmp/relay.log", line)
+        self.assertTrue(line.rstrip().endswith("&"), line)
+
+    def test_prompt_bounds_the_successor_to_one_turn(self):
+        argv = self.cont.launch_argv("/tmp/HANDOFF-PACKET.md", "/tmp/proj")
+        self.assertIn("one", argv[2].lower())
+        self.assertIn("turn", argv[2].lower(),
+                      "a headless session runs ONE turn then exits, so the "
+                      "prompt must bound the mission to one turn")
+
+
+# ---------------------------------------------------------------------------
+# Successor liveness (Phase C step 3 of the 2026-08-08 finalization plan).
+# Written and run RED before tools/bm_continue.py grew any of it, which is
+# the phase's own stated law.
+#
+# WHY THIS EXISTS AT ALL
+#   Step 1 shipped a launch that printed a process id and said, in its own
+#   docstring, that a printed pid is a SPAWN and not a proof of life. That
+#   honesty was correct and it was also a hole: a relay session could report
+#   "successor launched", exit, and leave a program dead until the founder
+#   noticed the next morning. Exactly that happened on 2026-08-08 (relay-1
+#   died on a swallowed prompt and nobody knew). So the launch now WATCHES:
+#   it waits a bounded time for the successor's first line of output, checks
+#   the process is still there, and writes both into the store as an
+#   evidence row that the next packet carries.
+#
+# WHAT THESE PIN
+#   1. --dry-run records NOTHING. A dry run that filed liveness evidence
+#      would be a lie on disk, and it is the one form of lie the store
+#      cannot later distinguish from a real launch.
+#   2. A launch records ONE evidence row against the project, carrying the
+#      process id and the first log line verbatim.
+#   3. THE THREE VERDICTS, each distinct, each recorded in the row itself:
+#        SPOKE    a line arrived inside the window. Exit 0.
+#        RUNNING  no line yet, but the process is still there. Exit 0.
+#        GONE     no line and the process has exited. Exit 1.
+#      The middle verdict is not a hedge, it is what the live canary of
+#      2026-08-08 found: `claude -p` buffers its ENTIRE turn and flushes at
+#      the end, so a healthy headless successor has a zero-byte log for
+#      minutes. An earlier draft of this step treated silence alone as
+#      death and failed a successor that was working perfectly. What
+#      actually distinguishes the 2026-08-08 disaster (prompt swallowed by
+#      the variadic --add-dir, session dead in the same second) is that the
+#      PROCESS WAS GONE, and that is what GONE tests.
+#   4. The evidence reaches the packet, so the next successor reads whether
+#      the previous handover actually took.
+# ---------------------------------------------------------------------------
+
+
+class LivenessCase(ContinueCase):
+    """A launch, with the spawn replaced by a fake that behaves like a
+    successor: it writes to the log the caller opened and it has a real,
+    live process id (this test process's own). Nothing here can reach a
+    real `claude` binary; the live canary is run by hand and quoted in the
+    commit, per the plan's own done-check."""
+
+    FIRST_LINE = "canary: the successor is reading the packet"
+
+    def setUp(self):
+        super(LivenessCase, self).setUp()
+        self.cont = _load(os.path.join(HERE, "bm_continue.py"), "bm_continue")
+
+    def dead_pid(self):
+        """A process id that certainly existed and certainly does not now:
+        a real child, run to completion and reaped. Inventing a number
+        would risk colliding with a live process and turning this suite
+        flaky on a busy machine."""
+        proc = subprocess.Popen([sys.executable, "-c", ""])
+        proc.wait()
+        return proc.pid
+
+    def launch_with_fake_spawn(self, writes=None, extra_argv=(), pid=None):
+        """Run cmd_continue in process with spawn_successor replaced.
+        `writes` is the text the fake successor emits into its log before
+        returning; None means a successor that says nothing at all. `pid`
+        defaults to this test process, which is alive by definition."""
+        def fake_spawn(argv, log_path, cwd=None):
+            if writes is not None:
+                with io.open(log_path, "a", encoding="utf-8") as log:
+                    log.write(writes)
+            return os.getpid() if pid is None else pid
+
+        out = io.StringIO()
+        real_stdout = sys.stdout
+        sys.stdout = out
+        try:
+            with mock.patch.object(self.cont, "spawn_successor",
+                                   side_effect=fake_spawn):
+                code = self.cont.main(
+                    ["continue", "--project-id", self.PROJECT,
+                     "--root", self.root, "--liveness-timeout", "1"]
+                    + list(extra_argv))
+        finally:
+            sys.stdout = real_stdout
+        return code, out.getvalue()
+
+    def liveness_rows(self):
+        with bs.Store(self.root, create=False) as store:
+            rows = store.list_evidence("project", self.PROJECT, raw=True)
+        return [r for r in rows
+                if r.get("kind") == self.cont.LIVENESS_KIND]
+
+
+class TestDryRunRecordsNoLiveness(LivenessCase):
+
+    def test_dry_run_files_no_liveness_evidence(self):
+        """A dry run launches nothing, so it must claim nothing. An
+        evidence row written here would be indistinguishable, forever,
+        from one written by a real handover."""
+        self.dry_run()
+        self.assertEqual(
+            self.liveness_rows(), [],
+            "--dry-run filed successor-liveness evidence for a successor "
+            "it never started")
+
+
+class TestLaunchRecordsLiveness(LivenessCase):
+
+    def test_one_row_carries_the_pid_and_the_first_log_line(self):
+        code, stdout = self.launch_with_fake_spawn(
+            writes=self.FIRST_LINE + "\nsecond line, not the first\n")
+        self.assertEqual(code, 0, stdout)
+        rows = self.liveness_rows()
+        self.assertEqual(len(rows), 1,
+                         "a launch must file exactly one liveness row, got "
+                         "%d" % len(rows))
+        note = rows[0].get("note") or ""
+        self.assertIn(str(os.getpid()), note,
+                      "the liveness note does not carry the successor's "
+                      "process id: %r" % note)
+        self.assertIn(self.FIRST_LINE, note,
+                      "the liveness note does not carry the successor's "
+                      "first log line: %r" % note)
+        self.assertNotIn("second line, not the first", note,
+                         "the FIRST log line is the evidence; the whole log "
+                         "is not, because a log can carry a credential a "
+                         "later line printed")
+
+    def test_the_ref_points_at_the_log_a_human_can_open(self):
+        code, stdout = self.launch_with_fake_spawn(writes=self.FIRST_LINE + "\n")
+        self.assertEqual(code, 0, stdout)
+        self.assertIn("successor-%s.log" % self.PROJECT,
+                      self.liveness_rows()[0].get("ref") or "")
+
+    def test_stdout_reports_the_observed_line_not_just_the_pid(self):
+        code, stdout = self.launch_with_fake_spawn(writes=self.FIRST_LINE + "\n")
+        self.assertEqual(code, 0, stdout)
+        self.assertIn(self.FIRST_LINE, stdout,
+                      "the founder reading this session's output must see "
+                      "what the successor actually said, not only a number")
+
+    def test_json_output_carries_the_liveness_verdict(self):
+        code, stdout = self.launch_with_fake_spawn(
+            writes=self.FIRST_LINE + "\n", extra_argv=("--json",))
+        self.assertEqual(code, 0, stdout)
+        payload = json.loads(stdout)
+        self.assertTrue(payload.get("alive"),
+                        "a successor that spoke and is still running must be "
+                        "reported alive: %r" % payload)
+        self.assertEqual(payload.get("first_log_line"), self.FIRST_LINE)
+        self.assertTrue(payload.get("liveness_evidence_id"),
+                        "the evidence id belongs in the machine-readable "
+                        "output so a caller can cite the row: %r" % payload)
+
+
+class TestSilentButRunningIsNotAFailure(LivenessCase):
+    """Found by the live canary of 2026-08-08, not by reasoning: `claude
+    -p` buffers its whole turn and flushes at the end, so a perfectly
+    healthy successor sits on a zero-byte log for minutes. Process 33718
+    was alive at 43 seconds with nothing written. Failing that successor
+    would make every real handover report a disaster."""
+
+    def test_a_running_successor_that_has_not_spoken_yet_passes(self):
+        code, stdout = self.launch_with_fake_spawn(writes=None)
+        self.assertEqual(code, 0, stdout)
+        note = (self.liveness_rows()[0].get("note") or "").lower()
+        self.assertIn("still running", note, note)
+        self.assertIn("no output yet", note, note)
+
+    def test_the_row_does_not_claim_the_successor_understood_anything(self):
+        """The honest limit, pinned so a later edit cannot quietly upgrade
+        it: this evidence proves a process exists, and nothing more."""
+        code, stdout = self.launch_with_fake_spawn(writes=None)
+        self.assertEqual(code, 0, stdout)
+        note = (self.liveness_rows()[0].get("note") or "").lower()
+        for overclaim in ("understood", "succeeded", "handover complete"):
+            self.assertNotIn(overclaim, note, note)
+
+
+class TestDeadSuccessorIsAFinding(LivenessCase):
+
+    def test_a_successor_that_has_already_exited_fails(self):
+        """The failure this whole step exists for. relay-1 on 2026-08-08
+        spawned, died in the same second on a prompt the variadic
+        --add-dir had swallowed, and was reported as launched."""
+        code, stdout = self.launch_with_fake_spawn(writes=None,
+                                                   pid=self.dead_pid())
+        self.assertEqual(code, 1,
+                         "a successor that spoke nothing and is already "
+                         "gone must not be reported as a handover")
+        rows = self.liveness_rows()
+        self.assertEqual(len(rows), 1,
+                         "a dead successor is still a launch that happened: "
+                         "its evidence row is the record that it was watched "
+                         "and found dead")
+        note = (rows[0].get("note") or "").lower()
+        self.assertIn("exited", note, note)
+        self.assertIn("exited", stdout.lower())
+
+    def test_a_successor_that_spoke_then_exited_still_passes(self):
+        """A one-turn headless session is SUPPOSED to end. Output arrived,
+        so the handover took; the process being gone afterwards is the
+        normal shape of success, not a failure."""
+        code, stdout = self.launch_with_fake_spawn(
+            writes=self.FIRST_LINE + "\n", pid=self.dead_pid())
+        self.assertEqual(code, 0, stdout)
+        self.assertIn(self.FIRST_LINE,
+                      self.liveness_rows()[0].get("note") or "")
+
+
+class TestTheSecondHandoverDoesNotQuoteTheFirst(LivenessCase):
+    """The log is opened in APPEND mode and named per project, so every
+    relay in a program writes to the SAME file. Reading it from byte zero
+    means hop two reports hop one's opening line as its own successor's
+    proof: stale evidence, filed as fresh, on the hop nobody is watching.
+    Found while building the live canary on 2026-08-08."""
+
+    def test_only_output_written_after_this_launch_counts(self):
+        log = os.path.join(self.root, "successor-%s.log" % self.PROJECT)
+        with io.open(log, "w", encoding="utf-8") as f:
+            f.write("a previous successor said this hours ago\n")
+        code, stdout = self.launch_with_fake_spawn(
+            writes=self.FIRST_LINE + "\n")
+        self.assertEqual(code, 0, stdout)
+        note = self.liveness_rows()[0].get("note") or ""
+        self.assertIn(self.FIRST_LINE, note)
+        self.assertNotIn("a previous successor said this hours ago", note,
+                         "the launch quoted the PREVIOUS successor's line as "
+                         "this one's proof of life")
+
+    def test_a_silent_relaunch_over_an_old_log_is_not_read_as_speech(self):
+        log = os.path.join(self.root, "successor-%s.log" % self.PROJECT)
+        with io.open(log, "w", encoding="utf-8") as f:
+            f.write("a previous successor said this hours ago\n")
+        code, stdout = self.launch_with_fake_spawn(writes=None,
+                                                   pid=self.dead_pid())
+        self.assertEqual(code, 1,
+                         "a dead, silent successor was passed off as alive "
+                         "on the strength of an old log line")
+        self.assertIn("GONE", self.liveness_rows()[0].get("note") or "")
+
+
+class TestLivenessReachesTheNextPacket(LivenessCase):
+
+    def test_the_evidence_index_carries_project_evidence_too(self):
+        """Section 5 used to walk tasks only, so a project-subject row was
+        invisible to the successor reading the packet. A handover whose own
+        proof cannot be read by the next session proves nothing."""
+        code, stdout = self.launch_with_fake_spawn(writes=self.FIRST_LINE + "\n")
+        self.assertEqual(code, 0, stdout)
+        self.dry_run()
+        text = self.read_packet()
+        self.assertIn(self.cont.LIVENESS_KIND, text,
+                      "the regenerated packet does not carry the liveness "
+                      "evidence the previous launch filed")
+        self.assertIn(self.FIRST_LINE, text)
+
+
+class TestFirstLogLineIsBounded(unittest.TestCase):
+    """Pure unit tests over the watcher: no store, no subprocess."""
+
+    def setUp(self):
+        self.cont = _load(os.path.join(HERE, "bm_continue.py"), "bm_continue")
+        self.tmp = tempfile.mkdtemp(prefix="bm-liveness-")
+        self.log = os.path.join(self.tmp, "successor.log")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_returns_the_first_non_empty_line_stripped(self):
+        with io.open(self.log, "w", encoding="utf-8") as f:
+            f.write("\n\n   hello from the successor   \nand more\n")
+        self.assertEqual(
+            self.cont.first_log_line(self.log, timeout=1.0),
+            "hello from the successor")
+
+    def test_a_missing_log_times_out_rather_than_raising(self):
+        """A log that never appears is the ordinary shape of a successor
+        that died before writing anything. It is a verdict, not a crash."""
+        started = time.time()
+        self.assertEqual(
+            self.cont.first_log_line(self.log, timeout=0.3, poll=0.05), "")
+        self.assertLess(time.time() - started, 5.0,
+                        "first_log_line must be BOUNDED: an unbounded wait "
+                        "on a dead successor hangs the session that is "
+                        "trying to hand over")
+
+    def test_a_partial_line_without_a_newline_is_not_read_as_complete(self):
+        """Half a line on disk is a write in flight, not output. Reading it
+        would record a truncated first line as the successor's own words."""
+        with io.open(self.log, "w", encoding="utf-8") as f:
+            f.write("half a li")
+        self.assertEqual(
+            self.cont.first_log_line(self.log, timeout=0.3, poll=0.05), "")
+
+    def test_a_long_line_is_truncated_so_the_store_row_stays_a_row(self):
+        with io.open(self.log, "w", encoding="utf-8") as f:
+            f.write("x" * 5000 + "\n")
+        line = self.cont.first_log_line(self.log, timeout=1.0)
+        self.assertLessEqual(len(line), self.cont.FIRST_LINE_MAX)
+        self.assertTrue(line.startswith("x"))
+
+
+class TestProcessAliveIsHonest(unittest.TestCase):
+
+    def setUp(self):
+        self.cont = _load(os.path.join(HERE, "bm_continue.py"), "bm_continue")
+
+    def test_this_process_is_alive(self):
+        self.assertTrue(self.cont.process_alive(os.getpid()))
+
+    def test_a_pid_that_cannot_exist_is_not_alive(self):
+        self.assertFalse(self.cont.process_alive(-1))
 
 
 if __name__ == "__main__":

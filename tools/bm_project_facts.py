@@ -195,7 +195,7 @@ def facts(root=ROOT):
     # immutable option for auditors.
     install_command_plugin = (
         "claude plugin marketplace add khalilmaaouni/BrotherModeUp\n"
-        "claude plugin install brotherme@brotherme-marketplace")
+        "claude plugin install brothermode@brothermode-marketplace")
 
     return {
         "version": version,
