@@ -35,10 +35,10 @@ claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.0.0
 claude plugin install brothermode@brothermode-marketplace
 ```
 
-Pasting `claude plugin install brothermode@brothermode-marketplace` after the
-same marketplace add fails instead, with `Plugin "brothermode" not found in
-marketplace "brothermode-marketplace"`: that plugin id does not exist in the
-v2 marketplace this tag ships.
+Already running v2? Uninstall it first (`claude plugin uninstall
+brotherme`). The plugin identity changed at v3.0.0, so the old and new ids
+are different plugins to Claude Code and installing both leaves two hook
+chains wired at once.
 
 The `@v3.0.0` pins the marketplace add to the released tag, generated from
 the same fact every other page reads (`python3 tools/bm_project_facts.py

@@ -24,17 +24,71 @@ HTML in a browser and printing to PDF, then update this note with the new date.
 |---|---|
 | `brothermode-for-dummies.html` | the book. One self-contained file, inline CSS, diagrams as inline SVG, no external reference of any kind. Open it by double clicking it. |
 | `brothermode-for-dummies.pdf` | the PDF export, 56 pages, produced from the HTML on 2026-07-30. See the note below on how, and on what that means for regenerating it. |
+| `brothermode-solo-builder-booklet.html` | THE OFFICIAL BOOKLET for this project. Written for solo founders and individual contributors deciding whether to adopt it. See below. |
 
-REORGANIZED 2026-08-01 after the founder rated the tour-shaped book 1 of 5:
-the book is now task-first, per the ratified rebuild spec
-(docs/superpowers/specs/2026-08-01-docs-rebuild-after-1of5-design.md). It
-opens with a one-screen cheat sheet, then four parts: DO (three short
-tutorials, 217 words to first proven success), SOLVE (the how-to chapters),
-UNDERSTAND (philosophy and architecture, behind a divider no first-time
-reader must cross), and LOOK UP (references, glossary, and a task index that
-maps "I want to..." questions to anchors). All sixteen original chapters
-survive inside the parts with their numbers and anchors unchanged, each still
-ending in a "try this now" the reader can actually run.
+## The official booklet (2026-08-08)
+
+`brothermode-solo-builder-booklet.html` is THE official HTML artefact about
+this project. The founder settled that on 2026-08-08. Anything else in this
+folder is either a different audience kept for a stated reason, or history.
+
+It is written for a solo founder or individual contributor deciding whether to
+adopt this, and it is ordered pain first: what goes wrong when you hand serious
+work to Claude, what relieves that immediately, what stops it coming back, and
+only then the machinery. Five acts, 19 diagrams, roughly 5,700 words.
+
+Tagline: **Build with Claude. Stay in control.** Category line: **The
+reliability layer for Claude Code.** Both were checked against
+`docs/brand/IDENTITY-CONTRACT.md` and the naming test before use; neither
+touches a governed name token.
+
+It is policed. Because it sits under `docs/` with no date in its filename,
+`current_pages()` in `tools/test_bm_docs.py` picks it up, so
+`TestCurrentPagesUseTheCanonicalNames` and `TestNoUnbackedAbsolutes` both run
+against it. What does NOT run against it is `TestNoDashes`, scoped to a
+different file list, and any check that a feature description in it is still
+true. A renamed command would fail nothing here.
+
+Three blocks in it are real captured tool output, not mock-ups: the eight-field
+status, the section headings of a generated project page, and the node labels
+of the three drawings that page produced. They were captured by running a
+project through `tools/brothermode_cli.py` against a throwaway repository
+outside this tree, and pasted exactly as printed.
+
+HONEST LIMITS, stated rather than implied:
+
+- Nobody outside this project has read it.
+- It has no pinned test of its own, the way the dummies book has
+  `TestTheAdoptionBook`. Adding one is the most useful follow-up for this file.
+- No PDF export. Any browser's print dialogue produces one; the file carries a
+  print stylesheet with a page break per act.
+
+### What was retired, and why it is not simply gone
+
+`brothermode-team-briefing.html` was removed on 2026-08-08. It was a good book
+aimed at an internal engineering team, superseded when the founder chose the
+solo-builder framing, which is also the framing `README.md` and
+`docs/market/CATEGORY.md` already used ("built to scale down to one person
+doing the work of several roles, not up to a team").
+
+It is not lost. Recover it with:
+
+    git show d4f2f91:docs/book/brothermode-team-briefing.html > restored.html
+
+### Why the other HTML files in this repository stayed
+
+Two of them cannot be deleted without turning the gate red, which is a fact
+about the tests rather than a preference:
+
+- `brothermode-for-dummies.html` is pinned at `tools/test_bm_docs.py:3406`,
+  where `TestTheAdoptionBook` re-runs one of its walkthroughs against the real
+  command line.
+- `../brotherme-explained.html` is pinned by four assertions in
+  `tools/test_bm.py`.
+
+Retiring either one means removing its test in the same change, which is a
+separate decision with its own review. `PROJECT-VIEW.html` is generated output
+rather than a document, and `../one-pager.src.html` is a source file.
 
 ## How to read it offline
 
