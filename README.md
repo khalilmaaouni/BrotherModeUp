@@ -543,7 +543,9 @@ because a second copy of a limits list is a copy that goes stale.
 
 The mechanics, if you want them: [`docs/HOW-IT-WORKS.md`](docs/HOW-IT-WORKS.md)
 explains the tools that run today, [`docs/HOOKS.md`](docs/HOOKS.md) explains
-what each hook receives and what the fence can refuse, and
+what each hook receives and what the fence can refuse,
+[`docs/CONTINUITY.md`](docs/CONTINUITY.md) states what a session owes the next
+one when it ends with work still open, and
 `docs/BrotherMode-Design-Document.pdf` is the whitepaper: philosophy, code,
 data flow and cost.
 

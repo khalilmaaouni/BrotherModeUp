@@ -109,6 +109,11 @@ ACTIVE_DOCS = (
     os.path.join("docs", "HOW-IT-WORKS.md"),
     os.path.join("docs", "CORRECTION-LEARNING.md"),
     os.path.join("docs", "KNOWN-LIMITS.md"),
+    # The continuity page, added 2026-08-08 with Phase C step 4. It states a
+    # law a session is meant to obey unattended, which puts it in the same
+    # class as the install pages: a stale sentence here is read at three in
+    # the morning by something that will act on it.
+    os.path.join("docs", "CONTINUITY.md"),
 )
 
 # The three install pages. Every one of them must describe the same install.
@@ -5061,6 +5066,106 @@ class TestContinuityIsWiredIntoTheClosingFlows(unittest.TestCase):
                     offenders.append("%s:%d" % (rel, i))
         self.assertEqual(offenders, [], "em or en dash found at %s"
                          % ", ".join(offenders))
+
+
+# Phase C step 4 of the 2026-08-08 finalization plan: the one page that states
+# the continuity contract in prose, for a reader who is not about to read
+# tools/bm_continue.py. The skills tell a session WHAT to run; this page says
+# WHY, what happens when the launch cannot happen, and which half of the
+# protocol a machine actually enforces.
+CONTINUITY_DOC = os.path.join("docs", "CONTINUITY.md")
+
+# The ladder of last resorts, in the order the plan names it. Order is pinned,
+# not just presence: a ladder whose rungs can be reordered is a list, and the
+# whole point is that a session takes the FIRST rung it can reach and only
+# drops to the next when that one is closed.
+CONTINUITY_LADDER = ("Rung 1", "Rung 2", "Rung 3")
+
+# The three verdicts Phase C step 3 actually shipped (tools/bm_continue.py,
+# commit 9fe992b). The page describes what the product does, so a verdict this
+# page invents, or one it drops after the code gains it, fails here.
+LIVENESS_VERDICTS = ("SPOKE", "RUNNING", "GONE")
+
+
+class TestTheContinuityPageStatesTheContract(unittest.TestCase):
+    """Protects: Phase C step 4 of PLAN.md (2026-08-08). Steps 1 to 3 built the
+    verb, wired it into the two closing flows, and made the launch prove the
+    successor is alive. What none of them produced is a page a human can read
+    to learn the contract, which matters most in the case the whole phase
+    exists for: a session at three in the morning whose launch was refused and
+    which has to decide what to do instead.
+
+    The page is held to three things a later edit cannot quietly drop: the law
+    that silence is forbidden, the ladder of last resorts in order, and an
+    honest split between what a machine enforces and what is only discipline.
+    That last one is why the class exists at all. A continuity protocol that
+    reads as fully mechanical is the overclaim this project's own limits
+    register was written to prevent."""
+
+    def test_the_page_states_the_law_and_the_condition(self):
+        text = read(CONTINUITY_DOC)
+        missing = [phrase for phrase in (CONTINUITY_CONDITION, CONTINUITY_LAW)
+                   if phrase not in text]
+        self.assertEqual(missing, [], "%s is missing %s"
+                         % (CONTINUITY_DOC, "; ".join(repr(m) for m in missing)))
+
+    def test_the_ladder_names_its_rungs_in_order(self):
+        text = read(CONTINUITY_DOC)
+        positions = []
+        for rung in CONTINUITY_LADDER:
+            self.assertIn(rung, text, "%s does not name %s of the ladder of "
+                                      "last resorts" % (CONTINUITY_DOC, rung))
+            positions.append(text.index(rung))
+        self.assertEqual(positions, sorted(positions),
+                         "the rungs are out of order in %s: a session takes "
+                         "the first rung it can reach, so the order IS the "
+                         "instruction" % CONTINUITY_DOC)
+
+    def test_the_page_carries_the_three_verdicts_the_launch_returns(self):
+        text = read(CONTINUITY_DOC)
+        missing = [v for v in LIVENESS_VERDICTS if v not in text]
+        self.assertEqual(missing, [], "%s does not name the liveness verdict(s) "
+                                      "%s that tools/bm_continue.py returns"
+                         % (CONTINUITY_DOC, ", ".join(missing)))
+
+    def test_every_verdict_named_here_is_one_the_code_returns(self):
+        """The other direction, and the one that catches a page drifting into
+        fiction: a verdict word on the page that no longer exists in the tool
+        means the page is describing a product that shipped last week."""
+        tool = read(os.path.join("tools", "bm_continue.py"))
+        for verdict in LIVENESS_VERDICTS:
+            self.assertIn('%s = "%s"' % (verdict, verdict), tool,
+                          "%s documents the verdict %s, which tools/"
+                          "bm_continue.py does not define"
+                          % (CONTINUITY_DOC, verdict))
+
+    def test_the_page_separates_what_is_mechanical_from_what_is_discipline(self):
+        text = read(CONTINUITY_DOC)
+        for phrase in ("Mechanical", "Discipline"):
+            self.assertIn(phrase, text,
+                          "%s does not say which half of the protocol is %s. A "
+                          "protocol that reads as fully enforced is an "
+                          "overclaim." % (CONTINUITY_DOC, phrase.lower()))
+
+    def test_the_page_names_the_command_in_the_forms_a_reader_can_run(self):
+        text = read(CONTINUITY_DOC)
+        missing = [phrase for phrase in (CONTINUE_PLUGIN_FORM,
+                                         CONTINUE_CLONE_FORM,
+                                         CONTINUE_PACKAGED_NAME,
+                                         CONTINUE_DRY_RUN)
+                   if phrase not in text]
+        self.assertEqual(missing, [], "%s is missing %s"
+                         % (CONTINUITY_DOC, "; ".join(repr(m) for m in missing)))
+
+    def test_readme_points_at_the_page_exactly_once(self):
+        """Once, because the plan says one pointer, and because a second copy
+        of a pointer is the second place that goes stale. A markdown link
+        carries the path twice, in its label and in its target."""
+        hits = read("README.md").count("docs/CONTINUITY.md")
+        self.assertEqual(2, hits,
+                         "README.md should carry exactly one markdown link to "
+                         "docs/CONTINUITY.md (label plus target is two "
+                         "occurrences of the path); found %d" % hits)
 
 
 class TestNoDashes(unittest.TestCase):
