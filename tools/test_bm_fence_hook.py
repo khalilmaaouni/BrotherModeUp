@@ -1178,6 +1178,54 @@ class CodexApplyPatchRefuteRound2(FenceHookBase):
         decision, _n = self.decide(self.bash(self.OTHER, cmd))
         self.assertIn("src/app.py", self.assertDenied(decision))
 
+    # -- H2 from the 2026-08-08 cross-family review: the two parser -------
+    # -- shapes that bypassed this fence, now pinned shut -----------------
+
+    def test_command_builtin_prefix_before_apply_patch_still_denies(self):
+        """`command apply_patch <<'PATCH'`: the shell's command builtin runs
+        apply_patch, so apply_patch is the program receiving the heredoc.
+        The old parser returned 'command' as the program word, matched no
+        gated command, and allowed the write (H2, first shape). Must DENY."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        cmd = ("command apply_patch <<'PATCH'\n*** Begin Patch\n"
+               "*** Update File: src/app.py\n*** End Patch\nPATCH")
+        decision, _n = self.decide(self.bash(self.OTHER, cmd))
+        self.assertIn("src/app.py", self.assertDenied(decision))
+
+    def test_command_builtin_with_flag_before_apply_patch_still_denies(self):
+        """`command -p apply_patch`: same builtin with an option token in
+        front of the program word. Must DENY for the same reason."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        cmd = ("command -p apply_patch <<'PATCH'\n*** Begin Patch\n"
+               "*** Update File: src/app.py\n*** End Patch\nPATCH")
+        decision, _n = self.decide(self.bash(self.OTHER, cmd))
+        self.assertIn("src/app.py", self.assertDenied(decision))
+
+    def test_hyphenated_quoted_delimiter_still_denies(self):
+        """<<'PATCH-END': a hyphen is a legal heredoc delimiter character.
+        The old scanner stopped the delimiter at the hyphen, read the quote
+        as unbalanced, and dropped the whole operator, so the apply_patch
+        write sailed through unread (H2, second shape). Must DENY."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        cmd = ("apply_patch <<'PATCH-END'\n*** Begin Patch\n"
+               "*** Update File: src/app.py\n*** End Patch\nPATCH-END")
+        decision, _n = self.decide(self.bash(self.OTHER, cmd))
+        self.assertIn("src/app.py", self.assertDenied(decision))
+
+    def test_hyphenated_unquoted_and_tab_stripping_delimiters_still_deny(self):
+        """The unquoted and '<<-' spellings of a hyphenated delimiter: the
+        delimiter still ends at the hyphen boundary correctly and the body
+        is still read. Must DENY in both spellings."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        for op, terminator in (("<<PATCH-END", "PATCH-END"),
+                               ("<<-'PATCH-END'", "PATCH-END")):
+            cmd = ("apply_patch %s\n*** Begin Patch\n"
+                   "*** Update File: src/app.py\n*** End Patch\n%s"
+                   % (op, terminator))
+            decision, _n = self.decide(self.bash(self.OTHER, cmd))
+            self.assertIn("src/app.py", self.assertDenied(decision),
+                          "delimiter %r must still DENY" % op)
+
     def test_unreadable_apply_patch_heredoc_still_denies(self):
         """An apply_patch heredoc with an envelope marker but no readable
         directive is still refused: targets unknowable, and this hook does
