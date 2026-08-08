@@ -1,5 +1,9 @@
 # The GitHub Actions red on main, diagnosed and fixed
 
+Status: CURRENT. This is an evidence record of a diagnosis and a fix that
+happened, so it stays true as written; it is superseded only if the same
+checks go red again for a different reason.
+
 Date: 2026-08-08. Session: relay 7 of the v3 finalization program.
 Branch: `relay7/ci-doctor-fix`, worktree `.claude/worktrees/relay7-ci-doctor`.
 
