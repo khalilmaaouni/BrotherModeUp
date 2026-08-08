@@ -142,6 +142,7 @@ evidence:
 blockers:
 started_at:
 completed_at:
+phase:
 ```
 
 ### 2.4 Attribution event
