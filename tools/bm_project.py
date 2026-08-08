@@ -880,7 +880,7 @@ def cmd_next(argv):
 _TASK_ADD_FLAGS = (
     "project-id", "task-id", "title", "user-value", "reason", "priority",
     "depends-on", "status", "assigned-human", "assigned-runtime",
-    "assigned-model-profile", "assignment-reason", "json",
+    "assigned-model-profile", "assignment-reason", "phase", "json",
     "out-json") + _ACTOR_FLAGS
 
 
@@ -890,6 +890,7 @@ def _task_add_usage():
             "[--depends-on id,id] [--status S(default planned)] "
             "[--assigned-human H] [--assigned-runtime R] "
             "[--assigned-model-profile M] [--assignment-reason R] "
+            "[--phase P] "
             "[--json PATH] [--actor-type human|model] --actor-name NAME "
             "[--session-id SID] [--out-json]")
 
@@ -899,7 +900,7 @@ def cmd_task_add(argv):
         "project-id", "task-id", "title", "user-value", "reason",
         "priority", "depends-on", "status", "assigned-human",
         "assigned-runtime", "assigned-model-profile", "assignment-reason",
-        "json") + _ACTOR_FLAGS)
+        "phase", "json") + _ACTOR_FLAGS)
     usage = _task_add_usage()
     project_id = _require(kv, "project-id", usage)
     actor = _actor(kv, usage)
@@ -930,7 +931,11 @@ def cmd_task_add(argv):
             ("priority", "priority"), ("assigned-human", "assigned_human"),
             ("assigned-runtime", "assigned_runtime"),
             ("assigned-model-profile", "assigned_model_profile"),
-            ("assignment-reason", "assignment_reason")):
+            ("assignment-reason", "assignment_reason"),
+            # Schema 18: the phase this piece belongs to. Optional, and an
+            # absent flag stays absent rather than inheriting the
+            # project's current phase, which would be a guess.
+            ("phase", "phase")):
         if kv.get(flag):
             task[field] = kv[flag]
     if kv.get("depends-on"):
