@@ -235,21 +235,57 @@ class TestDoctorIsByteIdenticalToDirectScript(unittest.TestCase):
         self.assertEqual(wrapped.stdout, direct.stdout)
 
     def test_doctor_json_flag_forwards(self):
-        # This test proves the FLAG FORWARDS, not that the tree sits at a
-        # push boundary: doctor legitimately exits 1 mid-train when the
-        # manifest check finds files newer than the last CHECKSUMS
-        # rebuild, which happens by design between a wave's commits and
-        # its manifest-last rebuild (M18). Pinning exit 0 here made the
-        # gate order-dependent, measured 2026-08-08 (check 9 FAIL, 31
-        # files newer than the manifest, every other check PASS).
+        # This test proves the FLAG FORWARDS, and nothing else. It says so
+        # by comparing the wrapper against the script it wraps, which is
+        # true on every machine, rather than by pinning doctor's verdict,
+        # which is a fact about the machine and not about forwarding. The
+        # earlier version asserted the verdict and was red on every hosted
+        # runner for that reason; the verdict assertion now lives in
+        # test_doctor_reports_only_expected_failures_on_a_real_install
+        # below, where its precondition is stated instead of assumed.
         env = _clean_env()
         wrapped = _run(CLI_PATH, ["doctor", "--json"], REPO, env=env)
-        self.assertIn(wrapped.returncode, (0, 1),
-                      wrapped.stdout + wrapped.stderr)
+        direct = _run(DOCTOR_PATH, ["--json"], REPO, env=env)
+        self.assertEqual(wrapped.returncode, direct.returncode)
+        self.assertEqual(wrapped.stdout, direct.stdout)
         payload = json.loads(wrapped.stdout)
         self.assertIn("checks", payload)
         self.assertEqual(len(payload["checks"]), 10)
-        if wrapped.returncode == 1:
+
+    def test_doctor_reports_only_expected_failures_on_a_real_install(self):
+        # The install-health guard, kept word for word from where it used
+        # to sit inside the forwarding test above, with the one thing it
+        # always silently assumed now written down: that BrotherMode is
+        # actually INSTALLED on the machine running it.
+        #
+        # doctor legitimately exits 1 mid-train when the manifest check
+        # finds files newer than the last CHECKSUMS rebuild, which happens
+        # by design between a wave's commits and its manifest-last rebuild
+        # (M18). Pinning exit 0 made the gate order-dependent, measured
+        # 2026-08-08 (check 9 FAIL, 31 files newer than the manifest,
+        # every other check PASS).
+        #
+        # On a bare checkout with no install (every GitHub Actions runner:
+        # CI checks the repo out and runs the suite, it never runs
+        # scripts/install.py or scripts/setup.py), checks 1 fence, 4
+        # consent and 10 settings_json FAIL because there is no
+        # ~/.claude/settings.json and setup has never been completed.
+        # Those three FAILs are doctor telling the exact truth about that
+        # machine, so asserting them away would be asserting a falsehood.
+        # There is nothing there for this guard to guard, so it skips and
+        # says which check proved it.
+        env = _clean_env()
+        r = _run(CLI_PATH, ["doctor", "--json"], REPO, env=env)
+        self.assertIn(r.returncode, (0, 1), r.stdout + r.stderr)
+        payload = json.loads(r.stdout)
+        by_key = {c["key"]: c for c in payload["checks"]}
+        consent = by_key.get("consent", {})
+        if consent.get("status") != "PASS":
+            raise unittest.SkipTest(
+                "BrotherMode is not installed on this machine (doctor's "
+                "consent check says %r), so there is no install for this "
+                "check to report on." % consent.get("status"))
+        if r.returncode == 1:
             failing = [c["id"] for c in payload["checks"]
                        if c.get("status") == "FAIL"]
             self.assertEqual(failing, [9],

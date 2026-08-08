@@ -549,6 +549,38 @@ one when it ends with work still open, and
 `docs/BrotherMode-Design-Document.pdf` is the whitepaper: philosophy, code,
 data flow and cost.
 
+### The booklet: the long-form explanation of this project
+
+[`docs/book/brothermode-solo-builder-booklet.html`](docs/book/brothermode-solo-builder-booklet.html)
+is the official long-form explanation of what this is and whether it is worth
+your overhead. It is one self-contained file: no script, no external font, no
+network request, so it opens by double clicking it and keeps working offline.
+
+It is written for a solo founder or individual contributor deciding whether to
+adopt this, and it is ordered pain first. What goes wrong when you hand serious
+work to Claude, what relieves that immediately, what stops it coming back, and
+only then the machinery. Five acts, nineteen diagrams, and a language toggle at
+the top: the whole booklet exists in English and Japanese, prose and diagram
+labels alike.
+
+Three blocks in it are real captured output rather than mock-ups: the
+eight-field status, the section headings of a generated project page, and the
+node labels of the three drawings that page produced, taken by running a
+project through `tools/brothermode_cli.py` against a throwaway repository and
+pasted exactly as printed.
+
+What it deliberately does not carry: any productivity number, because none has
+been measured; any test count, because counts move and a reader seeing a
+mismatch cannot tell a stale page from a broken install; and any ranking
+against another product, because the shared run that would earn one has not
+happened. It states its own limits in the same voice as this page, including
+that nobody outside this project has read it.
+
+`docs/book/brothermode-for-dummies.html` is a different book for a different
+reader, for someone who has never heard the word hook.
+[`docs/book/README.md`](docs/book/README.md) explains which is which, and why
+each remaining HTML file in this repository is still here.
+
 ### What is in the box
 
 | File | What it does |

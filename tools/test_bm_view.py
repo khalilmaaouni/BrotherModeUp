@@ -573,16 +573,21 @@ class TestConsentIsTheOnlyDoorForTheView(ViewCase):
 
 class TestEverySectionRenders(ViewCase):
 
-    def test_view_sections_has_fifteen_entries_in_the_designed_order(self):
-        self.assertEqual(15, len(bw.VIEW_SECTIONS))
+    def test_view_sections_has_sixteen_entries_in_the_designed_order(self):
+        self.assertEqual(16, len(bw.VIEW_SECTIONS))
         anchors = [s[0] for s in bw.VIEW_SECTIONS]
         self.assertEqual(
-            ["header", "needs-you", "next-step", "pipeline", "progress",
-             "counts", "risks", "decisions", "insights", "gates", "lanes",
-             "documents", "timeline", "your-move", "help"], anchors,
-            "design section 4.2's twelve anchors plus the three the "
+            ["header", "needs-you", "next-step", "pipeline", "programme",
+             "progress", "counts", "risks", "decisions", "insights",
+             "gates", "lanes", "documents", "timeline", "your-move",
+             "help"], anchors,
+            "design section 4.2's twelve anchors, plus the three the "
             "progress surface loop added (progress, risks, documents), "
-            "in that order")
+            "plus programme (Phase 5, the Gantt), in that order. "
+            "programme sits directly after pipeline and before progress "
+            "because it answers the widest question on the page, where "
+            "the whole programme stands, and the reader should meet it "
+            "before the per-owner detail underneath it")
         for entry in bw.VIEW_SECTIONS:
             self.assertEqual(4, len(entry),
                              "(anchor_id, heading, renderer_name, "
@@ -1660,6 +1665,68 @@ class TestProgressRisksAndDocumentsSections(ViewCase):
         self.assertEqual([], leaked,
                          "internal term(s) leaked once progress, risks "
                          "and documents are populated: %s" % leaked)
+
+
+class TestTheProgrammeSection(unittest.TestCase):
+    """Phase 5, the progress view. The Gantt is a SECTION of the one
+    generated page, not a second page: the architecture rule this
+    programme is closing says one authority per concern, and two progress
+    pages would be two."""
+
+    def _ctx(self):
+        tasks = [
+            {"task_id": "a", "title": "Close the fence holes",
+             "status": "accepted", "phase": "Phase 1",
+             "started_at": "2026-08-01T00:00:00Z",
+             "completed_at": "2026-08-03T00:00:00Z", "blockers": []},
+            {"task_id": "b", "title": "Wire the continue verb",
+             "status": "active", "phase": "Phase C",
+             "started_at": "2026-08-03T00:00:00Z",
+             "completed_at": None, "blockers": []},
+        ]
+        evidence = {"a": [{"ref": "test_all: ALL GREEN"}]}
+        return {"tasks": tasks,
+                "gantt": bv.gantt_facts({"tasks": tasks,
+                                          "evidence": evidence})}
+
+    def test_the_page_registers_a_programme_section(self):
+        anchors = [a for a, _h, _r, _k in bw.VIEW_SECTIONS]
+        self.assertIn("programme", anchors)
+
+    def test_every_section_has_help_and_an_empty_state(self):
+        """The page's own contract: a section with no help text or no
+        designed empty state renders a hole on a fresh project."""
+        for anchor, _h, renderer, empty_key in bw.VIEW_SECTIONS:
+            self.assertIn(anchor, bw.SECTION_HELP, anchor)
+            self.assertIn(empty_key, bw.EMPTY_STATES, empty_key)
+            self.assertIn(renderer, bw._SECTION_RENDERERS, renderer)
+
+    def test_it_draws_the_gantt_and_names_every_phase(self):
+        body = bw._sec_programme(self._ctx())
+        self.assertIn("Phase 1", body)
+        self.assertIn("Phase C", body)
+
+    def test_it_states_the_count_of_ticked_records_not_a_percentage_alone(
+            self):
+        body = bw._sec_programme(self._ctx())
+        self.assertIn("1 of 2", body)
+
+    def test_it_says_in_words_what_a_tick_means(self):
+        """The tick contract has to be readable by the founder on the
+        page itself, not only in a docstring, because the page is where
+        the claim is made."""
+        body = bw._sec_programme(self._ctx())
+        self.assertIn("finished", body.lower())
+        self.assertIn("record", body.lower())
+
+    def test_no_work_at_all_falls_through_to_the_designed_empty_state(self):
+        self.assertEqual("", bw._sec_programme({"tasks": [],
+                                                 "gantt": bv.gantt_facts(
+                                                     {"tasks": []})}))
+
+    def test_the_same_rows_render_the_same_bytes_twice(self):
+        ctx = self._ctx()
+        self.assertEqual(bw._sec_programme(ctx), bw._sec_programme(ctx))
 
 
 if __name__ == "__main__":
