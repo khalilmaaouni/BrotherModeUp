@@ -40,21 +40,19 @@ SUPPORTED_FIELDS = {
 # The plan's Agent 6 section: five worker profiles, no more, no fewer, each
 # pinned to its exact model, effort, and isolation.
 #
-# ISOLATION AMENDED 2026-08-08 by the review adjudication (finding H-1,
-# handovers/v3/ADJUDICATION.md group G3): the plan asked for
-# isolation worktree on the two writer profiles, but the fence does NOT
-# resolve claims across worktrees (measured, and carried as an
-# expectedFailure in tools/test_brothermode_cli.py), so shipping worktree
-# as the writers' DEFAULT would have made the un-fenced path the normal
-# one. The writers now carry no isolation field, and the limit is
-# published in docs/limits/CURRENT.md. Restore worktree here only when
-# cross-worktree claim resolution is fixed and proven by that test
-# turning green.
+# ISOLATION RESTORED in the finalization run, 2026-08-08: the 2026-08-08
+# adjudication (finding H-1, group G3) had removed the writers' worktree
+# isolation because the fence did not resolve claims across worktrees,
+# and its own restore condition said to bring it back only when the
+# deliberately failing pin in tools/test_brothermode_cli.py turned green.
+# That test now passes for real (bm_store.strip_worktree_segments,
+# applied in canonical_target and canonicalize_path), so the plan's
+# original worktree default is back on both writer profiles.
 EXPECTED = {
     "fast-worker": {"model": "haiku", "effort": "medium",
-                     "isolation": None, "read_only": False},
+                     "isolation": "worktree", "read_only": False},
     "builder": {"model": "sonnet", "effort": "high",
-                "isolation": None, "read_only": False},
+                "isolation": "worktree", "read_only": False},
     "researcher": {"model": "sonnet", "effort": "high",
                    "isolation": None, "read_only": True},
     "navigator": {"model": "opus", "effort": "xhigh",
@@ -68,7 +66,7 @@ WRITE_TOOLS = {"Write", "Edit", "NotebookEdit"}
 # The minimal frontmatter field set this suite allows per role. Any field
 # beyond this is feature creep the fence brief's "no new capabilities" rule
 # forbids, caught here rather than discovered later.
-WRITER_FIELDS = {"name", "description", "model", "effort"}
+WRITER_FIELDS = {"name", "description", "model", "effort", "isolation"}
 READ_ONLY_FIELDS = {"name", "description", "model", "effort", "disallowedTools"}
 
 

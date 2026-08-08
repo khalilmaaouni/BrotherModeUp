@@ -794,7 +794,7 @@ def _run_pre(payload):
 
     cwd = payload.get("cwd")
     cwd = cwd if isinstance(cwd, str) and cwd.strip() else None
-    root, _source = bs.resolve_root(cwd)
+    root, _source = bs.resolve_root(cwd, env_must_contain_start=True)
     if root is None:
         raise _FailOpen("no BrotherMode project root found from %s"
                         % (cwd or os.getcwd()))
@@ -865,7 +865,7 @@ def cmd_pre(argv):
             cwd = payload.get("cwd")
             cwd = cwd if isinstance(cwd, str) and cwd.strip() else None
             try:
-                root, _source = bs.resolve_root(cwd)
+                root, _source = bs.resolve_root(cwd, env_must_contain_start=True)
             except Exception:
                 root = None
         if root is not None:
@@ -931,7 +931,7 @@ def _run_post(payload):
 
     cwd = payload.get("cwd")
     cwd = cwd if isinstance(cwd, str) and cwd.strip() else None
-    root, _source = bs.resolve_root(cwd)
+    root, _source = bs.resolve_root(cwd, env_must_contain_start=True)
     if root is None:
         raise _FailOpen("no BrotherMode project root found from %s"
                         % (cwd or os.getcwd()))

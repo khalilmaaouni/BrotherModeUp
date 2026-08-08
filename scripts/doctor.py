@@ -168,6 +168,42 @@ def read_settings(path):
     return data, None
 
 
+def loader_managed_fence_copies():
+    """BrotherMode copies Claude Code auto-loads as plugins, each carrying
+    its own hook wiring so settings.json holds no block at all: directories
+    under ~/.claude/skills/<name>/ (the skills-dir auto-load) and under the
+    plugin cache ~/.claude/plugins/cache/<marketplace>/<name>/, whose own
+    hooks/hooks.json names the fence basename. Added in the finalization
+    run 2026-08-08, when this machine's duplicated settings.json wiring was
+    retired in favor of the plugin loader and doctor had no model for that
+    shape. Best effort: an unreadable directory is simply not a match, and
+    a private HOME (the test fixtures) sees only its own tree."""
+    out = []
+    home = os.path.expanduser("~")
+    bases = [os.path.join(home, ".claude", "skills")]
+    cache = os.path.join(home, ".claude", "plugins", "cache")
+    try:
+        for marketplace in sorted(os.listdir(cache)):
+            bases.append(os.path.join(cache, marketplace))
+    except OSError:
+        pass  # no plugin cache is the common case, not a problem
+    for base in bases:
+        try:
+            names = sorted(os.listdir(base))
+        except OSError:
+            continue
+        for name in names:
+            hooks = os.path.join(base, name, "hooks", "hooks.json")
+            try:
+                with io.open(hooks, encoding="utf-8") as fh:
+                    text = fh.read()
+            except OSError:
+                continue
+            if FENCE_BASENAME in text:
+                out.append(os.path.join(base, name))
+    return out
+
+
 def find_fence_entries(settings):
     """Every PreToolUse hook entry whose command names a bm_fence_hook.py.
 
@@ -372,8 +408,30 @@ def doctor(settings_path):
 
     entries = find_fence_entries(settings)
     if not entries:
+        loader_copies = loader_managed_fence_copies()
+        if loader_copies:
+            copy = loader_copies[0]
+            fence = os.path.join(copy, "tools", FENCE_BASENAME)
+            notes.append("no settings.json fence block, and none is "
+                         "needed: %s is auto-loaded by Claude Code as a "
+                         "plugin and registers its own hooks/hooks.json, "
+                         "fence included. Liveness is proven below against "
+                         "that copy." % _mask_home(copy))
+            if not os.path.isfile(fence):
+                return (problems + [
+                    "the loader-managed copy at %s wires a fence in its "
+                    "hooks/hooks.json but carries no tools/%s file, so the "
+                    "registered hook is dead: Claude Code will report a "
+                    "hook error and continue, and writes proceed unfenced."
+                    % (_mask_home(copy), FENCE_BASENAME)], notes)
+            words = ["python3", fence]
+            problems.extend(blocked_write_simulation(
+                words, os.path.dirname(fence)))
+            return problems, notes
         return (["NO FENCE HOOK IS WIRED. settings.json (%s) has no PreToolUse "
-                 "entry naming %s, so nothing stands in front of a write and "
+                 "entry naming %s, no auto-loaded plugin copy under "
+                 "~/.claude/skills or the plugin cache wires one either, so "
+                 "nothing stands in front of a write and "
                  "the one-writer promise is a ledger, not a boundary. Fix: run "
                  "python3 scripts/install.py (or --upgrade over an existing "
                  "install), or add the block in docs/HOOKS.md by hand."
@@ -714,6 +772,15 @@ def check_hook_wiring_matches_mode(settings, settings_err, settings_path, root):
             return _result("mode_wiring", STATUS_PASS,
                            "PASS: installation_mode is clone and a clone "
                            "hook wiring is present in %s." % _mask_home(settings_path))
+        loader = loader_managed_fence_copies()
+        if loader:
+            return _result("mode_wiring", STATUS_PASS,
+                           "PASS: installation_mode is clone with no "
+                           "settings.json block, and %s is auto-loaded by "
+                           "Claude Code as a plugin carrying its own hook "
+                           "wiring, which is the loader-managed clone "
+                           "shape (a clone parked under ~/.claude/skills)."
+                           % _mask_home(loader[0]))
         return _result("mode_wiring", STATUS_FAIL,
                        "FAIL: installation_mode is clone but no BrotherMode "
                        "hook wiring was found in %s. Run: python3 "
