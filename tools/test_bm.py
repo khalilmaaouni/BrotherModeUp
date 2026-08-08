@@ -1162,7 +1162,17 @@ class TestProjectSecurityClaims(unittest.TestCase):
                    # --tags` against the configured remote: a network READ,
                    # never a write, never a push, documented in SECURITY.md
                    # beside the other two exceptions.
-                   "brothermode_cli.py": {"subprocess"}}
+                   "brothermode_cli.py": {"subprocess"},
+                   # bm_continue.py (Phase C, the continuity protocol)
+                   # starts the SUCCESSOR SESSION: one local `claude -p`
+                   # process, detached, with its output going to a local
+                   # log file. Local execution, the same posture as
+                   # bm_autosave driving git; it opens no socket and
+                   # reaches no remote, and its one network-shaped
+                   # neighbour (the update check) lives in
+                   # brothermode_cli.py, not here. SECURITY.md documents
+                   # this beside the other three.
+                   "bm_continue.py": {"subprocess"}}
         for n in sorted(os.listdir(tools)):
             if not n.endswith(".py") or n.startswith("test_"):
                 continue

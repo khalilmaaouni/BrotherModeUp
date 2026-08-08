@@ -11202,6 +11202,43 @@ class TestLoop11ExportWithholdingPolicy(unittest.TestCase):
             bs.mask_absolute_paths("the file (/Users/j/x) is gone"),
             "the file (" + bs.PATH_WITHHELD_MARKER + ") is gone")
 
+    def test_mask_absolute_paths_leaves_an_https_url_whole(self):
+        """An https URL is not a filesystem path, and masking it destroys
+        the one thing it is for. Found on 2026-08-08 while generating the
+        handoff packet (tools/bm_continue.py): the packet's read-next
+        section must carry the published page's URL, and every URL came
+        out as 'https:/[PATH WITHHELD]' because the scheme's own '//' is
+        matched by the generic-slash rule, which then eats the rest of the
+        line.
+
+        The exemption is https ONLY, matching the store's own record_view
+        refusal V5 ('bad-artifact-url': anything but https is refused
+        precisely because a URL a renderer will put in an href is a
+        capability). A file: or a javascript: URL therefore keeps no
+        exemption here either."""
+        for url in ("https://claude.ai/code/artifact/37e1667e",
+                    "https://example.com/home/x",
+                    "https://claude.ai/code/artifact/x?a=1"):
+            self.assertEqual(bs.mask_absolute_paths(url), url)
+        self.assertEqual(
+            bs.mask_absolute_paths("see https://claude.ai/code/x for it"),
+            "see https://claude.ai/code/x for it")
+
+    def test_mask_absolute_paths_still_masks_a_path_beside_a_url(self):
+        """The exemption must not become a carrier: a real path sitting in
+        the same line as a URL is still withheld."""
+        self.assertEqual(
+            bs.mask_absolute_paths(
+                "https://claude.ai/code/x and /Users/j/secret"),
+            "https://claude.ai/code/x and " + bs.PATH_WITHHELD_MARKER)
+        # Plain http keeps NO exemption, and still comes out masked from
+        # its second slash on (the first is left because the generic-slash
+        # rule refuses to start on a "//"). The point of this assertion is
+        # the withholding, not the surviving slash.
+        self.assertEqual(
+            bs.mask_absolute_paths("http://example.com/home/x"),
+            "http:/" + bs.PATH_WITHHELD_MARKER)
+
     def test_calibrated_reinjecting_the_ascii_path_class_leaks_the_tail(self):
         """CALIBRATION for the path fix: restore the pre-fix ASCII-only
         regex and the exact reported tail leak returns."""
