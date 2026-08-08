@@ -36,9 +36,11 @@ claude plugin install brothermode@brothermode-marketplace
 ```
 
 Pasting `claude plugin install brothermode@brothermode-marketplace` after the
-same marketplace add fails instead, with `Plugin "brothermode" not found in
-marketplace "brothermode-marketplace"`: that plugin id does not exist in the
-v2 marketplace this tag ships.
+same marketplace add succeeds at this tag: v3.0.0's own `marketplace.json`
+already lists the plugin as `brothermode`. Pin an older tag instead, from
+before v3.0.0, and the same command fails with `Plugin "brothermode" not
+found in marketplace "brotherme-marketplace"`, because those tags still
+carry the pre-rename `brotherme` id.
 
 The `@v3.0.0` pins the marketplace add to the released tag, generated from
 the same fact every other page reads (`python3 tools/bm_project_facts.py
