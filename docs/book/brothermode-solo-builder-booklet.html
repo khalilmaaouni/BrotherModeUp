@@ -651,15 +651,16 @@ Next step: agree what I am allowed to do on your behalf
 
   <pre><code>/brothermode:view</code></pre>
 
-  <p>That writes one self-contained file at the top of your project folder. No sign-in, no network, opens by double-clicking. Its real section headings, read out of a generated page:</p>
+  <p>That writes one self-contained file at the top of your project folder. No sign-in, no network, opens by double-clicking. Its sixteen section headings, in the order <code>tools/bm_view.py</code> prints them:</p>
 
-  <pre><code>Where this stands            What could still go wrong
-Waiting on you               Decisions waiting for your answer
-Your next step               What I now believe, and what proved it
-The path of the work         What has to be true before this ships
-How far each lane has moved  Who holds the pen
-How much, against what limit The story so far
-                             Your move</code></pre>
+  <pre><code>Where this stands                     Waiting on you
+Your next step                        The path of the work
+Where the programme stands            How far each lane has moved
+How much, against what limit          What could still go wrong
+Decisions waiting for your answer     What I now believe, and what proved it
+What has to be true before this ships Who holds the pen
+What each finished piece produced     The story so far
+Your move                             About this page</code></pre>
 
   <p class="evidence">The eight fields and their order are fixed by <code>references/status-view.md</code>, and the ban on a bare date is <code>references/forecasting.md</code>. Publishing that page as a shared link is beta and needs a paid plan plus four further conditions; the file on disk is the promise.</p>
 
@@ -1430,7 +1431,7 @@ python3 scripts/doctor.py</code></pre>
 
 <footer class="foot">
   <p><strong>How this was built.</strong> Every claim was read out of the BrotherMode repository at v3.0.0 on 8 August 2026: the register of capability states, the roadmap's proof rungs, the reference files behind status, forecasting, delegation and the definition of done, the frontmatter of all seventeen skills, and the two limits registers. The status block and the project-page headings in act two are real output, captured by running a project through the command line against a throwaway repository and pasted exactly as printed.</p>
-  <p><strong>The builder in act two is an illustration. The machinery is not.</strong> Every command shown is real, every rule that bites is real, and every limit named traces to a file. The diagrams were drawn for this booklet; the tool draws seven shapes of its own, and both a timeline and a gantt are among them. Corrected on 8 August 2026: an earlier printing of this page said five, and said the tool refuses to draw a gantt, because <code>references/visual-surface.md</code> still says exactly that. The reference file is behind the code. The drawing suite pins the real number at seven, and carries a regression test written the last time this same prose fell behind.</p>
+  <p><strong>The builder in act two is an illustration. The machinery is not.</strong> Every command shown is real, every rule that bites is real, and every limit named traces to a file. The diagrams were drawn for this booklet; the tool draws seven shapes of its own, and both a timeline and a gantt are among them. Corrected on 8 August 2026: an earlier printing of this page said five, and said the tool refuses to draw a gantt, because <code>references/visual-surface.md</code> still says exactly that. The reference file is behind the code. The drawing suite pins the real number at seven, and carries a regression test written the last time this same prose fell behind. The same printing listed thirteen headings for the project page and called them its real ones. There are sixteen. Three were missing: the programme section that draws the gantt, which is new, and the finished pieces and the about section, which were already there and were simply missed.</p>
   <p><strong>What this booklet does not claim.</strong> No productivity number, because none has been measured. No test count, because counts move and a reader seeing a mismatch cannot tell a stale page from a broken install. No ranking against another product, because the run that would earn one has not happened.</p>
 </footer>
 
@@ -1820,15 +1821,16 @@ Next step: agree what I am allowed to do on your behalf
 
   <pre><code>/brothermode:view</code></pre>
 
-  <p>これはプロジェクトフォルダの先頭に、単体で完結するファイルを一つ書きます。サインイン不要、通信なし、ダブルクリックで開きます。実際に生成されたページの見出しは次のとおりです。</p>
+  <p>これはプロジェクトフォルダの先頭に、単体で完結するファイルを一つ書きます。サインイン不要、通信なし、ダブルクリックで開きます。十六個ある見出しを、<code>tools/bm_view.py</code> が印字する順に並べます。</p>
 
-  <pre><code>Where this stands            What could still go wrong
-Waiting on you               Decisions waiting for your answer
-Your next step               What I now believe, and what proved it
-The path of the work         What has to be true before this ships
-How far each lane has moved  Who holds the pen
-How much, against what limit The story so far
-                             Your move</code></pre>
+  <pre><code>Where this stands                     Waiting on you
+Your next step                        The path of the work
+Where the programme stands            How far each lane has moved
+How much, against what limit          What could still go wrong
+Decisions waiting for your answer     What I now believe, and what proved it
+What has to be true before this ships Who holds the pen
+What each finished piece produced     The story so far
+Your move                             About this page</code></pre>
 
   <p>見出しは生成された英語のままです。この一覧は実際の出力であり、翻訳すれば実出力ではなくなるからです。内容はこの節の日本語が説明しています。</p>
 
@@ -2542,7 +2544,7 @@ python3 scripts/doctor.py</code></pre>
 
 <footer class="foot">
   <p><strong>この冊子の作り方。</strong> すべての主張は2026年8月8日にv3.0.0のBrotherModeリポジトリから読み取りました。能力状態のレジスタ、ロードマップの証明の段、状態表示と予測と委任と完了定義の各リファレンス、十七のスキルすべてのフロントマター、そして二つの限界レジスタです。第二幕の状態出力とプロジェクトページの見出しは、使い捨てリポジトリに対してコマンドラインを実行して取得した実出力を、印字されたまま貼っています。</p>
-  <p><strong>第二幕の登場人物は例示で、機械は例示ではありません。</strong> 示したコマンドはすべて実在し、効く規則もすべて実在し、挙げた限界はすべてファイルに辿れます。図はこの冊子のために描いたものです。ツール自身は七つの形を描き、その中にはタイムラインもガントも含まれます。2026年8月8日訂正。以前の版では五つと書き、ガントは描かないとしていました。<code>references/visual-surface.md</code> が今もそう書いているためです。このリファレンスはコードより遅れています。描画のテストは実数を七つで固定しており、同じ記述が前回遅れたときに書かれた回帰テストも残っています。</p>
+  <p><strong>第二幕の登場人物は例示で、機械は例示ではありません。</strong> 示したコマンドはすべて実在し、効く規則もすべて実在し、挙げた限界はすべてファイルに辿れます。図はこの冊子のために描いたものです。ツール自身は七つの形を描き、その中にはタイムラインもガントも含まれます。2026年8月8日訂正。以前の版では五つと書き、ガントは描かないとしていました。<code>references/visual-surface.md</code> が今もそう書いているためです。このリファレンスはコードより遅れています。描画のテストは実数を七つで固定しており、同じ記述が前回遅れたときに書かれた回帰テストも残っています。同じ版ではプロジェクトページの見出しを十三個挙げ、それが実際の見出しだと書いていました。実際には十六個です。三つ欠けていました。ガントを描く programme の節は新設されたものですが、成果物の節と概要の節は以前からあり、単に見落としていました。</p>
   <p><strong>この日本語版について。</strong> 本文、表、図中のラベル、キャプション、読み上げ用のタイトルまで、すべて日本語です。図版のラベルは当初英語のままにしていました。日本語は文字幅が広く組版が崩れると考えたためですが、実際に計測すると、簡潔な日本語は必要な文字数が半分ほどで、幅はほぼ同じでした。二百五十八のラベルのうち組版に影響したのは三つだけです。固有名詞（Claude、BrotherMode、ワーカー名、コマンド名、レジスタの状態語 certified）だけは英語のまま残しています。</p>
   <p><strong>この冊子が主張しないこと。</strong> 生産性の数字は出しません。計測されたことがないからです。テスト件数も出しません。件数は動くもので、食い違いを見た読者には古いページか壊れた環境かの区別がつかないからです。他製品との順位付けもしません。それを裏付ける実行が行われていないからです。</p>
 </footer>
