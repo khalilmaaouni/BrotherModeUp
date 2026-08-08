@@ -859,6 +859,30 @@ class DoctorCase(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("denied a foreign write", r.stdout)
 
+    def test_loader_managed_copy_satisfies_the_fence_check(self):
+        """Finalization run 2026-08-08: a BrotherMode copy under
+        ~/.claude/skills/ is auto-loaded by Claude Code as a plugin and
+        registers its own hooks/hooks.json, so an empty settings.json is
+        not a dead fence. Doctor must find the loader-managed copy, say
+        so, and prove liveness against that copy's own hook instead of
+        failing on the missing settings block."""
+        skills = os.path.join(self.home, ".claude", "skills", "brothermode")
+        os.makedirs(os.path.join(skills, "hooks"))
+        os.symlink(self.tools, os.path.join(skills, "tools"))
+        with io.open(os.path.join(skills, "hooks", "hooks.json"), "w",
+                     encoding="utf-8") as fh:
+            fh.write(json.dumps({"hooks": {"PreToolUse": [{
+                "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+                "hooks": [{
+                    "type": "command",
+                    "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/tools/"
+                               "bm_fence_hook.py\""}]}]}}))
+        self.write_settings({"hooks": {"SessionStart": []}})
+        r = self.run_doctor()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("auto-loaded", r.stdout)
+        self.assertIn("denied a foreign write", r.stdout)
+
     def test_calibrated_2_missing_fence_hook_is_detected(self):
         """The required case from the loop spec: doctor notices that no fence
         is wired at all, which is exactly what every install before this one
