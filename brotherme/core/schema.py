@@ -283,6 +283,10 @@ class Task(_Shape):
         "expected_outputs", "acceptance_checks", "time_forecast",
         "token_forecast", "confidence", "actual_time", "actual_tokens",
         "evidence", "blockers", "started_at", "completed_at",
+        # Schema 18 (Phase 5, the progress view): the phase this piece of
+        # work belongs to, recorded rather than inferred from the title.
+        # Optional, and absent means absent: see _TASKS_V18_COLUMN.
+        "phase",
     )
     REQUIRED = ("task_id", "project_id", "title", "status")
     ENUMS = {"status": STATES}
