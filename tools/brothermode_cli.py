@@ -48,6 +48,10 @@ SUBCOMMANDS
   version   the VERSION file's content, read through scripts/install.py
             read_version, the same reader install.py itself uses to
             report what it just installed
+  continue  tools/bm_continue.py continue (the handoff packet
+            generated from store rows, plus the successor launch;
+            --dry-run writes the packet, prints the command, and
+            launches nothing)
   update    a read-only report: the installed version against the
             newest published release tag, and the exact steps for the
             caller's own install path (commands/brotherme-update.md's
@@ -228,6 +232,17 @@ def cmd_view(argv):
     bm_view.py's own `render` command already performs, reached through
     one more layer of dispatch, never a second writer of the page."""
     return _load("bm_view").main(["render"] + list(argv))
+
+
+def cmd_continue(argv):
+    """tools/bm_continue.py's continue, unchanged: the handoff packet
+    generated from store rows, and the launch of the next session. Phase
+    C of the 2026-08-08 finalization plan, which exists because a session
+    that closes without handing over leaves the founder to restart the
+    program by hand. Dispatch only, like every verb above it: the packet
+    sections, the launch argv and the honesty about what a spawned
+    process id does and does not prove all live in that adapter."""
+    return _load("bm_continue").main(["continue"] + list(argv))
 
 
 def cmd_doctor(argv):
@@ -460,6 +475,7 @@ COMMANDS = {
     "review": cmd_review,
     "deliver": cmd_deliver,
     "view": cmd_view,
+    "continue": cmd_continue,
     "doctor": cmd_doctor,
     "recover": cmd_recover,
     "version": cmd_version,
@@ -473,6 +489,7 @@ _COMMAND_ONE_LINERS = (
     ("review", "record evidence and transition one task, in one call"),
     ("deliver", "generate the delivery packet"),
     ("view", "write the page that shows where the project stands"),
+    ("continue", "write the handoff packet and start the next session"),
     ("doctor", "ten install-health checks, PASS, FAIL or SKIP"),
     ("recover", "the git-snapshot recovery path (compact-boundary only)"),
     ("version", "the installed VERSION file's content"),
