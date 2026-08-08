@@ -466,15 +466,32 @@ class TestDiagramCaps(VisualCase):
     def _edges(self, count):
         return [bv.edge("n%d" % i, "n%d" % (i + 1)) for i in range(count)]
 
-    def test_a_shape_outside_the_six_raises_at_construction(self):
+    def test_a_shape_outside_the_seven_raises_at_construction(self):
+        """The count is pinned deliberately so that a new shape costs
+        somebody an argument. It has been paid twice: timeline (the
+        progress surface loop) and gantt (Phase 5, founder decision
+        2026-08-08). Gantt was admitted rather than folded into timeline
+        because the two answer different questions: timeline draws how
+        far a piece has moved through its lifecycle, grouped by owner;
+        gantt draws how long it took, grouped by phase. An eighth
+        requires deleting one."""
         with self.assertRaises(ValueError) as ctx:
             bv.Diagram("pie", self._nodes(2), [], "t", "d", "c")
         for shape in bv.SHAPES:
             self.assertIn(shape, str(ctx.exception))
-        self.assertEqual(len(bv.SHAPES), 6,
-                         "six shapes and nothing else since the progress "
-                         "surface loop added timeline; a seventh requires "
-                         "deleting one")
+        self.assertEqual(len(bv.SHAPES), 7,
+                         "seven shapes and nothing else; an eighth "
+                         "requires deleting one")
+
+    def test_the_refusal_states_the_real_count_not_a_stale_one(self):
+        """Regression pin. This sentence read 'Five shapes' while SHAPES
+        already held six, because adding timeline widened the tuple and
+        left the prose behind. The count is now read from SHAPES, so the
+        two cannot disagree again."""
+        with self.assertRaises(ValueError) as ctx:
+            bv.Diagram("pie", self._nodes(2), [], "t", "d", "c")
+        self.assertIn("%d shapes and nothing else" % len(bv.SHAPES),
+                      str(ctx.exception))
 
     def test_the_timeline_lane_cap_raises(self):
         cap = bv.CAPS["timeline"]
@@ -1370,6 +1387,161 @@ class TestTheTimelineShape(VisualCase):
         self.assertEqual(("S1",), bv.surface_for({"kind": "timeline"}))
         self.assertNotIn("timeline", bv.STATE_KINDS)
         self.assertIn("catchup-story", bv.STATE_KINDS)
+
+
+def _gtask(tid, phase="", status="planned", started=None, completed=None,
+           title=None):
+    return {"task_id": tid, "title": title or ("Task " + tid),
+            "status": status, "phase": phase,
+            "started_at": started, "completed_at": completed,
+            "blockers": []}
+
+
+class TestGanttFacts(unittest.TestCase):
+    """Phase 5, the progress view. gantt_facts is pure over already
+    gathered rows, exactly like progress_facts beside it: no store
+    handle, no SQL, no clock."""
+
+    def test_no_tasks_is_no_data_not_an_empty_chart(self):
+        self.assertIsNone(bv.diagram_gantt(bv.gantt_facts({"tasks": []})))
+
+    def test_phases_come_out_in_first_appearance_order(self):
+        facts = bv.gantt_facts({"tasks": [
+            _gtask("a", phase="Phase C"),
+            _gtask("b", phase="Phase 2"),
+            _gtask("c", phase="Phase C")]})
+        self.assertEqual([p["phase"] for p in facts["phases"]],
+                         ["Phase C", "Phase 2"])
+        self.assertEqual([i["task_id"] for i in facts["phases"][0]["items"]],
+                         ["a", "c"])
+
+    def test_a_task_with_no_phase_is_named_unphased_never_filed_elsewhere(
+            self):
+        """The record says nothing, so the page says nothing. Filing it
+        under whichever phase is current would be a guess the founder
+        never made (see _TASKS_V18_COLUMN)."""
+        facts = bv.gantt_facts({"tasks": [_gtask("a")]})
+        self.assertEqual(facts["phases"][0]["phase"], bv.UNPHASED)
+
+    def test_a_box_ticks_only_with_a_finished_state_and_recorded_evidence(
+            self):
+        rows = {"tasks": [_gtask("done-with", status="accepted"),
+                          _gtask("done-without", status="accepted"),
+                          _gtask("evidence-unfinished", status="active")],
+                "evidence": {"done-with": [{"ref": "test_all: ALL GREEN"}],
+                             "evidence-unfinished": [{"ref": "partial"}]}}
+        ticks = {i["task_id"]: i["ticked"]
+                 for i in bv.gantt_facts(rows)["phases"][0]["items"]}
+        self.assertTrue(ticks["done-with"])
+        self.assertFalse(ticks["done-without"])
+        self.assertFalse(ticks["evidence-unfinished"])
+
+    def test_the_percentage_is_a_count_of_records_not_a_feeling(self):
+        rows = {"tasks": [_gtask("a", status="accepted"),
+                          _gtask("b", status="accepted"),
+                          _gtask("c", status="active"),
+                          _gtask("d", status="planned")],
+                "evidence": {"a": [{"ref": "green"}]}}
+        facts = bv.gantt_facts(rows)
+        self.assertEqual((facts["ticked"], facts["total"]), (1, 4))
+
+    def test_the_window_spans_the_earliest_start_to_the_latest_finish(self):
+        rows = {"tasks": [
+            _gtask("a", started="2026-08-01T00:00:00Z",
+                   completed="2026-08-03T00:00:00Z"),
+            _gtask("b", started="2026-08-02T00:00:00Z",
+                   completed="2026-08-09T00:00:00Z")]}
+        self.assertEqual(bv.gantt_facts(rows)["window"],
+                         {"start": "2026-08-01", "end": "2026-08-09",
+                          "days": 9})
+
+    def test_no_dates_anywhere_means_no_window_and_the_bars_say_so(self):
+        """Founder decision 2026-08-08: real dates where recorded,
+        progress fill where not. With nothing dated there is no time
+        axis to draw, and the items must say dated=False rather than
+        borrow a window from somewhere."""
+        facts = bv.gantt_facts({"tasks": [_gtask("a")]})
+        self.assertIsNone(facts["window"])
+        self.assertFalse(facts["phases"][0]["items"][0]["dated"])
+
+    def test_an_undated_task_beside_dated_ones_still_says_it_is_undated(self):
+        rows = {"tasks": [
+            _gtask("dated", started="2026-08-01T00:00:00Z",
+                   completed="2026-08-02T00:00:00Z"),
+            _gtask("bare")]}
+        items = {i["task_id"]: i
+                 for i in bv.gantt_facts(rows)["phases"][0]["items"]}
+        self.assertTrue(items["dated"]["dated"])
+        self.assertFalse(items["bare"]["dated"])
+
+    def test_a_started_but_unfinished_task_runs_to_the_window_end(self):
+        """An open bar has a real start and no end. It draws to the edge
+        of the window rather than to a completion date nobody recorded."""
+        rows = {"tasks": [
+            _gtask("open", started="2026-08-01T00:00:00Z"),
+            _gtask("shut", started="2026-08-01T00:00:00Z",
+                   completed="2026-08-05T00:00:00Z")]}
+        items = {i["task_id"]: i
+                 for i in bv.gantt_facts(rows)["phases"][0]["items"]}
+        self.assertEqual(items["open"]["end"], "2026-08-05")
+        self.assertTrue(items["open"]["open_ended"])
+        self.assertFalse(items["shut"]["open_ended"])
+
+    def test_an_unparseable_date_is_dropped_not_guessed(self):
+        rows = {"tasks": [_gtask("bad", started="last Tuesday")]}
+        facts = bv.gantt_facts(rows)
+        self.assertIsNone(facts["window"])
+        self.assertFalse(facts["phases"][0]["items"][0]["dated"])
+
+
+class TestGanttDiagram(unittest.TestCase):
+
+    def _facts(self):
+        return bv.gantt_facts({"tasks": [
+            _gtask("a", phase="Phase C", status="accepted",
+                   started="2026-08-01T00:00:00Z",
+                   completed="2026-08-03T00:00:00Z"),
+            _gtask("b", phase="Phase 2", status="active",
+                   started="2026-08-03T00:00:00Z")],
+            "evidence": {"a": [{"ref": "test_all: ALL GREEN"}]}})
+
+    def test_it_draws_one_node_per_task_grouped_into_its_phase(self):
+        drawn = bv.diagram_gantt(self._facts())
+        self.assertEqual(drawn["shape"], "gantt")
+        self.assertEqual([n["lane"] for n in drawn["nodes"]],
+                         ["Phase C", "Phase 2"])
+
+    def test_the_same_rows_render_byte_identical_twice(self):
+        """The view law: geometry from integers, never from a clock or a
+        measured font, so a page regenerated a week later is the same
+        bytes."""
+        facts = self._facts()
+        self.assertEqual(bv.to_svg(bv.diagram_gantt(facts)),
+                         bv.to_svg(bv.diagram_gantt(facts)))
+
+    def test_the_svg_carries_the_tick_state_of_every_box(self):
+        svg = bv.to_svg(bv.diagram_gantt(self._facts()))
+        self.assertIn("bm-tick-on", svg)
+        self.assertIn("bm-tick-off", svg)
+
+    def test_the_prose_caption_states_the_count_not_an_impression(self):
+        drawn = bv.diagram_gantt(self._facts())
+        self.assertIn("1 of 2", drawn["caption"])
+
+    def test_the_petrol_accent_is_a_token_in_both_themes(self):
+        """Founder decision 2026-08-08: petrol as the accent, the
+        colourblind-safe status colours kept underneath it."""
+        for table in (bv.TOKENS_LIGHT, bv.TOKENS_DARK):
+            self.assertIn("accent", table)
+            self.assertIn("paper", table)
+
+    def test_the_accent_clears_the_contrast_floor_in_both_themes(self):
+        self.assertGreaterEqual(
+            bv.contrast_ratio(bv.TOKENS_LIGHT["accent"],
+                              bv.TOKENS_LIGHT["paper"]), 4.5)
+        self.assertGreaterEqual(
+            bv.contrast_ratio(bv.TOKENS_DARK["accent"],
+                              bv.TOKENS_DARK["paper"]), 4.5)
 
 
 if __name__ == "__main__":
