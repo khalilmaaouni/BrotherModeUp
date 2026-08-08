@@ -1,7 +1,9 @@
 Status: CURRENT. Fable design, 2026-08-05. Implementation loop L05 of the
-absolute-lead program (the visual surface). Nothing here is built yet. This
-design starts after DESIGN-L04.md lands, and section 0.1 states why that
-ordering is load bearing rather than a preference.
+absolute-lead program (the visual surface). L05 has since landed:
+tools/bm_visual.py, tools/bm_view.py and their two suites exist, and section
+7's vocabulary was amended by founder decision on 2026-08-08, which section
+7.6 records. This design started after DESIGN-L04.md landed, and section 0.1
+states why that ordering was load bearing rather than a preference.
 
 # DESIGN visual surface: the live project view, the first fifteen minutes, the insight box, the alert ladder, the drawn vocabulary, and the visible handback
 
@@ -179,7 +181,7 @@ in a case this document did not enumerate applies these in order.
   of its own; all colour lives in one stylesheet block, so the test that
   deletes that block and asserts every status is still readable is trivial
   rather than aspirational (WCAG 1.4.1 level A, LENS-C section 3.2).
-* **L-S5 One vocabulary, two renderings.** The same five shapes, four rungs and
+* **L-S5 One vocabulary, two renderings.** The same seven shapes, four rungs and
   one box render as plain ASCII text in the terminal and as styled HTML in the
   page. A concept that works in only one of the two does not enter the
   vocabulary (LENS-C L-V4).
@@ -879,17 +881,53 @@ Chat form, which must be as informative as the page form:
 | who is doing what, who owns this | D3 |
 | what am I being asked | D4 |
 | how much, against what limit | D5 |
+| how is this progressing, progress by lane, progress over time | D6 |
 | anything else | nothing |
 
-Banned, with the reason, adopted verbatim in effect from LENS-C section 5.1:
-sankey (experimental, and this product has no flow magnitude question), gantt
-(implies dated commitments this product cannot honour), pie (angle comparison is
-the weakest encoding available), mindmap and timeline (author shapes, not reader
-shapes), class, entity relationship and sequence (they describe code and data
-models, which the founder explicitly does not read), quadrant, xychart and radar
-(no store row behind them, so any use would be hand authored and would violate
-L-S1), fork, join and concurrency separators (UML machinery with no meaning to
-an untrained reader).
+D7, the gantt, is deliberately absent from that table. It is drawn as a section
+of the progress view rather than in reply to a question somebody typed, so
+`diagram_for` never returns it.
+
+**AMENDED 2026-08-08, founder decision.** This list originally refused both
+timeline and gantt, and the product now ships both. The founder removed the ban
+because its stated reasons did not survive contact with the shapes that were
+built:
+
+- gantt was refused as implying dated commitments the product cannot honour.
+  The shipped shape implies none: it draws the dates the records already carry,
+  falls back to a lifecycle fill where there are none, and says which of the
+  two it is doing in its own caption.
+- timeline was refused as an author shape rather than a reader shape. The
+  question it answers, "how is this progressing", is a founder question, and
+  the founder is the reader.
+
+What that amendment does NOT do is rewrite the rest of this design. Text
+further down describing what loop L05 was assigned still says five shapes,
+because five is what that loop was asked for. Those lines are the record of an
+assignment, not a live rule. The live rules are this section, L-S5, and the
+register at `references/visual-surface.md`.
+
+The flip condition, if a later loop wants either ban back: delete the shape
+from `SHAPES` in tools/bm_visual.py FIRST. `tools/test_bm_docs.py` reads the
+banned list below against that tuple and fails if the two ever disagree again,
+which is the check that did not exist when this contradiction was allowed to
+stand for two loops.
+
+Banned, with the reason, adopted in effect from LENS-C section 5.1: sankey
+(experimental, and this product has no flow magnitude question), pie (angle
+comparison is the weakest encoding available), mindmap (an author shape, not a
+reader shape), class, entity relationship and sequence (they describe code and
+data models, which the founder explicitly does not read), quadrant, xychart and
+radar (no store row behind them, so any use would be hand authored and would
+violate L-S1), UML fork and join bars and concurrency separators (UML machinery
+with no meaning to an untrained reader; the decision fork D4 is a different
+thing and stays).
+
+BANNED SHAPES, one line per entry, comma separated, so a check can read this
+list rather than a human re-reading the paragraph above:
+
+    sankey, pie, mindmap, class, entity relationship, sequence, quadrant,
+    xychart, radar, UML fork and join bars, concurrency separators
 
 **Mermaid is deferred, with the reason.** LENS-D section 2.3 is a split verdict:
 the `Artifact` tool contract in that session states artifacts render mermaid
@@ -1274,7 +1312,7 @@ gate, and the test asserts it writes zero files.
 | `commands/brotherme-status.md` | CHANGED. One line offering the page, after the eight fields, never before them |
 | `commands/brotherme-handback.md` | CHANGED. Names the copy as prompt control and the brief page |
 | `skills/brotherme/SKILL.md` | CHANGED. Line 42's deep tour builds from `bm-view render` instead of composing a page freehand; the stored URL is read and republished to; line 44's honest limit is kept |
-| `references/visual-surface.md` | NEW. The register file for this vocabulary: the four surfaces and the choosing rule, the five shapes and their caps, the four rungs and their delivery, the six slots, the empty state anatomy, and the two level rule. Every user facing surface must obey it, and section 13 tests it |
+| `references/visual-surface.md` | NEW. The register file for this vocabulary: the four surfaces and the choosing rule, the seven shapes and their caps, the four rungs and their delivery, the six slots, the empty state anatomy, and the two level rule. Every user facing surface must obey it, and section 13 tests it |
 | `references/terminology.md` | CHANGED. Five new rows BEFORE the words may appear anywhere, per its own law at lines 53 to 55: live project view, insight box, alert rung, empty state, fingerprint |
 | `references/status-view.md` | CHANGED. One short paragraph saying the eight fields are unchanged and that the page is the same eight fields plus what the page adds, never a different status |
 | `capabilities.status.json` | CHANGED. Four rows: `live-project-view`, `visual-onboarding`, `alert-ladder`, `visible-handback`, each naming a path that exists |
