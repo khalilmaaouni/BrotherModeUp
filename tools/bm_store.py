@@ -302,7 +302,8 @@ def _walk_up(start):
     return out
 
 
-def resolve_root(start=None, refuse_past_git_boundary=False):
+def resolve_root(start=None, refuse_past_git_boundary=False,
+                 env_must_contain_start=False):
     """Return (root_path, source), source in ("env", "marker", "git"), or
     (None, None) when nothing anchors a project here.
 
@@ -339,12 +340,30 @@ def resolve_root(start=None, refuse_past_git_boundary=False):
     turn the only remedy into another dead end. A caller that also needs to
     validate an explicitly-set root against its own expectations (as
     bm_autosave does, comparing against its snapshot's toplevel) still has
-    to do that itself; this parameter does not cover it."""
+    to do that itself; this parameter does not cover it.
+
+    env_must_contain_start (H3, cross-family review 2026-08-08, finding 2)
+    is likewise OPT-IN and defaults OFF. The hooks pass it: an inherited
+    BROTHERMODE_ROOT naming a tree UNRELATED to the work in front of a hook
+    used to win outright, redirecting the fence to a foreign store whose
+    empty claim table read as 'nothing fenced here', while the real
+    project's claims went unconsulted. With this flag, the env answer is
+    honored only when the effective start sits inside (or is) the env
+    root; otherwise the env answer is skipped and resolution continues
+    from start exactly as if the variable were unset, so the fence stays
+    live on the store that actually owns the write. CLI and test callers,
+    where pointing at a project from anywhere is the documented use of the
+    variable, keep the old trust by default."""
     env = os.environ.get("BROTHERMODE_ROOT")
     if env:
         p = os.path.realpath(env)
         if os.path.isdir(p):
-            return p, "env"
+            if env_must_contain_start:
+                probe = os.path.realpath(start or os.getcwd())
+                if probe == p or probe.startswith(p + os.sep):
+                    return p, "env"
+            else:
+                return p, "env"
     cur = os.path.realpath(start or os.getcwd())
     chain = _walk_up(cur)
     for d in chain:
@@ -485,6 +504,63 @@ def _to_posix(p):
 
 _CASE_INSENSITIVE_PLATFORMS = ("win32", "darwin")
 
+#: H4 (cross-family review 2026-08-08, finding 3): sys.platform alone is
+#: not the truth about case folding. A case-insensitive mount on Linux
+#: (SMB/CIFS, WSL drvfs, casefolded ext4) folds names the old
+#: platform-only gate treated as distinct, so a different-case claim
+#: slipped past paths_overlap. This flag is armed by note_fs_case() from a
+#: real probe of the project's own filesystem and is STICKY in one
+#: direction: once any probed root folds, every comparison in this process
+#: folds. On a mixed-volume process that can over-fold a case-sensitive
+#: tree, which errs toward a refusal, never toward an unread bypass.
+_FS_CASE_INSENSITIVE = False
+_FS_CASE_PROBE_CACHE = {}
+
+
+def fs_case_insensitive(dirpath):
+    """True when the filesystem holding `dirpath` treats names that differ
+    only by case as the same file, measured by writing a probe file and
+    looking for its upper-cased spelling. Cached per realpath. Any OSError
+    reads as False, which falls back to the platform gate in _normcase
+    rather than guessing."""
+    key = os.path.realpath(dirpath)
+    hit = _FS_CASE_PROBE_CACHE.get(key)
+    if hit is not None:
+        return hit
+    suffix = uuid.uuid4().hex[:12]
+    lower = os.path.join(key, ".bm-case-probe-%s" % suffix)
+    upper = os.path.join(key, ".BM-CASE-PROBE-%s" % suffix)
+    result = False
+    try:
+        with io.open(lower, "w", encoding="utf-8") as f:
+            f.write("case probe\n")
+        result = os.path.exists(upper)
+    except OSError:
+        result = False
+    finally:
+        try:
+            os.remove(lower)
+        except OSError:
+            pass  # sbe: allow-silent best-effort cleanup of the probe file; the verdict is already taken
+    _FS_CASE_PROBE_CACHE[key] = result
+    return result
+
+
+def note_fs_case(dirpath):
+    """Arm the module fold flag from a probe of `dirpath` (preferring its
+    .brothermode store directory when one exists, so the probe file never
+    lands in the user's own tree). Called at Store construction and by the
+    fence hook after root resolution. One-way: probes never disarm."""
+    global _FS_CASE_INSENSITIVE
+    try:
+        probe_dir = store_dir(dirpath)
+        if not os.path.isdir(probe_dir):
+            probe_dir = dirpath
+        if fs_case_insensitive(probe_dir):
+            _FS_CASE_INSENSITIVE = True
+    except Exception:
+        pass  # sbe: allow-silent the probe is advisory; _normcase keeps its platform gate either way
+
 
 def _normcase(p):
     """Case-fold the POSIX-form string directly with str.casefold(). NEVER
@@ -507,7 +583,7 @@ def _normcase(p):
     paths_overlap and for the claim-time overlap check that shares it.
     Linux is normalization PRESERVING and sensitive, where the two really
     are different files, so it is deliberately left alone."""
-    if sys.platform in _CASE_INSENSITIVE_PLATFORMS:
+    if _FS_CASE_INSENSITIVE or sys.platform in _CASE_INSENSITIVE_PLATFORMS:
         return unicodedata.normalize("NFC", p.casefold())
     return p
 
@@ -762,6 +838,49 @@ def _resolve_against_root(root, rel_literal, cwd=None):
     return rel_posix
 
 
+_WORKTREE_CONTAINER_SEGS = (".claude", "worktrees")
+
+
+def strip_worktree_segments(root, rel_posix):
+    """H1 (V3-FREEZE ruling H1, closed in the finalization run 2026-08-08):
+    the logical, checkout-independent spelling of a root-relative POSIX
+    path. A linked git worktree is a parallel checkout of the SAME tree,
+    so 'pyproject.toml' written through
+    '.claude/worktrees/demo/pyproject.toml' is the same logical file a
+    claim on 'pyproject.toml' fences; before this helper, root resolution
+    climbed to the outer repository while the write stayed
+    worktree-prefixed, and the claim matched neither spelling.
+
+    Two detectors, one rule, innermost enclosing worktree top wins:
+    (a) a directory sitting directly under the '.claude/worktrees/'
+        container, Claude Code's own layout, detected from the path text
+        alone so it works before git metadata exists;
+    (b) a directory whose '.git' is a regular FILE, git's linked-worktree
+        marker, wherever the worktree was added.
+    The path of the worktree top itself, and any path with no enclosing
+    top, come back unchanged. Glob tails pass through untouched: a
+    wildcard segment never names a worktree top, and the isfile probe on
+    a glob-bearing prefix is simply False."""
+    if not rel_posix or rel_posix == "." or rel_posix.startswith(".."):
+        return rel_posix
+    segs = rel_posix.split("/")
+    for j in range(len(segs) - 1, 0, -1):
+        container = (j >= 3 and tuple(segs[j - 3:j - 1]) ==
+                     _WORKTREE_CONTAINER_SEGS)
+        marker = False
+        if not container:
+            try:
+                marker = os.path.isfile(
+                    safe_project_path(root, *(segs[:j] + [".git"])))
+            except (OSError, ValueError, BMStoreError):
+                # A prefix the funnel refuses (symlinked, escaping, or
+                # unbuildable) is simply not a worktree top.
+                marker = False
+        if container or marker:
+            return "/".join(segs[j:])
+    return rel_posix
+
+
 def canonicalize_path(root, p, cwd=None):
     """The ONE place a caller-declared path becomes a stored path (GATE 1,
     closes four defects at once):
@@ -792,9 +911,13 @@ def canonicalize_path(root, p, cwd=None):
         lit_segs.append(seg)
     literal_dir = "/".join(lit_segs)
     resolved = _resolve_against_root(root, literal_dir, cwd)
+    # H1: a claim declared from inside a linked worktree stores the same
+    # logical spelling a claim from the shared root stores, so the two
+    # can never talk past each other again.
     if tail_segs:
-        return _join_relative(resolved, "/".join(tail_segs))
-    return resolved
+        return strip_worktree_segments(
+            root, _join_relative(resolved, "/".join(tail_segs)))
+    return strip_worktree_segments(root, resolved)
 
 
 def _safe_repr(f):
@@ -6150,6 +6273,9 @@ class Store(object):
                 % (store_path(self.root), _cmd()),
                 details={"path": store_path(self.root)})
         os.makedirs(expected_store_dir, exist_ok=True)
+        # H4: measure this project's real case folding once, so
+        # paths_overlap folds where the filesystem folds.
+        note_fs_case(self.root)
         # GATE D (fix-round 3, 2026-07-26): claim paths were already
         # symlink-checked and refused as 'path-escape', but .brothermode
         # itself was not, so a repository carrying .brothermode -> docs (or
