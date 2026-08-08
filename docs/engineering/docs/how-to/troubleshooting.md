@@ -2,6 +2,32 @@
 
 Use this guide when a BrotherMode command, installation check, review, delivery, collision, project view, continuity action, or recovery path does not behave as expected.
 
+## Find the Message You Are Looking At
+
+Search this page for the text on your screen. Every string below is quoted from the shipped source, so a partial match is enough to find your case.
+
+| Message you see | What it means | What to do |
+| --- | --- | --- |
+| `refused: no store exists at .../.brothermode/store.sqlite3` | The project has no records yet | Run `bm-store init` in the project directory, then retry |
+| `this store already holds project '<name>'` | One project per folder is the default model | Work in that project, or pass `--allow-second` if a second project in the same folder is genuinely wanted |
+| `store is at schema N; this BrotherMode only understands up to schema M` | The records are newer than your installed copy. The store is healthy, not corrupt | Update BrotherMode. Never downgrade the store. Nothing was written |
+| `store is at schema N; this BrotherMode reads schema M` | The records are older than your installed copy | Run any writing command once and the migration happens automatically |
+| `refused: illegal transition for task '<id>': '<from>' to '<to>'. Legal moves from '<from>': ...` | Task states advance one step at a time, and the message names the legal moves | Move through the named state instead of skipping it |
+| `cannot deliver <project>: the project has zero tasks` | Delivery has nothing to describe | Add and complete at least one task first |
+| `cannot deliver: N of M task(s) have not reached the terminal state ('closed')` | The delivery gate is doing its job | Finish those tasks, or pass `--partial` deliberately |
+| `no recommended next task: 0 task(s) currently in state 'ready'` | Nothing is ready, so nothing is invented | Move a task to `ready`, or resolve whatever blocks it |
+| `BrotherMode is in enforced mode and refused this write because ...` | The write fence blocked a write to a file another session owns | Read the named reason, resolve ownership, then retry. `BM_FENCE_MODE=advisory` downgrades the fence to warnings, which is a deliberate loosening, not a fix |
+| `bm_fence_hook: FAILING OPEN` | The fence could not evaluate the write and allowed it by design | Treat coordination as unprotected for that write and investigate the named cause |
+| `BrotherMode fence: this Bash command carries an apply_patch envelope but none of its file directives could be read` | The fence cannot tell which files the command would write | Re-issue the change through the normal edit tools |
+| `FAIL: setup has not been completed yet` | Install health check, setup step missing | Run `python3 scripts/setup.py` |
+| `FAIL: the config has no vault_path recorded` | Install health check, memory location not configured | Run `python3 scripts/setup.py --reconfigure` |
+| `FAIL: N of M listed file(s) do not match CHECKSUMS.sha256` | Installed files differ from the release manifest, often a half-finished update | Re-run the update, or restore the named files |
+| `install.py: refusing to overwrite an existing installation.` | An install already exists at the target | Re-run with `--upgrade`, and with `--upgrade --dry-run` first to see the changes |
+| `refusing to install on Windows.` | Native Windows is refused deliberately, not broken | Install inside WSL |
+| `needs Python 3.9 or newer; this interpreter is <version>` | Interpreter too old | Use a newer Python 3 |
+| `does not look like a BrotherMode checkout` | The install source is not a complete checkout | Point the installer at a full clone |
+| `install.py: NOT DONE. The files were written but the smoke test failed` | Files landed, wiring did not verify | Read the listed problems. Do not treat the install as usable until they clear |
+
 ## Start With Doctor
 
 Run:
