@@ -1,4 +1,4 @@
-# The visual surface: four places to say a thing, five shapes, four alert levels
+# The visual surface: four places to say a thing, seven shapes, four alert levels
 
 LOAD WHEN: rendering anything the user looks at rather than reads as a sentence (the live project view, a drawing, an alert, an insight box, an empty section), or deciding where a given piece of information belongs.
 
@@ -63,12 +63,12 @@ is.
 Completed things are quiet and uncoloured. Colour is spent on what still needs
 action.
 
-## The five shapes, and nothing else is ever drawn
+## The seven shapes, and nothing else is ever drawn
 
 One model, two renderings: the same shape prints as plain text in the terminal
 and as a drawing in the page. A shape that works in only one of the two does not
-enter this list. A sixth shape is refused where it is built, not discouraged in
-prose.
+enter this list. An eighth shape is refused where it is built, not discouraged
+in prose.
 
 | Shape | The question it answers | Form | Caps |
 |---|---|---|---|
@@ -77,8 +77,20 @@ prose.
 | lanes | who holds the pen | 2 to 4 lanes, one per owner, one direction throughout | 4 lanes, 9 nodes, 12 edges |
 | fork | what am I being asked | one question, two or three outcomes, the last always the handback | 4 nodes, 3 edges, 3 outcomes |
 | counts | how much, against what limit | labelled bars with the raw numbers written on them | 6 rows |
+| timeline | how is this progressing, lane by lane | one bar per item inside its own lane, the fill showing how far that item has moved through the recorded lifecycle stages | 4 lanes, 9 nodes, no edges |
+| gantt | where does the whole programme stand, phase by phase | one bar per piece of work, grouped into the phase its own record names, drawn against dates where the records carry them and as a lifecycle fill where they do not | 12 lanes, 40 nodes, no edges |
 
-Rules that bite on all five:
+The last two were each paid for once. `timeline` draws how far a piece has moved
+through its lifecycle, grouped by who owns it; `gantt` draws how long a piece
+took, grouped by the phase it belongs to. They were kept apart rather than fused
+because one shape whose bars mean two different things depending on the data is
+worse than two that each mean one.
+
+`gantt` is the one shape no question routes to. The closed question-to-shape map
+in `tools/bm_visual.py` covers the other six, and the gantt is drawn as a section
+of the page rather than in reply to a sentence someone typed.
+
+Rules that bite on all seven:
 
 - At most four drawings on one page. The counts row is not a drawing and does
   not count against that.
@@ -92,9 +104,10 @@ Rules that bite on all five:
 - Every drawing carries a title, a description, and a caption stating the same
   content in prose a non expert can read without decoding the picture. The prose
   is what makes the picture optional.
-- Anything else asked for gets no drawing at all. There is no pie, no gantt, no
-  timeline, no diagram of the code or the data, and no shape with no record
-  behind it.
+- Anything else asked for gets no drawing at all. There is no pie, no diagram
+  of the code or the data, and no shape with no record behind it. The pie is
+  the worked example rather than a figure of speech: `tools/test_bm_visual.py`
+  asks for one and expects the refusal.
 
 ## The four alert levels
 
@@ -207,4 +220,7 @@ the colour rules and the plain text forms. `tools/test_bm_view.py` holds the
 page: every section renders, every empty state is designed, exactly one
 recommended next action, one depth of disclosure, one file with nothing fetched
 from outside it, and every claim on the page traced back to the record it came
-from. `tools/test_bm_docs.py` holds this page's own copy rules.
+from. `tools/test_bm_docs.py` holds this page's own copy rules, and holds the
+shape table to the shapes the code actually allows: the count in the title and
+the heading, one table row per shape, every cap the code enforces stated in its
+row, and nothing named as refused that the code in fact draws.

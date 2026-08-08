@@ -66,6 +66,18 @@ _bpk = importlib.util.module_from_spec(_pspec)
 _pspec.loader.exec_module(_bpk)
 _PACK_SECTIONS = _bpk.SECTIONS
 
+# The drawn vocabulary, loaded for the same reason and by the same technique:
+# references/visual-surface.md is prose ABOUT this tuple and this table, so a
+# test carrying its own copy of either would stop testing the page the moment
+# the two disagreed, which is the exact defect it exists to catch.
+_vspec = importlib.util.spec_from_file_location(
+    "bm_visual_for_docs_tests", os.path.join(HERE, "bm_visual.py"))
+_bv = importlib.util.module_from_spec(_vspec)
+_vspec.loader.exec_module(_bv)
+VISUAL_REGISTER = os.path.join("references", "visual-surface.md")
+VISUAL_DESIGN = os.path.join("docs", "program", "absolute-lead",
+                             "DESIGN-visual-surface.md")
+
 # Pages a new installer reads as CURRENT state. Anything not listed here is
 # either dated evidence (checked separately, below) or a register with its own
 # rules (docs/NOT-FINALIZED.md carries dated numbers on purpose).
@@ -109,6 +121,11 @@ ACTIVE_DOCS = (
     os.path.join("docs", "HOW-IT-WORKS.md"),
     os.path.join("docs", "CORRECTION-LEARNING.md"),
     os.path.join("docs", "KNOWN-LIMITS.md"),
+    # The continuity page, added 2026-08-08 with Phase C step 4. It states a
+    # law a session is meant to obey unattended, which puts it in the same
+    # class as the install pages: a stale sentence here is read at three in
+    # the morning by something that will act on it.
+    os.path.join("docs", "CONTINUITY.md"),
 )
 
 # The three install pages. Every one of them must describe the same install.
@@ -4974,6 +4991,442 @@ class TestNoUnbackedAbsolutes(unittest.TestCase):
                 "# Page\n\nThis is not a toy.\n\nline\n\nline\n\n"
                 "The installer is production ready.\n"),
             [rel + ":9 production ready"])
+
+
+# The word a page uses for the shape that would be next, so the sentence
+# "an eighth shape is refused where it is built" is pinned to the tuple
+# rather than to whoever last counted it.
+ORDINAL_WORDS = {5: "fifth", 6: "sixth", 7: "seventh", 8: "eighth",
+                 9: "ninth", 10: "tenth", 11: "eleventh", 12: "twelfth"}
+
+SHAPE_HEADING = re.compile(r"^## The ([a-z]+) shapes\b")
+
+# The two sentence shapes that COUNT the drawn vocabulary, as opposed to the
+# ones that merely mention it. "the shapes" and "two that each mean one" are
+# not counts and must not trip; "Five shapes" and "all five" are, in either
+# case, which is why the scan lowercases first. The capitalized form is not
+# hypothetical: the comment above SHAPES read "Five shapes" while the tuple
+# already held six.
+COUNTING_SENTENCES = ((r"\b([a-z]+) shapes\b", "%s shapes"),
+                      (r"\ball ([a-z]+)\b", "all %s"))
+
+
+def miscounted_shapes(text, word):
+    """Every line of TEXT that counts the shape vocabulary as anything
+    other than WORD, reported as "line N says ...". Empty when the text
+    counts correctly or does not count at all; the caller is the one that
+    decides whether not counting at all is allowed."""
+    counts = set(NUMBER_WORDS.values())
+    offenders = []
+    for i, line in enumerate(text.split("\n"), 1):
+        for pattern, form in COUNTING_SENTENCES:
+            for said in re.findall(pattern, line.lower()):
+                if said in counts and said != word:
+                    offenders.append("line %d says %s" % (i, form % said))
+    return offenders
+
+
+def shape_section(text):
+    """The shape section of references/visual-surface.md, as
+    (count word in its heading, {shape: its four table cells}, section text).
+
+    Located by its heading and ended by the next one, never by line number:
+    an edit anywhere above it must not be able to move what this reads.
+    Raises rather than returning empty when the heading is gone, because a
+    silently empty parse is a pass on a page that no longer says anything."""
+    lines = text.split("\n")
+    start, word = None, ""
+    for i, line in enumerate(lines):
+        match = SHAPE_HEADING.match(line)
+        if match:
+            start, word = i, match.group(1)
+            break
+    if start is None:
+        raise AssertionError(
+            "%s has no '## The <count> shapes' heading, so the shape table "
+            "cannot be found" % VISUAL_REGISTER)
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        if lines[j].startswith("## "):
+            end = j
+            break
+    rows = {}
+    for line in lines[start:end]:
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.split("|")][1:-1]
+        if len(cells) != 4 or cells[0] == "Shape" \
+                or set(cells[0]) <= set("-: "):
+            continue
+        rows[cells[0]] = cells
+    return word, rows, "\n".join(lines[start:end])
+
+
+class TestTheVisualRegisterMatchesTheShapes(unittest.TestCase):
+    """references/visual-surface.md against tools/bm_visual.py's own SHAPES
+    and CAPS.
+
+    WHY THIS EXISTS. The register said "five shapes" while SHAPES already
+    held seven: timeline widened the tuple in one loop and gantt in the
+    next, and neither commit touched the page. So the page told every
+    reader that a gantt was refused while the product was drawing one on
+    its own progress view. The module cannot rot that way any more, because
+    its refusal reads the count out of len(SHAPES) and
+    tools/test_bm_visual.py pins that. Nothing watched the page. This is
+    the watch, and it belongs to this suite rather than to the visual one
+    because documentation going stale against the tree is what this suite
+    is for.
+
+    It checks the facts a reader would act on, never the prose of a row:
+    which shapes exist, how many, what each one's caps are, and what is
+    refused. It reads tools/bm_visual.py's own opening paragraph on the
+    same terms, because that paragraph had the count wrong too, and being
+    in the same file as SHAPES did not save it."""
+
+    def _parsed(self):
+        return shape_section(read(VISUAL_REGISTER))
+
+    def test_the_table_carries_one_row_per_shape_in_the_tuple_order(self):
+        _word, rows, _section = self._parsed()
+        self.assertEqual(
+            list(rows), list(_bv.SHAPES),
+            "%s's shape table lists %s; tools/bm_visual.py's SHAPES holds "
+            "%s. A shape entering or leaving the tuple is a page edit in "
+            "the same change."
+            % (VISUAL_REGISTER, ", ".join(rows) or "nothing",
+               ", ".join(_bv.SHAPES)))
+
+    def test_every_row_states_the_caps_the_code_enforces(self):
+        """A cap is the one number in the row a reader plans against, and
+        it is the number Diagram() raises on. Every non zero cap must
+        appear in its row; a zero one is left out on purpose, the way the
+        gate ladder row has never mentioned lanes it cannot have."""
+        _word, rows, _section = self._parsed()
+        offenders = []
+        for shape, cells in rows.items():
+            caps = _bv.CAPS.get(shape)
+            if caps is None:
+                offenders.append(
+                    "%s: the page gives it a row and CAPS has no entry for "
+                    "it, so nothing here is checked" % shape)
+                continue
+            stated = set(int(n) for n in re.findall(r"\d+", cells[3]))
+            for name, cap in sorted(caps.items()):
+                if cap and cap not in stated:
+                    offenders.append(
+                        "%s: CAPS says %s %d, the row says %r"
+                        % (shape, name, cap, cells[3]))
+        self.assertEqual(offenders, [],
+                         "%s states caps the code does not enforce: %s"
+                         % (VISUAL_REGISTER, "; ".join(offenders)))
+
+    def test_every_counting_sentence_states_the_real_count(self):
+        """The title, the heading, and the rule line that says how many
+        shapes the rules below bite on. This is the sentence that rotted,
+        so it is the sentence that is pinned."""
+        text = read(VISUAL_REGISTER)
+        count = len(_bv.SHAPES)
+        word = NUMBER_WORDS.get(count)
+        self.assertIsNotNone(
+            word, "NUMBER_WORDS has no entry for %d, and this test needs "
+                  "one before it can read the page" % count)
+        heading_word, _rows, _section = self._parsed()
+        self.assertEqual(
+            heading_word, word,
+            "%s's shape heading says %r and SHAPES holds %d"
+            % (VISUAL_REGISTER, heading_word, count))
+        self.assertIn(
+            "%s shapes" % word, text.split("\n")[0],
+            "%s's title must say %r; it reads %r"
+            % (VISUAL_REGISTER, "%s shapes" % word, text.split("\n")[0]))
+        offenders = miscounted_shapes(text, word)
+        self.assertEqual(
+            offenders, [],
+            "%s counts its own vocabulary wrong (SHAPES holds %d, so the "
+            "word is %r): %s. A comparison that is not a count of the "
+            "vocabulary is phrased without a number word in front of "
+            "'shapes'."
+            % (VISUAL_REGISTER, count, word, "; ".join(offenders)))
+
+    def test_the_module_says_how_many_shapes_it_holds_and_is_right(self):
+        """tools/bm_visual.py's own opening paragraph, which read "Six
+        shapes" while the tuple forty lines below it held seven. Prose in
+        the same file as the thing it describes is not safer than prose in
+        another file; it is less safe, because nobody re-reads a docstring
+        they scrolled past. The paragraph must state the count, so deleting
+        the sentence is a failure rather than a pass."""
+        count = len(_bv.SHAPES)
+        word = NUMBER_WORDS.get(count)
+        self.assertIsNotNone(
+            word, "NUMBER_WORDS has no entry for %d" % count)
+        text = _bv.__doc__ or ""
+        offenders = miscounted_shapes(text, word)
+        self.assertEqual(
+            offenders, [],
+            "tools/bm_visual.py's docstring counts the vocabulary wrong "
+            "(SHAPES holds %d, so the word is %r): %s"
+            % (count, word, "; ".join(offenders)))
+        self.assertIn(
+            "%s shapes" % word, text.lower(),
+            "tools/bm_visual.py's docstring must say how many shapes it "
+            "holds, and SHAPES holds %d, so it says %r"
+            % (count, "%s shapes" % word))
+
+    def test_the_design_bans_nothing_the_product_draws(self):
+        """The contradiction the founder settled on 2026-08-08. The design
+        banned gantt and timeline by name, with reasons, while both were in
+        SHAPES and the progress view was drawing them, and the register
+        says the design outranks the page. Read literally, the shipped
+        product was the defect.
+
+        The list is read from its own machine readable line and compared
+        ENTRY BY ENTRY rather than by substring, which is what lets "UML
+        fork and join bars" stay banned while the decision fork D4 stays
+        drawn: they share a word and are not the same thing."""
+        text = read(VISUAL_DESIGN)
+        match = re.search(r"BANNED SHAPES[^:]*:\n\n(.+?)\n\n", text, re.S)
+        self.assertTrue(
+            match, "%s no longer carries its machine readable BANNED "
+                   "SHAPES line, so nothing can check the ban list against "
+                   "SHAPES" % VISUAL_DESIGN)
+        banned = [e.strip().lower() for e in match.group(1).split(",")
+                  if e.strip()]
+        drawn = sorted(set(banned) & set(s.lower() for s in _bv.SHAPES))
+        self.assertEqual(
+            drawn, [],
+            "%s bans %s, and tools/bm_visual.py draws %s. One of the two is "
+            "wrong, and the design is the one the register says outranks "
+            "the page."
+            % (VISUAL_DESIGN, ", ".join(drawn),
+               "it" if len(drawn) == 1 else "them"))
+        self.assertIn(
+            "pie", banned,
+            "%s must keep banning the pie; tools/test_bm_visual.py builds "
+            "one and expects the ValueError" % VISUAL_DESIGN)
+
+    def test_the_next_shape_is_refused_by_its_real_ordinal(self):
+        _word, _rows, section = self._parsed()
+        expected = ORDINAL_WORDS.get(len(_bv.SHAPES) + 1)
+        self.assertIsNotNone(
+            expected, "ORDINAL_WORDS has no entry for %d"
+                      % (len(_bv.SHAPES) + 1))
+        said = re.findall(r"\b([a-z]+) shape is refused\b", section)
+        self.assertEqual(
+            said, [expected],
+            "%s calls the next shape %s; SHAPES holds %d, which makes the "
+            "next one the %s"
+            % (VISUAL_REGISTER, ", ".join(said) or "nothing",
+               len(_bv.SHAPES), expected))
+
+    def test_what_the_page_refuses_is_not_something_the_code_draws(self):
+        """The failure this suite was handed: the page listed gantt and
+        timeline as refused while both were in SHAPES. The refusal sentence
+        may name anything the code will not draw, and nothing it will."""
+        _word, _rows, section = self._parsed()
+        match = re.search(r"There is no [^.]*\.", section, re.S)
+        self.assertTrue(
+            match, "%s no longer states what gets no drawing at all"
+                   % VISUAL_REGISTER)
+        refused = " ".join(match.group(0).split())
+        drawn = [s for s in _bv.SHAPES
+                 if re.search(r"\b%s\b" % re.escape(s), refused)]
+        self.assertEqual(
+            drawn, [],
+            "%s says %r, but %s %s in SHAPES and the product draws %s"
+            % (VISUAL_REGISTER, refused, ", ".join(drawn),
+               "is" if len(drawn) == 1 else "are",
+               "it" if len(drawn) == 1 else "them"))
+        self.assertIn(
+            "pie", refused,
+            "%s must keep naming something the code actually refuses; "
+            "tools/test_bm_visual.py builds a pie and expects the "
+            "ValueError, so the pie is the one example with a test behind "
+            "it" % VISUAL_REGISTER)
+# The two skills a session enters when it is finishing: the delivery flow and
+# the Full-Auto kill switch. Phase C step 2 of the 2026-08-08 finalization plan
+# puts the continuity instruction in both, because those are the two places a
+# session actually stops.
+CLOSING_FLOW_SKILLS = (os.path.join("skills", "deliver", "SKILL.md"),
+                       os.path.join("skills", "stop", "SKILL.md"))
+
+# The four phrasings the instruction must carry, each pinned for a reason a
+# reviewer can check rather than for style:
+#   the plugin form      the path a plugin install resolves, the same funnel
+#                        every other mechanical command in these skills uses
+#   the clone form       the command a clone install runs, where the variable
+#                        is unset; a skill that names only one of the two
+#                        leaves half the installed base with a dead command
+#   the packaged name    what a user types when the console script is on PATH
+#   the dry run          the flag that writes the packet and launches nothing,
+#                        which is the only safe way to rehearse a handover
+CONTINUE_PLUGIN_FORM = ('"${CLAUDE_PLUGIN_ROOT}/tools/brothermode_cli.py" '
+                        'continue')
+CONTINUE_CLONE_FORM = "python3 tools/brothermode_cli.py continue"
+CONTINUE_PACKAGED_NAME = "brothermode continue"
+CONTINUE_DRY_RUN = "--dry-run"
+
+# The condition and the law, in the plan's own words. The condition keeps the
+# instruction from reading as "always launch a successor"; the law is the
+# sentence that makes stopping without one a stated failure rather than a
+# judgement call at three in the morning.
+CONTINUITY_CONDITION = "open work remains"
+CONTINUITY_LAW = "Silence is the only forbidden outcome"
+
+
+class TestContinuityIsWiredIntoTheClosingFlows(unittest.TestCase):
+    """Protects: Phase C step 2 of PLAN.md (2026-08-08), the founder's
+    correction after a session closed its loop, reported, and stopped, leaving
+    the program to be restarted by hand.
+
+    `brothermode continue` existing is not the fix. The fix is that the two
+    flows a session enters when it is finishing TELL it to run the verb while
+    work is still open. This class pins that instruction text so a later edit
+    to either skill cannot quietly drop it, and pins the verb against the CLI's
+    own verb list so the documented command can never name a verb the runtime
+    boundary does not own."""
+
+    def test_both_closing_skills_name_the_continue_command_in_both_forms(self):
+        missing = []
+        for rel in CLOSING_FLOW_SKILLS:
+            text = read(rel)
+            for phrase in (CONTINUE_PLUGIN_FORM, CONTINUE_CLONE_FORM,
+                           CONTINUE_PACKAGED_NAME, CONTINUE_DRY_RUN):
+                if phrase not in text:
+                    missing.append("%s is missing %r" % (rel, phrase))
+        self.assertEqual(missing, [], "; ".join(missing))
+
+    def test_both_closing_skills_state_the_condition_and_the_law(self):
+        missing = []
+        for rel in CLOSING_FLOW_SKILLS:
+            text = read(rel)
+            for phrase in (CONTINUITY_CONDITION, CONTINUITY_LAW):
+                if phrase not in text:
+                    missing.append("%s is missing %r" % (rel, phrase))
+        self.assertEqual(missing, [], "; ".join(missing))
+
+    def test_the_documented_verb_is_one_the_cli_actually_owns(self):
+        """The instruction is only as good as the verb behind it. This runs the
+        boundary's own help and reads the verb out of it, so renaming or
+        dropping `continue` in tools/brothermode_cli.py fails here instead of
+        surfacing as a dead command in a closing session."""
+        r = subprocess.run(
+            [sys.executable, os.path.join(ROOT, "tools", "brothermode_cli.py"),
+             "--help"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True)
+        self.assertIn("continue", r.stdout,
+                      "brothermode_cli.py --help does not list the continue "
+                      "verb the closing skills tell sessions to run: %s%s"
+                      % (r.stdout, r.stderr))
+
+    def test_the_closing_skills_carry_no_em_or_en_dash(self):
+        offenders = []
+        for rel in CLOSING_FLOW_SKILLS:
+            for i, line in enumerate(read(rel).split("\n"), 1):
+                if "\u2013" in line or "\u2014" in line:
+                    offenders.append("%s:%d" % (rel, i))
+        self.assertEqual(offenders, [], "em or en dash found at %s"
+                         % ", ".join(offenders))
+
+
+# Phase C step 4 of the 2026-08-08 finalization plan: the one page that states
+# the continuity contract in prose, for a reader who is not about to read
+# tools/bm_continue.py. The skills tell a session WHAT to run; this page says
+# WHY, what happens when the launch cannot happen, and which half of the
+# protocol a machine actually enforces.
+CONTINUITY_DOC = os.path.join("docs", "CONTINUITY.md")
+
+# The ladder of last resorts, in the order the plan names it. Order is pinned,
+# not just presence: a ladder whose rungs can be reordered is a list, and the
+# whole point is that a session takes the FIRST rung it can reach and only
+# drops to the next when that one is closed.
+CONTINUITY_LADDER = ("Rung 1", "Rung 2", "Rung 3")
+
+# The three verdicts Phase C step 3 actually shipped (tools/bm_continue.py,
+# commit 9fe992b). The page describes what the product does, so a verdict this
+# page invents, or one it drops after the code gains it, fails here.
+LIVENESS_VERDICTS = ("SPOKE", "RUNNING", "GONE")
+
+
+class TestTheContinuityPageStatesTheContract(unittest.TestCase):
+    """Protects: Phase C step 4 of PLAN.md (2026-08-08). Steps 1 to 3 built the
+    verb, wired it into the two closing flows, and made the launch prove the
+    successor is alive. What none of them produced is a page a human can read
+    to learn the contract, which matters most in the case the whole phase
+    exists for: a session at three in the morning whose launch was refused and
+    which has to decide what to do instead.
+
+    The page is held to three things a later edit cannot quietly drop: the law
+    that silence is forbidden, the ladder of last resorts in order, and an
+    honest split between what a machine enforces and what is only discipline.
+    That last one is why the class exists at all. A continuity protocol that
+    reads as fully mechanical is the overclaim this project's own limits
+    register was written to prevent."""
+
+    def test_the_page_states_the_law_and_the_condition(self):
+        text = read(CONTINUITY_DOC)
+        missing = [phrase for phrase in (CONTINUITY_CONDITION, CONTINUITY_LAW)
+                   if phrase not in text]
+        self.assertEqual(missing, [], "%s is missing %s"
+                         % (CONTINUITY_DOC, "; ".join(repr(m) for m in missing)))
+
+    def test_the_ladder_names_its_rungs_in_order(self):
+        text = read(CONTINUITY_DOC)
+        positions = []
+        for rung in CONTINUITY_LADDER:
+            self.assertIn(rung, text, "%s does not name %s of the ladder of "
+                                      "last resorts" % (CONTINUITY_DOC, rung))
+            positions.append(text.index(rung))
+        self.assertEqual(positions, sorted(positions),
+                         "the rungs are out of order in %s: a session takes "
+                         "the first rung it can reach, so the order IS the "
+                         "instruction" % CONTINUITY_DOC)
+
+    def test_the_page_carries_the_three_verdicts_the_launch_returns(self):
+        text = read(CONTINUITY_DOC)
+        missing = [v for v in LIVENESS_VERDICTS if v not in text]
+        self.assertEqual(missing, [], "%s does not name the liveness verdict(s) "
+                                      "%s that tools/bm_continue.py returns"
+                         % (CONTINUITY_DOC, ", ".join(missing)))
+
+    def test_every_verdict_named_here_is_one_the_code_returns(self):
+        """The other direction, and the one that catches a page drifting into
+        fiction: a verdict word on the page that no longer exists in the tool
+        means the page is describing a product that shipped last week."""
+        tool = read(os.path.join("tools", "bm_continue.py"))
+        for verdict in LIVENESS_VERDICTS:
+            self.assertIn('%s = "%s"' % (verdict, verdict), tool,
+                          "%s documents the verdict %s, which tools/"
+                          "bm_continue.py does not define"
+                          % (CONTINUITY_DOC, verdict))
+
+    def test_the_page_separates_what_is_mechanical_from_what_is_discipline(self):
+        text = read(CONTINUITY_DOC)
+        for phrase in ("Mechanical", "Discipline"):
+            self.assertIn(phrase, text,
+                          "%s does not say which half of the protocol is %s. A "
+                          "protocol that reads as fully enforced is an "
+                          "overclaim." % (CONTINUITY_DOC, phrase.lower()))
+
+    def test_the_page_names_the_command_in_the_forms_a_reader_can_run(self):
+        text = read(CONTINUITY_DOC)
+        missing = [phrase for phrase in (CONTINUE_PLUGIN_FORM,
+                                         CONTINUE_CLONE_FORM,
+                                         CONTINUE_PACKAGED_NAME,
+                                         CONTINUE_DRY_RUN)
+                   if phrase not in text]
+        self.assertEqual(missing, [], "%s is missing %s"
+                         % (CONTINUITY_DOC, "; ".join(repr(m) for m in missing)))
+
+    def test_readme_points_at_the_page_exactly_once(self):
+        """Once, because the plan says one pointer, and because a second copy
+        of a pointer is the second place that goes stale. A markdown link
+        carries the path twice, in its label and in its target."""
+        hits = read("README.md").count("docs/CONTINUITY.md")
+        self.assertEqual(2, hits,
+                         "README.md should carry exactly one markdown link to "
+                         "docs/CONTINUITY.md (label plus target is two "
+                         "occurrences of the path); found %d" % hits)
 
 
 class TestNoDashes(unittest.TestCase):
