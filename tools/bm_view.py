@@ -514,10 +514,12 @@ _PAGE_TITLE = "Where your project stands"
 # stylesheet block, so the test that deletes it and asserts every status
 # is still readable stays trivial (L-S4).
 PAGE_CSS = """
-body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
-       sans-serif; margin: 0 auto; max-width: 60rem; padding: 1rem;
-       line-height: 1.5; }
-h1, h2, h3 { line-height: 1.25; }
+body { font-family: Seravek, "Avenir Next", "Segoe UI", system-ui,
+       sans-serif; background: var(--bm-paper); margin: 0 auto;
+       max-width: 60rem; padding: 1rem 1.5rem 4rem; line-height: 1.55; }
+h1, h2, h3 { font-family: "Iowan Old Style", Palatino, Georgia, serif;
+             font-weight: 600; line-height: 1.25; }
+h1 { color: var(--bm-accent); }
 a { color: var(--bm-for-info-ink); }
 code { color: var(--bm-body); background: var(--bm-node-tint);
        padding: 0 .25rem; }
