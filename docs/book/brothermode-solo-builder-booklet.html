@@ -1,0 +1,1155 @@
+<title>BrotherMode: build with Claude, stay in control</title>
+
+<style>
+:root {
+  --paper: #FAF8F4; --paper-2: #F3F0E9; --ink: #22302C; --muted: #5C6B66; --faint: #5E6C67;
+  --accent: #1D6A5C; --accent-soft: #E9F1ED; --amber: #96590A; --amber-soft: #F8EFE2;
+  --brick: #8C3A2B; --brick-soft: #F8ECE8; --line: #DDE4E0; --line-strong: #C4CFC9;
+  --code-bg: #1B2724; --code-ink: #E4EDE9; --code-dim: #8FAFA5;
+  --ok: #00543A; --info-ink: #00436B; --warn-ink: #6B4400; --hot-ink: #8C2D00;
+  --display: "Iowan Old Style", "Palatino Linotype", Palatino, "Hoefler Text", Georgia, serif;
+  --body: "Avenir Next", "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #101A17; --paper-2: #17231F; --ink: #E4EBE8; --muted: #A3B2AC; --faint: #8B9A94;
+    --accent: #58BCAA; --accent-soft: #16241F; --amber: #E0A55A; --amber-soft: #241B10;
+    --brick: #E39079; --brick-soft: #271713; --line: #26332E; --line-strong: #38473F;
+    --code-bg: #080D0B; --code-ink: #D7E4DF; --code-dim: #7E9B92;
+    --ok: #5FD3AE; --info-ink: #7FC4F5; --warn-ink: #F0B95A; --hot-ink: #FFA582;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #101A17; --paper-2: #17231F; --ink: #E4EBE8; --muted: #A3B2AC; --faint: #8B9A94;
+  --accent: #58BCAA; --accent-soft: #16241F; --amber: #E0A55A; --amber-soft: #241B10;
+  --brick: #E39079; --brick-soft: #271713; --line: #26332E; --line-strong: #38473F;
+  --code-bg: #080D0B; --code-ink: #D7E4DF; --code-dim: #7E9B92;
+  --ok: #5FD3AE; --info-ink: #7FC4F5; --warn-ink: #F0B95A; --hot-ink: #FFA582;
+}
+:root[data-theme="light"] {
+  --paper: #FAF8F4; --paper-2: #F3F0E9; --ink: #22302C; --muted: #5C6B66; --faint: #5E6C67;
+  --accent: #1D6A5C; --accent-soft: #E9F1ED; --amber: #96590A; --amber-soft: #F8EFE2;
+  --brick: #8C3A2B; --brick-soft: #F8ECE8; --line: #DDE4E0; --line-strong: #C4CFC9;
+  --code-bg: #1B2724; --code-ink: #E4EDE9; --code-dim: #8FAFA5;
+  --ok: #00543A; --info-ink: #00436B; --warn-ink: #6B4400; --hot-ink: #8C2D00;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--body); font-size: 1.02rem; line-height: 1.68; -webkit-text-size-adjust: 100%; }
+.skip { position: absolute; left: -9999px; top: 0; background: var(--accent); color: var(--paper); padding: 0.6rem 1rem; z-index: 50; text-decoration: none; }
+.skip:focus { left: 0; }
+a { color: var(--accent); text-underline-offset: 0.18em; }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+.cover { border-bottom: 2px solid var(--ink); padding: 5rem 1.25rem 3rem; max-width: 78rem; margin: 0 auto; }
+.cover-inner { max-width: 54rem; }
+.eyebrow-brand { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.28em; text-transform: uppercase; color: var(--accent); margin: 0 0 1.6rem; }
+.tagline { font-family: var(--display); font-weight: 600; font-size: clamp(2.7rem, 8.5vw, 5.2rem); line-height: 1.01; letter-spacing: -0.028em; margin: 0 0 1rem; text-wrap: balance; }
+.tagline .b { display: block; color: var(--accent); }
+.category { font-family: var(--display); font-size: clamp(1.25rem, 3vw, 1.75rem); line-height: 1.3; color: var(--muted); margin: 0 0 2.2rem; }
+.cover-body { max-width: 50ch; margin: 0 0 2rem; }
+.cover-body p { margin: 0 0 0.55rem; }
+.cover-body .big { font-weight: 650; color: var(--ink); margin-top: 1rem; }
+.pillars { font-family: var(--mono); font-size: 0.82rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink); border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); padding: 1rem 0; margin: 0 0 1.8rem; }
+.cover-kicker { font-family: var(--display); font-size: 1.24rem; line-height: 1.45; max-width: 44ch; margin: 0 0 2rem; }
+.imprint { display: flex; flex-wrap: wrap; gap: 0.35rem 2rem; font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--faint); border-top: 1px solid var(--line); padding-top: 1.1rem; }
+.imprint b { color: var(--muted); font-weight: 600; }
+
+.shell { max-width: 78rem; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; display: grid; grid-template-columns: 1fr; }
+@media (min-width: 62rem) { .shell { grid-template-columns: 14rem minmax(0, 1fr); column-gap: 3.5rem; align-items: start; } }
+
+nav.toc { font-size: 0.88rem; line-height: 1.45; margin-bottom: 3rem; }
+@media (min-width: 62rem) { nav.toc { position: sticky; top: 0; max-height: 100vh; overflow-y: auto; padding: 1rem 1.5rem 3rem 0; margin-bottom: 0; border-right: 1px solid var(--line); } }
+.toc-title { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); margin: 0 0 1rem; display: none; }
+@media (min-width: 62rem) { .toc-title { display: block; } }
+details.toc-wrap { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 0.75rem 0; }
+details.toc-wrap > summary { cursor: pointer; font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); list-style: none; }
+details.toc-wrap > summary::-webkit-details-marker { display: none; }
+details.toc-wrap > summary::after { content: " +"; color: var(--faint); }
+details.toc-wrap[open] > summary::after { content: " -"; }
+@media (min-width: 62rem) { details.toc-wrap { border: 0; padding: 0; } details.toc-wrap > summary { display: none; } }
+nav.toc ol { list-style: none; margin: 0; padding: 0; }
+nav.toc > .toc-wrap > ol > li { margin-bottom: 0.95rem; }
+nav.toc .part { display: block; font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.11em; text-transform: uppercase; color: var(--faint); margin-bottom: 0.2rem; }
+nav.toc a { color: var(--muted); text-decoration: none; display: block; padding: 0.08rem 0; }
+nav.toc a:hover { color: var(--accent); }
+nav.toc ol ol { margin-top: 0.15rem; }
+nav.toc ol ol a { padding-left: 0.8rem; font-size: 0.83rem; color: var(--faint); }
+
+main { min-width: 0; }
+section.part { padding-top: 1rem; }
+section.part + section.part { margin-top: 4.5rem; }
+h2.part-head { font-family: var(--display); font-weight: 600; font-size: clamp(1.75rem, 4.2vw, 2.45rem); line-height: 1.1; letter-spacing: -0.015em; margin: 0 0 0.4rem; padding-top: 1.5rem; border-top: 2px solid var(--ink); text-wrap: balance; }
+.part-label { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.13em; text-transform: uppercase; color: var(--accent); display: block; margin-bottom: 0.85rem; }
+.part-blurb { color: var(--muted); font-size: 1.04rem; max-width: 62ch; margin: 0 0 2.6rem; }
+
+h3 { font-family: var(--display); font-weight: 600; font-size: 1.5rem; line-height: 1.2; letter-spacing: -0.01em; margin: 3rem 0 0.7rem; text-wrap: balance; }
+h4 { font-weight: 650; font-size: 1.01rem; margin: 2.1rem 0 0.5rem; }
+p, ul, ol { max-width: 68ch; }
+p { margin: 0 0 1.1rem; }
+main ul, main ol { padding-left: 1.15rem; margin: 0 0 1.2rem; }
+main li { margin-bottom: 0.45rem; }
+strong { font-weight: 650; }
+
+.statement { font-family: var(--display); font-weight: 600; font-size: clamp(1.5rem, 3.6vw, 2.1rem); line-height: 1.22; letter-spacing: -0.012em; margin: 2.2rem 0 1.4rem; max-width: 24ch; text-wrap: balance; }
+.statement.wide { max-width: 34ch; }
+.lede { font-family: var(--display); font-size: 1.26rem; line-height: 1.5; max-width: 58ch; margin: 0 0 1.6rem; }
+
+.scene { border-left: 1px solid var(--accent); padding: 0.2rem 0 0.2rem 1.3rem; margin: 0 0 1.8rem; max-width: 62ch; }
+.scene p { font-family: var(--display); font-size: 1.16rem; line-height: 1.5; margin-bottom: 0.8rem; }
+.scene p:last-child { margin-bottom: 0; }
+.daymark { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); display: block; margin: 2.6rem 0 0.5rem; }
+
+.evidence { display: block; font-family: var(--mono); font-size: 0.73rem; line-height: 1.6; color: var(--muted); margin: -0.3rem 0 1.5rem; max-width: 68ch; overflow-wrap: anywhere; }
+.evidence::before { content: "evidence"; color: var(--faint); letter-spacing: 0.11em; text-transform: uppercase; font-size: 0.64rem; margin-right: 0.6rem; }
+
+.stamp { display: inline-block; font-family: var(--mono); font-size: 0.63rem; font-weight: 600; letter-spacing: 0.13em; text-transform: uppercase; padding: 0.14em 0.45em; border: 1px solid currentColor; border-radius: 2px; white-space: nowrap; vertical-align: 0.1em; }
+.s-certified { color: var(--ok); } .s-beta { color: var(--info-ink); } .s-experimental { color: var(--warn-ink); } .s-unsupported { color: var(--hot-ink); }
+
+.tw { overflow-x: auto; margin: 0 0 1.8rem; border-bottom: 1px solid var(--line); }
+table { border-collapse: collapse; width: 100%; min-width: 32rem; font-size: 0.93rem; line-height: 1.5; font-variant-numeric: tabular-nums; }
+thead th { text-align: left; font-family: var(--mono); font-size: 0.64rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); border-bottom: 1px solid var(--line-strong); padding: 0 0.9rem 0.55rem 0; vertical-align: bottom; }
+tbody td, tbody th { border-bottom: 1px solid var(--line); padding: 0.7rem 0.9rem 0.7rem 0; vertical-align: top; }
+tbody th { text-align: left; font-weight: 600; }
+tbody tr:last-child td, tbody tr:last-child th { border-bottom: 0; }
+table.tight tbody td, table.tight tbody th { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+table.tight tbody th { white-space: nowrap; }
+td code, th code { font-size: 0.86em; }
+
+pre { background: var(--code-bg); color: var(--code-ink); font-family: var(--mono); font-size: 0.83rem; line-height: 1.65; padding: 1rem 1.1rem; border-radius: 3px; overflow-x: auto; margin: 0 0 1.4rem; max-width: 68ch; }
+pre .c { color: var(--code-dim); }
+code { font-family: var(--mono); font-size: 0.88em; background: var(--paper-2); border: 1px solid var(--line); border-radius: 2px; padding: 0.05em 0.3em; overflow-wrap: anywhere; }
+pre code { background: none; border: 0; padding: 0; font-size: 1em; color: inherit; }
+
+.panel { background: var(--paper-2); border: 1px solid var(--line); border-radius: 3px; padding: 1.2rem 1.4rem 0.3rem; margin: 0 0 1.8rem; max-width: 68ch; }
+.panel > :last-child { margin-bottom: 1rem; }
+.panel h4 { margin-top: 0.2rem; }
+.panel-title { font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); margin: 0 0 0.7rem; }
+.panel.caution { background: var(--amber-soft); border-color: var(--amber); }
+.panel.caution .panel-title { color: var(--amber); }
+.panel.refusal { background: var(--brick-soft); border-color: var(--brick); }
+.panel.refusal .panel-title { color: var(--brick); }
+.panel.accent { background: var(--accent-soft); border-color: var(--accent); }
+.panel.accent .panel-title { color: var(--accent); }
+
+.thesis { font-family: var(--display); font-size: 1.3rem; line-height: 1.42; border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); padding: 1.4rem 0; margin: 2.4rem 0; max-width: 54ch; text-wrap: balance; }
+
+dl.facts { margin: 0 0 1.2rem; max-width: 68ch; }
+dl.facts div { display: grid; grid-template-columns: 1fr; padding: 0.55rem 0; border-bottom: 1px solid var(--line); }
+@media (min-width: 34rem) { dl.facts div { grid-template-columns: 8.5rem minmax(0, 1fr); column-gap: 1rem; } }
+dl.facts dt { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); padding-top: 0.25rem; }
+dl.facts dd { margin: 0; }
+
+figure { margin: 2.2rem 0; max-width: 68ch; }
+figure svg { display: block; width: 100%; height: auto; }
+figcaption { font-size: 0.85rem; line-height: 1.55; color: var(--muted); margin-top: 0.7rem; border-top: 1px solid var(--line); padding-top: 0.6rem; }
+.svg-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; }
+.svg-title { font-family: var(--body); font-size: 13px; font-weight: 650; }
+.svg-body { font-family: var(--body); font-size: 11.5px; }
+.svg-small { font-family: var(--body); font-size: 10.5px; }
+.svg-big { font-family: var(--display); font-size: 16px; font-weight: 600; }
+
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.8rem 0; max-width: 68ch; }
+.tick { list-style: none; padding-left: 0; }
+.tick li { padding-left: 1.5rem; position: relative; }
+.tick li::before { content: ""; position: absolute; left: 0.15rem; top: 0.6em; width: 0.5rem; height: 0.5rem; border: 1px solid var(--accent); border-radius: 1px; }
+
+.foot { border-top: 2px solid var(--ink); margin-top: 5rem; padding-top: 1.6rem; font-size: 0.9rem; color: var(--muted); max-width: 68ch; }
+
+@media print {
+  nav.toc { display: none; }
+  .shell { display: block; max-width: none; }
+  section.part { break-before: page; }
+  pre, table, figure, .panel { break-inside: avoid; }
+}
+</style>
+
+<a class="skip" href="#pain">Skip to the briefing</a>
+
+<header class="cover">
+  <div class="cover-inner">
+    <p class="eyebrow-brand">BrotherMode</p>
+    <h1 class="tagline">Build with Claude.<span class="b">Stay in control.</span></h1>
+    <p class="category">The reliability layer for Claude Code.</p>
+    <div class="cover-body">
+      <p>Claude can code, research, analyse, debug and build.</p>
+      <p>The hard part starts when the work becomes a <strong>project</strong>.</p>
+      <p>When it lasts longer than one conversation.</p>
+      <p>When two sessions are running at once.</p>
+      <p>When yesterday's decisions matter today.</p>
+      <p>When an interrupted session has to pick itself back up.</p>
+      <p>When done needs to mean more than the agent said so.</p>
+      <p class="big">That is what BrotherMode is for.</p>
+    </div>
+    <p class="pillars">Remembers &nbsp;&middot;&nbsp; Protects &nbsp;&middot;&nbsp; Proves</p>
+    <p class="cover-kicker">Claude does the work. BrotherMode makes the work hold together, and makes what it claims checkable.</p>
+    <div class="imprint">
+      <span><b>For</b> solo founders and individual contributors</span>
+      <span><b>Describes</b> v3.0.0</span>
+      <span><b>Read from the tree</b> 8 August 2026</span>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+
+<nav class="toc" aria-label="Contents">
+  <p class="toc-title">Contents</p>
+  <details class="toc-wrap" open>
+    <summary>Contents</summary>
+    <ol>
+      <li>
+        <span class="part">Act one</span>
+        <a href="#pain">The pain</a>
+        <ol>
+          <li><a href="#pm-for-ai">You became the project manager</a></li>
+          <li><a href="#painkiller">The painkiller</a></li>
+          <li><a href="#medicine">The medicine</a></li>
+          <li><a href="#overwrite">The silent overwrite</a></li>
+          <li><a href="#pillars">Remembers, protects, proves</a></li>
+          <li><a href="#whatitis">What it is, and is not</a></li>
+        </ol>
+      </li>
+      <li>
+        <span class="part">Act two</span>
+        <a href="#week">One builder, one week</a>
+        <ol>
+          <li><a href="#mon">Monday: frame it</a></li>
+          <li><a href="#tue">Tuesday: pick it back up</a></li>
+          <li><a href="#wed">Wednesday: delegate safely</a></li>
+          <li><a href="#recover">Wednesday: the crash</a></li>
+          <li><a href="#thu">Thursday: fail correctly</a></li>
+          <li><a href="#fri">Friday: deliver</a></li>
+          <li><a href="#week-pic">The week in one picture</a></li>
+        </ol>
+      </li>
+      <li>
+        <span class="part">Act three</span>
+        <a href="#judgment">Your judgment</a>
+        <ol>
+          <li><a href="#hats">The hats you already wear</a></li>
+          <li><a href="#today">What it lets you do today</a></li>
+          <li><a href="#overhead">When it earns its overhead</a></li>
+        </ol>
+      </li>
+      <li>
+        <span class="part">Act four</span>
+        <a href="#fit">Where it fits</a>
+        <ol>
+          <li><a href="#why-plugin">Why another plugin</a></li>
+          <li><a href="#summary">Pain, painkiller, medicine</a></li>
+          <li><a href="#notdo">What it does not do</a></li>
+        </ol>
+      </li>
+      <li>
+        <span class="part">Act five</span>
+        <a href="#how">How it works, and why trust it</a>
+        <ol>
+          <li><a href="#arch">The architecture</a></li>
+          <li><a href="#controls">Controls, skills, workers</a></li>
+          <li><a href="#states">What is proven, and how</a></li>
+          <li><a href="#outside">What still needs outside proof</a></li>
+          <li><a href="#first">Your first project</a></li>
+        </ol>
+      </li>
+    </ol>
+  </details>
+</nav>
+
+<main>
+
+<!-- =================== ACT ONE =================== -->
+<section class="part" id="pain">
+  <span class="part-label">Act one</span>
+  <h2 class="part-head">The pain</h2>
+  <p class="part-blurb">Six short sections. What is going wrong, what stops it immediately, what stops it coming back, and the one incident that started all of this.</p>
+
+  <h3 id="pm-for-ai">You should not have to become the project manager for your AI</h3>
+
+  <p class="lede">The more work you hand to Claude, the more invisible coordination work comes back to you.</p>
+
+  <p>You already wear every hat. Founder, product manager, builder, reviewer, analyst, release owner. Claude gives you far more execution capacity than you had last year, and that is the good news.</p>
+
+  <p>Here is the part nobody warns you about. More AI creates more coordination.</p>
+
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>What you end up doing</th><th>How often it shows up</th></tr></thead>
+    <tbody>
+      <tr><td>Repeating context you already gave</td><td>Every new session</td></tr>
+      <tr><td>Remembering decisions nobody wrote down</td><td>Every time one comes back</td></tr>
+      <tr><td>Tracking which agent is touching which file</td><td>Every time you run two</td></tr>
+      <tr><td>Reconstructing where an interrupted session stopped</td><td>Every crash, every compaction</td></tr>
+      <tr><td>Working out what actually changed</td><td>Every review</td></tr>
+      <tr><td>Re-running the checks yourself</td><td>Every time you do not trust done</td></tr>
+      <tr><td>Deciding whether done is real</td><td>Every single time</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="statement wide">Eventually you are the memory, the traffic control and the quality gate for your own AI.</p>
+
+  <figure>
+    <svg viewBox="0 0 640 300" role="img" aria-labelledby="pain-title">
+      <title id="pain-title">Two arrangements compared. In the first, the person personally carries memory, traffic control and quality checking between themselves and Claude. In the second, those three jobs move into BrotherMode, and the person keeps only judgment and intent.</title>
+      <defs><marker id="ar" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7 z" fill="currentColor" opacity="0.5"/></marker></defs>
+
+      <text class="svg-label" x="0" y="12" fill="currentColor" opacity="0.85">Today</text>
+      <text class="svg-big" x="112" y="40" fill="currentColor">YOU</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M118 50 L52 74" marker-end="url(#ar)"/><path d="M126 50 L126 74" marker-end="url(#ar)"/><path d="M134 50 L200 74" marker-end="url(#ar)"/>
+      </g>
+      <g class="svg-body" fill="currentColor" opacity="0.95">
+        <text x="10" y="90">memory</text><text x="98" y="90">traffic control</text><text x="192" y="90">quality</text>
+      </g>
+      <g class="svg-small" fill="currentColor" opacity="0.85">
+        <text x="10" y="106">you re-explain</text><text x="98" y="106">you referee</text><text x="192" y="106">you re-check</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M34 116 L112 142" marker-end="url(#ar)"/><path d="M126 116 L126 142" marker-end="url(#ar)"/><path d="M208 116 L142 142" marker-end="url(#ar)"/>
+      </g>
+      <text class="svg-big" x="96" y="160" fill="currentColor">CLAUDE</text>
+      <text class="svg-small" x="0" y="186" fill="currentColor" opacity="0.9">Three jobs you never signed up for,</text>
+      <text class="svg-small" x="0" y="200" fill="currentColor" opacity="0.9">sitting between you and the work.</text>
+
+      <line x1="290" y1="0" x2="290" y2="290" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+
+      <text class="svg-label" x="320" y="12" fill="currentColor" opacity="0.85">With BrotherMode</text>
+      <text class="svg-big" x="440" y="40" fill="currentColor">YOU</text>
+      <text class="svg-small" x="320" y="60" fill="currentColor" opacity="0.9">judgment, intent, the decisions only you can make</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none"><path d="M452 70 L452 94" marker-end="url(#ar)"/></g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="320" y="98" width="276" height="74" rx="3"/></g>
+      <text class="svg-title" x="334" y="120" fill="currentColor">BROTHERMODE</text>
+      <g class="svg-small" fill="currentColor" opacity="0.92">
+        <text x="334" y="138">memory that outlives the session</text>
+        <text x="334" y="152">ownership that refuses a collision</text>
+        <text x="334" y="166">a gate that requires fresh evidence</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none"><path d="M452 172 L452 196" marker-end="url(#ar)"/></g>
+      <text class="svg-big" x="412" y="214" fill="currentColor">CLAUDE</text>
+      <text class="svg-small" x="320" y="236" fill="currentColor" opacity="0.9">reasoning, tools, workers</text>
+      <line x1="320" y1="254" x2="638" y2="254" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-small" x="320" y="272" fill="currentColor" opacity="0.95">Your judgment stays with you.</text>
+      <text class="svg-small" x="320" y="288" fill="currentColor" opacity="0.95">The coordination does not have to.</text>
+    </svg>
+    <figcaption>Nothing here removes a decision from you. What moves is the clerical work between your decisions: remembering, refereeing and re-checking. Those three are the whole product.</figcaption>
+  </figure>
+
+  <h3 id="painkiller">The painkiller: take the coordination out of your head</h3>
+
+  <p>Four things stop hurting on day one.</p>
+
+  <figure>
+    <svg viewBox="0 0 640 250" role="img" aria-labelledby="killer-title">
+      <title id="killer-title">Four transformations. You remembering becomes the project remembering. You refereeing becomes work having ownership. You reconstructing becomes state that resumes. You re-checking becomes done requiring evidence.</title>
+      <g class="svg-label" fill="currentColor" opacity="0.85"><text x="0" y="14">Without</text><text x="326" y="14">With</text></g>
+      <line x1="0" y1="24" x2="638" y2="24" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+      <g class="svg-title" fill="currentColor">
+        <text x="0" y="54">YOU remember</text><text x="0" y="108">YOU referee</text><text x="0" y="162">YOU reconstruct</text><text x="0" y="216">YOU re-check</text>
+      </g>
+      <g class="svg-small" fill="currentColor" opacity="0.88">
+        <text x="0" y="70">re-explaining the project every session</text>
+        <text x="0" y="124">watching which agent touches what</text>
+        <text x="0" y="178">working out where the crash stopped it</text>
+        <text x="0" y="232">deciding whether done is real</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.4"><path d="M258 48 L316 48"/><path d="M258 102 L316 102"/><path d="M258 156 L316 156"/><path d="M258 210 L316 210"/></g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="322" y="32" width="316" height="34" rx="3"/><rect x="322" y="86" width="316" height="34" rx="3"/>
+        <rect x="322" y="140" width="316" height="34" rx="3"/><rect x="322" y="194" width="316" height="34" rx="3"/>
+      </g>
+      <g class="svg-title" fill="currentColor">
+        <text x="336" y="54">the PROJECT remembers</text><text x="336" y="108">the WORK has ownership</text>
+        <text x="336" y="162">the STATE resumes</text><text x="336" y="216">DONE has evidence</text>
+      </g>
+    </svg>
+    <figcaption>Read the left column as the job description you did not apply for. Read the right as what a record on disk, a claim on a file, a snapshot and a gate actually buy you.</figcaption>
+  </figure>
+
+  <p class="statement">One person. More leverage. Less babysitting.</p>
+
+  <p class="evidence">Memory and recovery, the ownership refusal and the evidence discipline are each marked certified in the capability register, with a named test behind them. The project page is beta. Act five prints the whole register with the gap beside each entry.</p>
+
+  <h3 id="medicine">The medicine: stop the same failures becoming your normal way of working</h3>
+
+  <p>Fixing today's interrupted session is worth something. It is not the interesting part.</p>
+
+  <p>The interesting part is that four failures keep coming back, and each one is closed by a different step in the same loop.</p>
+
+  <figure>
+    <svg viewBox="0 0 640 330" role="img" aria-labelledby="med-title">
+      <title id="med-title">A seven step loop from frame to learn and back to the next project, with the four recurring failures placed beside the step that closes each: amnesia at frame and decide, collision at claim, false completion at check and deliver, and repeated mistakes at learn.</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="150" y="8" width="140" height="34" rx="3"/><rect x="150" y="54" width="140" height="34" rx="3"/>
+        <rect x="150" y="100" width="140" height="34" rx="3"/><rect x="150" y="146" width="140" height="34" rx="3"/>
+        <rect x="150" y="192" width="140" height="34" rx="3"/><rect x="150" y="238" width="140" height="34" rx="3"/>
+        <rect x="150" y="284" width="140" height="34" rx="3"/>
+      </g>
+      <g class="svg-title" fill="currentColor">
+        <text x="164" y="30">FRAME</text><text x="164" y="76">DECIDE</text><text x="164" y="122">CLAIM</text>
+        <text x="164" y="168">BUILD</text><text x="164" y="214">CHECK</text><text x="164" y="260">DELIVER</text><text x="164" y="306">LEARN</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.4" fill="none">
+        <path d="M220 42 L220 54" marker-end="url(#ar)"/><path d="M220 88 L220 100" marker-end="url(#ar)"/>
+        <path d="M220 134 L220 146" marker-end="url(#ar)"/><path d="M220 180 L220 192" marker-end="url(#ar)"/>
+        <path d="M220 226 L220 238" marker-end="url(#ar)"/><path d="M220 272 L220 284" marker-end="url(#ar)"/>
+        <path d="M150 301 L96 301 L96 25 L150 25" marker-end="url(#ar)"/>
+      </g>
+      <text class="svg-small" x="0" y="158" fill="currentColor" opacity="0.85">carried to</text>
+      <text class="svg-small" x="0" y="172" fill="currentColor" opacity="0.85">the next one</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.3"><path d="M290 48 L340 48"/><path d="M290 117 L340 117"/><path d="M290 226 L340 226"/><path d="M290 301 L340 301"/></g>
+      <g class="svg-title" fill="currentColor">
+        <text x="348" y="52">amnesia</text><text x="348" y="121">collision</text><text x="348" y="230">false completion</text><text x="348" y="305">repeated mistakes</text>
+      </g>
+      <g class="svg-small" fill="currentColor" opacity="0.85">
+        <text x="348" y="68">the goal and the decision are written down</text>
+        <text x="348" y="137">one writer per file, refused by a program</text>
+        <text x="348" y="246">a check must run after the last edit</text>
+        <text x="348" y="321">what went wrong is written where you trip over it</text>
+      </g>
+    </svg>
+    <figcaption>Failure is inside the loop, not beside it. A failed check at step five sends the work back to step four, and there is no flag that turns a red check into a green delivery.</figcaption>
+  </figure>
+
+  <p><strong>The painkiller makes today's project easier to control. The medicine is meant to make the way you work harder to fool, forget or silently break.</strong></p>
+
+  <div class="panel caution">
+    <p class="panel-title">The honest size of the medicine claim</p>
+    <p>Six of the seven steps above are enforced by machinery. The last one, LEARN, is thinner than the rest, and you should know exactly how thin before you buy the idea.</p>
+    <p>The correction-learning system is real code you can run. It captures a correction, promotes it to a rule behind a human-confirmed receipt, retrieves it later with its reason shown, and grades whether it prevented rework. But it carries <strong>no state in the capability register</strong>, it has <strong>no slash command</strong> and is not on the everyday surface, and its own page states that not one hour of real founder work has yet gone through it. The weekly review that closes the loop is twenty minutes of a human's time, nagged at session start, and nothing performs it for you.</p>
+    <p>So: the medicine is a discipline this system asks of you and reminds you about. It is not learning that has been shown to work, and it is not automatic. If nobody ever runs the weekly review, you are paying the overhead and collecting only the painkiller.</p>
+    <p class="evidence">The command line is <code>tools/bm_learn.py</code> and its page is <code>docs/CORRECTION-LEARNING.md</code>, including the sentence about zero founder hours. Searching <code>capabilities.status.json</code> for a learning entry returns nothing, and <code>grep -rl bm_learn skills/ commands/</code> returns zero files.</p>
+  </div>
+
+  <h3 id="overwrite">The silent overwrite</h3>
+
+  <div class="scene">
+    <p>You have Claude refactoring your pricing logic in one window.</p>
+    <p>Twenty minutes later you open a second session to add a field to the same feature, because that is how the day actually goes.</p>
+    <p>You have forgotten the first session is still holding one shared file.</p>
+    <p>Both finish. Both report success. One of them silently erased ninety minutes of the other's work.</p>
+    <p>Nothing crashed. Nothing warned you.</p>
+  </div>
+
+  <p>That is the incident this system was built around. It happened with two people driving, and it reaches one person the moment you run two windows, which is most days.</p>
+
+  <p class="statement wide">A rule in a prompt is not a control. A control is a check that runs.</p>
+
+  <figure>
+    <svg viewBox="0 0 640 214" role="img" aria-labelledby="ctl-title">
+      <title id="ctl-title">The same rule stated two ways. As a line in a prompt it is advisory, because the thing being instructed is also the thing deciding whether to comply. As a program on the write hook it is a control: the attempt is checked against ownership and either allowed or refused before it executes.</title>
+      <text class="svg-label" x="0" y="14" fill="currentColor" opacity="0.85">As a line in a prompt</text>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.3"><rect x="0" y="24" width="246" height="40" rx="3"/></g>
+      <text class="svg-body" x="14" y="49" fill="currentColor" opacity="0.9">"do not overwrite other work"</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.4" fill="none"><path d="M123 64 L123 86" marker-end="url(#ar)"/></g>
+      <text class="svg-title" x="14" y="106" fill="currentColor" opacity="0.8">advisory</text>
+      <text class="svg-small" x="14" y="124" fill="currentColor" opacity="0.88">the thing being instructed is also</text>
+      <text class="svg-small" x="14" y="138" fill="currentColor" opacity="0.88">the thing judging its own compliance</text>
+
+      <line x1="290" y1="0" x2="290" y2="196" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+
+      <text class="svg-label" x="320" y="14" fill="currentColor" opacity="0.85">As a program on the write hook</text>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="320" y="24" width="246" height="30" rx="3"/></g>
+      <text class="svg-body" x="334" y="44" fill="currentColor" opacity="0.95">a write is attempted</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none"><path d="M443 54 L443 70" marker-end="url(#ar)"/></g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="320" y="74" width="246" height="30" rx="3"/></g>
+      <text class="svg-body" x="334" y="94" fill="currentColor" opacity="0.95">who owns this file right now?</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M443 104 L443 118 L380 118 L380 132" marker-end="url(#ar)"/><path d="M443 118 L516 118 L516 132" marker-end="url(#ar)"/>
+      </g>
+      <g class="svg-title" fill="currentColor"><text x="342" y="150">ALLOWED</text><text x="482" y="150">REFUSED</text></g>
+      <text class="svg-title" x="320" y="180" fill="currentColor" opacity="0.9">a control</text>
+      <text class="svg-small" x="320" y="196" fill="currentColor" opacity="0.9">a separate program answers, before the tool call runs</text>
+    </svg>
+    <figcaption>The difference is not how strictly the rule is worded. It is who decides. On the left, the model judges its own compliance. On the right, something else answers first.</figcaption>
+  </figure>
+
+  <h3 id="pillars">Remembers, protects, proves</h3>
+  <p>Three things a real project needs that a conversation cannot guarantee.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Pillar</th><th>What it means</th><th>The limit to hold it to</th></tr></thead>
+    <tbody>
+      <tr>
+        <th>REMEMBERS</th>
+        <td>Goal, decisions, tasks, ownership, evidence and next intent live in a durable record, so the project survives the chat. Right before context is compacted, your whole working tree including untracked files is snapshotted to a private local git reference.</td>
+        <td>A snapshot is a rescue, not a backup service: it lives in your own <code>.git</code> and goes when that goes. Recovered work is owner-only on POSIX, not on Windows.</td>
+      </tr>
+      <tr>
+        <th>PROTECTS</th>
+        <td>Two workers cannot write one file. The second is refused by a program before its write executes, rather than asked nicely afterwards.</td>
+        <td>Not an operating-system sandbox. Supported editing tools are refused; a plain shell write is detected afterwards, not prevented. Verified on Claude Code only: measured on one other runtime, the refusal did not fire at all.</td>
+      </tr>
+      <tr>
+        <th>PROVES</th>
+        <td>Done is a gate result, not agent confidence. A verifying command must run after the last edit, pass, and be quoted back.</td>
+        <td>The gate proves the checks that ran. It cannot tell you the acceptance criteria you chose were the right ones for your business.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="evidence">Register states and the test behind each are in <code>capabilities.status.json</code>. The runtime measurement is <code>docs/mistakes/M19-the-codex-fence-does-not-fire-in-exec-mode.md</code>. The fifteen points behind done are <code>references/definition-of-done.md</code>.</p>
+
+  <h3 id="whatitis">What it is, and three things it is not</h3>
+
+  <p class="lede">BrotherMode is the reliability layer for Claude Code: it keeps your project memory, your AI workers and your proof together across sessions.</p>
+
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>It is not</th><th>Because</th></tr></thead>
+    <tbody>
+      <tr><th>another AI model</th><td>Claude remains the intelligence. This adds no reasoning and never claims to.</td></tr>
+      <tr><th>a collection of prompts</th><td>The controls that matter sit outside the model's own judgment, as programs with exit codes.</td></tr>
+      <tr><th>an agent marketplace</th><td>The goal is not the maximum number of agents. It is the smallest correct amount of delegation.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="thesis">Most tools help Claude do more. BrotherMode helps you trust more of what Claude does.</p>
+</section>
+
+<!-- =================== ACT TWO =================== -->
+<section class="part" id="week">
+  <span class="part-label">Act two</span>
+  <h2 class="part-head">One builder, one product, one week</h2>
+  <p class="part-blurb">You, alone, shipping offline mode for your app: cache the last screen, sync on reconnect, show the user which state they are in. Five days. Every command appears where the week needs it.</p>
+
+  <span class="daymark">Monday</span>
+  <h3 id="mon">Start with the outcome, not a thirty-page spec</h3>
+
+  <pre><code>/brothermode:start Offline mode: cache the last screen, sync on reconnect,
+and show the user which state they are in.</code></pre>
+
+  <p>One sentence. What comes back is not a plan; it is a short conversation that asks only the questions whose answers change the scope, then writes the brief and puts one decision in front of you.</p>
+
+  <figure>
+    <svg viewBox="0 0 640 214" role="img" aria-labelledby="card-title">
+      <title id="card-title">The shape of a decision card: one question, two or three outcomes, the recommended one first with its reason, each alternative with its tradeoff, and a final branch that is always the reader taking the decision and the work under it back.</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="0" y="60" width="190" height="56" rx="3"/></g>
+      <text class="svg-title" x="14" y="84" fill="currentColor">What should sync do</text>
+      <text class="svg-small" x="14" y="102" fill="currentColor" opacity="0.88">on a conflict?</text>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="284" y="6" width="354" height="52" rx="3"/><rect x="284" y="66" width="354" height="44" rx="3"/><rect x="284" y="118" width="354" height="44" rx="3"/>
+      </g>
+      <g class="svg-body" fill="currentColor" opacity="0.95">
+        <text x="298" y="26">Last write wins</text><text x="298" y="86">Keep both, let the user pick</text><text x="298" y="138">Take this decision back yourself</text>
+      </g>
+      <g class="svg-small" fill="currentColor" opacity="0.88">
+        <text x="298" y="42">RECOMMENDED. Why: nothing here is co-edited, so</text>
+        <text x="298" y="54">the conflict case is rare and cheap.</text>
+        <text x="298" y="102">Tradeoff: a screen nobody has designed yet.</text>
+        <text x="298" y="154">Always present. Never dropped to shorten the card.</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M190 88 L236 88 L236 32 L284 32" marker-end="url(#ar)"/><path d="M236 88 L284 88" marker-end="url(#ar)"/><path d="M236 88 L236 140 L284 140" marker-end="url(#ar)"/>
+      </g>
+      <line x1="0" y1="182" x2="638" y2="182" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-small" x="0" y="200" fill="currentColor" opacity="0.9">The last branch is enforced in the storage engine: a key decision offering no handback cannot be recorded at all.</text>
+    </svg>
+    <figcaption>Claude can move fast without pretending ambiguity is agreement. Your choice is recorded with its alternatives and the condition that would flip it, which matters on Thursday when you cannot remember why.</figcaption>
+  </figure>
+
+  <span class="daymark">Tuesday</span>
+  <h3 id="tue">Never ask "where were we" again</h3>
+
+  <pre><code>/brothermode:status</code></pre>
+
+  <p>Eight fields, every one computed from the project's own records rather than from the conversation. Real output, pasted exactly as printed from a run against a throwaway repository on 8 August 2026:</p>
+
+  <pre><code>Goal: Cache the last screen, sync on reconnect, and show the user which state they are in.
+Direction: not agreed yet
+Progress: 1 of 5 tasks accepted
+Time remaining: 3 days to 8 days (likely 5 days)
+  work budget: input ?, output ?, total 600k to 1.1M
+  confidence: medium
+  next reforecast: (not stated)
+Decision needed: none
+Risk: 1 open
+  The offline banner clips its second line on a small phone
+Evidence: no executed evidence recorded yet
+Next step: agree what I am allowed to do on your behalf
+  why: the outcome is recorded, and nothing can run until you authorise it
+  run: bm-autonomy sign --project-id offline-mode</code></pre>
+
+  <p>Look at what it refuses to do. It does not invent a direction. It never gives a bare date, because a bare date is a false promise, so the forecast is a range with a confidence. It does not claim evidence it does not have. And the next step it recommends is not a task at all: it is asking you for authority, because nothing runs until you give it.</p>
+
+  <p>Then there is the page you open when you want the project rather than the conversation:</p>
+
+  <pre><code>/brothermode:view</code></pre>
+
+  <p>That writes one self-contained file at the top of your project folder. No sign-in, no network, opens by double-clicking. Its real section headings, read out of a generated page:</p>
+
+  <pre><code>Where this stands            What could still go wrong
+Waiting on you               Decisions waiting for your answer
+Your next step               What I now believe, and what proved it
+The path of the work         What has to be true before this ships
+How far each lane has moved  Who holds the pen
+How much, against what limit The story so far
+                             Your move</code></pre>
+
+  <p class="evidence">The eight fields and their order are fixed by <code>references/status-view.md</code>, and the ban on a bare date is <code>references/forecasting.md</code>. Publishing that page as a shared link is beta and needs a paid plan plus four further conditions; the file on disk is the promise.</p>
+
+  <span class="daymark">Wednesday, morning</span>
+  <h3 id="wed">Delegate the work without becoming the traffic controller</h3>
+
+  <p>You want two things going at once. That is exactly when Monday's incident happens.</p>
+
+  <figure>
+    <svg viewBox="0 0 640 276" role="img" aria-labelledby="deleg-title">
+      <title id="deleg-title">You choose the outcome, two builders take scoped work over disjoint file sets, and a read-only reviewer checks both. A second builder attempting a file the first already owns is refused by the ownership check before the write executes.</title>
+      <text class="svg-big" x="286" y="20" fill="currentColor">YOU</text>
+      <text class="svg-small" x="232" y="36" fill="currentColor" opacity="0.9">choose the outcome and the boundaries</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M294 44 L176 66" marker-end="url(#ar)"/><path d="M306 44 L436 66" marker-end="url(#ar)"/>
+      </g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="66" y="72" width="200" height="46" rx="3"/><rect x="364" y="72" width="200" height="46" rx="3"/>
+      </g>
+      <g class="svg-title" fill="currentColor"><text x="80" y="92">Builder A</text><text x="378" y="92">Builder B</text></g>
+      <g class="svg-small" fill="currentColor" opacity="0.9"><text x="80" y="108">owns the sync engine files</text><text x="378" y="108">owns the banner files</text></g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M166 118 L266 140" marker-end="url(#ar)"/><path d="M464 118 L366 140" marker-end="url(#ar)"/>
+      </g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42"><rect x="244" y="146" width="144" height="40" rx="3"/></g>
+      <text class="svg-title" x="258" y="166" fill="currentColor">Reviewer</text>
+      <text class="svg-small" x="258" y="180" fill="currentColor" opacity="0.9">read only, cannot edit</text>
+      <line x1="0" y1="204" x2="638" y2="204" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-small" x="0" y="222" fill="currentColor" opacity="0.95">If B reaches for a file A owns: ownership check, then REFUSED, before the write runs.</text>
+      <text class="svg-small" x="0" y="236" fill="currentColor" opacity="0.95">Overlap queues; it never runs in parallel.</text>
+      <text class="svg-small" x="0" y="252" fill="currentColor" opacity="0.9">A reviewer that can edit is not a reviewer: three of the five worker profiles cannot write files at all.</text>
+      <text class="svg-small" x="0" y="266" fill="currentColor" opacity="0.9">Beyond a few parallel writers, each gets its own git worktree.</text>
+    </svg>
+    <figcaption>More parallelism is only useful if it does not create more repair work. The claim is written before a worker launches, never after, and it names the files, the boundaries and a runnable check on the outcome.</figcaption>
+  </figure>
+
+  <p class="statement wide">More agents is not the goal. The smallest correct amount of delegation is.</p>
+
+  <span class="daymark">Wednesday, afternoon</span>
+  <h3 id="recover">A dead session should cost minutes, not the project</h3>
+
+  <div class="scene">
+    <p>Your laptop sleeps mid-task, or the context fills, or you kill the window by accident.</p>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 640 190" role="img" aria-labelledby="rec-title">
+      <title id="rec-title">A session is interrupted. Because decisions, tasks, claims and next intent were already on disk, and the working tree was snapshotted before compaction, the next session resumes from known state rather than from recollection.</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42"><rect x="0" y="20" width="146" height="40" rx="3"/></g>
+      <text class="svg-title" x="14" y="45" fill="currentColor">Session A</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none"><path d="M146 40 L196 40" marker-end="url(#ar)"/></g>
+      <g stroke="currentColor" stroke-width="1.4" opacity="0.8"><path d="M206 26 L232 54"/><path d="M232 26 L206 54"/></g>
+      <text class="svg-small" x="196" y="72" fill="currentColor" opacity="0.9">interrupted</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none"><path d="M246 40 L292 40" marker-end="url(#ar)"/></g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.45"><rect x="298" y="10" width="340" height="60" rx="3"/></g>
+      <text class="svg-title" x="312" y="30" fill="currentColor">what was already on disk</text>
+      <text class="svg-small" x="312" y="46" fill="currentColor" opacity="0.92">decisions, tasks, claims, next intent, and a snapshot</text>
+      <text class="svg-small" x="312" y="60" fill="currentColor" opacity="0.92">of the whole tree taken before compaction</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none"><path d="M468 70 L468 96" marker-end="url(#ar)"/></g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42"><rect x="376" y="100" width="184" height="40" rx="3"/></g>
+      <text class="svg-title" x="390" y="125" fill="currentColor">Session B resumes</text>
+      <line x1="0" y1="158" x2="638" y2="158" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-small" x="0" y="176" fill="currentColor" opacity="0.9">The snapshot is a rescue, not a cloud backup service. It lives in your own .git directory and goes when that goes.</text>
+    </svg>
+    <figcaption>Continuity is part of the system rather than a habit you have to maintain. It is the single benefit most people feel inside the first week.</figcaption>
+  </figure>
+
+  <span class="daymark">Thursday</span>
+  <h3 id="thu">The best time to find out you are wrong is before your users do</h3>
+
+  <pre><code>/brothermode:review</code></pre>
+
+  <p>Everything looks finished. This is the one command in the product whose job is to disappoint you.</p>
+
+  <figure>
+    <svg viewBox="0 0 640 200" role="img" aria-labelledby="rev-title">
+      <title id="rev-title">Work that looks finished goes through review, which runs fresh checks. A pass moves to delivery. A failure returns the work to the build step. Failure is drawn inside the loop rather than beside it.</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="0" y="20" width="144" height="40" rx="3"/><rect x="190" y="20" width="144" height="40" rx="3"/><rect x="380" y="20" width="158" height="40" rx="3"/>
+      </g>
+      <g class="svg-title" fill="currentColor"><text x="14" y="45">looks finished</text><text x="204" y="45">:review</text><text x="394" y="45">fresh checks run</text></g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M144 40 L190 40" marker-end="url(#ar)"/><path d="M334 40 L380 40" marker-end="url(#ar)"/>
+        <path d="M459 60 L459 84 L548 84" marker-end="url(#ar)"/><path d="M459 84 L352 84" marker-end="url(#ar)"/>
+      </g>
+      <g class="svg-title" fill="currentColor"><text x="554" y="88">PASS</text><text x="296" y="88">FAIL</text></g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M572 94 L572 118" marker-end="url(#ar)"/><path d="M314 94 L314 118 L72 118 L72 62" marker-end="url(#ar)"/>
+      </g>
+      <text class="svg-title" x="486" y="136" fill="currentColor">ready to deliver</text>
+      <text class="svg-small" x="86" y="114" fill="currentColor" opacity="0.9">back to the work, always</text>
+      <line x1="0" y1="156" x2="638" y2="156" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-small" x="0" y="174" fill="currentColor" opacity="0.95">There is no flag that turns a red check into a green delivery.</text>
+      <text class="svg-small" x="0" y="192" fill="currentColor" opacity="0.9">Fifteen points are applied, failures first, each carrying the evidence that proves it or the reason it does not.</text>
+    </svg>
+    <figcaption>On Thursday the screenshot check fails: the banner renders correctly at desktop width and clips its second line on a small phone, because nobody had looked at a small phone. Four of the fifteen points catch most real failures: the check must run after the final edit, the test must be able to fail for the intended defect, substantial work gets an independent reviewer, and remaining uncertainty is stated rather than implied.</figcaption>
+  </figure>
+
+  <span class="daymark">Friday</span>
+  <h3 id="fri">Deliver something you can stand behind</h3>
+
+  <pre><code>/brothermode:deliver</code></pre>
+
+  <p>The packet is generated from the records rather than filled in by hand, so what it claims and what the store holds cannot differ. It answers what was built, what was checked and when the checks ran, what failed and was fixed, what was excluded on purpose, and what uncertainty remains. And it refuses the words ready to deliver unless every acceptance check has evidence produced after the final edit.</p>
+
+  <div class="panel caution">
+    <p class="panel-title">Two limits on the packet, both worth knowing before you rely on it</p>
+    <p>It proves the verification that was recorded. It cannot tell you the acceptance criteria you picked were the right ones for your business. That judgement stays yours.</p>
+    <p>And you have to ask for it. In the project's own internal comparison, the deliver-packet task failed in both arms: neither configuration reliably produced the packet without being asked. Run the command; do not assume proof appears on its own.</p>
+    <p class="evidence"><code>docs/BENCHMARK-COMPARATIVE.md</code>, the H7 row and the paragraph beginning "H7 failed in BOTH arms".</p>
+  </div>
+
+  <h3 id="week-pic">The week in one picture</h3>
+
+  <figure>
+    <svg viewBox="0 0 640 240" role="img" aria-labelledby="wk-title">
+      <title id="wk-title">Five days across five columns: Monday frames, Tuesday resumes, Wednesday delegates and survives a crash, Thursday fails a check and sends work backwards, Friday delivers. Two moments are marked: the interruption and the failed check.</title>
+      <g class="svg-label" fill="currentColor" opacity="0.85">
+        <text x="0" y="14">Mon</text><text x="128" y="14">Tue</text><text x="256" y="14">Wed</text><text x="384" y="14">Thu</text><text x="512" y="14">Fri</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.16">
+        <line x1="0" y1="22" x2="0" y2="200"/><line x1="128" y1="22" x2="128" y2="200"/><line x1="256" y1="22" x2="256" y2="200"/><line x1="384" y1="22" x2="384" y2="200"/><line x1="512" y1="22" x2="512" y2="200"/><line x1="638" y1="22" x2="638" y2="200"/>
+      </g>
+      <g class="svg-title" fill="currentColor">
+        <text x="6" y="44">Frame</text><text x="134" y="44">Resume</text><text x="262" y="44">Delegate</text><text x="390" y="44">Verify</text><text x="518" y="44">Deliver</text>
+      </g>
+      <g fill="currentColor" opacity="0.18">
+        <rect x="2" y="56" width="120" height="16" rx="2"/><rect x="130" y="82" width="124" height="16" rx="2"/>
+        <rect x="258" y="108" width="124" height="16" rx="2"/><rect x="258" y="132" width="124" height="16" rx="2"/>
+        <rect x="386" y="158" width="124" height="16" rx="2"/><rect x="514" y="180" width="124" height="16" rx="2"/>
+      </g>
+      <g class="svg-small" fill="currentColor" opacity="0.95">
+        <text x="8" y="68">goal in, brief and decision out</text>
+        <text x="136" y="94">status and the project page</text>
+        <text x="264" y="120">builder A, sync engine</text>
+        <text x="264" y="144">builder B, the banner</text>
+        <text x="392" y="170">a check FAILS</text>
+        <text x="520" y="192">evidence, then packet</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1.3" opacity="0.75"><path d="M320 100 L320 130"/></g>
+      <text class="svg-small" x="324" y="100" fill="currentColor" opacity="0.95">the crash, and it costs minutes</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.5" fill="none"><path d="M448 174 L448 210 L300 210 L300 152" marker-end="url(#ar)"/></g>
+      <text class="svg-small" x="306" y="206" fill="currentColor" opacity="0.92">a failed check sends work back, never forward</text>
+      <line x1="0" y1="222" x2="638" y2="222" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-small" x="0" y="236" fill="currentColor" opacity="0.9">An illustration drawn for this booklet. The tool draws five shapes of its own and does not draw timelines.</text>
+    </svg>
+    <figcaption>Two moments carry the argument. The crash on Wednesday costs minutes instead of a day. The failed check on Thursday moves work backwards. Everything else is an ordinary week.</figcaption>
+  </figure>
+</section>
+
+<!-- =================== ACT THREE =================== -->
+<section class="part" id="judgment">
+  <span class="part-label">Act three</span>
+  <h2 class="part-head">Your judgment</h2>
+  <p class="part-blurb">What stays yours, what it can take off you, and the honest test for whether it is worth the overhead at all.</p>
+
+  <h3 id="hats">You are already the team</h3>
+  <p>Five hats, and you swap between them all day. Each gets what the tool actually does for it, and the part of it you will resent in week one.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Hat</th><th>The question you are asking</th><th>What it does for you</th><th>What you will resent</th></tr></thead>
+    <tbody>
+      <tr>
+        <th>Founder</th><td>What are we actually trying to achieve?</td>
+        <td>Outcome framing, scope in and out, decisions recorded with the condition that would flip them, and the standing option to take any decision back.</td>
+        <td>It asks before it moves. On a day you just want momentum, that reads as friction.</td>
+      </tr>
+      <tr>
+        <th>Builder</th><td>What should Claude work on next?</td>
+        <td>One recommended next step with its reason, scoped work, file ownership, continuity across sessions.</td>
+        <td>Claiming files before writing them feels like paperwork, right up until the first refused collision.</td>
+      </tr>
+      <tr>
+        <th>Reviewer</th><td>Does this actually work?</td>
+        <td>Fresh checks after the final edit, independent review on substantial work, uncertainty stated rather than implied.</td>
+        <td>It is designed to disappoint you on Thursday. That is the feature, and it still stings.</td>
+      </tr>
+      <tr>
+        <th>Analyst</th><td>Can I trust this number?</td>
+        <td>A second independent derivation before a figure is shown, and the word unverified next to any number that could not get one.</td>
+        <td>Describing a table and sampling rows before querying feels like ceremony, until it catches a column whose name lied.</td>
+      </tr>
+      <tr>
+        <th>Owner</th><td>Can I ship this, or hand it over?</td>
+        <td>A delivery packet, a project page anyone can open, and handover material generated from the records.</td>
+        <td>How often a field says not forecast yet. That is information, but it takes a week to stop reading it as a gap.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="thesis">It does not remove these responsibilities. It reduces the coordination cost between them.</p>
+
+  <h3 id="today">What it lets you do today</h3>
+
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>You want to</th><th>What happens</th></tr></thead>
+    <tbody>
+      <tr><th>Start a real project</th><td>A sentence becomes an agreed brief and a first decision.</td></tr>
+      <tr><th>Pick up tomorrow without starting over</th><td>Resume from durable project memory rather than re-explaining.</td></tr>
+      <tr><th>Ask where things stand</th><td>Eight fields read from the record, not from chat recollection.</td></tr>
+      <tr><th>Know the next move</th><td>One recommended action, with the reason it is that one.</td></tr>
+      <tr><th>Delegate parts of the work</th><td>Scoped workers, without turning every task into a swarm.</td></tr>
+      <tr><th>Run parallel work more safely</th><td>File ownership and isolated workspaces reduce collisions, and a real one is refused.</td></tr>
+      <tr><th>Review before calling it done</th><td>Missing or stale evidence is exposed rather than assumed.</td></tr>
+      <tr><th>Recover interrupted work</th><td>Resume from durable state plus a tree snapshot.</td></tr>
+      <tr><th>Deliver with proof</th><td>A packet describing what was built, checked, excluded and still uncertain.</td></tr>
+      <tr><th>Hand the project to someone else</th><td>A current project page and generated handover material. <span class="stamp s-beta">beta</span></td></tr>
+      <tr><th>Go further, carefully</th><td>A durable controller can carry a signed outcome to a checked deliverable across restarts, and stop or hand back at any point. <span class="stamp s-beta">beta</span>, and it refuses to begin without a signed authorisation naming the outcome, the definition of done and the allowed folders.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 id="overhead">When it earns its overhead</h3>
+
+  <div class="panel accent">
+    <p class="panel-title">Four questions, in order</p>
+    <ol>
+      <li><strong>Will more than one session or worker ever touch these files?</strong> Yes: you want the refusal.</li>
+      <li><strong>Will this work outlive one session?</strong> Yes: you want the record.</li>
+      <li><strong>Does being wrong cost money, credibility, or a rollback?</strong> Yes: you want the gate.</li>
+      <li><strong>Will you actually run the weekly review?</strong> No: use something lighter, and take only the painkiller.</li>
+    </ol>
+  </div>
+
+  <div class="panel refusal">
+    <p class="panel-title">Use something lighter when</p>
+    <ul class="tick">
+      <li>It is a one-shot question with a self-contained answer.</li>
+      <li>It is a throwaway script nobody will run twice.</li>
+      <li>You are brainstorming, and ceremony would kill the momentum.</li>
+      <li>The task is small enough that verifying it is obvious.</li>
+    </ul>
+  </div>
+
+  <p class="statement wide">Serious work deserves more structure. Small work does not.</p>
+</section>
+
+<!-- =================== ACT FOUR =================== -->
+<section class="part" id="fit">
+  <span class="part-label">Act four</span>
+  <h2 class="part-head">Where it fits</h2>
+  <p class="part-blurb">What it optimises for, how that differs from the rest of the ecosystem, and where the boundary of the product sits.</p>
+
+  <h3 id="why-plugin">Why another Claude Code plugin</h3>
+  <p>A plugin can ship skills, agents, hooks, external tool servers, language servers, background monitors and default settings. That palette is available to everybody. What differs is what a project spends it on.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Most AI tooling optimises for</th><th>This optimises for</th></tr></thead>
+    <tbody>
+      <tr><td>More things Claude can do</td><td>Work that stays coherent</td></tr>
+      <tr><td>More agents</td><td>Clear responsibility</td></tr>
+      <tr><td>Faster parallel execution</td><td>Parallel execution with boundaries</td></tr>
+      <tr><td>More autonomy</td><td>Controlled autonomy</td></tr>
+      <tr><td>Better prompts</td><td>Deterministic controls where prompts are not enough</td></tr>
+      <tr><td>Final answers</td><td>Verified delivery</td></tr>
+      <tr><td>One good session</td><td>Continuity across sessions</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 640 200" role="img" aria-labelledby="map-title">
+      <title id="map-title">Five categories of tool placed by what each is for: methodology defines how work should be done, agent ecosystems add specialist capability, orchestration decides how many workers execute, sandboxes contain what workers can affect, and BrotherMode provides continuity, ownership and evidence around whichever of those you already use.</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.35">
+        <rect x="0" y="16" width="120" height="60" rx="3"/><rect x="128" y="16" width="120" height="60" rx="3"/>
+        <rect x="256" y="16" width="120" height="60" rx="3"/><rect x="384" y="16" width="120" height="60" rx="3"/>
+      </g>
+      <g fill="none" stroke="currentColor" stroke-width="1.6" opacity="0.7"><rect x="0" y="96" width="504" height="60" rx="3"/></g>
+      <g class="svg-title" fill="currentColor">
+        <text x="12" y="38">Methodology</text><text x="140" y="38">Agent ecosystems</text><text x="268" y="38">Orchestration</text><text x="396" y="38">Sandboxes</text>
+        <text x="14" y="120">BrotherMode</text>
+      </g>
+      <g class="svg-small" fill="currentColor" opacity="0.9">
+        <text x="12" y="56">how work</text><text x="12" y="68">should be done</text>
+        <text x="140" y="56">more specialist</text><text x="140" y="68">capability</text>
+        <text x="268" y="56">how many workers</text><text x="268" y="68">execute</text>
+        <text x="396" y="56">contain what workers</text><text x="396" y="68">can affect</text>
+        <text x="14" y="138">continuity, ownership and evidence around whichever of the above you use</text>
+      </g>
+      <line x1="0" y1="172" x2="638" y2="172" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-small" x="0" y="190" fill="currentColor" opacity="0.9">Where it fits, not who wins. A sandbox contains a bad task better than this does, and that is a real gap.</text>
+    </svg>
+    <figcaption>Peers are strong at things this is not. A sandboxed runtime contains a task that goes wrong; this uses cooperative hooks with no container. An editor-native agent reaches more providers. A hosted builder gets you to a live URL far faster.</figcaption>
+  </figure>
+
+  <p class="thesis">Most tools help Claude do more. This helps you trust more of what Claude does.</p>
+  <p class="evidence">The longer peer-by-peer comparison, with a genuine strength named for each and no score in either direction, is <code>docs/market/CATEGORY.md</code>. Its fairness rules ban star counts, install counts and funding figures.</p>
+
+  <h3 id="summary">Pain, painkiller, medicine</h3>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>The pain</th><th>The painkiller</th><th>The medicine</th></tr></thead>
+    <tbody>
+      <tr><td>amnesia</td><td>durable project memory</td><td>records that outlive every session</td></tr>
+      <tr><td>coordination overhead</td><td>status you can ask for</td><td>bounded delegation as the default</td></tr>
+      <tr><td>collisions</td><td>ownership and refusal</td><td>one writer per file, as a rule not a habit</td></tr>
+      <tr><td>interrupted work</td><td>recovery</td><td>continuity treated as part of the system</td></tr>
+      <tr><td>false confidence</td><td>review and fresh checks</td><td>uncertainty stated rather than implied</td></tr>
+      <tr><td>repeated mistakes</td><td>delivery proof</td><td>a failure history you have to trip over, <em>if you run the weekly review</em></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p><strong>The painkiller makes today's project easier. The medicine is meant to make tomorrow's less fragile, and that last row carries a condition rather than a guarantee.</strong></p>
+
+  <h3 id="notdo">What it does not do</h3>
+  <p>Trust also means knowing where the boundary is. Here it is, plainly, so you can decide with it visible.</p>
+
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>Boundary</th><th>What that means for you</th></tr></thead>
+    <tbody>
+      <tr><th>Not an operating-system sandbox</th><td>Hooks are cooperative enforcement. Supported editing tools can be refused; a plain shell write is detected afterwards, not prevented.</td></tr>
+      <tr><th>Verified on one runtime</th><td>On Claude Code the refusal is machinery. Measured on another runtime it did not fire at all, and there it is an instruction file plus a working command line.</td></tr>
+      <tr><th>The packet proves checks, not wisdom</th><td>It proves the verification recorded. It cannot tell you the criteria were the right ones.</td></tr>
+      <tr><th>No specialist review replaced</th><td>Not a security review, not a domain expert, not a production-safety certification.</td></tr>
+      <tr><th>No productivity claim</th><td>It has been used for real work and never measured on a real project. Any productivity number you are shown for it is invented.</td></tr>
+      <tr><th>Some flows are still beta</th><td>The controller, the autonomy contract, handback, handover packs and the published project page each carry a named gap.</td></tr>
+      <tr><th>It never acts for you at the edge</th><td>Credentials are never typed. Payments are never made. Deletion and publishing are prepared and handed back for you to run.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- =================== ACT FIVE =================== -->
+<section class="part" id="how">
+  <span class="part-label">Act five</span>
+  <h2 class="part-head">How it works, and why trust it</h2>
+  <p class="part-blurb">Now the machinery, once you have a reason to care about it.</p>
+
+  <h3 id="arch">The architecture, by responsibility</h3>
+
+  <figure>
+    <svg viewBox="0 0 640 250" role="img" aria-labelledby="arch-title">
+      <title id="arch-title">Four layers by responsibility. You hold judgment and authority. BrotherMode holds memory, ownership, recovery, verification and evidence. Claude Code provides skills and workers. The project is the result.</title>
+      <text class="svg-big" x="286" y="22" fill="currentColor">YOU</text>
+      <text class="svg-small" x="228" y="38" fill="currentColor" opacity="0.9">judgment, authority, the decisions only you can make</text>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none"><path d="M300 46 L300 66" marker-end="url(#ar)"/></g>
+      <g fill="none" stroke="currentColor" stroke-width="1.4" opacity="0.6"><rect x="116" y="70" width="380" height="72" rx="3"/></g>
+      <text class="svg-title" x="130" y="90" fill="currentColor">BROTHERMODE</text>
+      <g class="svg-small" fill="currentColor" opacity="0.92">
+        <text x="130" y="108">memory   ownership   recovery</text>
+        <text x="130" y="124">verification   evidence</text>
+        <text x="350" y="108">what a conversation</text><text x="350" y="124">cannot guarantee</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M216 142 L176 168" marker-end="url(#ar)"/><path d="M396 142 L436 168" marker-end="url(#ar)"/>
+      </g>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.42">
+        <rect x="56" y="172" width="200" height="34" rx="3"/><rect x="356" y="172" width="200" height="34" rx="3"/>
+      </g>
+      <g class="svg-title" fill="currentColor"><text x="70" y="193">Claude skills</text><text x="370" y="193">Claude workers</text></g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.45" fill="none">
+        <path d="M156 206 L286 226" marker-end="url(#ar)"/><path d="M456 206 L326 226" marker-end="url(#ar)"/>
+      </g>
+      <text class="svg-big" x="282" y="244" fill="currentColor">PROJECT</text>
+    </svg>
+    <figcaption>Read it as a division of labour rather than a stack. Nothing in the middle band adds intelligence; it adds the things a conversation cannot promise, which is why it sits between your authority and Claude's execution.</figcaption>
+  </figure>
+
+  <h3 id="controls">The controls, the skills and the workers</h3>
+
+  <h4>Three controls that are programs rather than requests</h4>
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>Control</th><th>What it does</th><th>Its stated limit</th></tr></thead>
+    <tbody>
+      <tr><th>The write refusal</th><td>Runs before a tool call executes and blocks a write to a file another live claim covers.</td><td>Fails open by design and says why, so a refusal always means a real conflict rather than a broken hook. Does not gate arbitrary shell writes.</td></tr>
+      <tr><th>The snapshot</th><td>Captures the whole working tree, untracked files included, right before context is compacted.</td><td>A local git reference, never pushed. A rescue, not a backup service.</td></tr>
+      <tr><th>The cost record</th><td>Writes what a session actually spent in tokens, tool calls and time, from a hook rather than from the model.</td><td>Nothing is recorded until you consent, and a test refuses any write before consent exists.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>A model reporting on its own performance is not evidence. That is the reason the third one is written by a hook rather than by Claude.</p>
+
+  <h4>The skills, by when you reach for them</h4>
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>Everyday</th><th>What it gives you</th></tr></thead>
+    <tbody>
+      <tr><th><code>:start</code></th><td>A guided kickoff ending in a brief and a first decision. You run it; it never fires on its own.</td></tr>
+      <tr><th><code>:status</code></th><td>The eight fields, computed from records.</td></tr>
+      <tr><th><code>:next</code></th><td>One ready task, and why that one.</td></tr>
+      <tr><th><code>:review</code></th><td>The fifteen-point check, failures first. Only on an explicit ask.</td></tr>
+      <tr><th><code>:deliver</code></th><td>The packet, generated from the records. Manual only.</td></tr>
+      <tr><th><code>:view</code></th><td>The self-contained project page.</td></tr>
+      <tr><th><code>:help</code></th><td>Three sentences and one question, not a menu.</td></tr>
+      <tr><th><code>:doctor</code></th><td>Ten read-only install checks, each with a plain-word fix.</td></tr>
+      <tr><th><code>:update</code></th><td>Your version against the newest, plus the steps for your install path.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Four more are advanced: begin or resume the controller, stop it, take a decision back, or generate a handover pack. Four more are internal and you never type them. Seventeen in total.</p>
+
+  <h4>The workers, as routing rather than a cast</h4>
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>What you need</th><th>Who gets it</th><th>Can write files</th></tr></thead>
+    <tbody>
+      <tr><td>Architecture, hard debugging, an unclear shape</td><th>Navigator</th><td>No</td></tr>
+      <tr><td>Implementation from a decided design</td><th>Builder</th><td>Yes</td></tr>
+      <tr><td>Evidence that must cite a source</td><th>Researcher</th><td>No</td></tr>
+      <tr><td>Adversarial review and judging</td><th>Reviewer</th><td>No</td></tr>
+      <tr><td>Repetitive bulk work</td><th>Fast Worker</th><td>Yes</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 640 216" role="img" aria-labelledby="lad-title">
+      <title id="lad-title">The delegation ladder, six rungs from answering directly to a small fleet. The session climbs and stops at the first rung that suffices, so most work never reaches a worker at all.</title>
+      <g fill="none" stroke="currentColor" stroke-width="1" opacity="0.3">
+        <line x1="0" y1="36" x2="638" y2="36"/><line x1="0" y1="66" x2="638" y2="66"/><line x1="0" y1="96" x2="638" y2="96"/>
+        <line x1="0" y1="126" x2="638" y2="126"/><line x1="0" y1="156" x2="638" y2="156"/><line x1="0" y1="186" x2="638" y2="186"/>
+      </g>
+      <g class="svg-label" fill="currentColor" opacity="0.85">
+        <text x="0" y="32">1</text><text x="0" y="62">2</text><text x="0" y="92">3</text><text x="0" y="122">4</text><text x="0" y="152">5</text><text x="0" y="182">6</text>
+      </g>
+      <g class="svg-body" fill="currentColor" opacity="0.92">
+        <text x="24" y="32">Answer directly</text><text x="24" y="62">One lookup</text><text x="24" y="92">Ask you</text>
+        <text x="24" y="122">Work inline</text><text x="24" y="152">One worker</text><text x="24" y="182">A small fleet</text>
+      </g>
+      <g class="svg-small" fill="currentColor" opacity="0.85">
+        <text x="210" y="32">when knowledge settles it</text><text x="210" y="62">when one pass settles it</text>
+        <text x="210" y="92">when your one-minute answer saves an hour</text><text x="210" y="122">one file, one seam, one decision</text>
+        <text x="210" y="152">isolated, parallel or context-heavy work</text><text x="210" y="182">genuine scale only, and capped</text>
+      </g>
+      <text class="svg-small" x="0" y="208" fill="currentColor" opacity="0.9">Reaching rung six for a rung two question is scored as a failure, not as diligence.</text>
+    </svg>
+    <figcaption>The caps are measured rather than optimistic: on the author's machine, workers died at the limits because one build database serialises everything. Solo builders feel this most, because the temptation is always to run more.</figcaption>
+  </figure>
+
+  <h3 id="states">What is proven, and how strongly</h3>
+
+  <p>Every capability carries one of four states, read out of a register file, with a test that fails the documentation when a page and the register disagree.</p>
+
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>State</th><th>Means</th><th>What sits there</th></tr></thead>
+    <tbody>
+      <tr><th><span class="stamp s-certified">certified</span></th><td>Proven in the tree by named evidence.</td><td>One writer per file. The durable store and its recovery. Pages held to facts read out of the tree. The guided flow. Continuous integration on macOS and Linux. Consent-gated cost recording. The two-command install.</td></tr>
+      <tr><th><span class="stamp s-beta">beta</span></th><td>Real, with a named gap beside it.</td><td>Windows. The controller and the autonomy contract. The decision record and catch-up. Handback and handover packs. The published project page. The hook cost measurement.</td></tr>
+      <tr><th><span class="stamp s-experimental">experimental</span></th><td>Built or planned, not measured. No number exists.</td><td>Web build delivery. Deployment previews. The benchmark harness.</td></tr>
+      <tr><th><span class="stamp s-unsupported">unsupported</span></th><td>Not offered, and no plan makes it offered.</td><td>Publishing to production on its own. Spending money. Certification. Replacing a specialist review. Multi-user coordination. Changing its own safety rules.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Separately from whether a thing is offered, there is how far its claim has been checked. Six rungs, and one of them is empty.</p>
+
+  <figure>
+    <svg viewBox="0 0 640 230" role="img" aria-labelledby="rung-title">
+      <title id="rung-title">Six proof rungs from planned up to certified. Rung five, verified externally, is empty today: nobody outside the project has checked anything.</title>
+      <g stroke="currentColor" stroke-width="1" opacity="0.3">
+        <line x1="0" y1="36" x2="638" y2="36"/><line x1="0" y1="66" x2="638" y2="66"/><line x1="0" y1="96" x2="638" y2="96"/>
+        <line x1="0" y1="126" x2="638" y2="126"/><line x1="0" y1="156" x2="638" y2="156"/><line x1="0" y1="186" x2="638" y2="186"/>
+      </g>
+      <g class="svg-label" fill="currentColor" opacity="0.85">
+        <text x="0" y="32">6</text><text x="0" y="62">5</text><text x="0" y="92">4</text><text x="0" y="122">3</text><text x="0" y="152">2</text><text x="0" y="182">1</text>
+      </g>
+      <g class="svg-title" fill="currentColor">
+        <text x="24" y="32">Certified</text><text x="24" y="62">Verified externally</text><text x="24" y="92">Verified in CI</text>
+        <text x="24" y="122">Verified locally</text><text x="24" y="152">Implemented</text><text x="24" y="182">Planned</text>
+      </g>
+      <g class="svg-small" fill="currentColor" opacity="0.88">
+        <text x="220" y="32">named evidence plus a test that goes red when the claim stops being true</text>
+        <text x="220" y="62">checked by somebody outside, on a machine this project does not own</text>
+        <text x="220" y="92">the evidence names a job running where the author cannot touch it</text>
+        <text x="220" y="122">names a file or test here, passing on the machine it was written on</text>
+        <text x="220" y="152">built, described, and not measured</text>
+        <text x="220" y="182">named, with no evidence behind it yet</text>
+      </g>
+      <g fill="currentColor" opacity="0.1"><rect x="18" y="42" width="620" height="26" rx="2"/></g>
+      <text class="svg-label" x="24" y="80" fill="currentColor" opacity="0.9">EMPTY today, and printed empty rather than hidden</text>
+      <line x1="0" y1="198" x2="638" y2="198" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      <text class="svg-small" x="0" y="208" fill="currentColor" opacity="0.9">Rung six is how strong the proof inside this tree is. Rung five is who did the checking.</text>
+      <text class="svg-small" x="0" y="222" fill="currentColor" opacity="0.9">A thing can be certified while rung five stays empty.</text>
+    </svg>
+    <figcaption>Most of what this offers sits at certified against its own tree while nobody outside has ever checked it. That is uncomfortable to publish, and it is published.</figcaption>
+  </figure>
+
+  <div class="panel">
+    <p class="panel-title">One measured result, bounded exactly as its own page bounds it</p>
+    <p>The project runs an internal comparison of two configurations of the same model, with and without BrotherMode. One task puts a rival session's claim on a file and asks the run to work on it anyway. The result:</p>
+    <pre><code>| H1 fence-collision | 0/2 | 2/2 PASS |</code></pre>
+    <p>Without, zero of two. With, two of two. That is the mechanism doing the one thing a prompt cannot.</p>
+    <p>Now the bounds, in the source page's own words: <em>"Every number this benchmark produces is INTERNAL EVIDENCE: self-graded, on one machine, with no outside user. It compares two configurations of the same model against each other and nothing else. It is not a market claim, it does not rank BrotherMode against anyone else's product."</em> Blind grading has not run. Take it as evidence the control works, not as a score against anything.</p>
+    <p class="evidence"><code>docs/BENCHMARK-COMPARATIVE.md</code>, results table and the paragraph beginning "Every number this benchmark produces".</p>
+  </div>
+
+  <h3 id="outside">What we know, and what we still need to prove</h3>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Proven inside the tree</th><th>Still to prove outside it</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>The write refusal, the durable store and its recovery, consent-gated cost recording, pages held to facts read out of the tree, the guided flow, and continuous integration on two operating systems. Each has a named test that goes red when the claim stops being true.</td>
+        <td>That it reduces rework on a real project. Nobody has counted one. There is no recorded rework rate and no comparison against working without it.</td>
+      </tr>
+      <tr>
+        <td>The mechanism result above, on one machine, self-graded.</td>
+        <td>A comparison somebody else can reproduce, run under the same conditions across tools.</td>
+      </tr>
+      <tr>
+        <td>The two-command install, exercised end to end on every release inside a throwaway configuration.</td>
+        <td>An install on a machine this project does not own, reported by the person who ran it.</td>
+      </tr>
+      <tr>
+        <td>The full lifecycle on macOS and Linux.</td>
+        <td>The full lifecycle on native Windows. Today only part of the suite runs there.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>The right column is not an apology. It is the reason the left column is worth reading: a project that will not print its empty rung is a project you cannot calibrate.</p>
+
+  <h3 id="first">Your first project</h3>
+
+  <p class="statement wide">Try it on work you actually care about.</p>
+
+  <p>Pick something with more than one session in it, several files, a real definition of done, and at least one decision only you can make. A throwaway script will teach you nothing about this.</p>
+
+  <pre><code><span class="c"># once, in a terminal</span>
+claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.0.0
+claude plugin install brothermode@brothermode-marketplace
+
+<span class="c"># prove it is wired, including the refusal, on your machine</span>
+python3 scripts/doctor.py</code></pre>
+
+  <p>Then, in your project:</p>
+
+  <div class="tw">
+  <table class="tight">
+    <thead><tr><th>When</th><th>Run</th></tr></thead>
+    <tbody>
+      <tr><td>Today</td><td><code>/brothermode:start</code> with your outcome in one sentence</td></tr>
+      <tr><td>Then</td><td>Work normally. Let it claim files before it writes them.</td></tr>
+      <tr><td>Tomorrow morning</td><td><code>/brothermode:status</code>, before you re-explain anything</td></tr>
+      <tr><td>Before you say done</td><td><code>/brothermode:review</code></td></tr>
+      <tr><td>When the evidence is green</td><td><code>/brothermode:deliver</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Requirements are small: Claude Code, Python 3.9 or newer using the standard library only, and git. No account, no server, no subscription, and no API key of its own. The tools make no network calls, and you can prove that yourself in under a minute rather than believing it.</p>
+
+  <p class="thesis">Give Claude more work. Keep control of the project.</p>
+</section>
+
+<footer class="foot">
+  <p><strong>How this was built.</strong> Every claim was read out of the BrotherMode repository at v3.0.0 on 8 August 2026: the register of capability states, the roadmap's proof rungs, the reference files behind status, forecasting, delegation and the definition of done, the frontmatter of all seventeen skills, and the two limits registers. The status block and the project-page headings in act two are real output, captured by running a project through the command line against a throwaway repository and pasted exactly as printed.</p>
+  <p><strong>The builder in act two is an illustration. The machinery is not.</strong> Every command shown is real, every rule that bites is real, and every limit named traces to a file. The diagrams were drawn for this booklet; the tool draws five shapes of its own, and a timeline is not among them.</p>
+  <p><strong>What this booklet does not claim.</strong> No productivity number, because none has been measured. No test count, because counts move and a reader seeing a mismatch cannot tell a stale page from a broken install. No ranking against another product, because the run that would earn one has not happened.</p>
+</footer>
+
+</main>
+</div>
