@@ -66,6 +66,22 @@ _aspec.loader.exec_module(ba)
 sys.modules["bm_bash_audit"] = ba
 
 
+def _load_sibling(name):
+    """One more tools/*.py module, by path, the same way bm_store,
+    bm_fence_hook and bm_bash_audit are loaded above. Deferred into a
+    function rather than run at import: only one test class needs these,
+    and loading tools/bm_view.py at module scope would make every test in
+    this file pay for it."""
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(
+        name, os.path.join(HERE, "%s.py" % name))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    sys.modules[name] = mod
+    return mod
+
+
 def _write_consented_config(path, vault_path=None):
     """Matches scripts/setup.py's write_config() schema exactly, the same
     fixture tools/test_bm_autosave.py's _write_consented_config uses: this
@@ -593,9 +609,16 @@ class AlertsLeaveTheStoreVerifiable(BashAuditBase):
         self.assertEqual(r2.returncode, 0, r2.stderr)
         self.assertIn("fence-breach alert was raised", r2.stderr)
 
-    def projects(self):
+    def projects(self, include_system=True):
+        """Every row in the projects TABLE by default, which is the question
+        this class asks: did the hook register its row, and exactly once.
+        list_projects() answers a different, founder-facing question and
+        hides system rows (bm_store.SYSTEM_PROJECT_IDS), so asking it here
+        would have made "the row was registered" unaskable. Pass
+        include_system=False for the founder-facing count instead."""
         with bs.Store(self.root, create=False) as store:
-            return store.list_projects(raw=True)
+            return store.list_projects(raw=True,
+                                        include_system=include_system)
 
     def hook_project(self):
         with bs.Store(self.root, create=False) as store:
@@ -704,6 +727,107 @@ class AlertsLeaveTheStoreVerifiable(BashAuditBase):
                 "the alert was attributed to a founder project that this "
                 "hook had no basis for choosing")
         self.assertEqual(bs.verify(self.root), [])
+
+
+# ---------------------------------------------------------------------------
+# 2026-08-08: the bookkeeping row is not the founder's project.
+#
+# AlertsLeaveTheStoreVerifiable above is careful never to flip the project
+# count from ONE to two, and says so: six call sites branch on
+# len(list_projects()). What it cannot avoid is flipping it from ZERO to one,
+# because a store with no project at all is precisely the case where the hook
+# has nothing else to attribute an alert to. On a fresh install where a breach
+# or a control loss fires before the founder has started anything, that
+# bookkeeping row then IS the only project, and every one of those six call
+# sites answers with it. verify() stays green the whole time, so nothing
+# reports it.
+#
+# Reproduced end to end before the fix: a fresh store, one control-loss alert,
+# and then `bm_project.py start` refusing the founder's own first project with
+# "this store already holds project 'brothermode-bash-audit'". The remedy is
+# bm_store.SYSTEM_PROJECT_IDS plus list_projects(include_system=False), so the
+# founder-facing count never counts bookkeeping. These tests are what stop the
+# count coming back.
+# ---------------------------------------------------------------------------
+
+class TheHookRowIsNeverTheFoundersOnlyProject(BashAuditBase):
+
+    def project_ids(self, include_system=False):
+        """Founder-facing by default, which is the question every one of
+        these tests asks. AlertsLeaveTheStoreVerifiable keeps its own
+        table-facing helper for the opposite question."""
+        with bs.Store(self.root, create=False) as store:
+            return [p["project_id"] for p in
+                    store.list_projects(raw=True,
+                                         include_system=include_system)]
+
+    def _alert_on_a_store_with_no_project(self):
+        """One control-loss alert on a store that holds no project at all.
+        Returns nothing; the point is the state it leaves behind."""
+        owner = self.label(self.OWNER)
+        self.claim("mine", ["src/mine.txt"], owner)
+        token = fh.token_path(self.root, self.OWNER)
+        self.assertTrue(os.path.isfile(token), "no owner token to remove")
+        r1 = self.run_hook("pre", self.OTHER, tool_use_id="toolu_fresh")
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        os.remove(token)
+        r2 = self.run_hook("post", self.OTHER, tool_use_id="toolu_fresh")
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        self.assertIn("fence-control-loss alert was raised", r2.stderr)
+        with bs.Store(self.root, create=False) as store:
+            self.assertIsNotNone(
+                store.get_project(ba.ALERT_PROJECT_ID, raw=True),
+                "the hook did not register its row, so this class is "
+                "measuring the wrong thing")
+
+    def test_the_founder_facing_count_stays_zero(self):
+        self._alert_on_a_store_with_no_project()
+        self.assertEqual(self.project_ids(), [],
+                          "the bookkeeping row is being counted as founder "
+                          "work")
+        self.assertEqual(self.project_ids(include_system=True),
+                          [ba.ALERT_PROJECT_ID],
+                          "include_system=True must still show every row; "
+                          "hiding is a default, not a filter nothing can "
+                          "turn off")
+        self.assertEqual(bs.verify(self.root), [])
+
+    def test_the_founder_can_still_start_their_first_project(self):
+        """The reproduction itself. `bm_project start` refuses a second
+        project without --allow-second, and before the fix the bookkeeping
+        row was the first one, so the founder's own first project was
+        refused on a fresh install."""
+        self._alert_on_a_store_with_no_project()
+        r = subprocess.run(
+            [sys.executable, os.path.join(HERE, "bm_project.py"), "start",
+             "--project-id", "my-first-project", "--name", "My first project",
+             "--actor-type", "human", "--actor-name", "founder"],
+            text=True, capture_output=True, cwd=self.root, env=dict(os.environ))
+        self.assertEqual(
+            r.returncode, 0,
+            "the founder's FIRST project was refused as a second one:\n%s%s"
+            % (r.stdout, r.stderr))
+        self.assertNotIn("already holds project", r.stdout + r.stderr)
+        self.assertEqual(self.project_ids(), ["my-first-project"])
+        self.assertEqual(bs.verify(self.root), [])
+
+    def test_the_status_line_and_the_progress_page_name_no_project(self):
+        """Both resolve THE project by counting rows, and both used to name
+        the bookkeeping row on a fresh install. None is the right answer
+        when the founder has started nothing: better to show nothing than
+        to show them work that is not theirs."""
+        bsl = _load_sibling("bm_statusline")
+        bview = _load_sibling("bm_view")
+        self._alert_on_a_store_with_no_project()
+        with bs.Store(self.root, create=False) as store:
+            self.assertIsNone(bsl._project_id(store))
+            self.assertIsNone(bview._only_project(store))
+
+    def test_the_hook_id_is_registered_as_a_system_id(self):
+        """The two constants that have to agree. A rename on one side only
+        would put the bookkeeping row straight back into the founder's
+        project count, silently."""
+        self.assertIn(ba.ALERT_PROJECT_ID, bs.SYSTEM_PROJECT_IDS)
 
 
 # ---------------------------------------------------------------------------
