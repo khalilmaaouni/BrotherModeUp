@@ -283,6 +283,8 @@ VIEW_SECTIONS = (
     ("needs-you", "Waiting on you", "_sec_needs_you", "needs-you"),
     ("next-step", "Your next step", "_sec_next_step", "next-step"),
     ("pipeline", "The path of the work", "_sec_pipeline", "pipeline"),
+    ("programme", "Where the programme stands", "_sec_programme",
+     "programme"),
     ("progress", "How far each lane has moved", "_sec_progress",
      "progress"),
     ("counts", "How much, against what limit", "_sec_counts", "counts"),
@@ -334,6 +336,12 @@ EMPTY_STATES = {
         "title": "The path of the work will be drawn here",
         "body": "A drawing of the stages from set up to delivered, with "
                 "the current one marked NOW.",
+        "action": "Start the work",
+        "command": "/brotherme-start"},
+    "programme": {
+        "title": "The phases of your work will be charted here",
+        "body": "Each phase gets a bar, and each piece a box that ticks "
+                "when it is finished and checked.",
         "action": "Start the work",
         "command": "/brotherme-start"},
     "progress": {
@@ -422,6 +430,11 @@ SECTION_HELP = {
     "pipeline": ("Where the work is on its path.",
                  "The stages of the work drawn left to right, with the "
                  "current one marked NOW."),
+    "programme": ("Every phase of the work, and how much of each one is "
+                  "finished and checked.",
+                  "One bar per piece of work, grouped into the phase its "
+                  "own record names, with a box that ticks only on a "
+                  "finished piece that has a check on file."),
     "progress": ("Each piece of work, its lane, and how far it has moved.",
                  "One bar per piece of work inside its own lane, plus "
                  "what is finished and what is blocked and on what."),
@@ -671,6 +684,52 @@ def _task_label_by_id(tasks):
             for t in tasks if t.get("task_id")}
 
 
+def _sec_programme(ctx):
+    """Phase 5, the progress view (founder decision 2026-08-08). The
+    Gantt, as a section of THIS page rather than as a second page: the
+    architecture rule this programme is closing allows one authority per
+    concern, and two progress pages would be two.
+
+    Blank when no work is recorded, which lets render_page place the
+    designed empty state, the same contract every section above follows.
+
+    The tick contract is stated ON the page, in the founder's own words,
+    because the page is where the claim is made. What these records can
+    prove is that a piece is finished and that a check is on file against
+    it. What they cannot prove is that the check ran after the last edit,
+    since nothing in the store observes edits. Saying so here is cheaper
+    than being believed about something untrue."""
+    gantt = ctx.get("gantt") or {"phases": []}
+    drawn = bv.diagram_gantt(gantt)
+    if drawn is None:
+        return ""
+    parts = [bv.to_svg(drawn),
+             '<p class="bm-what">%d of %d pieces are ticked. A box ticks '
+             'only where the piece is finished AND a check is recorded '
+             'against it; the count is of records, never an '
+             'impression.</p>'
+             % (gantt["ticked"], gantt["total"])]
+    for phase in gantt["phases"]:
+        parts.append('<h3>%s</h3><p>%d of %d ticked in this phase.</p>'
+                     % (_esc(phase["phase"]), phase["ticked"],
+                        phase["total"]))
+        rows = []
+        for item in phase["items"]:
+            line = "%s, %s" % (item["label"], item["state"])
+            if item["dated"]:
+                line += " (%s to %s%s)" % (
+                    item["start"], item["end"],
+                    ", still open" if item["open_ended"] else "")
+            else:
+                line += " (no dates recorded)"
+            line += (". Last check: %s"
+                     % (item["evidence_ref"] or "no check recorded yet"))
+            rows.append('<li data-bm-trace="t:%s">%s</li>'
+                       % (_esc(item["task_id"]), _esc(line)))
+        parts.append("<ul>%s</ul>" % "".join(rows))
+    return "".join(parts)
+
+
 def _sec_progress(ctx):
     """DESIGN-progress-surface.md item 3: the timeline shape plus what is
     finished and what is next, one lane at a time. Blank when the
@@ -892,7 +951,7 @@ def _sec_help(ctx):
 _SECTION_RENDERERS = {
     "_sec_header": _sec_header, "_sec_needs_you": _sec_needs_you,
     "_sec_next_step": _sec_next_step, "_sec_pipeline": _sec_pipeline,
-    "_sec_progress": _sec_progress,
+    "_sec_programme": _sec_programme, "_sec_progress": _sec_progress,
     "_sec_counts": _sec_counts, "_sec_risks": _sec_risks,
     "_sec_decisions": _sec_decisions,
     "_sec_insights": _sec_insights, "_sec_gates": _sec_gates,
@@ -904,7 +963,7 @@ _SECTION_RENDERERS = {
 
 def render_page(status, alerts, insights, briefings, decisions, facts,
                 milestones, tasks=(), progress=None, project_evidence=(),
-                evidence_by_task=None):
+                evidence_by_task=None, gantt=None):
     """The whole document, pure over its inputs. Returns (html, fp) where
     fp is the fingerprint over the rendered body with the fingerprint
     slot still empty, so the printed value describes the content rather
@@ -919,6 +978,8 @@ def render_page(status, alerts, insights, briefings, decisions, facts,
            "briefings": briefings, "decisions": decisions, "facts": facts,
            "milestones": milestones, "tasks": list(tasks or []),
            "progress": progress or {"lanes": []},
+           "gantt": gantt or {"phases": [], "window": None,
+                              "ticked": 0, "total": 0},
            "project_evidence": list(project_evidence or []),
            "evidence_by_task": evidence_by_task or {}}
     sections = []
@@ -969,10 +1030,14 @@ def build_page(store, project_id):
     progress = bv.progress_facts({"tasks": tasks,
                                   "dependencies": dependencies,
                                   "evidence": evidence_by_task})
+    # Phase 5: the same rows again, grouped by phase instead of by owner.
+    # No extra query: gantt_facts opens no store, exactly like
+    # progress_facts beside it.
+    gantt = bv.gantt_facts({"tasks": tasks, "evidence": evidence_by_task})
     return render_page(status, alerts, insights, briefings, decisions,
                        facts, milestones, tasks=tasks, progress=progress,
                        project_evidence=project_evidence,
-                       evidence_by_task=evidence_by_task)
+                       evidence_by_task=evidence_by_task, gantt=gantt)
 
 
 # ---------------------------------------------------------------------------
