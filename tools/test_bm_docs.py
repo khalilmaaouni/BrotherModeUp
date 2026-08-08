@@ -75,6 +75,8 @@ _vspec = importlib.util.spec_from_file_location(
 _bv = importlib.util.module_from_spec(_vspec)
 _vspec.loader.exec_module(_bv)
 VISUAL_REGISTER = os.path.join("references", "visual-surface.md")
+VISUAL_DESIGN = os.path.join("docs", "program", "absolute-lead",
+                             "DESIGN-visual-surface.md")
 
 # Pages a new installer reads as CURRENT state. Anything not listed here is
 # either dated evidence (checked separately, below) or a register with its own
@@ -5164,6 +5166,38 @@ class TestTheVisualRegisterMatchesTheShapes(unittest.TestCase):
             "tools/bm_visual.py's docstring must say how many shapes it "
             "holds, and SHAPES holds %d, so it says %r"
             % (count, "%s shapes" % word))
+
+    def test_the_design_bans_nothing_the_product_draws(self):
+        """The contradiction the founder settled on 2026-08-08. The design
+        banned gantt and timeline by name, with reasons, while both were in
+        SHAPES and the progress view was drawing them, and the register
+        says the design outranks the page. Read literally, the shipped
+        product was the defect.
+
+        The list is read from its own machine readable line and compared
+        ENTRY BY ENTRY rather than by substring, which is what lets "UML
+        fork and join bars" stay banned while the decision fork D4 stays
+        drawn: they share a word and are not the same thing."""
+        text = read(VISUAL_DESIGN)
+        match = re.search(r"BANNED SHAPES[^:]*:\n\n(.+?)\n\n", text, re.S)
+        self.assertTrue(
+            match, "%s no longer carries its machine readable BANNED "
+                   "SHAPES line, so nothing can check the ban list against "
+                   "SHAPES" % VISUAL_DESIGN)
+        banned = [e.strip().lower() for e in match.group(1).split(",")
+                  if e.strip()]
+        drawn = sorted(set(banned) & set(s.lower() for s in _bv.SHAPES))
+        self.assertEqual(
+            drawn, [],
+            "%s bans %s, and tools/bm_visual.py draws %s. One of the two is "
+            "wrong, and the design is the one the register says outranks "
+            "the page."
+            % (VISUAL_DESIGN, ", ".join(drawn),
+               "it" if len(drawn) == 1 else "them"))
+        self.assertIn(
+            "pie", banned,
+            "%s must keep banning the pie; tools/test_bm_visual.py builds "
+            "one and expects the ValueError" % VISUAL_DESIGN)
 
     def test_the_next_shape_is_refused_by_its_real_ordinal(self):
         _word, _rows, section = self._parsed()
