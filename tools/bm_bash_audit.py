@@ -413,6 +413,18 @@ _SLOT_DOMAIN = "bm-bash-audit-slot-v1|"
 SNAPSHOT_TTL_SECONDS = 24 * 60 * 60
 
 ALERT_PROJECT_ID = "brothermode-bash-audit"
+# The two static strings the ALERT_PROJECT_ID row is registered with (see
+# _alert_project_id). Static on purpose: nothing founder-typed reaches this
+# row, so no redaction decision rides on it. Project.REQUIRED is
+# (project_id, name, created_at, updated_at); goal is optional and carried
+# here so a founder who does meet this row in a listing can tell at a
+# glance that it is bookkeeping, not work of theirs.
+ALERT_PROJECT_NAME = "BrotherMode bash-audit hook"
+ALERT_PROJECT_GOAL = (
+    "bookkeeping only: the project the bash-audit hook files its "
+    "fence-breach and fence-control-loss alerts under when this store "
+    "holds no single founder project to attribute them to. Not a project "
+    "anyone works on.")
 ALERT_SEVERITY = "high"
 ALERT_CATEGORY = "fence-breach"
 
@@ -622,6 +634,62 @@ def _control_findings(root, bs, fh, before):
     return out
 
 
+def _alert_project_id(bs, store, actor):
+    """The project id this hook's alerts are attributed under, guaranteed to
+    name a project row that EXISTS by the time it is returned.
+
+    Store.raise_alert writes an attribution row, and
+    AttributionEvent.project_id is a required non-empty field it takes from
+    its caller. `bm_store.py verify` reports every attribution row whose
+    project_id has no matching projects row ("attribution event %s
+    references missing project %r"). This hook used to hand raise_alert a
+    bare ALERT_PROJECT_ID that nothing ever registered, so the FIRST alert
+    it ever raised made verify report a problem permanently, on a store
+    that was otherwise healthy.
+
+    A fence is NOT project-scoped: records and claims carry no project_id
+    column at all, so there is no project a fence-breach alert intrinsically
+    belongs to. Two cases, in this order:
+
+    (1) The store holds exactly ONE project. That is the beginner model
+        tools/bm_project.py documents by name (one project per folder), so
+        that project is what this root is working on, and the alert is
+        filed under it, where the founder's own pages already look.
+
+    (2) Anything else (no project at all, or several, where picking one
+        would be a guess). The hook's own ALERT_PROJECT_ID row is used, and
+        REGISTERED FIRST so the attribution row points at a project that
+        exists.
+
+    Registering is deliberately confined to case (2): this row is not a
+    founder project, and six call sites across bm_project.py,
+    bm_statusline.py, bm_view.py and bm_lead.py branch on
+    len(list_projects()). Adding a row to a store that holds exactly one
+    project would flip that count and silently blank the status line,
+    rename CANVAS.md, and make `bm_project start` refuse. Case (2) either
+    leaves an already-plural count plural, or turns an empty store into a
+    one-project store whose single project is this one.
+
+    Idempotent by construction, which this hook needs because it runs on
+    EVERY Bash call: the existence check comes first, so the row is written
+    once and every later alert finds it and leaves it alone. Calling
+    upsert_project unconditionally would instead overwrite the row and file
+    a fresh project.upserted event on every breach."""
+    projects = store.list_projects(raw=True)
+    if len(projects) == 1:
+        return projects[0]["project_id"]
+    if store.get_project(ALERT_PROJECT_ID, raw=True) is None:
+        now = bs.now_iso()
+        store.upsert_project({
+            "project_id": ALERT_PROJECT_ID,
+            "name": ALERT_PROJECT_NAME,
+            "goal": ALERT_PROJECT_GOAL,
+            "created_at": now,
+            "updated_at": now,
+        }, actor)
+    return ALERT_PROJECT_ID
+
+
 def _raise_control_alert(bs, root, code, offending_session_id):
     """One alert row for one control finding. Same shape, severity and actor
     as _raise_breach_alert, different category, and a message built entirely
@@ -658,7 +726,8 @@ def _raise_control_alert(bs, root, code, offending_session_id):
     }
     store = bs.Store(root, create=False)
     try:
-        store.raise_alert(alert, ALERT_PROJECT_ID, actor)
+        project_id = _alert_project_id(bs, store, actor)
+        store.raise_alert(alert, project_id, actor)
     finally:
         store.close()
 
@@ -759,7 +828,8 @@ def _raise_breach_alert(bs, root, rel_path, entry, offending_session_id):
     }
     store = bs.Store(root, create=False)
     try:
-        store.raise_alert(alert, ALERT_PROJECT_ID, actor)
+        project_id = _alert_project_id(bs, store, actor)
+        store.raise_alert(alert, project_id, actor)
     finally:
         store.close()
     safe_path = bs.mask_absolute_paths(bs.redact_text(rel_path))
