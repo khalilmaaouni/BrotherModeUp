@@ -16402,6 +16402,19 @@ class ReadOnlyStore(object):
     def get_task(self, task_id, raw=False):
         return Store.get_task(self, task_id, raw=raw)
 
+    def list_dependencies(self, project_id, raw=False):
+        """Missing until Phase 5 found it by rendering a real page.
+        bm_view.build_page reads dependencies for the progress section,
+        so without this accessor the founder page could not be built
+        from a read-only handle AT ALL: it raised AttributeError before
+        drawing a single section. The progress surface loop added the
+        read to build_page and did not add the accessor here beside its
+        siblings. Same one-line reuse and same reason as every D-2
+        accessor around it: the implementation only SELECTs through
+        _exec and redacts through _export_row, so it works unchanged
+        against a read-only connection."""
+        return Store.list_dependencies(self, project_id, raw=raw)
+
     def list_forecasts(self, project_id, raw=False):
         return Store.list_forecasts(self, project_id, raw=raw)
 

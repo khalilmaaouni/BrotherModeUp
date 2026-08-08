@@ -21900,6 +21900,23 @@ class TestSchema18TaskPhase(unittest.TestCase):
                     "PRAGMA table_info(tasks)").fetchall()}
                 self.assertIn("phase", have)
 
+    def test_a_read_only_handle_can_read_dependencies(self):
+        """Regression pin for a defect Phase 5 found by rendering a real
+        page rather than by reading code: bm_view.build_page reads
+        dependencies, and ReadOnlyStore had no such accessor, so building
+        the founder page from a read-only handle raised AttributeError
+        before it drew a single section."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.create_task(_task("first"), _actor())
+                store.create_task(_task("second", depends_on=["first"]),
+                                  _actor())
+            with bs.ReadOnlyStore(d) as ro:
+                deps = ro.list_dependencies("proj1", raw=True)
+        self.assertEqual([(r["task_id"], r["depends_on_task_id"])
+                          for r in deps], [("second", "first")])
+
     def test_the_phase_column_is_scrubbed_not_printed_verbatim(self):
         """tasks.phase is free text a founder types, exactly like
         projects.phase, so it belongs to the same scrub-only set rather
