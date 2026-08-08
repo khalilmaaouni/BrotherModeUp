@@ -66,6 +66,18 @@ _bpk = importlib.util.module_from_spec(_pspec)
 _pspec.loader.exec_module(_bpk)
 _PACK_SECTIONS = _bpk.SECTIONS
 
+# The drawn vocabulary, loaded for the same reason and by the same technique:
+# references/visual-surface.md is prose ABOUT this tuple and this table, so a
+# test carrying its own copy of either would stop testing the page the moment
+# the two disagreed, which is the exact defect it exists to catch.
+_vspec = importlib.util.spec_from_file_location(
+    "bm_visual_for_docs_tests", os.path.join(HERE, "bm_visual.py"))
+_bv = importlib.util.module_from_spec(_vspec)
+_vspec.loader.exec_module(_bv)
+VISUAL_REGISTER = os.path.join("references", "visual-surface.md")
+VISUAL_DESIGN = os.path.join("docs", "program", "absolute-lead",
+                             "DESIGN-visual-surface.md")
+
 # Pages a new installer reads as CURRENT state. Anything not listed here is
 # either dated evidence (checked separately, below) or a register with its own
 # rules (docs/NOT-FINALIZED.md carries dated numbers on purpose).
@@ -4981,6 +4993,255 @@ class TestNoUnbackedAbsolutes(unittest.TestCase):
             [rel + ":9 production ready"])
 
 
+# The word a page uses for the shape that would be next, so the sentence
+# "an eighth shape is refused where it is built" is pinned to the tuple
+# rather than to whoever last counted it.
+ORDINAL_WORDS = {5: "fifth", 6: "sixth", 7: "seventh", 8: "eighth",
+                 9: "ninth", 10: "tenth", 11: "eleventh", 12: "twelfth"}
+
+SHAPE_HEADING = re.compile(r"^## The ([a-z]+) shapes\b")
+
+# The two sentence shapes that COUNT the drawn vocabulary, as opposed to the
+# ones that merely mention it. "the shapes" and "two that each mean one" are
+# not counts and must not trip; "Five shapes" and "all five" are, in either
+# case, which is why the scan lowercases first. The capitalized form is not
+# hypothetical: the comment above SHAPES read "Five shapes" while the tuple
+# already held six.
+COUNTING_SENTENCES = ((r"\b([a-z]+) shapes\b", "%s shapes"),
+                      (r"\ball ([a-z]+)\b", "all %s"))
+
+
+def miscounted_shapes(text, word):
+    """Every line of TEXT that counts the shape vocabulary as anything
+    other than WORD, reported as "line N says ...". Empty when the text
+    counts correctly or does not count at all; the caller is the one that
+    decides whether not counting at all is allowed."""
+    counts = set(NUMBER_WORDS.values())
+    offenders = []
+    for i, line in enumerate(text.split("\n"), 1):
+        for pattern, form in COUNTING_SENTENCES:
+            for said in re.findall(pattern, line.lower()):
+                if said in counts and said != word:
+                    offenders.append("line %d says %s" % (i, form % said))
+    return offenders
+
+
+def shape_section(text):
+    """The shape section of references/visual-surface.md, as
+    (count word in its heading, {shape: its four table cells}, section text).
+
+    Located by its heading and ended by the next one, never by line number:
+    an edit anywhere above it must not be able to move what this reads.
+    Raises rather than returning empty when the heading is gone, because a
+    silently empty parse is a pass on a page that no longer says anything."""
+    lines = text.split("\n")
+    start, word = None, ""
+    for i, line in enumerate(lines):
+        match = SHAPE_HEADING.match(line)
+        if match:
+            start, word = i, match.group(1)
+            break
+    if start is None:
+        raise AssertionError(
+            "%s has no '## The <count> shapes' heading, so the shape table "
+            "cannot be found" % VISUAL_REGISTER)
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        if lines[j].startswith("## "):
+            end = j
+            break
+    rows = {}
+    for line in lines[start:end]:
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.split("|")][1:-1]
+        if len(cells) != 4 or cells[0] == "Shape" \
+                or set(cells[0]) <= set("-: "):
+            continue
+        rows[cells[0]] = cells
+    return word, rows, "\n".join(lines[start:end])
+
+
+class TestTheVisualRegisterMatchesTheShapes(unittest.TestCase):
+    """references/visual-surface.md against tools/bm_visual.py's own SHAPES
+    and CAPS.
+
+    WHY THIS EXISTS. The register said "five shapes" while SHAPES already
+    held seven: timeline widened the tuple in one loop and gantt in the
+    next, and neither commit touched the page. So the page told every
+    reader that a gantt was refused while the product was drawing one on
+    its own progress view. The module cannot rot that way any more, because
+    its refusal reads the count out of len(SHAPES) and
+    tools/test_bm_visual.py pins that. Nothing watched the page. This is
+    the watch, and it belongs to this suite rather than to the visual one
+    because documentation going stale against the tree is what this suite
+    is for.
+
+    It checks the facts a reader would act on, never the prose of a row:
+    which shapes exist, how many, what each one's caps are, and what is
+    refused. It reads tools/bm_visual.py's own opening paragraph on the
+    same terms, because that paragraph had the count wrong too, and being
+    in the same file as SHAPES did not save it."""
+
+    def _parsed(self):
+        return shape_section(read(VISUAL_REGISTER))
+
+    def test_the_table_carries_one_row_per_shape_in_the_tuple_order(self):
+        _word, rows, _section = self._parsed()
+        self.assertEqual(
+            list(rows), list(_bv.SHAPES),
+            "%s's shape table lists %s; tools/bm_visual.py's SHAPES holds "
+            "%s. A shape entering or leaving the tuple is a page edit in "
+            "the same change."
+            % (VISUAL_REGISTER, ", ".join(rows) or "nothing",
+               ", ".join(_bv.SHAPES)))
+
+    def test_every_row_states_the_caps_the_code_enforces(self):
+        """A cap is the one number in the row a reader plans against, and
+        it is the number Diagram() raises on. Every non zero cap must
+        appear in its row; a zero one is left out on purpose, the way the
+        gate ladder row has never mentioned lanes it cannot have."""
+        _word, rows, _section = self._parsed()
+        offenders = []
+        for shape, cells in rows.items():
+            caps = _bv.CAPS.get(shape)
+            if caps is None:
+                offenders.append(
+                    "%s: the page gives it a row and CAPS has no entry for "
+                    "it, so nothing here is checked" % shape)
+                continue
+            stated = set(int(n) for n in re.findall(r"\d+", cells[3]))
+            for name, cap in sorted(caps.items()):
+                if cap and cap not in stated:
+                    offenders.append(
+                        "%s: CAPS says %s %d, the row says %r"
+                        % (shape, name, cap, cells[3]))
+        self.assertEqual(offenders, [],
+                         "%s states caps the code does not enforce: %s"
+                         % (VISUAL_REGISTER, "; ".join(offenders)))
+
+    def test_every_counting_sentence_states_the_real_count(self):
+        """The title, the heading, and the rule line that says how many
+        shapes the rules below bite on. This is the sentence that rotted,
+        so it is the sentence that is pinned."""
+        text = read(VISUAL_REGISTER)
+        count = len(_bv.SHAPES)
+        word = NUMBER_WORDS.get(count)
+        self.assertIsNotNone(
+            word, "NUMBER_WORDS has no entry for %d, and this test needs "
+                  "one before it can read the page" % count)
+        heading_word, _rows, _section = self._parsed()
+        self.assertEqual(
+            heading_word, word,
+            "%s's shape heading says %r and SHAPES holds %d"
+            % (VISUAL_REGISTER, heading_word, count))
+        self.assertIn(
+            "%s shapes" % word, text.split("\n")[0],
+            "%s's title must say %r; it reads %r"
+            % (VISUAL_REGISTER, "%s shapes" % word, text.split("\n")[0]))
+        offenders = miscounted_shapes(text, word)
+        self.assertEqual(
+            offenders, [],
+            "%s counts its own vocabulary wrong (SHAPES holds %d, so the "
+            "word is %r): %s. A comparison that is not a count of the "
+            "vocabulary is phrased without a number word in front of "
+            "'shapes'."
+            % (VISUAL_REGISTER, count, word, "; ".join(offenders)))
+
+    def test_the_module_says_how_many_shapes_it_holds_and_is_right(self):
+        """tools/bm_visual.py's own opening paragraph, which read "Six
+        shapes" while the tuple forty lines below it held seven. Prose in
+        the same file as the thing it describes is not safer than prose in
+        another file; it is less safe, because nobody re-reads a docstring
+        they scrolled past. The paragraph must state the count, so deleting
+        the sentence is a failure rather than a pass."""
+        count = len(_bv.SHAPES)
+        word = NUMBER_WORDS.get(count)
+        self.assertIsNotNone(
+            word, "NUMBER_WORDS has no entry for %d" % count)
+        text = _bv.__doc__ or ""
+        offenders = miscounted_shapes(text, word)
+        self.assertEqual(
+            offenders, [],
+            "tools/bm_visual.py's docstring counts the vocabulary wrong "
+            "(SHAPES holds %d, so the word is %r): %s"
+            % (count, word, "; ".join(offenders)))
+        self.assertIn(
+            "%s shapes" % word, text.lower(),
+            "tools/bm_visual.py's docstring must say how many shapes it "
+            "holds, and SHAPES holds %d, so it says %r"
+            % (count, "%s shapes" % word))
+
+    def test_the_design_bans_nothing_the_product_draws(self):
+        """The contradiction the founder settled on 2026-08-08. The design
+        banned gantt and timeline by name, with reasons, while both were in
+        SHAPES and the progress view was drawing them, and the register
+        says the design outranks the page. Read literally, the shipped
+        product was the defect.
+
+        The list is read from its own machine readable line and compared
+        ENTRY BY ENTRY rather than by substring, which is what lets "UML
+        fork and join bars" stay banned while the decision fork D4 stays
+        drawn: they share a word and are not the same thing."""
+        text = read(VISUAL_DESIGN)
+        match = re.search(r"BANNED SHAPES[^:]*:\n\n(.+?)\n\n", text, re.S)
+        self.assertTrue(
+            match, "%s no longer carries its machine readable BANNED "
+                   "SHAPES line, so nothing can check the ban list against "
+                   "SHAPES" % VISUAL_DESIGN)
+        banned = [e.strip().lower() for e in match.group(1).split(",")
+                  if e.strip()]
+        drawn = sorted(set(banned) & set(s.lower() for s in _bv.SHAPES))
+        self.assertEqual(
+            drawn, [],
+            "%s bans %s, and tools/bm_visual.py draws %s. One of the two is "
+            "wrong, and the design is the one the register says outranks "
+            "the page."
+            % (VISUAL_DESIGN, ", ".join(drawn),
+               "it" if len(drawn) == 1 else "them"))
+        self.assertIn(
+            "pie", banned,
+            "%s must keep banning the pie; tools/test_bm_visual.py builds "
+            "one and expects the ValueError" % VISUAL_DESIGN)
+
+    def test_the_next_shape_is_refused_by_its_real_ordinal(self):
+        _word, _rows, section = self._parsed()
+        expected = ORDINAL_WORDS.get(len(_bv.SHAPES) + 1)
+        self.assertIsNotNone(
+            expected, "ORDINAL_WORDS has no entry for %d"
+                      % (len(_bv.SHAPES) + 1))
+        said = re.findall(r"\b([a-z]+) shape is refused\b", section)
+        self.assertEqual(
+            said, [expected],
+            "%s calls the next shape %s; SHAPES holds %d, which makes the "
+            "next one the %s"
+            % (VISUAL_REGISTER, ", ".join(said) or "nothing",
+               len(_bv.SHAPES), expected))
+
+    def test_what_the_page_refuses_is_not_something_the_code_draws(self):
+        """The failure this suite was handed: the page listed gantt and
+        timeline as refused while both were in SHAPES. The refusal sentence
+        may name anything the code will not draw, and nothing it will."""
+        _word, _rows, section = self._parsed()
+        match = re.search(r"There is no [^.]*\.", section, re.S)
+        self.assertTrue(
+            match, "%s no longer states what gets no drawing at all"
+                   % VISUAL_REGISTER)
+        refused = " ".join(match.group(0).split())
+        drawn = [s for s in _bv.SHAPES
+                 if re.search(r"\b%s\b" % re.escape(s), refused)]
+        self.assertEqual(
+            drawn, [],
+            "%s says %r, but %s %s in SHAPES and the product draws %s"
+            % (VISUAL_REGISTER, refused, ", ".join(drawn),
+               "is" if len(drawn) == 1 else "are",
+               "it" if len(drawn) == 1 else "them"))
+        self.assertIn(
+            "pie", refused,
+            "%s must keep naming something the code actually refuses; "
+            "tools/test_bm_visual.py builds a pie and expects the "
+            "ValueError, so the pie is the one example with a test behind "
+            "it" % VISUAL_REGISTER)
 # The two skills a session enters when it is finishing: the delivery flow and
 # the Full-Auto kill switch. Phase C step 2 of the 2026-08-08 finalization plan
 # puts the continuity instruction in both, because those are the two places a
