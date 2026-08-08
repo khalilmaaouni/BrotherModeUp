@@ -4994,6 +4994,30 @@ ORDINAL_WORDS = {5: "fifth", 6: "sixth", 7: "seventh", 8: "eighth",
 
 SHAPE_HEADING = re.compile(r"^## The ([a-z]+) shapes\b")
 
+# The two sentence shapes that COUNT the drawn vocabulary, as opposed to the
+# ones that merely mention it. "the shapes" and "two that each mean one" are
+# not counts and must not trip; "Five shapes" and "all five" are, in either
+# case, which is why the scan lowercases first. The capitalized form is not
+# hypothetical: the comment above SHAPES read "Five shapes" while the tuple
+# already held six.
+COUNTING_SENTENCES = ((r"\b([a-z]+) shapes\b", "%s shapes"),
+                      (r"\ball ([a-z]+)\b", "all %s"))
+
+
+def miscounted_shapes(text, word):
+    """Every line of TEXT that counts the shape vocabulary as anything
+    other than WORD, reported as "line N says ...". Empty when the text
+    counts correctly or does not count at all; the caller is the one that
+    decides whether not counting at all is allowed."""
+    counts = set(NUMBER_WORDS.values())
+    offenders = []
+    for i, line in enumerate(text.split("\n"), 1):
+        for pattern, form in COUNTING_SENTENCES:
+            for said in re.findall(pattern, line.lower()):
+                if said in counts and said != word:
+                    offenders.append("line %d says %s" % (i, form % said))
+    return offenders
+
 
 def shape_section(text):
     """The shape section of references/visual-surface.md, as
@@ -5048,7 +5072,9 @@ class TestTheVisualRegisterMatchesTheShapes(unittest.TestCase):
 
     It checks the facts a reader would act on, never the prose of a row:
     which shapes exist, how many, what each one's caps are, and what is
-    refused."""
+    refused. It reads tools/bm_visual.py's own opening paragraph on the
+    same terms, because that paragraph had the count wrong too, and being
+    in the same file as SHAPES did not save it."""
 
     def _parsed(self):
         return shape_section(read(VISUAL_REGISTER))
@@ -5106,15 +5132,7 @@ class TestTheVisualRegisterMatchesTheShapes(unittest.TestCase):
             "%s shapes" % word, text.split("\n")[0],
             "%s's title must say %r; it reads %r"
             % (VISUAL_REGISTER, "%s shapes" % word, text.split("\n")[0]))
-        counts = set(NUMBER_WORDS.values())
-        offenders = []
-        for i, line in enumerate(text.split("\n"), 1):
-            for said in re.findall(r"\b([a-z]+) shapes\b", line):
-                if said in counts and said != word:
-                    offenders.append("line %d says %s shapes" % (i, said))
-            for said in re.findall(r"\ball ([a-z]+)\b", line):
-                if said in counts and said != word:
-                    offenders.append("line %d says all %s" % (i, said))
+        offenders = miscounted_shapes(text, word)
         self.assertEqual(
             offenders, [],
             "%s counts its own vocabulary wrong (SHAPES holds %d, so the "
@@ -5122,6 +5140,30 @@ class TestTheVisualRegisterMatchesTheShapes(unittest.TestCase):
             "vocabulary is phrased without a number word in front of "
             "'shapes'."
             % (VISUAL_REGISTER, count, word, "; ".join(offenders)))
+
+    def test_the_module_says_how_many_shapes_it_holds_and_is_right(self):
+        """tools/bm_visual.py's own opening paragraph, which read "Six
+        shapes" while the tuple forty lines below it held seven. Prose in
+        the same file as the thing it describes is not safer than prose in
+        another file; it is less safe, because nobody re-reads a docstring
+        they scrolled past. The paragraph must state the count, so deleting
+        the sentence is a failure rather than a pass."""
+        count = len(_bv.SHAPES)
+        word = NUMBER_WORDS.get(count)
+        self.assertIsNotNone(
+            word, "NUMBER_WORDS has no entry for %d" % count)
+        text = _bv.__doc__ or ""
+        offenders = miscounted_shapes(text, word)
+        self.assertEqual(
+            offenders, [],
+            "tools/bm_visual.py's docstring counts the vocabulary wrong "
+            "(SHAPES holds %d, so the word is %r): %s"
+            % (count, word, "; ".join(offenders)))
+        self.assertIn(
+            "%s shapes" % word, text.lower(),
+            "tools/bm_visual.py's docstring must say how many shapes it "
+            "holds, and SHAPES holds %d, so it says %r"
+            % (count, "%s shapes" % word))
 
     def test_the_next_shape_is_refused_by_its_real_ordinal(self):
         _word, _rows, section = self._parsed()

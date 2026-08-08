@@ -1,10 +1,10 @@
 """bm_visual: the drawn vocabulary of BrotherMode's visual surface.
 
 Design: docs/program/absolute-lead/DESIGN-visual-surface.md, sections 6
-(the insight box and the alert ladder), 7 (the five shapes), 9.2 (the
-failure block) and 12.1 (this inventory).
+(the insight box and the alert ladder), 7 (the diagram vocabulary), 9.2
+(the failure block) and 12.1 (this inventory).
 
-WHAT THIS FILE IS. One vocabulary, two renderings. Six shapes, four
+WHAT THIS FILE IS. One vocabulary, two renderings. Seven shapes, four
 alert rungs, one six slot insight box, one derived alert function and one
 map that rewrites every refusal the engine can emit into words a founder
 can act on. Everything here is a pure function of rows that already
@@ -15,7 +15,14 @@ clears.
 Loop after v2.1.0 (docs/program/absolute-lead/DESIGN-progress-surface.md)
 added the sixth shape, timeline, and progress_facts, the one pure reader
 that feeds the progress page section: still rows in, plain facts out,
-still no second truth.
+still no second truth. Phase 5 (founder decision 2026-08-08) added the
+seventh, gantt, and the progress view that draws it.
+
+The count in the paragraph above is the one thing on this page nothing
+computes. It said six while SHAPES already held seven, for the same
+reason references/visual-surface.md said five: a widened tuple leaves
+prose behind. tools/test_bm_docs.py now reads this docstring against
+SHAPES, so the third time is caught rather than shipped.
 
 WHAT THIS FILE IS NOT. It is not a command: it has no main, it opens no
 store of its own, it writes no file and it prints nothing. Every entry
