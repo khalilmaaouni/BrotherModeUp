@@ -371,6 +371,14 @@ def canonical_target(root, raw, cwd=None):
     if rel_posix == ".." or rel_posix.startswith("../"):
         return None
     rel_posix = posixpath.normpath(rel_posix)
+    # H1: a write reaching a file through a linked worktree checkout is a
+    # write to the same logical file, so the fence compares its
+    # worktree-relative spelling, the one a claim on the plain path
+    # stores. Store module unimportable is the documented fail-open class
+    # and leaves the historical spelling untouched.
+    bs_mod = _load_store_module()
+    if bs_mod is not None and hasattr(bs_mod, "strip_worktree_segments"):
+        rel_posix = bs_mod.strip_worktree_segments(root_real, rel_posix)
     return rel_posix
 
 

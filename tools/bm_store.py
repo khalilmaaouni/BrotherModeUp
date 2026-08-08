@@ -838,6 +838,49 @@ def _resolve_against_root(root, rel_literal, cwd=None):
     return rel_posix
 
 
+_WORKTREE_CONTAINER_SEGS = (".claude", "worktrees")
+
+
+def strip_worktree_segments(root, rel_posix):
+    """H1 (V3-FREEZE ruling H1, closed in the finalization run 2026-08-08):
+    the logical, checkout-independent spelling of a root-relative POSIX
+    path. A linked git worktree is a parallel checkout of the SAME tree,
+    so 'pyproject.toml' written through
+    '.claude/worktrees/demo/pyproject.toml' is the same logical file a
+    claim on 'pyproject.toml' fences; before this helper, root resolution
+    climbed to the outer repository while the write stayed
+    worktree-prefixed, and the claim matched neither spelling.
+
+    Two detectors, one rule, innermost enclosing worktree top wins:
+    (a) a directory sitting directly under the '.claude/worktrees/'
+        container, Claude Code's own layout, detected from the path text
+        alone so it works before git metadata exists;
+    (b) a directory whose '.git' is a regular FILE, git's linked-worktree
+        marker, wherever the worktree was added.
+    The path of the worktree top itself, and any path with no enclosing
+    top, come back unchanged. Glob tails pass through untouched: a
+    wildcard segment never names a worktree top, and the isfile probe on
+    a glob-bearing prefix is simply False."""
+    if not rel_posix or rel_posix == "." or rel_posix.startswith(".."):
+        return rel_posix
+    segs = rel_posix.split("/")
+    for j in range(len(segs) - 1, 0, -1):
+        container = (j >= 3 and tuple(segs[j - 3:j - 1]) ==
+                     _WORKTREE_CONTAINER_SEGS)
+        marker = False
+        if not container:
+            try:
+                marker = os.path.isfile(
+                    safe_project_path(root, *(segs[:j] + [".git"])))
+            except (OSError, ValueError, BMStoreError):
+                # A prefix the funnel refuses (symlinked, escaping, or
+                # unbuildable) is simply not a worktree top.
+                marker = False
+        if container or marker:
+            return "/".join(segs[j:])
+    return rel_posix
+
+
 def canonicalize_path(root, p, cwd=None):
     """The ONE place a caller-declared path becomes a stored path (GATE 1,
     closes four defects at once):
@@ -868,9 +911,13 @@ def canonicalize_path(root, p, cwd=None):
         lit_segs.append(seg)
     literal_dir = "/".join(lit_segs)
     resolved = _resolve_against_root(root, literal_dir, cwd)
+    # H1: a claim declared from inside a linked worktree stores the same
+    # logical spelling a claim from the shared root stores, so the two
+    # can never talk past each other again.
     if tail_segs:
-        return _join_relative(resolved, "/".join(tail_segs))
-    return resolved
+        return strip_worktree_segments(
+            root, _join_relative(resolved, "/".join(tail_segs)))
+    return strip_worktree_segments(root, resolved)
 
 
 def _safe_repr(f):
