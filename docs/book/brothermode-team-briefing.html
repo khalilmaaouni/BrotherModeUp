@@ -549,13 +549,51 @@ sync on reconnect, and show the user which state they are in.</code></pre>
 
   <pre><code>/brothermode:status</code></pre>
 
-  <p>Eight fields come back, every one computed from the project's own records rather than from the conversation: goal, direction, progress, time remaining, decision needed, risk, evidence, next step. A field the records cannot answer says so in its own words. "Not forecast yet" stays in, because a smoothed-over sentence carries less information than an honest gap.</p>
+  <p>Eight fields come back, every one computed from the project's own records rather than from the conversation. What follows is real, pasted exactly as printed from a run against a throwaway repository on 8 August 2026. Nothing here is a mock-up and nothing has been reflowed:</p>
+
+  <pre><code>Goal: Cache the last screen, sync on reconnect, and show the user which state they are in.
+Direction: not agreed yet
+Progress: 1 of 5 tasks accepted
+Time remaining: 3 days to 8 days (likely 5 days)
+  work budget: input ?, output ?, total 600k to 1.1M
+  confidence: medium
+  next reforecast: (not stated)
+Decision needed: none
+Risk: 1 open
+  The offline banner clips its second line on a small phone
+Evidence: no executed evidence recorded yet
+Next step: agree what I am allowed to do on your behalf
+  why: the outcome is recorded, and nothing can run until you authorise it
+  run: bm-autonomy sign --project-id offline-mode</code></pre>
+
+  <p>Read what that output refuses to do. It does not invent a direction, so it says <em>not agreed yet</em>. It does not offer a single date, so the forecast arrives as a range with its confidence beside it. It does not claim evidence it does not have. And the next step it recommends is not a task at all: it is asking Maya for authorisation, because nothing may run until she gives it.</p>
+  <p>A smoothed-over sentence would carry less information than any one of those gaps.</p>
 
   <p>Then Maya runs the other one.</p>
 
   <pre><code>/brothermode:view</code></pre>
 
   <p>That writes <code>PROJECT-VIEW.html</code> at the top of the project folder: one self-contained page, no sign-in, no network, openable by double-clicking it. It is the durable answer to where does this stand, and it is generated from the records every time rather than maintained by anyone.</p>
+
+  <p>Here is what the real page put on screen for this project, section by section, in its own words. Fifteen headings, and not one of them is a machinery term:</p>
+
+  <pre><code>Where this stands
+Waiting on you
+Your next step
+The path of the work
+How far each lane has moved
+How much, against what limit
+What could still go wrong
+Decisions waiting for your answer
+What I now believe, and what proved it
+What has to be true before this ships
+Who holds the pen
+What each finished piece produced
+The story so far
+Your move
+About this page</code></pre>
+
+  <p>"Who holds the pen." "What could still go wrong." "Your move." That is the register the whole product is written in, and it is a deliberate constraint rather than a house style: machinery terms and identifiers appear only when somebody explicitly asks for the advanced view.</p>
 
   <h4>The five shapes, and nothing else is ever drawn</h4>
   <p>This is the part most people underestimate. The page does not draw whatever looks good. Five shapes are allowed, each answering exactly one question a human actually asks, and a sixth shape is refused where it is built rather than discouraged in prose.</p>
@@ -623,6 +661,39 @@ sync on reconnect, and show the user which state they are in.</code></pre>
     </svg>
     <figcaption>Node labels are a noun phrase plus a status word. Never an identifier, never a bare symbol, never a colour on its own. In the lanes shape, if two lanes want the same file the fence refuses before either one starts, which is Wednesday's story drawn as a picture. Past a cap the generator aggregates and says so, for example "3 of 14 checks shown, the 3 that are not passing". It never shrinks the text to fit.</figcaption>
   </figure>
+
+  <h4>What the real page actually drew</h4>
+  <p>Those five shapes are the vocabulary. A given page draws only the ones it has records for. The offline mode run above produced three drawings, and these are their real titles and their real node labels, read straight out of the generated file:</p>
+
+  <pre><code><span class="c">// drawing 1, titled "Where the work stands now"</span>
+Set up, NOW
+Understand, waiting
+Plan, waiting
+Build, waiting
+Check, waiting
+Deliver, waiting
+
+<span class="c">// drawing 2, titled "How far each lane has moved"</span>
+unassigned
+Cache the last screen, complete          stage 7 of 10
+Sync engine on reconnect, working        stage 3 of 10
+Offline status banner, working           stage 3 of 10
+Screenshot proof on a small phone, waiting   stage 2 of 10
+Locale keys for the banner copy, waiting     stage 1 of 10
+
+<span class="c">// drawing 3, titled "How much, against what limit"</span>
+Gates, counted         0 of 0 gates passed
+Steps, counted         1 of 5 steps accepted
+Work budget, counted   0 tokens used, no limit agreed yet
+Working time, counted  0 minutes used, no limit agreed yet
+Findings, counted      needs you 1, at risk 0, for info 0, settled 0</code></pre>
+
+  <p>Every label is a noun phrase plus a status word, exactly as the rule requires. Exactly one pipeline node says NOW. Every bar carries its raw number. And where a limit has not been agreed, the bar says <em>no limit agreed yet</em> rather than drawing a full bar against an invented ceiling.</p>
+
+  <div class="panel">
+    <p class="panel-title">One naming detail, so you do not think this page lied to you</p>
+    <p>If you grep the generated file, the second drawing carries the internal element id <code>bm-timeline</code>. It is not a timeline. It has no dates, no durations and no time axis: "stage 7 of 10" is a position in the ten-state task lifecycle, not elapsed time. The id is a legacy name for what the law calls the <em>lanes</em> shape, and the title it prints on screen, "How far each lane has moved", is the accurate one.</p>
+  </div>
 
   <div class="panel accent">
     <p class="panel-title">Why there is no gantt chart, and why that is a feature</p>
@@ -1395,7 +1466,8 @@ sync on reconnect, and show the user which state they are in.</code></pre>
 
 <footer class="foot">
   <p><strong>How this booklet was built.</strong> Every claim about BrotherMode was read out of the repository tree at v3.0.0 on 8 August 2026: the frontmatter of all seventeen skills, <code>hooks/hooks.json</code>, <code>capabilities.status.json</code>, <code>agents/</code>, <code>references/visual-surface.md</code>, <code>references/delegation.md</code>, <code>references/definition-of-done.md</code>, <code>docs/ROADMAP.md</code>, and the two limits registers. Nothing here is quoted from memory of a conversation.</p>
-  <p><strong>The story is a composite, and the machinery in it is not.</strong> Maya, Sam, Tomas and Priya are illustrations. Every command they run, every rule that bites, and every limit named is real and traceable to a file. The five tracking shapes are what the tool draws. The other diagrams in this booklet were drawn for the book and are labelled where that distinction matters.</p>
+  <p><strong>The story is a composite, and the machinery in it is not.</strong> Maya, Sam, Tomas and Priya are illustrations. Every command they run, every rule that bites, and every limit named is real and traceable to a file.</p>
+  <p><strong>Three blocks in this booklet are real tool output, captured on 8 August 2026</strong> by running the offline mode project through <code>brothermode_cli.py</code> against a throwaway git repository outside this tree: the eight-field status, the fifteen section headings of the generated project page, and the node labels of the three drawings that page produced. They are pasted exactly as printed, with no reflowing. The remaining diagrams were drawn for the book, and the two places where that distinction could mislead say so in their own captions.</p>
   <p><strong>External sources, each a page actually opened.</strong> The plugin component list is from <a href="https://code.claude.com/docs/en/plugins">code.claude.com/docs/en/plugins</a>. The four-mode documentation structure is Diátaxis, <a href="https://diataxis.fr/">diataxis.fr</a>, adopted by Django, Canonical, Cloudflare and Gatsby. The honesty structure of the comparison chapter is SQLite's, <a href="https://www.sqlite.org/whentouse.html">sqlite.org/whentouse.html</a>. The README convention that treats limitations as optional is The Good Docs Project's, <a href="https://www.thegooddocsproject.dev/template/readme">thegooddocsproject.dev/template/readme</a>.</p>
   <p><strong>What this booklet does not do.</strong> It quotes no test count, because counts move with every test that lands and a reader seeing a mismatch cannot tell a stale page from a broken install. It quotes no productivity number, because none has ever been measured. And it is not held by the documentation suite that holds the repository's own pages, so when it goes stale, it will go stale quietly. Check it against the tree.</p>
 </footer>
