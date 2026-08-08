@@ -95,3 +95,64 @@ wording, ranges with confidence, exactly one recommended next action, advanced
 detail only on request) bind the page exactly as they bind the terminal, and
 `references/visual-surface.md` is the register for the parts that exist only
 there.
+
+## The brevity budget: the page is capped, and nothing is deleted
+
+A progress page is refreshed by one session after another, and each one wants
+to explain itself. Left alone that habit appends and never removes, until the
+top of the page is a wall. It is not a theory: on 2026-08-08 the live page for
+this project carried an 8,083 character stamp line and a 9,217 character first
+card, so a reader met roughly 22,000 characters before reaching the timeline.
+The same page, rewritten to the budget below, opens in about 900.
+
+So the top of any progress page is capped, by rule. The numbers are the rule,
+not a suggestion:
+
+- The summary line under the title: at most 300 characters. It says who
+  refreshed the page, when, and the tick rule. Nothing else.
+- Each card: at most 250 characters. One or two sentences. If it needs more
+  than that, it is not a card.
+- Each evidence line: at most 240 characters, ending at a sentence or a clause
+  boundary, then an ellipsis and a pointer to the full text.
+- Everything longer is MOVED, never deleted, into a collapsed section at the
+  foot of the page, headed so the reader can see nothing was thrown away
+  ("Full history, nothing removed").
+
+The second half of that last rule carries as much weight as the numbers. This
+project does not destroy a working file, a piece of evidence or a deliverable
+in order to tidy up, and a brevity rule that deleted history would be a worse
+defect than the wall of text it was written to fix. Shortening happens by
+moving. The long version stays one click away, unedited, and an entry already
+in that section is never rewritten: a newer note goes ahead of it.
+
+The tick contract is unchanged and is the reason the page exists at all: a box
+ticks ONLY when its done-check ran after the last edit and that command's
+output is quoted in the evidence line beside it. Percentages are counts of
+records, never impressions. Brevity never buys a tick: an evidence line that
+has been cut to 240 characters still has to name the command and its result,
+and a line with nothing left to point at is a box that should not be ticked.
+
+`project-template/PROGRESS.html` is the canonical page, carrying this budget
+as a comment at the top of the file, and every project copied from that
+template starts inside the rule.
+
+### What a machine can enforce here, and what is discipline
+
+This project does not call a rule automatic when it is a habit, so the split
+is stated rather than implied. Nothing in the toolchain enforces any row below
+today: the budget currently lives in the template comment, this page, and the
+reviewer's attention.
+
+| Part of the budget | Mechanical, once built | Discipline |
+| --- | --- | --- |
+| The 300, 250 and 240 character caps | Yes. A counter over the rendered page can measure each region and fail. | No |
+| A page over budget has a collapsed history section at its foot | Yes. Structural, and checkable by parsing the page. | No |
+| An evidence line that was cut ends with an ellipsis and a pointer | Yes, as a pattern check on the cut line. | No |
+| The moved text is the SAME text, with nothing edited out | Only weakly: a check can compare against the previous render, not against what was meant. | Mostly discipline |
+| The short summary is a fair summary of what it replaced | No | Yes |
+| The page is refreshed at all, at every closed loop | No. Nothing fires when a session decides it is finished. | Yes |
+| The done-check behind a tick ran AFTER the last edit | No. Nothing watches edits. | Yes |
+
+The last two rows are the same honest limit the tick contract already states
+on the page itself, repeated here so the budget is not read as a stronger
+guarantee than the contract it sits inside.
