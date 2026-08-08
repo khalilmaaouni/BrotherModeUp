@@ -892,6 +892,9 @@ def decide(payload):
         if root is None:
             raise _FailOpen("no BrotherMode project root found from %s"
                             % (cwd or os.getcwd()), "no-root")
+        # H4: fold case where this project's filesystem folds it, not
+        # where sys.platform guesses it does.
+        bs.note_fs_case(root)
 
         rows = active_claims(root)
         if not rows:

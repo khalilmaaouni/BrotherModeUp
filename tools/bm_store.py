@@ -504,6 +504,63 @@ def _to_posix(p):
 
 _CASE_INSENSITIVE_PLATFORMS = ("win32", "darwin")
 
+#: H4 (cross-family review 2026-08-08, finding 3): sys.platform alone is
+#: not the truth about case folding. A case-insensitive mount on Linux
+#: (SMB/CIFS, WSL drvfs, casefolded ext4) folds names the old
+#: platform-only gate treated as distinct, so a different-case claim
+#: slipped past paths_overlap. This flag is armed by note_fs_case() from a
+#: real probe of the project's own filesystem and is STICKY in one
+#: direction: once any probed root folds, every comparison in this process
+#: folds. On a mixed-volume process that can over-fold a case-sensitive
+#: tree, which errs toward a refusal, never toward an unread bypass.
+_FS_CASE_INSENSITIVE = False
+_FS_CASE_PROBE_CACHE = {}
+
+
+def fs_case_insensitive(dirpath):
+    """True when the filesystem holding `dirpath` treats names that differ
+    only by case as the same file, measured by writing a probe file and
+    looking for its upper-cased spelling. Cached per realpath. Any OSError
+    reads as False, which falls back to the platform gate in _normcase
+    rather than guessing."""
+    key = os.path.realpath(dirpath)
+    hit = _FS_CASE_PROBE_CACHE.get(key)
+    if hit is not None:
+        return hit
+    suffix = uuid.uuid4().hex[:12]
+    lower = os.path.join(key, ".bm-case-probe-%s" % suffix)
+    upper = os.path.join(key, ".BM-CASE-PROBE-%s" % suffix)
+    result = False
+    try:
+        with io.open(lower, "w", encoding="utf-8") as f:
+            f.write("case probe\n")
+        result = os.path.exists(upper)
+    except OSError:
+        result = False
+    finally:
+        try:
+            os.remove(lower)
+        except OSError:
+            pass  # sbe: allow-silent best-effort cleanup of the probe file; the verdict is already taken
+    _FS_CASE_PROBE_CACHE[key] = result
+    return result
+
+
+def note_fs_case(dirpath):
+    """Arm the module fold flag from a probe of `dirpath` (preferring its
+    .brothermode store directory when one exists, so the probe file never
+    lands in the user's own tree). Called at Store construction and by the
+    fence hook after root resolution. One-way: probes never disarm."""
+    global _FS_CASE_INSENSITIVE
+    try:
+        probe_dir = store_dir(dirpath)
+        if not os.path.isdir(probe_dir):
+            probe_dir = dirpath
+        if fs_case_insensitive(probe_dir):
+            _FS_CASE_INSENSITIVE = True
+    except Exception:
+        pass  # sbe: allow-silent the probe is advisory; _normcase keeps its platform gate either way
+
 
 def _normcase(p):
     """Case-fold the POSIX-form string directly with str.casefold(). NEVER
@@ -526,7 +583,7 @@ def _normcase(p):
     paths_overlap and for the claim-time overlap check that shares it.
     Linux is normalization PRESERVING and sensitive, where the two really
     are different files, so it is deliberately left alone."""
-    if sys.platform in _CASE_INSENSITIVE_PLATFORMS:
+    if _FS_CASE_INSENSITIVE or sys.platform in _CASE_INSENSITIVE_PLATFORMS:
         return unicodedata.normalize("NFC", p.casefold())
     return p
 
@@ -6169,6 +6226,9 @@ class Store(object):
                 % (store_path(self.root), _cmd()),
                 details={"path": store_path(self.root)})
         os.makedirs(expected_store_dir, exist_ok=True)
+        # H4: measure this project's real case folding once, so
+        # paths_overlap folds where the filesystem folds.
+        note_fs_case(self.root)
         # GATE D (fix-round 3, 2026-07-26): claim paths were already
         # symlink-checked and refused as 'path-escape', but .brothermode
         # itself was not, so a repository carrying .brothermode -> docs (or
