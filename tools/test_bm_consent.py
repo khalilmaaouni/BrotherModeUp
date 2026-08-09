@@ -426,8 +426,10 @@ class TelemetryEveryHookProgramPreConsentCase(unittest.TestCase):
     # day's L05 loop when it gained the page rewrite (bm_view.py render
     # --if-stale) and the alert tick (bm_view.py alert --tick); raising a
     # floor is the only direction this number is ever allowed to move.
-    MIN_WIRED_COMMAND_STRINGS = 7
-    MIN_WIRED_PROGRAMS = 11
+    # Raised 7 to 8 and 11 to 12 on 2026-08-09 when the PreToolUse Bash
+    # entry gained bm_session_cap.py, the machine-wide session cap.
+    MIN_WIRED_COMMAND_STRINGS = 8
+    MIN_WIRED_PROGRAMS = 12
     _PROGRAM_RE = re.compile(
         r"(?:python3|sh)\s+\S*?(?:tools|scripts)/\S+\.(?:py|sh)")
 
@@ -584,6 +586,16 @@ class TelemetryEveryHookProgramPreConsentCase(unittest.TestCase):
             "the single-writer proof itself. It reads and refuses; a gate "
             "in front of it would mean no file claim exists until setup "
             "runs, which is the opposite of the protection it provides."),
+        "bm_session_cap.py": (
+            "the machine-wide session cap (2026-08-09, after the 8 August "
+            "runaway). It reads transcript timestamps and refuses a spawn; "
+            "it writes no file and opens no store, and its scope is the "
+            "MACHINE, not any one project, so gating it behind a project's "
+            "setup consent would mean the fleet protection exists only "
+            "inside projects that opted in, which is the opposite of what "
+            "a machine-wide cap is for. Its two output funnels carry only "
+            "its own fixed sentences plus three integers, reviewed in "
+            "tools/write_sites.json."),
     }
 
     # WHERE each module's gate lives, and how it spells the check. Every
