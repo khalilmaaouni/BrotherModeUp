@@ -3615,6 +3615,100 @@ class TestTransitionLegality(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_adopted_record_can_be_closed_by_parking_it(self):
+        """STRANDED-ADOPTED REGRESSION, 2026-08-08. 'adopted' used to be a
+        terminal sink: _LEGAL_MOVES named it as a legal SOURCE for nothing,
+        so every declared exit refused with StaleIdentity. Adoption is the
+        documented recovery of a dead session's fence, so an adopted record
+        that cannot be closed strands the work it was adopted to rescue.
+
+        The graph walk above is what should have caught this and did not: it
+        enters 'adopted' by both doors and never tries either exit."""
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("stranded", "ephemeral", "obj", [],
+                                   session_id="SESSION-A")
+                adopted = store.transition(rec.lifecycle_uuid, rec.version, "adopted",
+                                            session_id="SESSION-B",
+                                            adopt_from_live_session=True)
+                self.assertEqual(adopted.state, "adopted")
+                parked = store.transition(adopted.lifecycle_uuid, adopted.version,
+                                           "parked", session_id="SESSION-B")
+                self.assertEqual(parked.state, "parked")
+            finally:
+                store.close()
+
+    def test_adopted_record_can_be_closed_by_resume_then_complete(self):
+        """The other half of the same regression: the adopter resumes the
+        rescued record and completes it with evidence. 'complete' is reached
+        through 'active' by design (only a live writer holds the check result
+        the missing-evidence guard demands), so this is the path a coordinator
+        takes when the adopted work still needs finishing rather than parking."""
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("stranded", "ephemeral", "obj", [],
+                                   session_id="SESSION-A")
+                adopted = store.transition(rec.lifecycle_uuid, rec.version, "adopted",
+                                            session_id="SESSION-B",
+                                            adopt_from_live_session=True)
+                self.assertEqual(adopted.state, "adopted")
+                active = store.transition(adopted.lifecycle_uuid, adopted.version,
+                                           "active", session_id="SESSION-B")
+                self.assertEqual(active.state, "active")
+                self.assertEqual(active.session_id, "SESSION-B")
+                done = store.transition(active.lifecycle_uuid, active.version,
+                                         "complete", session_id="SESSION-B",
+                                         evidence="python3 tools/test_bm_store.py: OK")
+                self.assertEqual(done.state, "complete")
+                self.assertEqual(done.evidence, "python3 tools/test_bm_store.py: OK")
+            finally:
+                store.close()
+
+    def test_adopted_still_refuses_complete_directly(self):
+        """The fix is scoped, not a blanket opening of the state: completing
+        straight out of 'adopted' stays refused, so evidence keeps meaning
+        "a live writer ran the check". If this ever starts passing, it should
+        be a deliberate decision rather than something inherited from a
+        widened table."""
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                rec = store.claim("stranded", "ephemeral", "obj", [],
+                                   session_id="SESSION-A")
+                adopted = store.transition(rec.lifecycle_uuid, rec.version, "adopted",
+                                            session_id="SESSION-B",
+                                            adopt_from_live_session=True)
+                with self.assertRaises(bs.StaleIdentity):
+                    store.transition(adopted.lifecycle_uuid, adopted.version,
+                                      "complete", session_id="SESSION-B",
+                                      evidence="e")
+            finally:
+                store.close()
+
+    def test_bm_threads_mirror_of_the_graph_has_not_drifted(self):
+        """bm_threads.py keeps its OWN copy of this graph (_LEGAL_SOURCE_STATES)
+        to resolve a name to the right lifecycle for a move, and its comment
+        says it must change whenever the store's does. Until now nothing made
+        that true, and the 2026-08-08 stranded-adopted fix had to touch both
+        files by hand. Read from source rather than imported: this asserts the
+        two tables agree, and importing bm_threads only to compare a constant
+        would drag its module-level work into this suite for nothing."""
+        with io.open(os.path.join(HERE, "bm_threads.py"), encoding="utf-8") as f:
+            tree = ast.parse(f.read(), filename="bm_threads.py")
+        mirrors = [node.value for node in ast.walk(tree)
+                   if isinstance(node, ast.Assign)
+                   for t in node.targets
+                   if isinstance(t, ast.Name) and t.id == "_LEGAL_SOURCE_STATES"]
+        self.assertEqual(len(mirrors), 1,
+                          "expected exactly one _LEGAL_SOURCE_STATES in bm_threads.py")
+        mirror = ast.literal_eval(mirrors[0])
+        self.assertEqual({k: tuple(v) for k, v in mirror.items()},
+                          {k: tuple(v) for k, v in bs._LEGAL_MOVES.items()},
+                          "bm_threads._LEGAL_SOURCE_STATES has drifted from "
+                          "bm_store._LEGAL_MOVES; they must change together")
+
 class TestCheckpointDecisions(unittest.TestCase):
     def test_checkpoint_appends_decisions_atomically(self):
         with tempfile.TemporaryDirectory() as d:
