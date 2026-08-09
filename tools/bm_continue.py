@@ -144,6 +144,21 @@ def _load(name):
 
 
 bs = _load("bm_store")
+
+_SESSION_CAP_MODULE = None
+
+
+def _session_cap():
+    """tools/bm_session_cap.py, loaded lazily by the same sibling-path
+    technique as bm_store above and cached. Lazy on purpose: the module is
+    consulted only on the launch path, and a broken or missing copy must
+    not take down packet generation or the dry run, which need none of it.
+    The width check that calls this treats a load failure exactly like a
+    count failure: no opinion, said out loud, depth cap still standing."""
+    global _SESSION_CAP_MODULE
+    if _SESSION_CAP_MODULE is None:
+        _SESSION_CAP_MODULE = _load("bm_session_cap")
+    return _SESSION_CAP_MODULE
 # The SAME schema object the store itself validates against, reached the
 # same way tools/bm_project.py reaches it (its own S = bs._schema()), so
 # this file's list of lifecycle states and the store's cannot drift.
@@ -659,13 +674,27 @@ def _quote(token):
     return "'" + token.replace("'", "'\\''") + "'"
 
 
-def printable_command(argv, log_path):
+def printable_command(argv, log_path, env_prefix=None):
     """The launch as ONE line a human can paste, redirected to a log and
     detached. What is printed and what is spawned come from the SAME argv
     list, so the line a founder reads is the command a session runs, not
-    a description of it."""
-    return "nohup %s > %s 2>&1 &" % (
-        " ".join(_quote(a) for a in argv), _quote(log_path))
+    a description of it.
+
+    `env_prefix` prepends KEY=VALUE assignments, sorted for a stable line.
+    Added 2026-08-09 after the adversarial review of PR 36 named the gap:
+    the real spawn carried the relay chain's depth in its environment, but
+    the PRINTED line did not, so a hand-run or script-run copy restarted
+    the chain at generation zero with nothing but prose against it. The
+    line a human pastes now carries the same brake the machine obeys."""
+    prefix = ""
+    if env_prefix:
+        prefix = " ".join("%s=%s" % (k, _quote(str(v)))
+                          for k, v in sorted(env_prefix.items())) + " "
+    # The assignments stand BEFORE nohup: the shell binds leading KEY=VALUE
+    # words to the whole command, while nohup itself would read "K=V" as
+    # the program to run and die.
+    return "%snohup %s > %s 2>&1 &" % (
+        prefix, " ".join(_quote(a) for a in argv), _quote(log_path))
 
 
 def spawn_successor(argv, log_path, cwd=None, env=None):
@@ -983,8 +1012,19 @@ def relay_deadline(env=None, override=None):
     if not text:
         return None
     text = str(text).strip()
-    if text.endswith("Z"):
-        text = text[:-1]
+    # Offset-aware first. The adversarial review of PR 36 executed the
+    # failure this closes: "2026-08-09T18:00:00+09:00" parsed to None and
+    # the founder's deadline silently vanished. fromisoformat reads offsets
+    # on 3.9 once Z is spelled +00:00; an aware result converts to the
+    # machine's local wall clock, because everything else in this brake
+    # compares against naive local time.
+    try:
+        parsed = datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            return parsed.astimezone().replace(tzinfo=None)
+        return parsed
+    except ValueError:
+        pass
     for shape in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S",
                   "%Y-%m-%d %H:%M", "%Y-%m-%d"):
         try:
@@ -1058,6 +1098,21 @@ def cmd_continue(argv):
         _err("bm_continue: --liveness-timeout wants a number of seconds, "
              "got %r." % kv.get("liveness-timeout"))
         return 2
+    # The chain's own limits, computed BEFORE any store work so (a) an
+    # explicitly typed deadline that cannot be read fails CLOSED right here
+    # (the adversarial review of PR 36 executed the old behaviour: an offset
+    # deadline parsed to None and the chain ran unbounded in time with
+    # nobody told), and (b) the printed launch line below can carry them.
+    generation = relay_generation()
+    maximum = relay_max(override=kv.get("max-generations"))
+    deadline = relay_deadline(override=kv.get("deadline"))
+    if kv.get("deadline") and deadline is None:
+        _err("bm_continue: --deadline %r could not be read as a time. "
+             "Nothing was launched: a deadline you typed and the machine "
+             "dropped would be the silent unbounding this brake exists to "
+             "end. Use ISO 8601, for example 2026-08-10T07:00:00 or "
+             "2026-08-10T07:00:00+09:00." % kv.get("deadline"))
+        return 2
     root = kv.get("root")
     if not root:
         # bs.require_root() is the ONE root resolver every sibling adapter
@@ -1101,7 +1156,16 @@ def cmd_continue(argv):
         log_rel = os.path.relpath(log_path, root)
         argv_out = launch_argv(packet_rel, ".", project_id=project_id,
                                permission_mode=kv.get("permission-mode"))
-        command_line = printable_command(argv_out, log_rel)
+        # The printed line carries the chain's next depth and its limits,
+        # so a human or script pasting it inherits the brake instead of
+        # restarting at generation zero (PR 36 review, finding 6).
+        printed_env = {RELAY_GEN_ENV: str(generation + 1),
+                       RELAY_MAX_ENV: str(maximum)}
+        if deadline is not None:
+            printed_env[RELAY_DEADLINE_ENV] = deadline.strftime(
+                "%Y-%m-%dT%H:%M:%S")
+        command_line = printable_command(argv_out, log_rel,
+                                         env_prefix=printed_env)
         text = render_packet(store, project_id, packet_rel, command_line)
         if text is None:
             _err("bm_continue: there is no project %r in this store, so "
@@ -1157,11 +1221,41 @@ def cmd_continue(argv):
     # THE BRAKE, and it sits here on purpose: after the packet is written
     # and the command is printed, before anything is started. A founder who
     # meets a refusal still has the whole handover in their hands.
-    generation = relay_generation()
-    maximum = relay_max(override=kv.get("max-generations"))
-    deadline = relay_deadline(override=kv.get("deadline"))
+    # generation, maximum and deadline were computed at the top of this
+    # function, before any store work, so the printed line already carries
+    # them.
     refusal = relay_refusal(generation, maximum, deadline,
                             datetime.datetime.now(), spend)
+    if refusal is None:
+        # The WIDTH bound (PR 36 review, finding 1, the critical one). The
+        # depth cap bounds how LONG a chain can grow; nothing bounded how
+        # WIDE, and this spawn is a direct process start no Bash hook can
+        # see: one session calling continue k times fanned out k gen-1
+        # successors, each entitled to do the same. So the launch consults
+        # the same live-session count the machine-wide cap uses, and
+        # refuses to add a session at or over that cap. A count that
+        # cannot be taken is no opinion (the counter fails open, loudly),
+        # and the depth cap still stands in that case.
+        try:
+            cap_mod = _session_cap()
+            live = cap_mod.count_live_sessions(cap_mod.projects_root())
+            width_cap = cap_mod.cap()
+            cap_env_name = cap_mod.CAP_ENV
+        except Exception as exc:
+            # A counter that cannot even load is a count that cannot be
+            # taken: no opinion, said out loud, never a crash that kills
+            # the handover. The depth cap above already ran and stands.
+            _err("bm_continue: the session counter could not be consulted "
+                 "(%s), so this launch has no width opinion. The chain's "
+                 "depth cap still applies." % exc)
+            live = None
+            width_cap = None
+        if live is not None and width_cap is not None and live >= width_cap:
+            refusal = ("%d Claude sessions are already live against the "
+                       "machine-wide cap of %d, so this relay adds none. "
+                       "Close a session, or raise the cap deliberately "
+                       "with %s=N, or run the command below yourself."
+                       % (live, width_cap, cap_env_name))
     if refusal is not None:
         if kv.get("json"):
             _print_json({"packet": packet_path, "project_id": project_id,
@@ -1172,7 +1266,10 @@ def cmd_continue(argv):
             _out("The relay stopped here, and started nothing: %s" % refusal)
             _out("")
             _out("The packet above is written and current, so nothing is "
-                 "lost. This is the brake working, not a failure.")
+                 "lost. The machine will not continue itself past a brake; "
+                 "the command above is for YOUR hand, and it carries the "
+                 "chain's depth so a successor you start inherits the same "
+                 "brake.")
         return 0
 
     # The mark BEFORE the spawn. The log is append-mode and named per
