@@ -89,9 +89,21 @@ RECENCY_SECONDS = 600
 #: word claude and any run of flag-shaped tokens between it and -p/--print,
 #: while a separator is still required in front, so prose words that merely
 #: END in claude (notes-about-claude, myclaude) stay unmatched.
+#: The re-verification then executed one more bypass against the widened
+#: shape: `claude --permission-mode acceptEdits -p`, our own shipped flag
+#: reordered, because a flag whose VALUE rides as the next token broke the
+#: flag run. Each flag may now be followed by one bare value token (a token
+#: not starting with a dash). Prose stays safe because a bare word after
+#: claude only reads as a value when a dash-led flag came first: `echo
+#: claude is nice -p` has no flag in front of `is` and stays unmatched.
+#: DISCLOSED RESIDUALS, per that review and left open deliberately: a
+#: quoted binary ('claude' -p), a backslash escape, and env -i relaunches
+#: all still pass a textual matcher; no regex closes that class, and the
+#: real backstops are the width bound in bm_continue and the depth carried
+#: in the environment.
 _SPAWN = re.compile(
     r"(?:^|[;&|]|\s)(?:[\w./-]*/)?claude\s+"
-    r"(?:--?[\w-]+(?:=\S*)?\s+)*(?:-p|--print)\b")
+    r"(?:--?[\w-]+(?:=\S*)?(?:\s+(?![-'\"])[^\s;&|]+)?\s+)*(?:-p|--print)\b")
 
 
 def deny_payload(reason):
