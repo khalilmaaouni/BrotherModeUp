@@ -265,3 +265,55 @@ A green branch and a green merge are not the same claim.
   needs its own review.
 - The two tags and the SBE workflow edits the progress page lists as waiting on
   the founder. Those are separate and still waiting.
+
+---
+
+## DECISIONS TAKEN ON THE FOUNDER'S BEHALF, 2026-08-10 night
+
+The founder went to sleep having deferred every pending approval to this
+session's judgement. Recorded at the moment they were taken, with the
+alternative and the flip condition, because a decision discovered later in a
+report is the correction-class failure this project names.
+
+**DECISION 1: the two release tags are NOT cut tonight. Blocked on evidence,
+not on nerve.**
+A release tag is a promise that a version name and a set of bytes are the same
+thing, and this project already withdrew `v2.0.0-rc.1` for breaking exactly
+that. MAIN IS RED: `test_all` reports 1 of 27 suites failing,
+`test_brothermode_cli.py` at 6 failures and 5 errors. A tag cut from a red tree
+publishes a version whose own gate does not pass.
+ALTERNATIVE CONSIDERED: cut them anyway, since the red is inherited and
+unrelated to the release content. REJECTED: "unrelated" is a judgement, a tag
+is permanent, and the asymmetry is severe.
+FLIP CONDITION: `test_all` ALL GREEN at exit 0 on the commit being tagged, and
+CI agreeing on that same commit.
+
+**DECISION 2: the `phase-c/continuity` merge is NOT completed tonight.**
+Attempted, then aborted. The abort was checked rather than assumed, after the
+fact: `.git/MERGE_HEAD` absent, zero conflict markers across `tools/`, `docs/`
+and `scripts/`, zero unmerged paths, clean `git status`.
+It conflicts in two files, and the one that matters is `tools/write_sites.json`,
+the reviewed write-site manifest that refuses new file-writing code nobody has
+reviewed. Its conflict is in the narrative comment and the per-file counts, so
+resolving it correctly means RE-DERIVING the counts by running the scanner over
+the merged tree, not choosing a side. A careless resolution silently weakens the
+control itself.
+ALTERNATIVE CONSIDERED: resolve it now, since main is red without this merge.
+REJECTED: the session was nearly out of context, and a security manifest
+hand-merged on fumes is how a control gets quietly broken. Unattended work from
+a low-context session is the shape of the 8 August runaway.
+FLIP CONDITION: a session with room to run the scanner, re-derive every count,
+and gate the merged tree before landing. It is FIRST in the merge order.
+
+**DECISION 3: the archive branch was tagged, not deleted outright.**
+`archive/team-briefing-2026-08-08`, annotated, on `d4f2f91`, pushed, holding all
+five booklet commits; the branch is gone. Not a release tag: no version, and the
+release-truth suite ignores it.
+FLIP CONDITION: none needed. `git checkout archive/team-briefing-2026-08-08`
+returns the booklet whole.
+
+**NOTHING THAT WRITES IS LEFT RUNNING.** The watchdog is READ-ONLY by the
+founder's own choice, and its tick prompt explicitly overrides the watchdog
+skill's clause that an idle tick should resume unblocked work. No relay, no
+successor, no auto-spawn. The mechanism behind the 8 August runaway was
+disarmed on 2026-08-09 and this session did not re-arm it.
