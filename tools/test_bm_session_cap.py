@@ -274,6 +274,28 @@ class TestReviewFindingsOfPr36(CapCase):
             self.assertIsNone(self.decide("cat notes-about-claude -p.txt"))
             self.assertIsNone(self.decide("myclaude -p 'go'"))
 
+    def test_reverify_a_flag_with_a_space_separated_value_is_still_gated(self):
+        """The re-verification executed this bypass: claude
+        --permission-mode acceptEdits -p, our own shipped flag reordered,
+        passed the matcher because a valued flag broke the flag-run."""
+        self.make_sessions(9)
+        with unittest.mock.patch.dict(os.environ, {self.cap.CAP_ENV: "4"}):
+            self.assertIsNotNone(
+                self.decide("claude --permission-mode acceptEdits -p 'go'"),
+                "a space-valued flag between claude and -p evaded the cap")
+            self.assertIsNotNone(
+                self.decide("nohup claude --model opus --permission-mode "
+                            "bypassPermissions -p 'go' &"))
+
+    def test_reverify_prose_after_claude_is_still_not_gated(self):
+        """Widening for valued flags must not swallow sentences: a bare
+        word after claude is only a flag VALUE when a dash-led flag came
+        first."""
+        self.make_sessions(9)
+        with unittest.mock.patch.dict(os.environ, {self.cap.CAP_ENV: "1"}):
+            self.assertIsNone(self.decide("echo claude is nice -p today"))
+            self.assertIsNone(self.decide("grep claude notes.txt"))
+
     def test_finding4_the_launching_session_does_not_count_against_itself(self):
         """cap minus one headroom deadlocked a lone session at cap 1. The
         envelope carries session_id; the counter must exclude that
