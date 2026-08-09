@@ -152,9 +152,14 @@ STATE_FILENAME = "STATE.md"
 #: change with it (the store's own transition() is still the enforcement
 #: point either way: a stale copy here only makes the ERROR MESSAGE worse,
 #: never lets an illegal move through).
+#: STRANDED-ADOPTED FIX, 2026-08-08: kept in step with the store's own table,
+#: which gained 'adopted' as a legal source for 'parked' and 'active' so an
+#: adopted record can be closed at all. Without this half, a name-addressed
+#: park or resume here would still skip past an adopted lifecycle the store
+#: would now accept, and pick the wrong life of a reused name.
 _LEGAL_SOURCE_STATES = {
-    "parked": ("active",),
-    "active": ("parked",),
+    "parked": ("active", "adopted"),
+    "active": ("parked", "adopted"),
     "complete": ("active",),
     "adopted": ("active", "parked"),
 }
