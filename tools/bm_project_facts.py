@@ -29,6 +29,14 @@ WHERE EACH FACT COMES FROM
   repo_url, primary_skill_dir,
   dev_skill_dir                declared below, for the same reason
                                 default_branch is: no subprocess
+  install_command_plugin       plugin id and marketplace id read from
+                                product.identity.json, the owner/name of the
+                                marketplace source derived from REPO_URL, and
+                                the ref it is pinned to from install_target_tag.
+                                Nothing about it is typed twice: this field
+                                spent a release naming the pre-v3 ids
+                                (brotherme@brotherme-marketplace) because it
+                                held its own copy of them
   install_command_pinned,      computed from install_target_tag
   install_command_dev          (PUBLIC_INSTALL_TAG below), never from
                                 release_tag: a development identity's
@@ -76,6 +84,18 @@ DEFAULT_BRANCH = "main"
 REPO_URL = "https://github.com/khalilmaaouni/BrotherModeUp.git"
 PRIMARY_SKILL_DIR = "~/.claude/skills/brothermode"
 DEV_SKILL_DIR = "~/.claude/skills/brothermode-dev"
+
+# The identity register: the file that DECLARES what this product's ids are.
+# Read, never restated here, because a second copy of an id is exactly what
+# rotted: this module carried its own literal plugin id and marketplace id
+# through the v3 rename and kept printing the old pair long after the tree
+# had moved, which is the worst place for a stale fact, since a page or a
+# script that reads this tool to learn the install command would have
+# installed a plugin id that no longer exists. tools/bm_docs.py's
+# identity_manifest_offenders holds .claude-plugin/marketplace.json and
+# .claude-plugin/plugin.json equal to this register, so reading the register
+# is reading what the plugin host actually resolves.
+IDENTITY_REGISTER = "product.identity.json"
 
 # The one command this project gates on, and the verdict a healthy run ends on.
 GATE_COMMAND = "python3 tools/test_all.py"
@@ -130,6 +150,46 @@ def _tuple_strings(text, name, path):
     if not items:
         raise FactError("%s: %s holds no string entries" % (path, name))
     return items
+
+
+def _identity(root):
+    """The two declared ids the plugin install command names.
+
+    A missing, empty or non-string id raises rather than falling back to a
+    literal: a guessed plugin id prints a command that installs nothing, and
+    a reader cannot tell that command from a working one until it fails.
+    """
+    try:
+        data = json.loads(_read(os.path.join(root, IDENTITY_REGISTER)))
+    except ValueError as exc:
+        raise FactError("%s does not parse as JSON: %s"
+                        % (IDENTITY_REGISTER, exc))
+    out = {}
+    for key in ("plugin_id", "marketplace_id"):
+        value = data.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise FactError(
+                "%s no longer states %s as a non-empty string. Fix the "
+                "register rather than hand-writing the id into a page."
+                % (IDENTITY_REGISTER, key))
+        out[key] = value.strip()
+    return out
+
+
+def _owner_repo(url):
+    """The `owner/name` a plugin marketplace source names, taken from `url`.
+
+    Derived from REPO_URL rather than declared a second time: the clone
+    command and the marketplace add command must always name the same
+    repository, and two hand typed copies of one slug are two chances to
+    disagree.
+    """
+    m = re.search(r"github\.com[:/]+([^/\s]+/[^/\s]+?)(?:\.git)?/?$", url)
+    if not m:
+        raise FactError(
+            "REPO_URL (%s) is not a github owner/name URL, so the plugin "
+            "marketplace source cannot be derived from it" % url)
+    return m.group(1)
 
 
 def facts(root=ROOT):
@@ -190,12 +250,26 @@ def facts(root=ROOT):
         % (DEFAULT_BRANCH, REPO_URL, DEV_SKILL_DIR))
     # The boring install: two plain shell commands through the Claude Code
     # client's own plugin manager, proven end to end by
-    # scripts/release-smoke-install.sh. Tracks the repository's default
-    # branch by the plugin system's design; the pinned clone above stays the
-    # immutable option for auditors.
+    # scripts/release-smoke-install.sh. Every part of it is read from
+    # somewhere that already had to be right: the ids from the identity
+    # register, the owner/name from REPO_URL, and the ref from
+    # install_target_tag, the same fact the pinned clone above uses.
+    #
+    # The marketplace add carries the @<tag> pin on purpose, and it is the
+    # pin, not a default branch, that this line is built on: an owner/repo@ref
+    # marketplace source resolves to that exact tag on every add and every
+    # later refresh, so the easiest install path is as auditable as the clone.
+    # An unpinned line here would also print a command no page is allowed to
+    # carry (tools/test_bm_docs.py fails an active page whose marketplace add
+    # has no ref) and would silently drop out of step with docs/RELEASE.md
+    # step 2b, which re-pins this ref at every release by bumping
+    # PUBLIC_INSTALL_TAG above.
+    identity = _identity(root)
     install_command_plugin = (
-        "claude plugin marketplace add khalilmaaouni/BrotherModeUp\n"
-        "claude plugin install brothermode@brothermode-marketplace")
+        "claude plugin marketplace add %s@%s\n"
+        "claude plugin install %s@%s"
+        % (_owner_repo(REPO_URL), install_target_tag,
+           identity["plugin_id"], identity["marketplace_id"]))
 
     return {
         "version": version,
