@@ -68,6 +68,12 @@
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_bash_audit.py\" pre",
             "timeout": 10,
             "statusMessage": "Noting the fenced files before this shell command runs"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_session_cap.py\"",
+            "timeout": 10,
+            "statusMessage": "Checking how many sessions are already running"
           }
         ]
       }
