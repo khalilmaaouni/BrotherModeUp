@@ -1658,6 +1658,41 @@ class TestReviewFindingsOnTheBrake(LivenessCase):
                              "still spawned: width is unbounded")
             self.assertEqual(code, 0, out.getvalue())
 
+    def test_reverify_the_relay_width_check_excludes_its_own_session(self):
+        """The re-verification noted the relay counting its own transcript:
+        effective headroom was cap minus one, and cap 1 deadlocked the
+        sanctioned path even alone. With the session id in the environment,
+        a lone session at cap 1 may spawn its one successor."""
+        import tempfile as _tf
+        with _tf.TemporaryDirectory() as fake:
+            d = os.path.join(fake, "proj-own")
+            os.makedirs(d)
+            with io.open(os.path.join(d, "me.jsonl"), "w",
+                         encoding="utf-8") as fh:
+                fh.write("{}\n")
+            code, stdout = None, None
+            out = io.StringIO()
+            real_stdout = sys.stdout
+            sys.stdout = out
+            try:
+                with mock.patch.dict(os.environ, {
+                        "BROTHERMODE_PROJECTS_ROOT": fake,
+                        "BROTHERMODE_SESSION_CAP": "1",
+                        "BROTHERMODE_SESSION_ID": "me"}):
+                    with mock.patch.object(
+                            self.cont, "spawn_successor",
+                            side_effect=lambda *a, **k: os.getpid()):
+                        code = self.cont.main(
+                            ["continue", "--project-id", self.PROJECT,
+                             "--root", self.root,
+                             "--liveness-timeout", "1"])
+            finally:
+                sys.stdout = real_stdout
+            self.assertEqual(code, 0, out.getvalue())
+            self.assertNotIn("adds none", out.getvalue(),
+                             "a lone session at cap 1 refused its own "
+                             "successor: the launcher counted itself")
+
     def test_finding3_an_explicit_unparseable_deadline_refuses_the_launch(self):
         """--deadline 2026-08-09T18:00:00+09:00 silently parsed to None and
         the chain ran unbounded in time. Founder input that cannot be read

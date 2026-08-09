@@ -1238,7 +1238,14 @@ def cmd_continue(argv):
         # and the depth cap still stands in that case.
         try:
             cap_mod = _session_cap()
-            live = cap_mod.count_live_sessions(cap_mod.projects_root())
+            # The launcher does not count against its own launch, the same
+            # semantics the hook applies (re-verification note, 2026-08-09).
+            # A session id is knowable here only through the environment;
+            # absent one, the count degrades TIGHTER, never looser.
+            own = (os.environ.get("CLAUDE_SESSION_ID")
+                   or os.environ.get("BROTHERMODE_SESSION_ID"))
+            live = cap_mod.count_live_sessions(cap_mod.projects_root(),
+                                               exclude_session=own)
             width_cap = cap_mod.cap()
             cap_env_name = cap_mod.CAP_ENV
         except Exception as exc:
