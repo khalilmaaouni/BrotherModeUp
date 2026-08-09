@@ -30,7 +30,10 @@ condition) plus files, agent id, session id, timestamp (fences acquire in one
 consistent file order; there is deliberately NO time-based expiry, because a law
 promising a lease that expires while no code expires anything is worse than no law:
 a fence is released by an explicit park, complete, adopt, or transfer, and a dead
-session's fence is ADOPTED at close by the orchestrator, never by a clock),
+session's fence is ADOPTED at close by the orchestrator, never by a clock; an
+adopted record is then CLOSED like any other, by parking it or by resuming it
+and completing it with evidence, so adoption is a step in the recovery and never
+the end of it),
 declared tier, and check: a runnable done-check on the outcome plus, for agentic
 work, process assertions (max tool calls, required call order, no failed actions)
 so a tier overrun or a skipped step is caught mechanically at the boundary rather
