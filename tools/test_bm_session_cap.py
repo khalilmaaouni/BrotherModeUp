@@ -247,5 +247,64 @@ class TestTheDenyShapeIsTheContract(CapCase):
         self.assertEqual(out.getvalue().strip(), "")
 
 
+class TestReviewFindingsOfPr36(CapCase):
+    """The 2026-08-09 adversarial review's findings on the cap module, each
+    pinned red-first. Finding numbers refer to that review verdict."""
+
+    def test_finding2_an_absolute_path_to_claude_is_still_gated(self):
+        self.make_sessions(9)
+        with unittest.mock.patch.dict(os.environ, {self.cap.CAP_ENV: "4"}):
+            self.assertIsNotNone(
+                self.decide("/usr/local/bin/claude -p 'go'"),
+                "a path-prefixed launch evaded the cap")
+
+    def test_finding2_flags_between_claude_and_dash_p_are_still_gated(self):
+        self.make_sessions(9)
+        with unittest.mock.patch.dict(os.environ, {self.cap.CAP_ENV: "4"}):
+            self.assertIsNotNone(
+                self.decide(
+                    "claude --dangerously-skip-permissions -p 'go'"),
+                "a flag between claude and -p evaded the cap")
+
+    def test_finding2_a_word_containing_claude_is_not_gated(self):
+        """Widening must not swallow innocents: barnacled, my-claude-notes.md
+        as an argument to cat, and so on."""
+        self.make_sessions(9)
+        with unittest.mock.patch.dict(os.environ, {self.cap.CAP_ENV: "1"}):
+            self.assertIsNone(self.decide("cat notes-about-claude -p.txt"))
+            self.assertIsNone(self.decide("myclaude -p 'go'"))
+
+    def test_finding4_the_launching_session_does_not_count_against_itself(self):
+        """cap minus one headroom deadlocked a lone session at cap 1. The
+        envelope carries session_id; the counter must exclude that
+        session's own transcript."""
+        self.make_sessions(3)
+        pdir = os.path.join(self.projects, "proj-self")
+        os.makedirs(pdir)
+        own = os.path.join(pdir, "my-session-id.jsonl")
+        with io.open(own, "w", encoding="utf-8") as fh:
+            fh.write('{"type":"user"}\n')
+        with unittest.mock.patch.dict(os.environ, {self.cap.CAP_ENV: "4"}):
+            decision = self.cap.decide(
+                {"tool_name": "Bash", "session_id": "my-session-id",
+                 "tool_input": {"command": "claude -p 'go'"}},
+                projects_root=self.projects)
+        self.assertIsNone(
+            decision,
+            "3 others plus itself against cap 4 must allow: the launcher's "
+            "own transcript counted against it")
+
+    def test_finding5_the_hook_is_actually_wired_in_the_manifest(self):
+        """The 16 module tests all pass with the hook deleted from
+        hooks/hooks.json. This one does not."""
+        manifest = os.path.join(HERE, os.pardir, "hooks", "hooks.json")
+        with io.open(manifest, encoding="utf-8") as fh:
+            data = json.load(fh)
+        wired = json.dumps(data.get("hooks", {}).get("PreToolUse", []))
+        self.assertIn("bm_session_cap.py", wired,
+                      "the cap is not wired in hooks/hooks.json, so every "
+                      "module test here is testing a hook that never runs")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
