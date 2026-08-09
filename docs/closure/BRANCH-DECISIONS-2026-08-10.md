@@ -317,3 +317,67 @@ founder's own choice, and its tick prompt explicitly overrides the watchdog
 skill's clause that an idle tick should resume unblocked work. No relay, no
 successor, no auto-spawn. The mechanism behind the 8 August runaway was
 disarmed on 2026-08-09 and this session did not re-arm it.
+
+---
+
+## CORRECTION 2026-08-10, by an independent Opus reviewer. THE RED PREMISE WAS FALSE.
+
+An independent reviewer, briefed to DISPROVE rather than confirm, refuted the
+headline finding above. The correction is kept here rather than replacing the
+wrong text, because the sequence is the point.
+
+**MAIN IS NOT RED.** The eleven failures are MACHINE STATE, not code. Proven by
+A/B/A at one commit on a clean tree:
+
+```
+RUN A default        FAILED (failures=6, errors=5)
+RUN B CAP=99         OK          (Ran 82 tests)
+RUN C default        FAILED (failures=6, errors=5)
+```
+
+The failure text names its own cause: "The relay stopped here, and started
+nothing: 3 Claude sessions are already live against the machine-wide cap of 3."
+The liveness tests in `tools/test_brothermode_cli.py` assert a fact about the
+HOST. That is the identical defect class `b3227ed` just fixed for the doctor
+test, "Stop the doctor test asserting a fact about the machine it runs on", and
+the same family as the C-11 timing flake and the two stopwatch tests before it.
+
+**THE GATE IS SELF-POISONING.** Running `test_all.py` concurrently with other
+Claude sessions manufactures its own failure, because the session cap is 3 and
+the audit sessions consume it. So "flip condition: ALL GREEN" is UNREACHABLE
+whenever more than two sessions are live. A gate that cannot pass while the
+team works is not a gate.
+
+**FIX, and it is the same shape as the one already applied to the doctor test:**
+those tests must state their precondition and SKIP when the cap is saturated,
+or the gate must reserve cap headroom. Until then every red reading from this
+suite is ambiguous between a real defect and a busy machine.
+
+**WHAT THIS INVALIDATES.** Decision 1 above says the release tags stay uncut
+"because main is RED". THAT REASON IS WRONG and is withdrawn. The decision
+itself still stands, on a DIFFERENT and independent reason discovered
+afterwards: `v3.0.0` is already tagged, `main` is 44 commits past it, and
+`VERSION` still reads `3.0.0` with `release_tag` reporting `v3.0.0` and
+`is_development` False. That is the two-trees ambiguity that withdrew
+`v2.0.0-rc.1`, live right now. A tag cannot be cut for a version already
+tagged, and inventing a new version number for 44 commits nobody in that
+session had read is not a defect that can be fixed afterwards, because the
+wrong name is permanent.
+
+**ALSO CORRECTED: the two merges landed ZERO bytes.**
+`git diff 9b8c324 73c1e59 --stat` and `git diff 73c1e59 68e9c25 --stat` are both
+EMPTY. The content was already in main; the doctor fix arrived earlier via
+`e9c8b21 (#23)`. Only history was recorded. Describing them as "two determinism
+fixes landed" overstated the change, and the correct statement is that two
+branches were absorbed whose content main already had.
+
+**CONFIRMED by the same reviewer, so the good news is evidenced too:** no commit
+was lost by any deletion (all five recovered tips resolve inside their keeper,
+`git fsck --unreachable` shows zero objects dated 2026-08-10), the aborted merge
+left no residue anywhere in the repository, and `verify-install.sh` PASSES at
+exit 0 with 694 entries matching and nothing extra.
+
+**STILL UNVERIFIED, in the reviewer's own words:** the full gate has not been
+re-run with cap headroom, so only the single suite is known to go green, not the
+whole gate; its run spanned a push so it mixed two trees; and GitHub CI on
+`c29f1c0` was not checked.
