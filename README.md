@@ -295,13 +295,26 @@ this checkout claims. Do not run both paths at once on one machine: the plugin
 wires the same six hooks the clone's installer wires, so a machine carrying
 both runs every hook twice (docs/KNOWN-LIMITS.md records this; pick one).
 
-Same dated fact as the plugin way above: `v3.0.0` predates the night rename,
-so this checkout carries the old flat `commands/brotherme-*.md` surface and
-the single `skills/brotherme/SKILL.md` conductor, not the nine
-`/brothermode:*` skills the rest of this page describes. The engine
-underneath (`tools/bm_*.py`, `scripts/install.py`, `scripts/doctor.py`) is
-the same either way; only the command and skill names differ. If you want
-today's tree, use the development clone below instead.
+What that tag carries, read out of the tag rather than remembered: both
+surfaces at once. `git ls-tree --name-only v3.0.0 skills/` lists all
+seventeen `skills/<name>/` directories, the nine this page describes among
+them (`start`, `status`, `next`, `review`, `deliver`, `view`, `help`,
+`doctor`, `update`), and `git show v3.0.0:skills/start/SKILL.md` prints that
+skill's own front matter at the tag. `git show
+v3.0.0:.claude-plugin/plugin.json` prints the post-rename plugin id
+`brothermode`, the same dated fact as the v2 uninstall note in the plugin
+way above. The flat `commands/brotherme-*.md` files ship at that tag too,
+kept on purpose so a v2 install or a v2 habit still resolves during the
+migration window: `git ls-tree --name-only v3.0.0 commands/` lists them, and
+`git show v3.0.0:commands/brotherme-start.md` opens with a LEGACY v2
+COMPATIBILITY SHIM banner naming `/brothermode:start` as its replacement.
+An earlier version of this paragraph said the tag carried only the old flat
+surface and the single `skills/brotherme/SKILL.md` conductor; that was
+wrong, and the `git ls-tree` line above is the command that disproves it.
+The engine underneath (`tools/bm_*.py`, `scripts/install.py`,
+`scripts/doctor.py`) is the same at the tag and on the default branch. If
+you want the moving tree rather than the fixed snapshot, use the development
+clone below instead.
 
 Working on BrotherMode's own code, rather than just using it? Use the separate
 development command instead, which tracks the moving `main` branch on purpose
