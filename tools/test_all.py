@@ -190,6 +190,12 @@ SUITES = (
     # pure function with plain data and the rest uses a throwaway store, so it
     # fails on a policy branch rather than on timing.
     "test_bm_sentinel.py",
+    # The machine-wide session cap (2026-08-09, after an unattended chain
+    # ran fifteen sessions at once): pure functions over a throwaway
+    # directory of fake transcripts, no store and no subprocess, so it
+    # belongs with the cheap early suites and fails on a policy branch
+    # rather than on the machine's mood.
+    "test_bm_session_cap.py",
     # C-06 (closure register): builds a real wheel, installs it into a
     # throwaway venv, and invokes every console script pyproject.toml
     # declares, the exact adversarial test the register names. Runs near

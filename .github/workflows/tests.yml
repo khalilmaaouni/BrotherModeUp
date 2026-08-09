@@ -122,6 +122,13 @@ jobs:
       # as the two suites above.
       - name: Run the memory sentinel suite
         run: python3 tools/test_bm_sentinel.py
+      # The machine-wide session cap, landed 2026-08-09 after an unattended
+      # relay chain ran fifteen sessions at once against a cap that existed
+      # only as a sentence. Stdlib only, no store, no subprocess: it builds
+      # a throwaway directory of fake transcripts and asserts the PreToolUse
+      # deny shape, so it is as cheap as the three suites above.
+      - name: Run the session cap suite
+        run: python3 tools/test_bm_session_cap.py
       # The consent gate suite, landed 2026-08-01 (Loop 3): proves the hooks
       # write nothing before setup consent exists.
       - name: Run the consent gate suite
