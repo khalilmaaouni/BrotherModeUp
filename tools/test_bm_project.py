@@ -1542,5 +1542,23 @@ class TestStartScaffoldsTheProgressPage(unittest.TestCase):
                           "skipping the scaffold must say so on stderr")
 
 
+    def test_a_dangling_symlink_at_the_page_name_is_not_written_through(self):
+        """PR 38 review finding: os.path.exists is False for a dangling
+        symlink, so the create-only guard passed and the open("w") wrote
+        THROUGH the link, creating a file at wherever it pointed. The write
+        must refuse the occupied name instead (create-exclusive), warn, and
+        leave the start healthy."""
+        with tempfile.TemporaryDirectory() as root:
+            target = os.path.join(root, "elsewhere", "written-through.html")
+            os.makedirs(os.path.dirname(target))
+            os.symlink(target, os.path.join(root, "PROGRESS.html"))
+            r = self._started(root)
+            self.assertFalse(
+                os.path.exists(target),
+                "the scaffold wrote through a dangling symlink")
+            self.assertIn("progress page", (r.stderr or "").lower(),
+                          "refusing the occupied name must say so on stderr")
+
+
 if __name__ == "__main__":
     unittest.main()
