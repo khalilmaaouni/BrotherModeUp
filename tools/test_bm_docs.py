@@ -652,6 +652,51 @@ class TestPluginMarketplacePin(unittest.TestCase):
             "install_target_tag (%s): %s"
             % (FACTS["install_target_tag"], "; ".join(offenders)))
 
+    def test_the_generated_plugin_command_is_on_every_install_page(self):
+        """THE DEFECT THIS TEST ADDS A CHECK FOR, 2026-08-08: the two tests
+        above hold the PAGES to install_target_tag and to each other, and the
+        pinned git clone is held to what bm_project_facts.py generates, but
+        nothing held the tool's own install_command_plugin to anything. It
+        went through the v3 rename untouched and printed
+        `claude plugin install brotherme@brotherme-marketplace` (a plugin id
+        that no longer exists) while all three pages had moved, which is the
+        worst direction for this drift to run: the tool is what a page or a
+        script is supposed to copy from.
+
+        Line by line rather than as one block, because docs/QUICKSTART.md
+        deliberately splits the two commands into separate fences with prose
+        between them."""
+        offenders = []
+        for line in FACTS["install_command_plugin"].split("\n"):
+            for rel in INSTALL_DOCS:
+                if line not in read(rel):
+                    offenders.append("%s: %s" % (rel, line))
+        self.assertEqual(
+            offenders, [],
+            "an install page does not carry the plugin install command "
+            "bm_project_facts.py generates; one of the two was hand typed: %s"
+            % "; ".join(offenders))
+
+    def test_the_generated_plugin_command_names_the_declared_ids(self):
+        """install_command_plugin is assembled from product.identity.json, so
+        a half-finished rename that moved the register but not the manifests
+        cannot leave this command naming a plugin id nothing ships. The
+        register-to-manifest agreement itself is
+        TestIdentityRegister's job; this asserts the generated command sits on
+        the same side of it."""
+        identity = json.loads(read(IDENTITY_JSON))
+        self.assertIn(
+            "claude plugin install %s@%s"
+            % (identity["plugin_id"], identity["marketplace_id"]),
+            FACTS["install_command_plugin"],
+            "the generated plugin install command does not name the ids "
+            "product.identity.json declares")
+        self.assertIn(
+            "@%s" % FACTS["install_target_tag"],
+            FACTS["install_command_plugin"].split("\n")[0],
+            "the generated marketplace add is not pinned to "
+            "install_target_tag")
+
     def test_release_md_names_the_repin_step(self):
         """docs/RELEASE.md must carry the re-pin step as one of the numbered
         release steps, not only as a fact somewhere else on the page: a step
