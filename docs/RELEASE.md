@@ -326,6 +326,20 @@ through preparing it.
 
 ## What has and has not happened, stated honestly
 
+CURRENT STATE, 2026-08-10: `VERSION` reads `2.0.0-rc.13.dev1`-style
+development identity `3.0.1.dev1`, because `v3.0.0` was tagged on 2026-08-08 and
+`main` had since moved 44 commits past it while still claiming to BE `3.0.0`.
+That is the two-trees ambiguity that withdrew `v2.0.0-rc.1`: an immutable tag
+and a moving branch both naming one version while holding different code. Rule 3
+of the version law requires the bump immediately after a tag is pushed and it
+had not happened. `release_tag` is now `None` and `is_development` is True, both
+read from `tools/bm_project_facts.py` rather than asserted.
+`install_target_tag` deliberately stays `v3.0.0`, the last tag known to resolve,
+per rule 5: an onboarding page must not go stale because the tree moved into
+development.
+
+The entry below stays as written; it was true on its date.
+
 CURRENT STATE, 2026-08-08: `v3.0.0` is the release identity. `VERSION`
 reads `3.0.0` on the release-cut commit alone, per rule 1, and
 `install_target_tag` is `v3.0.0` with every page pinning it. This is the
