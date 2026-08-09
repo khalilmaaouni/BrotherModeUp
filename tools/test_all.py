@@ -194,7 +194,10 @@ SUITES = (
     # ran fifteen sessions at once): pure functions over a throwaway
     # directory of fake transcripts, no store and no subprocess, so it
     # belongs with the cheap early suites and fails on a policy branch
-    # rather than on the machine's mood.
+    # rather than on machine state. No apostrophes and no quoted words in
+    # this comment: the docs suite parses this block with quote tracking,
+    # and both a possessive and a quoted phrase here have each become a
+    # phantom suite name once.
     "test_bm_session_cap.py",
     # C-06 (closure register): builds a real wheel, installs it into a
     # throwaway venv, and invokes every console script pyproject.toml
