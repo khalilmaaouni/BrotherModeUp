@@ -609,6 +609,75 @@ def _start_usage():
             "[--session-id SID] [--out-json] [--allow-second]")
 
 
+def _scaffold_progress_page(root):
+    """Copy project-template/PROGRESS.html into a freshly started project,
+    once, never over an existing page. The founder's 2026-08-09 ask, made
+    mechanical: the progress page standard existed as a template file that
+    NOTHING installed, which is a hope rather than a standard, the same
+    prose-not-control defect the 8 August postmortem names.
+
+    Three deliberate behaviours, each pinned by a test:
+      - the page lands beside CANVAS.md at first start;
+      - an EXISTING page is never touched: from its first refresh on, the
+        page is the project's own living record, and resetting it to the
+        template on a re-run of start would destroy exactly the history
+        the page exists to keep;
+      - a missing template (a pip install ships tools/ without
+        project-template/) warns on stderr and never fails the start: the
+        scaffold is a courtesy, the project row is the product.
+
+    BROTHERMODE_PROGRESS_TEMPLATE overrides the template path, for tests
+    and for an estate that maintains its own house design."""
+    destination = os.path.join(root, "PROGRESS.html")
+    # lexists, not exists: a DANGLING symlink is an occupied name whose
+    # target is missing, and exists() reads it as free. The O_EXCL open
+    # below refuses it too on POSIX, but Windows CI proved (PR 38, both
+    # Windows legs red) that CreateFile can create THROUGH such a link, so
+    # the guard itself must see the link. lexists does, on every platform.
+    # A living page skips silently, create-only by design; a broken link
+    # squatting on the name gets a word, because silence there would read
+    # as "the page exists" when nothing does.
+    if os.path.lexists(destination):
+        if not os.path.exists(destination):
+            _err("bm_project: the progress page was NOT scaffolded: "
+                 "PROGRESS.html is a symlink whose target is missing. "
+                 "Remove or repair the link, then re-run start.")
+        return
+    template = os.environ.get("BROTHERMODE_PROGRESS_TEMPLATE") or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        os.pardir, "project-template", "PROGRESS.html")
+    try:
+        with io.open(template, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as e:
+        _err("bm_project: the progress page was NOT scaffolded (%s). The "
+             "project itself is fine; copy project-template/PROGRESS.html "
+             "in by hand, or set BROTHERMODE_PROGRESS_TEMPLATE." % e)
+        return
+    try:
+        # Create-EXCLUSIVE, not create-if-absent (PR 38 review finding):
+        # os.path.exists is False for a DANGLING symlink, so the guard
+        # above passed one and a plain open("w") then wrote THROUGH it,
+        # creating a file wherever the link pointed. O_EXCL refuses any
+        # occupied name, symlink included, and the refusal lands in the
+        # same warn-and-continue path as every other scaffold failure.
+        fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                     0o644)
+        with io.open(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    except OSError as e:
+        _err("bm_project: the progress page was NOT scaffolded (%s). The "
+             "project itself is fine." % e)
+        return
+    # stderr, deliberately: cmd_start's --out-json contract is ONE json
+    # document on stdout, and this notice printed there corrupted it (caught
+    # by TestScriptedFirstProject the first time this ran). Advisory lines
+    # share the diagnostics channel, the same one-document law bm_continue's
+    # --json path already enforces.
+    _err("bm_project: scaffolded PROGRESS.html from the template; refresh "
+         "it at every closed loop, and a box ticks only on quoted evidence")
+
+
 def cmd_start(argv):
     _pos, kv = _parse(argv, _START_FLAGS, wants_value=(
         "project-id", "name", "goal", "user-outcome", "project-type",
@@ -691,6 +760,7 @@ def cmd_start(argv):
                          CANVAS_BEGIN, CANVAS_END)
     finally:
         store.close()
+    _scaffold_progress_page(_root())
     if kv.get("out-json"):
         _print_json({"project_id": project_id, "task_ids": task_ids,
                      "forecast_id": forecast_id})
