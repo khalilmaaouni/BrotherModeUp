@@ -1,3 +1,22 @@
+# Independent Codex audit, 2026-08-10
+
+Status: CURRENT. Raw output of an independent audit run by Codex (a different
+model family from the one that wrote this code, which is the entire point) on
+2026-08-10 against main at fcdd22e. Read-only: the auditor executed no tests,
+no CLIs and no live Codex, by its own mandate, and its own gaps are named in
+the WHAT I COULD NOT CHECK section at the foot.
+
+Kept VERBATIM rather than summarised. A findings list rewritten by the party
+being audited is not an independent finding any more. Its file and line
+references were current at fcdd22e and will drift as the code moves; re-derive
+before acting on any one of them.
+
+First finding acted on: the fence hook's fail-open on an unparseable payload,
+fixed in fcdd22e with a regression test. That defect was reached by following
+this document's unattended-preflight finding, not by finding it directly.
+
+---
+
 FILE:LINE: [tools/bm_controller.py:4934](/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_controller.py:4934), [tools/bm_controller.py:5112](/Users/khalil.maaouni/Documents/BrotherModeUp/tools/bm_controller.py:5112)  
 The unattended preflight treats two environment strings as proof that a functioning fence exists, so Codex can pass all seven conditions while no hook will run.  
 Fix: Require a runtime-specific live deny canary or categorically refuse unattended Codex exec.
