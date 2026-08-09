@@ -643,10 +643,18 @@ def _scaffold_progress_page(root):
              "in by hand, or set BROTHERMODE_PROGRESS_TEMPLATE." % e)
         return
     try:
-        with io.open(destination, "w", encoding="utf-8") as fh:
+        # Create-EXCLUSIVE, not create-if-absent (PR 38 review finding):
+        # os.path.exists is False for a DANGLING symlink, so the guard
+        # above passed one and a plain open("w") then wrote THROUGH it,
+        # creating a file wherever the link pointed. O_EXCL refuses any
+        # occupied name, symlink included, and the refusal lands in the
+        # same warn-and-continue path as every other scaffold failure.
+        fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                     0o644)
+        with io.open(fd, "w", encoding="utf-8") as fh:
             fh.write(text)
     except OSError as e:
-        _err("bm_project: the progress page could not be written (%s). The "
+        _err("bm_project: the progress page was NOT scaffolded (%s). The "
              "project itself is fine." % e)
         return
     # stderr, deliberately: cmd_start's --out-json contract is ONE json
