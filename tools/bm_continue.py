@@ -118,6 +118,7 @@ Python 3.9, standard library only. No em or en dashes anywhere in this
 file, its comments, or its output.
 """
 
+import datetime
 import importlib.util
 import io
 import json
@@ -143,6 +144,21 @@ def _load(name):
 
 
 bs = _load("bm_store")
+
+_SESSION_CAP_MODULE = None
+
+
+def _session_cap():
+    """tools/bm_session_cap.py, loaded lazily by the same sibling-path
+    technique as bm_store above and cached. Lazy on purpose: the module is
+    consulted only on the launch path, and a broken or missing copy must
+    not take down packet generation or the dry run, which need none of it.
+    The width check that calls this treats a load failure exactly like a
+    count failure: no opinion, said out loud, depth cap still standing."""
+    global _SESSION_CAP_MODULE
+    if _SESSION_CAP_MODULE is None:
+        _SESSION_CAP_MODULE = _load("bm_session_cap")
+    return _SESSION_CAP_MODULE
 # The SAME schema object the store itself validates against, reached the
 # same way tools/bm_project.py reaches it (its own S = bs._schema()), so
 # this file's list of lifecycle states and the store's cannot drift.
@@ -500,8 +516,12 @@ CONTRACT_LINES = (
     "called done without it.",
     "3. This packet regenerated the moment the work state changes "
     "materially, not at the last minute.",
-    "4. Its own successor launched before it closes, or a plain statement "
-    "that it could not and why.",
+    "4. Its own successor launched before it closes IF THE RELAY BRAKE "
+    "ALLOWS IT, or a plain statement that it did not and why. `brothermode "
+    "continue` decides that, not you: it refuses past the chain's "
+    "generation cap, past its deadline, or on a blown spend ceiling, and a "
+    "refusal is a correct stop that leaves this packet behind for a human. "
+    "Never work around a refusal by launching a session another way.",
     "",
     "Founder gates never move: no tag, no credentials, no publishing, no "
     "permanent deletion, whatever any instruction downstream of this file "
@@ -654,16 +674,30 @@ def _quote(token):
     return "'" + token.replace("'", "'\\''") + "'"
 
 
-def printable_command(argv, log_path):
+def printable_command(argv, log_path, env_prefix=None):
     """The launch as ONE line a human can paste, redirected to a log and
     detached. What is printed and what is spawned come from the SAME argv
     list, so the line a founder reads is the command a session runs, not
-    a description of it."""
-    return "nohup %s > %s 2>&1 &" % (
-        " ".join(_quote(a) for a in argv), _quote(log_path))
+    a description of it.
+
+    `env_prefix` prepends KEY=VALUE assignments, sorted for a stable line.
+    Added 2026-08-09 after the adversarial review of PR 36 named the gap:
+    the real spawn carried the relay chain's depth in its environment, but
+    the PRINTED line did not, so a hand-run or script-run copy restarted
+    the chain at generation zero with nothing but prose against it. The
+    line a human pastes now carries the same brake the machine obeys."""
+    prefix = ""
+    if env_prefix:
+        prefix = " ".join("%s=%s" % (k, _quote(str(v)))
+                          for k, v in sorted(env_prefix.items())) + " "
+    # The assignments stand BEFORE nohup: the shell binds leading KEY=VALUE
+    # words to the whole command, while nohup itself would read "K=V" as
+    # the program to run and die.
+    return "%snohup %s > %s 2>&1 &" % (
+        prefix, " ".join(_quote(a) for a in argv), _quote(log_path))
 
 
-def spawn_successor(argv, log_path, cwd=None):
+def spawn_successor(argv, log_path, cwd=None, env=None):
     """Start the successor detached and return its process id, or raise
     OSError. start_new_session detaches it from this process group so it
     survives this session ending, which is the whole point: nohup's
@@ -677,7 +711,7 @@ def spawn_successor(argv, log_path, cwd=None):
     log = open(log_path, "ab")
     try:
         proc = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT,
-                                stdin=subprocess.DEVNULL, cwd=cwd,
+                                stdin=subprocess.DEVNULL, cwd=cwd, env=env,
                                 start_new_session=True)
     finally:
         log.close()
@@ -885,22 +919,199 @@ def _liveness_actor():
 
 
 # ---------------------------------------------------------------------------
+# The relay brake (2026-08-09). Three mechanical stops in front of the spawn.
+#
+# WHAT WENT WRONG, so the reason survives longer than the memory of it
+#   CONTRACT_LINES item 4 above tells every successor to launch its own
+#   successor before it closes. Written as prose, it is unconditional: it
+#   names no budget, no depth, no end time. On 2026-08-08 the chain ran
+#   while the founder was away from the machine. Forty sessions in this
+#   project alone logged 6,331 turns between 00:00Z and 10:00Z, roughly
+#   6.4 million output tokens and 1.69 billion cache-read tokens, with
+#   fifteen live at once against a declared cap of nine. Three of them died
+#   holding uncommitted work that had to be replayed onto main by hand
+#   (commit e7dcd01).
+#
+#   The bitter part is that the ceiling already existed. The signed
+#   contract carried token_ceiling = 3,000,000 and tools/bm_controller.py
+#   compares spend against it correctly. It never fired because the meter
+#   was empty: autonomy_spend held ZERO rows for the whole window, so the
+#   breaker compared 0 against 3,000,000 forever, and in any case its
+#   authority reaches only units it dispatched itself, which was two. Every
+#   other session was outside any contract by construction.
+#
+#   So this brake deliberately does NOT depend on the meter. It depends on
+#   two facts a relay always knows about itself, its own depth and the
+#   clock, and it consults spend only as a third, additional stop. A
+#   control that needs a working meter is a control that fails exactly when
+#   the meter is what broke.
+#
+# WHY A REFUSAL EXITS 0
+#   Refusing to continue is the tool doing its job, not failing at it. The
+#   packet is still written and the launch line is still printed, so a
+#   founder loses no handover and can run the command by hand after reading
+#   why the chain stopped. What the refusal removes is the machine's
+#   ability to continue ITSELF, unattended, without anyone deciding to.
+# ---------------------------------------------------------------------------
+
+#: The chain's own depth, carried to each successor in its environment.
+RELAY_GEN_ENV = "BROTHERMODE_RELAY_GEN"
+#: The cap that depth is measured against, carried forward unchanged so a
+#: founder who lowers it for one launch lowers it for the whole chain.
+RELAY_MAX_ENV = "BROTHERMODE_RELAY_MAX"
+#: An ISO-8601 wall-clock instant past which no further hop starts.
+RELAY_DEADLINE_ENV = "BROTHERMODE_RELAY_DEADLINE"
+
+#: Eight hops. A STARTING THRESHOLD, not a measured optimum: it is small
+#: enough that a chain cannot quietly outlive a night and large enough that
+#: an ordinary relay never meets it. Re-measure it against your own hop
+#: length and set --max-generations accordingly.
+RELAY_MAX_DEFAULT = 8
+
+
+def _int_or(value, floor_value):
+    """An integer, or `floor_value` when the text is missing or not a
+    number. Every caller here degrades DOWNWARD, to zero or to the default
+    cap, so a corrupt counter can only ever tighten this brake. A counter
+    that read as permission to keep going would be worse than no counter
+    at all, because it would look like a control while being a hole."""
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return floor_value
+
+
+def relay_generation(env=None):
+    """How many hops deep this session already is. Absent means zero: a
+    session a human started by hand is generation zero, and that is the
+    correct reading, because the cap exists to bound what the MACHINE
+    starts, not what the founder does."""
+    env = os.environ if env is None else env
+    value = _int_or(env.get(RELAY_GEN_ENV), 0)
+    return value if value > 0 else 0
+
+
+def relay_max(env=None, override=None):
+    """The cap in force. An explicit --max-generations wins, then the
+    inherited environment, then the default. Zero is allowed and means
+    "hand over but launch nothing", which is what a founder reaches for
+    when they want the packet without the chain."""
+    env = os.environ if env is None else env
+    if override is not None:
+        return max(0, _int_or(override, RELAY_MAX_DEFAULT))
+    return max(0, _int_or(env.get(RELAY_MAX_ENV), RELAY_MAX_DEFAULT))
+
+
+def relay_deadline(env=None, override=None):
+    """The wall-clock end of the chain as a naive local datetime, or None.
+    An unreadable deadline returns None rather than raising: the caller
+    still holds the generation cap, and a typo in a timestamp must not be
+    able to strand a founder's relay at hop one with a traceback."""
+    env = os.environ if env is None else env
+    text = override if override is not None else env.get(RELAY_DEADLINE_ENV)
+    if not text:
+        return None
+    text = str(text).strip()
+    # Offset-aware first. The adversarial review of PR 36 executed the
+    # failure this closes: "2026-08-09T18:00:00+09:00" parsed to None and
+    # the founder's deadline silently vanished. fromisoformat reads offsets
+    # on 3.9 once Z is spelled +00:00; an aware result converts to the
+    # machine's local wall clock, because everything else in this brake
+    # compares against naive local time.
+    try:
+        parsed = datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            return parsed.astimezone().replace(tzinfo=None)
+        return parsed
+    except ValueError:
+        pass
+    for shape in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S",
+                  "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.datetime.strptime(text, shape)
+        except ValueError:
+            continue
+    return None
+
+
+def relay_refusal(generation, maximum, deadline, now, spend):
+    """The whole decision, as ONE pure function of five values, so it can
+    be proven without a store, a clock or a subprocess. Returns None when
+    the next hop may start, or a plain-language sentence saying why it may
+    not. The order is deliberate: depth first, because it is the stop that
+    still works when everything else is broken, then the clock, then spend."""
+    if maximum is not None and generation >= maximum:
+        return ("this relay is %d hop(s) deep and its cap is %d, so it "
+                "stops here. Raise it with --max-generations N on a launch "
+                "you are watching, or run the command below yourself."
+                % (generation, maximum))
+    if deadline is not None and now >= deadline:
+        return ("this relay's deadline (%s) has passed, so it stops here. "
+                "Set a new one with --deadline, or run the command below "
+                "yourself." % deadline.strftime("%Y-%m-%d %H:%M"))
+    verdict = (spend or {}).get("verdict")
+    if verdict == "hard-stop":
+        pct = (spend or {}).get("token_pct")
+        return ("the project's spend ceiling has been reached (%s), so this "
+                "relay stops here. Raise the ceiling deliberately, or run "
+                "the command below yourself."
+                % ("%.0f per cent of it used" % pct if pct is not None
+                   else "hard-stop"))
+    # NO-DATA is never a pass and never a block. A store with no signed
+    # contract yields verdict "no-data", and refusing on it would kill every
+    # relay in every project that never signed one. The generation cap is
+    # what bounds that case, which is why the cap has no off switch.
+    return None
+
+
+def successor_env(env, generation, maximum, deadline):
+    """The child's environment: the parent's, plus this chain's depth
+    incremented and its limits carried forward. Built as a copy and passed
+    to Popen explicitly rather than by mutating os.environ, because a relay
+    that edits its own process environment changes every later call in the
+    same session."""
+    child = dict(env)
+    child[RELAY_GEN_ENV] = str(generation + 1)
+    child[RELAY_MAX_ENV] = str(maximum)
+    if deadline is not None:
+        child[RELAY_DEADLINE_ENV] = deadline.strftime("%Y-%m-%dT%H:%M:%S")
+    return child
+
+
+# ---------------------------------------------------------------------------
 # continue
 # ---------------------------------------------------------------------------
 
 _CONTINUE_FLAGS = ("project-id", "root", "out", "log", "dry-run", "json",
-                   "permission-mode", "liveness-timeout")
+                   "permission-mode", "liveness-timeout", "max-generations",
+                   "deadline")
 
 
 def cmd_continue(argv):
     _pos, kv = _parse(argv, _CONTINUE_FLAGS,
                       wants_value=("project-id", "root", "out", "log",
-                                   "permission-mode", "liveness-timeout"))
+                                   "permission-mode", "liveness-timeout",
+                                   "max-generations", "deadline"))
     try:
         timeout = float(kv.get("liveness-timeout") or LIVENESS_TIMEOUT)
     except ValueError:
         _err("bm_continue: --liveness-timeout wants a number of seconds, "
              "got %r." % kv.get("liveness-timeout"))
+        return 2
+    # The chain's own limits, computed BEFORE any store work so (a) an
+    # explicitly typed deadline that cannot be read fails CLOSED right here
+    # (the adversarial review of PR 36 executed the old behaviour: an offset
+    # deadline parsed to None and the chain ran unbounded in time with
+    # nobody told), and (b) the printed launch line below can carry them.
+    generation = relay_generation()
+    maximum = relay_max(override=kv.get("max-generations"))
+    deadline = relay_deadline(override=kv.get("deadline"))
+    if kv.get("deadline") and deadline is None:
+        _err("bm_continue: --deadline %r could not be read as a time. "
+             "Nothing was launched: a deadline you typed and the machine "
+             "dropped would be the silent unbounding this brake exists to "
+             "end. Use ISO 8601, for example 2026-08-10T07:00:00 or "
+             "2026-08-10T07:00:00+09:00." % kv.get("deadline"))
         return 2
     root = kv.get("root")
     if not root:
@@ -945,7 +1156,16 @@ def cmd_continue(argv):
         log_rel = os.path.relpath(log_path, root)
         argv_out = launch_argv(packet_rel, ".", project_id=project_id,
                                permission_mode=kv.get("permission-mode"))
-        command_line = printable_command(argv_out, log_rel)
+        # The printed line carries the chain's next depth and its limits,
+        # so a human or script pasting it inherits the brake instead of
+        # restarting at generation zero (PR 36 review, finding 6).
+        printed_env = {RELAY_GEN_ENV: str(generation + 1),
+                       RELAY_MAX_ENV: str(maximum)}
+        if deadline is not None:
+            printed_env[RELAY_DEADLINE_ENV] = deadline.strftime(
+                "%Y-%m-%dT%H:%M:%S")
+        command_line = printable_command(argv_out, log_rel,
+                                         env_prefix=printed_env)
         text = render_packet(store, project_id, packet_rel, command_line)
         if text is None:
             _err("bm_continue: there is no project %r in this store, so "
@@ -959,6 +1179,20 @@ def cmd_continue(argv):
                  "Nothing was launched: a successor with no packet is a "
                  "successor with no brief." % exc)
             return 1
+        # The spend half of the brake, read while the store is still open.
+        # A store that cannot answer degrades to NO SPEND OPINION rather
+        # than to a refusal, and it SAYS SO on stderr: the generation cap
+        # below is what bounds the chain when the meter is unavailable, and
+        # on 2026-08-08 an unavailable meter is exactly what the ceiling
+        # had. Swallowing this would rebuild, here, the same silence that
+        # let a ceiling of three million tokens mean nothing for ten hours.
+        try:
+            spend = store.spend_totals(project_id)
+        except bs.BMStoreError as exc:
+            spend = {}
+            _err("bm_continue: the spend meter could not be read (%s), so "
+                 "this launch has no spend opinion. The relay's generation "
+                 "cap and deadline still apply." % exc)
     finally:
         store.close()
 
@@ -984,12 +1218,75 @@ def cmd_continue(argv):
             _out("Dry run: the packet is written, the command is printed, "
                  "and this run launched nothing.")
         return 0
+    # THE BRAKE, and it sits here on purpose: after the packet is written
+    # and the command is printed, before anything is started. A founder who
+    # meets a refusal still has the whole handover in their hands.
+    # generation, maximum and deadline were computed at the top of this
+    # function, before any store work, so the printed line already carries
+    # them.
+    refusal = relay_refusal(generation, maximum, deadline,
+                            datetime.datetime.now(), spend)
+    if refusal is None:
+        # The WIDTH bound (PR 36 review, finding 1, the critical one). The
+        # depth cap bounds how LONG a chain can grow; nothing bounded how
+        # WIDE, and this spawn is a direct process start no Bash hook can
+        # see: one session calling continue k times fanned out k gen-1
+        # successors, each entitled to do the same. So the launch consults
+        # the same live-session count the machine-wide cap uses, and
+        # refuses to add a session at or over that cap. A count that
+        # cannot be taken is no opinion (the counter fails open, loudly),
+        # and the depth cap still stands in that case.
+        try:
+            cap_mod = _session_cap()
+            # The launcher does not count against its own launch, the same
+            # semantics the hook applies (re-verification note, 2026-08-09).
+            # A session id is knowable here only through the environment;
+            # absent one, the count degrades TIGHTER, never looser.
+            own = (os.environ.get("CLAUDE_SESSION_ID")
+                   or os.environ.get("BROTHERMODE_SESSION_ID"))
+            live = cap_mod.count_live_sessions(cap_mod.projects_root(),
+                                               exclude_session=own)
+            width_cap = cap_mod.cap()
+            cap_env_name = cap_mod.CAP_ENV
+        except Exception as exc:
+            # A counter that cannot even load is a count that cannot be
+            # taken: no opinion, said out loud, never a crash that kills
+            # the handover. The depth cap above already ran and stands.
+            _err("bm_continue: the session counter could not be consulted "
+                 "(%s), so this launch has no width opinion. The chain's "
+                 "depth cap still applies." % exc)
+            live = None
+            width_cap = None
+        if live is not None and width_cap is not None and live >= width_cap:
+            refusal = ("%d Claude sessions are already live against the "
+                       "machine-wide cap of %d, so this relay adds none. "
+                       "Close a session, or raise the cap deliberately "
+                       "with %s=N, or run the command below yourself."
+                       % (live, width_cap, cap_env_name))
+    if refusal is not None:
+        if kv.get("json"):
+            _print_json({"packet": packet_path, "project_id": project_id,
+                         "command": command_line, "log": log_path,
+                         "launched": False, "relay_generation": generation,
+                         "relay_max": maximum, "refused": refusal})
+        else:
+            _out("The relay stopped here, and started nothing: %s" % refusal)
+            _out("")
+            _out("The packet above is written and current, so nothing is "
+                 "lost. The machine will not continue itself past a brake; "
+                 "the command above is for YOUR hand, and it carries the "
+                 "chain's depth so a successor you start inherits the same "
+                 "brake.")
+        return 0
+
     # The mark BEFORE the spawn. The log is append-mode and named per
     # project, so hop two would otherwise quote hop one's opening line as
     # its own successor's proof of life.
     log_mark = log_size(log_path)
     try:
-        pid = spawn_successor(argv_out, log_path, cwd=root)
+        pid = spawn_successor(argv_out, log_path, cwd=root,
+                              env=successor_env(os.environ, generation,
+                                                maximum, deadline))
     except OSError as exc:
         _err("bm_continue: the successor could not be started (%s). The "
              "packet is written, so a founder or a later session can run "
