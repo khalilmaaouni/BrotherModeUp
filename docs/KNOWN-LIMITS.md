@@ -1837,3 +1837,15 @@ four share is the same one the founder mode rows above carry: nobody outside
 this project has run any of them. The first fifteen minutes in particular is a
 target rather than a measurement, and no first run by a person who had never
 used this has been timed.
+
+## The session cap reaches plugin installs only (2026-08-09)
+
+The machine-wide session cap (`tools/bm_session_cap.py`, docs/HOOKS.md) is wired
+in the plugin manifest `hooks/hooks.json` and not in `scripts/install.py`'s
+clone-install path, so a clone install today gets seven hook commands and no
+cap. The installer and `tools/test_install.py` are two hand-maintained mirrors
+that must move together, and both sat outside the session-cap change's fence,
+the same situation the Bash-audit hook was born into on 2026-08-01 and the same
+closure applies: a later loop updates both together, and this entry is deleted
+in that loop's commit. Until then, a clone user who wants the cap wires it
+themselves in their own settings, the exact shape docs/HOOKS.md shows.
