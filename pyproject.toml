@@ -115,6 +115,7 @@ py-modules = [
     "bm_project",
     "bm_ledger",
     "bm_sentinel",
+    "bm_session_cap",
     "bm_autonomy",
     "bm_controller",
     "bm_lead",
