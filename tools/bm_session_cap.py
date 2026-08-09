@@ -80,10 +80,18 @@ RECENCY_SECONDS = 600
 
 #: The spawn shapes this refuses. Anchored on a word boundary rather than
 #: on the start of the line, because every real launch the relay prints is
-#: wrapped: `nohup claude -p '...' > log 2>&1 &`, often after a `cd`. A
-#: matcher that only saw line-initial `claude` would pass every launch this
-#: file exists to stop.
-_SPAWN = re.compile(r"(?:^|[;&|]|\s)claude\s+(?:-p|--print)\b")
+#: wrapped: `nohup claude -p '...' > log 2>&1 &`, often after a `cd`.
+#: Widened 2026-08-09 after the adversarial review of PR 36 executed two
+#: bypasses against the narrow version: `/usr/local/bin/claude -p` (a path
+#: prefix) and `claude --dangerously-skip-permissions -p` (a flag between
+#: the binary and -p) both passed a matcher that demanded exact adjacency.
+#: The widened shape allows an optional slash-terminated path before the
+#: word claude and any run of flag-shaped tokens between it and -p/--print,
+#: while a separator is still required in front, so prose words that merely
+#: END in claude (notes-about-claude, myclaude) stay unmatched.
+_SPAWN = re.compile(
+    r"(?:^|[;&|]|\s)(?:[\w./-]*/)?claude\s+"
+    r"(?:--?[\w-]+(?:=\S*)?\s+)*(?:-p|--print)\b")
 
 
 def deny_payload(reason):
@@ -128,14 +136,22 @@ def cap(env=None):
         return CAP_DEFAULT
 
 
-def count_live_sessions(root, now=None, recency=RECENCY_SECONDS):
+def count_live_sessions(root, now=None, recency=RECENCY_SECONDS,
+                        exclude_session=None):
     """How many session transcripts were written to inside the window, or
     None when the directory cannot be read at all. None is the signal to
     FAIL OPEN; a zero count is a real answer and means the machine is
     idle. Those two must never collapse into one value, which is why this
-    returns None rather than 0 on failure."""
+    returns None rather than 0 on failure.
+
+    `exclude_session` skips that session's own transcript. Added 2026-08-09
+    after the adversarial review measured the launcher counting against
+    itself: the effective headroom was cap minus one, and a cap of 1
+    deadlocked a lone session. The hook envelope carries session_id, so the
+    counter can honestly count OTHERS."""
     now = time.time() if now is None else now
     cutoff = now - recency
+    own = ("%s.jsonl" % exclude_session) if exclude_session else None
     try:
         projects = os.listdir(root)
     except OSError as exc:
@@ -159,6 +175,8 @@ def count_live_sessions(root, now=None, recency=RECENCY_SECONDS):
             continue
         for name in names:
             if not name.endswith(".jsonl"):
+                continue
+            if own is not None and name == own:
                 continue
             try:
                 if os.path.getmtime(os.path.join(pdir, name)) >= cutoff:
@@ -194,7 +212,10 @@ def decide(envelope, projects_root=None, env=None, now=None):
         return None
     root = (projects_root if projects_root is not None
             else globals()["projects_root"](env))
-    live = count_live_sessions(root, now=now)
+    # The launcher's own transcript does not count against it: the cap
+    # bounds how many OTHER sessions are live when a new one would start.
+    live = count_live_sessions(root, now=now,
+                               exclude_session=envelope.get("session_id"))
     if live is None:
         return None
     limit = cap(env)
