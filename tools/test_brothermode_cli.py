@@ -1164,6 +1164,62 @@ class LivenessCase(ContinueCase):
     def setUp(self):
         super(LivenessCase, self).setUp()
         self.cont = _load(os.path.join(HERE, "bm_continue.py"), "bm_continue")
+        # The relay's WIDTH brake counts live Claude sessions off this
+        # machine's own transcript directory, and it runs inside
+        # cmd_continue BEFORE the fake spawn below is ever reached. Left
+        # ambient, that made every test in this class assert a fact about
+        # the machine rather than about liveness recording. Measured A/B/A
+        # on 2026-08-10, one commit, clean tree: FAILED (failures=6,
+        # errors=5) with the machine's three sessions live against its cap
+        # of 3, OK with BROTHERMODE_SESSION_CAP raised, FAILED again on the
+        # default. So the whole suite went red because people were working,
+        # and a gate that cannot pass while the founder's team works cannot
+        # tell a real defect from a busy laptop.
+        #
+        # The count therefore gets its own empty directory, which is the
+        # same isolation the subprocess helpers in this file already have
+        # for free (_clean_env hands them a throwaway HOME, so they never
+        # see the real ~/.claude/projects), and the same shape the
+        # width-brake tests further down already set deliberately. Nothing
+        # is weakened: the brake keeps its own dedicated coverage in
+        # TestReviewFindingsOnTheBrake, which points this variable at a
+        # populated fixture on purpose. This only stops the brake firing in
+        # the tests where it is not the subject.
+        self.sessions_root = os.path.join(self.tmp, "claude-sessions")
+        os.makedirs(self.sessions_root)
+        sessions = mock.patch.dict(
+            os.environ,
+            {"BROTHERMODE_PROJECTS_ROOT": self.sessions_root})
+        sessions.start()
+        self.addCleanup(sessions.stop)
+
+    def relay_headroom(self):
+        """(live sessions, cap) as the relay brake in tools/bm_continue.py
+        will read them, taken through the same module and the same
+        exclude-own-session rule so this cannot drift away from the code it
+        predicts. A live count of None is the counter failing open, which
+        the brake treats as no opinion, so it reads as headroom here too."""
+        cap_mod = self.cont._session_cap()
+        own = (os.environ.get("CLAUDE_SESSION_ID")
+               or os.environ.get("BROTHERMODE_SESSION_ID"))
+        live = cap_mod.count_live_sessions(cap_mod.projects_root(),
+                                           exclude_session=own)
+        return live, cap_mod.cap()
+
+    def require_relay_headroom(self):
+        """Refuse to pretend. With no headroom, cmd_continue stops at the
+        brake and never spawns, so there is no launch for these tests to
+        watch and their assertions would be measuring the machine. State
+        that and skip, rather than fail on it or assert around it."""
+        live, width_cap = self.relay_headroom()
+        if live is not None and width_cap is not None and live >= width_cap:
+            raise unittest.SkipTest(
+                "the relay brake refuses this launch before any successor "
+                "is spawned (%d live Claude sessions against a cap of %d), "
+                "so there is no launch here to watch: rerun with "
+                "%s=N above %d, or close a session."
+                % (live, width_cap, self.cont._session_cap().CAP_ENV,
+                   live))
 
     def dead_pid(self):
         """A process id that certainly existed and certainly does not now:
@@ -1179,6 +1235,8 @@ class LivenessCase(ContinueCase):
         `writes` is the text the fake successor emits into its log before
         returning; None means a successor that says nothing at all. `pid`
         defaults to this test process, which is alive by definition."""
+        self.require_relay_headroom()
+
         def fake_spawn(argv, log_path, cwd=None, env=None):
             if writes is not None:
                 with io.open(log_path, "a", encoding="utf-8") as log:
@@ -1204,6 +1262,60 @@ class LivenessCase(ContinueCase):
             rows = store.list_evidence("project", self.PROJECT, raw=True)
         return [r for r in rows
                 if r.get("kind") == self.cont.LIVENESS_KIND]
+
+
+class TestTheHeadroomGuardItself(LivenessCase):
+    """The guard above is now the thing standing between this class and a
+    false red, so it is itself a thing that can rot: a guard that skipped
+    everything forever would leave this file reading green while proving
+    nothing. A skip nobody has watched fire is not evidence, so BOTH of its
+    branches are executed here rather than trusted."""
+
+    def test_without_headroom_the_launch_guard_skips_and_says_why(self):
+        # A cap of 0 is the honest, deterministic way to say "no relay may
+        # start on this machine": tools/bm_session_cap.py clamps the
+        # override at zero, and bm_continue refuses on live >= cap, so even
+        # an idle machine has no headroom at 0. That is the same absent
+        # precondition three live sessions against a cap of 3 produced on
+        # 2026-08-10, reached without needing three real sessions.
+        with mock.patch.dict(os.environ, {"BROTHERMODE_SESSION_CAP": "0"}):
+            with self.assertRaises(unittest.SkipTest) as caught:
+                self.launch_with_fake_spawn(writes=self.FIRST_LINE + "\n")
+        reason = str(caught.exception)
+        self.assertIn("BROTHERMODE_SESSION_CAP", reason,
+                      "a skip has to tell its reader what to change, or it "
+                      "is just a silence: %r" % reason)
+        self.assertIn("cap of 0", reason,
+                      "the skip must name the numbers it read, or nobody "
+                      "can tell a busy machine from a broken guard: %r"
+                      % reason)
+        self.assertEqual(
+            self.liveness_rows(), [],
+            "the guard skipped and a liveness row was filed anyway, so "
+            "something ran past the stop")
+
+    def test_with_headroom_the_guard_stands_aside_and_the_launch_runs(self):
+        # The fixture's whole contribution, asserted rather than assumed:
+        # the live count this class reads is 0 no matter how many sessions
+        # the founder's team has open, because setUp gave the counter its
+        # own empty directory. This is the assertion that would have caught
+        # the 2026-08-10 defect.
+        live, _ = self.relay_headroom()
+        self.assertEqual(live, 0,
+                         "this class counts sessions off its own empty "
+                         "directory, so the count must be 0 whatever the "
+                         "machine is doing, and it read %r" % (live,))
+        # The cap is pinned here rather than inherited so this branch stays
+        # the OPPOSITE of the one above under every environment, including
+        # a run that saturates the cap on purpose to watch the skip fire.
+        with mock.patch.dict(os.environ, {"BROTHERMODE_SESSION_CAP": "1"}):
+            code, stdout = self.launch_with_fake_spawn(
+                writes=self.FIRST_LINE + "\n")
+        self.assertEqual(code, 0, stdout)
+        self.assertEqual(len(self.liveness_rows()), 1,
+                         "headroom was present and the launch still went "
+                         "unwatched, so the guard is skipping work it "
+                         "should have let through")
 
 
 class TestDryRunRecordsNoLiveness(LivenessCase):
