@@ -629,7 +629,19 @@ def _scaffold_progress_page(root):
     BROTHERMODE_PROGRESS_TEMPLATE overrides the template path, for tests
     and for an estate that maintains its own house design."""
     destination = os.path.join(root, "PROGRESS.html")
-    if os.path.exists(destination):
+    # lexists, not exists: a DANGLING symlink is an occupied name whose
+    # target is missing, and exists() reads it as free. The O_EXCL open
+    # below refuses it too on POSIX, but Windows CI proved (PR 38, both
+    # Windows legs red) that CreateFile can create THROUGH such a link, so
+    # the guard itself must see the link. lexists does, on every platform.
+    # A living page skips silently, create-only by design; a broken link
+    # squatting on the name gets a word, because silence there would read
+    # as "the page exists" when nothing does.
+    if os.path.lexists(destination):
+        if not os.path.exists(destination):
+            _err("bm_project: the progress page was NOT scaffolded: "
+                 "PROGRESS.html is a symlink whose target is missing. "
+                 "Remove or repair the link, then re-run start.")
         return
     template = os.environ.get("BROTHERMODE_PROGRESS_TEMPLATE") or os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
