@@ -5481,9 +5481,31 @@ def _ownership_guard_applies(current_state):
     return current_state == "active"
 
 
+#: Keyed by DESTINATION state; each value is the set of legal SOURCE states,
+#: i.e. "what a record may currently be in, to move HERE". That is the only
+#: direction transition() reads it in (`allowed_from = _LEGAL_MOVES[to_state]`),
+#: and the mirror in tools/bm_threads.py is named _LEGAL_SOURCE_STATES for it.
+#:
+#: STRANDED-ADOPTED FIX, 2026-08-08. Read in the OTHER direction the table
+#: tells a plausible lie, and that misreading is what hid this defect: the
+#: 'adopted' line looked like a declaration of two EXITS when it was naming
+#: adoption's two ENTRANCES, so the table appeared to permit a move it had
+#: never described. No destination named 'adopted' as a legal source, which
+#: made 'adopted' a terminal sink: a record adopted at close could not be
+#: resumed, parked or completed, and the refusal came back as 'stale-identity'
+#: (the version/state precondition is one combined check) pointing the reader
+#: at the version rather than at the missing edge. Adoption is the documented
+#: recovery path for a dead session's fence (references/fences.md), so a state
+#: adoption cannot leave strands exactly the records it exists to rescue.
+#:
+#: 'complete' deliberately still admits only 'active'. Completion carries the
+#: evidence a live writer produced (the missing-evidence guard below), so an
+#: adopted record closes either by parking it or by resuming it first
+#: (adopted -> active -> complete); it never completes straight out of a
+#: state that has no writer to have run the check.
 _LEGAL_MOVES = {
-    "parked": ("active",),
-    "active": ("parked",),
+    "parked": ("active", "adopted"),
+    "active": ("parked", "adopted"),
     "complete": ("active",),
     "adopted": ("active", "parked"),
 }
@@ -11616,12 +11638,24 @@ class Store(object):
         'adopted', which wrongly refused that legitimate resume-tomorrow
         case: a parked record's session_id column still holds its last
         owner (park does not clear it), so resuming looked identical to
-        stealing someone else's still-live work. Since 'parked'/'complete'
-        can only be reached FROM 'active' (see _LEGAL_MOVES), the
-        state=='active' condition is a no-op for those two moves (the guard
-        keeps working exactly as before); it only changes 'active' itself
-        (resume), which can never be reached FROM 'active' at all, so the
-        guard no longer applies there.
+        stealing someone else's still-live work. 'complete' can only be
+        reached FROM 'active' (see _LEGAL_MOVES), so the state=='active'
+        condition is a no-op for that move (the guard keeps working exactly
+        as before); it only changes 'active' itself (resume), which can never
+        be reached FROM 'active' at all, so the guard no longer applies there.
+
+        'parked' lost that no-op property in the STRANDED-ADOPTED FIX
+        (2026-08-08), which made 'adopted' a legal source for both 'parked'
+        and 'active' so an adopted record can actually be closed. The guard
+        therefore does not fire when the record is CURRENTLY 'adopted', and
+        that is the correct reading of adoption rather than a hole in it: a
+        record is adopted precisely because the session named in its
+        session_id column is gone (or was explicitly displaced under
+        --adopt-from-live-session), so there is no live writer left for the
+        guard to protect, exactly as with 'parked'. An adopted record is
+        therefore as reversible as a parked one: any session may park or
+        resume it, and resume still clears the full _admit admission gate
+        below before it becomes active again.
 
         'adopted' (SOFT 10) remains the one exception among moves FROM an
         ACTIVE record: adopting a dead session's ACTIVE record is the
