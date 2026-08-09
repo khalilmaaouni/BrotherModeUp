@@ -62,6 +62,23 @@ person was not sure about.
   open by design (missing, empty, or corrupt store, or any internal error),
   so a green doctor is a statement about the files and the code right now,
   not a promise about every future run.
+- **By default the fence refuses a write across ANOTHER active claim, and
+  nothing more: an UNCLAIMED path is ALLOWED.** "Claim before you edit" is the
+  working discipline this project asks for, not the guarantee the default
+  ships, and the two are easy to read as one. `tools/bm_fence_hook.py` fails
+  OPEN on every condition that stops it reaching a decision (no store, corrupt
+  store, zero active claims, malformed payload, unimportable store module,
+  underivable session identity): it allows the write and prints the reason to
+  stderr, so a refusal always means a real ownership conflict rather than a
+  broken hook. Two opt-in variables tighten that, both off by default and both
+  documented in docs/HOOKS.md: `BM_FENCE_MODE=enforced` makes a failure to
+  check refuse instead of allow, and `BM_FENCE_STRICT=1` additionally requires
+  a claim before editing any project path. Making either one the default was
+  considered and REJECTED (founder decision 2026-08-10): it would start
+  refusing edits to unclaimed files for every existing user on their next
+  update. Outside a BrotherMode project the hook reaches no decision at all,
+  because it installs user-globally and fences a project rather than a
+  machine. The Bash leg is a separate matter, covered by the entry below.
 - **The fence covers Edit, Write, MultiEdit, NotebookEdit, and since L06
   (2026-08-06) exactly one Bash shape, for PREVENTION. Every other Bash write is
   DETECTED, since 2026-08-01 (Loop 6, D-1), and still not prevented.** The one
