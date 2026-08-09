@@ -450,7 +450,17 @@ def measure_standalone_programs(reps, warmup, chains=None):
                 entries.append({"program": prog["program"],
                                 "args": prog["args"],
                                 "timing": hb.summarize(samples)})
-            out[(group["event"], group["matcher"])] = entries
+            # MERGE, never overwrite. read_hook_chains_raw emits one group
+            # per wired hook command, so two commands under the same
+            # matcher (PreToolUse Bash gained bm_session_cap.py beside
+            # bm_bash_audit.py on 2026-08-09) share this key, and plain
+            # assignment silently dropped every group but the last: the
+            # audit hook vanished from the measurements and projections()
+            # died on StopIteration hunting for it. Silent data loss in a
+            # measurement suite is the exact defect class this project
+            # lints other code for.
+            out.setdefault((group["event"], group["matcher"]),
+                           []).extend(entries)
     return out
 
 
