@@ -1018,6 +1018,34 @@ def _read_stdin_json():
 def cmd_hook(argv):
     payload, err = _read_stdin_json()
     if err is not None:
+        # FIXED 2026-08-10. This branch used to fail OPEN unconditionally, and
+        # that made C-01's closure claim false on its own terms. That entry
+        # says enforced mode denies all nine failure conditions "because every
+        # one of them funnels through _FailOpen or the blanket catch", and the
+        # register names a malformed payload as one of the nine. It does not
+        # funnel through either: both live inside decide(), and an unparseable
+        # payload returns from HERE without ever calling decide(). So the one
+        # condition an attacker most directly controls, the bytes on stdin, was
+        # the one condition enforced mode could not refuse.
+        #
+        # Found by following an independent Codex audit finding about the
+        # unattended preflight, and reproduced before the fix:
+        #   printf 'not json' | BM_FENCE_MODE=enforced python3 tools/bm_fence_hook.py
+        # printed FAILING OPEN in both modes.
+        #
+        # The deny copy is the same literal-only shape decide() uses, and for
+        # the same reason: nothing has been verified at this point, so the
+        # model-visible reason names no path, record, label or payload content.
+        # The operator gets the detail on stderr.
+        if enforced_mode():
+            summary, remedy = _FAIL_REASONS["bad-payload"]
+            _warn("bm_fence_hook: FAILING CLOSED, the write is refused "
+                  "because the fence could not be checked. Reason: %s" % err)
+            _out(json.dumps(deny_payload(
+                "BrotherMode is in enforced mode and refused this write "
+                "because %s. To fix it, %s. To go back to warning only, set "
+                "BM_FENCE_MODE=advisory." % (summary, remedy))))
+            return 0
         _warn("bm_fence_hook: FAILING OPEN, the write is allowed and the "
               "fence was NOT checked. Reason: %s" % err)
         return 0
