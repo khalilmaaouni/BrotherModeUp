@@ -550,12 +550,19 @@ fail rather than one.
 Both install paths wire both entrypoints today. The Claude Code plugin manifest,
 `hooks/hooks.json`, and `scripts/install.py`'s clone-install path (the one
 QUICKSTART documents, and the one `tools/test_install.py` exercises end to end)
-carry the same shape: `PreToolUse` holds two matcher groups (the fence hook at
-`Edit|Write|MultiEdit|NotebookEdit|Bash`, which since L06 also reads apply_patch
-envelopes out of Bash payloads, and this audit's `pre` phase at `Bash`), and
-a `PostToolUse` key wires the `post` entrypoint. That is six wired events and
-seven hook commands, and `tools/test_install.py` hard-asserts exactly that shape,
-so removing either entrypoint turns the suite red.
+carry the same audit shape: `PreToolUse` holds two matcher groups (the fence hook
+at `Edit|Write|MultiEdit|NotebookEdit|Bash`, which since L06 also reads
+apply_patch envelopes out of Bash payloads, and this audit's `pre` phase at
+`Bash`), and a `PostToolUse` key wires the `post` entrypoint. The clone path is
+six wired events and seven hook commands, and `tools/test_install.py`
+hard-asserts exactly that shape, so removing either entrypoint turns the suite
+red. The plugin manifest carries one command more since 2026-08-09: the
+machine-wide session cap (next section) rides beside the audit's `pre` phase,
+making its count eight. That divergence is DELIBERATE AND TEMPORARY, recorded in
+docs/KNOWN-LIMITS.md the day it was created: the clone installer and its suite
+sit outside the session-cap change's fence, exactly the situation the Loop 6
+history below describes, and the same closure applies, a later loop updates
+`scripts/install.py` and `tools/test_install.py` together.
 
 History, dated so the old claim cannot be read as current: when this hook first
 landed, the clone installer deliberately did NOT wire it, because
@@ -564,6 +571,34 @@ change's fence; the gap was recorded in docs/KNOWN-LIMITS.md. The Loop 6 refuter
 pass (2026-08-01) closed it: the installer and its suite were updated together,
 and a test now reads `hooks/hooks.json`, so deleting the wiring fails a test
 instead of failing a user.
+
+## The machine-wide session cap (added 2026-08-09, after the 8 August runaway)
+
+`tools/bm_session_cap.py` answers a different question from every hook above.
+The fence asks "may this session write this file"; the audit asks "did that
+shell command cross a fence"; this one asks "should another SESSION exist at
+all". On 2026-08-08 an unattended relay chain ran fifteen concurrent sessions
+against caps that existed only as sentences, and spent millions of tokens with
+nobody watching. This hook is the sentence turned into a control.
+
+- **PreToolUse** (`Bash` matcher): when the command would start another Claude
+  Code session (`claude -p` or `claude --print`, anywhere in the command), it
+  counts session transcripts written to in the last ten minutes across every
+  project on the machine, and DENIES at or over the cap (default 4, override
+  per launch with `BROTHERMODE_SESSION_CAP=N`). Everything that is not a
+  session spawn passes untouched at any count.
+- It writes NOTHING: two output funnels only (the deny object on stdout, the
+  fail-open reason on stderr), reviewed in `tools/write_sites.json`. It is
+  consent-EXEMPT for the same reason the fence hook is, encoded with its
+  reason in `tools/test_bm_consent.py`: its scope is the machine, not any one
+  project, so a project's setup consent cannot be the thing that switches
+  fleet protection on.
+- It fails OPEN when it cannot count (unreadable directory, malformed
+  envelope), loudly, on stderr. It never fails open on its own verdict.
+- Known over-refusal, deliberate: at the cap, a command that merely CONTAINS
+  spawn-shaped text (an echo quoting it, a grep for it) is refused too. The
+  match is textual; the safe direction is refusal; the escape is the env
+  override, typed per launch.
 
 ## What a follow-up change to bm_store.py would need to add
 

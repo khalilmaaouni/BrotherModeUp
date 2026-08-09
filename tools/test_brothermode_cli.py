@@ -52,6 +52,7 @@ Python 3.9, standard library only. Run:
 No em or en dashes anywhere in this file, its comments, or its output.
 """
 
+import datetime
 import importlib.util
 import io
 import json
@@ -1178,7 +1179,7 @@ class LivenessCase(ContinueCase):
         `writes` is the text the fake successor emits into its log before
         returning; None means a successor that says nothing at all. `pid`
         defaults to this test process, which is alive by definition."""
-        def fake_spawn(argv, log_path, cwd=None):
+        def fake_spawn(argv, log_path, cwd=None, env=None):
             if writes is not None:
                 with io.open(log_path, "a", encoding="utf-8") as log:
                     log.write(writes)
@@ -1425,6 +1426,311 @@ class TestProcessAliveIsHonest(unittest.TestCase):
 
     def test_a_pid_that_cannot_exist_is_not_alive(self):
         self.assertFalse(self.cont.process_alive(-1))
+
+
+# ---------------------------------------------------------------------------
+# The relay brake (added 2026-08-09, RED before tools/bm_continue.py grew
+# any of it).
+#
+# WHY THIS EXISTS
+#   Phase C shipped a relay whose continuity contract told every successor,
+#   unconditionally, to launch its own successor before closing (CONTRACT_
+#   LINES item 4). That is an instruction in prose, and an instruction in
+#   prose is not a control. On 2026-08-08 the chain ran while the founder's
+#   screen was off: sessions fanned out to fifteen concurrent runs and spent
+#   roughly 8.4 million output tokens and 2.5 billion cache-read tokens
+#   between 00:00Z and 10:00Z, and three of them died leaving uncommitted
+#   work behind. Nothing in the launch path could have stopped it, because
+#   nothing in the launch path ever DECIDED anything: cmd_continue read the
+#   spend totals only to print them into section 6 of the packet.
+#
+#   So the brake is mechanical and it sits in front of the spawn. Three
+#   independent stops, each sufficient on its own:
+#     GENERATION  the chain carries its own depth and refuses past the cap.
+#     DEADLINE    the chain carries a wall-clock end and refuses past it.
+#     SPEND       a hard-stop verdict from the store refuses the spawn.
+#   A refusal is a SUCCESS, not an error: the packet is still written, the
+#   command is still printed, and a human can still run it by hand. What
+#   the refusal removes is the machine's own ability to continue itself.
+# ---------------------------------------------------------------------------
+
+
+class TestRelayBrakeDecision(unittest.TestCase):
+    """The decision function alone, with no store and no spawn, because a
+    brake whose logic can only be exercised through a full launch is a
+    brake nobody can prove."""
+
+    def setUp(self):
+        self.cont = _load(os.path.join(HERE, "bm_continue.py"), "bm_continue")
+
+    def test_a_fresh_chain_inside_every_limit_is_allowed(self):
+        self.assertIsNone(self.cont.relay_refusal(
+            generation=0, maximum=8, deadline=None,
+            now=datetime.datetime(2026, 8, 9, 12, 0, 0),
+            spend={"verdict": "ok"}))
+
+    def test_the_generation_cap_refuses_and_names_itself(self):
+        reason = self.cont.relay_refusal(
+            generation=8, maximum=8, deadline=None,
+            now=datetime.datetime(2026, 8, 9, 12, 0, 0),
+            spend={"verdict": "ok"})
+        self.assertIsNotNone(reason, "generation 8 of a cap of 8 must refuse")
+        self.assertIn("8", reason)
+
+    def test_one_past_the_cap_still_refuses(self):
+        """A chain that somehow overshot must not read as allowed again."""
+        self.assertIsNotNone(self.cont.relay_refusal(
+            generation=99, maximum=8, deadline=None,
+            now=datetime.datetime(2026, 8, 9, 12, 0, 0),
+            spend={"verdict": "ok"}))
+
+    def test_a_passed_deadline_refuses(self):
+        self.assertIsNotNone(self.cont.relay_refusal(
+            generation=0, maximum=8,
+            deadline=datetime.datetime(2026, 8, 9, 6, 0, 0),
+            now=datetime.datetime(2026, 8, 9, 12, 0, 0),
+            spend={"verdict": "ok"}))
+
+    def test_a_deadline_still_ahead_allows(self):
+        self.assertIsNone(self.cont.relay_refusal(
+            generation=0, maximum=8,
+            deadline=datetime.datetime(2026, 8, 9, 23, 0, 0),
+            now=datetime.datetime(2026, 8, 9, 12, 0, 0),
+            spend={"verdict": "ok"}))
+
+    def test_a_hard_stop_spend_verdict_refuses(self):
+        reason = self.cont.relay_refusal(
+            generation=0, maximum=8, deadline=None,
+            now=datetime.datetime(2026, 8, 9, 12, 0, 0),
+            spend={"verdict": "hard-stop", "token_pct": 118.0})
+        self.assertIsNotNone(reason, "a blown ceiling must stop the relay")
+        self.assertIn("ceiling", reason.lower())
+
+    def test_no_data_spend_does_not_refuse_on_its_own(self):
+        """NO-DATA is never a pass and never a block, per the project's own
+        law. A store with no contract must not silently kill a relay the
+        founder started; the generation cap is what bounds that case, and
+        it is why the cap has no off switch."""
+        self.assertIsNone(self.cont.relay_refusal(
+            generation=0, maximum=8, deadline=None,
+            now=datetime.datetime(2026, 8, 9, 12, 0, 0),
+            spend={"verdict": "no-data"}))
+
+
+class TestRelayChainIsCarriedToTheSuccessor(unittest.TestCase):
+    """The child must inherit the chain, or every hop restarts at zero and
+    the cap counts to one forever."""
+
+    def setUp(self):
+        self.cont = _load(os.path.join(HERE, "bm_continue.py"), "bm_continue")
+
+    def test_the_generation_increments_by_one(self):
+        child = self.cont.successor_env(
+            {"PATH": "/usr/bin"}, generation=3, maximum=8, deadline=None)
+        self.assertEqual(child[self.cont.RELAY_GEN_ENV], "4")
+
+    def test_the_cap_and_the_deadline_travel_with_it(self):
+        child = self.cont.successor_env(
+            {"PATH": "/usr/bin"}, generation=0, maximum=5,
+            deadline=datetime.datetime(2026, 8, 10, 7, 30, 0))
+        self.assertEqual(child[self.cont.RELAY_MAX_ENV], "5")
+        self.assertTrue(child[self.cont.RELAY_DEADLINE_ENV]
+                        .startswith("2026-08-10T07:30"))
+
+    def test_the_parent_environment_survives(self):
+        child = self.cont.successor_env(
+            {"PATH": "/usr/bin", "HOME": "/home/x"}, generation=0,
+            maximum=8, deadline=None)
+        self.assertEqual(child["HOME"], "/home/x")
+
+    def test_a_missing_generation_reads_as_zero(self):
+        self.assertEqual(self.cont.relay_generation({}), 0)
+
+    def test_a_junk_generation_reads_as_zero_rather_than_crashing(self):
+        """A corrupt counter must not be the thing that takes the relay
+        down, and zero is the safe floor because the cap still bounds the
+        chain from there."""
+        self.assertEqual(
+            self.cont.relay_generation({self.cont.RELAY_GEN_ENV: "many"}), 0)
+
+
+class TestTheBrakeStopsARealLaunch(LivenessCase):
+    """The test the whole change exists for: at the cap, cmd_continue must
+    start NOTHING, while still leaving the packet and the command behind so
+    a human loses nothing."""
+
+    def test_at_the_cap_no_successor_is_spawned(self):
+        spawned = []
+
+        def fake_spawn(*args, **kwargs):
+            spawned.append(args)
+            return os.getpid()
+
+        out = io.StringIO()
+        real_stdout = sys.stdout
+        sys.stdout = out
+        try:
+            with mock.patch.dict(
+                    os.environ, {self.cont.RELAY_GEN_ENV: "8",
+                                 self.cont.RELAY_MAX_ENV: "8"}):
+                with mock.patch.object(self.cont, "spawn_successor",
+                                       side_effect=fake_spawn):
+                    code = self.cont.main(
+                        ["continue", "--project-id", self.PROJECT,
+                         "--root", self.root, "--liveness-timeout", "1"])
+        finally:
+            sys.stdout = real_stdout
+        text = out.getvalue()
+        self.assertEqual(
+            spawned, [],
+            "the relay spawned a successor at its own generation cap")
+        self.assertEqual(code, 0,
+                         "a refusal to continue is a correct stop, not a "
+                         "failure: %s" % text)
+        self.assertIn("relay", text.lower())
+
+    def test_at_the_cap_the_packet_is_still_written(self):
+        out = io.StringIO()
+        real_stdout = sys.stdout
+        sys.stdout = out
+        try:
+            with mock.patch.dict(os.environ,
+                                 {self.cont.RELAY_GEN_ENV: "8",
+                                  self.cont.RELAY_MAX_ENV: "8"}):
+                with mock.patch.object(
+                        self.cont, "spawn_successor",
+                        side_effect=AssertionError("must not spawn")):
+                    self.cont.main(["continue", "--project-id", self.PROJECT,
+                                    "--root", self.root])
+        finally:
+            sys.stdout = real_stdout
+        packets = [n for n in os.listdir(self.root) if "HANDOFF" in n.upper()]
+        self.assertTrue(packets,
+                        "a stopped relay must still leave its packet, or "
+                        "the stop destroys the handover it exists to make")
+
+    def test_below_the_cap_a_successor_is_still_spawned(self):
+        """The brake must not become the new failure: a normal relay hop
+        keeps working."""
+        with mock.patch.dict(os.environ,
+                             {self.cont.RELAY_GEN_ENV: "0",
+                              self.cont.RELAY_MAX_ENV: "8"}):
+            code, stdout = self.launch_with_fake_spawn(writes="canary\n")
+        self.assertEqual(code, 0, stdout)
+
+
+
+
+class TestReviewFindingsOnTheBrake(LivenessCase):
+    """The 2026-08-09 adversarial review of PR 36, continue-side findings,
+    each red before the fix."""
+
+    def test_finding1_width_is_bounded_not_only_depth(self):
+        """One session calling continue k times fanned out k successors:
+        depth 8 bounded chain LENGTH, nothing bounded WIDTH. The launch must
+        consult the live session count and refuse at the cap."""
+        import tempfile as _tf
+        with _tf.TemporaryDirectory() as fake:
+            for i in range(6):
+                d = os.path.join(fake, "proj-%d" % i)
+                os.makedirs(d)
+                with io.open(os.path.join(d, "s%d.jsonl" % i), "w",
+                             encoding="utf-8") as fh:
+                    fh.write("{}\n")
+            spawned = []
+            out = io.StringIO()
+            real_stdout = sys.stdout
+            sys.stdout = out
+            try:
+                with mock.patch.dict(os.environ, {
+                        "BROTHERMODE_PROJECTS_ROOT": fake,
+                        "BROTHERMODE_SESSION_CAP": "4"}):
+                    with mock.patch.object(
+                            self.cont, "spawn_successor",
+                            side_effect=lambda *a, **k: spawned.append(1) or os.getpid()):
+                        code = self.cont.main(
+                            ["continue", "--project-id", self.PROJECT,
+                             "--root", self.root, "--liveness-timeout", "1"])
+            finally:
+                sys.stdout = real_stdout
+            self.assertEqual(spawned, [],
+                             "six live sessions against cap 4 and the relay "
+                             "still spawned: width is unbounded")
+            self.assertEqual(code, 0, out.getvalue())
+
+    def test_reverify_the_relay_width_check_excludes_its_own_session(self):
+        """The re-verification noted the relay counting its own transcript:
+        effective headroom was cap minus one, and cap 1 deadlocked the
+        sanctioned path even alone. With the session id in the environment,
+        a lone session at cap 1 may spawn its one successor."""
+        import tempfile as _tf
+        with _tf.TemporaryDirectory() as fake:
+            d = os.path.join(fake, "proj-own")
+            os.makedirs(d)
+            with io.open(os.path.join(d, "me.jsonl"), "w",
+                         encoding="utf-8") as fh:
+                fh.write("{}\n")
+            code, stdout = None, None
+            out = io.StringIO()
+            real_stdout = sys.stdout
+            sys.stdout = out
+            try:
+                with mock.patch.dict(os.environ, {
+                        "BROTHERMODE_PROJECTS_ROOT": fake,
+                        "BROTHERMODE_SESSION_CAP": "1",
+                        "BROTHERMODE_SESSION_ID": "me"}):
+                    with mock.patch.object(
+                            self.cont, "spawn_successor",
+                            side_effect=lambda *a, **k: os.getpid()):
+                        code = self.cont.main(
+                            ["continue", "--project-id", self.PROJECT,
+                             "--root", self.root,
+                             "--liveness-timeout", "1"])
+            finally:
+                sys.stdout = real_stdout
+            self.assertEqual(code, 0, out.getvalue())
+            self.assertNotIn("adds none", out.getvalue(),
+                             "a lone session at cap 1 refused its own "
+                             "successor: the launcher counted itself")
+
+    def test_finding3_an_explicit_unparseable_deadline_refuses_the_launch(self):
+        """--deadline 2026-08-09T18:00:00+09:00 silently parsed to None and
+        the chain ran unbounded in time. Founder input that cannot be read
+        fails CLOSED: no spawn, a plain error, exit 2."""
+        spawned = []
+        out = io.StringIO()
+        err = io.StringIO()
+        real_stdout, real_stderr = sys.stdout, sys.stderr
+        sys.stdout, sys.stderr = out, err
+        try:
+            with mock.patch.object(
+                    self.cont, "spawn_successor",
+                    side_effect=lambda *a, **k: spawned.append(1) or os.getpid()):
+                code = self.cont.main(
+                    ["continue", "--project-id", self.PROJECT,
+                     "--root", self.root, "--deadline", "not-a-time"])
+        finally:
+            sys.stdout, sys.stderr = real_stdout, real_stderr
+        self.assertEqual(spawned, [], "an unreadable deadline still spawned")
+        self.assertEqual(code, 2, "founder input that cannot be read is a "
+                         "usage error, not a silent shrug")
+        self.assertIn("deadline", err.getvalue().lower())
+
+    def test_finding3_an_offset_deadline_parses_rather_than_vanishing(self):
+        got = self.cont.relay_deadline(override="2026-08-09T18:00:00+09:00")
+        self.assertIsNotNone(got, "a timezone offset made the deadline vanish")
+
+    def test_finding6_the_printed_command_carries_the_chain_depth(self):
+        """The printed line is for a human hand, and a hand-run successor
+        restarted at generation zero. The line must carry the relay
+        environment so even a copy-paste inherits the brake."""
+        argv = self.cont.launch_argv("/tmp/HANDOFF-PACKET.md", ".")
+        line = self.cont.printable_command(
+            argv, "/tmp/relay.log",
+            env_prefix={"BROTHERMODE_RELAY_GEN": "3",
+                        "BROTHERMODE_RELAY_MAX": "8"})
+        self.assertIn("BROTHERMODE_RELAY_GEN=3", line)
+        self.assertIn("BROTHERMODE_RELAY_MAX=8", line)
 
 
 if __name__ == "__main__":
