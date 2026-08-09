@@ -1619,5 +1619,84 @@ class TestTheBrakeStopsARealLaunch(LivenessCase):
         self.assertEqual(code, 0, stdout)
 
 
+
+
+class TestReviewFindingsOnTheBrake(LivenessCase):
+    """The 2026-08-09 adversarial review of PR 36, continue-side findings,
+    each red before the fix."""
+
+    def test_finding1_width_is_bounded_not_only_depth(self):
+        """One session calling continue k times fanned out k successors:
+        depth 8 bounded chain LENGTH, nothing bounded WIDTH. The launch must
+        consult the live session count and refuse at the cap."""
+        import tempfile as _tf
+        with _tf.TemporaryDirectory() as fake:
+            for i in range(6):
+                d = os.path.join(fake, "proj-%d" % i)
+                os.makedirs(d)
+                with io.open(os.path.join(d, "s%d.jsonl" % i), "w",
+                             encoding="utf-8") as fh:
+                    fh.write("{}\n")
+            spawned = []
+            out = io.StringIO()
+            real_stdout = sys.stdout
+            sys.stdout = out
+            try:
+                with mock.patch.dict(os.environ, {
+                        "BROTHERMODE_PROJECTS_ROOT": fake,
+                        "BROTHERMODE_SESSION_CAP": "4"}):
+                    with mock.patch.object(
+                            self.cont, "spawn_successor",
+                            side_effect=lambda *a, **k: spawned.append(1) or os.getpid()):
+                        code = self.cont.main(
+                            ["continue", "--project-id", self.PROJECT,
+                             "--root", self.root, "--liveness-timeout", "1"])
+            finally:
+                sys.stdout = real_stdout
+            self.assertEqual(spawned, [],
+                             "six live sessions against cap 4 and the relay "
+                             "still spawned: width is unbounded")
+            self.assertEqual(code, 0, out.getvalue())
+
+    def test_finding3_an_explicit_unparseable_deadline_refuses_the_launch(self):
+        """--deadline 2026-08-09T18:00:00+09:00 silently parsed to None and
+        the chain ran unbounded in time. Founder input that cannot be read
+        fails CLOSED: no spawn, a plain error, exit 2."""
+        spawned = []
+        out = io.StringIO()
+        err = io.StringIO()
+        real_stdout, real_stderr = sys.stdout, sys.stderr
+        sys.stdout, sys.stderr = out, err
+        try:
+            with mock.patch.object(
+                    self.cont, "spawn_successor",
+                    side_effect=lambda *a, **k: spawned.append(1) or os.getpid()):
+                code = self.cont.main(
+                    ["continue", "--project-id", self.PROJECT,
+                     "--root", self.root, "--deadline", "not-a-time"])
+        finally:
+            sys.stdout, sys.stderr = real_stdout, real_stderr
+        self.assertEqual(spawned, [], "an unreadable deadline still spawned")
+        self.assertEqual(code, 2, "founder input that cannot be read is a "
+                         "usage error, not a silent shrug")
+        self.assertIn("deadline", err.getvalue().lower())
+
+    def test_finding3_an_offset_deadline_parses_rather_than_vanishing(self):
+        got = self.cont.relay_deadline(override="2026-08-09T18:00:00+09:00")
+        self.assertIsNotNone(got, "a timezone offset made the deadline vanish")
+
+    def test_finding6_the_printed_command_carries_the_chain_depth(self):
+        """The printed line is for a human hand, and a hand-run successor
+        restarted at generation zero. The line must carry the relay
+        environment so even a copy-paste inherits the brake."""
+        argv = self.cont.launch_argv("/tmp/HANDOFF-PACKET.md", ".")
+        line = self.cont.printable_command(
+            argv, "/tmp/relay.log",
+            env_prefix={"BROTHERMODE_RELAY_GEN": "3",
+                        "BROTHERMODE_RELAY_MAX": "8"})
+        self.assertIn("BROTHERMODE_RELAY_GEN=3", line)
+        self.assertIn("BROTHERMODE_RELAY_MAX=8", line)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
