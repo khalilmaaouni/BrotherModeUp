@@ -1365,6 +1365,49 @@ class WireProtocol(FenceHookBase):
             self.assertEqual(r.stdout, "", raw)
             self.assertIn("FAILING OPEN", r.stderr, raw)
 
+    def test_empty_and_invalid_stdin_fail_CLOSED_when_enforced(self):
+        """The twin of the test above, and the reason it exists.
+
+        FIXED 2026-08-10. C-01 recorded that enforced mode denies all nine
+        failure conditions "because every one of them funnels through
+        _FailOpen or the blanket catch", and the register names a malformed
+        payload as one of the nine. It did not funnel through either. Both
+        handlers live inside decide(), and cmd_hook returned an allow for an
+        unparseable payload BEFORE decide() was ever called, so the single
+        condition an attacker most directly controls, the bytes on stdin, was
+        the one enforced mode could not refuse.
+
+        Why the whole C-01 class missed it: every test there calls
+        self.decide() directly, which is downstream of the defect. This one
+        runs the real PROCESS, because the process is what a runtime invokes.
+        A test that enters below the entry point cannot see a bug in the
+        entry point.
+
+        Reproduced before the fix:
+            printf 'not json' | BM_FENCE_MODE=enforced python3 tools/bm_fence_hook.py
+        printed FAILING OPEN and wrote nothing to stdout, exactly as the
+        default mode did.
+        """
+        env = _clean_env()
+        env["BM_FENCE_MODE"] = "enforced"
+        for raw in ("", "   ", "not json", "{", "[1,2,3"):
+            r = subprocess.run([sys.executable, HOOK_PATH], input=raw, text=True,
+                               capture_output=True, cwd=self.root, env=env)
+            self.assertEqual(r.returncode, 0, raw)
+            self.assertTrue(
+                r.stdout.strip(),
+                "enforced mode wrote no decision for %r, so the write would "
+                "have been allowed through an unreadable payload" % (raw,))
+            decision = json.loads(r.stdout)
+            out = decision["hookSpecificOutput"]
+            self.assertEqual(out["hookEventName"], "PreToolUse", raw)
+            self.assertEqual(out["permissionDecision"], "deny", raw)
+            self.assertIn("enforced mode", out["permissionDecisionReason"], raw)
+            self.assertIn("FAILING CLOSED", r.stderr, raw)
+            # The model-visible reason stays literal: nothing has been
+            # verified at this point, so it must name no path.
+            self.assertNotIn(self.root, out["permissionDecisionReason"], raw)
+
     def test_session_label_subcommand_reads_every_documented_source(self):
         want = self.label(self.VICTIM)
         r = subprocess.run([sys.executable, HOOK_PATH, "session-label",
