@@ -609,6 +609,55 @@ def _start_usage():
             "[--session-id SID] [--out-json] [--allow-second]")
 
 
+def _scaffold_progress_page(root):
+    """Copy project-template/PROGRESS.html into a freshly started project,
+    once, never over an existing page. The founder's 2026-08-09 ask, made
+    mechanical: the progress page standard existed as a template file that
+    NOTHING installed, which is a hope rather than a standard, the same
+    prose-not-control defect the 8 August postmortem names.
+
+    Three deliberate behaviours, each pinned by a test:
+      - the page lands beside CANVAS.md at first start;
+      - an EXISTING page is never touched: from its first refresh on, the
+        page is the project's own living record, and resetting it to the
+        template on a re-run of start would destroy exactly the history
+        the page exists to keep;
+      - a missing template (a pip install ships tools/ without
+        project-template/) warns on stderr and never fails the start: the
+        scaffold is a courtesy, the project row is the product.
+
+    BROTHERMODE_PROGRESS_TEMPLATE overrides the template path, for tests
+    and for an estate that maintains its own house design."""
+    destination = os.path.join(root, "PROGRESS.html")
+    if os.path.exists(destination):
+        return
+    template = os.environ.get("BROTHERMODE_PROGRESS_TEMPLATE") or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        os.pardir, "project-template", "PROGRESS.html")
+    try:
+        with io.open(template, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as e:
+        _err("bm_project: the progress page was NOT scaffolded (%s). The "
+             "project itself is fine; copy project-template/PROGRESS.html "
+             "in by hand, or set BROTHERMODE_PROGRESS_TEMPLATE." % e)
+        return
+    try:
+        with io.open(destination, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    except OSError as e:
+        _err("bm_project: the progress page could not be written (%s). The "
+             "project itself is fine." % e)
+        return
+    # stderr, deliberately: cmd_start's --out-json contract is ONE json
+    # document on stdout, and this notice printed there corrupted it (caught
+    # by TestScriptedFirstProject the first time this ran). Advisory lines
+    # share the diagnostics channel, the same one-document law bm_continue's
+    # --json path already enforces.
+    _err("bm_project: scaffolded PROGRESS.html from the template; refresh "
+         "it at every closed loop, and a box ticks only on quoted evidence")
+
+
 def cmd_start(argv):
     _pos, kv = _parse(argv, _START_FLAGS, wants_value=(
         "project-id", "name", "goal", "user-outcome", "project-type",
@@ -691,6 +740,7 @@ def cmd_start(argv):
                          CANVAS_BEGIN, CANVAS_END)
     finally:
         store.close()
+    _scaffold_progress_page(_root())
     if kv.get("out-json"):
         _print_json({"project_id": project_id, "task_ids": task_ids,
                      "forecast_id": forecast_id})
