@@ -1484,5 +1484,63 @@ class TestExportAndPurge(unittest.TestCase):
             self.assertEqual(task4["depends_on"], [])
 
 
+class TestStartScaffoldsTheProgressPage(unittest.TestCase):
+    """The founder's 2026-08-09 ask, made mechanical: every project started
+    with BrotherMode begins with the progress page, in the canonical design,
+    carrying the tick contract. Before this, the template sat in
+    project-template/PROGRESS.html and NOTHING installed it: a standard that
+    exists only as a file nobody copies is a hope, not a standard, the same
+    prose-not-control defect the 8 August postmortem is about."""
+
+    def _started(self, root, project_id="proj1", name="Acme Rescue",
+                 extra=(), extra_env=None):
+        _init(root)
+        r = _run(["start", "--project-id", project_id, "--name", name]
+                 + list(extra) + list(ACTOR), root, extra_env=extra_env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r
+
+    def test_start_installs_the_progress_page(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            page = os.path.join(root, "PROGRESS.html")
+            self.assertTrue(os.path.isfile(page),
+                            "start must scaffold PROGRESS.html beside "
+                            "CANVAS.md, or the page standard is prose")
+            text = io.open(page, encoding="utf-8").read()
+            self.assertIn("tick", text.lower(),
+                          "the scaffolded page must carry the tick contract")
+
+    def test_start_never_overwrites_an_existing_page(self):
+        """The page is the project's own living document from the first
+        refresh on. A re-run of start (an update) must not reset it to the
+        template: that would destroy the very history the page exists to
+        keep, and the never-lose-work law outranks scaffolding."""
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            page = os.path.join(root, "PROGRESS.html")
+            with io.open(page, "w", encoding="utf-8") as fh:
+                fh.write("the founder's own refreshed page")
+            self._started(root)  # same project id: an update, not a reset
+            self.assertEqual(
+                io.open(page, encoding="utf-8").read(),
+                "the founder's own refreshed page",
+                "re-running start clobbered the live progress page")
+
+    def test_a_missing_template_warns_and_never_fails_the_start(self):
+        """A pip install ships the tools without project-template/. Losing
+        the scaffold there is a stated limit; losing the whole start
+        command over it would be a regression. stderr says what was
+        skipped, because a silent skip is the other defect class."""
+        with tempfile.TemporaryDirectory() as root:
+            r = self._started(
+                root, extra_env={"BROTHERMODE_PROGRESS_TEMPLATE":
+                                 os.path.join(root, "no-such-template.html")})
+            self.assertFalse(
+                os.path.isfile(os.path.join(root, "PROGRESS.html")))
+            self.assertIn("progress page", r.stderr.lower(),
+                          "skipping the scaffold must say so on stderr")
+
+
 if __name__ == "__main__":
     unittest.main()
