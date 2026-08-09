@@ -1,0 +1,4 @@
+{
+  "title": "Deduplicate while preserving first-seen order",
+  "prompt": "In this directory, create a Python file named dedupe.py.\n\nIt must provide one function:\n\n  dedupe(items) -> list\n\nRequirement, in the words of the person who asked for it:\n\n  Give me back the same list with duplicates removed, in the order they\n  first appeared, and it has to cope with unhashable things like lists.\n\nUse only the Python standard library. Do not create any other files."
+}

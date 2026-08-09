@@ -1,0 +1,4 @@
+{
+  "title": "Password reset token: expiry and single use",
+  "prompt": "In this directory, create a Python file named reset.py.\n\nIt must provide two functions for password reset tokens:\n\n  issue(user_id) -> token       returns a new token string for that user\n  check(token) -> bool          returns True if the token may be used right now\n\nRequirement, in the words of the person who asked for it:\n\n  A password reset link must stop working 15 minutes after it was issued,\n  and a link must not work more than once.\n\nUse only the Python standard library. Do not create any other files."
+}

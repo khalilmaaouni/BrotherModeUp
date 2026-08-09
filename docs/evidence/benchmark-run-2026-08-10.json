@@ -1,0 +1,62 @@
+[
+  {
+    "acceptance": {
+      "accepted": true,
+      "exit_code": 0,
+      "reason": "PASS: order preserved and unhashable items handled"
+    },
+    "agent": {
+      "exit_code": 0,
+      "stderr_tail": "x 0000000000000000000000000000000000000000..ab94ebc7a3d8f04afcf7bfa6779a39ee1af2882c\n--- /dev/null\n+++ b/dedupe.py\n@@ -0,0 +1,7 @@\n+def dedupe(items) -> list:\n+    \"\"\"Return items without duplicates, preserving first-seen order.\"\"\"\n+    unique_items = []\n+    for item in items:\n+        if item not in unique_items:\n+            unique_items.append(item)\n+    return unique_items\n\ntokens used\n8,556\n",
+      "timed_out": false,
+      "wall_seconds": 25.0
+    },
+    "system": "bare",
+    "task": "dedupe-order"
+  },
+  {
+    "acceptance": {
+      "accepted": true,
+      "exit_code": 0,
+      "reason": "PASS: order preserved and unhashable items handled"
+    },
+    "agent": {
+      "exit_code": 0,
+      "stderr_tail": "0000000000000000000000000..b3bc35bbb7c7acb8ecadac95ed410d2ff922a46b\n--- /dev/null\n+++ b/dedupe.py\n@@ -0,0 +1,10 @@\n+\"\"\"Order-preserving duplicate removal.\"\"\"\n+\n+\n+def dedupe(items) -> list:\n+    \"\"\"Return the first occurrence of each value in *items*.\"\"\"\n+    unique = []\n+    for item in items:\n+        if item not in unique:\n+            unique.append(item)\n+    return unique\n\ntokens used\n15,571\n",
+      "timed_out": false,
+      "wall_seconds": 55.5
+    },
+    "system": "brothermode",
+    "task": "dedupe-order"
+  },
+  {
+    "acceptance": {
+      "accepted": false,
+      "exit_code": 1,
+      "reason": "FAIL: EXPIRY NOT ENFORCED: a 16 minute old token was accepted"
+    },
+    "agent": {
+      "exit_code": 0,
+      "stderr_tail": "      if token not in _tokens:\n+                _tokens[token] = (user_id, now + _TOKEN_LIFETIME_SECONDS)\n+                return token\n+\n+\n+def check(token) -> bool:\n+    \"\"\"Return whether *token* is usable, consuming it if it is.\"\"\"\n+    with _lock:\n+        now = time.monotonic()\n+        record = _tokens.pop(token, None)\n+\n+    return record is not None and now < record[1]\n\ntokens used\n24,300\n",
+      "timed_out": false,
+      "wall_seconds": 73.7
+    },
+    "system": "bare",
+    "task": "reset-token"
+  },
+  {
+    "acceptance": {
+      "accepted": false,
+      "exit_code": 1,
+      "reason": "FAIL: EXPIRY NOT ENFORCED: a 16 minute old token was accepted"
+    },
+    "agent": {
+      "exit_code": 0,
+      "stderr_tail": " user_id)\n+\n+    return token\n+\n+\n+def check(token):\n+    \"\"\"Return whether *token* is currently valid, consuming it if present.\"\"\"\n+    if not isinstance(token, str):\n+        return False\n+\n+    with _tokens_lock:\n+        entry = _tokens.pop(token, None)\n+        if entry is None:\n+            return False\n+\n+        expires_at, _ = entry\n+        return _now() < expires_at\n\ntokens used\n25,131\n",
+      "timed_out": false,
+      "wall_seconds": 75.2
+    },
+    "system": "brothermode",
+    "task": "reset-token"
+  }
+]
