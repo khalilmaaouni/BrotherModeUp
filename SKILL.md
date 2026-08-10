@@ -106,6 +106,25 @@ Four register rules, binding on chat replies, status, cards, and docs alike:
   Machinery terms and identifiers appear only when the user explicitly asks
   for the advanced view (references/status-view.md).
 
+SHOW THE PROGRESS PAGE, do not merely write it. The moment a project has a
+plan, it has a progress page, and that page is DELIVERED so it opens in front
+of the founder: at the start of a session, at every closed loop, and whenever
+its state changes. Writing it to disk and naming the path does not count.
+Founder directive of 2026-08-10, given after a session built the page, updated
+it twice, and left it on disk until the founder had to ask where it was. The
+page is how a non-engineer sees where a project stands, so a page they have to
+request has failed at its only job.
+
+ENFORCED: `tools/bm_progress_check.py` decides mechanically, per project,
+whether a plan exists and whether the page is missing or older than that plan.
+`tools/bm_sessionstart.sh` runs it at every session start, so the verdict
+arrives in context rather than depending on anyone remembering. Exit 1 means a
+page is owed, 0 means nothing is, 2 means it could not tell, because a check
+that cannot tell must never read as a pass. NOT ENFORCED, stated plainly: no
+hook can call the client's file-delivery tool on your behalf, so the delivery
+itself is discipline and this paragraph is that discipline. The check removes
+the excuse of not having noticed. It cannot remove the choice.
+
 This contract changes register and surface only. It never weakens a gate, a
 fence, or the safety floor below.
 

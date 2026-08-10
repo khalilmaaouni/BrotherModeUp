@@ -173,6 +173,18 @@ SUITES = (
     # and turned test_bm_docs red, exactly as the note two hundred lines above
     # says it would.
     "test_bm_lint_walltime.py",
+    # The progress-page check, added 2026-08-10 on a founder directive. The
+    # progress page is how a non-engineer founder sees where a project stands,
+    # and sessions kept BUILDING it and never SHOWING it, so it had to be
+    # asked for. tools/bm_progress_check.py decides mechanically, per project,
+    # whether a plan exists and whether the page is missing or older than that
+    # plan, and tools/bm_sessionstart.sh runs it at every session start so the
+    # verdict arrives in context instead of depending on memory. This suite
+    # holds its calibration, including the purity assertion: the tool must
+    # change zero bytes, because it runs on every single session start. NO
+    # APOSTROPHE ANYWHERE IN THIS COMMENT, ON PURPOSE (see the file-level note
+    # above).
+    "test_bm_progress_check.py",
     # The status line and footer links, the 2026-08-05 answer 7 named in
     # docs/program/absolute-lead/DESIGN-visual-surface.md section 14, item
     # 1: tools/bm_statusline.py, a fail silent script BrotherMode ships but
