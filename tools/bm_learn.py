@@ -912,8 +912,33 @@ def _retrieve_command(mode, argv):
 
 
 def cmd_lookup(argv):
-    """Read the founder rules. Writes NOTHING, ever. For human exploration and
-    for deciding whether a task needs the recorded path at all."""
+    """Read the founder rules. For human exploration and for deciding
+    whether a task needs the recorded path at all. Never RECORDS an
+    application (see _retrieve_command's own "LOOP P5 SPLIT" docstring for
+    why lookup and apply are split verbs rather than one command with an
+    opt-in flag).
+
+    CORRECTED 2026-08-11 (codex-audit-split-2026-08-10-night.md HIGH #1 for
+    tools/bm_effects.py, R4-TRIAGE-2026-08-11.md row 1). This said "Writes
+    NOTHING, ever", which was FALSE in the same way tools/bm_docs.py's
+    cmd_tier docstring was: _retrieve_command's shared `store = _store()`
+    opens a WRITABLE bm_store.Store even for this mode, so a lookup against
+    a database one schema version behind MIGRATES IT before ever reading a
+    rule. It is declared ledger_write in tools/bm_effects.py, the true
+    classification, not the flattering one.
+
+    OPEN, and named rather than left implied, exactly like tools/bm_docs.py's
+    cmd_tier: this SHOULD be read-only and cannot be yet.
+    retrieve_learning_rules (the only store method this mode's own path
+    calls, tools/bm_store.py:9530) exists on bm_store.Store only;
+    bm_store.ReadOnlyStore does not inherit from Store (they are unrelated
+    classes, both direct subclasses of object) and carries no
+    retrieve_learning_rules of its own, so swapping the constructor would
+    raise AttributeError on every normal invocation rather than only on the
+    behind-schema case. Adding a read-only retrieve_learning_rules to
+    ReadOnlyStore is what would close this, and that is a change to the
+    store's own public surface, which deserves its own review rather than
+    being smuggled in here."""
     return _retrieve_command("lookup", argv)
 
 

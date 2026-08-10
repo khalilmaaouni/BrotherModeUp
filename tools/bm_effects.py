@@ -119,11 +119,19 @@ class UndeclaredCommand(Exception):
 REGISTRY = {
 
     # -- bm_project.py --------------------------------------------------
-    # Module docstring (tools/bm_project.py:34) documents status, next,
-    # task list (via "review"/read accessors), alert list and forecast
-    # show as "read accessors only"; each calls _store() at :228, which
-    # is bs.Store(root, create=False) -- a writable Store, never
-    # ReadOnlyStore. Documented pure, currently writes.
+    # FIXED 2026-08-11 (codex-audit-split-2026-08-10-night.md HIGH #1 for
+    # tools/bm_effects.py, R4-TRIAGE-2026-08-11.md row 1). Module docstring
+    # (tools/bm_project.py:34) documents status, next, task list (via
+    # "review"/read accessors), alert list and forecast show as "read
+    # accessors only". status, next and forecast show used to call _store()
+    # (bs.Store(root, create=False), a writable Store, never ReadOnlyStore)
+    # and were declared pure_read anyway: documented pure, actually wrote,
+    # demonstrated by tools/test_bm_effects.py's
+    # TestPurityUnderAStoreThatIsBehind migrating a behind-schema store
+    # through all three. All three now call _read_store()
+    # (bs.ReadOnlyStore) instead; alert list already did (see its own
+    # comment below), and this declaration is therefore now true rather
+    # than aspirational.
     "bm_project.py": {
         "status": PURE_READ,
         "next": PURE_READ,
@@ -150,32 +158,55 @@ REGISTRY = {
     # Never touches the mode file", then opens a writable
     # `_store().Store(root, create=False)` at :548 whenever it needs to
     # count active threads. Both documented pure, both currently write.
+    # off/start/checkpoint/decide/send/park/resume/complete/adopt
+    # RECLASSIFIED 2026-08-11 (codex-audit-split-2026-08-10-night.md MEDIUM
+    # #6, R4-TRIAGE-2026-08-11.md row 1): each of these regenerates a real
+    # project file on disk (STATE.md via _refresh_root_view, inbox.md,
+    # outbox.md or digest.md), not only a store row -- see
+    # tools/bm_threads.py:748 (start's STATE.md refresh), :821 (checkpoint's
+    # digest.md/outbox.md), :888 (send's inbox.md), and the shared
+    # _transition_cmd/_refresh_root_view path park/resume/complete/adopt all
+    # go through. project_write is the class the registry's own THE FIVE
+    # EFFECT CLASSES above defines for exactly this: "(re)generates a file
+    # on disk that a project or the founder reads later". "on" is untouched
+    # by this finding (the audit does not name it, and it only ever writes
+    # thread-mode.json, never STATE.md/inbox/outbox/digest) and stays
+    # ledger_write.
     "bm_threads.py": {
         "dashboard": PURE_READ,
         "recommend": PURE_READ,
         "on": LEDGER_WRITE,
-        "off": LEDGER_WRITE,
-        "start": LEDGER_WRITE,
-        "checkpoint": LEDGER_WRITE,
-        "decide": LEDGER_WRITE,
-        "send": LEDGER_WRITE,
-        "park": LEDGER_WRITE,
-        "resume": LEDGER_WRITE,
-        "complete": LEDGER_WRITE,
-        "adopt": LEDGER_WRITE,
+        "off": PROJECT_WRITE,
+        "start": PROJECT_WRITE,
+        "checkpoint": PROJECT_WRITE,
+        "decide": PROJECT_WRITE,
+        "send": PROJECT_WRITE,
+        "park": PROJECT_WRITE,
+        "resume": PROJECT_WRITE,
+        "complete": PROJECT_WRITE,
+        "adopt": PROJECT_WRITE,
     },
 
     # -- bm_learn.py ------------------------------------------------------
-    # lookup's own docstring (:915) says "Writes NOTHING, ever"; its body
-    # calls _retrieve_command, which reaches _store() at :159 -- a
-    # writable Store. Documented pure, currently writes. Every other
-    # command in this file is a knowledge-base mutation (capture a
-    # candidate, approve or reject it, promote or cancel it, link,
-    # merge, supersede, note) or a query that was never itself documented
-    # as read-only, so it is registered as the record-writing class
-    # rather than invented into pure_read on no evidence.
+    # lookup RECLASSIFIED 2026-08-11 (codex-audit-split-2026-08-10-
+    # night.md HIGH #1 for tools/bm_effects.py, R4-TRIAGE-2026-08-11.md row
+    # 1), mirroring tools/bm_docs.py's cmd_tier precedent (commit d9d8003):
+    # its own docstring used to say "Writes NOTHING, ever"; its body calls
+    # _retrieve_command, which reaches _store() at :159 -- a writable
+    # Store, always, even for this mode. The docstring is now corrected
+    # (see cmd_lookup) rather than left false, and this row now says the
+    # true class. It SHOULD be pure_read and is not yet, for the exact same
+    # reason bm_docs.py's tier is not: the store method its own path calls
+    # (retrieve_learning_rules) exists on bm_store.Store only, not on
+    # bm_store.ReadOnlyStore, and adding it is a bm_store.py change out of
+    # this fix's scope. Every other command in this file is a
+    # knowledge-base mutation (capture a candidate, approve or reject it,
+    # promote or cancel it, link, merge, supersede, note) or a query that
+    # was never itself documented as read-only, so it stays registered as
+    # the record-writing class rather than invented into pure_read on no
+    # evidence.
     "bm_learn.py": {
-        "lookup": PURE_READ,
+        "lookup": LEDGER_WRITE,
         "capture": LEDGER_WRITE,
         "note": LEDGER_WRITE,
         "notes": LEDGER_WRITE,
@@ -246,11 +277,21 @@ REGISTRY = {
     },
 
     # -- bm_packs.py --------------------------------------------------------
-    # stakes' own docstring (:1079) says "Generates nothing (spec A.2:
-    # nothing until asked)"; its body calls _store() at :1088, a writable
-    # Store. Documented pure, currently writes.
+    # stakes RECLASSIFIED 2026-08-11 (codex-audit-split-2026-08-10-
+    # night.md HIGH #1 for tools/bm_effects.py, R4-TRIAGE-2026-08-11.md row
+    # 1), mirroring tools/bm_docs.py's cmd_tier precedent (commit d9d8003):
+    # its own docstring says "Generates nothing (spec A.2: nothing until
+    # asked)" -- true about the pack FILE, but its body still calls
+    # _store() at :1086/:1120/:1189, a writable Store, always. The
+    # docstring is now corrected (see cmd_stakes) to say so plainly, and
+    # this row now says the true class. It SHOULD be pure_read and is not
+    # yet, for the same reason bm_learn.py's lookup is not: the store
+    # methods its own path calls (get_learning_candidate, blocking_alerts,
+    # gate_change_set) exist on bm_store.Store only, and adding read-only
+    # counterparts to bm_store.ReadOnlyStore is a bm_store.py change out of
+    # this fix's scope.
     "bm_packs.py": {
-        "stakes": PURE_READ,
+        "stakes": LEDGER_WRITE,
         "pack": PROJECT_WRITE,
         "review": PROJECT_WRITE,
     },
@@ -303,12 +344,24 @@ REGISTRY = {
     # -- bm_controller.py -----------------------------------------------
     # status uses _read_store() -> bs.ReadOnlyStore (:4468); its own
     # docstring calls it "the one command that never writes".
+    #
+    # start, step and record-result RECLASSIFIED 2026-08-11 (codex-audit-
+    # split-2026-08-10-night.md HIGH #4, R4-TRIAGE-2026-08-11.md row 1):
+    # they can run the subprocess-backed checker (its one execution
+    # primitive is Runner.run at tools/bm_controller.py:306, a real
+    # subprocess.run) through the check-execution path at :307-:1248, and
+    # unattended start/step additionally runs a real fence-canary
+    # subprocess (:5068). The five effect classes above define any
+    # subprocess spawn as external_write, which is a bigger effect than the
+    # ledger_write these three used to claim, not a smaller one; plan,
+    # stop, adopt, resume and complete are untouched by this finding and
+    # stay ledger_write.
     "bm_controller.py": {
         "status": PURE_READ,
-        "start": LEDGER_WRITE,
-        "step": LEDGER_WRITE,
+        "start": EXTERNAL_WRITE,
+        "step": EXTERNAL_WRITE,
         "plan": LEDGER_WRITE,
-        "record-result": LEDGER_WRITE,
+        "record-result": EXTERNAL_WRITE,
         "stop": LEDGER_WRITE,
         "adopt": LEDGER_WRITE,
         "resume": LEDGER_WRITE,
@@ -333,13 +386,22 @@ REGISTRY = {
     # alert passes write=False (:1360) -> ReadOnlyStore. doorway and
     # explain touch no store and open no file at all (verified: neither
     # function's body references _store_or_refuse, Store, or open()).
+    #
+    # url RECLASSIFIED 2026-08-11, DOWN from project_write (codex-audit-
+    # split-2026-08-10-night.md LOW #7, R4-TRIAGE-2026-08-11.md row 1):
+    # without --set it opens ReadOnlyStore (write=bool(kv.get("set")) at
+    # :1236) and only ever reads; with --set, cmd_url's own body (:1259)
+    # calls store.record_view(...), one store row, and generates no file
+    # anywhere in the function. project_write was conservative rather than
+    # measured; ledger_write is what this command's actual maximum effect
+    # is.
     "bm_view.py": {
         "alert": PURE_READ,
         "doorway": PURE_READ,
         "explain": PURE_READ,
         "render": PROJECT_WRITE,
         "brief-page": PROJECT_WRITE,
-        "url": PROJECT_WRITE,  # dual-mode: --set records a view row
+        "url": LEDGER_WRITE,  # dual-mode: --set records a view row, no file
     },
 
     # -- bm_ledger.py -----------------------------------------------------
@@ -394,19 +456,32 @@ REGISTRY = {
     # ReadOnlyStore, never creating the thing it is diagnosing".
     # dashboard (:18077) calls _refresh_state_view, an unconditional
     # write to STATE.md, so it is a real write despite reading first.
+    #
+    # claim/park/resume/complete/adopt/checkpoint/decide/handover-ack
+    # RECLASSIFIED 2026-08-11 (codex-audit-split-2026-08-10-night.md
+    # MEDIUM #6, R4-TRIAGE-2026-08-11.md row 1): every one of them calls
+    # _refresh_state_view(root) (claim at :17922 and :17984, park/resume/
+    # complete/adopt via the shared _cmd_transition at :17984, checkpoint
+    # at :18040, decide at :18072, handover-ack at :18157), which
+    # regenerates the real project file STATE.md, not only a store row.
+    # project_write is what the registry's own THE FIVE EFFECT CLASSES
+    # above defines for exactly this. init is untouched by this finding
+    # (it creates the store itself, which is a bigger effect already
+    # covered by ledger_write's "lifecycle... records through the store",
+    # and the audit does not name it) and stays ledger_write.
     "bm_store.py": {
         "dump": PURE_READ,
         "handovers": PURE_READ,
         "verify": PURE_READ,
         "init": LEDGER_WRITE,
-        "claim": LEDGER_WRITE,
-        "park": LEDGER_WRITE,
-        "resume": LEDGER_WRITE,
-        "complete": LEDGER_WRITE,
-        "adopt": LEDGER_WRITE,
-        "checkpoint": LEDGER_WRITE,
-        "decide": LEDGER_WRITE,
-        "handover-ack": LEDGER_WRITE,
+        "claim": PROJECT_WRITE,
+        "park": PROJECT_WRITE,
+        "resume": PROJECT_WRITE,
+        "complete": PROJECT_WRITE,
+        "adopt": PROJECT_WRITE,
+        "checkpoint": PROJECT_WRITE,
+        "decide": PROJECT_WRITE,
+        "handover-ack": PROJECT_WRITE,
         "dashboard": PROJECT_WRITE,
     },
 
@@ -417,8 +492,18 @@ REGISTRY = {
     # (:1060) calls session_label() -> ensure_token(), which writes a
     # token file (:318-319) when one does not exist yet; whoami (:1104)
     # delegates straight to cmd_session_label and inherits that write.
+    #
+    # hook RECLASSIFIED 2026-08-11 (codex-audit-split-2026-08-10-night.md
+    # HIGH #2, R4-TRIAGE-2026-08-11.md row 1), demonstrated by
+    # tools/test_bm_effects.py's TestPurity with a real write-shaped
+    # payload against a store that holds an active claim: decide() (:817)
+    # calls active_claims() (:734), and once that returns at least one row
+    # it calls session_label() (:912-913) UNCONDITIONALLY, before ever
+    # checking whether the target path overlaps the claim, which creates
+    # the fence token file exactly like cmd_session_label below. This
+    # matches session-label's own classification: ledger_write.
     "bm_fence_hook.py": {
-        "hook": PURE_READ,
+        "hook": LEDGER_WRITE,
         "session-label": LEDGER_WRITE,
         "whoami": LEDGER_WRITE,
     },
@@ -442,16 +527,30 @@ REGISTRY = {
     # loads and calls the real adapter's main(), so its class mirrors
     # the adapter it delegates to. update spawns `git ls-remote` and
     # makes an outbound network request (:401).
+    #
+    # doctor and recover RECLASSIFIED 2026-08-11 (codex-audit-split-2026-08-
+    # 10-night.md HIGH #3 and #5, R4-TRIAGE-2026-08-11.md row 1). doctor
+    # delegates to scripts/doctor.py, whose checks spawn real subprocesses
+    # (scripts/doctor.py:267) and can create a temporary project and file
+    # (scripts/doctor.py:279); the registry's own THE FIVE EFFECT CLASSES
+    # above defines any subprocess spawn as external_write, and "read-only"
+    # in its old comment here was the same kind of aspirational label the
+    # rest of this audit corrects rather than a measured fact. recover
+    # delegates to bm_autosave's recovery path (tools/brothermode_cli.py:
+    # 291), which invokes Git via subprocess and, when a snapshot exists,
+    # creates a temporary worktree (tools/bm_autosave.py:1821) -- also
+    # external_write, and a bigger effect than the project_write this row
+    # used to claim, not a smaller one.
     "brothermode_cli.py": {
         "status": PURE_READ,     # -> bm_lead.py status
         "next": PURE_READ,       # -> bm_project.py next
-        "doctor": PURE_READ,     # -> scripts/doctor.py, "read-only"
+        "doctor": EXTERNAL_WRITE,  # -> scripts/doctor.py, spawns subprocesses
         "version": PURE_READ,    # reads the installed VERSION file
         "start": LEDGER_WRITE,   # -> bm_project.py start
         "review": LEDGER_WRITE,  # -> bm_project.py review
         "deliver": LEDGER_WRITE,  # -> bm_project.py deliver
         "view": PROJECT_WRITE,   # -> bm_view.py render
-        "recover": PROJECT_WRITE,  # -> bm_autosave.py's recovery read path
+        "recover": EXTERNAL_WRITE,  # -> bm_autosave.py: git subprocess, temp worktree
         "continue": EXTERNAL_WRITE,  # -> bm_continue.py continue
         "update": EXTERNAL_WRITE,
     },
