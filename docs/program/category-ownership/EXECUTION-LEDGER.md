@@ -23,8 +23,8 @@ vault session log.
 | R0 re-baseline | GREEN LOCAL | this file; baseline paragraph above, derived from commands this session ran |
 | R1 effect findings (GAP-01, 02) | GREEN FULL GATE | L2H landed, RED seen first; full gate ALL GREEN at 27a9719 (2949 tests, 30 suites, exit 0), sentinel read by the orchestrator |
 | R2 release truth gate (GAP-49) | GREEN LOCAL | refute pass and cross-family audit already ran tonight at 134839c and are triaged in R4-TRIAGE-2026-08-11.md; R2 requires re-running the gate chain on the post-R1 SHA, and the tag stays a founder gate |
-| SD stall detector (GAP-13) | NOT STARTED | step plan exists (PROGRAM-PLAN-2026-08-10.md Loop SD); queued behind L2H in Lane A tonight |
-| CC generated command center (GAP-14, 19) | NOT STARTED | S1 to S7 spec approved; interim hand page ships meanwhile and deletes at S7 |
+| SD stall detector (GAP-13) | GREEN FULL GATE | built RED first, landed, wired at session start, all four places registered; gate ALL GREEN at d7dc252 (2966 tests, 31 suites, exit 0) |
+| CC generated command center (GAP-14, 19) | NOT STARTED | DECISION 04:3x: not opened tonight; its 1.5 to 3 day size cannot close before the 07:00 stop, and a loop that cannot close does not open. First item for the next working session after the tag |
 | E1 write containment (GAP-03, 04, 17, 38) | NOT STARTED | new in this program: needs a Fable architecture spike before any builder; NOT overnight work |
 | A1 authority language (GAP-05) | NOT STARTED | decision gate Option A vs B; founder-facing wording change, morning work |
 | G1 governor (GAP-06, 07, 39, 40) | NOT STARTED | draft docs/plan/loops/LOOP-G1-governor.md filed tonight, awaiting morning strongest-tier review |
