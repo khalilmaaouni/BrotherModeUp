@@ -22,6 +22,19 @@ fi
 
 cat "$DIR/DIGEST.md" 2>/dev/null
 python3 "$DIR/tools/bm_telemetry.py" startup-nags 2>/dev/null
+# PROGRESS PAGE OWED (founder directive 2026-08-10). The founder's progress
+# page is how a non-engineer sees where a project stands, and sessions kept
+# building it and never showing it, so it had to be asked for. This prints one
+# line ONLY when a plan exists and the page is missing or older than that plan;
+# it is silent otherwise, because a nag that fires every session stops being
+# read. Silent on exit 0 (nothing owed) and on exit 2 (could not tell, which is
+# reported by the tool itself when it is a real NO-DATA rather than a missing
+# file). The `|| true` and the 2>/dev/null are deliberate and this script's own
+# header says why: SessionStart MUST always exit 0, so a tool that is absent on
+# an older install, or that somehow crashes, can never take a session down with
+# it. That is a fail-open by choice: this check exists to remove the excuse of
+# not having noticed, never to become a new way for a session to die.
+python3 "$DIR/tools/bm_progress_check.py" status 2>/dev/null || true
 python3 "$DIR/tools/bm_telemetry.py" check-update 2>/dev/null
 # If this session resumed from a compaction, point it at the autosave.
 printf '%s' "$PAYLOAD" | python3 "$DIR/tools/bm_telemetry.py" compact-hint 2>/dev/null

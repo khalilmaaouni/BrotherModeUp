@@ -161,6 +161,15 @@ jobs:
         run: python3 tools/test_bm_lint_walltime.py
       - name: Refuse absolute wall-clock assertions in tests
         run: python3 tools/bm_lint_walltime.py tools/ scripts/
+      # The progress-page check, added 2026-08-10 on a founder directive. It
+      # decides mechanically whether a project has a plan whose progress page
+      # is missing or stale, and tools/bm_sessionstart.sh runs it at every
+      # session start. This step runs its calibration suite, which includes the
+      # assertion that the tool changes zero bytes: it executes on every
+      # session start on this machine, so a tool that wrote anything there
+      # would be writing constantly and invisibly.
+      - name: Run the progress-page check calibration suite
+        run: python3 tools/test_bm_progress_check.py
       # The status line and footer links, the 2026-08-05 answer 7 named in
       # docs/program/absolute-lead/DESIGN-visual-surface.md section 14,
       # item 1: tools/bm_statusline.py is a fail silent script BrotherMode

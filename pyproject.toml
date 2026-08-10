@@ -125,6 +125,7 @@ py-modules = [
     "bm_hookbench",
     "bm_statusline",
     "bm_lint_walltime",
+    "bm_progress_check",
 ]
 # brotherme/core/schema.py is library code tools/bm_store.py loads by path
 # (see _schema() there); without this the wheel/sdist never contain it and
