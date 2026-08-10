@@ -323,3 +323,67 @@ than weaker: this is the agent layer that publishes the defects its own checks
 find in itself. Today those checks refused their own author four separate times,
 and the single most valuable finding of the night was that one of my own tests
 could not see the defect it was written for.
+
+---
+
+# 10. CLOSE-OUT, appended at session end
+
+## What closed after the body above was written
+
+LOOPS 2 AND 5 ARE CLOSED, by the full gate on a committed clean tree:
+`test_all: 2944 tests across 30 suites, 9 skipped, 622.5s wall. ALL GREEN`,
+exit 0, at `1c6fcf4`, HEAD re-checked afterwards and unmoved. Suite count 29 to
+30 is the effect-class suite arriving.
+
+Three commands documented as read accessors stopped migrating a behind-schema
+database. `bm_threads.py dashboard` now checks `--help` before doing any work
+and no longer rewrites STATE.md. `bm_docs.py tier` was CORRECTED rather than
+fixed: its "Writes nothing" docstring was false, it is now declared
+ledger_write, and making it genuinely read-only needs three pure-read methods
+added to ReadOnlyStore, named as open work in both files.
+
+A SIXTH stale fence was closed to land the canary's founder-facing rewrite, and
+STATE.md held TWO copies of that fence line, so marking the first left the
+second still refusing. Identical to the SKILL.md trap earlier the same day.
+
+## LOOP 6 WAS ATTEMPTED AND DID NOT COMPLETE. THIS IS NOT A PASS.
+
+`codex exec` was invoked with a scoped read-only brief over the four files that
+landed tonight. It was KILLED BY A TEN MINUTE TIMEOUT having written ZERO
+findings. `docs/evidence/v3.1.0/codex-audit-2026-08-10-evening.md` records the
+attempt and states plainly that nothing was checked.
+
+ESTABLISHED: Codex is reachable. `codex --version` reports `codex-cli 0.146.0`
+and an alive probe returned `CODEX_ALIVE` immediately beforehand.
+NOT ESTABLISHED: anything about the four files.
+
+Founder decision D8 holds the tag on an unresolved CRITICAL or HIGH from a
+cross-family audit. That decision assumes an audit RAN. It did not, so D8 is
+NOT satisfied and the tag is not eligible.
+
+WHAT TO DO DIFFERENTLY: the brief asked one bounded call to read four files and
+reason about overclaim, misclassification, test reachability and lint evasion.
+Split it, one invocation per file with its own output file, so a timeout costs
+one file rather than all four. If only one runs, run the first: does the live
+deny canary's wording overclaim what it can prove.
+
+## Watchdog DISARMED at session end
+
+Cron `61f6f103` deleted. Monitor `brntx10kq` stopped. Nothing this session armed
+is still running. A successor must arm its own, and should fix the
+foreign-commit self-detection noted in section 4 when it does.
+
+## Fences: ZERO left open by this session
+
+All six closed with evidence: `dashboard-spec`, `effect-classes-registry`,
+`live-deny-canary`, `readme-claim-narrowing`, `release-v310-plan`,
+`security-verb-drift`. The next session inherits none of mine.
+
+The six STALE fences from OTHER dead sessions that this session cleared by hand
+are a different matter, and the gap that produced them is still unowned.
+
+## The single next action
+
+Run the Codex audit properly, one file per invocation, starting with
+`tools/bm_controller.py`. Until it produces findings, the tag is not eligible
+under the founder's own decision.
