@@ -157,6 +157,22 @@ SUITES = (
     # about how long they took, only that the page is generated from a real
     # run and refuses the numbers it cannot take honestly.
     "test_bm_hookbench.py",
+    # The wall-clock lint and its own calibration, added 2026-08-10. It is the
+    # machine that refuses the single most frequent defect in the recorded
+    # history of this repository: a test asserting an absolute wall-clock
+    # duration, which measures the HOST rather than the code and goes red on a
+    # busy laptop while nothing changed. Found and fixed SEVEN separate times
+    # in ten days by seven different people; review caught it every time and
+    # prevented it zero times, which is the whole argument for a lint over
+    # more care. Placed beside the two benchmark suites because it is the rule
+    # those suites are the sanctioned exception to: the allow list names them,
+    # so an absolute ceiling stays legal exactly where timing IS the
+    # measurement and nowhere else. NO APOSTROPHE ANYWHERE IN THIS COMMENT, ON
+    # PURPOSE (see the file-level note above). Written once with an apostrophe
+    # on 2026-08-10, which made the fact loader read a bare s as a suite name
+    # and turned test_bm_docs red, exactly as the note two hundred lines above
+    # says it would.
+    "test_bm_lint_walltime.py",
     # The status line and footer links, the 2026-08-05 answer 7 named in
     # docs/program/absolute-lead/DESIGN-visual-surface.md section 14, item
     # 1: tools/bm_statusline.py, a fail silent script BrotherMode ships but

@@ -147,6 +147,20 @@ jobs:
       # tool spawns no process. Stdlib only and filesystem only.
       - name: Run the hook cost benchmark suite
         run: python3 tools/test_bm_hookbench.py
+      # The wall-clock lint, added 2026-08-10, and it BLOCKS. It refuses a test
+      # that asserts an absolute wall-clock duration outside the benchmark
+      # modules its allow list names, because such a test measures this runner
+      # rather than the code and goes red on a busy machine while nothing
+      # changed. That defect was found and fixed seven separate times in ten
+      # days here; review never once prevented it, which is why the check is a
+      # machine now. Two steps on purpose: the first proves the lint itself
+      # still catches what it must and spares what it must, the second runs it
+      # over the tree. A lint whose own calibration is not asserted can rot
+      # into one that flags nothing and reads as clean forever.
+      - name: Run the wall-clock lint calibration suite
+        run: python3 tools/test_bm_lint_walltime.py
+      - name: Refuse absolute wall-clock assertions in tests
+        run: python3 tools/bm_lint_walltime.py tools/ scripts/
       # The status line and footer links, the 2026-08-05 answer 7 named in
       # docs/program/absolute-lead/DESIGN-visual-surface.md section 14,
       # item 1: tools/bm_statusline.py is a fail silent script BrotherMode
