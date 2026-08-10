@@ -2927,6 +2927,24 @@ REFUSAL_HELP = {
         "most often",
         "Turn the stricter setting on in the same terminal you start the "
         "run from, then start again: export BM_FENCE_STRICT=1"),
+    # Added 2026-08-10 with the live deny canary, the eighth unattended
+    # precondition. The two entries above prove the SETTINGS meant to turn the
+    # fence on are set; this one proves the hook actually REFUSES, by running
+    # it. The wording deliberately stops at the hook: it cannot prove the
+    # runtime will call it, which is exactly the Codex gap, and claiming
+    # otherwise here would be the defect the canary exists to close.
+    "unattended-fence-not-proven": (
+        "checking that the write fence actually refuses a write, by running "
+        "it, not only that the settings meant to turn it on are set",
+        "the fence hook's refusal could not be shown by actually running it: "
+        "either it ran and let a foreign write through, or it could not be "
+        "run and checked here at all, and the detail line below tells those "
+        "two apart",
+        "read the detail line: if the hook ran and did not refuse, that is a "
+        "defect in tools/bm_fence_hook.py to fix before running unattended; "
+        "if it could not be run at all, fix that first. Either way, this only "
+        "checks the hook binary itself: it cannot prove that the runtime you "
+        "are about to run under actually calls it on every write it makes."),
     "unattended-foreign-claim": (
         "checking that nobody else is holding the files this run will "
         "write",
