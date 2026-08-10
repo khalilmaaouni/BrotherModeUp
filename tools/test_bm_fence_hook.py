@@ -1447,24 +1447,150 @@ class WireProtocol(FenceHookBase):
 # ---------------------------------------------------------------------------
 
 class Cost(FenceHookBase):
+    """FIXED 2026-08-10. This class used to hold one test,
+    test_decision_is_cheap_with_a_realistic_fence, which ran decide() fifty
+    times and asserted the mean stayed under 50 ms of real wall clock. That
+    asserts a fact about the MACHINE, not about the hook: on a laptop running
+    several sessions the scheduler alone can push a correct decide() past 50
+    ms, and the test goes red while nothing is wrong. The same defect class
+    was fixed in tools/test_bm.py's redaction tests (2026-07-31 and
+    2026-08-04) and in the doctor forwarding test (b3227ed, 2026-08-08).
 
-    def test_decision_is_cheap_with_a_realistic_fence(self):
-        import time
+    The cheapness that actually matters here is not "fewer than 50 ms", which
+    nobody chose and no requirement names. It is that a decision costs the
+    SAME no matter how big the fence is, because this gate runs in front of
+    every edit the founder makes and the store grows all day. That is a
+    deterministic operation count, so it is counted rather than timed: no
+    stopwatch, no load sensitivity, no flake. Measured 2026-08-10 with 1, 20
+    and 80 active records: one ReadOnlyStore open and one SQL statement,
+    identical at all three sizes.
+
+    test_calibrated_a_per_record_store_open_is_caught below is the proof that
+    this counting instrument reaches the defect it exists to catch."""
+
+    #: Every count a healthy decision is allowed to spend, whatever the fence
+    #: holds. Both are 1 because active_claims() opens the store once and
+    #: reads every fenced path in a single SELECT; the per-target work after
+    #: that is pure string comparison in bs.paths_overlap.
+    EXPECTED = {"store_opens": 1, "sql_statements": 1}
+
+    def _cost_of_one_decision(self, n_records, sabotage=False):
+        """Count the store work ONE decide() spends against n active records.
+
+        Instruments the store module the HOOK loaded, which is a different
+        module object from this file's `bs`: bm_fence_hook._load_store_module
+        execs tools/bm_store.py itself and caches its own copy, so patching
+        `bs` here would count nothing. Restored in a finally block, and
+        test_cost_instrumentation_is_reverted_afterwards below fails by name
+        if that restore ever breaks."""
         mine = self.label(self.VICTIM)
         with bs.Store(self.root, create=False) as store:
-            for i in range(20):
+            for i in range(n_records):
                 store.claim("rec%d" % i, "ephemeral",
                             files=["area%d/*.py" % i], session_id=mine)
         p = payload(self.OTHER, self.root,
                     tool_input={"file_path": "src/app.py"})
+        hookbs = fh._load_store_module()
+        # One warm decision first: the first call materializes this session's
+        # fence token, which is a one-time cost and not part of the steady
+        # state this measures.
         self.decide(p)
-        t0 = time.perf_counter()
-        for _ in range(50):
+        counts = {"store_opens": 0, "sql_statements": 0}
+        real_exec = hookbs._exec
+        real_store = hookbs.ReadOnlyStore
+        real_overlap = hookbs.paths_overlap
+
+        def counting_exec(store, sql, *a, **kw):
+            counts["sql_statements"] += 1
+            return real_exec(store, sql, *a, **kw)
+
+        def counting_store(*a, **kw):
+            counts["store_opens"] += 1
+            return real_store(*a, **kw)
+
+        def per_record_store_open(rel, path):
+            # The reinjected defect: a store touched once per fenced record,
+            # inside the loop decide() runs over every active claim.
+            opened = counting_store(self.root)
+            try:
+                return real_overlap(rel, path)
+            finally:
+                opened.close()
+
+        hookbs._exec = counting_exec
+        hookbs.ReadOnlyStore = counting_store
+        if sabotage:
+            hookbs.paths_overlap = per_record_store_open
+        try:
             self.decide(p)
-        per_call_ms = (time.perf_counter() - t0) / 50 * 1000.0
-        self.assertLess(per_call_ms, 50.0,
-                        "decide() took %.2f ms per call with 20 active "
-                        "records; it runs in front of every edit" % per_call_ms)
+        finally:
+            hookbs._exec = real_exec
+            hookbs.ReadOnlyStore = real_store
+            hookbs.paths_overlap = real_overlap
+        return counts
+
+    def test_a_decision_costs_the_same_however_large_the_fence_is(self):
+        # The property, stated as the thing that must not happen: adding
+        # records to the fence must not add store work to a decision. Twenty
+        # records is the realistic fence the old timing test used; one record
+        # is the floor, and the counts must be the SAME number, not merely
+        # both small.
+        one = self._cost_of_one_decision(1)
+        self.tearDown()
+        self.setUp()
+        twenty = self._cost_of_one_decision(20)
+        self.assertEqual(one, self.EXPECTED,
+                         "a decision against 1 active record spent %r, "
+                         "expected %r" % (one, self.EXPECTED))
+        self.assertEqual(twenty, one,
+                         "a decision against 20 active records spent %r "
+                         "where 1 record spent %r; decide() runs in front of "
+                         "every edit, so its cost must not grow with the "
+                         "fence" % (twenty, one))
+
+    def test_calibrated_a_per_record_store_open_is_caught(self):
+        # CALIBRATION for the test above, and the part that is usually
+        # skipped: a counter nobody has seen move measures nothing. Reinject
+        # the defect the count exists to catch (a store operation per fenced
+        # record, the classic way a gate like this turns from constant into
+        # linear) and the count must move, at 20 records more than at 1.
+        #
+        # Measured 2026-08-10: healthy gave 1 store open at 1, 20 and 80
+        # records; reinjected gave 2 opens at 1 record and 21 at 20 records.
+        # If this ever stops reproducing, the assertion above is no longer
+        # attached to anything and is passing for free.
+        one = self._cost_of_one_decision(1, sabotage=True)
+        self.tearDown()
+        self.setUp()
+        twenty = self._cost_of_one_decision(20, sabotage=True)
+        self.assertNotEqual(
+            twenty, one,
+            "REINJECTION CHECK: a store open per fenced record must make the "
+            "cost of a decision grow with the fence. 1 record spent %r and "
+            "20 spent %r; equal counts mean the instrument above cannot see "
+            "this defect class at all" % (one, twenty))
+        self.assertGreater(
+            twenty["store_opens"], one["store_opens"] + 10,
+            "REINJECTION CHECK: 20 records must cost far more store opens "
+            "than 1 under the reinjected defect; got %r against %r"
+            % (twenty, one))
+
+    def test_cost_instrumentation_is_reverted_afterwards(self):
+        # The two tests above swap three real symbols on the store module the
+        # hook loaded, and restore them in finally blocks. If a restore ever
+        # broke, every later fence test in this process would run against a
+        # counting wrapper (or worse, the sabotage) and could pass or fail for
+        # reasons that have nothing to do with the code under test. Same guard
+        # tools/test_bm.py keeps beside its redaction reinjection.
+        hookbs = fh._load_store_module()
+        for name in ("_exec", "ReadOnlyStore", "paths_overlap"):
+            fn = getattr(hookbs, name)
+            self.assertNotIn(
+                "counting", getattr(fn, "__name__", ""),
+                "bm_store.%s is still the test's instrumented wrapper" % name)
+            self.assertNotIn(
+                "per_record", getattr(fn, "__name__", ""),
+                "bm_store.%s is still the reinjected defect" % name)
 
 
 # ---------------------------------------------------------------------------

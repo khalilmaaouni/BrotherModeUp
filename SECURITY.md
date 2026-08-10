@@ -164,6 +164,28 @@ python3 tools/bm_telemetry.py purge-corrections --yes  # deletes it
 To disable correction capture entirely, remove the `SessionEnd` hook. You lose
 the automatic capture half of the learning loop; everything else keeps working.
 
+## The outcome benchmark DOES cause network calls, and it is the one exception
+
+Added 2026-08-10, stated plainly rather than tucked into a list. Every other
+sentence on this page is about tools that run on their own, through a hook,
+without anybody asking. `tools/bm_bench.py` is not one of those. It is run
+deliberately by a person, never by a hook, and it invokes an AI coding agent
+as a subprocess in order to measure it. That agent makes network calls, so
+running the benchmark causes network traffic.
+
+There is no way around that and no reason to want one: measuring whether an
+agent delivers an outcome requires running the agent. What matters is that the
+claim above is SCOPED rather than absolute, and that this exception is written
+where a reader will find it instead of living only in a test allowlist. The
+mechanical check in `tools/test_bm.py`
+(`test_no_network_claim_is_mechanically_true`) names this file by name, per
+module, so a second tool cannot quietly inherit the exception.
+
+What the benchmark does NOT do: it sends nothing of yours anywhere. It copies a
+task fixture into a throwaway directory, runs the agent there, applies a hidden
+acceptance test after the agent exits, and deletes the directory. Your project,
+your store and your vault are never in its working directory.
+
 ## The autosave makes no network call either
 
 `tools/bm_autosave.py` runs on the PreCompact hook (right before Claude Code

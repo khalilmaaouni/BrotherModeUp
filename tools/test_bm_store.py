@@ -11533,17 +11533,116 @@ class TestLoop11ExportWithholdingPolicy(unittest.TestCase):
                           "the tail")
         self.assertEqual(bs.mask_absolute_paths(path), bs.PATH_WITHHELD_MARKER)
 
-    def test_mask_absolute_paths_stays_linear_on_long_input(self):
-        """Workstream D asks for a redaction ceiling. A 400k-character worst
-        case (one enormous non-ASCII path, then path-dense prose) must stay
-        far under a second: catastrophic backtracking would blow past it."""
-        for big in ("/Users/" + "\u00fc" * 200000,
-                    "/Users/jane/clients/acme-deal notes here " * 10000):
+    def _mask_time(self, text, samples=5):
+        """Minimum of five samples, the same estimator and for the same
+        reason as tools/test_bm.py's redaction timings (C-11, 2026-08-04):
+        scheduling noise can only ADD latency to a sample, never remove it,
+        so the minimum converges on the true unloaded cost and one stall
+        cannot land on one size alone."""
+        best = None
+        for _ in range(samples):
             start = time.time()
-            bs.mask_absolute_paths(big)
+            bs.mask_absolute_paths(text)
             elapsed = time.time() - start
-            self.assertLess(elapsed, 2.0,
-                            "masking %d chars took %.2fs" % (len(big), elapsed))
+            if best is None or elapsed < best:
+                best = elapsed
+        return best
+
+    #: The two worst-case shapes, each built at a size the caller chooses so
+    #: the same shape can be measured twice. Shape 1 is one enormous
+    #: non-ASCII path; shape 2 is path-dense prose.
+    _MASK_SHAPES = (
+        ("one long non-ASCII path", lambda n: "/Users/" + "\u00fc" * n),
+        ("path-dense prose",
+         lambda n: "/Users/jane/clients/acme-deal notes here " * n),
+    )
+
+    def test_mask_absolute_paths_stays_linear_on_long_input(self):
+        """Workstream D asks for a redaction ceiling on the 400k-character
+        worst case: catastrophic backtracking must not be able to hide in
+        mask_absolute_paths.
+
+        FIXED 2026-08-10. This asserted `elapsed < 2.0` on ONE wall-clock
+        sample, which is an assertion about the MACHINE rather than about the
+        regex: on a laptop running several sessions a correct masker goes
+        past two seconds and the test is red while nothing is wrong. The same
+        defect class was removed from tools/test_bm.py's redaction tests on
+        2026-07-31 and 2026-08-04, and their comments already say why a ratio
+        beats an absolute ceiling: four times the input is about four times
+        the work when linear and about sixteen times when quadratic, and both
+        timings are taken under whatever load is present, so contention
+        scales them together and cancels.
+
+        Sizes are unchanged at the top end, so the 400k-character worst case
+        this test was written for is still measured; it is now measured
+        against its own quarter rather than against a stopwatch. Measured
+        2026-08-10, minimum of five samples per size: the non-ASCII path gave
+        0.0063s at 50k and 0.0283s at 200k, a 4.49x ratio; path-dense prose
+        gave 0.0127s and 0.0533s, a 4.20x ratio.
+
+        WHICH LEG CARRIES THE DETECTION, read this before trusting either.
+        Only the non-ASCII leg can see the defect. Its characters are all in
+        the path body class, so a body-scanning pattern gets n starting
+        offsets each scanning O(n). In the prose leg a space terminates the
+        body after about forty characters, so the inner scan is capped by the
+        text itself and the leg stays linear even WITH a quadratic pattern
+        installed (measured 4.19x under reinjection). The prose leg is a
+        useful guard on the overall cost of masking; the proof that this test
+        can fail lives in
+        test_calibrated_a_body_scanning_pattern_blows_up_the_ratio below."""
+        for name, build in self._MASK_SHAPES:
+            sizes = (50000, 200000) if "non-ASCII" in name else (2500, 10000)
+            small_text, large_text = build(sizes[0]), build(sizes[1])
+            small = max(self._mask_time(small_text), 0.001)
+            large = self._mask_time(large_text)
+            self.assertLess(
+                large / small, 8.0,
+                "mask_absolute_paths scaling looks superlinear on %s: %d "
+                "chars took %.4fs, %d took %.4fs, a %.1fx ratio where linear "
+                "is about 4x and quadratic about 16x"
+                % (name, len(small_text), small, len(large_text), large,
+                   large / small))
+
+    def test_calibrated_a_body_scanning_pattern_blows_up_the_ratio(self):
+        """CALIBRATION for the test above: a probe that cannot reach the
+        defect measures nothing, and this is the part that gets skipped.
+
+        The shipped _ABS_PATH_RE anchors every alternative on a separator or
+        a drive letter, so a long run of path characters offers it exactly
+        one starting position. Reinject the mistake that anchoring prevents,
+        a pattern that opens with the body class and only afterwards requires
+        the separator, and the same run offers n starting positions each
+        scanning to the end: the O(n^2) this test exists to catch.
+
+        Sizes are 1000 and 4000 rather than 50000 and 200000, to keep this
+        test near a second and a half instead of near an hour: quadratic cost
+        rises fast and the ratio is what is asserted, not the absolute time.
+        Measured 2026-08-10, minimum of five samples per size, on the
+        non-ASCII shape: reinjected gave 0.0249s and 0.4290s, a 17.3x ratio,
+        against the 4.49x the shipped anchored pattern gives. If this ever
+        stops reproducing, the test above is no longer attached to the defect
+        it names and may be passing for free."""
+        body_scanning = re.compile(
+            bs._ABS_PATH_BODY
+            + r"*[\\/](?:Users|home|root|Volumes|private|cygdrive)"
+              r"(?![A-Za-z0-9])")
+        build = self._MASK_SHAPES[0][1]
+        with mock.patch.object(bs, "_ABS_PATH_RE", body_scanning):
+            small = max(self._mask_time(build(1000)), 0.001)
+            large = self._mask_time(build(4000))
+        self.assertGreaterEqual(
+            large / small, 8.0,
+            "REINJECTION CHECK: a body-scanning path pattern must still show "
+            "a superlinear ratio, so that the test above is proven able to "
+            "catch it. 1000 chars took %.4fs, 4000 took %.4fs, a %.1fx ratio "
+            "where 17.3x was measured when this was written and anything near "
+            "4x means the calibration has been lost"
+            % (small, large, large / small))
+        # The shipped pattern must be back: mock.patch.object restores it,
+        # and this asserts that rather than assuming it, because every later
+        # masking test in this process depends on it.
+        self.assertEqual(bs.mask_absolute_paths("/Users/jane/clients/acme"),
+                         bs.PATH_WITHHELD_MARKER)
 
     def test_export_column_is_the_one_policy_and_covers_unknown_columns(self):
         self.assertEqual(bs.export_column("records", "state", "active"), "active")
