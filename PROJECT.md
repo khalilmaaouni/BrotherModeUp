@@ -7,7 +7,7 @@ then record the answer here so it is never hunted again.
 
 - Canonical path: /Users/khalil.maaouni/Documents/BrotherModeUp
 - Repo remote: origin https://github.com/khalilmaaouni/BrotherModeUp.git (verified with git remote -v, 2026-08-10)
-- Published artifact URL: none yet (nothing recorded in STATE.md, docs, or the vault space as of 2026-08-10; founder to supply if one exists)
+- Published artifact URL: https://claude.ai/code/artifact/784c3ecc-e81d-45e1-af6e-b35c2127ebc0 (the progress page stable link, founder confirmed 2026-08-10)
 - Vault space: /Users/khalil.maaouni/Documents/Kay Vault/10-Projects/brothermode
 
 ## Key commands
