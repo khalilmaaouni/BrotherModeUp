@@ -121,3 +121,71 @@ missing from this ledger.
 3. `release-smoke-install.sh` early exit (expected a grep-and-fail idiom to
    abort under `set -e` when the grep correctly found nothing; refuted, bash
    does not exit on a failing left side of an AND list).
+
+---
+
+# CORRECTION PASS, 2026-08-10 evening
+
+Appended rather than edited into the table above, per this document's own rule
+that a later pass gets its own dated record. The rows above stay exactly as
+they were written, because the point of a ledger is that you can see what was
+believed at the time.
+
+## H-2 was marked FIXED and was not
+
+The row above closes H-2 with this evidence: "Confirmed live: `grep -rn
+"V3-FREEZE-2026-08-07.md\|architecture-refutation.md\|standards-gap.md"
+skills/ commands/ tools/brothermode_cli.py` returns nothing in this tree
+today."
+
+That grep is scoped to three paths. Run across the repository on 2026-08-10 it
+returns NINETEEN hits in SEVEN files:
+
+```
+product.identity.json          2
+tools/brothermode_cli.py       4
+tools/test_bm_e2e_pins.py      3
+tools/write_sites.json         1
+tools/test_all.py              1
+tools/test_brothermode_cli.py  6
+tools/test_bm.py               2
+```
+
+`tools/brothermode_cli.py` is INSIDE the original grep's own scope and still
+carries four citations, one of them in the CLI help text every user sees. So
+the closing evidence did not support the claim even on the day it was written.
+
+WHY THIS MATTERS MORE THAN THE INSTANCE. This is the ledger's own Class C, a
+claim that outruns the code, occurring INSIDE the document written to catch
+Class C. The mechanism was a narrowly scoped check reported as a general
+result. A grep over three paths cannot close a finding about the whole tree,
+and nothing in the row said its scope was partial.
+
+## What was actually done about it, which is not what the ledger's row proposed
+
+The row's implied fix was to remove the citations. That was rejected on
+inspection, because the citations are load-bearing: they explain WHY the
+product is shaped as it is, and this project's entire positioning rests on
+traceable reasoning.
+
+The real defect turned out to be different and worse. `V3-FREEZE-2026-08-07.md`
+and `architecture-refutation.md` are REAL documents holding binding founder
+decisions and an adversarial review. They had simply never been committed. So
+every one of those nineteen citations pointed at reasoning that anybody
+cloning this repository could not read.
+
+DISPOSITION: FIXED by shipping the documents, not by deleting the references.
+Both are now at `docs/decisions/`, verbatim apart from replacing one machine's
+home directory paths, each marked historical with a superseded-by pointer to
+the page that is actually maintained. `docs/decisions/README.md` maps the
+citation strings to the files.
+
+EVIDENCE, run after the last edit: `python3 tools/test_bm_docs.py` reports
+`Ran 226 tests ... OK (skipped=5)`, and the two files are tracked in git at
+commit 5ab677a.
+
+## The rule this pass adds
+
+A finding is not closed by a check whose scope is narrower than the finding.
+When a closing check IS scoped, the row states the scope in the same sentence
+as the result, so a reader can see what was not looked at.
