@@ -3147,7 +3147,28 @@ def _tier_flag(kv):
 
 
 def cmd_tier(argv):
-    """The signals and the decision, printed. Writes nothing."""
+    """The signals and the decision, printed.
+
+    CORRECTED 2026-08-10. This said "Writes nothing." That was FALSE, and the
+    falsehood was the defect rather than the writing. It opens a WRITABLE
+    Store, whose constructor calls _verify_schema_or_raise(migrate=True), so
+    against a database one schema version behind this command MIGRATES IT.
+    Demonstrated: a store forced to schema_version 17 and handed to a sibling
+    read accessor came back at 18 with a different md5, having failed to find
+    what it was asked for.
+
+    It is therefore declared ledger_write in tools/bm_effects.py, which is the
+    true classification, not the flattering one.
+
+    OPEN, and named rather than left implied: this command SHOULD be read-only,
+    and it cannot be yet. Generator.__init__ calls store.note_anchor_reports(),
+    and its row builders call store.list_learning_rules() and
+    store.list_notes(). None of the three exists on bm_store.ReadOnlyStore, so
+    swapping the constructor raises AttributeError on every normal invocation
+    rather than only on the behind-schema case. Adding those three pure-read
+    methods to ReadOnlyStore is what would close it, and that is a change to
+    the store's own public surface, which deserves its own review rather than
+    being smuggled in beside a docstring fix."""
     _pos, kv = _parse(argv, {"tier", "json"}, wants_value=("tier",))
     explicit = _tier_flag(kv)
     root = _root()
