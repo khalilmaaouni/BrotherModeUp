@@ -263,6 +263,37 @@ class ZeroFilesTests(unittest.TestCase):
             self.assertIn("NO-DATA: opened no files", result.stdout)
 
 
+class UncheckableFilesFailClosedTests(unittest.TestCase):
+    """2026-08-11 cross-family audit: read and parse failures were printed
+    to stderr and skipped, so a tree of unreadable files exited 0 while
+    claiming to have been checked. A file the lint cannot check is a
+    finding, never a skip."""
+
+    def test_an_unparsable_file_is_a_violation_not_a_skip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = os.path.join(tmp, "test_broken.py")
+            with open(bad, "w") as handle:
+                handle.write("def broken(:\n")
+            result = run_cli(tmp)
+            self.assertNotEqual(result.returncode, 0,
+                                result.stdout + result.stderr)
+            self.assertIn("UNCHECKABLE", result.stdout)
+
+    def test_an_unreadable_file_is_a_violation_not_a_skip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = os.path.join(tmp, "test_secret.py")
+            with open(bad, "w") as handle:
+                handle.write("x = 1\n")
+            os.chmod(bad, 0)
+            try:
+                result = run_cli(tmp)
+            finally:
+                os.chmod(bad, 0o644)
+            self.assertNotEqual(result.returncode, 0,
+                                result.stdout + result.stderr)
+            self.assertIn("UNCHECKABLE", result.stdout)
+
+
 class RealTreeCalibrationTests(unittest.TestCase):
     """The test that proves calibration on real code, not only on fixtures
     written to pass.
