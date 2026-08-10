@@ -31,7 +31,7 @@ vault session log.
 | V1 acceptance and verifier (GAP-08, 09, 10, 36, 37) | NOT STARTED | draft docs/plan/loops/LOOP-V1-verifier.md filed tonight; the program's correction (frozen artifacts, provenance) supersedes the draft where they differ |
 | C1 convergence (GAP-11) | NOT STARTED | draft filed tonight; depends on V1 and G1 |
 | D1 delivery closure (GAP-12) | NOT STARTED | new in this program; H7 benchmark failure is its RED case |
-| CX runtime adapters (GAP-15, 16, 34) | NOT STARTED | Cursor spec triaged (rework through the adapter seam); Codex port spec corrected in PROGRAM-PLAN Lane CX; both start after the tag per founder decision 3 |
+| CX runtime adapters (GAP-15, 16, 34) | ACTIVE, Phase 0 GREEN LOCAL | Cursor spec triaged (rework through the adapter seam); Codex port spec corrected in PROGRAM-PLAN Lane CX; both start after the tag per founder decision 3 |
 | P1 preview (GAP-31) | NOT STARTED | after the core |
 | X1 context convergence (GAP-18) | NOT STARTED | measure before changing |
 | X2 hook overhead (GAP-20, 21, 22) | NOT STARTED | docs/PERFORMANCE.md is the baseline input |
