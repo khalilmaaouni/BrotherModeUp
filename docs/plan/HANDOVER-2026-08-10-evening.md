@@ -149,12 +149,22 @@ reading only the prompt cannot reintroduce the behaviour by following the skill.
 
 1. BOTH ARE SESSION-ONLY. They live in this session's memory, are written to no
    file, and DIE WHEN IT ENDS. Nothing on disk enforces them. Re-arm them first.
-2. The foreign-commit monitor CANNOT TELL YOUR OWN PUSHES FROM SOMEONE ELSE'S.
-   It fired on my own state commit within minutes of being armed. As built it is
-   a change detector, not a foreign-change detector. Either compare the pushing
-   author against this session's identity, or treat every event as "look, then
-   decide". Left as found rather than quietly patched, because an alarm that
-   cries wolf is worse than none and you should know which one you have.
+2. The foreign-commit monitor as first armed COULD NOT TELL YOUR OWN PUSHES
+   FROM SOMEONE ELSE'S. It fired twice on my own commits within minutes. It was
+   a CHANGE detector, not a FOREIGN-change detector, and the difference is the
+   whole point of the alarm.
+   FIXED before handover, monitor `b5pusgfev` stopped and replaced by
+   `brntx10kq`. The wrong test was "did origin/main move". The right test is
+   "does origin/main hold commits THIS CHECKOUT DOES NOT HAVE", which is
+   `git merge-base --is-ancestor origin/main HEAD`: my own push leaves origin an
+   ancestor of local HEAD and stays silent, while somebody else's work does not
+   and fires. The event now names how many commits, who wrote the newest, and
+   its subject, and then backs off five minutes so a colleague pushing a branch
+   of ten commits does not produce ten alarms.
+   Recorded here rather than silently swapped, because the first version was
+   wrong for a reason worth remembering: an alarm that fires on your own actions
+   trains you to ignore it, which is the same failure as a gate that goes red on
+   a busy laptop.
 
 ---
 
