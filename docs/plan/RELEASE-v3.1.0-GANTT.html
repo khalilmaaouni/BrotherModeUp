@@ -162,7 +162,7 @@ footer strong { color: var(--bm-body); }
 <p class="lede">One main branch, a gate that passes, and a tag whose every claim is backed by a check that runs. This page shows what has actually been proved, not what has been attempted.</p>
 
 <div class="stamp">
-main 24ace43 &middot; clean tree &middot; pushed and verified (local == upstream == remote)<br>
+main 6c4887a &middot; clean tree &middot; pushed and verified (local == upstream == remote)<br>
 GATE: test_all 2918 tests across 29 suites, 9 skipped, 307.8s wall. ALL GREEN, exit 0<br>
 REMOTE: 1 branch. 14 archive tags pushed BEFORE any delete, recovery proven<br>
 plan docs/plan/RELEASE-v3.1.0-PLAN.md &middot; session bm1-51fa5453 &middot; 2026-08-10
@@ -170,14 +170,14 @@ plan docs/plan/RELEASE-v3.1.0-PLAN.md &middot; session bm1-51fa5453 &middot; 202
 
 <div class="cards">
   <div class="card needs-you">
-    <h4>Waiting on you</h4>
-    <p>Only the v3.1.0 tag itself. A release is a founder gate and is not cut without a yes in the moment. Branch cleanup and the decision-docs commit are both approved.</p>
-    <span class="mono">blocks: loop 7.6 only</span>
+    <h4>Your call tonight, taken</h4>
+    <p>I recommended tagging without the unattended-run canary and publishing the gap. You chose to build it tonight and tag after it passes. Executing that in full; the tag waits however late.</p>
+    <span class="mono">override recorded with its reasoning</span>
   </div>
   <div class="card at-risk">
-    <h4>Found today, in no handover</h4>
-    <p>Seven shipped files cite a document that does not exist. The findings ledger records this class as FIXED. It is not.</p>
-    <span class="mono">grep V3-FREEZE-2026-08-07 &rarr; 7 files</span>
+    <h4>Five stale fences in one day</h4>
+    <p>Dead sessions still hold files nobody can then write: README, SKILL twice, the findings ledger, and the README narrowing itself. Nothing sweeps for a fence whose owner can never return.</p>
+    <span class="mono">named as a real gap, not fixed tonight</span>
   </div>
   <div class="card settled">
     <h4>Closed today</h4>
@@ -191,64 +191,53 @@ plan docs/plan/RELEASE-v3.1.0-PLAN.md &middot; session bm1-51fa5453 &middot; 202
   </div>
 </div>
 
-<h2>The timeline</h2>
-<p class="lede">Two lanes, never more. A loop closes before the next opens in its lane. Loop 5 waits for both because it edits a file the merges sit next to.</p>
+<h2>The timeline, replanned tonight</h2>
+<p class="lede">The original plan gave Loop 1 eleven gated merges over two days. Measuring turned it into zero merges and about three hours, because main already held all of it. That is the largest single correction in this program and it came from measurement, not from thinking harder.</p>
 
 <div class="tl">
 <table>
 <thead>
-<tr>
-  <th class="lane">Lane / loop</th>
-  <th>Stage 1</th><th>Stage 2</th><th>Stage 3</th><th>Stage 4</th><th>Stage 5</th>
-</tr>
+<tr><th class="lane">Lane / loop</th><th>Stage 1</th><th>Stage 2</th><th>Stage 3</th><th>Stage 4</th><th>Stage 5</th></tr>
 </thead>
 <tbody>
-<tr>
-  <td class="lane">Loop 0 foundation<small>both lanes wait</small></td>
-  <td colspan="5"><div class="bar done">PLAN AND INVENTORIES &middot; CLOSED, 7 of 7</div></td>
-</tr>
-<tr>
-  <td class="lane">A &middot; Loop 1 one main<small>14 superseded, delete only</small></td>
-  <td></td>
-  <td colspan="3"><div class="bar done">CLOSED &middot; ONE MAIN BRANCH</div></td>
-  <td></td>
-</tr>
-<tr>
-  <td class="lane">A &middot; Loop 2 effect classes<small>closes class F</small></td>
-  <td></td><td></td>
-  <td colspan="2"><div class="bar todo">REGISTRY + PURITY TEST</div></td>
-  <td></td>
-</tr>
-<tr>
-  <td class="lane">B &middot; Loop 3 wall-clock lint<small>closes class A</small></td>
-  <td></td>
-  <td colspan="2"><div class="bar done">AST LINT + CI &middot; CLOSED</div></td>
-  <td></td><td></td>
-</tr>
-<tr>
-  <td class="lane">B &middot; Loop 4 truth repairs<small>closes 2 live class C</small></td>
-  <td></td><td></td>
-  <td colspan="2"><div class="bar todo">README + PHANTOM DOC</div></td>
-  <td></td>
-</tr>
-<tr>
-  <td class="lane">Loop 5 live deny canary<small>closes class D, lanes rejoin</small></td>
-  <td></td><td></td><td></td>
-  <td colspan="2"><div class="bar todo">PROBE THE HOOK</div></td>
-</tr>
-<tr>
-  <td class="lane">Loop 6 cross-family audit<small>Codex, read-only</small></td>
-  <td></td><td></td><td></td><td></td>
-  <td><div class="bar todo">AUDIT</div></td>
-</tr>
-<tr>
-  <td class="lane">Loop 7 release<small>founder gate</small></td>
-  <td></td><td></td><td></td><td></td>
-  <td><div class="bar gate">TAG v3.1.0</div></td>
-</tr>
+<tr><td class="lane">Loop 0 foundation<small>plan, page, inventories</small></td>
+  <td colspan="5"><div class="bar done">CLOSED &middot; 7 of 7</div></td></tr>
+<tr><td class="lane">Loop 1 one main branch<small>14 superseded, deleted</small></td>
+  <td colspan="5"><div class="bar done">CLOSED &middot; ONE MAIN BRANCH</div></td></tr>
+<tr><td class="lane">Loop 3 wall-clock lint<small>closes the 7-times defect</small></td>
+  <td colspan="5"><div class="bar done">CLOSED &middot; BLOCKING IN CI</div></td></tr>
+<tr><td class="lane">Loop P progress page<small>added on your directive</small></td>
+  <td colspan="5"><div class="bar done">CLOSED &middot; CHECK RUNS AT SESSION START</div></td></tr>
+<tr><td class="lane">Loop 4 truth repairs<small>4 of 5</small></td>
+  <td colspan="4"><div class="bar done">README NARROWED, LEDGER CORRECTED</div></td>
+  <td><div class="bar todo">docs drift widening</div></td></tr>
+<tr><td class="lane">A &middot; Loop 2 effect classes<small>registry then fixes</small></td>
+  <td colspan="3"><div class="bar now">IN FLIGHT &middot; RED FIRST BY DESIGN</div></td><td></td><td></td></tr>
+<tr><td class="lane">B &middot; Loop 5 deny canary<small>your override</small></td>
+  <td colspan="3"><div class="bar now">IN FLIGHT</div></td><td></td><td></td></tr>
+<tr><td class="lane">Loop 6 cross-family audit<small>Codex, read-only</small></td>
+  <td></td><td></td><td></td><td colspan="2"><div class="bar todo">AUDIT + TRIAGE</div></td></tr>
+<tr><td class="lane">Loop 7 release<small>founder gate</small></td>
+  <td></td><td></td><td></td><td></td><td><div class="bar gate">TAG v3.1.0</div></td></tr>
 </tbody>
 </table>
 </div>
+
+<h3>Tonight, honestly sized</h3>
+<p class="lede">Ranges with confidence, assuming no new defect class appears. The audit is the one item whose size cannot be predicted, and it is the one that could push the tag past tonight.</p>
+<table class="ledger">
+<tr><td class="wip">&#9679;</td><td>Loop 2 to green
+  <span class="ev">1 to 2 hours, MEDIUM confidence. Variance is in how many commands the completeness test finds that nobody has classified</span></td></tr>
+<tr><td class="wip">&#9679;</td><td>Loop 5, the canary you chose to build tonight
+  <span class="ev">1 to 2 hours, MEDIUM confidence. It gets the full gate plus an independent refute pass before the tag, because it edits the preflight behind the 8 August runaway</span></td></tr>
+<tr><td class="open">&#9675;</td><td>Loop 4 remaining one
+  <span class="ev">30 to 60 minutes, HIGH confidence</span></td></tr>
+<tr><td class="open">&#9675;</td><td>Loop 6 audit and triage
+  <span class="ev">1 to 3 hours, LOW confidence. An audit output size is not predictable, which is the point of running one. You confirmed an unresolved CRITICAL or HIGH holds the tag</span></td></tr>
+<tr><td class="open">&#9675;</td><td>Loop 7 tag
+  <span class="ev">30 to 45 minutes, HIGH confidence, assuming the gate is green first time</span></td></tr>
+</table>
+<p class="lede">Total 4 to 8 hours of work. If the audit pushes past tonight, the honest move is to tag tomorrow rather than to tag around it.</p>
 
 <h2>Loop 0: foundation</h2>
 <div class="progress"><div class="track"><div class="fill" style="width:100%"></div></div><span class="pct">7 of 7 CLOSED</span></div>
