@@ -8143,6 +8143,20 @@ class TestUnattendedRefusesUntilTheFenceCanaryProvesADeny(unittest.TestCase):
                       "the finding must carry the exit status so the "
                       "founder can see WHY nothing was demonstrated")
 
+    def test_a_deny_without_the_pretooluse_event_name_is_not_proven(self):
+        """The runtime honors a decision only in the full PreToolUse shape;
+        a deny under a different or missing hookEventName is not a shape
+        the runtime would obey, so it must not certify PROVEN (2026-08-11
+        cross-family audit, controller finding 2)."""
+        def wrong_event(argv, cwd, env, stdin_text):
+            return {"stdout": json.dumps({"hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "permissionDecision": "deny"}}),
+                    "stderr": "", "returncode": 0}
+        finding = bc._unattended_fence_canary({}, runner=wrong_event)
+        self.assertIsNotNone(finding)
+        self.assertEqual(finding[0], bc.UNATTENDED_FENCE_NOT_PROVEN)
+
     def test_a_deny_with_a_nonzero_returncode_does_not_certify_proven(self):
         """A deny printed by a hook that then crashed is not honored by the
         runtime under the PreToolUse contract, so it must not certify
