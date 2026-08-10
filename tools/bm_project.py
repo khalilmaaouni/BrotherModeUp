@@ -831,7 +831,19 @@ def cmd_status(argv):
             _err(usage)
             _err("bm_project: --history must be zero or a positive number")
             return 2
-    store = _store()
+    # READ-ONLY FIX (2026-08-11, codex-audit-split-2026-08-10-night.md HIGH
+    # #1 for tools/bm_effects.py): this opened a WRITABLE Store, so a status
+    # check against a database one schema version behind migrated it,
+    # exactly the bm_project.py status --project-id nosuch reproduction
+    # tools/test_bm_effects.py's own TestPurityUnderAStoreThatIsBehind
+    # docstring cites. Every store method this command calls (get_project,
+    # list_tasks by way of _tasks_by_state, latest_forecast, list_forecasts,
+    # list_alerts, list_attribution) exists on bm_store.ReadOnlyStore, so
+    # routing here is a plain swap (contrast bm_learn.py lookup and
+    # bm_packs.py stakes, which cannot be routed the same way because the
+    # store methods they call are Store-only; see those files' own
+    # comments).
+    store = _read_store()
     try:
         project = store.get_project(project_id, raw=want_raw)
         if project is None:
@@ -918,7 +930,11 @@ def cmd_next(argv):
     # (always raw=True); --json is the export surface and stays redacted
     # unless --raw is also given. See this file's module docstring.
     want_raw = True if not kv.get("json") else bool(kv.get("raw"))
-    store = _store()
+    # READ-ONLY FIX (2026-08-11, codex-audit-split-2026-08-10-night.md HIGH
+    # #1 for tools/bm_effects.py): same defect and same fix as cmd_status
+    # above. list_tasks exists on bm_store.ReadOnlyStore, so this is also a
+    # plain swap.
+    store = _read_store()
     try:
         # 'ready' means, in the canonical protocol's own words (section 1,
         # state 2), "everything the task depends on is satisfied; it can be
@@ -1197,7 +1213,11 @@ def cmd_forecast_show(argv):
     usage = "usage: forecast show --project-id ID [--json] [--raw]"
     project_id = _require(kv, "project-id", usage)
     want_raw = True if not kv.get("json") else bool(kv.get("raw"))
-    store = _store()
+    # READ-ONLY FIX (2026-08-11, codex-audit-split-2026-08-10-night.md HIGH
+    # #1 for tools/bm_effects.py): same defect and same fix as cmd_status
+    # above. latest_forecast and list_forecasts both exist on
+    # bm_store.ReadOnlyStore, so this is also a plain swap.
+    store = _read_store()
     try:
         forecast = store.latest_forecast(project_id, raw=want_raw)
         total = len(store.list_forecasts(project_id, raw=want_raw))
