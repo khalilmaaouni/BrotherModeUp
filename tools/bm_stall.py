@@ -400,7 +400,20 @@ def _owner_signals(bs, store, record, terminal_states, pid_hints, now):
                         session_registered_active=registered)
 
 
-def _release_and_adopt_actions(record):
+def _resolved_cmd(bs, script_name, module_basename):
+    """The paste-able command in the reader's actual layout (P17 rule via
+    bm_store.invocation); degrades to the sibling module's absolute path
+    when bm_store is unavailable, never to a repo-relative lie."""
+    path = os.path.join(HERE, module_basename)
+    if bs is not None:
+        try:
+            return bs.invocation(script_name, path)
+        except Exception:
+            pass
+    return "python3 %s" % path
+
+
+def _release_and_adopt_actions(record, bs=None):
     """SD5, and the dashboard's own D-3: propose, never seize. Both
     commands are exactly what a founder would type by hand off
     tools/bm_store.py's own CLI (see cmd_park/cmd_adopt).
@@ -421,14 +434,16 @@ def _release_and_adopt_actions(record):
     turns out to actually be the original session (its own process
     simply lost its heartbeat trail some other way), because in that one
     case park needs no override and is the gentler move."""
+    store_cmd = _resolved_cmd(bs, "bm-store", "bm_store.py")
     adopt_cmd = (
-        "python3 tools/bm_store.py adopt %s --version %s --session "
+        "%s adopt %s --version %s --session "
         "<YOUR_SESSION_ID> --adopt-from-live-session"
-        % (record["lifecycle_uuid"], record["version"]))
+        % (store_cmd, record["lifecycle_uuid"], record["version"]))
     park_cmd = (
-        "python3 tools/bm_store.py park %s --version %s --session %s "
+        "%s park %s --version %s --session %s "
         "--note \"released: this session's own work is done\""
-        % (record["lifecycle_uuid"], record["version"], record["session_id"]))
+        % (store_cmd, record["lifecycle_uuid"], record["version"],
+           record["session_id"]))
     return [
         {"label": "adopt this fence and continue (or release) the work "
                   "yourself -- the store cannot tell a dead session from "
@@ -442,7 +457,7 @@ def _release_and_adopt_actions(record):
     ]
 
 
-def foreign_commit_base_finding(record, claimed_base_sha, current_head_sha):
+def foreign_commit_base_finding(record, claimed_base_sha, current_head_sha, bs=None):
     """SD2's 'foreign commit that invalidates the current execution base',
     PROGRAM-PLAN.md's own phrasing: 'where git facts are handed in'. Git
     facts are PARAMETERS, never fetched here (this module spawns no
@@ -460,7 +475,7 @@ def foreign_commit_base_finding(record, claimed_base_sha, current_head_sha):
         "against the new base before trusting anything checkpointed on it."
         % (record["name"], record["lifecycle_uuid"][:8], claimed_base_sha[:12],
            current_head_sha[:12]),
-        actions=_release_and_adopt_actions(record))
+        actions=_release_and_adopt_actions(record, bs))
 
 
 def sweep(bs, store, now=None, stale_after_seconds=DEFAULT_STALE_AFTER_SECONDS,
@@ -549,15 +564,16 @@ def sweep(bs, store, now=None, stale_after_seconds=DEFAULT_STALE_AFTER_SECONDS,
             % (label, _scrub(bs, record["name"]), u[:8],
                _scrub(bs, record["session_id"]) or "(no session recorded)",
                reason),
-            actions=_release_and_adopt_actions(record)))
+            actions=_release_and_adopt_actions(record, bs)))
 
         prov = _provisional_row(bs, store, u)
         if prov is not None and not prov["promoted_at"] and not prov["cancelled_at"]:
+            learn_cmd = _resolved_cmd(bs, "bm-learn", "bm_learn.py")
             cancel_cmd = (
-                "python3 tools/bm_learn.py cancel %s --session "
+                "%s cancel %s --session "
                 "<YOUR_SESSION_ID> --because \"dead owner found by "
-                "bm_stall sweep\"" % u)
-            promote_cmd = "python3 tools/bm_learn.py promote %s" % u
+                "bm_stall sweep\"" % (learn_cmd, u))
+            promote_cmd = "%s promote %s" % (learn_cmd, u)
             findings.append(_finding(
                 DEAD_OWNER_PROVISIONAL, "medium", u, record["name"],
                 "provisional record '%s' (%s) was created by session %s, "
