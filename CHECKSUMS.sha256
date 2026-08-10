@@ -211,7 +211,7 @@ e3140168f8d779ee4ba31caf7a16f5ce365ac332a57e63f10e30e506ad405767  docs/mistakes/
 0b9443765c2a336d56861113b26df0bda3a203b982e5a61fbc925b721bdbc424  docs/mistakes/README.md
 7242532d66710c59782cd3ba9c26331adf06950d3ae496569b1d217e5d7270dd  docs/one-pager.src.html
 fb077af1ecc57818afe805a89f0bed8ca2c8ae7b43fada309d4a4739261db392  docs/plan/ALERTS-AND-FAILURES-2026-08-10.md
-5082636f49ce28a63bcd98a67c58aeaa17a77d80c3457d02b1fb58d285f84bf1  docs/plan/COMMAND-CENTER.html
+2a7894133a5de4c0ddf3164a29593e5a60d3cebda7652370b33015a932560e5d  docs/plan/COMMAND-CENTER.html
 0b5344c14e15b895166a201db8256b74c0591c5425ec81932aa9e1d46647aa1b  docs/plan/HANDOVER-2026-08-10-evening.md
 194a529584cbaf81166422d9ddd0fc8811e36401364ba2be8da943b5c4999177  docs/plan/LEARNINGS-2026-08-10-evening.md
 da292f3d0a2f63568887c7b68a8aeed41b23ddd7486207fa104529b8d1205174  docs/plan/NEXT-ACTIONS-2026-08-10.md
@@ -530,7 +530,7 @@ e77b81b802579faa28d544354538a905d4a9bdca68ad877230213ad1c85d1057  docs/program/a
 21771141b59b07b95d70b7d6880ef43be4f5c7aa8b849bd553586567988069a8  docs/program/absolute-lead/research/visual-surface/LENS-C-visual-language.md
 7ed477d9c4129f6ec79e1864db3de3ad621951654b57d2fb8ce7a671ad7d941f  docs/program/absolute-lead/research/visual-surface/LENS-D-claude-surface.md
 04b8a7de344c1e82aa05ae55a25204906801fcd1973514827c82ace78acce2ff  docs/program/absolute-lead/research/visual-surface/contrast-check.py
-af80af63460d3456bcacf8e784a4443bc47d5bfbb3b39122c870419931d774f1  docs/program/category-ownership/EXECUTION-LEDGER.md
+14ddcb0b4bc95d6b9d8f1d9e24821bc4ce9a728f2551381f3360a4e37c4242a6  docs/program/category-ownership/EXECUTION-LEDGER.md
 1007ee62b44cf54b020bbfd4857e792503d83e41a1764f3dc058199000787050  docs/program/category-ownership/PROGRAM-2026-08-11.md
 0dc180cfdc4f96e5172f276b6ac5394bff3308f3a7cbd6deebaa7157ef64b343  docs/program/codex-port/PHASE0-BASELINE.md
 321293c78cd2a9924ef2c9cdb65ebaa34d6ad8a7224b9c051b1a32c37d916199  docs/program/codex-port/PHASE0-INVENTORY.md
