@@ -242,16 +242,22 @@ evaluation, then the external pilot (brief Loop 10). Parked, not dropped;
 each already carries its north star objective in section 7 of the release
 plan's parking lot.
 
-## 6. DECISIONS WAITING ON THE FOUNDER
+## 6. FOUNDER DECISIONS, answered 2026-08-10 night through the question windows
 
-1. Approve this plan's ordering (R alone first, then SD+CC in lane A against
-   CX in lane B). Recommended: yes; every alternative puts a second writer
-   near the release closeout.
-2. SD scope: sweep-and-propose only (recommended), or sweep-plus-auto-adopt.
-3. CX start: after the tag (recommended, Phase 0 needs the green committed
-   baseline), or immediately in a worktree accepting a stale baseline.
-4. The tag itself, when R1 to R4 are green: that is Loop R5, an explicit yes
-   in the moment, not here.
+1. Plan ordering: APPROVED as written (R alone first, then SD+CC in lane A
+   against CX in lane B). Alternatives shown and declined: CX jumping the
+   queue, reworked lanes.
+2. SD scope: SWEEP AND PROPOSE only. Auto-adopt declined for day one; the
+   flip condition stands as written in Loop SD.
+3. CX start: AFTER THE TAG. Immediate worktree start against a stale
+   baseline declined.
+4. The tag itself, when R1 to R4 are green: still open, Loop R5, an explicit
+   yes in the moment, not here.
+
+R1 note, added after the fact: the full gate ran green at `1c6fcf4`
+(`test_all: 2944 tests across 30 suites, 9 skipped, 622.5s wall. ALL GREEN`,
+exit 0), driven by the colleague session; this session read the sentinel and
+exit code rather than the claim.
 
 ## 7. WHAT THIS PLAN DOES NOT KNOW, stated rather than implied
 
