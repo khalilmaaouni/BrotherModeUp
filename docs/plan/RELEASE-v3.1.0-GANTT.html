@@ -162,8 +162,8 @@ footer strong { color: var(--bm-body); }
 <p class="lede">One main branch, a gate that passes, and a tag whose every claim is backed by a check that runs. This page shows what has actually been proved, not what has been attempted.</p>
 
 <div class="stamp">
-main d757c43 &middot; clean tree &middot; pushed and verified (local == upstream == remote)<br>
-GATE: test_all 2905 tests across 28 suites, 9 skipped, 432.6s wall. ALL GREEN, exit 0<br>
+main 24ace43 &middot; clean tree &middot; pushed and verified (local == upstream == remote)<br>
+GATE: test_all 2918 tests across 29 suites, 9 skipped, 307.8s wall. ALL GREEN, exit 0<br>
 REMOTE: 1 branch. 14 archive tags pushed BEFORE any delete, recovery proven<br>
 plan docs/plan/RELEASE-v3.1.0-PLAN.md &middot; session bm1-51fa5453 &middot; 2026-08-10
 </div>
@@ -397,6 +397,23 @@ plan docs/plan/RELEASE-v3.1.0-PLAN.md &middot; session bm1-51fa5453 &middot; 202
   <span class="ev">a CI result belongs to ONE commit. A green beside a newer SHA is unearned</span></td></tr>
 <tr><td class="open">&#9675;</td><td>7.6 Cut and push the tag <span class="pill founder">founder gate</span>
   <span class="ev">not cut without an explicit yes in the moment, whatever the plan says</span></td></tr>
+</table>
+
+<h2>Added on your directive: the progress page is now a check that runs</h2>
+<div class="progress"><div class="track"><div class="fill" style="width:100%"></div></div><span class="pct">CLOSED</span></div>
+<p class="lede">You said sessions forget to open this page and asked for a strict rule with a check per project. A rule alone would have been the exact failure this project exists to name, so it landed as both halves with the boundary stated.</p>
+<table class="ledger">
+<tr><th></th><th>What</th></tr>
+<tr><td class="tick">&#10003;</td><td>The check <span class="pill agent">agent sonnet, verified by lead</span>
+  <span class="ev">tools/bm_progress_check.py. Four verdicts: nothing owed exits 0, a page owed exits 1, cannot tell exits 2 and NEVER 0. I re-ran its claims myself: 13 tests OK, and both owed paths fire against a throwaway project with the real command line</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>It runs at every session start <span class="pill lead">lead</span>
+  <span class="ev">wired into tools/bm_sessionstart.sh. Proven to FAIL OPEN with the tool deliberately absent, exit 0, because a check meant to stop me forgetting must never become a new way for a session to die</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>Proven to write nothing, because it runs constantly <span class="pill lead">lead</span>
+  <span class="ev">a throwaway tree hashed before and after a run came back byte-identical. All 4 write sites are stdout or stderr, read one by one before the number entered write_sites.json</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>The rule states which half a machine enforces <span class="pill lead">lead</span>
+  <span class="ev">SKILL.md now says the detection is mechanical and the DELIVERY is discipline, because no hook can call the file-delivery tool for you. Claiming otherwise would be the overclaim this repository publishes its own defects to avoid</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>Two stale fences closed to make it possible <span class="pill lead">lead</span>
+  <span class="ev">SKILL.md, the outermost law file, was held by two fence lines from a session that died on 7 August, so nobody could write it for three days. Closed, not seized: the work had landed and each fence own done-check was re-run today. Same shape as the stuck README fence. Nothing in this repo sweeps for these</span></td></tr>
 </table>
 
 <h2>Deliberately not in this release</h2>
