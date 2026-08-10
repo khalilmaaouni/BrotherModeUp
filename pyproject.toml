@@ -96,6 +96,7 @@ package-dir = { "" = "tools", "brotherme" = "brotherme" }
 # module here is a decision, and the packaging test in tools/test_bm.py
 # fails if this list and the shipping tools in tools/ disagree.
 py-modules = [
+    "bm_bench",
     "brothermode_cli",
     "bm_continue",
     "bm_store",
