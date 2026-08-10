@@ -448,6 +448,17 @@ REGISTRY = {
         "status": PURE_READ,
     },
 
+    # -- bm_stall.py ----------------------------------------------------
+    # Loop SD (docs/plan/PROGRAM-PLAN-2026-08-10.md, section "Loop SD"):
+    # the active stall/dead-owner/orphan sweep. Its own module docstring
+    # states "EFFECT CLASS: pure_read ... This file writes NOT ONE BYTE
+    # anywhere, ever", opens only bm_store.ReadOnlyStore, and spawns no
+    # subprocess (every SD5 clearing verb it prints is a string it built,
+    # never executed). A bare main(argv), no `cmd_` functions.
+    "bm_stall.py": {
+        "sweep": PURE_READ,
+    },
+
     # -- bm_store.py --------------------------------------------------------
     # dump (:18087) and handovers (:18119) explicitly open
     # ReadOnlyStore ("dump is a diagnostic, never creates" / "reads
