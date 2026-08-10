@@ -8115,6 +8115,50 @@ class TestUnattendedRefusesUntilTheFenceCanaryProvesADeny(unittest.TestCase):
         self.assertIsNotNone(finding)
         self.assertEqual(finding[0], bc.UNATTENDED_FENCE_NOT_PROVEN)
 
+    # -- f: a hook that never ran is never called a demonstrated defect ---
+    # Found by the 2026-08-10 night refute pass: with the hook file absent,
+    # the spawn succeeds (python exits 2, empty stdout), no exception fires,
+    # and the empty stdout fell into the outcome-2 sentence claiming the
+    # hook "was actually run" and is a "real, demonstrated defect". Not
+    # knowing whether a fence works and knowing it is broken must never be
+    # said the same way; that property is the whole point of outcome 3.
+
+    def test_an_absent_hook_binary_is_not_a_demonstrated_defect(self):
+        original = bc._FENCE_HOOK_FILE
+        bc._FENCE_HOOK_FILE = os.path.join(
+            tempfile.gettempdir(), "bm-no-such-fence-hook.py")
+        try:
+            finding = bc._unattended_fence_canary(
+                dict(os.environ), runner=None)
+        finally:
+            bc._FENCE_HOOK_FILE = original
+        self.assertIsNotNone(finding)
+        code, sentence = finding
+        self.assertEqual(code, bc.UNATTENDED_FENCE_NOT_PROVEN)
+        self.assertIn("could not be DEMONSTRATED", sentence)
+        self.assertNotIn("demonstrated defect", sentence,
+                         "a hook that never ran must not be reported as a "
+                         "defect found by running it")
+        self.assertIn("exit", sentence.lower(),
+                      "the finding must carry the exit status so the "
+                      "founder can see WHY nothing was demonstrated")
+
+    def test_a_deny_with_a_nonzero_returncode_does_not_certify_proven(self):
+        """A deny printed by a hook that then crashed is not honored by the
+        runtime under the PreToolUse contract, so it must not certify
+        PROVEN here either."""
+        def crashed_deny(argv, cwd, env, stdin_text):
+            return {"stdout": json.dumps({"hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "arranged"}}),
+                    "stderr": "boom after printing", "returncode": 3}
+        finding = bc._unattended_fence_canary({}, runner=crashed_deny)
+        self.assertIsNotNone(finding)
+        code, sentence = finding
+        self.assertEqual(code, bc.UNATTENDED_FENCE_NOT_PROVEN)
+        self.assertIn("could not be DEMONSTRATED", sentence)
+
     # -- e: the code has a plain-language rewrite --------------------------
 
     def test_the_code_has_a_plain_language_rewrite(self):
