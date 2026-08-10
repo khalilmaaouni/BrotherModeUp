@@ -408,6 +408,22 @@ codex-cli 0.146.0:
 `RUNTIMES.md` carries the full capability table, the vendor documentation URL
 behind every claim, and the measured findings per runtime.
 
+### Cursor compatibility mode
+
+Cursor has a full lifecycle of its own, separate from the instruction-file
+path above: install, manage, uninstall, and a local harness so Claude Code
+(Fable or Opus) can dispatch execution into Cursor.
+
+```bash
+python3 scripts/install_cursor.py
+python3 ~/.cursor/brothermode/tools/bm_cursor.py doctor
+python3 scripts/uninstall_cursor.py
+```
+
+Fence enforcement under Cursor stays ADVISORY until a live canary is
+recorded. The harness uses git worktrees for isolation. Full page:
+`docs/CURSOR-COMPAT.md`.
+
 ## Sharing with a teammate
 
 Working mostly alone but need to hand a project to someone occasionally? `python3 tools/bm_telemetry.py handoff <project>` assembles one shareable markdown (overview, open items, latest session, recent outcomes) from your vault, secret-redacted, so you can send context without sending your whole vault. Review it before sharing; redaction is best-effort.

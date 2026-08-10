@@ -90,7 +90,7 @@ on trust. To change what this says, change the register and rerun the command.
 <!-- BEGIN GENERATED ROADMAP STATUS -->
 <!-- Generated from capabilities.status.json by `bm-docs roadmap-status --write` (the packaged console script; from a clone, tools/bm_docs.py). Edit the register, not this block. -->
 
-Six proof states, mapped from the four states in `capabilities.status.json`, updated 2026-08-06: certified means the register marks it certified, meaning a named evidence file in this tree plus a test or a job that goes red when the claim stops being true; verified externally means checked by someone outside this project, or on a machine this project does not own; verified in CI means the evidence names a continuous integration job, so the check runs somewhere other than the author's own machine; verified locally means the evidence names a file or a test in this tree, and no continuous integration job covers it yet; implemented means built, with something in the tree describing it, and not measured; planned means named, with no evidence in the tree behind it yet.
+Six proof states, mapped from the four states in `capabilities.status.json`, updated 2026-08-10: certified means the register marks it certified, meaning a named evidence file in this tree plus a test or a job that goes red when the claim stops being true; verified externally means checked by someone outside this project, or on a machine this project does not own; verified in CI means the evidence names a continuous integration job, so the check runs somewhere other than the author's own machine; verified locally means the evidence names a file or a test in this tree, and no continuous integration job covers it yet; implemented means built, with something in the tree describing it, and not measured; planned means named, with no evidence in the tree behind it yet.
 
 The mapping is code rather than judgement. Certified stays certified. A beta row becomes verified in CI when its evidence names a job under `.github/workflows`, and verified locally otherwise. An experimental row becomes implemented when its evidence points at a file in this tree, and planned when it points at nothing. An unsupported row is not a rung at all and is listed as a non-goal below.
 
@@ -137,6 +137,7 @@ Nothing stands at this rung today.
 | Capability | Proof state | What proves it |
 |---|---|---|
 | Benchmark harness comparing runs | implemented | docs/BENCHMARK.md describes the method and docs/BENCHMARK-V1-V2-RC2.md records a dated run. No run against the current tree is recorded, so no current number is claimed. |
+| Cursor compatibility mode: independent install, manage, uninstall, and a local Fable-to-Cursor harness | implemented | scripts/install_cursor.py and scripts/uninstall_cursor.py own the Cursor lifecycle; tools/bm_cursor.py is the manage and mailbox harness CLI; tools/bm_cursor_hook.py adapts Cursor hook payloads to the Claude fence contract; tools/test_bm_cursor.py covers adapter translation, install ownership, and dispatch-claim-record-adopt. docs/CURSOR-COMPAT.md states the honest limit: fence enforcement under Cursor is ADVISORY until a live Agent canary is recorded. No live Cursor Agent or Cloud Agent canary is in this tree yet. |
 
 **Planned**, named, with no evidence in the tree behind it yet.
 

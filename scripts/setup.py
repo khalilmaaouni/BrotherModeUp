@@ -22,7 +22,7 @@ THE CONFIG FILE
     setup_complete           bool
     vault_path                string, where private memory (the vault) lives
     privacy_notice_version    string, the notice text version shown at write
-    installation_mode         "plugin" or "clone"
+    installation_mode         "plugin" or "clone" or "cursor"
     security_mode             "standard" (the only mode this release supports)
   The directory is created mode 0700, the file mode 0600, because this is the
   one file on disk that names where a founder's private notes live.
@@ -369,7 +369,7 @@ def build_parser():
         description="BrotherMode first-run consent and setup.")
     p.add_argument("--vault", default=None,
                    help="where private memory lives (default %s)" % DEFAULT_VAULT)
-    p.add_argument("--mode", choices=("plugin", "clone"), default=None,
+    p.add_argument("--mode", choices=("plugin", "clone", "cursor"), default=None,
                    help="installation_mode to record")
     p.add_argument("--accept-notice", action="store_true",
                    help="accept the privacy notice non-interactively "

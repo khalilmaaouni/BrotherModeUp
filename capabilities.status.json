@@ -1,6 +1,6 @@
 {
   "product_name": "BrotherMode",
-  "updated": "2026-08-06",
+  "updated": "2026-08-10",
   "source_of_truth": "This file is the register a page must agree with before it claims anything. Four states only: certified means proven in this tree today by the evidence named; beta means real but with a named gap; experimental means built or planned but not measured; unsupported means it is not offered and no plan makes it offered. An evidence value of 'not measured' means exactly that, and on an unsupported row it also means the non-promise is not yet written into a shipped page. tools/test_bm_docs.py refuses an entry with an unknown state, an empty evidence field, or an evidence pointer naming a file that is not in the tree.",
   "capabilities": [
     {
@@ -68,6 +68,12 @@
       "title": "Benchmark harness comparing runs",
       "state": "experimental",
       "evidence": "docs/BENCHMARK.md describes the method and docs/BENCHMARK-V1-V2-RC2.md records a dated run. No run against the current tree is recorded, so no current number is claimed."
+    },
+    {
+      "id": "cursor-compat-mode",
+      "title": "Cursor compatibility mode: independent install, manage, uninstall, and a local Fable-to-Cursor harness",
+      "state": "experimental",
+      "evidence": "scripts/install_cursor.py and scripts/uninstall_cursor.py own the Cursor lifecycle; tools/bm_cursor.py is the manage and mailbox harness CLI; tools/bm_cursor_hook.py adapts Cursor hook payloads to the Claude fence contract; tools/test_bm_cursor.py covers adapter translation, install ownership, and dispatch-claim-record-adopt. docs/CURSOR-COMPAT.md states the honest limit: fence enforcement under Cursor is ADVISORY until a live Agent canary is recorded. No live Cursor Agent or Cloud Agent canary is in this tree yet."
     },
     {
       "id": "autonomous-production-publication",

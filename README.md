@@ -242,7 +242,7 @@ register and re-run the command.
 <!-- BEGIN GENERATED CAPABILITY STATUS -->
 <!-- Generated from capabilities.status.json by `bm-docs capability-status --write` (the packaged console script; from a clone, tools/bm_docs.py). Edit the register, not this block. -->
 
-Four states and no others, read out of `capabilities.status.json`, updated 2026-08-06: certified means proven in this tree today by the evidence named; beta means real, with a named gap; experimental means built or planned, not measured; unsupported means not offered, and no plan makes it offered.
+Four states and no others, read out of `capabilities.status.json`, updated 2026-08-10: certified means proven in this tree today by the evidence named; beta means real, with a named gap; experimental means built or planned, not measured; unsupported means not offered, and no plan makes it offered.
 
 **Certified**, proven in this tree today by the evidence named.
 
@@ -280,6 +280,7 @@ Four states and no others, read out of `capabilities.status.json`, updated 2026-
 | Delivering a web build through the same guided flow | not measured |
 | Deployment previews attached to a delivery | not measured |
 | Benchmark harness comparing runs | docs/BENCHMARK.md describes the method and docs/BENCHMARK-V1-V2-RC2.md records a dated run. No run against the current tree is recorded, so no current number is claimed. |
+| Cursor compatibility mode: independent install, manage, uninstall, and a local Fable-to-Cursor harness | scripts/install_cursor.py and scripts/uninstall_cursor.py own the Cursor lifecycle; tools/bm_cursor.py is the manage and mailbox harness CLI; tools/bm_cursor_hook.py adapts Cursor hook payloads to the Claude fence contract; tools/test_bm_cursor.py covers adapter translation, install ownership, and dispatch-claim-record-adopt. docs/CURSOR-COMPAT.md states the honest limit: fence enforcement under Cursor is ADVISORY until a live Agent canary is recorded. No live Cursor Agent or Cloud Agent canary is in this tree yet. |
 
 **Unsupported**, not offered, and no plan makes it offered.
 

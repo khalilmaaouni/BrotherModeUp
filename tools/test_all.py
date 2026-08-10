@@ -293,6 +293,7 @@ SUITES = (
     # against a fake HOME, and this one is fast.
     "test_bm_consent.py",
     "test_bm_runtimes.py",
+    "test_bm_cursor.py",
     "test_bm_autosave.py",
     # The loop estimate ledger, landed from the live install 2026-07-31. Early
     # for the same reason as the docs suite: it is fast and it fails on one of

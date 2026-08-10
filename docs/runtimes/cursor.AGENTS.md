@@ -118,6 +118,7 @@ If you want to close that: capture one real payload from each event, compare it 
 - Checked on this machine (2026-08-07): ~/.cursor exists, holding agents, plugins, projects, extensions and a skills-cursor directory, but no rules directory and no hooks.json. Nothing BrotherMode would generate has been installed there yet.
 - Event names here are lower camel case (preToolUse, postToolUse) rather than Claude Code's PascalCase (PreToolUse, PostToolUse), one more reason payload compatibility is unverified rather than assumed.
 - Community reports, not the vendor page opened here, describe Cursor CLI builds accepting a narrower hooks.json shape than the IDE: a flat top level version 1 with direct command entries, rather than the matcher grouped shape Claude Code and Codex use. Named because it matters if this is ever wired by hand, not acted on because it was not confirmed on the page opened here.
+- COMPAT MODE (2026-08-10): scripts/install_cursor.py installs BrotherMode under ~/.cursor/brothermode, wires a native hooks.json through tools/bm_cursor_hook.py, and tools/bm_cursor.py provides manage plus a local Fable-to-Cursor mailbox harness. Fence enforcement remains ADVISORY until a live Cursor Agent canary is recorded. See docs/CURSOR-COMPAT.md.
 
 ## Regenerating
 

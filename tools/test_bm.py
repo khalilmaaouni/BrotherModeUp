@@ -1237,7 +1237,11 @@ class TestProjectSecurityClaims(unittest.TestCase):
                    # reimplementation of the index format to dodge an
                    # import would be the worse trade. SECURITY.md documents
                    # this beside the other five.
-                   "bm_fence_hook.py": {"subprocess"}}
+                   "bm_fence_hook.py": {"subprocess"},
+                   # Cursor compatibility mode: bm_cursor.py runs git
+                   # worktree and founder done-checks; bm_cursor_hook.py
+                   # stays subprocess-free (adapter only).
+                   "bm_cursor.py": {"subprocess"}}
         for n in sorted(os.listdir(tools)):
             if not n.endswith(".py") or n.startswith("test_"):
                 continue
