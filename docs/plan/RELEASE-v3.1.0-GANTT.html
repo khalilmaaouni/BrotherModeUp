@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BrotherMode v3.1.0: where the release stands</title>
+<style>
+:root {
+  --bm-accent: #0E7A6F;
+  --bm-accent-tint: #E4EFED;
+  --bm-at-risk-ink: #6B4400;
+  --bm-at-risk-rule: #A06A00;
+  --bm-at-risk-tint: #FFF6E5;
+  --bm-body: #1A1D21;
+  --bm-for-info-ink: #00436B;
+  --bm-for-info-rule: #0072B2;
+  --bm-for-info-tint: #EAF3FA;
+  --bm-idle-ink: #3F4650;
+  --bm-idle-rule: #767B84;
+  --bm-idle-tint: #F1F2F4;
+  --bm-muted: #575E68;
+  --bm-needs-you-ink: #8C2D00;
+  --bm-needs-you-rule: #D55E00;
+  --bm-needs-you-tint: #FDEFE8;
+  --bm-page: #FFFFFF;
+  --bm-paper: #F7F8F6;
+  --bm-settled-ink: #00543A;
+  --bm-settled-rule: #009E73;
+  --bm-settled-tint: #E8F6F0;
+  --bm-hair: rgba(0,0,0,.10);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bm-accent: #3AA893;
+    --bm-accent-tint: #10241F;
+    --bm-at-risk-ink: #F0B95A;
+    --bm-at-risk-rule: #E69F00;
+    --bm-at-risk-tint: #2A2110;
+    --bm-body: #E9ECF1;
+    --bm-for-info-ink: #7FC4F5;
+    --bm-for-info-rule: #56B4E9;
+    --bm-for-info-tint: #0F1E2A;
+    --bm-idle-ink: #A7AEB9;
+    --bm-idle-rule: #767B84;
+    --bm-idle-tint: #1E242C;
+    --bm-muted: #A7AEB9;
+    --bm-needs-you-ink: #FFA582;
+    --bm-needs-you-rule: #FF7A47;
+    --bm-needs-you-tint: #2A1710;
+    --bm-node-ink: #E9ECF1;
+    --bm-page: #12151A;
+    --bm-paper: #141B22;
+    --bm-settled-ink: #5FD3AE;
+    --bm-settled-rule: #3FBF97;
+    --bm-settled-tint: #0E2018;
+    --bm-hair: rgba(255,255,255,.12);
+  }
+}
+:root[data-theme="light"] {
+  --bm-accent: #0E7A6F; --bm-accent-tint: #E4EFED;
+  --bm-at-risk-ink: #6B4400; --bm-at-risk-rule: #A06A00; --bm-at-risk-tint: #FFF6E5;
+  --bm-body: #1A1D21;
+  --bm-for-info-ink: #00436B; --bm-for-info-rule: #0072B2; --bm-for-info-tint: #EAF3FA;
+  --bm-idle-ink: #3F4650; --bm-idle-rule: #767B84; --bm-idle-tint: #F1F2F4;
+  --bm-muted: #575E68;
+  --bm-needs-you-ink: #8C2D00; --bm-needs-you-rule: #D55E00; --bm-needs-you-tint: #FDEFE8;
+  --bm-page: #FFFFFF; --bm-paper: #F7F8F6;
+  --bm-settled-ink: #00543A; --bm-settled-rule: #009E73; --bm-settled-tint: #E8F6F0;
+  --bm-hair: rgba(0,0,0,.10);
+}
+:root[data-theme="dark"] {
+  --bm-accent: #3AA893; --bm-accent-tint: #10241F;
+  --bm-at-risk-ink: #F0B95A; --bm-at-risk-rule: #E69F00; --bm-at-risk-tint: #2A2110;
+  --bm-body: #E9ECF1;
+  --bm-for-info-ink: #7FC4F5; --bm-for-info-rule: #56B4E9; --bm-for-info-tint: #0F1E2A;
+  --bm-idle-ink: #A7AEB9; --bm-idle-rule: #767B84; --bm-idle-tint: #1E242C;
+  --bm-muted: #A7AEB9;
+  --bm-needs-you-ink: #FFA582; --bm-needs-you-rule: #FF7A47; --bm-needs-you-tint: #2A1710;
+  --bm-page: #12151A; --bm-paper: #141B22;
+  --bm-settled-ink: #5FD3AE; --bm-settled-rule: #3FBF97; --bm-settled-tint: #0E2018;
+  --bm-hair: rgba(255,255,255,.12);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bm-paper);
+  color: var(--bm-body);
+  font-family: Seravek, "Gill Sans Nova", Ubuntu, Calibri, "DejaVu Sans", source-sans-pro, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 40px 24px 80px; }
+h1, h2, h3 {
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  font-weight: 600;
+  line-height: 1.2;
+  margin: 0 0 8px;
+}
+h1 { font-size: 2rem; letter-spacing: -.01em; }
+h2 { font-size: 1.35rem; margin-top: 44px; padding-top: 20px; border-top: 1px solid var(--bm-hair); }
+h3 { font-size: 1.05rem; margin-top: 26px; }
+p { margin: 0 0 12px; }
+.lede { color: var(--bm-muted); font-size: 1.05rem; max-width: 68ch; }
+code, .mono {
+  font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  font-size: .8rem;
+}
+.stamp {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: .75rem; color: var(--bm-muted);
+  border-left: 2px solid var(--bm-accent); padding-left: 10px; margin: 16px 0 28px;
+}
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin: 24px 0 8px; }
+.card { border-radius: 8px; padding: 14px 16px; border-left: 3px solid; }
+.card h4 { margin: 0 0 6px; font-size: .72rem; text-transform: uppercase; letter-spacing: .09em; font-family: inherit; font-weight: 700; }
+.card p { margin: 0; font-size: .9rem; }
+.card .mono { display: block; margin-top: 8px; opacity: .85; word-break: break-word; }
+.needs-you { background: var(--bm-needs-you-tint); border-color: var(--bm-needs-you-rule); color: var(--bm-needs-you-ink); }
+.at-risk  { background: var(--bm-at-risk-tint);  border-color: var(--bm-at-risk-rule);  color: var(--bm-at-risk-ink); }
+.settled  { background: var(--bm-settled-tint);  border-color: var(--bm-settled-rule);  color: var(--bm-settled-ink); }
+.for-info { background: var(--bm-for-info-tint); border-color: var(--bm-for-info-rule); color: var(--bm-for-info-ink); }
+
+/* timeline grid */
+.tl { margin: 22px 0 8px; overflow-x: auto; }
+.tl table { border-collapse: collapse; width: 100%; min-width: 720px; }
+.tl th { font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; color: var(--bm-muted); font-weight: 700; padding: 0 6px 8px; text-align: center; border-bottom: 1px solid var(--bm-hair); }
+.tl th.lane { text-align: left; width: 210px; }
+.tl td { padding: 4px 6px; border-bottom: 1px solid var(--bm-hair); vertical-align: middle; }
+.tl td.lane { font-size: .86rem; font-weight: 600; white-space: nowrap; }
+.tl td.lane small { display: block; font-weight: 400; color: var(--bm-muted); font-size: .74rem; }
+.bar { height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: .68rem; font-weight: 700; letter-spacing: .04em; }
+.bar.done    { background: var(--bm-settled-rule); color: #fff; }
+.bar.now     { background: var(--bm-accent); color: #fff; }
+.bar.todo    { background: var(--bm-idle-tint); color: var(--bm-idle-ink); border: 1px dashed var(--bm-idle-rule); }
+.bar.gate    { background: var(--bm-needs-you-rule); color: #fff; }
+
+/* ledger */
+table.ledger { border-collapse: collapse; width: 100%; margin: 14px 0 6px; font-size: .88rem; }
+table.ledger th { text-align: left; font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; color: var(--bm-muted); padding: 0 10px 8px 0; border-bottom: 1px solid var(--bm-hair); }
+table.ledger td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--bm-hair); vertical-align: top; }
+table.ledger td:first-child { width: 26px; font-size: 1rem; }
+.tick { color: var(--bm-settled-rule); font-weight: 700; }
+.open { color: var(--bm-idle-rule); }
+.wip  { color: var(--bm-accent); font-weight: 700; }
+.ev { display: block; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .74rem; color: var(--bm-muted); margin-top: 5px; word-break: break-word; }
+.pill { display: inline-block; font-size: .64rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 99px; margin-left: 6px; vertical-align: 1px; }
+.pill.lead { background: var(--bm-accent-tint); color: var(--bm-accent); }
+.pill.agent { background: var(--bm-for-info-tint); color: var(--bm-for-info-ink); }
+.pill.founder { background: var(--bm-needs-you-tint); color: var(--bm-needs-you-ink); }
+.progress { display: flex; align-items: center; gap: 10px; margin: 6px 0 2px; }
+.track { flex: 1; height: 7px; border-radius: 99px; background: var(--bm-idle-tint); overflow: hidden; }
+.fill { height: 100%; background: var(--bm-accent); }
+.pct { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .78rem; color: var(--bm-muted); white-space: nowrap; }
+footer { margin-top: 52px; padding-top: 18px; border-top: 1px solid var(--bm-hair); font-size: .82rem; color: var(--bm-muted); }
+footer strong { color: var(--bm-body); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>BrotherMode v3.1.0</h1>
+<p class="lede">One main branch, a gate that passes, and a tag whose every claim is backed by a check that runs. This page shows what has actually been proved, not what has been attempted.</p>
+
+<div class="stamp">
+main 2f60b11 &middot; clean tree &middot; in sync with origin<br>
+plan docs/plan/RELEASE-v3.1.0-PLAN.md &middot; session bm1-51fa5453 &middot; 2026-08-10<br>
+LOOP 1 RESOLVED: all 14 branches superseded, zero merges needed. Founder approved tag-then-delete.
+</div>
+
+<div class="cards">
+  <div class="card needs-you">
+    <h4>Waiting on you</h4>
+    <p>Only the v3.1.0 tag itself. A release is a founder gate and is not cut without a yes in the moment. Branch cleanup and the decision-docs commit are both approved.</p>
+    <span class="mono">blocks: loop 7.6 only</span>
+  </div>
+  <div class="card at-risk">
+    <h4>Found today, in no handover</h4>
+    <p>Seven shipped files cite a document that does not exist. The findings ledger records this class as FIXED. It is not.</p>
+    <span class="mono">grep V3-FREEZE-2026-08-07 &rarr; 7 files</span>
+  </div>
+  <div class="card settled">
+    <h4>Better than expected</h4>
+    <p>The wall-clock defect has only ONE live instance left. Three of the four named in the handover were already fixed on disk.</p>
+    <span class="mono">test_brothermode_cli.py:1510</span>
+  </div>
+  <div class="card for-info">
+    <h4>Premise disproved, twice</h4>
+    <p>The handover ranked phase-c/continuity first and called it the thing main is broken without. Main is a superset of it. Merging it would have regressed the code.</p>
+    <span class="mono">main 1378 lines vs branch 1081; 7 functions main-only</span>
+  </div>
+</div>
+
+<h2>The timeline</h2>
+<p class="lede">Two lanes, never more. A loop closes before the next opens in its lane. Loop 5 waits for both because it edits a file the merges sit next to.</p>
+
+<div class="tl">
+<table>
+<thead>
+<tr>
+  <th class="lane">Lane / loop</th>
+  <th>Stage 1</th><th>Stage 2</th><th>Stage 3</th><th>Stage 4</th><th>Stage 5</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td class="lane">Loop 0 foundation<small>both lanes wait</small></td>
+  <td colspan="5"><div class="bar done">PLAN AND INVENTORIES &middot; CLOSED, 7 of 7</div></td>
+</tr>
+<tr>
+  <td class="lane">A &middot; Loop 1 one main<small>14 superseded, delete only</small></td>
+  <td></td>
+  <td colspan="3"><div class="bar done">RESOLVED: 0 MERGES NEEDED</div></td>
+  <td></td>
+</tr>
+<tr>
+  <td class="lane">A &middot; Loop 2 effect classes<small>closes class F</small></td>
+  <td></td><td></td>
+  <td colspan="2"><div class="bar todo">REGISTRY + PURITY TEST</div></td>
+  <td></td>
+</tr>
+<tr>
+  <td class="lane">B &middot; Loop 3 wall-clock lint<small>closes class A</small></td>
+  <td></td>
+  <td colspan="2"><div class="bar todo">AST LINT + CI</div></td>
+  <td></td><td></td>
+</tr>
+<tr>
+  <td class="lane">B &middot; Loop 4 truth repairs<small>closes 2 live class C</small></td>
+  <td></td><td></td>
+  <td colspan="2"><div class="bar todo">README + PHANTOM DOC</div></td>
+  <td></td>
+</tr>
+<tr>
+  <td class="lane">Loop 5 live deny canary<small>closes class D, lanes rejoin</small></td>
+  <td></td><td></td><td></td>
+  <td colspan="2"><div class="bar todo">PROBE THE HOOK</div></td>
+</tr>
+<tr>
+  <td class="lane">Loop 6 cross-family audit<small>Codex, read-only</small></td>
+  <td></td><td></td><td></td><td></td>
+  <td><div class="bar todo">AUDIT</div></td>
+</tr>
+<tr>
+  <td class="lane">Loop 7 release<small>founder gate</small></td>
+  <td></td><td></td><td></td><td></td>
+  <td><div class="bar gate">TAG v3.1.0</div></td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<h2>Loop 0: foundation</h2>
+<div class="progress"><div class="track"><div class="fill" style="width:100%"></div></div><span class="pct">7 of 7 CLOSED</span></div>
+<table class="ledger">
+<tr><th></th><th>Task</th></tr>
+<tr><td class="tick">&#10003;</td><td>0.1 Ground map <span class="pill lead">lead</span>
+  <span class="ev">git status --short printed nothing; git rev-parse HEAD origin/main printed 2f60b119bbd4d5dde8a9177bf97e856a26021bef twice; df reported 30Gi free, above the 15Gi build floor</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>0.2 Fence claimed under the session id the hook actually reports <span class="pill lead">lead</span>
+  <span class="ev">first claim REFUSED by the hook against a hand-made session name, which is the fence working; re-claimed: lifecycle b9c9f6d305c441d28f8a3c7ba10f526a, session bm1-51fa5453297450564df5d68a</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>0.3 The plan <span class="pill lead">lead</span>
+  <span class="ev">docs/plan/RELEASE-v3.1.0-PLAN.md, 9 sections, every loop row names its files and its done-check</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>0.4 This page <span class="pill lead">lead</span>
+  <span class="ev">docs/plan/RELEASE-v3.1.0-GANTT.html, house tokens, light and dark, evidence line per row</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>0.5 Branch conflict map <span class="pill agent">agent sonnet</span>
+  <span class="ev">git merge-tree --write-tree per branch: 1 branch conflict-free, 6 conflict on CHECKSUMS alone, 3 on one extra file, phase-c/continuity on 5 including write_sites.json; agent's tree verified clean afterwards</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>0.6 Effect-class inventory <span class="pill agent">agent sonnet</span>
+  <span class="ev">every public command classified with file:line. FIVE documented-read-only-but-writes mismatches found, one more than the Codex audit knew: bm_learn lookup, bm_packs stakes, bm_docs tier, bm_threads dashboard, bm_project status/next/forecast/alert. Root cause named: constructing a writable Store IS a write, before any SQL runs</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>0.7 Wall-clock assertion inventory <span class="pill agent">agent sonnet</span>
+  <span class="ev">35 timing sites and 66 assertLess calls triaged; list A holds ONE live instance, test_brothermode_cli.py:1510, 5.0s ceiling; list C empty; AST rule recommended over regex with the false-positive cases named</span></td></tr>
+</table>
+
+<h2>Loop 1: one main branch</h2>
+<div class="progress"><div class="track"><div class="fill" style="width:80%"></div></div><span class="pct">4 of 5</span></div>
+<p class="lede">The plan said merge eleven branches in a gated sequence. Measuring disproved it: main already holds the outcome of all fourteen. Merging several would have made main worse. The work became proving that, then deleting.</p>
+<table class="ledger">
+<tr><th></th><th>Task</th></tr>
+<tr><td class="tick">&#10003;</td><td>1.1 Prove the three zero-commit branches are ancestors <span class="pill lead">lead</span>
+  <span class="ev">git merge-base --is-ancestor yes for all three; two appear in main's own merge log at 68e9c25 and 73c1e59</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>1.2 Prove six more merge to a tree identical to main <span class="pill lead">lead</span>
+  <span class="ev">git merge-tree --write-tree then diff vs main: only the generated CHECKSUMS.sha256 differs. feature/progress-page-template has zero delta at all</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>1.3 Prove four would REGRESS main, not improve it <span class="pill lead">lead</span>
+  <span class="ev">phase-c/continuity: main 1378 lines vs branch 1081, seven functions main-only including relay_deadline and _session_cap, and its one unique test is the old wall-clock version main already replaced with a ratio. Reviewer found two more regressions I missed: it shrinks the reviewed write_sites audit inventory, and phase-5 reverts a reviewed assertion count from 4 to 3</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>1.4 Prove the last branch is a refactor, not a fix <span class="pill lead">lead</span>
+  <span class="ev">charming-goldwasser: main's _alert_project_id already registers the alert project row before attributing to it, idempotently. Main carries every branch test under a different name plus three more. BROTHERMODE_SESSION_CAP=99 python3 tools/test_bm_bash_audit.py -> Ran 39 tests in 3.786s OK</span></td></tr>
+<tr><td class="open">&#9675;</td><td>1.5 Tag every tip, then delete all 14 <span class="pill lead">lead</span>
+  <span class="ev">founder approved tag-then-delete 2026-08-10. check: git branch -r | grep -v HEAD returns origin/main alone, and every archive tag resolves</span></td></tr>
+</table>
+
+<h3>What an independent reviewer did to this finding</h3>
+<p class="lede">Briefed to destroy it, not confirm it, on the strongest model tier, because a wrong finding here throws away real work.</p>
+<table class="ledger">
+<tr><td class="tick">&#10003;</td><td>Six sub-claims attacked with a stronger method than mine, zero refuted
+  <span class="ev">it discarded my checkout --ours approach for merge-tree --write-tree, ran ancestry proofs, def-set comparison, a deletion filter, and commit-date direction checks. Verdict: SAFE to abandon. It also corrected one piece of my evidence as sloppy, which I accept</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>And I then corrected the reviewer
+  <span class="ev">it defended charming-goldwasser on file-level diffs. Reading the implementation showed main solves the same defect by another route. Three passes, three different answers, converging only because each one was checked rather than believed</span></td></tr>
+</table>
+
+<h2>Loop 2: effect classes</h2>
+<div class="progress"><div class="track"><div class="fill" style="width:0%"></div></div><span class="pct">0 of 6</span></div>
+<p class="lede">Read-only commands that write were found twice by two different auditors. Seven point fixes leave the eighth command free to repeat it, so the deliverable is a registry plus a test, not seven fixes.</p>
+<table class="ledger">
+<tr><th></th><th>Task</th></tr>
+<tr><td class="open">&#9675;</td><td>2.1 The registry: five effect classes, one declaration per public command <span class="pill agent">agent sonnet</span>
+  <span class="ev">check: a command absent from the registry is an ERROR, never a default</span></td></tr>
+<tr><td class="open">&#9675;</td><td>2.2 The purity test, written RED FIRST <span class="pill agent">agent sonnet</span>
+  <span class="ev">check: it must FAIL against today's code, naming bm_threads dashboard --help, and that red output is quoted before any fix</span></td></tr>
+<tr><td class="open">&#9675;</td><td>2.3 Route every pure_read command through ReadOnlyStore <span class="pill agent">agent sonnet</span>
+  <span class="ev">check: test_bm_effects.py OK, run after the last edit</span></td></tr>
+<tr><td class="open">&#9675;</td><td>2.4 Central pre-dispatch help gate <span class="pill agent">agent sonnet</span>
+  <span class="ev">check: --help on every module changes zero bytes</span></td></tr>
+<tr><td class="open">&#9675;</td><td>2.5 Reclassify the update command as networked, and say so in its help <span class="pill lead">lead</span>
+  <span class="ev">check: help text names the network call, registry agrees</span></td></tr>
+<tr><td class="open">&#9675;</td><td>2.6 Independent refute pass <span class="pill agent">agent opus</span>
+  <span class="ev">check: names a misclassified command, or states plainly it could not</span></td></tr>
+</table>
+
+<h2>Loop 3: the wall-clock lint</h2>
+<div class="progress"><div class="track"><div class="fill" style="width:0%"></div></div><span class="pct">0 of 5</span></div>
+<p class="lede">This defect was caught by review seven times and prevented zero times. The only durable fix is a machine that refuses the line.</p>
+<table class="ledger">
+<tr><th></th><th>Task</th></tr>
+<tr><td class="open">&#9675;</td><td>3.1 The lint as an AST walker with a visible benchmark allow list <span class="pill agent">agent sonnet</span>
+  <span class="ev">rule, from the inventory: flag a comparison where one side is a difference of two time calls and the other is a bare numeric literal. Regex was rejected: it false-positives on every ratio and every len() check</span></td></tr>
+<tr><td class="open">&#9675;</td><td>3.2 Calibrate BOTH ways <span class="pill agent">agent sonnet</span>
+  <span class="ev">check: flags every list A entry, flags NOTHING on list B. A lint with false positives gets disabled by the first person it annoys</span></td></tr>
+<tr><td class="open">&#9675;</td><td>3.3 Run tree-wide, fix or visibly exempt every hit <span class="pill agent">agent sonnet</span>
+  <span class="ev">check: exits 0 over tools/ and scripts/</span></td></tr>
+<tr><td class="open">&#9675;</td><td>3.4 Wire into CI as a BLOCKING step <span class="pill lead">lead</span>
+  <span class="ev">check: a deliberately reintroduced bad line fails the job</span></td></tr>
+<tr><td class="open">&#9675;</td><td>3.5 Add to the local gate <span class="pill lead">lead</span>
+  <span class="ev">check: test_all.py suite count includes it</span></td></tr>
+</table>
+
+<h2>Loop 4: truth repairs</h2>
+<div class="progress"><div class="track"><div class="fill" style="width:0%"></div></div><span class="pct">0 of 5</span></div>
+<p class="lede">Your team installs by handing the repository link to their own assistant. A false sentence in the README is executed, not merely misread.</p>
+<table class="ledger">
+<tr><th></th><th>Task</th></tr>
+<tr><td class="open">&#9675;</td><td>4.1 Release the stuck fence on README.md <span class="pill lead">lead</span>
+  <span class="ev">the record unit-u-phase3-install-truth holds it under a session no live session can match, so nobody can edit the most-read file in the repository</span></td></tr>
+<tr><td class="open">&#9675;</td><td>4.2 Narrow the single-writer claim to what ships <span class="pill lead">lead</span>
+  <span class="ev">check: the sentence states claimed paths refused, unclaimed allowed by default, shell writes audited not blocked</span></td></tr>
+<tr><td class="open">&#9675;</td><td>4.3 Remove every citation of the document that does not exist <span class="pill agent">agent sonnet</span>
+  <span class="ev">check: grep V3-FREEZE-2026-08-07 returns nothing outside handover archives</span></td></tr>
+<tr><td class="open">&#9675;</td><td>4.4 Correct the ledger row that marks this class FIXED <span class="pill lead">lead</span>
+  <span class="ev">check: the row reads OPEN with today's evidence</span></td></tr>
+<tr><td class="open">&#9675;</td><td>4.5 Widen the docs drift suite: a security verb with no test reference fails <span class="pill agent">agent sonnet</span>
+  <span class="ev">check: reintroducing "refuses" with no citation fails the suite</span></td></tr>
+</table>
+
+<h2>Loop 5: the live deny canary</h2>
+<div class="progress"><div class="track"><div class="fill" style="width:0%"></div></div><span class="pct">0 of 5</span></div>
+<p class="lede">The gate guarding unattended runs proves the fence is on by reading an environment string. It never checks the hook fires. That is the founding law failing one level up, inside the mechanism that produced the 8 August runaway.</p>
+<table class="ledger">
+<tr><th></th><th>Task</th></tr>
+<tr><td class="open">&#9675;</td><td>5.1 Fire a real probe write and assert the hook refused it <span class="pill lead">lead</span>
+  <span class="ev">check: returns PROVEN on Claude Code with the hook installed</span></td></tr>
+<tr><td class="open">&#9675;</td><td>5.2 Three distinct outcomes: PROVEN, NOT-PROVEN, HOOK-ABSENT <span class="pill lead">lead</span>
+  <span class="ev">check: all three reachable, each asserted separately</span></td></tr>
+<tr><td class="open">&#9675;</td><td>5.3 Refuse the verified label unless the canary returns PROVEN <span class="pill lead">lead</span>
+  <span class="ev">check: a forced NOT-PROVEN is refused, asserted by a new test</span></td></tr>
+<tr><td class="open">&#9675;</td><td>5.4 Enter it the way the RUNTIME does, not by calling the function <span class="pill lead">lead</span>
+  <span class="ev">nine green tests once called a function directly while the defect sat one level upstream. Its own row so it cannot be folded into 5.3 and forgotten</span></td></tr>
+<tr><td class="open">&#9675;</td><td>5.5 State the Codex position honestly <span class="pill lead">lead</span>
+  <span class="ev">check: the page says MEASURED unsupported, not "unverified until you rehearse it"</span></td></tr>
+</table>
+
+<h2>Loop 6 and 7: audit, then release</h2>
+<div class="progress"><div class="track"><div class="fill" style="width:0%"></div></div><span class="pct">0 of 10</span></div>
+<table class="ledger">
+<tr><th></th><th>Task</th></tr>
+<tr><td class="open">&#9675;</td><td>6.1 to 6.2 Codex read-only audit on the fully merged tree, output kept verbatim <span class="pill lead">lead</span>
+  <span class="ev">a findings list rewritten by the party being audited is not an independent finding any more</span></td></tr>
+<tr><td class="open">&#9675;</td><td>6.3 Triage every finding: FIXED, PUBLISHED, or OPEN with a reason <span class="pill agent">agent opus</span>
+  <span class="ev">check: every FIXED row cites a file read fresh, never a commit message alone</span></td></tr>
+<tr><td class="open">&#9675;</td><td>6.4 Zero unresolved CRITICAL or HIGH <span class="pill lead">lead</span>
+  <span class="ev">blocks the tag, not the merges</span></td></tr>
+<tr><td class="open">&#9675;</td><td>7.1 Regenerate the checksum manifest LAST, new files staged first <span class="pill lead">lead</span>
+  <span class="ev">the manifest hashes TRACKED files, so an unstaged new file is silently omitted</span></td></tr>
+<tr><td class="open">&#9675;</td><td>7.2 to 7.3 Version in all three places, changelog from real commits <span class="pill lead">lead</span>
+  <span class="ev">check: release-truth suite passes</span></td></tr>
+<tr><td class="open">&#9675;</td><td>7.4 to 7.5 Full gate green on the exact commit, and CI agreeing on that same SHA <span class="pill lead">lead</span>
+  <span class="ev">a CI result belongs to ONE commit. A green beside a newer SHA is unearned</span></td></tr>
+<tr><td class="open">&#9675;</td><td>7.6 Cut and push the tag <span class="pill founder">founder gate</span>
+  <span class="ev">not cut without an explicit yes in the moment, whatever the plan says</span></td></tr>
+</table>
+
+<h2>Deliberately not in this release</h2>
+<p class="lede">Each of these serves the north star and none is dropped. They are deferred by your decision that the foundation gets fixed first, and they are named here so the deferral is on the record rather than a silence.</p>
+<p>Work governor &middot; runtime capability probe &middot; acceptance contracts frozen before implementation &middot; independent verifier with an information boundary &middot; convergence engine &middot; reconciler for stranded state &middot; preview lane with screenshots &middot; cockpit generated from ledger events &middot; memory retrieval evaluation &middot; growing the benchmark &middot; ten external builders.</p>
+<p>The last one is the honest blocker on the whole positioning: nobody has counted whether the product makes work better. That closes with measurement, not with features.</p>
+
+<footer>
+<p><strong>The tick contract.</strong> A box ticks only when its done-check ran after the last edit and that output is quoted in the monospace line beside it. Percentages count ticked records, never impressions. A box with a plan but no run stays open.</p>
+<p><strong>What this page does not know.</strong> Whether the eleven branches conflict with each other: each was measured against main only. Whether merging the continuity branch turns eleven failing tests green: nobody has run it, which is why the rehearsal is its own step. How large the effect-class registry will be: its inventory is still running. Whether the audit will change the release scope: by construction it might, which is why it runs before the tag and not after.</p>
+</footer>
+
+</div>
+</body>
+</html>
