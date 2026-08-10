@@ -1,5 +1,10 @@
 # Codex cross-family audit, split per file, 2026-08-10 night
 
+Status: CURRENT as evidence; findings are triaged in R4-TRIAGE-2026-08-11.md
+and dispositions live there, never here. The em dashes below are Codex's own
+output, kept verbatim because a findings list rewritten by the party being
+audited is not an independent finding.
+
 Commit audited: 134839c. Auditor: codex-cli 0.146.0, sandbox read-only, one invocation per file,
 20 minute ceiling each. Output below each marker is VERBATIM from Codex;
 a timeout or crash is recorded as NO-DATA for that file only.
