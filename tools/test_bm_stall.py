@@ -365,7 +365,13 @@ class TestSeededCorpus(_StoreFixture):
             self.assertTrue(f["actions"], "finding %r has no actions" % f["kind"])
             for action in f["actions"]:
                 self.assertIn("command", action)
-                self.assertTrue(action["command"].startswith("python3 tools/"))
+                # P17: the printed command must be resolved for the reader's real
+        # layout (a console script, or python3 plus an absolute path),
+        # never the repo-relative form that lies in a packaged install.
+        self.assertNotIn("python3 tools/", action["command"])
+        self.assertTrue(
+            action["command"].startswith(("bm-store", "bm-learn", "python3 /")),
+            action["command"])
 
 
 # ---------------------------------------------------------------------------
