@@ -1,5 +1,10 @@
 # Handover, 2026-08-10 evening
 
+Status: CURRENT as of 2026-08-10 evening. This is a live handover, not a
+historical record: it describes work in flight at the moment it was written. It
+stops being current the moment a successor session acts on section 7, and that
+session should mark it HISTORICAL with a pointer to its own close-out.
+
 Khalil, I am running out of context and handing over.
 
 Written by session `6bf23670-87d2-40b0-a728-4896d4db9031`. No em or en dashes.

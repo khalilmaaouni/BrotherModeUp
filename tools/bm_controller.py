@@ -50,7 +50,14 @@ THE HARNESS SEAM (design section 4)
   so ControllerEngine itself is deterministic and fully testable with a
   FakeWorker and a FakeCheckRunner (tools/test_bm_controller.py), no live
   model and no network. SubprocessCheckRunner below is the ONLY place in
-  this file that touches `subprocess`.
+  this file that runs a FOUNDER-AUTHORED command (a done_check, a
+  verifier, or a rollback). The unattended preflight's fence canary
+  (_default_fence_canary_runner, see "THE UNATTENDED PREFLIGHT" below) is
+  the one other place `subprocess` is reached, and it never runs anything
+  founder- or model-authored: its argv is the fixed literal
+  [sys.executable, tools/bm_fence_hook.py, "hook"]. Both are pinned by
+  name in tools/test_bm_controller.py's _EXEC_PRIMITIVE_HOMES; a third
+  call site added anywhere else still fails that guard.
 
 AT-MOST-ONCE, HONESTLY (design section 5's own honesty note, restated)
   SQLite writes are transactional and idempotent by the store's own
@@ -71,10 +78,22 @@ USER-FACING STRINGS NAME NO REPO-RELATIVE PATH
   repository's checkout location.
 
 THE UNATTENDED PREFLIGHT (see the section of the same name below)
-  `--unattended` on `start` or `step` refuses the run unless seven
+  `--unattended` on `start` or `step` refuses the run unless eight
   preconditions hold. It changes NOTHING without that flag: interactive
   behaviour is identical, pinned by
   TestUnattendedPreflightLeavesInteractiveUseAlone.
+
+  One of those eight, the fence canary, actually RUNS
+  tools/bm_fence_hook.py as a real subprocess against a throwaway store,
+  rather than only reading the two environment variables the other fence
+  preconditions read. That closes an audited gap (Codex, 2026-08-10):
+  under a runtime that never wires the hook into PreToolUse at all, both
+  variables can read exactly right while nothing is ever checked. What it
+  proves is narrow and stated as narrow everywhere it appears: the hook
+  BINARY refuses a foreign write when it is actually run. It cannot prove,
+  and is never worded to imply, that the runtime about to go unattended
+  will call that hook on any write it makes; that is a separate question
+  this file has no way to see.
 
   Three of those preconditions are repository facts, and they are answered
   by tools/bm_autosave.py, the only OTHER shipping module this repository
@@ -88,9 +107,11 @@ THE UNATTENDED PREFLIGHT (see the section of the same name below)
   bm_autosave.py is the point: one snapshot mechanism, not two stories
   about what is recoverable.
 
-Python 3.9, standard library only. No network. The only `subprocess` call
-site is SubprocessCheckRunner.run, and it exists to run the founder's OWN
-done_check/verifier/rollback commands, never anything this file invents.
+Python 3.9, standard library only. No network. `subprocess` is reached in
+exactly two places: SubprocessCheckRunner.run, which runs the founder's OWN
+done_check/verifier/rollback commands and never anything this file invents,
+and _default_fence_canary_runner, which runs the fixed, hardcoded fence-hook
+probe described above and never anything founder- or model-authored.
 
 No em or en dashes anywhere in this file, its comments, or its output.
 """
@@ -102,6 +123,7 @@ import os
 import shlex
 import subprocess
 import sys
+import tempfile
 import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -257,11 +279,15 @@ def _sanitised_env(environ=None):
 
 
 class SubprocessCheckRunner(CheckRunner):
-    """Production runner. The ONLY place in this file that touches
-    `subprocess`: runs the done-check, the verifier command, the rollback
-    command, and the final done-definition check, all founder-authored
-    shell command strings stored on the unit or the contract, never text
-    this file composes itself.
+    """Production runner. The ONE place in this file that runs a
+    FOUNDER-AUTHORED command: the done-check, the verifier command, the
+    rollback command, and the final done-definition check, all shell
+    command strings stored on the unit or the contract, never text this
+    file composes itself. (The unattended preflight's fence canary,
+    _default_fence_canary_runner further down, is the other place
+    `subprocess` is reached; its argv is a fixed literal this file writes,
+    never founder- or model-authored text, which is why it is not gated
+    the same way.)
 
     Every one of them runs in a SANITISED environment (_sanitised_env
     above, CROSS-FAMILY REFUTATION finding 3): the git variables that
@@ -271,8 +297,9 @@ class SubprocessCheckRunner(CheckRunner):
     happened to export.
 
     This is the ONE place the strip can live and be total. The engine has
-    exactly one subprocess primitive, pinned structurally by
-    tools/test_bm_controller.py's _execution_primitive_offences, so a
+    exactly one FOUNDER-COMMAND subprocess primitive, pinned structurally
+    by tools/test_bm_controller.py's _execution_primitive_offences (see
+    _EXEC_PRIMITIVE_HOMES there for the one other named exception), so a
     command site added later inherits the sanitised environment by
     construction rather than by remembering to ask for it."""
 
@@ -4708,7 +4735,7 @@ def _drive_until_parked(engine, project_id, max_steps):
 # exact command that really does change what the hook reads.
 # ---------------------------------------------------------------------------
 
-#: The seven reason codes an unattended start can refuse with, one per
+#: The eight reason codes an unattended start can refuse with, one per
 #: precondition, as NAMED CONSTANTS rather than literals at each raise site.
 #: One place to enumerate them from is what lets UNATTENDED_REFUSAL_HELP
 #: below and the tests both be checked against the same list: a reason code
@@ -4718,6 +4745,17 @@ def _drive_until_parked(engine, project_id, max_steps):
 UNATTENDED_NO_IDENTITY = "unattended-no-identity"
 UNATTENDED_FENCE_ADVISORY = "unattended-fence-advisory"
 UNATTENDED_FENCE_NOT_STRICT = "unattended-fence-not-strict"
+#: The EIGHTH precondition (added 2026-08-10, closing a CRITICAL finding
+#: from an independent Codex audit). The two codes above prove only that
+#: BM_FENCE_MODE and BM_FENCE_STRICT are SET to the values
+#: tools/bm_fence_hook.py reads; neither one proves the runtime spawns that
+#: hook at all. Under Codex exec, confirmed, both variables can read
+#: exactly right while the hook never runs once. This code is what
+#: _unattended_fence_canary returns when it cannot show, by actually
+#: running the hook, that it refuses a foreign write. See that function's
+#: docstring for the exact, narrow thing a pass here does and does not
+#: prove.
+UNATTENDED_FENCE_NOT_PROVEN = "unattended-fence-not-proven"
 UNATTENDED_NO_REPOSITORY = "unattended-no-repository"
 UNATTENDED_DIRTY_TREE = "unattended-dirty-tree"
 UNATTENDED_FOREIGN_CLAIM = "unattended-foreign-claim"
@@ -4734,7 +4772,7 @@ UNATTENDED_FENCE_STRICT_COMMAND = "export BM_FENCE_STRICT=1"
 #: same three-part shape tools/bm_visual.py's REFUSAL_HELP uses, so a
 #: founder meets a sentence rather than a code. It lives HERE and not in
 #: bm_visual.py because that map is enumerated from tools/bm_store.py's own
-#: source, and these seven are the CONTROLLER's refusals, which that scanner
+#: source, and these eight are the CONTROLLER's refusals, which that scanner
 #: cannot see. Naming them in bm_visual.py's map as well is a separate,
 #: named cross-writer ask, recorded rather than assumed.
 UNATTENDED_REFUSAL_HELP = {
@@ -4759,6 +4797,20 @@ UNATTENDED_REFUSAL_HELP = {
         "often",
         "Turn the stricter setting on in the same terminal you start the "
         "run from, then start again: " + UNATTENDED_FENCE_STRICT_COMMAND),
+    UNATTENDED_FENCE_NOT_PROVEN: (
+        "checking that the write fence actually refuses a write, by "
+        "running it, not only that the settings meant to turn it on are "
+        "set",
+        "the fence hook's refusal could not be shown by actually running "
+        "it: either it ran and let a foreign write through, or it could "
+        "not be run and checked here at all, and the detail line below "
+        "tells those two apart",
+        "read the detail line: if the hook ran and did not refuse, that "
+        "is a defect in tools/bm_fence_hook.py to fix before running "
+        "unattended; if it could not be run at all, fix that first. "
+        "Either way, this only checks the hook binary itself: it cannot "
+        "prove that the runtime you are about to run under actually "
+        "calls it on every write it makes."),
     UNATTENDED_NO_REPOSITORY: (
         "finding the version history this run could be undone from",
         "this folder is not a tracked project, or it is not sitting on a "
@@ -4805,7 +4857,7 @@ class UnattendedGitFacts(object):
 
     WHY IT IS A CLASS AND NOT FOUR FUNCTIONS. It is the seam the tests
     replace. Every condition below takes its repository facts through one
-    injected object, so tools/test_bm_controller.py exercises all seven
+    injected object, so tools/test_bm_controller.py exercises all eight
     refusals against a fake with no repository, no git binary and no
     snapshot, deterministically, in the same hermetic style the engine tests
     already use for the worker and the check runner.
@@ -4967,6 +5019,193 @@ def _unattended_fence_strict(env):
             % (UNATTENDED_FENCE_STRICT_COMMAND,))
 
 
+# ---------------------------------------------------------------------------
+# PRECONDITION 8: the fence canary. Added 2026-08-10 after an independent
+# Codex audit rated _unattended_fence_mode above CRITICAL: it proves the
+# fence is "on" by reading BM_FENCE_MODE, and never checks that anything
+# actually SPAWNS tools/bm_fence_hook.py. Under Codex exec, confirmed, the
+# hook is never invoked at all, so an unattended run can pass both fence
+# preconditions above with zero enforcement behind them. This is the same
+# failure class the whole product exists to close (a promise recorded and
+# never checked), now one level up, inside the gate that is supposed to
+# guard unattended runs from it.
+# ---------------------------------------------------------------------------
+
+#: The fixed, hardcoded command the canary runs. Never founder- or
+#: model-authored text: `argv` built from this constant is the same three
+#: tokens on every call, which is what lets it be the second (and only
+#: other) place in this module `subprocess` is reached without reopening
+#: the FOUNDER-COMMAND gate SubprocessCheckRunner exists to be the one door
+#: for (see that class's docstring).
+_FENCE_HOOK_FILE = os.path.join(HERE, "bm_fence_hook.py")
+
+#: Two DIFFERENT session ids for the canary's own throwaway store, so the
+#: claim really is somebody else's from the invoking call's point of view.
+#: Neither is ever this run's own --session-id: the canary's store and the
+#: real run's store are never the same database, so there is no identity
+#: to protect by matching them.
+_FENCE_CANARY_CLAIMANT_SESSION = "bm-fence-canary-claimant"
+_FENCE_CANARY_INVOKER_SESSION = "bm-fence-canary-invoker"
+_FENCE_CANARY_PROBE_PATH = "canary-probe.txt"
+
+
+def _default_fence_canary_runner(argv, cwd, env, stdin_text):
+    """The REAL process spawn behind _unattended_fence_canary's default
+    runner=None: `python3 tools/bm_fence_hook.py hook`, with a JSON
+    PreToolUse payload on real stdin, in a caller-built, fully isolated
+    environment.
+
+    This and SubprocessCheckRunner.run above are the ONLY two places in
+    this module that reach `subprocess`, both pinned by qualified name in
+    tools/test_bm_controller.py's _EXEC_PRIMITIVE_HOMES; a third call site
+    added anywhere else in this file still fails that structural guard.
+    Unlike the checker's command, `argv` here is never founder- or
+    model-authored: _unattended_fence_canary builds it from the fixed
+    literal _FENCE_HOOK_FILE, so there is no injection surface the way
+    there is for a done_check string, and no gate is being reopened by
+    giving this its own call site rather than routing through the
+    checker."""
+    proc = subprocess.run(argv, cwd=cwd, env=env, input=stdin_text,
+                          capture_output=True, text=True)
+    return {"stdout": proc.stdout, "stderr": proc.stderr,
+            "returncode": proc.returncode}
+
+
+def _unattended_fence_canary(env, runner=None):
+    """Precondition 8: the write fence actually REFUSES, proved by running
+    it, not by reading a variable it is supposed to obey.
+
+    WHY THIS EXISTS. _unattended_fence_mode and _unattended_fence_strict
+    above prove exactly one thing each: that BM_FENCE_MODE and
+    BM_FENCE_STRICT are set to the values tools/bm_fence_hook.py reads.
+    Neither one, nor both together, proves that anything actually SPAWNS
+    that hook. An independent Codex audit rated this CRITICAL: under Codex
+    exec the hook never runs at all, so an unattended run passes every
+    other precondition with the fence completely unenforced. This function
+    closes that one gap and no other.
+
+    WHAT IT DOES. Builds a THROWAWAY BrotherMode project under
+    tempfile.TemporaryDirectory(), with its own isolated environment
+    (BROTHERMODE_ROOT, HOME, BROTHERMODE_VAULT and BROTHERSBE_VAULT all
+    pinned inside it; BROTHERMODE_VAULT is exported ambient on this
+    machine and WINS over HOME if only HOME is overridden, so all four are
+    pinned together, the same isolation tools/test_bm_packaging_install.py
+    already documents and this mirrors). It claims one probe path there
+    under _FENCE_CANARY_CLAIMANT_SESSION, then runs the REAL
+    tools/bm_fence_hook.py as a REAL SUBPROCESS, with a real PreToolUse
+    JSON payload on real stdin naming an Edit of that path under the
+    DIFFERENT _FENCE_CANARY_INVOKER_SESSION, and reads what it printed
+    back.
+
+    THREE OUTCOMES.
+      1. The hook denied the write: PROVEN. Returns None, same as every
+         other passing precondition.
+      2. The hook ran and did NOT deny it: a real, demonstrated defect in
+         tools/bm_fence_hook.py, not a missing proof, and the finding says
+         so. The fence did not refuse a write to a path another session
+         owns.
+      3. The hook could not be run at all, or its stdout could not be read
+         as the deny shape: the finding says the refusal could not be
+         DEMONSTRATED, in words that distinguish that from outcome 2. Not
+         knowing whether a fence works is not the same claim as knowing it
+         is broken, and the two must never be said the same way.
+
+    THE HONESTY BOUNDARY, stated as plainly as this file can state
+    anything. Outcome 1 proves that the hook BINARY refuses a foreign
+    write WHEN IT IS ACTUALLY RUN. It cannot prove, and must never be
+    worded anywhere (here, in the reason text, in UNATTENDED_REFUSAL_HELP)
+    to imply, that the RUNTIME about to run unattended will INVOKE that
+    hook on any write it makes. That second question is exactly the Codex
+    gap this function exists to close one layer down from, and this
+    function has no way to see the answer to it: it can watch the hook
+    refuse in isolation, and it can watch nothing about whether the
+    runtime ever calls it for real. Describing a pass here with any
+    end-to-end wording that reaches past the hook itself, to the runtime
+    or to the write it would guard, is FORBIDDEN, precisely because it
+    claims the half this function cannot see. The only honest sentence is
+    the narrow one: the hook refuses when it is run.
+
+    ENTERING THROUGH A REAL SUBPROCESS WITH REAL STDIN, rather than
+    calling tools/bm_fence_hook.decide() in-process, is the point and not
+    an implementation detail. This repository once shipped nine green
+    tests that all called decide() directly while the live defect sat in
+    cmd_hook, the stdin-reading entry point in front of it, for six days:
+    decide() was correct and nothing that skipped the door in front of it
+    could have caught what was wrong with the door. This canary goes in
+    through the same door the runtime does.
+
+    NEVER RAISES. Every failure path here (an unspawnable process,
+    unreadable stdout, unparseable JSON, the throwaway store itself
+    misbehaving, anything unforeseen) is caught and turned into the
+    'could not be demonstrated' finding. This runs in front of every
+    unattended start, so a bug in this safety check must never become a
+    new way for an unsafe run to begin.
+
+    `runner(argv, cwd, env, stdin_text) -> {"stdout", "stderr",
+    "returncode"}` is the injection seam tests use to supply a fake
+    outcome, or to raise, without spawning a real process. The default,
+    runner=None, really spawns via _default_fence_canary_runner. The
+    throwaway directory is cleaned up unconditionally (the `with
+    tempfile.TemporaryDirectory()` block covers the claim, the spawn, and
+    the read; nothing about the finding this function returns depends on
+    the throwaway still existing)."""
+    spawn = _default_fence_canary_runner if runner is None else runner
+    try:
+        with tempfile.TemporaryDirectory(
+                prefix="bm-fence-canary-") as throwaway:
+            fake_home = os.path.join(throwaway, "home")
+            os.makedirs(fake_home, exist_ok=True)
+            canary_env = {
+                "PATH": (env.get("PATH") or ""),
+                "HOME": fake_home,
+                "BROTHERMODE_ROOT": throwaway,
+                "BROTHERMODE_VAULT": os.path.join(throwaway, "vault"),
+                "BROTHERSBE_VAULT": os.path.join(throwaway, "vault"),
+            }
+            with bs.Store(throwaway) as store:
+                store.claim(name="canary-probe", lifetime="ephemeral",
+                            files=[_FENCE_CANARY_PROBE_PATH],
+                            session_id=_FENCE_CANARY_CLAIMANT_SESSION)
+            payload = json.dumps({
+                "session_id": _FENCE_CANARY_INVOKER_SESSION,
+                "tool_name": "Edit",
+                "tool_input": {"file_path": _FENCE_CANARY_PROBE_PATH},
+                "cwd": throwaway,
+            })
+            result = spawn([sys.executable, _FENCE_HOOK_FILE, "hook"],
+                           throwaway, canary_env, payload)
+            stdout = (result["stdout"] if isinstance(result, dict)
+                      else result.stdout)
+            decision = (json.loads(stdout) if (stdout or "").strip()
+                       else None)
+            denied = (isinstance(decision, dict)
+                      and isinstance(decision.get("hookSpecificOutput"), dict)
+                      and decision["hookSpecificOutput"].get(
+                          "permissionDecision") == "deny")
+            if denied:
+                return None
+            return (UNATTENDED_FENCE_NOT_PROVEN,
+                    "the fence hook was actually run, as a real subprocess, "
+                    "against a throwaway claim owned by a different "
+                    "session, and it did NOT refuse a write to a path that "
+                    "other session owns. This is a real, demonstrated "
+                    "defect in tools/bm_fence_hook.py, found by running it, "
+                    "never a missing proof. This says nothing about "
+                    "whether the runtime you are about to run unattended "
+                    "under would even call the hook on a real write; that "
+                    "is a separate question this canary cannot see.")
+    except Exception as exc:
+        return (UNATTENDED_FENCE_NOT_PROVEN,
+                "the fence hook's refusal could not be DEMONSTRATED here "
+                "(%s: %s). That is different from a fence known to be "
+                "broken: tools/bm_fence_hook.py could not be run and read "
+                "in this environment at all, so nothing about whether it "
+                "refuses a foreign write was established either way. "
+                "Confirm `%s tools/bm_fence_hook.py hook` runs here, then "
+                "start again."
+                % (type(exc).__name__, exc, sys.executable))
+
+
 def _unattended_repository(git, root):
     """Precondition 3: a repository is detected and a branch is named.
 
@@ -5094,10 +5333,12 @@ def _unattended_foreign_claim(store, root, session_id, project_id):
 def _unattended_snapshot(git, toplevel, session_id):
     """Precondition 5: a recovery snapshot exists, or one is taken now.
 
-    Evaluated LAST of the seven, deliberately. It is the only condition with
-    an effect on disk, and a preflight that refuses should leave nothing
-    behind: the six read-only conditions all have to pass before this one
-    writes a single ref."""
+    Evaluated LAST of the eight, deliberately. It is the only condition
+    with an effect on disk, and a preflight that refuses should leave
+    nothing behind: the seven read-only conditions (the fence canary
+    included: it writes only inside its own throwaway directory, cleaned
+    up unconditionally, never anywhere this run's own preflight is
+    judging) all have to pass before this one writes a single ref."""
     if toplevel is None:
         return None
     ok, detail = git.recovery_point(toplevel, session_id)
@@ -5110,8 +5351,9 @@ def _unattended_snapshot(git, toplevel, session_id):
 
 
 def unattended_preflight(store, root, project_id, session_id,
-                         acknowledged=(), env=None, git=None):
-    """The seven conditions an unattended run must meet, as a list of
+                         acknowledged=(), env=None, git=None,
+                         fence_canary_runner=None):
+    """The eight conditions an unattended run must meet, as a list of
     (reason_code, sentence) findings. An empty list means "start it".
 
     THE CHOICE, STATED. Conditions 1 and 2 (BM_FENCE_MODE=enforced and
@@ -5124,16 +5366,26 @@ def unattended_preflight(store, root, project_id, session_id,
     worse than refusing: it would report a protection nobody has. The
     refusal names the exact command instead.
 
+    CONDITION 8, THE FENCE CANARY, is a different kind of check: it does
+    not read a setting, it RUNS tools/bm_fence_hook.py for real (see
+    _unattended_fence_canary's own docstring for the full honesty
+    statement). It proves the hook binary refuses when it is actually
+    invoked; it cannot prove, and is never worded to claim, that the
+    runtime about to run unattended will invoke it on any real write.
+
     EVERY READ-ONLY CONDITION IS EVALUATED, not only the first, because the
     founder running this is about to walk away and a preflight that reveals
     one problem per attempt costs them the evening. The findings come back
     in a fixed order and the CLI raises on the first one's code, so each
     condition is still a single named refusal with a single named reason.
 
-    `store`, `env` and `git` are the three seams: the tests hand this a
+    `store`, `env` and `git` are three of the seams: the tests hand this a
     throwaway store, a plain dictionary and a fake repository object, so all
-    seven refusals are exercised with no real environment, no git binary and
-    no snapshot anywhere."""
+    eight refusals are exercised with no real environment, no git binary and
+    no snapshot anywhere. `fence_canary_runner` is the fourth, threaded
+    straight to _unattended_fence_canary's own `runner` parameter: None (the
+    default, and what every real caller gets) really spawns the hook as a
+    subprocess; a test hands in a fake to stay hermetic and fast."""
     env = os.environ if env is None else env
     git = UnattendedGitFacts() if git is None else git
     findings = []
@@ -5141,7 +5393,8 @@ def unattended_preflight(store, root, project_id, session_id,
     if identity is not None:
         findings.append(identity)
     for finding in (_unattended_fence_mode(env),
-                    _unattended_fence_strict(env)):
+                    _unattended_fence_strict(env),
+                    _unattended_fence_canary(env, runner=fence_canary_runner)):
         if finding is not None:
             findings.append(finding)
     repository, toplevel = _unattended_repository(git, root)
@@ -5174,7 +5427,7 @@ def unattended_refusal_text(findings):
     finding, each one rewritten through UNATTENDED_REFUSAL_HELP so a reason
     code never reaches a person on its own (defect M08), each one carrying
     the engine's own sentence underneath it."""
-    lines = ["this run was asked to start UNATTENDED, and %d of the seven "
+    lines = ["this run was asked to start UNATTENDED, and %d of the eight "
              "safety conditions %s not met"
              % (len(findings), "is" if len(findings) == 1 else "are")]
     for code, sentence in findings:

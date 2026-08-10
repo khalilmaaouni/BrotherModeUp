@@ -170,6 +170,13 @@ jobs:
       # would be writing constantly and invisibly.
       - name: Run the progress-page check calibration suite
         run: python3 tools/test_bm_progress_check.py
+      # The effect-class registry and its purity tests, added 2026-08-10. It
+      # proves that a command declared pure_read changes zero bytes, and the
+      # test that actually bites runs against a store one schema version
+      # BEHIND, because opening a writable Store migrates such a database
+      # while a snapshot against a healthy one sees nothing at all.
+      - name: Run the effect-class purity suite
+        run: python3 tools/test_bm_effects.py
       # The status line and footer links, the 2026-08-05 answer 7 named in
       # docs/program/absolute-lead/DESIGN-visual-surface.md section 14,
       # item 1: tools/bm_statusline.py is a fail silent script BrotherMode
