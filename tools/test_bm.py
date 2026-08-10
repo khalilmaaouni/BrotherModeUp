@@ -1150,7 +1150,21 @@ class TestProjectSecurityClaims(unittest.TestCase):
         # push, enforced by the shell-and-git half of this test below plus its own
         # suite). The exception is per FILE and per MODULE NAME, so a second file
         # cannot quietly inherit it, and subprocess remains banned everywhere else.
-        allowed = {"bm_autosave.py": {"subprocess"},
+        allowed = {
+                   # bm_bench.py (2026-08-10) is the ONE entry here that is
+                   # not local-only, and it is written out rather than hidden
+                   # among the others. The outcome benchmark invokes an AI
+                   # coding agent as a subprocess, and that agent absolutely
+                   # does make network calls. So SECURITY.md's headline claim
+                   # is scoped rather than absolute: the hooks and tools that
+                   # run on their own make no network calls, and this one
+                   # tool, which a person runs deliberately and never a hook,
+                   # causes traffic by design because measuring an agent
+                   # requires running one. Saying "local only" here to keep
+                   # the sentence tidy would be exactly the overclaim this
+                   # test exists to prevent.
+                   "bm_bench.py": {"subprocess"},
+                   "bm_autosave.py": {"subprocess"},
                    # bm_controller.py (L03) runs each unit's deterministic
                    # done-check as a LOCAL command through subprocess, the same
                    # local-only posture as bm_autosave driving git. It makes no
@@ -5377,22 +5391,124 @@ class TestLoop11SecretScanHardening(unittest.TestCase):
         for benign in ("task-oriented", "risk-free", "whisk-y", "and/or"):
             self.assertEqual(self._redact(benign), benign)
 
-    def test_redaction_of_a_large_input_stays_under_the_ceiling(self):
-        """PERFORMANCE CEILING. The key=value pattern was quadratic once (an
-        unbounded prefix retried at every offset of a long alphanumeric run):
-        one 20 KB correction stalled an import for 75 seconds. Generous
-        enough not to flake on a loaded CI box, tight enough that a
-        reintroduced quadratic pattern cannot pass."""
+    def _large_blob(self, units):
+        """The workstream D worst case, sized in units so two of them can be
+        compared. One unit is about 630 characters: a dense key-shaped
+        alphanumeric run, a real secret in the middle, then ordinary prose.
+
+        FIXED 2026-08-10, and read this before changing the filler. The run
+        used to be "A1b2C3d4E5f6G7h8", pure letters and digits, and the
+        key=value pattern opens with the boundary lookbehind (?<![A-Za-z0-9]),
+        so only the first offset of that run could ever start a match. On
+        that text the quadratic this test exists to catch is UNREACHABLE:
+        reinjecting the pre-Loop-12 unbounded pattern leaves the cost linear,
+        exactly as tools/test_bm.py's TestLoop12 class records for its own
+        letter-run probe. The "_" is the one character excluded from that
+        lookbehind while still being inside the [A-Za-z0-9_]* run that
+        follows, so one underscore per five characters gives the defect its
+        n starting positions back and makes this probe able to fail. Proven
+        by test_calibrated_the_unbounded_pattern_blows_up_this_blob below."""
+        return (("A1b2_C3d4_E5f6_G7h8_" * (units * 16))
+                + " password=hunter2 "
+                + ("some ordinary sentence about the work. " * (units * 8)))
+
+    def _time(self, text, samples=5):
+        """Minimum of five samples, the same estimator and for the same
+        reason as TestLoop12RedactionIsLinearInInputSize._time above (C-11,
+        2026-08-04): noise can only ADD latency to a sample, never remove it,
+        so the minimum converges on the true unloaded cost."""
         import time
-        blob = ("A1b2C3d4E5f6G7h8" * 4096) + " password=hunter2 "  # 64 KB
-        blob = blob + ("some ordinary sentence about the work. " * 2000)
-        start = time.time()
-        cleaned = self._redact(blob)
-        elapsed = time.time() - start
-        self.assertNotIn("hunter2", cleaned)
-        self.assertLess(elapsed, 10.0,
-                        "redacting %d KB took %.1fs: suspect a quadratic pattern"
-                        % (len(blob) // 1024, elapsed))
+        best = None
+        for _ in range(samples):
+            start = time.time()
+            bm.redact(text)
+            elapsed = time.time() - start
+            if best is None or elapsed < best:
+                best = elapsed
+        return best
+
+    def test_redaction_of_a_large_input_stays_linear(self):
+        """PERFORMANCE SHAPE. The key=value pattern was quadratic once (an
+        unbounded prefix retried at every offset of a long alphanumeric run):
+        one 20 KB correction stalled an import for 75 seconds.
+
+        FIXED 2026-08-10. This test was named
+        test_redaction_of_a_large_input_stays_under_the_ceiling and asserted
+        `elapsed < 10.0` on one wall-clock sample. A ten-second budget is a
+        fact about the MACHINE, not about the pattern: the identical shape in
+        this file's TestLoop12 class failed at 1023s on a five-session laptop
+        with the code under test unchanged, and its sibling comment already
+        says in so many words that a wall-clock budget is a blunt instrument.
+        Worse, the ceiling was also loose enough that the defect could sit
+        under it, which is the second half of the same 2026-07-31 finding.
+
+        So the same fix lands here: assert the SHAPE. Four times the input
+        must not take anything like sixteen times the work, both timings are
+        taken under whatever load is present so contention cancels in the
+        ratio, and each is the minimum of five samples so one stall cannot
+        land on one size alone. The functional half, that a secret buried in
+        a large input is still redacted, is kept and is now checked at BOTH
+        sizes rather than one. Measured 2026-08-10: 40 KB took 0.0297s and
+        162 KB took 0.1233s, a 4.15x ratio where linear is about 4x. The
+        large leg is bigger than the 142 KB the old ceiling test used, so no
+        input coverage is lost."""
+        small_blob, large_blob = self._large_blob(64), self._large_blob(256)
+        for blob in (small_blob, large_blob):
+            self.assertNotIn("hunter2", self._redact(blob),
+                             "a secret in a %d KB input was not redacted"
+                             % (len(blob) // 1024))
+        small = max(self._time(small_blob), 0.001)
+        large = self._time(large_blob)
+        self.assertLess(large / small, 8.0,
+                        "redact() scaling looks superlinear on the workstream "
+                        "D blob: %d KB took %.4fs, %d KB took %.4fs, a %.1fx "
+                        "ratio where linear is about 4x and quadratic about "
+                        "16x" % (len(small_blob) // 1024, small,
+                                 len(large_blob) // 1024, large, large / small))
+
+    def test_calibrated_the_unbounded_pattern_blows_up_this_blob(self):
+        """CALIBRATION for the test above: a probe that cannot reach the
+        defect measures nothing.
+
+        Reinjects the pre-Loop-12 unbounded key=value pattern, the exact one
+        whose bounded {0,40} prefix is the shipped fix, and the ratio must go
+        superlinear on THIS blob shape. That is what proves the sibling test
+        can still fail for the reason it exists, rather than passing for
+        free.
+
+        Sizes are 4 and 16 units (2.5 KB and 10 KB) rather than the sibling's
+        64 and 256, to keep this test near two seconds instead of near two
+        minutes: quadratic cost rises fast and the ratio is what is asserted,
+        not the absolute time. Measured 2026-08-10, minimum of five samples
+        per size: unbounded gave 0.0181s and 0.2464s, a 13.6x ratio, against
+        the 4.15x the shipped bounded pattern gives on the same shape. The
+        same reinjection on the OLD letters-only filler gave a linear ratio,
+        which is why _large_blob now carries underscores."""
+        unbounded = re.compile(
+            bm._BEFORE + r"[A-Za-z0-9_]*(?:pass(?:word|wd|phrase)?"
+            r"|secret|token|api[_-]?key|access[_-]?key|private[_-]?key"
+            r"|credential)s?\s*(?:[:=]|\s+(?:is|was)\s+)\s*\S+", re.I)
+        original = bm.SECRET_PATTERNS
+        reinjected = list(original)
+        reinjected[8] = unbounded
+        bm.SECRET_PATTERNS = reinjected
+        try:
+            small = max(self._time(self._large_blob(4)), 0.001)
+            large = self._time(self._large_blob(16))
+        finally:
+            bm.SECRET_PATTERNS = original
+        self.assertGreaterEqual(
+            large / small, 8.0,
+            "REINJECTION CHECK: the pre-Loop-12 unbounded key=value pattern "
+            "must still show a superlinear ratio on the workstream D blob, "
+            "so that the test above is proven able to catch it. 2.5 KB took "
+            "%.4fs, 10 KB took %.4fs, a %.1fx ratio where 13.6x was measured "
+            "when this was written and anything near 4x means the "
+            "calibration has been lost" % (small, large, large / small))
+        # The shipped pattern must be back: a leaked monkeypatch would make
+        # every later redaction test in this process pass or fail for reasons
+        # unrelated to the code under test.
+        self.assertIn("{0,40}", bm.SECRET_PATTERNS[8].pattern)
 
 
 class TestP17PackagingManifestMatchesTheRepository(unittest.TestCase):
