@@ -1077,7 +1077,25 @@ def _notes_for(store, cand, cites):
 
 def cmd_stakes(argv):
     """The one line a question window carries, plus the path the pack WOULD
-    occupy. Generates nothing (spec A.2: nothing until asked)."""
+    occupy. Generates nothing (spec A.2: nothing until asked).
+
+    CORRECTED 2026-08-11 (codex-audit-split-2026-08-10-night.md HIGH #1 for
+    tools/bm_effects.py, R4-TRIAGE-2026-08-11.md row 1), same pattern as
+    tools/bm_docs.py's cmd_tier and tools/bm_learn.py's cmd_lookup: this
+    command generates no PACK FILE, which the sentence above is still true
+    about, but it opens a WRITABLE bm_store.Store below, so against a
+    database one schema version behind it MIGRATES IT before ever
+    computing a stakes line. It is declared ledger_write in
+    tools/bm_effects.py.
+
+    OPEN, and named rather than left implied: this SHOULD be pure_read and
+    is not yet. get_learning_candidate and blocking_alerts (both called
+    directly below) and gate_change_set (called by stakes_line()) all exist
+    on bm_store.Store only, not on bm_store.ReadOnlyStore, so swapping the
+    constructor would raise AttributeError on every normal invocation.
+    Adding read-only counterparts to ReadOnlyStore is what would close
+    this, and that is a change to the store's own public surface, out of
+    this fix's scope."""
     pos, kv = _parse(argv, {"json"})
     if not pos:
         _err("usage: stakes <candidate-id>")
