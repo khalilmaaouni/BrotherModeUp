@@ -2937,9 +2937,9 @@ REFUSAL_HELP = {
         "checking that the write fence actually refuses a write, by running "
         "it, not only that the settings meant to turn it on are set",
         "the fence hook's refusal could not be shown by actually running it: "
-        "either it ran and let a foreign write through, or it could not be "
-        "run and checked here at all, and the detail line below tells those "
-        "two apart",
+        "either it ran and let a foreign Edit write through, or it "
+        "could not be run and checked here at all, and the detail line "
+        "below tells those two apart",
         "read the detail line: if the hook ran and did not refuse, that is a "
         "defect in tools/bm_fence_hook.py to fix before running unattended; "
         "if it could not be run at all, fix that first. Either way, this only "
