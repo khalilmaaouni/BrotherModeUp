@@ -439,25 +439,31 @@ def _find_record(store, name, states=None, lifecycle_prefix=None):
 
 def _records_by_identity(store):
     """Every record in the store as an AUTHORITATIVE bm_store.Record, newest
-    first, for the two commands that act on records they did not resolve by
-    name (`off` drains every active persistent one, `recommend` counts
-    them).
+    first, for `off`, which drains every active persistent one and needs the
+    real (unredacted) name for the drain heading. `recommend` used to be the
+    other caller; it only ever needed a COUNT of active persistent records,
+    never a name, so the read-only fix round (2026-08-10) moved it onto
+    `_active_persistent_count` below instead of widening this function's
+    contract to work against a read-only store too.
 
-    FINDING 9, the same defect one step removed: both commands used to read
+    FINDING 9, the same defect one step removed: this used to read
     store.dump() and then make decisions on its rows. state, lifetime,
     session_id and lifecycle_uuid all happen to sit in bm_store's
-    _DUMP_SAFE_COLUMNS today, so those two commands worked; records.name did
-    NOT, so `off` wrote "[REDACTED]" into the drain heading, and the whole
-    arrangement rests on a DISPLAY allowlist staying exactly as it is. One
-    column moving out of that allowlist would silently stop `off` from
-    finding anything to drain. Decisions are made on rows read straight from
-    the records table (store.get), so no display policy can reach them; the
-    only field taken from dump() is lifecycle_uuid, the machine-generated
-    identity that is never founder text at all.
+    _DUMP_SAFE_COLUMNS today, so that worked; records.name did NOT, so `off`
+    wrote "[REDACTED]" into the drain heading, and the whole arrangement
+    rests on a DISPLAY allowlist staying exactly as it is. One column moving
+    out of that allowlist would silently stop `off` from finding anything to
+    drain. Decisions are made on rows read straight from the records table
+    (store.get), so no display policy can reach them; the only field taken
+    from dump() is lifecycle_uuid, the machine-generated identity that is
+    never founder text at all.
 
     Callers still protect the name before it reaches a file or the terminal:
     these rows are authoritative, which means unredacted, exactly like the
-    name a founder typed on the command line."""
+    name a founder typed on the command line. store.get is a writable-Store
+    accessor with no ReadOnlyStore counterpart, so this function stays on
+    the writable Store; it is only ever called from a command (`off`) that
+    already needs write authority to drain what it finds."""
     out = []
     for row in store.dump()["records"]:
         rec = store.get(row["lifecycle_uuid"])
@@ -465,6 +471,20 @@ def _records_by_identity(store):
             out.append(rec)
     out.sort(key=lambda r: (r.updated_at, r.lifecycle_uuid), reverse=True)
     return out
+
+
+def _active_persistent_count(store):
+    """How many records are active and persistent, from dump() alone.
+
+    Read-only fix round (2026-08-10): `recommend` only ever needed this
+    count, never a record's name, and state/lifetime both sit in bm_store's
+    _DUMP_SAFE_COLUMNS (see _records_by_identity above), so dump() already
+    carries everything this needs unredacted. dump() is exposed on
+    bs.ReadOnlyStore; store.get (which _records_by_identity needs for the
+    name) is not, so this stays a separate, smaller function rather than a
+    conditional inside _records_by_identity."""
+    return sum(1 for row in store.dump()["records"]
+               if row["state"] == "active" and row["lifetime"] == "persistent")
 
 
 def _thread_dir(root, name, lifecycle_uuid):
@@ -530,7 +550,12 @@ def _create_if_absent(path, text):
 
 def cmd_recommend(argv):
     """Advice ONLY. Never touches the mode file: a surprise mode change
-    mid-project is exactly the disruption the founder ruled out."""
+    mid-project is exactly the disruption the founder ruled out. Read-only
+    fix round (2026-08-10): this used to open a WRITABLE Store just to
+    count records, which meant a store that was one schema version behind
+    got silently migrated by a command whose own docstring says "advice
+    only". Routed through bs.ReadOnlyStore instead, which never migrates
+    and refuses cleanly if the store cannot be read as-is."""
     root, _source = _resolve_root()
     mode = _load_mode(root) if root else {"mode": "off"}
     if mode.get("mode") == "on":
@@ -546,10 +571,9 @@ def cmd_recommend(argv):
         n = 0
         if root is not None:
             try:
-                store = _store().Store(root, create=False)
+                store = _store().ReadOnlyStore(root)
                 try:
-                    n = sum(1 for r in _records_by_identity(store)
-                            if r.state == "active" and r.lifetime == "persistent")
+                    n = _active_persistent_count(store)
                 finally:
                     store.close()
             except Exception:
@@ -871,7 +895,19 @@ def cmd_send(argv):
 def cmd_dashboard(argv):
     """The command center: every record's state on one screen, exactly what
     `off` would drain. render_state_md already redacted every field; print
-    it through the pre-rendered path so its own structure survives intact."""
+    it through the pre-rendered path so its own structure survives intact.
+
+    READ-ONLY (fix round 2026-08-10): this used to ignore its own argv, so
+    `dashboard --help` fell straight through into the command body instead
+    of returning usage, and it unconditionally called _refresh_root_view at
+    the end, rewriting STATE.md through a writable Store on every plain
+    view. A display command must not rewrite the project's state file:
+    render_state_md above already produces the exact bytes printed, so
+    nothing on disk needs a second, writable regeneration for this command
+    to be correct."""
+    if argv and argv[0] in ("--help", "-h"):
+        _out("usage: dashboard")
+        return
     bs = _store()
     root, source = _resolve_root()
     if root is None:
@@ -885,19 +921,12 @@ def cmd_dashboard(argv):
         _out_prerendered(bs.render_state_md(root), end="")
     except bs.OwnershipRefused as e:
         if e.reason == "no-store":
-            # No store to refresh a view against either: refreshing here
-            # would just re-hit the same "no-store" refusal inside
-            # _refresh_root_view and print a redundant, confusing warning
-            # underneath this already-graceful message (a NEW warning this
-            # command never used to print). Advisory commands fail open
-            # with ONE plain message, not two.
             _out("  no store yet. `on` then `start <feature>` to begin.")
             return
         raise
     except bs.StoreCorrupt as e:
         _out("  STORE CORRUPT: %s" % (e,))
         return
-    _refresh_root_view(root)
 
 
 def _transition_cmd(argv, to_state, usage, needs_evidence=False):

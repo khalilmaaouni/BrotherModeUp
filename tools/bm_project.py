@@ -232,6 +232,16 @@ def _store():
     return bs.Store(_root(), create=False)
 
 
+def _read_store():
+    """A read-only handle for `alert list`, the one command here that only
+    ever lists (never mutates) an alert, matching tools/bm_controller.py's
+    own _read_store discipline (which itself matches tools/bm_autonomy.py's).
+    Constructing bs.Store always migrates a behind-schema database
+    (Store.__init__ runs _verify_schema_or_raise(migrate=True)); this never
+    does, so a plain `alert list` cannot rewrite the store it is reading."""
+    return bs.ReadOnlyStore(_root())
+
+
 def _parse(argv, known, wants_value=()):
     """Flags into (positional, kv), refusing anything unrecognized. The
     same shape tools/bm_learn.py's own _parse uses, copied rather than
@@ -1355,7 +1365,7 @@ def cmd_alert_resolve(argv):
 def cmd_alert_list(argv):
     _pos, kv = _parse(argv, ("all", "json", "raw"), wants_value=())
     want_raw = True if not kv.get("json") else bool(kv.get("raw"))
-    store = _store()
+    store = _read_store()
     try:
         alerts = store.list_alerts(
             resolved=(None if kv.get("all") else False), raw=want_raw)
