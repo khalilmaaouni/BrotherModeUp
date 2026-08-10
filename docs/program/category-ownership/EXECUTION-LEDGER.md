@@ -21,8 +21,8 @@ vault session log.
 | Loop | State | Evidence, or what blocks it |
 |---|---|---|
 | R0 re-baseline | GREEN LOCAL | this file; baseline paragraph above, derived from commands this session ran |
-| R1 effect findings (GAP-01, 02) | ACTIVE | Loop L2H dispatched behind fence l2h-effect-hardening with the R4 table as spec; closes only on quoted test_bm_effects OK plus a full gate |
-| R2 release truth gate (GAP-49) | BLOCKED on R1 | refute pass and cross-family audit already ran tonight at 134839c and are triaged in R4-TRIAGE-2026-08-11.md; R2 requires re-running the gate chain on the post-R1 SHA, and the tag stays a founder gate |
+| R1 effect findings (GAP-01, 02) | GREEN LOCAL | L2H landed, RED seen first, suites re-run by the orchestrator (test_bm_effects OK, test_bm_project OK); GREEN FULL GATE pending the gate now running |
+| R2 release truth gate (GAP-49) | ACTIVE | refute pass and cross-family audit already ran tonight at 134839c and are triaged in R4-TRIAGE-2026-08-11.md; R2 requires re-running the gate chain on the post-R1 SHA, and the tag stays a founder gate |
 | SD stall detector (GAP-13) | NOT STARTED | step plan exists (PROGRAM-PLAN-2026-08-10.md Loop SD); queued behind L2H in Lane A tonight |
 | CC generated command center (GAP-14, 19) | NOT STARTED | S1 to S7 spec approved; interim hand page ships meanwhile and deletes at S7 |
 | E1 write containment (GAP-03, 04, 17, 38) | NOT STARTED | new in this program: needs a Fable architecture spike before any builder; NOT overnight work |
