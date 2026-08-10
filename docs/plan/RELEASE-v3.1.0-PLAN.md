@@ -503,3 +503,148 @@ names.
   unknown until 0.6 returns.
 - Whether the Codex audit will find something that changes the release scope. By
   construction it might, which is why it runs before the tag and not after.
+
+---
+
+# REPLAN, 2026-08-10 evening, written against `main` at 88b79d2
+
+This section SUPERSEDES sections 5 and 6 above for sequencing. Those are left
+as written, because the difference between what was planned and what the
+measurement forced is the useful record.
+
+## What the original plan got wrong, and it was the biggest item in it
+
+LOOP 1 was eleven gated merges over one to two attended days. It became ZERO
+merges and about three hours, because merging each branch in a throwaway
+worktree and diffing the result against main showed main already held the
+outcome of all fourteen. Four of them would have made main WORSE. The plan was
+not merely over-sized; its central assumption was false, and only measurement
+found that. An independent reviewer on the strongest tier was then briefed to
+destroy the finding and refuted none of it.
+
+The lesson worth carrying: a merge plan built from branch NAMES and commit
+SUBJECTS is a guess. `git merge-tree --write-tree` against the target, then a
+diff of the result, is the measurement. It costs minutes.
+
+## Where the program actually stands
+
+| Loop | State | Evidence |
+|---|---|---|
+| 0 foundation | CLOSED | plan, page, three inventories |
+| 1 one main branch | CLOSED | `git ls-remote --heads origin` returns 1; 14 archive tags pushed before any delete |
+| 3 wall-clock lint | CLOSED | lint blocking in CI; `bm_lint_walltime.py tools/ scripts/` exit 0 |
+| P progress-page check | CLOSED, added on founder directive tonight | runs at every session start, fails open, proven byte-pure |
+| 4 truth repairs | 2 of 5 | stuck README fence released; decision records now ship |
+| 2 effect classes | IN FLIGHT | registry plus purity test landing RED first, by design |
+| 5 live deny canary | NOT STARTED | |
+| 6 cross-family audit | NOT STARTED | |
+| 7 release tag | NOT STARTED, founder gate | |
+
+Gate at 88b79d2: `test_all: 2918 tests across 29 suites, 9 skipped, 307.8s
+wall. ALL GREEN`, exit 0, clean tree.
+
+## The honest question for tonight, and my recommendation
+
+Four items remain before a tag is defensible. Three are safe to do tonight.
+ONE IS NOT, and saying so is the point of this section.
+
+SAFE TONIGHT:
+- Loop 2, effect classes. Its inventory is done, the fixes are constructor
+  swaps to an existing `ReadOnlyStore`, and a purity test proves each one.
+- Loop 4's remaining three. Documentation and a test widening, all reversible.
+- Loop 6, the Codex audit. Read-only by construction, and it runs against
+  whatever tree exists when it starts.
+
+NOT SAFE TONIGHT, and this is a recommendation against a choice the founder
+already made:
+- Loop 5, the live deny canary. It edits `tools/bm_controller.py`, the
+  unattended-run preflight. That is the exact mechanism behind the 8 August
+  runaway, in which forty sessions and 6.4 million output tokens ran unattended
+  because a stop condition existed in prose and not in code. Editing that
+  preflight late at night, at the end of a long session, to ship the same
+  night, is the shape of the incident rather than the cure for it. The defect
+  it closes is real but it is DISCLOSED and BOUNDED today: the founder's own
+  recorded decision of 2026-08-10 was warn-and-allow, and the relay brake plus
+  the machine-wide session cap bound the blast radius independently.
+
+RECOMMENDATION: tag `v3.1.0` tonight WITHOUT Loop 5, and publish the
+unattended-preflight gap in `docs/limits/CURRENT.md` as a named known limit
+with its flip condition, exactly as this project already does with every other
+limit it has not closed. Loop 5 opens the next session, attended, as its own
+first item.
+
+ALTERNATIVE CONSIDERED: do Loop 5 tonight anyway, since the founder chose the
+stronger option when shown the cost. REJECTED for tonight only, not on the
+merits: the decision to build it stands, only its timing moves. A control
+built tired, on the one file whose failure mode is unattended runaway, is worse
+than a disclosed gap.
+
+FLIP CONDITION: the founder says ship it tonight. Then it is built, and it gets
+the full gate plus an independent refute pass before the tag, and the tag waits
+for both however late that is.
+
+## Sequencing for tonight
+
+Two lanes, as always, and the tag is last.
+
+```
+LANE A                          LANE B
+Loop 2 registry, RED            Loop 4 remaining three
+Loop 2 fixes, GREEN                     |
+        |                               |
+        +--------- full gate -----------+
+                    |
+            Loop 6 Codex audit
+                    |
+            triage: zero unresolved CRITICAL or HIGH
+                    |
+            Loop 7 tag            FOUNDER GATE
+```
+
+SIZE, ranges with confidence, assuming no new defect class appears:
+- Loop 2 to green: 1 to 2 hours, MEDIUM confidence. Variance is in how many
+  commands the completeness test discovers that nobody has classified.
+- Loop 4 remaining: 45 to 90 minutes, HIGH confidence.
+- Loop 6 audit plus triage: 1 to 3 hours, LOW confidence, because an audit's
+  output size is not predictable. That is the point of running one.
+- Loop 7: 30 to 45 minutes, HIGH confidence, assuming the gate is green first
+  time.
+
+TOTAL: 3.5 to 7 hours of work. The LOW-confidence item is the audit, and it is
+the one that could push a tag past tonight. If it does, the honest move is to
+tag tomorrow rather than to tag around it.
+
+## What still will not be true after tonight, whatever happens
+
+Stated here so the tag does not imply it. No BrotherMode capability has reached
+external verification. Nobody has counted whether this product makes work
+better, faster or more reliable than working without it. Ten outside builders
+and thirty externally attempted work items need people and calendar, not code.
+Until that exists, the defensible claim remains the narrow one: this is the
+agent layer that publishes the defects its own checks found in itself.
+
+## FOUNDER OVERRIDE, 2026-08-10 evening, recorded at the moment it was taken
+
+The recommendation immediately above was to tag tonight WITHOUT Loop 5 and
+publish the unattended-preflight gap as a known limit. The founder was shown
+that recommendation with its reasoning, including the comparison to the 8
+August incident, and chose the OTHER option: BUILD LOOP 5 TONIGHT, AND TAG
+AFTER IT PASSES.
+
+That is now the plan. The recommendation is left above rather than deleted,
+because a recommendation quietly removed after it was overruled is how a
+project loses the ability to tell whether its advice was any good.
+
+CONSEQUENCES ACCEPTED, stated so they are not discovered later:
+- Tonight probably does not end with a tag. The founder was told this in the
+  option text and chose it anyway.
+- Loop 5 gets the FULL treatment its risk deserves, not a fast version: the
+  complete gate on the merged tree, plus an independent refute pass on the
+  strongest tier before the tag, and the tag waits for both however late.
+- The founder also confirmed that an unresolved CRITICAL or HIGH from the Codex
+  audit HOLDS the tag, even if that means tagging tomorrow.
+
+WHAT WOULD HAVE CHANGED MY RECOMMENDATION, recorded because it is the useful
+part: if the canary could be built without touching the unattended preflight
+itself, the timing objection would mostly disappear. It cannot; the whole point
+is to replace what that preflight checks.

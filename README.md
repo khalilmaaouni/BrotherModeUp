@@ -45,9 +45,14 @@ session uses will be its own. Type these into Claude Code once it is installed.
 2. `/brothermode:status` prints where the project stands, in plain language,
    read out of those records rather than out of the conversation.
 3. `/brothermode:next` recommends the single next step, and says why that one.
-4. Work happens. Before any part of the session writes to a file, the claim is
-   recorded; a second session that tries to write a claimed file is refused by
-   a hook, not by a reminder in a prompt.
+4. Work happens. A file one session has CLAIMED is refused to a second session
+   by a hook, not by a reminder in a prompt. Stated exactly, because the
+   difference is the whole guarantee: the refusal covers claimed paths written
+   through the editing tools. By default an UNCLAIMED path is allowed, and a
+   write made by a shell command crosses a fence unrefused and is caught only
+   afterwards by the audit. Set `BM_FENCE_MODE=enforced` and
+   `BM_FENCE_STRICT=1` to require a claim before any project edit.
+   `docs/KNOWN-LIMITS.md` states what the hook misses.
 5. `/brothermode:review` checks the work against the written definition of done
    and reports what passes and what does not, bad news first.
 6. `/brothermode:deliver` writes the delivery packet: what was built, every check
