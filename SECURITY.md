@@ -98,12 +98,15 @@ What the code actually writes inside your project today:
   owner-only where the platform supports it (on Windows this is best-effort;
   rely on your user profile's access control).
 
-You can verify both claims yourself; the tools are about 108,900 lines of
-standard-library Python and shell (re-measured 2026-08-05 after the Full-Auto
-controller landed; the figure of 76,224 from earlier the same day drifted past
-the 15 percent guard the test enforces, so it is corrected here rather than
-restated, which is the third such correction and is exactly the pattern the
-promise below is about). Most of that growth is test code, which is the kind
+You can verify both claims yourself; the tools are about 128,300 lines of
+standard-library Python and shell (re-measured 2026-08-10 after two checks
+landed, a wall-clock lint and a progress-page check; the figure of 108,900 from
+2026-08-05 drifted past the 15 percent guard the test enforces, so it is
+corrected here rather than restated, which is the fourth such correction and is
+exactly the pattern the promise below is about. Worth naming plainly: this
+correction was not noticed by a person. The drift test refused the change and
+named the two numbers, which is the only reason the figure is right rather than
+comfortable). Most of that growth is test code, which is the kind
 a reader of a security document should want: of the roughly 14,900 lines the
 controller added, about 4,400 are the engine and its command line and the rest
 are behavioral tests, including the tests that six adversarial refutation
