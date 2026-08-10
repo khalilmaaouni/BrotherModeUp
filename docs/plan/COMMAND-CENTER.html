@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BrotherMode Command Center</title>
+<style>
+:root {
+  --bm-accent: #0E7A6F;
+  --bm-accent-tint: #E4EFED;
+  --bm-at-risk-ink: #6B4400;
+  --bm-at-risk-rule: #A06A00;
+  --bm-at-risk-tint: #FFF6E5;
+  --bm-body: #1A1D21;
+  --bm-for-info-ink: #00436B;
+  --bm-for-info-rule: #0072B2;
+  --bm-for-info-tint: #EAF3FA;
+  --bm-idle-ink: #3F4650;
+  --bm-idle-rule: #767B84;
+  --bm-idle-tint: #F1F2F4;
+  --bm-muted: #575E68;
+  --bm-needs-you-ink: #8C2D00;
+  --bm-needs-you-rule: #D55E00;
+  --bm-needs-you-tint: #FDEFE8;
+  --bm-page: #FFFFFF;
+  --bm-paper: #F7F8F6;
+  --bm-settled-ink: #00543A;
+  --bm-settled-rule: #009E73;
+  --bm-settled-tint: #E8F6F0;
+  --bm-hair: rgba(0,0,0,.10);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bm-accent: #3AA893;
+    --bm-accent-tint: #10241F;
+    --bm-at-risk-ink: #F0B95A;
+    --bm-at-risk-rule: #E69F00;
+    --bm-at-risk-tint: #2A2110;
+    --bm-body: #E9ECF1;
+    --bm-for-info-ink: #7FC4F5;
+    --bm-for-info-rule: #56B4E9;
+    --bm-for-info-tint: #0F1E2A;
+    --bm-idle-ink: #A7AEB9;
+    --bm-idle-rule: #767B84;
+    --bm-idle-tint: #1E242C;
+    --bm-muted: #A7AEB9;
+    --bm-needs-you-ink: #FFA582;
+    --bm-needs-you-rule: #FF7A47;
+    --bm-needs-you-tint: #2A1710;
+    --bm-page: #12151A;
+    --bm-paper: #0C0F13;
+    --bm-settled-ink: #6FDDB8;
+    --bm-settled-rule: #00B383;
+    --bm-settled-tint: #0E241C;
+    --bm-hair: rgba(255,255,255,.12);
+  }
+}
+:root[data-theme="dark"] {
+  --bm-accent: #3AA893; --bm-accent-tint: #10241F;
+  --bm-at-risk-ink: #F0B95A; --bm-at-risk-rule: #E69F00; --bm-at-risk-tint: #2A2110;
+  --bm-body: #E9ECF1;
+  --bm-for-info-ink: #7FC4F5; --bm-for-info-rule: #56B4E9; --bm-for-info-tint: #0F1E2A;
+  --bm-idle-ink: #A7AEB9; --bm-idle-rule: #767B84; --bm-idle-tint: #1E242C;
+  --bm-muted: #A7AEB9;
+  --bm-needs-you-ink: #FFA582; --bm-needs-you-rule: #FF7A47; --bm-needs-you-tint: #2A1710;
+  --bm-page: #12151A; --bm-paper: #0C0F13;
+  --bm-settled-ink: #6FDDB8; --bm-settled-rule: #00B383; --bm-settled-tint: #0E241C;
+  --bm-hair: rgba(255,255,255,.12);
+}
+:root[data-theme="light"] {
+  --bm-accent: #0E7A6F; --bm-accent-tint: #E4EFED;
+  --bm-at-risk-ink: #6B4400; --bm-at-risk-rule: #A06A00; --bm-at-risk-tint: #FFF6E5;
+  --bm-body: #1A1D21;
+  --bm-for-info-ink: #00436B; --bm-for-info-rule: #0072B2; --bm-for-info-tint: #EAF3FA;
+  --bm-idle-ink: #3F4650; --bm-idle-rule: #767B84; --bm-idle-tint: #F1F2F4;
+  --bm-muted: #575E68;
+  --bm-needs-you-ink: #8C2D00; --bm-needs-you-rule: #D55E00; --bm-needs-you-tint: #FDEFE8;
+  --bm-page: #FFFFFF; --bm-paper: #F7F8F6;
+  --bm-settled-ink: #00543A; --bm-settled-rule: #009E73; --bm-settled-tint: #E8F6F0;
+  --bm-hair: rgba(0,0,0,.10);
+}
+* { box-sizing: border-box; margin: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--bm-paper); color: var(--bm-body);
+  font-family: "Seravek", "Avenir Next", -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px; line-height: 1.55; padding: 28px 20px 60px;
+}
+.wrap { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 26px; }
+h1, h2, h3 { font-family: "Iowan Old Style", "Palatino", Georgia, serif; text-wrap: balance; }
+h1 { font-size: 30px; line-height: 1.15; }
+h2 { font-size: 21px; margin-bottom: 4px; }
+h3 { font-size: 16px; }
+.mono, code {
+  font-family: "SF Mono", ui-monospace, "Menlo", monospace;
+  font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.eyebrow {
+  text-transform: uppercase; letter-spacing: .12em; font-size: 11px;
+  color: var(--bm-accent); font-weight: 600;
+}
+header .stamp { color: var(--bm-muted); font-size: 12.5px; margin-top: 8px; }
+header .stamp code { background: var(--bm-idle-tint); padding: 1px 5px; border-radius: 3px; }
+.northstar {
+  background: var(--bm-accent-tint); border-left: 3px solid var(--bm-accent);
+  padding: 14px 18px; font-family: "Iowan Old Style", "Palatino", Georgia, serif;
+  font-size: 17px; line-height: 1.45;
+}
+.northstar .eyebrow { display: block; margin-bottom: 4px; }
+
+/* strip */
+.strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.band { background: var(--bm-page); border: 1px solid var(--bm-hair); border-top: 3px solid var(--bm-idle-rule); padding: 13px 15px; }
+.band h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .1em; font-family: inherit; margin-bottom: 8px; color: var(--bm-muted); }
+.band ul { padding-left: 16px; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+.band.changed { border-top-color: var(--bm-settled-rule); }
+.band.needs { border-top-color: var(--bm-needs-you-rule); background: var(--bm-needs-you-tint); }
+.band.needs h3 { color: var(--bm-needs-you-ink); }
+.band.watch { border-top-color: var(--bm-at-risk-rule); background: var(--bm-at-risk-tint); }
+.band.watch h3 { color: var(--bm-at-risk-ink); }
+.band.why { border-top-color: var(--bm-for-info-rule); }
+.band .note { font-size: 11.5px; color: var(--bm-muted); margin-top: 8px; }
+
+/* personas */
+.cards3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
+.pcard { background: var(--bm-page); border: 1px solid var(--bm-hair); padding: 13px 15px; font-size: 13.5px; }
+.pcard h3 { margin-bottom: 5px; }
+.pcard .who { color: var(--bm-muted); font-size: 12.5px; margin-bottom: 7px; }
+
+/* timeline */
+.timeline { background: var(--bm-page); border: 1px solid var(--bm-hair); padding: 16px 18px; overflow-x: auto; }
+.tl-grid { display: grid; grid-template-columns: 190px 1fr; row-gap: 7px; min-width: 720px; }
+.tl-label { font-size: 12.5px; padding-right: 10px; align-self: center; }
+.tl-label .lane { color: var(--bm-muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; }
+.tl-track { position: relative; height: 22px; background:
+  repeating-linear-gradient(to right, transparent 0, transparent calc(100%/6 - 1px), var(--bm-hair) calc(100%/6 - 1px), var(--bm-hair) calc(100%/6)); }
+.tl-bar { position: absolute; top: 3px; height: 16px; border-radius: 2px; }
+.tl-bar.min { background: var(--bm-accent); opacity: .9; }
+.tl-bar.max { background: var(--bm-accent); opacity: .28; }
+.tl-bar.gate { background: var(--bm-needs-you-rule); width: 4px !important; border-radius: 0; }
+.tl-bar.done { background: var(--bm-settled-rule); }
+.tl-head { display: grid; grid-template-columns: 190px 1fr; margin-bottom: 8px; }
+.tl-weeks { display: grid; grid-template-columns: repeat(6, 1fr); font-size: 10.5px; color: var(--bm-muted); min-width: 0; }
+.tl-legend { font-size: 11.5px; color: var(--bm-muted); margin-top: 12px; }
+.tl-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+
+/* ledger */
+table { border-collapse: collapse; width: 100%; background: var(--bm-page); border: 1px solid var(--bm-hair); font-size: 13px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--bm-hair); vertical-align: top; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--bm-muted); }
+.tick { font-weight: 700; }
+.tick.on { color: var(--bm-settled-rule); }
+.tick.off { color: var(--bm-idle-rule); }
+td .ev { display: block; margin-top: 3px; color: var(--bm-muted); }
+.tablewrap { overflow-x: auto; }
+
+/* chips */
+.chip { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; padding: 1px 7px; border-radius: 9px; text-transform: uppercase; }
+.chip.v { background: var(--bm-settled-tint); color: var(--bm-settled-ink); }
+.chip.p { background: var(--bm-at-risk-tint); color: var(--bm-at-risk-ink); }
+.chip.a { background: var(--bm-needs-you-tint); color: var(--bm-needs-you-ink); }
+.chip.i { background: var(--bm-for-info-tint); color: var(--bm-for-info-ink); }
+
+/* decisions */
+.dcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.dcard { background: var(--bm-needs-you-tint); border: 1px solid var(--bm-needs-you-rule); padding: 13px 15px; font-size: 13.5px; }
+.dcard h3 { color: var(--bm-needs-you-ink); margin-bottom: 6px; }
+.dcard .rec { font-weight: 600; }
+
+footer { border-top: 1px solid var(--bm-hair); padding-top: 16px; font-size: 12px; color: var(--bm-muted); display: flex; flex-direction: column; gap: 8px; }
+section > .sub { color: var(--bm-muted); font-size: 13px; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">BrotherMode Command Center</span>
+  <h1>From intent to a verified, review-ready deliverable</h1>
+  <p class="stamp">Interim hand-kept page under the tick contract, absorbed by the generated PROJECT-VIEW at Loop CC step S7, then deleted (decision D-1).
+  Stamp: session <code>bm1-4a167de53be0a5cce34ce046</code>, <code>main</code> at <code>1c6fcf4</code>, 2026-08-10 night.
+  Plan: <code>docs/plan/PROGRAM-PLAN-2026-08-10.md</code></p>
+</header>
+
+<section class="northstar">
+  <span class="eyebrow">North star</span>
+  From intent to a verified, review-ready deliverable with bounded autonomy, independent proof, and recoverable state.
+  <span style="display:block; font-family:'Seravek','Avenir Next',sans-serif; font-size:13px; color:var(--bm-muted); margin-top:6px;">Metric: VADR, verified autonomous delivery rate, with counter-metrics. External proof rung: still empty, and named so.</span>
+</section>
+
+<section class="strip">
+  <div class="band changed">
+    <h3>Since you last looked</h3>
+    <ul>
+      <li>Loop 2 (effect classes) LANDED at <code class="mono">d9d8003</code>: suite green, registered in the gate</li>
+      <li>Loop 5 canary LANDED in the same commit (precondition 8 in the controller)</li>
+      <li>A colleague session committed at 21:34 while this one planned; lanes kept separate</li>
+      <li>Program plan rebuilt around personas and north star; stall detector added</li>
+      <li>Cursor's Codex port spec folded in as Lane B, founder priority</li>
+    </ul>
+  </div>
+  <div class="band needs">
+    <h3>Needs you now</h3>
+    <ul>
+      <li>The v3.1.0 tag itself, when R1 to R4 are green: an explicit yes in the moment</li>
+      <li>Nothing else: the three plan decisions were answered 2026-08-10 night, see Decisions below</li>
+    </ul>
+    <p class="note">Decisions arrive as windows in chat; this page only lists them.</p>
+  </div>
+  <div class="band watch">
+    <h3>Watch</h3>
+    <ul>
+      <li>Gate is GREEN at <code class="mono">1c6fcf4</code>; the commit filing this page lands after it, so the tag still needs its own fresh gate</li>
+      <li><code class="mono">main</code> is ahead of origin, unpushed</li>
+      <li>Watchdog DEAD: it was session-bound and its session ended</li>
+      <li>15 active claims in STATE.md; about 9 look dead-owner, judged by hand</li>
+      <li>Canary refute pass (strongest tier) still owed before the tag</li>
+    </ul>
+  </div>
+  <div class="band why">
+    <h3>Why, the one narrative slot</h3>
+    <ul>
+      <li>The founder asked for a full plan rebuilt against personas and north star, a stall detector feature, and native Codex support as priority. The stall detector exists because the stale-fence gap bit five times on 2026-08-10 alone and nobody owned it.</li>
+    </ul>
+    <p class="note">This band is written by a person. When empty it says so.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The personas this plan serves</h2>
+  <p class="sub">Every loop below names which of these needs it. An addition that serves none goes to the parking lot.</p>
+  <div class="cards3">
+    <div class="pcard">
+      <h3>P1, the non-engineer founder</h3>
+      <p class="who">Describes outcomes in plain words, judges by looking, does not read logs.</p>
+      <p>Needs autonomy that cannot run away, one recommended next action, this command center, and eventually a preview of the result rather than a diff.</p>
+    </div>
+    <div class="pcard">
+      <h3>P2, the solo builder</h3>
+      <p class="who">Capable, but no second engineer stands behind the agent.</p>
+      <p>Needs the tool to supply the reviewer: frozen acceptance criteria, independent verification, receipts newer than the last change, recovery without archaeology.</p>
+    </div>
+    <div class="pcard">
+      <h3>P3, the first-time outside builder</h3>
+      <p class="who">Installs it cold, on their runtime, with no coaching.</p>
+      <p>Needs one path (start, work, verify, deliver), honest runtime claims (Codex included), and first value without learning the machinery.</p>
+    </div>
+  </div>
+</section>
+
+<section class="timeline" id="timeline">
+  <h2>Lanes and loops</h2>
+  <p class="sub">Ranges with confidence, from the plan. Solid = minimum estimate, faint = up to maximum. Red slivers are founder gates. Grid weeks start 2026-08-11.</p>
+  <div class="tl-head"><div></div><div class="tl-weeks"><span>W1</span><span>W2</span><span>W3</span><span>W4</span><span>W5</span><span>W6</span></div></div>
+  <div class="tl-grid">
+    <div class="tl-label"><span class="lane">Front</span> R close v3.1.0</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:0%; width:4.8%"></div><div class="tl-bar max" style="left:4.8%; width:4.8%"></div><div class="tl-bar gate" style="left:9.6%"></div></div>
+    <div class="tl-label"><span class="lane">Lane A</span> SD stall detector</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:9.6%; width:2.4%"></div><div class="tl-bar max" style="left:12%; width:4.8%"></div></div>
+    <div class="tl-label"><span class="lane">Lane A</span> CC command center</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:16.8%; width:7.2%"></div><div class="tl-bar max" style="left:24%; width:7.2%"></div></div>
+    <div class="tl-label"><span class="lane">Lane A</span> G1 work governor</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:31.2%; width:9.5%"></div><div class="tl-bar max" style="left:40.7%; width:9.5%"></div></div>
+    <div class="tl-label"><span class="lane">Lane A</span> V1 contract + verifier</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:50.2%; width:9.5%"></div><div class="tl-bar max" style="left:59.7%; width:9.5%"></div></div>
+    <div class="tl-label"><span class="lane">Lane A</span> C1 convergence</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:69.2%; width:4.8%"></div><div class="tl-bar max" style="left:74%; width:4.8%"></div></div>
+    <div class="tl-label"><span class="lane">Lane A</span> B1 benchmark A</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:78.8%; width:9.5%"></div><div class="tl-bar max" style="left:88.3%; width:9.5%"></div></div>
+    <div class="tl-label"><span class="lane">Lane B</span> CX Codex port, phases 0 to 5</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:9.6%; width:19%"></div><div class="tl-bar max" style="left:28.6%; width:19%"></div></div>
+    <div class="tl-label"><span class="lane">Lane B</span> CX phases 6 to 9, hybrid harness</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:47.6%; width:23.8%"></div><div class="tl-bar max" style="left:71.4%; width:23.8%"></div><div class="tl-bar gate" style="left:95.2%"></div></div>
+  </div>
+  <p class="tl-legend"><span class="sw" style="background:var(--bm-accent)"></span>minimum estimate&nbsp;&nbsp;<span class="sw" style="background:var(--bm-accent); opacity:.28"></span>range to maximum&nbsp;&nbsp;<span class="sw" style="background:var(--bm-needs-you-rule)"></span>founder gate. Estimates are ranges with stated confidence, not commitments; CX carries the least trustworthy numbers in the plan.</p>
+</section>
+
+<section id="ledger">
+  <h2>Ledger</h2>
+  <p class="sub">A box ticks only when its done-check ran after the last edit and the output is quoted beside it. Everything else stays open.</p>
+  <div class="tablewrap"><table>
+    <tr><th></th><th>Item</th><th>Evidence</th></tr>
+    <tr><td class="tick on">✓</td><td>Loop 2, effect classes, suite green at HEAD</td><td class="mono">python3 tools/test_bm_effects.py: "Ran 10 tests ... OK" (21:36, at d9d8003)<span class="ev">registry tools/bm_effects.py:76, registered tools/test_all.py:201</span></td></tr>
+    <tr><td class="tick on">✓</td><td>Docs drift suite green at HEAD</td><td class="mono">python3 tools/test_bm_docs.py: "Ran 226 tests ... OK (skipped=5)"</td></tr>
+    <tr><td class="tick on">✓</td><td>Program plan filed, with loops and done-checks</td><td class="mono">docs/plan/PROGRAM-PLAN-2026-08-10.md, 18113 bytes; dash scan returned 0</td></tr>
+    <tr><td class="tick on">✓</td><td>Fence claimed for the two plan files</td><td class="mono">bm_store claim: lifecycle 11297a2439ac4ecaa360e29b2b8a1302, session bm1-4a167de5...</td></tr>
+    <tr><td class="tick on">✓</td><td>Competitor claims spot-checked against fetched pages</td><td class="mono">5 claims: 2 VERIFIED, 3 PARTLY; every verdict carries the URL opened</td></tr>
+    <tr><td class="tick on">✓</td><td>Repo advancement inventory, 12 capabilities</td><td class="mono">every row cites path:line or names the grep that returned nothing</td></tr>
+    <tr><td class="tick on">✓</td><td>Codex spec overlap map, collisions named</td><td class="mono">Phase 0 baseline stale; Phase 3 duplicates bm_effects and the canary</td></tr>
+    <tr><td class="tick on">✓</td><td>R1 full gate, green at 1c6fcf4</td><td class="mono">"test_all: 2944 tests across 30 suites, 9 skipped, 622.5s wall. ALL GREEN", exit 0<span class="ev">run by the colleague session; this session read the sentinel file and exit code, and HEAD was 1c6fcf4 unmoved</span></td></tr>
+    <tr><td class="tick off">☐</td><td>R2 canary refute pass, strongest tier</td><td class="mono">reviewer names a hole or states it could not</td></tr>
+    <tr><td class="tick off">☐</td><td>R3, R4 Codex audit and triage to zero CRITICAL or HIGH</td><td class="mono">verbatim output filed under docs/evidence/v3.1.0/</td></tr>
+    <tr><td class="tick off">☐</td><td>R5 tag v3.1.0</td><td class="mono">FOUNDER GATE, explicit yes in the moment</td></tr>
+    <tr><td class="tick off">☐</td><td>SD1 to SD6 active stall detector</td><td class="mono">tools/bm_stall.py + test_bm_stall.py, RED first against the five 2026-08-10 cases</td></tr>
+    <tr><td class="tick off">☐</td><td>CC command center convergence S1 to S7</td><td class="mono">this page deleted at S7, replaced by the generated view</td></tr>
+    <tr><td class="tick off">☐</td><td>G1 governor, V1 verifier, C1 convergence, B1 benchmark</td><td class="mono">done-checks in the plan, each an adversarial test</td></tr>
+    <tr><td class="tick off">☐</td><td>CX phases 0 to 9, native Codex plugin and hybrid harness</td><td class="mono">phase gates verbatim from the spec; Phase 0 re-pins the baseline at d9d8003 or later</td></tr>
+  </table></div>
+</section>
+
+<section id="gaps">
+  <h2>What is missing versus the competition, core only</h2>
+  <p class="sub">From the founder's 2026-08-10 teardown, spot-checked this session. A row exists only when a persona needs it as core. Chips state how well the competitor claim survived checking.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Core gap</th><th>Competitor pressure</th><th>Check</th><th>For</th><th>Our answer</th></tr>
+    <tr><td>Deliverable-scoped governor (budget, concurrency, retries, wall clock)</td><td>GSD worktree isolation real; its budget and heartbeat claims not substantiated on fetched pages</td><td><span class="chip p">partly</span></td><td>P1</td><td>G1 (our 8 Aug incident is the stronger reason)</td></tr>
+    <tr><td>Independent verification vs frozen acceptance</td><td>Superpowers two-stage review; our verifier is model-authored today</td><td><span class="chip i">brief</span></td><td>P2</td><td>V1</td></tr>
+    <tr><td>Convergence: findings become tasks, bounded</td><td>Spec Kit converge "appends them as new tasks"</td><td><span class="chip v">verified</span></td><td>P2</td><td>C1</td></tr>
+    <tr><td>Active stall and orphan recovery as product action</td><td>Cline checkpoints + kanban worktrees, split across two products</td><td><span class="chip p">partly</span></td><td>P1, P2</td><td>SD, new tonight</td></tr>
+    <tr><td>Native second runtime, honestly probed</td><td>Codex native plugin contract and mcp-server</td><td><span class="chip v">verified</span></td><td>P3</td><td>CX lane, founder priority</td></tr>
+    <tr><td>Preview: verify what the user sees</td><td>OpenHands and Cline browser surfaces; we have none (measured absent)</td><td><span class="chip i">brief</span></td><td>P1</td><td>P1 loop, after the core</td></tr>
+    <tr><td>First-run simplicity</td><td>OpenSpec one-screen model</td><td><span class="chip i">brief</span></td><td>P3</td><td>F1, informed by CX phase 2</td></tr>
+    <tr><td>External proof of outcomes</td><td>Nobody has it for us; the rung is empty and says so</td><td><span class="chip a">ours</span></td><td>all</td><td>B1 benchmark, then the pilot</td></tr>
+  </table></div>
+  <p class="sub" style="margin-top:8px;">Will not build, so sprawl argues with a written list: model provider, role catalog, hundreds of tools, container platform, generic vector memory, multi-user PM, autonomous production publish, self-edited safety contract.</p>
+</section>
+
+<section id="decisions">
+  <h2>Decisions on record, 2026-08-10 night</h2>
+  <div class="dcards">
+    <div class="dcard" style="background:var(--bm-settled-tint); border-color:var(--bm-settled-rule);"><h3 style="color:var(--bm-settled-ink);">1. Plan ordering: APPROVED</h3><p>R alone first, then Lane A (SD, CC, G1, V1, C1, B1) against Lane B (CX). Founder chose the recommended option; alternatives considered: CX jumping the queue, reworked lanes.</p></div>
+    <div class="dcard" style="background:var(--bm-settled-tint); border-color:var(--bm-settled-rule);"><h3 style="color:var(--bm-settled-ink);">2. Stall detector: SWEEP AND PROPOSE</h3><p>Pure-read sweep, exact clearing command printed, never run. Auto-adopt rejected for day one; flip condition: a month of reports showing the same clearance accepted every time.</p></div>
+    <div class="dcard" style="background:var(--bm-settled-tint); border-color:var(--bm-settled-rule);"><h3 style="color:var(--bm-settled-ink);">3. Codex port: AFTER THE TAG</h3><p>Phase 0 pins the clean green committed baseline Loop R produces. Immediate worktree start rejected against a stale baseline.</p></div>
+  </div>
+</section>
+
+<footer>
+  <p><strong>Tick contract:</strong> a box ticks only when its done-check ran after the last edit and its output is quoted in the evidence line beside it. Percentages, where shown, are counts of records, never impressions.</p>
+  <p><strong>What this page does not know:</strong> whether Loop 4.5's check is inside the green docs suite; session liveness across sleeps (SD1's hard part); anything about competitors beyond the checked pages. It runs nothing and never will (decision D-3).</p>
+  <p>Maintained by hand under the progress page law until Loop CC S7 generates it from the store, at which point this file is deleted. One truth, one renderer.</p>
+</footer>
+
+</div>
+</body>
+</html>
