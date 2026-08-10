@@ -1186,7 +1186,11 @@ class TestProjectSecurityClaims(unittest.TestCase):
                    # neighbour (the update check) lives in
                    # brothermode_cli.py, not here. SECURITY.md documents
                    # this beside the other three.
-                   "bm_continue.py": {"subprocess"}}
+                   "bm_continue.py": {"subprocess"},
+                   # Cursor compatibility mode: bm_cursor.py runs git
+                   # worktree and founder done-checks; bm_cursor_hook.py
+                   # stays subprocess-free (adapter only).
+                   "bm_cursor.py": {"subprocess"}}
         for n in sorted(os.listdir(tools)):
             if not n.endswith(".py") or n.startswith("test_"):
                 continue

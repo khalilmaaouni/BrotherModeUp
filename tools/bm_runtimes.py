@@ -705,6 +705,13 @@ RUNTIMES = (
             "Codex use. Named because it matters if this is ever wired by "
             "hand, not acted on because it was not confirmed on the page "
             "opened here.",
+            "COMPAT MODE (2026-08-10): scripts/install_cursor.py installs "
+            "BrotherMode under ~/.cursor/brothermode, wires a native "
+            "hooks.json through tools/bm_cursor_hook.py, and "
+            "tools/bm_cursor.py provides manage plus a local "
+            "Fable-to-Cursor mailbox harness. Fence enforcement remains "
+            "ADVISORY until a live Cursor Agent canary is recorded. See "
+            "docs/CURSOR-COMPAT.md.",
         ),
     },
     {
@@ -1353,18 +1360,25 @@ def render_runtimes_doc(tools_path):
 
     L.append("## What is deliberately not here")
     L.append("")
-    L.append("- No adapter for BrotherMode's hooks in any non Claude runtime. "
-             "Writing one without a captured payload would be guessing at a "
-             "safety boundary.")
+    L.append("- No VERIFIED adapter for BrotherMode's hooks in any non Claude "
+             "runtime. Cursor has an installable adapter "
+             "(tools/bm_cursor_hook.py via scripts/install_cursor.py) whose "
+             "payload shapes were read from Cursor's docs on 2026-08-10, but "
+             "a live Agent canary has not been recorded, so enforcement stays "
+             "ADVISORY (docs/CURSOR-COMPAT.md). Wiring any other runtime "
+             "without a captured payload would be guessing at a safety "
+             "boundary.")
     L.append("- No claim that installing an adapter file makes another runtime "
              "obey the law. An instruction file is persuasion. Only a pre "
              "write hook is enforcement, and only Claude Code has a verified "
              "one today.")
-    L.append("- No automatic installation. `emit` writes into a staging "
-             "directory and prints where each file goes. AGENTS.md at a "
-             "repository root usually already has content in it, and a "
-             "generator that overwrote it would be a data loss bug wearing a "
-             "convenience feature's clothes.")
+    L.append("- `bm_runtimes.py emit` still does not auto-install instruction "
+             "files into a project. Cursor's separate lifecycle installer "
+             "(scripts/install_cursor.py) writes ~/.cursor/hooks.json and "
+             "optional project rules; it does not clobber a foreign AGENTS.md. "
+             "AGENTS.md at a repository root usually already has content in "
+             "it, and a generator that overwrote it would be a data loss bug "
+             "wearing a convenience feature's clothes.")
     L.append("")
     return "\n".join(L)
 

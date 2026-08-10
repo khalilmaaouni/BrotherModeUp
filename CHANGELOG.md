@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Cursor compatibility mode (2026-08-10)
+
+- Independent Cursor install at `~/.cursor/brothermode` via
+  `scripts/install_cursor.py`, with native `hooks.json` wiring through
+  `tools/bm_cursor_hook.py`, manage CLI `tools/bm_cursor.py` (`bm-cursor`),
+  and clean removal via `scripts/uninstall_cursor.py`.
+- Local Fable-to-Cursor harness: dispatch / claim / record-result / adopt
+  over `.brothermode/cursor-mailbox/`, optional git worktrees, and
+  `CursorMailboxWorker` for the controller seam.
+- Skills `cursor-dispatch` (planner) and `cursor-execute` (executor), docs
+  in `docs/CURSOR-COMPAT.md`. Fence under Cursor is ADVISORY until a live
+  canary is recorded; capability register marks the mode experimental.
+
 ## 3.0.0, released 2026-08-08 (annotated tag v3.0.0, on the commit that alone carries VERSION 3.0.0 per rule 1)
 
 The identity release. BrotherMode is now one product name everywhere a

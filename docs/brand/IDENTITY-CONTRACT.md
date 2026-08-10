@@ -31,8 +31,11 @@ refuses a disagreement between that file, `.claude-plugin/plugin.json` and
 | Durable-state environment prefix | `BROTHERMODE_` | 15 distinct names across `scripts/` and `tools/` |
 | Code-identity environment variable | `BROTHERME_CONFIG` | `scripts/setup.py` |
 | Skill root on disk | `~/.claude/skills/brothermode` | `scripts/install.py` |
+| Cursor install root on disk | `~/.cursor/brothermode` | `scripts/install_cursor.py` |
+| Cursor hooks on disk | `~/.cursor/hooks.json` and optional `<project>/.cursor/hooks.json` | `scripts/install_cursor.py` |
 | Vault on disk | `~/BrotherModeVault` | the default behind `BROTHERMODE_VAULT` |
 | Per-project store | `.brothermode/` | the root of every project the tool has run against |
+| Cursor harness mailbox | `.brothermode/cursor-mailbox/` | `tools/bm_cursor.py` |
 | Git ref namespace | `refs/brothermode` | the autosave refs written by the installer |
 | Consent config | `~/.brotherme/config.json` | `scripts/setup.py` |
 | Repository slug | `BrotherModeUp` | `github.com/khalilmaaouni/BrotherModeUp` |
@@ -44,9 +47,11 @@ There are two spellings in the code and on disk, `brothermode` and
 not drift waiting to be tidied up.
 
 `brothermode` owns durable state, meaning anything a user already has written
-to their disk: the skill root `~/.claude/skills/brothermode`, the vault
-`~/BrotherModeVault`, the per-project store `.brothermode/`, the git refs
-under `refs/brothermode`, and the `BROTHERMODE_` environment variables.
+to their disk: the skill root `~/.claude/skills/brothermode`, the Cursor
+install root `~/.cursor/brothermode`, the vault `~/BrotherModeVault`, the
+per-project store `.brothermode/` (including the Cursor harness mailbox
+`.brothermode/cursor-mailbox/`), the git refs under `refs/brothermode`, and
+the `BROTHERMODE_` environment variables.
 
 `brotherme` owns code identity, meaning the names a package registry or an
 import statement keys off: the plugin id `brotherme`, the marketplace id

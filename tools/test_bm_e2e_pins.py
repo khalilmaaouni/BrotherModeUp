@@ -244,7 +244,12 @@ class TestNineCanonicalSkillsIsPinned(unittest.TestCase):
         from disk without a matching edit here fails loudly."""
         hidden = {"auto", "auto-status", "stop",
                  "brief", "decisions", "handback", "handover-pack",
-                 "brotherme"}
+                 "brotherme",
+                 # Cursor compatibility mode (2026-08-10): planner and
+                 # executor skills for the Fable-to-Cursor harness. On
+                 # disk for Claude Code and Cursor, off the nine-skill
+                 # beginner slash surface.
+                 "cursor-dispatch", "cursor-execute"}
         entries = set(_skill_root_entries())
         expected = tuple(sorted(entries - hidden))
         mod = _lifecycle_module()
