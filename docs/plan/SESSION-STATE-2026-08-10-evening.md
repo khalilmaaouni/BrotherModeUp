@@ -154,3 +154,56 @@ and this file is where it learns that. Nothing on disk enforces their existence.
   `security-verb-drift`, owns tools/test_bm_docs.py only, and is briefed to
   REPORT the pages it flags rather than edit them, so the detector's evidence
   survives.
+
+---
+
+## CLOSURE, 2026-08-10 late. LOOPS 2 AND 5 ARE CLOSED.
+
+Not "the suites pass". CLOSED, by the only thing that counts here: the full gate
+on a COMMITTED, clean tree, with HEAD re-checked afterwards and unmoved.
+
+```
+test_all: 2944 tests across 30 suites, 9 skipped, 622.5s wall. ALL GREEN
+exit 0, at commit 1c6fcf4, pushed, local equals upstream
+```
+
+Suite count went 29 to 30 and test count 2918 to 2944, which is the effect-class
+suite arriving rather than an existing suite growing.
+
+WHAT CLOSED:
+- Loop 2, effect classes. Three commands documented as read accessors stopped
+  migrating a database that was behind: `bm_project.py alert list` and
+  `bm_threads.py recommend` now open ReadOnlyStore, and
+  `bm_threads.py dashboard` checks `--help` before doing any work and no longer
+  rewrites STATE.md. `bm_docs.py tier` is CORRECTED rather than fixed: its
+  docstring said "Writes nothing", which was false, and it is now declared
+  ledger_write, the true class. Making it genuinely read-only needs three
+  pure-read methods added to ReadOnlyStore and that is named in both files as
+  open work.
+- Loop 5, the live deny canary, with its founder-facing rewrite landed in
+  bm_visual.py.
+
+WHAT DID NOT LAND, as a recorded decision rather than a silent skip: the
+security-verb drift check. Its agent returned an honest "not ready to gate CI"
+with 167 true positives concentrated in dense reference pages that cite their
+proving test once per section rather than once per sentence. Landing it would
+have turned the gate red for 167 pre-existing claims unrelated to this release.
+FLIP CONDITION: the 167 are triaged, or the check learns to read a citation at
+section scope. The finding is real and worth acting on.
+
+A SIXTH stale fence was closed to get here, on tools/bm_visual.py, and STATE.md
+held TWO copies of that fence line so marking the first left the second still
+refusing. Identical to the SKILL.md trap earlier today.
+
+## UNEXPLAINED FILE, not touched
+
+`docs/plan/COMMAND-CENTER.html`, 22993 bytes, timestamped 2026-08-10 21:54,
+untracked. THIS SESSION DID NOT CREATE IT. It is left exactly as found, under
+the never-lose-work rule: it may be another session's or an agent worktree's
+output. Do not delete it without knowing what it is. Its existence is the reason
+`git status` is not empty at handover.
+
+## REMAINING
+
+Loop 6, the Codex cross-family audit, then triage. Loop 7, the tag, founder
+gate. Both untouched.
