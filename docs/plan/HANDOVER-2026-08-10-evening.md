@@ -10,7 +10,14 @@ stands. Each verified row names the COMMIT its evidence belongs to, because a
 gate verdict belongs to one commit and this project has already been bitten by
 quoting a green run beside a newer SHA.
 
-`main` is at `e37d36a`, pushed, local equals upstream.
+`main` was at `e37d36a` when the body of this file was written. Committing this
+handover moved it, and later corrections moved it again, so DO NOT TRUST THAT
+NUMBER: run `git rev-parse --short HEAD @{u}` and use what it says.
+
+That is not a nitpick, it is this file eating its own rule. The handover warns
+that a verdict belongs to one commit, and then quoted a SHA its own commit
+invalidated. The lesson generalises: a document that names the current HEAD is
+stale the moment it is committed, so name the COMMAND, not the number.
 
 ---
 
