@@ -285,7 +285,7 @@ def _refuse_existing_consent_unless_reconfigure(reconfigure):
 
 
 # ---------------------------------------------------------------------------
-# Flag mode: --vault PATH --mode plugin|clone --accept-notice
+# Flag mode: --vault PATH --mode plugin|clone|cursor --accept-notice
 # ---------------------------------------------------------------------------
 
 def run_flag_mode(args):

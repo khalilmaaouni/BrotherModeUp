@@ -228,6 +228,6 @@ Events: SessionStart, SessionEnd, BeforeAgent, AfterAgent, BeforeModel, BeforeTo
 
 ## What is deliberately not here
 
-- No adapter for BrotherMode's hooks in any non Claude runtime. Writing one without a captured payload would be guessing at a safety boundary.
+- No VERIFIED adapter for BrotherMode's hooks in any non Claude runtime. Cursor has an installable adapter (tools/bm_cursor_hook.py via scripts/install_cursor.py) whose payload shapes were read from Cursor's docs on 2026-08-10, but a live Agent canary has not been recorded, so enforcement stays ADVISORY (docs/CURSOR-COMPAT.md). Wiring any other runtime without a captured payload would be guessing at a safety boundary.
 - No claim that installing an adapter file makes another runtime obey the law. An instruction file is persuasion. Only a pre write hook is enforcement, and only Claude Code has a verified one today.
-- No automatic installation. `emit` writes into a staging directory and prints where each file goes. AGENTS.md at a repository root usually already has content in it, and a generator that overwrote it would be a data loss bug wearing a convenience feature's clothes.
+- `bm_runtimes.py emit` still does not auto-install instruction files into a project. Cursor's separate lifecycle installer (scripts/install_cursor.py) writes ~/.cursor/hooks.json and optional project rules; it does not clobber a foreign AGENTS.md. AGENTS.md at a repository root usually already has content in it, and a generator that overwrote it would be a data loss bug wearing a convenience feature's clothes.
