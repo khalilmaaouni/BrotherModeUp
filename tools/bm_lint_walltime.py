@@ -314,6 +314,12 @@ def lint_paths(paths):
         except (IOError, OSError) as exc:
             sys.stderr.write("bm_lint_walltime: cannot read %s: %s\n"
                              % (file_path, exc))
+            # Fail CLOSED: a file this lint cannot read is a finding, not
+            # a skip. The 2026-08-11 cross-family audit showed that with
+            # every file unreadable the run exited 0 while claiming to
+            # have checked the tree.
+            violations.append((rel, 0, "UNCHECKABLE: cannot read (%s)"
+                               % exc))
             continue
         if is_allowlisted(rel):
             continue
@@ -321,6 +327,8 @@ def lint_paths(paths):
             file_violations = scan_source(source, filename=file_path)
         except LintError as exc:
             sys.stderr.write("bm_lint_walltime: %s\n" % exc)
+            violations.append((rel, 0, "UNCHECKABLE: cannot parse (%s)"
+                               % exc))
             continue
         for lineno, line in file_violations:
             violations.append((rel, lineno, line))
