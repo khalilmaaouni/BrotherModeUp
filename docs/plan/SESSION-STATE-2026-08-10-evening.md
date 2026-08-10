@@ -1,81 +1,156 @@
-# Session state, 2026-08-10 evening
+# Session state, 2026-08-10 late evening
 
-Status: CURRENT. Written mid-flight as insurance, not at the end. Session
+Status: CURRENT. Rewritten mid-flight. Session
 6bf23670-87d2-40b0-a728-4896d4db9031. No em or en dashes.
 
-## Where main is
+Every claim below is labelled with what actually proves it. Where a loop is not
+closed, it says so, because in this project a loop closes only when the full
+gate has run on a committed tree after the last edit.
 
-`865436f`, pushed, clean tree, one branch on the remote.
-Last full gate ALL GREEN was at `24ace43`: `test_all: 2918 tests across 29
-suites, 9 skipped, 307.8s wall. ALL GREEN`, exit 0.
-Commits since that green gate have NOT been gated yet: `6c4887a` (README
-narrowing, ledger correction) and `865436f` (replan, page). Both were checked
-against `python3 tools/test_bm_docs.py` only, which reported
-`Ran 226 tests ... OK (skipped=5)`. A FULL gate is owed before any tag.
+## Main, and the last verdict actually bound to it
 
-## Founder decisions binding this run
+`c36bd00`, pushed. Full gate ALL GREEN on that exact commit, clean tree:
+`test_all: 2918 tests across 29 suites, 9 skipped, 559.8s wall. ALL GREEN`,
+exit 0. HEAD was re-checked after the run and had not moved.
 
-D1 tag v3.1.0 after a green gate. D2 merge one at a time (moot, zero merges
-needed). D3 narrow the README claim rather than flip the fence default, DONE.
-D4 build the live deny canary. D5 foundation first, assurance architecture next
-release. D6 effect classes as a full taxonomy plus purity test. D7 wall-clock
-lint CI-blocking, DONE. D8 Codex cross-family audit before the tag, and an
-unresolved CRITICAL or HIGH HOLDS the tag even if that means tomorrow.
+## THE TREE IS DIRTY, and the gate would fail on it right now
 
-OVERRIDE, 2026-08-10 evening: the lead recommended tagging tonight WITHOUT
-Loop 5 and publishing the gap. The founder chose to BUILD IT TONIGHT and tag
-after it passes, accepting that tonight may not end with a tag.
+Read this before running anything. The failure is expected rather than
+alarming: `tools/test_bm_effects.py` exists but is not in `SUITES`, and
+`test_all.py` refuses a test file it does not know about.
 
-## Loops
+In the tree, uncommitted:
+- `tools/bm_effects.py`, `tools/test_bm_effects.py`: the effect-class registry
+  and its purity tests. RED ON PURPOSE.
+- `tools/bm_controller.py`, `tools/test_bm_controller.py`: the live deny canary.
+- `tools/write_sites.json`: bm_controller 2 to 3, bm_effects added at 2.
+- `pyproject.toml`: bm_effects added to py-modules.
 
-CLOSED: 0 foundation, 1 one main branch, 3 wall-clock lint, P progress-page
-check.
-Loop 4 truth repairs: 4 of 5. Remaining is 4.5, widen the docs drift suite so a
-security verb (refuses, prevents, blocks, guarantees, enforces) with no nearby
-test reference fails. Known risk: false positives on English prose.
-IN FLIGHT at the time of writing, both as dispatched subagents in their own
-worktrees:
-  - Loop 2 effect classes: tools/bm_effects.py plus tools/test_bm_effects.py,
-    deliberately landing RED. Fence `effect-classes-registry`, lifecycle
-    9df7c373d2654ce6adff366be0efd9c9.
-  - Loop 5 live deny canary: tools/bm_controller.py plus its test. Fence
-    `live-deny-canary`, lifecycle 6777a9a028bc4d2d87de1101b18ba684.
-NOT STARTED: 6 Codex audit, 7 tag.
+## Loop 5, the live deny canary: BUILT AND ITS OWN SUITE PASSES. NOT CLOSED.
 
-## What the successor must NOT get wrong
+PROVEN, by a command this session ran after the last edit:
+`python3 tools/test_bm_controller.py` reports `Ran 257 tests ... OK`.
+PROVEN, by reading the file rather than the agent's report: the honesty
+boundary is present in the docstring and states that a pass proves the hook
+binary refuses WHEN RUN and cannot prove the runtime will invoke it.
+`TestTheFenceCanaryNeverOverclaimsRuntimeEnforcement` scans the real docstring
+and messages against a banned-phrase list.
 
-1. The canary must NOT overclaim. It proves the hook binary refuses when
-   invoked. It CANNOT prove a runtime will invoke it, which is exactly the
-   Codex gap. Any wording implying end-to-end runtime enforcement is the very
-   defect being fixed, committed inside the fix.
-2. Loop 2's purity test is SUPPOSED to be red on arrival. Do not weaken it to
-   pass. Turning it green means routing the named commands through
-   `bm_store.ReadOnlyStore` (it exists, tools/bm_store.py:16345), because
-   constructing a writable `Store` is itself a write.
-3. A new tool in tools/ must be registered in FOUR places or the gates refuse
-   it: `SUITES` in tools/test_all.py, a CI step, `py-modules` in
-   pyproject.toml, and `tools/write_sites.json` after READING its write sites.
-4. NO APOSTROPHE in any comment inside the `SUITES` tuple in tools/test_all.py.
-   The fact loader parses it quote to quote.
-5. Regenerate CHECKSUMS.sha256 LAST, after `git add` of new files, with
+NOT PROVEN, and this is why the loop is not closed: it has not passed the FULL
+gate, it is uncommitted, and CI has not seen it.
+
+Founder context: the founder overrode a recommendation to defer this to the next
+session and chose to build it tonight, accepting that tonight may not end with a
+tag.
+
+## Loop 2, effect classes: RED, and the red is the deliverable. NOT CLOSED.
+
+THE IMPORTANT FINDING OF THE NIGHT, and it was a correction to this session's
+own design. The purity method originally specified COULD NOT SEE THE DEFECT. A
+before-and-after snapshot of a throwaway tree returns byte-identical even for
+commands that open a writable Store, because sqlite auto-checkpoints and removes
+the -wal and -shm files on clean close, `_ensure_git_excludes` is idempotent,
+and a pure SELECT leaves the file unchanged. The subagent reported this rather
+than forcing a match.
+
+THE REACHABLE CONDITION, found by hand and PROVEN before being written into a
+test: a store that is BEHIND. `Store.__init__` calls
+`_verify_schema_or_raise(migrate=True)`, so a documented read-only command
+MIGRATES an out-of-date database. Evidence: a store forced to schema_version 17
+was handed to `bm_project.py status --project-id nosuch`; it exited 1 having
+found no such project, and the database came back at schema_version 18 with a
+different md5. Both the version and the file hash were compared.
+
+Worth recording: THREE earlier probes of mine failed to reach this defect and
+each returned a null I could have written down as a finding. That is the same
+class the finding itself is about.
+
+`TestPurityUnderAStoreThatIsBehind` encodes the condition and re-downgrades the
+store before EVERY command. Without that reset only the first offender is
+caught, because a migrated store cannot be migrated again. That single fix took
+it from 1 offender to 3.
+
+Offenders as measured, with a dispatched agent fixing them at the time of
+writing:
+- `bm_docs.py tier`
+- `bm_project.py alert list`
+- `bm_threads.py recommend`
+- `bm_threads.py dashboard`, failing two further ways: it never parses argv so
+  `--help` falls into the body, and it rewrites STATE.md via
+  `_refresh_root_view`.
+
+## What the successor does next, in order
+
+1. Take the fix agent's result and VERIFY IT by running
+   `python3 tools/test_bm_effects.py` rather than believing the report.
+2. Apply the deltas it names outside its fence, likely `write_sites.json`.
+3. Register `test_bm_effects.py` in `SUITES` in `tools/test_all.py` and add a CI
+   step. NO APOSTROPHE in that comment; the fact loader parses the tuple quote
+   to quote.
+4. Regenerate `CHECKSUMS.sha256` LAST, after `git add`, with
    `sh scripts/checksums.sh CHECKSUMS.sha256`, never by redirecting stdout.
-6. Run the gate as `BROTHERMODE_SESSION_CAP=99 python3 tools/test_all.py` on a
-   COMMITTED clean tree; it refuses green on a dirty one.
+5. Full gate on a COMMITTED clean tree:
+   `BROTHERMODE_SESSION_CAP=99 python3 tools/test_all.py`. Only then are Loops 2
+   and 5 closed.
+6. Loop 4's last item: widen the docs drift suite so a security verb with no
+   nearby test reference fails.
+7. Loop 6, the Codex audit, then triage. The founder confirmed an unresolved
+   CRITICAL or HIGH HOLDS the tag.
+8. Loop 7, the tag. FOUNDER GATE, not cut without an explicit yes.
+
+## Approved, specced, NOT started: the control dashboard
+
+`docs/superpowers/specs/2026-08-10-project-control-dashboard-design.md`,
+committed. The founder approved the design and scheduled the build AFTER the
+tag. Core finding: the dashboard already exists as generated
+`PROJECT-VIEW.html`, and the hand-kept Gantt is a second renderer that gets
+deleted on convergence. The founder separately asked for the page design to be
+locked as a standard; colour is already one source in `bm_visual.py`, so the
+drift is in layout, and the addendum locks one skeleton.
+
+## The gap found FIVE times today and still not fixed
+
+Stale fences from dead sessions block writers forever: README.md, SKILL.md
+twice, the findings ledger, and the README narrowing itself. Each was cleared by
+hand. Nothing sweeps for a fence whose owner can never return. No owner, belongs
+in the next program.
 
 ## Live fences held by this session
 
 `release-v310-plan`, `readme-claim-narrowing`, `effect-classes-registry`,
-`live-deny-canary`, plus the adopted `FENCE L3b` line in STATE.md.
+`live-deny-canary`, `dashboard-spec`, plus the adopted `FENCE L3b` in STATE.md.
 
-## The gap found five times today and NOT fixed
+## Watchdog, armed 2026-08-10 late evening on founder instruction
 
-Stale fences from dead sessions block writers forever: README.md, SKILL.md
-twice, the findings ledger, and the README narrowing itself. Nothing sweeps for
-a fence whose owner can never return. Each was cleared by hand. This is a real
-defect with no owner and it belongs in the next program.
+READ-ONLY, and that is a deliberate override rather than an omission. The
+overnight-watchdog skill carries a clause saying an idle tick should resume
+unblocked work. The founder's recorded decision of 2026-08-09, taken after the 8
+August runaway, makes this watchdog read-only and explicitly overrides that
+clause. The tick prompt says so in its own words, so a future session reading
+only the prompt cannot reintroduce the behaviour by following the skill.
 
-## Still not true, whatever ships
+Armed:
+- Cron job `61f6f103`, twice hourly at minutes 13 and 43. Dispatches ONE haiku
+  agent (cheap tier, mechanical fact-gathering, no judgement) to gather git
+  state, the progress-page verdict, load and disk, then the orchestrator writes
+  a report under 12 lines. Carries a STALL RULE (same item in flight across
+  three ticks with no commit is reported STALLED, never retried) and a HARD STOP
+  at 07:00 local.
+- Persistent monitor `b5pusgfev`, polling for foreign commits on origin/main
+  every 60 seconds. A foreign commit means stop writers and coordinate, never
+  overwrite.
 
-No BrotherMode capability has reached external verification. Nobody has counted
-whether the product makes work better. Ten outside builders and thirty
-externally attempted work items need people and calendar, not code.
+LIMITATION, stated because it decides whether the founder can rely on it: BOTH
+are SESSION-ONLY. They live in this Claude session's memory, are written to no
+file, and DIE THE MOMENT THIS SESSION ENDS. A successor session must re-arm them
+and this file is where it learns that. Nothing on disk enforces their existence.
+
+## Agents in flight at the time of writing
+
+- ReadOnlyStore routing for the three migrating commands plus the dashboard
+  help gate. Fence `effect-classes-registry` covers the registry; the fix agent
+  owns bm_docs.py, bm_project.py, bm_threads.py.
+- The security-verb drift check, Loop 4's last item. Fence
+  `security-verb-drift`, owns tools/test_bm_docs.py only, and is briefed to
+  REPORT the pages it flags rather than edit them, so the detector's evidence
+  survives.
