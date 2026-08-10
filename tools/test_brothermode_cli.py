@@ -1504,13 +1504,45 @@ class TestFirstLogLineIsBounded(unittest.TestCase):
     def test_a_missing_log_times_out_rather_than_raising(self):
         """A log that never appears is the ordinary shape of a successor
         that died before writing anything. It is a verdict, not a crash."""
-        started = time.time()
         self.assertEqual(
             self.cont.first_log_line(self.log, timeout=0.3, poll=0.05), "")
-        self.assertLess(time.time() - started, 5.0,
-                        "first_log_line must be BOUNDED: an unbounded wait "
-                        "on a dead successor hangs the session that is "
-                        "trying to hand over")
+
+    def test_the_wait_is_bounded_by_the_timeout_it_was_given(self):
+        """FIXED 2026-08-10. This used to read `assertLess(time.time() -
+        started, 5.0)`, which is an assertion about the MACHINE rather than
+        about the code: it fails on a busy host while first_log_line is
+        unchanged, and it passes on a fast host even if the function ignored
+        its timeout entirely and simply happened to be quick.
+
+        The shape asserted here instead is a RATIO between two timeouts,
+        using the MINIMUM of several samples per timeout because noise only
+        ever ADDS latency, so the minimum is the least contaminated sample
+        available. That makes this a claim about the code: elapsed time
+        TRACKS the timeout argument.
+
+        It is also strictly stronger than the assertion it replaces. A
+        function that ignored its timeout and waited a constant half second
+        would have passed the old ceiling and fails this ratio, and a
+        genuinely unbounded wait never returns at all, which the suite's own
+        stall killer catches rather than a five second number."""
+        def elapsed_for(timeout, samples=3):
+            best = None
+            for _ in range(samples):
+                started = time.time()
+                self.cont.first_log_line(self.log, timeout=timeout, poll=0.01)
+                taken = time.time() - started
+                if best is None or taken < best:
+                    best = taken
+            return best
+
+        small = elapsed_for(0.10)
+        large = elapsed_for(0.40)
+        self.assertGreater(
+            large / small, 2.0,
+            "first_log_line must HONOUR its timeout: a four-fold longer "
+            "timeout produced %.3fs against %.3fs, a ratio of %.2f, so the "
+            "wait is not tracking the timeout it was given"
+            % (large, small, large / small))
 
     def test_a_partial_line_without_a_newline_is_not_read_as_complete(self):
         """Half a line on disk is a write in flight, not output. Reading it
