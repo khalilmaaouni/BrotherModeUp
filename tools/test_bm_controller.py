@@ -166,10 +166,16 @@ class TestNoSQLGuard(unittest.TestCase):
             "the lowercase keyword the old regex missed (got %r)" % hits)
 
     def test_the_only_subprocess_call_site_is_subprocesscheckrunner(self):
-        """design section 4: SubprocessCheckRunner is the ONLY place in
-        this file that touches `subprocess`. Every call site is inside
-        that one class, never inside ControllerEngine or a module-level
-        function."""
+        """design section 4: SubprocessCheckRunner.run is one of exactly
+        two places in this file that touch `subprocess`. The other,
+        _default_fence_canary_runner (added 2026-08-10, the unattended
+        preflight's fence canary), is a module-level function whose argv
+        is a fixed literal this module writes, never founder- or
+        model-authored text; see _EXEC_PRIMITIVE_HOMES and
+        TestR6TheExecutionPrimitiveGuardIsStructural below for the full
+        structural guard this duplicates in a simpler, older shape. Every
+        OTHER call site, whether inside ControllerEngine or any other
+        function, is still an offence."""
         with io.open(CONTROLLER_FILE, encoding="utf-8") as fh:
             source = fh.read()
         tree = ast.parse(source, filename="bm_controller.py")
@@ -177,20 +183,26 @@ class TestNoSQLGuard(unittest.TestCase):
 
         class _Visitor(ast.NodeVisitor):
             def __init__(self):
-                self.class_stack = []
+                self.stack = []
 
             def visit_ClassDef(self, node):
-                self.class_stack.append(node.name)
+                self.stack.append(node.name)
                 self.generic_visit(node)
-                self.class_stack.pop()
+                self.stack.pop()
+
+            def visit_FunctionDef(self, node):
+                self.stack.append(node.name)
+                self.generic_visit(node)
+                self.stack.pop()
+
+            visit_AsyncFunctionDef = visit_FunctionDef
 
             def visit_Attribute(self, node):
                 if (node.attr in ("run", "call", "Popen", "check_output")
                         and isinstance(node.value, ast.Name)
                         and node.value.id == "subprocess"):
-                    enclosing = (self.class_stack[-1] if self.class_stack
-                                else "<module>")
-                    if enclosing != "SubprocessCheckRunner":
+                    enclosing = ".".join(self.stack) if self.stack else "<module>"
+                    if enclosing not in _EXEC_PRIMITIVE_HOMES:
                         offenders.append((node.lineno, enclosing))
                 self.generic_visit(node)
 
@@ -3715,13 +3727,21 @@ def _checker_call_site_functions():
 # except the one runner method, and can the checker object be reached by
 # any spelling other than the one gated call?
 #
-# The two names below are the ONLY places in that module where an
-# execution primitive is allowed to appear, by qualified name.
+# The names below are the ONLY places in that module where an execution
+# primitive is allowed to appear, by qualified name.
 # ---------------------------------------------------------------------------
 
-#: `subprocess.*` is legal in exactly one method: the production
-#: CheckRunner, whose whole job is to be the one process boundary.
-_EXEC_PRIMITIVE_HOME = "SubprocessCheckRunner.run"
+#: `subprocess.*` is legal in exactly two places: the production
+#: CheckRunner, whose whole job is to be the process boundary for
+#: FOUNDER-AUTHORED commands, and _default_fence_canary_runner (added
+#: 2026-08-10, the unattended preflight's fence canary), whose argv is a
+#: fixed literal this module writes and never founder- or model-authored
+#: text. Two different homes, two different reasons a command site there
+#: is safe; a third one anywhere else is still an offence.
+_EXEC_PRIMITIVE_HOMES = frozenset((
+    "SubprocessCheckRunner.run",
+    "_default_fence_canary_runner",
+))
 
 #: `self.checker` is legal in exactly two places: bound once in the
 #: engine's constructor, and called once behind the authorisation gate.
@@ -3813,7 +3833,7 @@ _BANNED_ATTRIBUTE_NAMES = frozenset((
 #: edit to this line rather than a silent widening.
 _ALLOWED_MODULE_IMPORTS = frozenset((
     "datetime", "importlib.util", "json", "os", "shlex", "subprocess",
-    "sys", "uuid",
+    "sys", "tempfile", "uuid",
 ))
 
 
@@ -3892,8 +3912,8 @@ def _dotted_name(node):
 
 def _execution_primitive_offences(source):
     """[(lineno, message), ...] for every place in `source` where a
-    subprocess execution primitive is reachable outside
-    _EXEC_PRIMITIVE_HOME, or where the checker object is reached by any
+    subprocess execution primitive is reachable outside one of
+    _EXEC_PRIMITIVE_HOMES, or where the checker object is reached by any
     spelling other than the one gated call.
 
     Takes SOURCE rather than reading the file, so the calibration test can
@@ -3950,13 +3970,13 @@ def _execution_primitive_offences(source):
             return
         resolved = _resolved_dotted(dotted, aliases)
         if (resolved.split(".")[0] == "subprocess"
-                and where != _EXEC_PRIMITIVE_HOME):
+                and where not in _EXEC_PRIMITIVE_HOMES):
             offences.append(
                 (node.lineno,
                  "%s (which really names %s) is reached in %s; the only "
-                 "place this module may start a process is %s"
+                 "places this module may start a process are %s"
                  % (dotted, resolved, where or "<module>",
-                    _EXEC_PRIMITIVE_HOME)))
+                    ", ".join(sorted(_EXEC_PRIMITIVE_HOMES)))))
         if resolved in _BANNED_DOTTED_CALLS:
             offences.append(
                 (node.lineno,
@@ -5248,10 +5268,10 @@ class TestR6TheExecutionPrimitiveGuardIsStructural(unittest.TestCase):
     test") that was overstated, not the shipped file.
 
     The guard is now a real structural control: no subprocess execution
-    primitive may be called anywhere in the module outside the single
-    runner method, the checker object may not be aliased or reached by
-    getattr, and the calibration test below proves each of the refuter's
-    four spellings now FAILS it."""
+    primitive may be called anywhere in the module outside the named homes
+    in _EXEC_PRIMITIVE_HOMES, the checker object may not be aliased or
+    reached by getattr, and the calibration test below proves each of the
+    refuter's four spellings now FAILS it."""
 
     def test_the_shipped_file_passes_the_guard(self):
         with io.open(CONTROLLER_FILE, encoding="utf-8") as fh:
@@ -7049,17 +7069,22 @@ class TestCrossFamilyF3InheritedGitEnvironment(unittest.TestCase):
             self.assertEqual(_read(os.path.join(p, "a.py")), _COMMITTED)
 
     def test_the_only_subprocess_site_passes_an_explicit_environment(self):
-        """Structural, so the property cannot rot back: there is exactly
-        one subprocess call in the shipped module, it lives in the runner,
-        and it passes env= rather than inheriting."""
+        """Structural, so the property cannot rot back: there are exactly
+        two subprocess.run calls in the shipped module (the founder-command
+        runner, and _default_fence_canary_runner added 2026-08-10), and
+        BOTH pass env= rather than inheriting, for their own reasons: git-
+        redirection stripping for the first, total isolation from the
+        founder's real HOME and vault for the second."""
         found = _subprocess_run_keywords()
-        self.assertEqual(len(found), 1, found)
-        where, keywords = found[0]
-        self.assertEqual(where, "run")
-        self.assertIn(
-            "env", keywords,
-            "the one subprocess site must pass an explicit env=; without "
-            "it the child inherits every git redirection the parent has")
+        self.assertEqual(len(found), 2, found)
+        by_function = dict(found)
+        self.assertEqual(set(by_function),
+                         {"run", "_default_fence_canary_runner"})
+        for where, keywords in found:
+            self.assertIn(
+                "env", keywords,
+                "%s must pass an explicit env=; without it the child "
+                "inherits the parent's environment" % (where,))
 
     def test_the_documented_redirection_names_are_all_covered(self):
         """The enumeration above is evidence, so it is checked against the
@@ -7752,7 +7777,7 @@ class TestControllerCLIAdopt(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # THE UNATTENDED PREFLIGHT (founder posture, 2026-08-06). An unattended
 # Full-Auto run must REFUSE to start unless the machine is in a state where
-# the damage it could do is bounded. Seven preconditions, seven named reason
+# the damage it could do is bounded. Eight preconditions, eight named reason
 # codes, one refusal test each, plus the test that proves interactive use is
 # untouched.
 #
@@ -7763,14 +7788,36 @@ class TestControllerCLIAdopt(unittest.TestCase):
 # run and no snapshot ref is written anywhere by this section, except in the
 # one end-to-end CLI test at the bottom, which drives the real command line
 # and therefore refuses before reaching the snapshot at all.
+#
+# THE EIGHTH PRECONDITION, the fence canary, is a different kind of check:
+# it really spawns tools/bm_fence_hook.py. Left at its real default here,
+# every one of the many _preflight() calls below would spawn a subprocess
+# and touch disk, which is exactly the hermeticity this section states and
+# relies on. So _preflight() defaults `fence_canary_runner` to
+# _FENCE_CANARY_ALWAYS_DENIES, a fake that answers "proven" with no process
+# spawned, and every test in THIS section that is not specifically about
+# the canary stays exactly as fast and hermetic as it always was. The
+# canary's own behaviour, fake and real both, is exercised on its own in
+# TestUnattendedRefusesUntilTheFenceCanaryProvesADeny below.
 # ---------------------------------------------------------------------------
 
-#: The environment in which all seven preconditions are MET, so a test that
+#: The environment in which all eight preconditions are MET, so a test that
 #: wants one refusal breaks exactly one thing and nothing else can be the
 #: cause of the answer it reads.
 _UNATTENDED_GOOD_ENV = {"BM_FENCE_MODE": "enforced", "BM_FENCE_STRICT": "1"}
 
 _UNATTENDED_SESSION = "sess-night-run"
+
+
+def _FENCE_CANARY_ALWAYS_DENIES(argv, cwd, env, stdin_text):
+    """A fake fence-canary runner that answers exactly the shape a real
+    deny would: no process spawned, no disk touched. This is _preflight()'s
+    default so the seven OTHER preconditions' tests, most of them written
+    before the canary existed, stay hermetic and unaffected by it."""
+    return {"stdout": json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse", "permissionDecision": "deny",
+        "permissionDecisionReason": "arranged for a hermetic test"}}),
+            "stderr": "", "returncode": 0}
 
 
 class FakeGitFacts(object):
@@ -7805,14 +7852,21 @@ class FakeGitFacts(object):
 
 
 def _preflight(store, root, session_id=_UNATTENDED_SESSION, env=None,
-               git=None, acknowledged=(), project_id="p1"):
+               git=None, acknowledged=(), project_id="p1",
+               fence_canary_runner=_FENCE_CANARY_ALWAYS_DENIES):
     """One preflight call with every seam arranged to PASS unless the test
-    overrode it. Returns the findings list."""
+    overrode it. Returns the findings list.
+
+    fence_canary_runner defaults to the fake that always proves a deny with
+    no process spawned, so every existing precondition test here stays
+    hermetic; pass fence_canary_runner=None to exercise the real spawn, or
+    a different fake to test the canary's OWN refusal codes."""
     return bc.unattended_preflight(
         store, root, project_id, session_id,
         acknowledged=acknowledged,
         env=dict(_UNATTENDED_GOOD_ENV) if env is None else env,
-        git=FakeGitFacts() if git is None else git)
+        git=FakeGitFacts() if git is None else git,
+        fence_canary_runner=fence_canary_runner)
 
 
 def _codes(findings):
@@ -7820,8 +7874,8 @@ def _codes(findings):
 
 
 class TestUnattendedPreflightAllowsAReadyMachine(unittest.TestCase):
-    """The CALIBRATION for the seven refusal tests below. Without it, a
-    preflight that refused everything unconditionally would pass all seven
+    """The CALIBRATION for the eight refusal tests below. Without it, a
+    preflight that refused everything unconditionally would pass all eight
     and prove nothing at all."""
 
     def test_a_machine_that_meets_every_condition_is_not_refused(self):
@@ -7937,6 +7991,238 @@ class TestUnattendedRefusesWithoutStrictMode(unittest.TestCase):
                         bc.UNATTENDED_FENCE_NOT_STRICT in _codes(findings),
                         refused,
                         "BM_FENCE_STRICT=%r was read wrongly" % (value,))
+
+
+# ---------------------------------------------------------------------------
+# PRECONDITION 8: the fence canary. Added 2026-08-10, closing an
+# independent Codex audit's CRITICAL finding: _unattended_fence_mode and
+# _unattended_fence_strict above prove only that two environment variables
+# are set to the values tools/bm_fence_hook.py reads; neither proves the
+# runtime ever SPAWNS that hook. Under Codex exec, confirmed, the hook
+# never runs at all and both other fence preconditions still pass.
+#
+# THE TEST STYLE HERE IS DELIBERATELY DIFFERENT from the sections above.
+# Every other precondition is exercised through _preflight()'s in-process
+# helper. This one is exercised directly against bc._unattended_fence_canary,
+# because its own `runner` seam IS the thing under test (a-d below), and
+# through _preflight() only for the two tests that need to prove it is
+# actually WIRED into the preflight's tuple (test_the_precondition_list_
+# actually_calls_the_canary) and that it runs a REAL subprocess end to end
+# (test_a_real_subprocess_against_a_real_throwaway_store_really_denies,
+# the one test in this whole file that would have caught the six-day
+# cmd_hook defect: nine green tests once called decide() directly while the
+# live bug sat in the stdin-reading entry point in front of it).
+# ---------------------------------------------------------------------------
+
+def _canary_deny_runner(argv, cwd, env, stdin_text):
+    return {"stdout": json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse", "permissionDecision": "deny",
+        "permissionDecisionReason": "arranged"}}),
+            "stderr": "", "returncode": 0}
+
+
+def _canary_allow_runner(argv, cwd, env, stdin_text):
+    """No decision at all: an empty stdout is exactly what
+    tools/bm_fence_hook.py's cmd_hook prints on a real ALLOW (nothing is
+    written to stdout when decide() returns None), so this is the honest
+    shape of 'the hook ran and did not deny', not a synthetic one."""
+    return {"stdout": "", "stderr": "", "returncode": 0}
+
+
+class TestUnattendedRefusesUntilTheFenceCanaryProvesADeny(unittest.TestCase):
+    """PRECONDITION 8. Preconditions 1 and 2 only READ BM_FENCE_MODE and
+    BM_FENCE_STRICT; this one RUNS tools/bm_fence_hook.py, once, against a
+    throwaway claim owned by a session other than the one invoking it, and
+    requires an actual deny.
+
+    THE HONESTY BOUNDARY IS THE POINT OF THIS CLASS, not a side property.
+    A pass here proves the hook BINARY refuses a foreign write when it is
+    actually run. It never proves, and must never be described as proving,
+    that the RUNTIME about to go unattended will call that hook on any
+    real write; that is exactly the gap an independent Codex audit found
+    one layer up, and this canary has no way to see the answer to it.
+    TestTheFenceCanaryNeverOverclaimsRuntimeEnforcement below pins that
+    limit as a mechanical check on the actual docstrings and messages,
+    not only as prose in this one."""
+
+    # -- a: a fake deny proves the condition ------------------------------
+
+    def test_a_fake_deny_proves_the_condition(self):
+        self.assertIsNone(
+            bc._unattended_fence_canary({}, runner=_canary_deny_runner))
+
+    # -- b: a fake allow is a real, demonstrated defect -------------------
+
+    def test_a_fake_allow_is_a_real_defect_not_a_missing_proof(self):
+        finding = bc._unattended_fence_canary({}, runner=_canary_allow_runner)
+        self.assertIsNotNone(finding)
+        code, sentence = finding
+        self.assertEqual(code, bc.UNATTENDED_FENCE_NOT_PROVEN)
+        self.assertIn("did NOT refuse", sentence)
+        self.assertIn("real, demonstrated defect", sentence,
+                      "outcome 2 must read as a defect, never as a missing "
+                      "proof (that is outcome 3, tested below)")
+
+    # -- c: a raising runner is caught, not propagated, and names itself --
+
+    def test_a_raising_runner_never_propagates_and_names_the_exception(self):
+        def boom(argv, cwd, env, stdin_text):
+            raise RuntimeError("no python3 on this machine")
+        finding = bc._unattended_fence_canary({}, runner=boom)
+        self.assertIsNotNone(finding)
+        code, sentence = finding
+        self.assertEqual(code, bc.UNATTENDED_FENCE_NOT_PROVEN)
+        self.assertIn("could not be DEMONSTRATED", sentence)
+        self.assertIn("RuntimeError", sentence)
+        self.assertIn("no python3 on this machine", sentence)
+
+    def test_a_raising_runner_really_does_not_propagate(self):
+        """The property test_a_raising_runner_never_propagates_and_names_
+        the_exception exercises indirectly: this call must simply RETURN,
+        never raise, whatever the runner does."""
+        def boom(argv, cwd, env, stdin_text):
+            raise ValueError("arranged failure")
+        try:
+            result = bc._unattended_fence_canary({}, runner=boom)
+        except Exception as exc:
+            self.fail("_unattended_fence_canary propagated %r; it runs in "
+                      "front of every unattended start and must never "
+                      "raise" % (exc,))
+        self.assertEqual(result[0], bc.UNATTENDED_FENCE_NOT_PROVEN)
+
+    # -- d: unparseable output is caught the same way, not a crash --------
+
+    def test_unparseable_stdout_is_not_a_crash(self):
+        def garbage(argv, cwd, env, stdin_text):
+            return {"stdout": "not json at all", "stderr": "", "returncode": 0}
+        finding = bc._unattended_fence_canary({}, runner=garbage)
+        self.assertIsNotNone(finding)
+        code, sentence = finding
+        self.assertEqual(code, bc.UNATTENDED_FENCE_NOT_PROVEN)
+        self.assertIn("could not be DEMONSTRATED", sentence,
+                      "unparseable output is the 'not demonstrated' shape, "
+                      "the same as an unspawnable process, never the "
+                      "'real defect' shape a-fake-allow gets")
+
+    def test_a_deny_shaped_but_non_dict_hookoutput_is_not_a_crash(self):
+        """A stray shape (a list, a string) inside hookSpecificOutput must
+        not raise AttributeError out of a .get() call."""
+        def odd(argv, cwd, env, stdin_text):
+            return {"stdout": json.dumps(
+                {"hookSpecificOutput": ["not", "a", "dict"]}),
+                    "stderr": "", "returncode": 0}
+        finding = bc._unattended_fence_canary({}, runner=odd)
+        self.assertIsNotNone(finding)
+        self.assertEqual(finding[0], bc.UNATTENDED_FENCE_NOT_PROVEN)
+
+    # -- e: the code has a plain-language rewrite --------------------------
+
+    def test_the_code_has_a_plain_language_rewrite(self):
+        self.assertIn(bc.UNATTENDED_FENCE_NOT_PROVEN,
+                      bc.UNATTENDED_REFUSAL_HELP)
+        context, hint, next_action = bc.UNATTENDED_REFUSAL_HELP[
+            bc.UNATTENDED_FENCE_NOT_PROVEN]
+        for part in (context, hint, next_action):
+            self.assertTrue(part.strip())
+
+    # -- f: the precondition list actually calls the canary -----------------
+
+    def test_the_precondition_list_actually_calls_the_canary(self):
+        def always_fails(argv, cwd, env, stdin_text):
+            raise AssertionError("arranged: the canary must be reachable")
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                findings = _preflight(store, d,
+                                      fence_canary_runner=always_fails)
+                self.assertIn(bc.UNATTENDED_FENCE_NOT_PROVEN,
+                             _codes(findings),
+                             "the preflight's own tuple must include the "
+                             "canary, or a broken fence can never be "
+                             "reported: %r" % (findings,))
+
+    def test_a_ready_machine_needs_the_canary_to_pass_too(self):
+        """The calibration for (f): a machine with every OTHER condition met
+        is still refused if the canary alone fails, proving the wiring
+        matters and is not accidentally bypassed by the other seven already
+        passing."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store)
+                _sign(store)
+                findings = _preflight(
+                    store, d, fence_canary_runner=_canary_allow_runner)
+                self.assertEqual(_codes(findings),
+                                 [bc.UNATTENDED_FENCE_NOT_PROVEN])
+
+    # -- g: a REAL subprocess against a REAL throwaway store ---------------
+
+    def test_a_real_subprocess_against_a_real_throwaway_store_really_denies(self):
+        """THE test that would have caught the six-day cmd_hook defect: a
+        REAL `python3 tools/bm_fence_hook.py hook` process, real JSON on
+        real stdin, against a real throwaway store this call builds itself,
+        never tools/bm_fence_hook.decide() called in-process. runner=None
+        is the real spawn; nothing here is faked."""
+        result = bc._unattended_fence_canary(dict(os.environ), runner=None)
+        self.assertIsNone(
+            result,
+            "the shipped tools/bm_fence_hook.py did not deny a real write "
+            "to a path a different session's active claim covers: %r"
+            % (result,))
+
+    def test_the_real_spawn_is_the_documented_default(self):
+        """Calibration for (g): runner=None really does mean "spawn", not
+        merely "returns the same thing a fake would"."""
+        self.assertIsNone(bc._unattended_fence_canary.__defaults__[0],
+                          "_unattended_fence_canary's runner parameter must "
+                          "default to None, the documented real-spawn "
+                          "signal")
+
+
+class TestTheFenceCanaryNeverOverclaimsRuntimeEnforcement(unittest.TestCase):
+    """The property this whole precondition exists to protect: a passing
+    canary proves the HOOK refuses when it is run, never that the RUNTIME
+    about to go unattended will call it on a real write. An overclaim here
+    would be the exact defect this canary was built to close, committed
+    inside its own fix. Checked mechanically against the real docstring and
+    the real messages, not trusted as prose."""
+
+    _FORBIDDEN = ("fence proven live", "fence is proven live",
+                  "enforcement is proven", "proven end to end",
+                  "proven end-to-end", "runtime is enforced",
+                  "enforcement is on")
+
+    def test_the_docstring_never_uses_a_forbidden_phrase(self):
+        doc = (bc._unattended_fence_canary.__doc__ or "").lower()
+        for phrase in self._FORBIDDEN:
+            self.assertNotIn(phrase, doc, phrase)
+
+    def test_the_docstring_states_the_limit_in_terms_of_the_runtime(self):
+        doc = (bc._unattended_fence_canary.__doc__ or "").lower()
+        self.assertIn("cannot prove", doc)
+        self.assertIn("runtime", doc)
+
+    def test_the_defect_finding_names_no_forbidden_phrase(self):
+        _code, sentence = bc._unattended_fence_canary(
+            {}, runner=_canary_allow_runner)
+        for phrase in self._FORBIDDEN:
+            self.assertNotIn(phrase, sentence.lower(), phrase)
+
+    def test_the_not_demonstrated_finding_names_no_forbidden_phrase(self):
+        def boom(argv, cwd, env, stdin_text):
+            raise RuntimeError("x")
+        _code, sentence = bc._unattended_fence_canary({}, runner=boom)
+        for phrase in self._FORBIDDEN:
+            self.assertNotIn(phrase, sentence.lower(), phrase)
+
+    def test_the_founder_facing_help_names_the_runtime_limit_too(self):
+        _context, _hint, next_action = bc.UNATTENDED_REFUSAL_HELP[
+            bc.UNATTENDED_FENCE_NOT_PROVEN]
+        self.assertIn("runtime", next_action.lower())
+        self.assertIn("cannot prove", next_action.lower())
+        for phrase in self._FORBIDDEN:
+            self.assertNotIn(phrase, next_action.lower(), phrase)
 
 
 class TestUnattendedRefusesOutsideARepository(unittest.TestCase):
@@ -8302,8 +8588,10 @@ class TestUnattendedPreflightLeavesInteractiveUseAlone(unittest.TestCase):
     Proved twice, from both ends. Structurally, the gate is not even reached
     without the flag (a poisoned bc.unattended_preflight is never called),
     and behaviourally, the real CLI drives a full start/plan/start/status
-    flow on a machine that fails EVERY ONE of the seven conditions and
-    behaves exactly as it did before."""
+    flow on a machine arranged to fail every one of the eight conditions
+    this arrangement can reach (the fence canary's own throwaway store is
+    untouched by it, so it alone would still pass) and behaves exactly as
+    it did before."""
 
     def test_without_the_flag_the_preflight_is_never_called(self):
         calls = []
@@ -8333,9 +8621,11 @@ class TestUnattendedPreflightLeavesInteractiveUseAlone(unittest.TestCase):
     def test_the_interactive_cli_flow_is_unchanged_on_a_failing_machine(self):
         """A temporary directory is not a git repository, the fence
         variables are cleared, and a foreign session holds a claim over the
-        contract's own allowed path: all seven conditions would refuse. Every
-        interactive command must still behave exactly as the CLI tests above
-        expect."""
+        contract's own allowed path: everything this arrangement can reach
+        would refuse (the fence canary is not reachable by it: the canary
+        proves the hook refuses inside its own throwaway store, which this
+        arrangement never touches). Every interactive command must still
+        behave exactly as the CLI tests above expect."""
         with tempfile.TemporaryDirectory() as root:
             _cli_bootstrap(root)
             # A foreign claim over a path INSIDE the contract's allowed '.'
@@ -8479,10 +8769,12 @@ class TestUnattendedCLIRefusesEndToEnd(unittest.TestCase):
 
 class TestEveryUnattendedRefusalIsRewritten(unittest.TestCase):
     """DEFECT M08 (docs/mistakes/M08-new-refusals-had-no-plain-language-
-    twice.md), closed for these seven at the point they were written rather
-    than after a founder met a raw code. The list is read from the SHIPPED
-    module, never from a hand list here, because a hand list is exactly what
-    goes stale the day somebody adds an eighth."""
+    twice.md), closed for each of these eight (the original seven, plus the
+    fence canary's UNATTENDED_FENCE_NOT_PROVEN added 2026-08-10) at the
+    point it was written rather than after a founder met a raw code. The
+    list is read from the SHIPPED module, never from a hand list here,
+    because a hand list is exactly what goes stale the day somebody adds a
+    ninth."""
 
     def _declared_codes(self):
         """Every module-level constant in tools/bm_controller.py whose name
@@ -8505,8 +8797,8 @@ class TestEveryUnattendedRefusalIsRewritten(unittest.TestCase):
 
     def test_every_code_the_preflight_can_emit_has_a_plain_rewrite(self):
         declared = set(self._declared_codes().values())
-        self.assertEqual(len(declared), 7,
-                         "seven preconditions, seven reason codes; found "
+        self.assertEqual(len(declared), 8,
+                         "eight preconditions, eight reason codes; found "
                          "%s" % (sorted(declared),))
         missing = sorted(declared - set(bc.UNATTENDED_REFUSAL_HELP))
         self.assertEqual(missing, [],
@@ -8551,7 +8843,7 @@ class TestEveryUnattendedRefusalIsRewritten(unittest.TestCase):
                 self.assertIn(part, text)
         self.assertIn("the engine's own sentence", text)
         self.assertIn("and the second one", text)
-        self.assertIn("2 of the seven", text)
+        self.assertIn("2 of the eight", text)
 
     def test_no_em_or_en_dash_reaches_a_founder_from_this_map(self):
         """Written as escapes, not as the characters themselves: this file

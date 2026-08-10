@@ -185,6 +185,20 @@ SUITES = (
     # APOSTROPHE ANYWHERE IN THIS COMMENT, ON PURPOSE (see the file-level note
     # above).
     "test_bm_progress_check.py",
+    # The effect-class registry and its purity tests, added 2026-08-10. Every
+    # public command declares one of five effect classes, and a command absent
+    # from the registry is an error rather than a default, so a new command
+    # cannot be added without a declaration. The purity half proves that a
+    # command declared pure_read changes zero bytes.
+    # WHY THE INTERESTING TEST IS THE SCHEMA ONE. The obvious purity check, a
+    # before and after snapshot of a throwaway tree, PASSES for every command
+    # including the broken ones: sqlite auto-checkpoints and removes its
+    # journal files on clean close, so the write leaves no trace the probe can
+    # find. The reachable condition is a store that is BEHIND, where opening a
+    # writable Store migrates the database. That is what caught three commands
+    # documented as read accessors. NO APOSTROPHE ANYWHERE IN THIS COMMENT, ON
+    # PURPOSE (see the file-level note above).
+    "test_bm_effects.py",
     # The status line and footer links, the 2026-08-05 answer 7 named in
     # docs/program/absolute-lead/DESIGN-visual-surface.md section 14, item
     # 1: tools/bm_statusline.py, a fail silent script BrotherMode ships but
