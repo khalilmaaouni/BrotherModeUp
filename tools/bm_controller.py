@@ -5176,14 +5176,40 @@ def _unattended_fence_canary(env, runner=None):
                            throwaway, canary_env, payload)
             stdout = (result["stdout"] if isinstance(result, dict)
                       else result.stdout)
+            stderr = ((result["stderr"] if isinstance(result, dict)
+                       else result.stderr) or "")
+            returncode = (result["returncode"] if isinstance(result, dict)
+                          else result.returncode)
             decision = (json.loads(stdout) if (stdout or "").strip()
                        else None)
-            denied = (isinstance(decision, dict)
+            denied = (returncode == 0
+                      and isinstance(decision, dict)
                       and isinstance(decision.get("hookSpecificOutput"), dict)
                       and decision["hookSpecificOutput"].get(
                           "permissionDecision") == "deny")
             if denied:
                 return None
+            if returncode != 0:
+                # The 2026-08-10 night refute pass found the empty stdout of
+                # a process that never really ran (absent file, crash) being
+                # read as outcome 2, so a hook that was never demonstrated
+                # got reported as a demonstrated defect. Under the
+                # PreToolUse contract a nonzero exit is a non-blocking error
+                # whose stdout is not honored, so nothing was established
+                # either way: this is outcome 3, never outcome 2.
+                first_err = (stderr.strip().splitlines()[0]
+                             if stderr.strip() else "(no stderr)")
+                return (UNATTENDED_FENCE_NOT_PROVEN,
+                        "the fence hook's refusal could not be DEMONSTRATED "
+                        "here: the spawned process exited with status %d "
+                        "rather than answering (first stderr line: %s). "
+                        "That is different from a fence known to be broken: "
+                        "nothing about whether it refuses a foreign write "
+                        "was established either way, and a decision printed "
+                        "by a run that exits nonzero is not honored by the "
+                        "runtime. Confirm `%s tools/bm_fence_hook.py hook` "
+                        "runs here, then start again."
+                        % (returncode, first_err, sys.executable))
             return (UNATTENDED_FENCE_NOT_PROVEN,
                     "the fence hook was actually run, as a real subprocess, "
                     "against a throwaway claim owned by a different "
