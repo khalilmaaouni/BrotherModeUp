@@ -162,9 +162,10 @@ footer strong { color: var(--bm-body); }
 <p class="lede">One main branch, a gate that passes, and a tag whose every claim is backed by a check that runs. This page shows what has actually been proved, not what has been attempted.</p>
 
 <div class="stamp">
-main 2f60b11 &middot; clean tree &middot; in sync with origin<br>
-plan docs/plan/RELEASE-v3.1.0-PLAN.md &middot; session bm1-51fa5453 &middot; 2026-08-10<br>
-LOOP 1 RESOLVED: all 14 branches superseded, zero merges needed. Founder approved tag-then-delete.
+main d757c43 &middot; clean tree &middot; pushed and verified (local == upstream == remote)<br>
+GATE: test_all 2905 tests across 28 suites, 9 skipped, 432.6s wall. ALL GREEN, exit 0<br>
+REMOTE: 1 branch. 14 archive tags pushed BEFORE any delete, recovery proven<br>
+plan docs/plan/RELEASE-v3.1.0-PLAN.md &middot; session bm1-51fa5453 &middot; 2026-08-10
 </div>
 
 <div class="cards">
@@ -179,9 +180,9 @@ LOOP 1 RESOLVED: all 14 branches superseded, zero merges needed. Founder approve
     <span class="mono">grep V3-FREEZE-2026-08-07 &rarr; 7 files</span>
   </div>
   <div class="card settled">
-    <h4>Better than expected</h4>
-    <p>The wall-clock defect has only ONE live instance left. Three of the four named in the handover were already fixed on disk.</p>
-    <span class="mono">test_brothermode_cli.py:1510</span>
+    <h4>Closed today</h4>
+    <p>The defect found and fixed seven times in ten days now has a machine refusing it. The last live instance is gone and CI blocks the next one.</p>
+    <span class="mono">bm_lint_walltime.py tools/ scripts/ -&gt; exit 0</span>
   </div>
   <div class="card for-info">
     <h4>Premise disproved, twice</h4>
@@ -209,7 +210,7 @@ LOOP 1 RESOLVED: all 14 branches superseded, zero merges needed. Founder approve
 <tr>
   <td class="lane">A &middot; Loop 1 one main<small>14 superseded, delete only</small></td>
   <td></td>
-  <td colspan="3"><div class="bar done">RESOLVED: 0 MERGES NEEDED</div></td>
+  <td colspan="3"><div class="bar done">CLOSED &middot; ONE MAIN BRANCH</div></td>
   <td></td>
 </tr>
 <tr>
@@ -221,7 +222,7 @@ LOOP 1 RESOLVED: all 14 branches superseded, zero merges needed. Founder approve
 <tr>
   <td class="lane">B &middot; Loop 3 wall-clock lint<small>closes class A</small></td>
   <td></td>
-  <td colspan="2"><div class="bar todo">AST LINT + CI</div></td>
+  <td colspan="2"><div class="bar done">AST LINT + CI &middot; CLOSED</div></td>
   <td></td><td></td>
 </tr>
 <tr>
@@ -270,7 +271,7 @@ LOOP 1 RESOLVED: all 14 branches superseded, zero merges needed. Founder approve
 </table>
 
 <h2>Loop 1: one main branch</h2>
-<div class="progress"><div class="track"><div class="fill" style="width:80%"></div></div><span class="pct">4 of 5</span></div>
+<div class="progress"><div class="track"><div class="fill" style="width:100%"></div></div><span class="pct">5 of 5 CLOSED</span></div>
 <p class="lede">The plan said merge eleven branches in a gated sequence. Measuring disproved it: main already holds the outcome of all fourteen. Merging several would have made main worse. The work became proving that, then deleting.</p>
 <table class="ledger">
 <tr><th></th><th>Task</th></tr>
@@ -282,8 +283,8 @@ LOOP 1 RESOLVED: all 14 branches superseded, zero merges needed. Founder approve
   <span class="ev">phase-c/continuity: main 1378 lines vs branch 1081, seven functions main-only including relay_deadline and _session_cap, and its one unique test is the old wall-clock version main already replaced with a ratio. Reviewer found two more regressions I missed: it shrinks the reviewed write_sites audit inventory, and phase-5 reverts a reviewed assertion count from 4 to 3</span></td></tr>
 <tr><td class="tick">&#10003;</td><td>1.4 Prove the last branch is a refactor, not a fix <span class="pill lead">lead</span>
   <span class="ev">charming-goldwasser: main's _alert_project_id already registers the alert project row before attributing to it, idempotently. Main carries every branch test under a different name plus three more. BROTHERMODE_SESSION_CAP=99 python3 tools/test_bm_bash_audit.py -> Ran 39 tests in 3.786s OK</span></td></tr>
-<tr><td class="open">&#9675;</td><td>1.5 Tag every tip, then delete all 14 <span class="pill lead">lead</span>
-  <span class="ev">founder approved tag-then-delete 2026-08-10. check: git branch -r | grep -v HEAD returns origin/main alone, and every archive tag resolves</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>1.5 Tag every tip, then delete all 14 <span class="pill lead">lead</span>
+  <span class="ev">14 annotated archive tags pushed to the remote FIRST, each verified to match its branch tip, then the branches deleted. git branch -r now returns origin/main alone; git ls-remote --heads origin returns 1. Recovery proven: archive/phase-c-continuity-2026-08-10 still resolves to 22b4c5e</span></td></tr>
 </table>
 
 <h3>What an independent reviewer did to this finding</h3>
@@ -315,33 +316,46 @@ LOOP 1 RESOLVED: all 14 branches superseded, zero merges needed. Founder approve
 </table>
 
 <h2>Loop 3: the wall-clock lint</h2>
-<div class="progress"><div class="track"><div class="fill" style="width:0%"></div></div><span class="pct">0 of 5</span></div>
-<p class="lede">This defect was caught by review seven times and prevented zero times. The only durable fix is a machine that refuses the line.</p>
+<div class="progress"><div class="track"><div class="fill" style="width:100%"></div></div><span class="pct">5 of 5 CLOSED</span></div>
+<p class="lede">This defect was caught by review seven times in ten days and prevented zero times. It now has a machine refusing it, and CI blocks on that machine.</p>
 <table class="ledger">
 <tr><th></th><th>Task</th></tr>
-<tr><td class="open">&#9675;</td><td>3.1 The lint as an AST walker with a visible benchmark allow list <span class="pill agent">agent sonnet</span>
-  <span class="ev">rule, from the inventory: flag a comparison where one side is a difference of two time calls and the other is a bare numeric literal. Regex was rejected: it false-positives on every ratio and every len() check</span></td></tr>
-<tr><td class="open">&#9675;</td><td>3.2 Calibrate BOTH ways <span class="pill agent">agent sonnet</span>
-  <span class="ev">check: flags every list A entry, flags NOTHING on list B. A lint with false positives gets disabled by the first person it annoys</span></td></tr>
-<tr><td class="open">&#9675;</td><td>3.3 Run tree-wide, fix or visibly exempt every hit <span class="pill agent">agent sonnet</span>
-  <span class="ev">check: exits 0 over tools/ and scripts/</span></td></tr>
-<tr><td class="open">&#9675;</td><td>3.4 Wire into CI as a BLOCKING step <span class="pill lead">lead</span>
-  <span class="ev">check: a deliberately reintroduced bad line fails the job</span></td></tr>
-<tr><td class="open">&#9675;</td><td>3.5 Add to the local gate <span class="pill lead">lead</span>
-  <span class="ev">check: test_all.py suite count includes it</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>3.1 The lint, an AST walker with a visible benchmark allow list <span class="pill agent">agent sonnet</span>
+  <span class="ev">tools/bm_lint_walltime.py. Flags a comparison where one side is a difference of two time calls and the other is a bare numeric literal. Regex REJECTED and the reason recorded in the module: it false-positives on every ratio, every len() count and every index-ordering check</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>3.2 Calibrated BOTH ways on real code, not only on fixtures <span class="pill lead">lead verified</span>
+  <span class="ev">I re-ran the agent's claims myself rather than accepting them. 17 tests OK. Clean on test_bm.py, test_bm_store.py, test_bm_fence_hook.py, test_all.py, test_bm_session_cap.py, test_bm_controller.py, every one full of legitimate ratios and counts. A scan opening zero files prints NO-DATA and exits 2, never 0</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>3.3 The one live violation fixed <span class="pill lead">lead</span>
+  <span class="ev">test_a_missing_log_times_out_rather_than_raising asserted elapsed &lt; 5.0. Now asserts a ratio between two timeouts using the minimum of N samples, which is STRICTLY STRONGER: a function ignoring its timeout would have passed the old ceiling and fails this one. Suite 84 to 85 tests, OK</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>3.4 Wired into CI as two BLOCKING steps <span class="pill lead">lead</span>
+  <span class="ev">.github/workflows/tests.yml: one step runs the lint over the tree, a second runs its own calibration suite, because a lint whose calibration is unasserted can rot into one that flags nothing and reads as clean forever</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>3.5 Added to the local gate <span class="pill lead">lead</span>
+  <span class="ev">SUITES in tools/test_all.py, 27 suites to 28</span></td></tr>
+</table>
+
+<h3>What the project's own gates did to this change before it landed</h3>
+<p class="lede">Three refused it, and each was right. This is the part worth selling.</p>
+<table class="ledger">
+<tr><td class="tick">&#10003;</td><td>The docs suite refused an apostrophe in a comment
+  <span class="ev">test_all.py loads facts with a quote-to-quote regex, and its own comment warns in capitals that an apostrophe breaks it. I wrote one anyway, in a comment sitting beside that warning. It read a bare s as a suite name and went red</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>The packaging manifest refused a tool absent from py-modules
+  <span class="ev">a pipx or pip install would have shipped without the new lint</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>The write-site gate refused a new tool nobody had reviewed
+  <span class="ev">all 7 of its sites were then READ before a number was written: every one is stdout or stderr, its only open() is read mode, and it emits repo-relative paths, so no user text and no absolute path can reach its output</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>And the gate refused a suite that skipped everything
+  <span class="ev">"exited 0 but ran 0 tests". A class-level skip made a suite report zero tests, which is exactly how a suite that quietly stopped testing reads as green forever. Moved to a per-test skip: 3 tests, 3 skipped, exit 0, both guards intact</span></td></tr>
 </table>
 
 <h2>Loop 4: truth repairs</h2>
-<div class="progress"><div class="track"><div class="fill" style="width:0%"></div></div><span class="pct">0 of 5</span></div>
+<div class="progress"><div class="track"><div class="fill" style="width:40%"></div></div><span class="pct">2 of 5</span></div>
 <p class="lede">Your team installs by handing the repository link to their own assistant. A false sentence in the README is executed, not merely misread.</p>
 <table class="ledger">
 <tr><th></th><th>Task</th></tr>
-<tr><td class="open">&#9675;</td><td>4.1 Release the stuck fence on README.md <span class="pill lead">lead</span>
-  <span class="ev">the record unit-u-phase3-install-truth holds it under a session no live session can match, so nobody can edit the most-read file in the repository</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>4.1 Release the stuck fence on README.md <span class="pill lead">lead</span>
+  <span class="ev">proved it blocked first (permissionDecision deny, naming the record and the dead owning session), completed the superseded record with its evidence, proved it allows now (empty hook output, exit 0). The most-read file in the repository is editable again</span></td></tr>
 <tr><td class="open">&#9675;</td><td>4.2 Narrow the single-writer claim to what ships <span class="pill lead">lead</span>
   <span class="ev">check: the sentence states claimed paths refused, unclaimed allowed by default, shell writes audited not blocked</span></td></tr>
-<tr><td class="open">&#9675;</td><td>4.3 Remove every citation of the document that does not exist <span class="pill agent">agent sonnet</span>
-  <span class="ev">check: grep V3-FREEZE-2026-08-07 returns nothing outside handover archives</span></td></tr>
+<tr><td class="tick">&#10003;</td><td>4.3 SHIP the documents instead of stripping the citations <span class="pill lead">lead</span>
+  <span class="ev">the plan said strip 19 citations. Investigation changed the answer: the two documents are REAL, hold binding founder decisions and an adversarial review, and had simply never been committed, so anyone cloning the repo read code citing reasoning they could not open. Both now in docs/decisions/, verbatim apart from replacing one machine home path, marked historical with a superseded-by pointer</span></td></tr>
 <tr><td class="open">&#9675;</td><td>4.4 Correct the ledger row that marks this class FIXED <span class="pill lead">lead</span>
   <span class="ev">check: the row reads OPEN with today's evidence</span></td></tr>
 <tr><td class="open">&#9675;</td><td>4.5 Widen the docs drift suite: a security verb with no test reference fails <span class="pill agent">agent sonnet</span>
