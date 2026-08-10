@@ -199,6 +199,7 @@ SUITES = (
     # documented as read accessors. NO APOSTROPHE ANYWHERE IN THIS COMMENT, ON
     # PURPOSE (see the file-level note above).
     "test_bm_effects.py",
+    "test_bm_stall.py",
     # The status line and footer links, the 2026-08-05 answer 7 named in
     # docs/program/absolute-lead/DESIGN-visual-surface.md section 14, item
     # 1: tools/bm_statusline.py, a fail silent script BrotherMode ships but

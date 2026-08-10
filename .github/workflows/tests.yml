@@ -177,6 +177,8 @@ jobs:
       # while a snapshot against a healthy one sees nothing at all.
       - name: Run the effect-class purity suite
         run: python3 tools/test_bm_effects.py
+      - name: Stall detector suite
+        run: python3 tools/test_bm_stall.py
       # The status line and footer links, the 2026-08-05 answer 7 named in
       # docs/program/absolute-lead/DESIGN-visual-surface.md section 14,
       # item 1: tools/bm_statusline.py is a fail silent script BrotherMode

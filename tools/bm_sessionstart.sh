@@ -35,6 +35,9 @@ python3 "$DIR/tools/bm_telemetry.py" startup-nags 2>/dev/null
 # it. That is a fail-open by choice: this check exists to remove the excuse of
 # not having noticed, never to become a new way for a session to die.
 python3 "$DIR/tools/bm_progress_check.py" status 2>/dev/null || true
+# Stall sweep (Loop SD): pure read, prints stale fences and dead owners with
+# their exact clearing command. Fail-open like the progress check above.
+python3 "$DIR/tools/bm_stall.py" sweep 2>/dev/null || true
 python3 "$DIR/tools/bm_telemetry.py" check-update 2>/dev/null
 # If this session resumed from a compaction, point it at the autosave.
 printf '%s' "$PAYLOAD" | python3 "$DIR/tools/bm_telemetry.py" compact-hint 2>/dev/null
