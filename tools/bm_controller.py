@@ -4802,9 +4802,9 @@ UNATTENDED_REFUSAL_HELP = {
         "running it, not only that the settings meant to turn it on are "
         "set",
         "the fence hook's refusal could not be shown by actually running "
-        "it: either it ran and let a foreign write through, or it could "
-        "not be run and checked here at all, and the detail line below "
-        "tells those two apart",
+        "it: either it ran and let a foreign Edit write through, or it "
+        "could not be run and checked here at all, and the detail line "
+        "below tells those two apart",
         "read the detail line: if the hook ran and did not refuse, that "
         "is a defect in tools/bm_fence_hook.py to fix before running "
         "unattended; if it could not be run at all, fix that first. "
@@ -5082,7 +5082,11 @@ def _unattended_fence_canary(env, runner=None):
     that hook. An independent Codex audit rated this CRITICAL: under Codex
     exec the hook never runs at all, so an unattended run passes every
     other precondition with the fence completely unenforced. This function
-    closes that one gap and no other.
+    NARROWS that gap by one layer and closes nothing: it demonstrates the
+    hook binary's own refusal when spawned, and stays silent, on purpose,
+    about whether any runtime spawns it. The 2026-08-11 cross-family audit
+    read the earlier wording here ("closes that one gap") as a claim the
+    pass semantics cannot support, and it was right.
 
     WHAT IT DOES. Builds a THROWAWAY BrotherMode project under
     tempfile.TemporaryDirectory(), with its own isolated environment
@@ -5111,7 +5115,11 @@ def _unattended_fence_canary(env, runner=None):
          is broken, and the two must never be said the same way.
 
     THE HONESTY BOUNDARY, stated as plainly as this file can state
-    anything. Outcome 1 proves that the hook BINARY refuses a foreign
+    anything. Outcome 1 proves that the hook BINARY refuses ONE foreign
+    Edit-shaped write, the single payload shape this canary sends. It does
+    not generalize even one step further: a shell write crosses a fence
+    unrefused by design (docs/KNOWN-LIMITS.md), so a pass here says nothing
+    about non-Edit paths. And it proves that only for a foreign
     write WHEN IT IS ACTUALLY RUN. It cannot prove, and must never be
     worded anywhere (here, in the reason text, in UNATTENDED_REFUSAL_HELP)
     to imply, that the RUNTIME about to run unattended will INVOKE that
@@ -5185,6 +5193,8 @@ def _unattended_fence_canary(env, runner=None):
             denied = (returncode == 0
                       and isinstance(decision, dict)
                       and isinstance(decision.get("hookSpecificOutput"), dict)
+                      and decision["hookSpecificOutput"].get(
+                          "hookEventName") == "PreToolUse"
                       and decision["hookSpecificOutput"].get(
                           "permissionDecision") == "deny")
             if denied:
