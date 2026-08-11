@@ -224,6 +224,67 @@ class SessionStartPostConsentCase(unittest.TestCase):
                       "consented sessionstart no longer prints DIGEST.md, a "
                       "regression in the smoke path this gate must not touch")
 
+    def test_consented_sessionstart_runs_the_baton_opening_half(self):
+        """R1.3 (2026-08-12). The baton ceremony's CLOSING half has been
+        enforced by bm_handover.py verify-close since it shipped. The OPENING
+        half, running detect before new work, was wired into nothing and
+        depended entirely on somebody remembering, which CLAUDE.md stated
+        plainly as NOT ENFORCED. tools/bm_sessionstart.sh now runs it.
+
+        What this test pins is narrow on purpose: that the session-start path
+        REACHES the detect call and reports SOMETHING about it. It cannot pin
+        detect's own output, because that output is a live read of whatever
+        packs and records exist, and a test that asserted a particular pack age
+        would fail every time somebody wrote a pack. So it accepts either the
+        real verdict or the documented degrade line, and it fails only if the
+        session start says nothing about the baton at all, which is exactly the
+        regression that would silently un-wire the opening half again."""
+        r = subprocess.run(
+            ["sh", SESSIONSTART], cwd=self.project, env=self.env, input="{}",
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=120)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        # The NO-DATA form is in this list deliberately, and finding out why
+        # is what this test was worth writing for. Run from a directory that
+        # is not a BrotherMode project, detect exits 0 and prints
+        # "NO-DATA: no BrotherMode project root found ...". That is detect
+        # working, not detect failing, so a test that omitted it would report
+        # a wiring regression that had not happened. The first draft of this
+        # list did omit it and failed for exactly that reason.
+        spoke_about_the_baton = (
+            "newest pack" in r.stdout
+            or "unacknowledged handovers" in r.stdout
+            or "dead-owner leftovers" in r.stdout
+            or "NO-DATA:" in r.stdout
+            or "baton ceremony check" in r.stdout)
+        self.assertTrue(
+            spoke_about_the_baton,
+            "session start said nothing about the baton ceremony. The opening "
+            "half is un-wired again, which is the exact condition R1.3 closed. "
+            "Expected either bm_handover.py detect's own verdict lines or the "
+            "degrade line naming the check. Got:\n" + r.stdout)
+
+    def test_sessionstart_still_exits_zero_when_detect_is_unavailable(self):
+        """The reason the line above is written fail-open. This script runs at
+        EVERY session start on this machine, so a broken check inside it breaks
+        every session, not just this project's. Point the script at a root
+        where bm_handover.py cannot do its job and prove the session still
+        starts: exit 0, and a line saying so rather than a traceback."""
+        broken = os.path.join(self.tmp, "not-a-project")
+        os.makedirs(broken, exist_ok=True)
+        env = dict(self.env)
+        env["BROTHERMODE_ROOT"] = broken
+        r = subprocess.run(
+            ["sh", SESSIONSTART], cwd=broken, env=env, input="{}",
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=120)
+        self.assertEqual(
+            r.returncode, 0,
+            "session start must exit 0 even when a check inside it cannot run; "
+            "a non-zero exit here breaks the SessionStart hook for every "
+            "project on the machine.\n" + r.stdout + r.stderr)
+        self.assertNotIn("Traceback", r.stdout + r.stderr)
+
 
 class TelemetrySessionEndCase(unittest.TestCase):
     """(b) SessionEnd writes no ledger line before consent, and does once

@@ -80,9 +80,20 @@ success_criteria:
 assumptions:
 unknowns:
 risks:
+kill_criteria:
+non_goals:
 created_at:
 updated_at:
 ```
+
+`kill_criteria` and `non_goals` joined this shape at schema 19 (R1.1,
+2026-08-12). Both are JSON lists, defaulting to empty, exactly as `risks` is.
+They are here because PRODUCT-DIRECTION.md section 5.1 names both as things a
+project's outcome contract must own, and until now neither could be recorded
+at all: a project could state what it was for and what would go wrong, but not
+what would make it right to stop, nor what it had deliberately decided not to
+be. An empty list means not stated, which is different from stated as none,
+and nothing here pretends otherwise.
 
 ### 2.2 Forecast
 

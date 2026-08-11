@@ -1058,6 +1058,17 @@ class TestFixRoundGates(unittest.TestCase):
                                  "mid-migration must roll the caller's "
                                  "transaction back, not move the founder's "
                                  "store aside",
+            "_migrate_18_to_19": "a schema migration step, run INSIDE the "
+                                 "caller's BEGIN EXCLUSIVE (R1.1, outcome "
+                                 "contract columns: projects.kill_criteria "
+                                 "and projects.non_goals). Same exemption "
+                                 "and same reason as _migrate_9_to_10: an "
+                                 "ALTER TABLE ADD COLUMN failing "
+                                 "mid-migration must roll the caller's "
+                                 "transaction back, not move the founder's "
+                                 "store aside, and the PRAGMA table_info "
+                                 "probe beside it is schema introspection "
+                                 "rather than data access",
         }
         with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
             source = f.read()
@@ -22492,6 +22503,288 @@ class TestSchema18TaskPhase(unittest.TestCase):
         not survive a dump."""
         self.assertIn(("tasks", "phase"), bs._DUMP_SCRUB_ONLY_COLUMNS)
         self.assertNotIn(("tasks", "phase"), bs._DUMP_SAFE_COLUMNS)
+
+
+class TestSchema19OutcomeContractColumns(unittest.TestCase):
+    """Schema 18 to 19 (R1.1, outcome contract columns,
+    docs/plan/LONG-RANGE-PLAN-2026-08-11.md, PRODUCT-DIRECTION.md section
+    5.1): projects gain two recorded fields, kill_criteria and non_goals,
+    same shape as the existing risks column (a JSON list stored as TEXT,
+    default '[]'). ADDITIVE ONLY, and guarded on PRAGMA table_info the
+    same way _migrate_7_to_8 and _migrate_9_to_10 already guard theirs,
+    because this step also runs from _ensure_schema against a brand new
+    store where the columns are already present.
+
+    kill_criteria and non_goals are validated and stored by
+    Store.upsert_project itself rather than by schema.Project: bringing
+    them into the canonical Project shape (FIELDS, LIST_FIELDS, and
+    docs/specs/canonical-project-protocol.md's own YAML block) touches
+    brotherme/core/schema.py, outside this loop's file list. See
+    upsert_project's own docstring for the full reasoning."""
+
+    def test_schema_version_moves_from_18_to_19(self):
+        self.assertGreaterEqual(
+            bs.SCHEMA_VERSION, 19,
+            "R1.1: SCHEMA_VERSION moved from 18 to at least 19")
+
+    def test_the_migrations_table_has_an_entry_for_schema_18(self):
+        self.assertIn(18, bs._MIGRATIONS)
+        self.assertIs(bs._MIGRATIONS[18], bs._migrate_18_to_19)
+
+    def test_a_brand_new_store_has_both_columns(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                have = {r[1] for r in store.conn.execute(
+                    "PRAGMA table_info(projects)").fetchall()}
+                self.assertIn("kill_criteria", have)
+                self.assertIn("non_goals", have)
+
+    def test_a_project_records_the_kill_criteria_and_non_goals_it_was_given(self):
+        """get_project's list_fields decode runs whether raw is True or
+        False (_export_row's own docstring: "not a privacy decision, only
+        a representation one"), so raw=True already returns a real Python
+        list here, exactly as it already does for risks and every other
+        LIST_FIELDS column on this row."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(
+                    _project(kill_criteria=["budget doubles", "sponsor leaves"],
+                             non_goals=["mobile app"]), _actor())
+                row = store.get_project("proj1", raw=True)
+                self.assertEqual(row["kill_criteria"],
+                                 ["budget doubles", "sponsor leaves"])
+                self.assertEqual(row["non_goals"], ["mobile app"])
+
+    def test_a_project_created_without_either_field_has_two_empty_lists(self):
+        """The absence of a kill criterion or a non-goal is recorded as
+        absent, never invented. Same rule _migrate_7_to_8's docstring
+        states for the anchor fingerprint: an empty value says
+        'unknown', which is true."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                row = store.get_project("proj1", raw=True)
+                self.assertEqual(row["kill_criteria"], [])
+                self.assertEqual(row["non_goals"], [])
+
+    def test_the_risks_column_is_untouched_by_this_change(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(
+                    _project(risks=["scope creep"],
+                             kill_criteria=["budget doubles"]), _actor())
+                row = store.get_project("proj1", raw=True)
+                self.assertEqual(row["risks"], ["scope creep"])
+
+    def test_kill_criteria_must_be_a_list_when_set(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs._schema().SchemaError) as ctx:
+                    store.upsert_project(
+                        _project(kill_criteria="not a list"), _actor())
+                self.assertIn("kill_criteria", str(ctx.exception))
+
+    def test_non_goals_must_be_a_list_when_set(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs._schema().SchemaError) as ctx:
+                    store.upsert_project(
+                        _project(non_goals="not a list"), _actor())
+                self.assertIn("non_goals", str(ctx.exception))
+
+    def test_a_type_refusal_writes_nothing(self):
+        """A refused upsert must not leave a half-written project row: the
+        SchemaError has to raise BEFORE the INSERT, not after."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs._schema().SchemaError):
+                    store.upsert_project(
+                        _project(kill_criteria={"not": "a list"}), _actor())
+                self.assertIsNone(store.get_project("proj1"))
+
+    def test_list_projects_also_decodes_both_columns(self):
+        """raw=True on list_projects, matching get_project's own raw=True
+        test above: the list_fields decode runs unconditionally."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(
+                    _project(kill_criteria=["x"], non_goals=["y"]), _actor())
+                rows = store.list_projects(raw=True)
+                self.assertEqual(rows[0]["kill_criteria"], ["x"])
+                self.assertEqual(rows[0]["non_goals"], ["y"])
+
+    def test_list_projects_withholds_populated_founder_text_by_default(self):
+        """raw=False (the default a founder-facing caller gets) redacts a
+        populated kill_criteria/non_goals exactly like it already redacts
+        risks: default-deny (GATE C) treats every text column not in
+        _DUMP_SAFE_COLUMNS as founder prose, and a JSON-list column is
+        text until export_column says otherwise. Covered generically by
+        test_structural_gateC_every_text_column_redacted_by_default too;
+        this pins the same property against the real read path a founder
+        actually calls."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(
+                    _project(kill_criteria=["x"], non_goals=["y"]), _actor())
+                rows = store.list_projects(raw=False)
+                self.assertTrue(
+                    str(rows[0]["kill_criteria"]).startswith("[WITHHELD"))
+                self.assertTrue(
+                    str(rows[0]["non_goals"]).startswith("[WITHHELD"))
+
+    def test_the_migration_is_safe_to_run_against_a_store_that_has_it(self):
+        """The guard, exercised directly: running the step twice must not
+        raise, because ADD COLUMN on an existing name is a hard sqlite3
+        error and _ensure_schema runs this against fresh stores too."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                bs._migrate_18_to_19(store.conn)
+                bs._migrate_18_to_19(store.conn)
+                have = {r[1] for r in store.conn.execute(
+                    "PRAGMA table_info(projects)").fetchall()}
+                self.assertIn("kill_criteria", have)
+                self.assertIn("non_goals", have)
+
+    def _schema18_store(self, d):
+        """A real store with a real, populated project, stripped back to
+        the schema-18 shape (no kill_criteria, no non_goals). Column list
+        and every value are read from a genuine store's own projects row
+        rather than hand typed, the same technique TestSchema8Migration's
+        _schema7_store uses for notes.anchor_line_hash, so the fixture
+        cannot silently drift from what this code actually writes. The
+        CREATE TABLE text below is copied verbatim from _LOOP1_DDL's own
+        projects definition, which this loop left untouched."""
+        with bs.Store(d) as store:
+            store.upsert_project(
+                _project(goal="ship it", risks=["scope creep"],
+                         scope_in=["core flow"]), _actor())
+        path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        try:
+            keep = [dict(r) for r in conn.execute("SELECT * FROM projects")]
+            self.assertTrue(keep, "the fixture must carry a real project")
+            cols = [c for c in keep[0]
+                    if c not in ("kill_criteria", "non_goals")]
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("DROP TABLE projects")
+            conn.execute("""
+                CREATE TABLE projects (
+                  project_id TEXT PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  goal TEXT NOT NULL DEFAULT '',
+                  user_outcome TEXT NOT NULL DEFAULT '',
+                  project_type TEXT NOT NULL DEFAULT '',
+                  primary_persona TEXT NOT NULL DEFAULT '',
+                  experience_level TEXT NOT NULL DEFAULT '',
+                  status TEXT NOT NULL DEFAULT '',
+                  phase TEXT NOT NULL DEFAULT '',
+                  scope_in TEXT NOT NULL DEFAULT '[]',
+                  scope_out TEXT NOT NULL DEFAULT '[]',
+                  success_criteria TEXT NOT NULL DEFAULT '[]',
+                  assumptions TEXT NOT NULL DEFAULT '[]',
+                  unknowns TEXT NOT NULL DEFAULT '[]',
+                  risks TEXT NOT NULL DEFAULT '[]',
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                )
+            """)
+            for row in keep:
+                conn.execute(
+                    "INSERT INTO projects (%s) VALUES (%s)"
+                    % (",".join(cols), ",".join("?" * len(cols))),
+                    tuple(row[c] for c in cols))
+            conn.execute(
+                "UPDATE meta SET value='18' WHERE key='schema_version'")
+            conn.execute("COMMIT")
+        finally:
+            conn.close()
+        return path
+
+    def _columns(self, path):
+        conn = sqlite3.connect(path)
+        try:
+            return {r[1] for r in
+                    conn.execute("PRAGMA table_info(projects)")}
+        finally:
+            conn.close()
+
+    def test_the_fixture_really_is_missing_both_columns(self):
+        """Calibration for every test below: if the fixture already had
+        the columns, all of them would pass without the migration
+        existing."""
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema18_store(d)
+            cols = self._columns(path)
+            self.assertNotIn("kill_criteria", cols)
+            self.assertNotIn("non_goals", cols)
+
+    def test_an_existing_schema18_database_still_opens_and_migrates(self):
+        """The hard requirement: a database created before this loop must
+        still open, and must migrate rather than be quarantined."""
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema18_store(d)
+            with bs.Store(d) as store:
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT value FROM meta WHERE key='schema_version'"
+                    ).fetchone()["value"], str(bs.SCHEMA_VERSION))
+            cols = self._columns(path)
+            self.assertIn("kill_criteria", cols)
+            self.assertIn("non_goals", cols)
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")),
+                [], "a healthy schema-18 store must MIGRATE, never be "
+                    "quarantined")
+
+    def test_the_migration_keeps_every_project_and_every_field(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._schema18_store(d)
+            with bs.Store(d) as store:
+                row = store.get_project("proj1", raw=True)
+            self.assertEqual(row["goal"], "ship it")
+            self.assertEqual(row["risks"], ["scope creep"])
+            self.assertEqual(row["scope_in"], ["core flow"])
+            self.assertEqual(
+                row["kill_criteria"], [],
+                "an existing project must arrive with NO kill criteria. A "
+                "backfilled one would claim a founder recorded a stop "
+                "condition that was never written down.")
+            self.assertEqual(row["non_goals"], [])
+
+    def test_the_migration_is_idempotent_against_a_schema18_fixture(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._schema18_store(d)
+            with bs.Store(d):
+                pass
+            with bs.Store(d) as store:
+                self.assertEqual(len(store.list_projects()), 1)
+
+    def test_the_fresh_and_migrated_paths_produce_identical_column_set(self):
+        """_ensure_schema and _migrate_18_to_19 must leave the SAME set of
+        columns on projects: a store born at 19 and a store migrated to
+        19 cannot be allowed to drift."""
+        with tempfile.TemporaryDirectory() as fresh_dir, \
+                tempfile.TemporaryDirectory() as old_dir:
+            with bs.Store(fresh_dir):
+                pass
+            fresh_path = os.path.join(fresh_dir, bs.STORE_DIRNAME,
+                                      bs.STORE_FILENAME)
+            self._schema18_store(old_dir)
+            with bs.Store(old_dir):
+                pass
+            migrated_path = os.path.join(old_dir, bs.STORE_DIRNAME,
+                                         bs.STORE_FILENAME)
+            self.assertEqual(self._columns(fresh_path),
+                             self._columns(migrated_path))
+
+    def test_the_schema18_table_list_is_unchanged(self):
+        """Column-only. A schema-18 store must still be verified against
+        schema 18's OWN table list before it is migrated, so nothing new
+        leaks backwards into _TABLES_BY_VERSION[18]."""
+        self.assertEqual(bs._TABLES_BY_VERSION[18], bs._TABLES_V18)
+        self.assertEqual(bs._TABLES_V19, bs._TABLES_V18)
+        self.assertEqual(bs._TABLES_BY_VERSION[19], bs._TABLES_V19)
 
 
 class TestSystemProjectsAreNotFounderWork(unittest.TestCase):
