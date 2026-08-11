@@ -1618,5 +1618,53 @@ class TestStartScaffoldsTheProgressPage(unittest.TestCase):
                           "refusing the occupied name must say so on stderr")
 
 
+class TestOutcomeContractStartFlags(unittest.TestCase):
+    """R1.1 (docs/plan/LONG-RANGE-PLAN-2026-08-11.md, outcome contract
+    columns): --kill-criteria and --non-goals at `start` time, exercised
+    end to end as a real subprocess exactly like every other CSV-list
+    start flag (--scope-in, --risks, ...) is tested elsewhere in this
+    file. Row-level verification goes through _raw_dump, the same escape
+    hatch every other test here uses rather than SQL of its own."""
+
+    def test_kill_criteria_and_non_goals_land_in_the_stored_row(self):
+        with tempfile.TemporaryDirectory() as root:
+            _init(root)
+            r = _run(["start", "--project-id", "proj1", "--name", "Acme",
+                      "--kill-criteria", "budget doubles,sponsor leaves",
+                      "--non-goals", "mobile app,billing"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            raw = _raw_dump(root)
+            row = [p for p in raw["projects"]
+                   if p["project_id"] == "proj1"][0]
+            self.assertEqual(json.loads(row["kill_criteria"]),
+                             ["budget doubles", "sponsor leaves"])
+            self.assertEqual(json.loads(row["non_goals"]),
+                             ["mobile app", "billing"])
+            # risks is untouched by this flag pair: still its own default.
+            self.assertEqual(json.loads(row["risks"]), [])
+
+    def test_a_start_without_the_flags_defaults_both_to_an_empty_list(self):
+        with tempfile.TemporaryDirectory() as root:
+            _init(root)
+            r = _run(["start", "--project-id", "proj1", "--name", "Acme"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            raw = _raw_dump(root)
+            row = [p for p in raw["projects"]
+                   if p["project_id"] == "proj1"][0]
+            self.assertEqual(json.loads(row["kill_criteria"]), [])
+            self.assertEqual(json.loads(row["non_goals"]), [])
+
+    def test_the_usage_line_names_both_flags(self):
+        """cmd_start's own usage string is what a founder sees on a
+        refused start; a flag that works but is never printed is a flag
+        nobody discovers."""
+        with tempfile.TemporaryDirectory() as root:
+            r = _run(["start"], root)
+            self.assertIn("--kill-criteria", r.stderr)
+            self.assertIn("--non-goals", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
