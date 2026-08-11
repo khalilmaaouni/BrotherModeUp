@@ -17,7 +17,13 @@ an oversight: it scales down to one person doing the work of several roles,
 and adding shared state, accounts, and multi-user merge control would cost the
 single-writer discipline that the plan-then-verify guarantees above depend on.
 Where a genuine multi-person need exists, a team coordination tool is the
-honest answer, not this one.
+honest answer, not this one, and the sibling product is that answer:
+BrotherMode governs one person's session, BrotherSBE governs one change's
+passage between people. A team runs both, one session each plus the sibling
+between them, and
+[docs/WORKING-WITH-BROTHERSBE.md](docs/WORKING-WITH-BROTHERSBE.md) is the
+worked guide to using them together, including what team use does and does
+not cover today.
 
 Everything it shows you is a file you own. The page of where a project stands
 is written as one self contained HTML file with nothing fetched from anywhere:
