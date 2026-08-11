@@ -138,7 +138,7 @@ code{font-family:var(--mono);font-size:.92em;background:var(--bm-idle-tint);padd
 
 <p class="eyebrow">BrotherMode and BrotherSBE // delivery board</p>
 <h1>The aggressive replan, and the two tools that make it honest</h1>
-<p class="stamp">Refreshed 2026-08-12 03:05 JST by session 4538d5df. GREEN AND PUSHED at dfc3d02: 3080 tests, 34 suites, 685.9s, exit 0, clean tree, remote verified.
+<p class="stamp">Refreshed 2026-08-12 03:50 JST by session 4538d5df. GREEN AND PUSHED at 9a354b9: 3082 tests, 34 suites, 665.0s, exit 0, clean tree, remote verified three ways.
 TICK CONTRACT: a box ticks only when its done-check ran after the last edit and that output is quoted beside it. Percentages count records, never impressions.</p>
 
 <div class="northstar">
@@ -165,8 +165,8 @@ TICK CONTRACT: a box ticks only when its done-check ran after the last edit and 
   </div>
   <div class="card fc">
     <span class="k">Forecast</span>
-    <span class="big">3.75x</span>
-    <p>Measured across n=7. But the spread is now 0.66 to 5.33, and that 0.66 is the finding: one task ran SLOWER than judged. The multiplier tracks how well specified the work is, not how big it is.</p>
+    <span class="big">3.00x</span>
+    <p>Measured across n=9, and it keeps falling as the sample grows: 4.44 at n=4, 3.75 at n=7, 3.00 at n=9. Spread 0.66 to 5.33. The 0.66 is a task that ran SLOWER than judged, and it is the most useful number here.</p>
   </div>
 </div>
 
@@ -272,13 +272,23 @@ TICK CONTRACT: a box ticks only when its done-check ran after the last edit and 
   </dl>
 </div>
 
-<div class="alert">
-  <h4>A suite failed once inside the gate and will not reproduce</h4>
+<div class="alert good">
+  <h4>The thing filed as a flake was a real bug in the close ceremony, and it is fixed</h4>
   <dl>
-    <dt>What</dt><dd>test_bm_handover.py failed one test of thirty four during the second gate run. Run in isolation immediately after, five times, it passed every time. It did not recur on the third gate run either.</dd>
-    <dt>Why</dt><dd>It is on record rather than dismissed as noise because the next person to see it should find a second data point instead of starting over. It is NOT being called fixed, and no test was weakened or skipped to get the green.</dd>
-    <dt>Action</dt><dd>Nothing from you. Filed with its evidence at docs/plan/DEFECT-handover-suite-flake-2026-08-12.md, and the practical lesson is already applied: long gate runs now carry --artifacts, because a failure whose text is gone costs a whole second run to recover.</dd>
-    <dt>When</dt><dd>Next recurrence. Two of the twenty five queued items exist to chase it.</dd>
+    <dt>What</dt><dd>test_bm_handover.py failed twice inside long gate runs and passed five times in a row in isolation. Everything about it read as noise. It was a genuine defect: the zip freshness check compared the archive's BYTES, and a zip entry header stores each member's mtime, so a byte-identical re-save that crossed one of the MS-DOS format's two second boundaries read as a changed pack. About one run in forty.</dd>
+    <dt>Why</dt><dd>It sat in the tool that gates every session close, in the exact code path an earlier finding had already tried to fix once. That earlier fix moved the check off the pack directory's mtime and onto the archive's bytes, which is a real improvement that does not go far enough, because zip bytes are not content.</dd>
+    <dt>Action</dt><dd>Nothing from you. Both comparison sites now use a content fingerprint of member name and member bytes. Two tests hold it: one deterministic where the original was probabilistic, shown red before the fix and green after, and one proving a real content change is still caught, because a check that ignores timestamps must not start ignoring changes.</dd>
+    <dt>When</dt><dd>Done, in the green run at 9a354b9. The whole trail, including the hypothesis that turned out wrong, is in docs/plan/DEFECT-handover-suite-flake-2026-08-12.md.</dd>
+  </dl>
+</div>
+
+<div class="alert info">
+  <h4>The reason it was caught at all is that it was filed open rather than dismissed</h4>
+  <dl>
+    <dt>What</dt><dd>The first write-up called it a flake, said explicitly that it was NOT fixed, and named the exact flag to run next time. That flag, --artifacts, produced the assertion on the very next run.</dd>
+    <dt>Why</dt><dd>"Will not reproduce" is a description of the observation, never a diagnosis. Writing it down with its evidence costs a few minutes; calling it noise would have cost a defect left in the close gate.</dd>
+    <dt>Action</dt><dd>Nothing. It is written into the pack's process fixes as PF-2, so long gate runs carry --artifacts by default from now on.</dd>
+    <dt>When</dt><dd>Already applied, three gate runs tonight.</dd>
   </dl>
 </div>
 
@@ -426,7 +436,7 @@ written into the test so the next reader does not repeat the question.</span></l
 </div>
 
 <div class="phase">
-<h3>Phase 7: close the night <span class="chip">3/4</span></h3>
+<h3>Phase 7: close the night <span class="chip">6/6</span></h3>
 <ul class="ledger">
 <li class="tick"><span class="t">Full battery green at the final tree</span>
 <span class="ev">$ python3 tools/test_all.py --artifacts ...
@@ -437,8 +447,20 @@ exit 0, at dfc3d02, tree clean</span></li>
 [9/11] CHECKSUMS.sha256 self-check: PASS
   PASS: all 865 file(s) listed in CHECKSUMS.sha256 match.</span></li>
 <li class="tick"><span class="t">Pushed to main and verified against the remote, not against my own belief</span>
-<span class="ev">   317564f..dfc3d02  main -> main
-local HEAD dfc3d02, upstream dfc3d02, git ls-remote dfc3d021...   all three agree</span></li>
+<span class="ev">   dfc3d02..9a354b9  main -> main
+local 9a354b9 | upstream 9a354b9 | remote 9a354b9      all three agree</span></li>
+<li class="tick"><span class="t">The suite failure filed as a flake was diagnosed, fixed, and proven failing-first</span>
+<span class="ev">$ git stash push -- tools/bm_handover.py     (remove the fix)
+Ran 1 test in 0.040s
+FAILED (failures=1)
+$ git stash pop                              (restore it)
+Ran 36 tests in 1.035s
+OK</span></li>
+<li class="tick"><span class="t">Final battery green at the pushed tree</span>
+<span class="ev">test_all: 3082 tests across 34 suites, 5 skipped, 665.0s wall. ALL GREEN
+exit 0, at 9a354b9, tree clean
+$ python3 scripts/doctor.py
+[9/11] PASS: all 873 file(s) listed in CHECKSUMS.sha256 match.</span></li>
 <li class="tick"><span class="t">Close pack written, every by-hand slot filled, passing its own verifier</span>
 <span class="ev">$ python3 tools/bm_handover.py verify-close --pack docs/handover/2026-08-12-aggressive-replan --session ...
 FAIL: session bm1-b62efdf... still owns 8 unparked record(s): command-center-night-refresh,

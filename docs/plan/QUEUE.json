@@ -450,22 +450,24 @@
     {
       "id": "A7",
       "title": "Re-run the battery with --artifacts to catch the handover flake's real assertion if it recurs",
-      "state": "queued",
+      "state": "done",
       "clock": "agent",
       "forecast_minutes": 20,
       "files": [],
-      "done_check": "either a green gate, or the flake's actual assertion text captured on disk"
+      "done_check": "either a green gate, or the flake's actual assertion text captured on disk",
+      "closed_note": "--artifacts produced the swallowed assertion on the first run that carried it; the failure was a real bug in the zip freshness check, now fixed with a deterministic regression test"
     },
     {
       "id": "A8",
       "title": "Read tools/test_bm_handover.py:278-282 for the BROTHERMODE_ROOT restore leak named in the defect file",
-      "state": "queued",
+      "state": "done",
       "clock": "agent",
       "forecast_minutes": 20,
       "files": [
         "tools/test_bm_handover.py"
       ],
-      "done_check": "either the leak is proven and fixed with a failing-first test, or ruled out in writing"
+      "done_check": "either the leak is proven and fixed with a failing-first test, or ruled out in writing",
+      "closed_note": "the BROTHERMODE_ROOT restore-leak hypothesis was RULED OUT in writing; the real cause was mtime embedded in zip entry headers"
     },
     {
       "id": "A9",
