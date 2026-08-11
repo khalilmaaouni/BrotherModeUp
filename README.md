@@ -122,6 +122,34 @@ the command behind it, the capability table further down is generated from a
 register in this repository rather than typed here, and `tools/test_bm_docs.py`
 fails when a page and the tree disagree.
 
+## The public surface: six names, and what each one really does today
+
+The documented surface is six names. It used to be seven. Two of the six are
+named but not yet shipped, and they are marked as such rather than listed as
+peers, because a name that does nothing teaches you that this page cannot be
+trusted.
+
+| Name | Status today |
+|---|---|
+| `start` | Works |
+| `status` | Works |
+| `deliver` | Works |
+| `doctor` | Works |
+| `verify` | NOT SHIPPED. A routing name over the review and deliver flow that already exists, introducing no new engine. Blocked on a founder ruling: ruling B5 of [docs/decisions/V3-FREEZE-2026-08-07.md](docs/decisions/V3-FREEZE-2026-08-07.md) pins the canonical skill count at nine, and giving verify a folder of its own makes ten. Ask for a review meanwhile and you reach the same flow. |
+| `toolkit` | NOT BUILT. It arrives with the Toolkit release. No stub ships, no placeholder folder, no entry point that fails quietly. |
+
+**Nothing was removed or deprecated.** `next`, `review`, `view` and `help`
+keep working exactly as they do today, along with `auto`, `auto-status`,
+`brief`, `decisions`, `handback`, `handover-pack`, `stop` and `update`. They
+are advanced internal surface now, which means they are off the public list
+and nothing else. `review` is the engine `verify` routes to. The fifteen files
+under `commands/` are unchanged and still work; each now carries a one-line
+notice saying its documented status changed and its behaviour did not.
+Consolidating them physically is a later tranche.
+
+The documented surface shrank from seven names to six. The working surface
+shrank by nothing.
+
 ## One minute with it
 
 Real commands, described rather than transcribed. There is no screenshot on
