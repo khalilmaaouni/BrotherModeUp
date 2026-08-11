@@ -139,8 +139,8 @@ footer{margin-top:3em;padding-top:1.2em;border-top:2px solid var(--bm-hair);
   </div>
   <div class="card k-risk">
     <p class="lab">Risk watch</p>
-    <p><strong>HEAD is not battery-verified.</strong></p>
-    <p>The last ALL GREEN was at 5b7c52e and five commits have landed since, including A1 and A2. The battery must run again before anything is tagged.</p>
+    <p><strong>The install nobody has rehearsed.</strong></p>
+    <p>Every check here proves a repository, not an install. Three first-contact failures turned up tonight and none would appear in a suite.</p>
   </div>
   <div class="card k-fc">
     <p class="lab">Forecast</p>
@@ -167,7 +167,7 @@ footer{margin-top:3em;padding-top:1.2em;border-top:2px solid var(--bm-hair);
   <td class="cnt">6/7</td></tr>
 <tr><td class="lane">Deployment gates</td>
   <td><div class="bar"><div class="seg done" style="left:0%;width:8%"></div><div class="seg sched" style="left:8%;width:22%"></div><div class="seg est" style="left:30%;width:10%"></div></div></td>
-  <td class="cnt">1/4</td></tr>
+  <td class="cnt">2/4</td></tr>
 </table>
 </div>
 <p class="legend">
@@ -182,7 +182,7 @@ footer{margin-top:3em;padding-top:1.2em;border-top:2px solid var(--bm-hair);
 <tr><th>Tranche</th><th>2026-08-11 to the quarter</th><th>Advancement</th></tr>
 <tr><td class="lane">R0, V3 Final (3.2.0), 08-12</td>
   <td><div class="bar"><div class="seg done" style="left:0%;width:11%"></div><div class="seg sched" style="left:11%;width:11%"></div><div class="seg est" style="left:22%;width:6%"></div></div></td>
-  <td class="cnt">18/21</td></tr>
+  <td class="cnt">19/21</td></tr>
 <tr><td class="lane">R1, one record and zero-tax adoption</td>
   <td><div class="bar"><div class="seg sched" style="left:28%;width:22%"></div><div class="seg est" style="left:50%;width:8%"></div></div></td>
   <td class="cnt">0/7</td></tr>
@@ -310,10 +310,11 @@ verify-install: PASSED. Every entry the manifest names matches on disk</p>
   <p class="ev pass">committed c4c8f70, tree clean</p>
 </div></div>
 
-<h3>Release gates <span class="chip part">1/4</span></h3>
-<div class="row"><div class="box open">[ ]</div><div class="t">
-  <p>G1, full battery on a clean tree. Running now. Its first run tonight was exit 1 and is not quoted as a pass anywhere.</p>
-  <p class="ev">nohup ... python3 tools/test_all.py ; wait on the process, then quote ALL GREEN with exit 0</p>
+<h3>Release gates <span class="chip part">2/4</span></h3>
+<div class="row"><div class="box">[x]</div><div class="t">
+  <p>G1, full battery on a clean tree, covering every content task including A1 and A2. Three runs were needed tonight: one false green from a stale sentinel, one genuine exit 1 that found two real defects, and this one.</p>
+  <p class="ev pass">test_all: 3020 tests across 32 suites, 5 skipped, 628.3s wall. ALL GREEN
+exit 0, at commit 61bd980, HEAD unmoved and tree clean afterwards</p>
 </div></div>
 <div class="row"><div class="box">[x]</div><div class="t">
   <p>G2, manifest regenerated after staging, install-trust check green.</p>
@@ -367,7 +368,7 @@ verify-install: PASSED. Every entry the manifest names matches on disk</p>
 
 <footer>
   <p><strong>Tick contract, verbatim.</strong> A box ticks only when its done-check ran after the last edit and the output is quoted in the evidence line beside it. Percentages are counts of records, never impressions.</p>
-  <p>Refreshed 2026-08-11 23:20 JST by the adoption-and-team-delivery session, at commit de11dd9 on main. The last ALL GREEN battery was at 5b7c52e; five commits have landed since, so HEAD is NOT battery-verified and the G1 box stays open.</p>
+  <p>Refreshed 2026-08-11 23:20 JST by the adoption-and-team-delivery session, at commit de11dd9 on main. The battery is ALL GREEN at 61bd980, exit 0, covering every content task including A1 and A2. Only the version bump and your tag remain.</p>
 </footer>
 
 </div>
