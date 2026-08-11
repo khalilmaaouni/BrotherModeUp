@@ -14,7 +14,14 @@ The notes block below MUST open with a line starting with the exact word FINISHE
 UNFINISHED. The baton lies at A2, the six-name public surface, which is
 untouched. A1 (README repositioning) is also untouched.
 
-BATTERY VERDICT, added after this block was first written: the full battery
+FINAL BATTERY, run after A1 and A2 landed and after this block was written:
+"test_all: 3020 tests across 32 suites, 5 skipped, 628.3s wall. ALL GREEN",
+exit 0, at commit 61bd980, HEAD unmoved and tree clean afterwards. That
+verdict covers every content task in this release. A1 and A2 are DONE, so the
+baton named in the first line of this report is down; what remains is the
+version bump, the manifest, and the founder's tag.
+
+EARLIER BATTERY VERDICT, added after this block was first written: the full battery
 ran on a clean tree at commit 5b7c52e and reported "test_all: 3020 tests
 across 32 suites, 5 skipped, 886.9s wall. ALL GREEN", exit 0. It took two
 attempts; the first failed at exit 1 with two real defects, both described in
