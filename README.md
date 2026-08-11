@@ -1,3 +1,22 @@
+This page is for one person already running Claude Code who wants a plan
+agreed before anything is touched, one writer per file, and a check quoted
+before anything is called done, paid for with the cost of installing hooks and
+state files. If what you want is a no-setup editor, a bounded background task
+run from GitHub Issues, or several people coordinating on the same project
+with roles, approvals, and merge control, look elsewhere: see
+[docs/ECOSYSTEM.md](docs/ECOSYSTEM.md) for what fits each of those situations
+better.
+
+BrotherMode is built for one person doing serious work, not for coordinating
+several people on the same project at once. That is a deliberate choice, not
+an oversight: it scales down to one person doing the work of several roles,
+and adding shared state, accounts, and multi-user merge control would cost the
+single-writer discipline that the plan-then-verify guarantees above depend on.
+Where a genuine multi-person need exists, a team coordination tool is the
+honest answer, not this one.
+
+---
+
 # BrotherMode
 
 **Claude Code for serious work: memory, guardrails, and proof.**
