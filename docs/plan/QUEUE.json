@@ -403,14 +403,15 @@
     {
       "id": "A3",
       "title": "Wire bm_forecast.py check into verify-close so a session cannot close on an unclosed forecast",
-      "state": "queued",
+      "state": "done",
       "clock": "agent",
       "forecast_minutes": 25,
       "files": [
         "tools/bm_handover.py",
         "tools/test_bm_handover.py"
       ],
-      "done_check": "verify-close refuses a pack whose session left a forecast open past the window"
+      "done_check": "verify-close refuses a pack whose session left a forecast open past the window",
+      "closed_note": "verify-close FAILs on a forecast open past 12h; one shared implementation via bm_forecast.open_forecasts; 3 tests including the no-log case"
     },
     {
       "id": "A4",
