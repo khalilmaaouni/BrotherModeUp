@@ -118,7 +118,7 @@ footer{margin-top:3em;padding-top:1.2em;border-top:2px solid var(--bm-hair);
 
 <p class="eyebrow">BrotherMode, release program</p>
 <h1>Command Center: V3 Final</h1>
-<p class="stamp">Refreshed 2026-08-11 21:45 JST by the adoption-and-team-delivery session, at commit c4c8f70 on main. TICK CONTRACT: a box ticks only when its done-check ran after the last edit and that output is quoted beside it. Percentages are counts of records, never impressions.</p>
+<p class="stamp">Refreshed 2026-08-11 23:20 JST by the adoption-and-team-delivery session, at commit de11dd9 on main. TICK CONTRACT: a box ticks only when its done-check ran after the last edit and that output is quoted beside it. Percentages are counts of records, never impressions.</p>
 
 <div class="callout">
   <p><strong>North star.</strong> Own the enforced-trust category for serious AI-assisted engineering work.</p>
@@ -129,23 +129,23 @@ footer{margin-top:3em;padding-top:1.2em;border-top:2px solid var(--bm-hair);
 <div class="strip">
   <div class="card k-now">
     <p class="lab">Now</p>
-    <p><strong>Full test battery running</strong> on a clean tree at c4c8f70.</p>
-    <p>The adoption lane is written, committed and green on its own suite. The battery is the last check before tomorrow's ratified lanes start.</p>
+    <p><strong>All six content tasks are done.</strong> The release is at the deployment gates.</p>
+    <p>A1 and A2 landed after this board was first written. What remains is the version bump, one battery re-run, the manifest, and your tag.</p>
   </div>
   <div class="card k-you">
     <p class="lab">Waiting on Khalil</p>
-    <p><strong>Three decisions</strong>, all below in full.</p>
-    <p>One is a hard gate: the tag and the GitHub release are your click, never an agent's. The other two are new, found tonight.</p>
+    <p><strong>The tag, plus two rulings.</strong></p>
+    <p>The tag and release are yours by law. Two small rulings are blocking work that is otherwise finished: the canonical skill count, and the security review.</p>
   </div>
   <div class="card k-risk">
     <p class="lab">Risk watch</p>
-    <p><strong>Two defects that hit a new user first.</strong></p>
-    <p>The released sibling build is missing the command an internal card tells people to run first, and the documented first step leaves the health check red.</p>
+    <p><strong>HEAD is not battery-verified.</strong></p>
+    <p>The last ALL GREEN was at 5b7c52e and five commits have landed since, including A1 and A2. The battery must run again before anything is tagged.</p>
   </div>
   <div class="card k-fc">
     <p class="lab">Forecast</p>
-    <p><strong>Ship 2026-08-12, medium-high confidence.</strong></p>
-    <p>Remaining ratified work is 6 to 10 hours across two lanes. Assumes the battery lands green and no journey walk surfaces a blocker.</p>
+    <p><strong>Tag-ready in 30 to 55 minutes of work, high confidence.</strong></p>
+    <p>Version and changelog, one battery run, the manifest. Then it waits on your click. Assumes the battery lands green.</p>
   </div>
 </div>
 
@@ -162,9 +162,12 @@ footer{margin-top:3em;padding-top:1.2em;border-top:2px solid var(--bm-hair);
 <tr><td class="lane">Repairs found in flight</td>
   <td><div class="bar"><div class="seg done" style="left:60%;width:20%"></div></div></td>
   <td class="cnt">3/3</td></tr>
-<tr><td class="lane">Full battery, G1</td>
-  <td><div class="bar"><div class="seg sched" style="left:80%;width:20%"></div></div></td>
-  <td class="cnt">0/1</td></tr>
+<tr><td class="lane">Content lanes A and B</td>
+  <td><div class="bar"><div class="seg done" style="left:80%;width:20%"></div></div></td>
+  <td class="cnt">6/7</td></tr>
+<tr><td class="lane">Deployment gates</td>
+  <td><div class="bar"><div class="seg done" style="left:0%;width:8%"></div><div class="seg sched" style="left:8%;width:22%"></div><div class="seg est" style="left:30%;width:10%"></div></div></td>
+  <td class="cnt">1/4</td></tr>
 </table>
 </div>
 <p class="legend">
@@ -179,7 +182,7 @@ footer{margin-top:3em;padding-top:1.2em;border-top:2px solid var(--bm-hair);
 <tr><th>Tranche</th><th>2026-08-11 to the quarter</th><th>Advancement</th></tr>
 <tr><td class="lane">R0, V3 Final (3.2.0), 08-12</td>
   <td><div class="bar"><div class="seg done" style="left:0%;width:11%"></div><div class="seg sched" style="left:11%;width:11%"></div><div class="seg est" style="left:22%;width:6%"></div></div></td>
-  <td class="cnt">11/20</td></tr>
+  <td class="cnt">18/21</td></tr>
 <tr><td class="lane">R1, one record and zero-tax adoption</td>
   <td><div class="bar"><div class="seg sched" style="left:28%;width:22%"></div><div class="seg est" style="left:50%;width:8%"></div></div></td>
   <td class="cnt">0/7</td></tr>
@@ -325,14 +328,26 @@ verify-install: PASSED. Every entry the manifest names matches on disk</p>
   <p class="ev">gh release view v3.2.0   # must show published</p>
 </div></div>
 
-<h3>Ratified lanes, not yet started <span class="chip">0/6</span></h3>
-<div class="row"><div class="box open">[ ]</div><div class="t">
-  <p>A1 README repositioning, A2 the six-command public surface, A3 the security page.</p>
-  <p class="ev">python3 tools/test_bm_docs.py</p>
+<h3>Ratified lanes A and B <span class="chip part">6/7</span></h3>
+<div class="row"><div class="box">[x]</div><div class="t">
+  <p>A1 README repositioning: the page leads with what this is, who it is for, and the one runtime where it is verified.</p>
+  <p class="ev pass">Ran 230 tests ... OK (skipped=1), exit 0; dash hits 0</p>
+</div></div>
+<div class="row"><div class="box">[x]</div><div class="t">
+  <p>A2 the public surface: seven documented names become six, across README, the guided skill and fifteen command shims. Two of the six are marked NOT SHIPPED rather than listed as peers.</p>
+  <p class="ev pass">Ran 230 tests ... OK (skipped=1), exit 0; python3 tools/test_bm.py exit 0</p>
+</div></div>
+<div class="row"><div class="box">[x]</div><div class="t">
+  <p>A3 SECURITY.md: supported versions, private reporting, and two absences stated in the open (the reporting switch, and the external review).</p>
+  <p class="ev pass">Ran 230 tests ... OK (skipped=1), exit 0</p>
+</div></div>
+<div class="row"><div class="box">[x]</div><div class="t">
+  <p>B1 purge dry-run and B2 data-locations check.</p>
+  <p class="ev pass">test_bm_project: Ran 47 tests OK; test_bm_consent: Ran 44 tests OK</p>
 </div></div>
 <div class="row"><div class="box open">[ ]</div><div class="t">
-  <p>B1 purge dry-run, B2 data locations check, B3 the verify skill.</p>
-  <p class="ev">python3 tools/test_bm_project.py ; python3 tools/test_bm_consent.py</p>
+  <p>B3 the verify skill. Written, checks passed, then BACKED OUT. It makes ten canonical skills where ruling B5 pins nine. Founder ruling needed.</p>
+  <p class="ev">content preserved at 7c2e244; see the plan's B3 block</p>
 </div></div>
 
 <h2>Decisions recorded</h2>
@@ -352,7 +367,7 @@ verify-install: PASSED. Every entry the manifest names matches on disk</p>
 
 <footer>
   <p><strong>Tick contract, verbatim.</strong> A box ticks only when its done-check ran after the last edit and the output is quoted in the evidence line beside it. Percentages are counts of records, never impressions.</p>
-  <p>Refreshed 2026-08-11 21:45 JST by the adoption-and-team-delivery session, at commit c4c8f70 on main. The full battery was running at the moment of this refresh and is therefore shown as in flight, not as a pass.</p>
+  <p>Refreshed 2026-08-11 23:20 JST by the adoption-and-team-delivery session, at commit de11dd9 on main. The last ALL GREEN battery was at 5b7c52e; five commits have landed since, so HEAD is NOT battery-verified and the G1 box stays open.</p>
 </footer>
 
 </div>
