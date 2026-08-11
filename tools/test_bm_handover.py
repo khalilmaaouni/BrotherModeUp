@@ -486,7 +486,12 @@ class TestVerifyClose(HandoverCase):
         """A6e: `zip --pack <project root>` used to package the whole
         project, secrets.env included, with no containment check."""
         self.write(os.path.join(self.root, "secrets.env"),
-                   "ANTHROPIC_API_KEY=sk-ant-verysecret\n")
+                   # DELIBERATELY NOT KEY SHAPED. The property under test is
+                   # that zip refuses a project root, and the file content is
+                   # irrelevant to it. A realistic sk- literal here would trip
+                   # every future push secret scan and every scanner on a
+                   # public repository, training people to wave alerts through.
+                   "CREDENTIAL_PLACEHOLDER=not-a-real-value\n")
         code, out, err = self.run_cli("zip", "--pack", self.root)
         self.assertNotEqual(0, code, "stdout=%r stderr=%r" % (out, err))
 
