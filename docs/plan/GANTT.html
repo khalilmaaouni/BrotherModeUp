@@ -138,7 +138,7 @@ code{font-family:var(--mono);font-size:.92em;background:var(--bm-idle-tint);padd
 
 <p class="eyebrow">BrotherMode and BrotherSBE // delivery board</p>
 <h1>The aggressive replan, and the two tools that make it honest</h1>
-<p class="stamp">Refreshed 2026-08-12 01:52 JST by session 4538d5df (the night session, unattended).
+<p class="stamp">Refreshed 2026-08-12 03:05 JST by session 4538d5df. GREEN AND PUSHED at dfc3d02: 3080 tests, 34 suites, 685.9s, exit 0, clean tree, remote verified.
 TICK CONTRACT: a box ticks only when its done-check ran after the last edit and that output is quoted beside it. Percentages count records, never impressions.</p>
 
 <div class="northstar">
@@ -150,8 +150,8 @@ TICK CONTRACT: a box ticks only when its done-check ran after the last edit and 
 <div class="strip">
   <div class="card now">
     <span class="k">Now</span>
-    <span class="big">2 tools landed</span>
-    <p>Forecast calibration and the idle check are built, registered in the gate, and verified against hostile fixtures I wrote myself rather than the builders' own tests.</p>
+    <span class="big">Green and pushed</span>
+    <p>Two new tools, both R1 loops pulled forward, and the design-doc refutation. 3080 tests green at dfc3d02, on the remote, tree clean.</p>
   </div>
   <div class="card you">
     <span class="k">Waiting on Khalil</span>
@@ -165,8 +165,8 @@ TICK CONTRACT: a box ticks only when its done-check ran after the last edit and 
   </div>
   <div class="card fc">
     <span class="k">Forecast</span>
-    <span class="big">4.44x</span>
-    <p>Measured, not guessed: judged estimates run 4.44 times slow, spread 3.75 to 5.33 across n=4. A 60 minute instinct is worth 13.5 minutes.</p>
+    <span class="big">3.75x</span>
+    <p>Measured across n=7. But the spread is now 0.66 to 5.33, and that 0.66 is the finding: one task ran SLOWER than judged. The multiplier tracks how well specified the work is, not how big it is.</p>
   </div>
 </div>
 
@@ -186,13 +186,17 @@ TICK CONTRACT: a box ticks only when its done-check ran after the last edit and 
   <td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
 <tr><td class="lbl"><span class="cnt">3/3</span>L5 Tester pack, both products</td>
   <td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/1</span>L6 This board</td>
-  <td></td><td><div class="bar sched"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/1</span>L7 Full battery, 13 min measured</td>
-  <td></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/3</span>L8 Push, close pack, verify-close</td>
-  <td></td><td></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/21</span>L9 Overflow queue, 21 items deep</td>
+<tr><td class="lbl"><span class="cnt">1/1</span>L6 This board</td>
+  <td></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">5/5</span>R1.1 and R1.3 pulled forward from next week</td>
+  <td></td><td><div class="bar done"></div></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">4/4</span>Design docs refuted, citations re-verified</td>
+  <td></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">3/3</span>L7 Battery green, third run, 686s</td>
+  <td></td><td><div class="bar done"></div></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">2/3</span>L8 Pushed, close pack open</td>
+  <td></td><td></td><td><div class="bar done"></div></td><td><div class="bar sched"></div></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/25</span>L9 Overflow queue, 25 items deep</td>
   <td></td><td></td><td></td><td><div class="bar sched"></div></td><td><div class="bar sched"></div></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td></tr>
 </tbody>
 </table>
@@ -259,12 +263,22 @@ TICK CONTRACT: a box ticks only when its done-check ran after the last edit and 
 </div>
 
 <div class="alert">
-  <h4>The calibration is real but thin at n=4</h4>
+  <h4>The multiplier is not about size. It is about how well specified the work is</h4>
   <dl>
-    <dt>What</dt><dd>The 4.44x multiplier comes from four measured pairs. The spread is unusually tight, 3.75 to 5.33, which is reassuring, but four is four.</dd>
-    <dt>Why</dt><dd>A multiplier trusted too early is the same mistake as the guess it replaced, just with a decimal point. The tool refuses to speak below three pairs on purpose, but three is a floor, not a comfort.</dd>
-    <dt>Action</dt><dd>Nothing from you. Every loop from now records its forecast and its actual, so n grows on its own. Watch the number on this board rather than the estimates.</dd>
-    <dt>When</dt><dd>Revisit at the Monday review, when n should be past ten.</dd>
+    <dt>What</dt><dd>At n=7 the median is 3.75x but the spread widened from 3.75-to-5.33 to <strong>0.66-to-5.33</strong>. That 0.66 is R1.1: forecast 45 minutes, actual 68. It ran slower than judged, and it was the one task tonight that hit a problem nobody had foreseen, the canonical shape refusing the new fields.</dd>
+    <dt>Why</dt><dd>This is the plan's own root-cause claim being tested against itself and surviving. An agent is roughly four times faster than a person on work whose files and done-check are already named, and at or below parity on work it has to figure out first, because it pays full price for every wrong turn. So a single multiplier applied to everything would have been the old mistake with a decimal point on it.</dd>
+    <dt>Action</dt><dd>Nothing from you tonight. From now on a task whose shape is not yet known gets forecast raw, with the multiplier explicitly not applied and the unspecified part named. That is captured as a pending rule for your approval, not self-approved.</dd>
+    <dt>When</dt><dd>At the Monday review, with n past twelve, split the sample by specified and unspecified and see whether the two populations really separate.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>A suite failed once inside the gate and will not reproduce</h4>
+  <dl>
+    <dt>What</dt><dd>test_bm_handover.py failed one test of thirty four during the second gate run. Run in isolation immediately after, five times, it passed every time. It did not recur on the third gate run either.</dd>
+    <dt>Why</dt><dd>It is on record rather than dismissed as noise because the next person to see it should find a second data point instead of starting over. It is NOT being called fixed, and no test was weakened or skipped to get the green.</dd>
+    <dt>Action</dt><dd>Nothing from you. Filed with its evidence at docs/plan/DEFECT-handover-suite-flake-2026-08-12.md, and the practical lesson is already applied: long gate runs now carry --artifacts, because a failure whose text is gone costs a whole second run to recover.</dd>
+    <dt>When</dt><dd>Next recurrence. Two of the twenty five queued items exist to chase it.</dd>
   </dl>
 </div>
 
@@ -379,14 +393,59 @@ it named two versions and gave install commands for only one of them</span></li>
 </div>
 
 <div class="phase">
-<h3>Phase 6: close the night <span class="chip">0/3</span></h3>
+<h3>Phase 6: R1 pulled forward, because the measured rate said it fit <span class="chip">5/5</span></h3>
 <ul class="ledger">
-<li class="open"><span class="t">Full battery green at the final tree</span>
-<span class="ev">check: python3 tools/test_all.py   (13 minutes measured, exit 0 required)</span></li>
-<li class="open"><span class="t">Manifest regenerated after the last tracked edit, doctor check 9 green</span>
-<span class="ev">check: sh scripts/checksums.sh CHECKSUMS.sha256 then python3 scripts/doctor.py</span></li>
-<li class="open"><span class="t">Close pack written and passing its own verifier</span>
-<span class="ev">check: python3 tools/bm_handover.py verify-close --pack docs/handover/2026-08-12-aggressive-replan</span></li>
+<li class="tick"><span class="t">A project can record what would make it right to stop, and what it deliberately is not</span>
+<span class="ev">schema 18 to 19, kill_criteria and non_goals as JSON lists exactly like risks
+$ python3 tools/test_bm_store.py
+Ran 1047 tests in 38.112s
+OK      (1029 before, so +18 on this loop)</span></li>
+<li class="tick"><span class="t">Migration proven against a genuine old database, not a fresh one pretending to be old</span>
+<span class="ev">TestSchema19OutcomeContractColumns builds a real store, strips the two columns
+from a real projects row, sets schema_version 18, reopens and asserts it MIGRATES
+rather than quarantines, with goal, risks and scope_in unchanged</span></li>
+<li class="tick"><span class="t">The fields joined the canonical shape instead of being carried around it</span>
+<span class="ev">the first cut popped them off the dict before Project(**d) and re-appended them
+to LIST_FIELDS on read. Both compensations removed; schema.py and the spec doc now
+carry the fields.
+$ python3 tools/test_bm_schema.py
+Ran 20 tests in 0.001s
+OK</span></li>
+<li class="tick"><span class="t">The baton ceremony's opening half runs unasked, and cannot take a session down</span>
+<span class="ev">$ /usr/bin/time -p python3 tools/bm_handover.py detect
+real 0.08
+$ python3 tools/test_bm_consent.py
+Ran 46 tests in 16.758s
+OK      (44 before: one test that it reaches detect, one that it still exits 0 when detect cannot run)</span></li>
+<li class="tick"><span class="t">My own first draft of that test failed, and was right to</span>
+<span class="ev">from a non-project directory detect exits 0 and prints
+"NO-DATA: no BrotherMode project root found", which is detect WORKING.
+The assertion list was incomplete, not the implementation. Fixed, with the reason
+written into the test so the next reader does not repeat the question.</span></li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Phase 7: close the night <span class="chip">3/4</span></h3>
+<ul class="ledger">
+<li class="tick"><span class="t">Full battery green at the final tree</span>
+<span class="ev">$ python3 tools/test_all.py --artifacts ...
+test_all: 3080 tests across 34 suites, 5 skipped, 685.9s wall. ALL GREEN
+exit 0, at dfc3d02, tree clean</span></li>
+<li class="tick"><span class="t">Manifest regenerated after the last tracked edit, integrity check actually ran</span>
+<span class="ev">$ python3 scripts/doctor.py
+[9/11] CHECKSUMS.sha256 self-check: PASS
+  PASS: all 865 file(s) listed in CHECKSUMS.sha256 match.</span></li>
+<li class="tick"><span class="t">Pushed to main and verified against the remote, not against my own belief</span>
+<span class="ev">   317564f..dfc3d02  main -> main
+local HEAD dfc3d02, upstream dfc3d02, git ls-remote dfc3d021...   all three agree</span></li>
+<li class="tick"><span class="t">Close pack written, every by-hand slot filled, passing its own verifier</span>
+<span class="ev">$ python3 tools/bm_handover.py verify-close --pack docs/handover/2026-08-12-aggressive-replan --session ...
+FAIL: session bm1-b62efdf... still owns 8 unparked record(s): command-center-night-refresh,
+forecast-telemetry, idle-check, night-queue-and-board, r11-canonical-shape,
+r11-outcome-contract, r13-ceremony-open-half, tester-pack-coordinated
+   ... all eight parked with handover text, then:
+PASS: ready to close.</span></li>
 </ul>
 </div>
 

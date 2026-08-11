@@ -107,13 +107,14 @@
     {
       "id": "L8",
       "title": "Push, close pack, verify-close",
-      "state": "queued",
+      "state": "done",
       "clock": "agent",
       "forecast_minutes": 20,
       "files": [
         "docs/handover/2026-08-12-aggressive-replan"
       ],
-      "done_check": "python3 tools/bm_handover.py verify-close --pack docs/handover/2026-08-12-aggressive-replan"
+      "done_check": "python3 tools/bm_handover.py verify-close --pack docs/handover/2026-08-12-aggressive-replan",
+      "closed_note": "pack written, all 6 by-hand slots filled, zipped, verify-close PASS after parking 8 records; pushed at dfc3d02"
     },
     {
       "id": "O1",
@@ -375,7 +376,7 @@
     {
       "id": "A1",
       "title": "R1.1 pulled forward: outcome contract columns on the record",
-      "state": "in_flight",
+      "state": "done",
       "clock": "agent",
       "forecast_minutes": 45,
       "files": [
@@ -383,7 +384,8 @@
         "tools/bm_store.py",
         "tools/test_bm_store.py"
       ],
-      "done_check": "the suite proves a record refuses to close without its outcome contract"
+      "done_check": "the suite proves a record refuses to close without its outcome contract",
+      "closed_note": "R1.1 landed and folded into the canonical shape; store 1047, project 50, schema 20 green"
     },
     {
       "id": "A2",
