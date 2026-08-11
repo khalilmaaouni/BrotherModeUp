@@ -10,25 +10,30 @@ None. If a process fix belongs here anyway, it is one this session found some ot
 
 <!-- bm-human:begin -->
 ENFORCED as of this session:
-- The Baton Ceremony itself, in the founder's global CLAUDE.md brothermode
-  section, naming tools/bm_handover.py as the enforcing file. verify-close
-  refuses a hollow close; detect reports what a predecessor left behind.
-- tools/bm_handover.py is declared in all four registries this repository
-  enforces, so the gate covers it and CI runs it.
+- THE BATON CEREMONY, in the founder's global CLAUDE.md. verify-close refuses a
+  hollow, stale or lock-holding close. detect reports what a predecessor left.
+- THE COMPARISON PAGE STALENESS GATE: the docs suite FAILS when the page passes
+  30 days unchecked, or carries a future date. Calibrated both ways.
+- The ceremony tool is declared in all four registries this repository
+  enforces: effects, SUITES, the CI workflow, and packaging.
 
-STILL UNENFORCED, honestly:
-- The SKILL.md amendment carrying the ceremony is PROPOSED only, in the vault
-  pending-amendments note. The constitution is founder owned.
-- Hook wiring for the start half is deferred; it needs files that sat under
-  another session's fence today.
-- Nothing mechanically prevents two sessions sharing one working tree. Today
-  that was survived by coordination, not by a control. Named as a gap.
+UNENFORCED, stated honestly:
+- The SKILL.md amendment is PROPOSED only. A session may propose; only the
+  founder lands constitution text.
+- The ceremony's opening half is discipline, not a refusal. Wiring it needs two
+  files still under the stopped session's claims.
+- Nothing prevents two sessions sharing one working tree. Today that was
+  survived by coordination, not by a control.
+- The weekly refresh has no scheduled runner yet; the staleness gate is its
+  backstop, and only fires when somebody is already working.
 
 PROVEN THIS SESSION, worth keeping:
 - Gate in an isolated worktree when another writer is live. STATED LIMIT: doing
-  so SKIPPED the gate's own clean-checkout check, and the gate said so in its
-  own output. The closing gate runs in the real checkout.
-- Preserve a stopped session's work three ways before touching anything else.
+  so SKIPS the gate's own clean-checkout check, and the gate says so. The
+  closing gate runs in the real checkout.
+- Preserve a stopped session's work three ways before touching anything.
 - Verify a control WITH the control: the session-id leak was fixed by calling
-  the store's own export_column rather than restating its policy.
+  the store's own withholding policy rather than restating it.
+- Thirty days, not seven, for a time-based gate. A check that fails after one
+  missed week is a tripwire that teaches people to bypass the suite.
 <!-- bm-human:end -->

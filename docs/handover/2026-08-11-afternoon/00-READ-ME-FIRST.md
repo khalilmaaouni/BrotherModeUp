@@ -11,16 +11,23 @@ A copy of `docs/plan/COMMAND-CENTER.html`, from the moment this pack was generat
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-Read 06-CLOSE-REPORT.md first. It says in one line whether this session
-finished, and it is the only page that answers that.
+Read 06-CLOSE-REPORT.md first. One line there says whether this session
+finished, and it is the only page that answers that question.
 
-Two facts that change how you read everything else:
+Then 01-HANDOVER.md for what is true, and 04-NEXT-LOOPS-PRIORITIZED.md for what
+to do. Everything else is context you can read later.
 
-1. The ceremony this pack describes was BUILT this session, and this pack is
-   its first live run. If something in the pack looks wrong, suspect the tool
-   before you suspect the writer, and check docs/evidence/baton-ceremony/
-   REFUTE-2026-08-11.md, which lists sixteen defects it already had.
+THREE THINGS THAT CHANGE HOW YOU READ THE REST:
+
+1. The handover ceremony this pack follows was BUILT today, and this pack is
+   its second live run. It had sixteen defects this morning, found by a review
+   written to attack it, all repaired. If something here looks wrong, suspect
+   the tool before the writer, and read
+   docs/evidence/baton-ceremony/REFUTE-2026-08-11.md.
 2. A second session was working this same repository at the same time and was
-   stopped by the founder mid build. Its work is preserved, not lost, and
-   where to find it is in 01-HANDOVER.md. Do not start SD2 from scratch.
+   stopped mid build by the founder. Its work is preserved, not lost. Do not
+   rebuild SD2 from scratch; 01-HANDOVER.md says where it is.
+3. Two items on the roadmap turned out to be already built when somebody
+   checked. Before you start any item, check whether it exists. That habit was
+   worth more than either loop today.
 <!-- bm-human:end -->

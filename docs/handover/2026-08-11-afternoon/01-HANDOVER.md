@@ -156,35 +156,56 @@ None recorded.
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
+STATE AT CLOSE: main at 94db37b, pushed and verified (HEAD, upstream and
+ls-remote agree). Working tree clean. Zero unpushed commits. No agent running.
+No gate running. Three fences this session held are parked with evidence.
+
 DONE, each with the command that proved it:
-- The baton ceremony is ratified, specced, and its rule text is live in the
-  founder's global CLAUDE.md. Spec: docs/superpowers/specs/
-  2026-08-11-baton-ceremony-design.md.
-- tools/bm_handover.py exists and works: skeleton, verify-close, zip, detect.
-  Built RED first (11 failures quoted before it existed), then repaired
-  against an executed falsification review. "Ran 34 tests OK", up from 13.
-- Four registries answered after the gate refused three separate times: the
-  effects REGISTRY, SUITES, the CI step, and pyproject py-modules.
-- The live install was refreshed from v3.0.0+16 to v3.1.0, byte verified.
-- Two dead-session records in the BrotherSBE store adopted then parked with
-  handover text; that store's verify fell from 4 problems to 1.
+- THE BATON CEREMONY. Ratified through seven founder windows, specced, built
+  RED first (11 failures quoted before the tool existed), adversarially
+  reviewed (16 findings, 8 false passes), all sixteen repaired, and three of
+  the worst re-attacked by hand afterwards. Suite: "Ran 34 tests OK", up from
+  13. Tool: tools/bm_handover.py, verbs skeleton, verify-close, zip, detect.
+- FULL BATTERY GREEN: "3011 tests across 32 suites, 5 skipped, 950.3s wall.
+  ALL GREEN", exit 0.
+- THE COMPARISON PAGE (docs/ECOSYSTEM.md): 431 lines, 47 sourced links, six
+  tools, each with a stated advantage over BrotherMode. Its research record
+  ships beside it. Its refresh procedure is docs/ECOSYSTEM-REFRESH.md, and a
+  gate now FAILS the build when the page passes 30 days unchecked, calibrated
+  by aging the stamp and by faking a future date.
+- THE HANDOVER PROCEDURE AS PAPER: docs/HANDOVER-BY-HAND.md, usable with
+  nothing installed, linked from the README.
+- THE README now says who this product is for and routes three situations
+  elsewhere by name, and documents that the progress page is a plain file
+  (23510 bytes, nothing fetched) with the command to produce it.
+- THE ROADMAP RANKED: docs/plan/ROADMAP-RANKED-2026-08-11.md, eleven items
+  scored against three real gaps, two departures from the ratified order named
+  as departures with flip conditions.
+- THE BOARD: two timelines now, the programme in weeks and the day hour by
+  hour, republished to the stable artifact link.
 
-THE STOPPED SESSION, and where its work is. Session bm1-6ed31697 was building
-SD2 and the Codex port in this same tree when the founder stopped it, leaving
-1145 insertions uncommitted. Preserved three ways before anything else was
-touched: branch wip/sd2-sentinel-2026-08-11-stopped-session at fd953fd,
-a patch at the handovers folder, sd2-session-uncommitted-2026-08-11.patch,
-and its new file sd2-session-bm_heartbeat-2026-08-11.py beside it. Whoever
-resumes SD2 starts from that branch.
+THE STOPPED SESSION'S WORK, and where it is. Session bm1-6ed31697 was building
+SD2 and the Codex port in this same tree when it was stopped, leaving 1145
+insertions uncommitted. Preserved three ways before anything else was touched:
+- branch wip/sd2-sentinel-2026-08-11-stopped-session at fd953fd (1618 inserts)
+- a patch in the handovers folder, sd2-session-uncommitted-2026-08-11.patch
+- its new file, sd2-session-bm_heartbeat-2026-08-11.py
+START FROM THAT BRANCH. Do not rebuild.
 
-IN FLIGHT at packing time: the ecosystem comparison page (lane 2), research
-still running. Nothing of it has landed.
+NOT STARTED: adoption L2 (first contact is a status page), the small L5 reader,
+SD2, CC generator, the benchmark, the Codex port, Wave 2 graph work.
 
-FENCES: ecosystem-compare-page (00b46883) stays open for the successor.
-baton-effects-registry and the controller's unit fences close with this pack.
+FENCES: all three this session held are parked with evidence notes. The SD2
+fence remains live over hooks/hooks.json and tools/bm_sessionstart.sh, which is
+why the ceremony's opening half cannot be wired until the founder rules.
 
-OPEN FOR THE FOUNDER, four items, all on the board and in the vault:
-the SKILL.md amendment, whether to resume SD2, whether the public repo
-carrying his private vault name in 17 files is worth a history rewrite, and
-the ecosystem page once its research lands.
+OPEN FOR THE FOUNDER, five items, none blocking a successor from working:
+1. SD2: resume from the preserved branch, or discard it.
+2. The SKILL.md amendment carrying the ceremony (in the vault's pending
+   amendments note). The constitution is founder owned.
+3. Whether the public repository carrying the private vault name in seventeen
+   tracked files is worth a history rewrite.
+4. Arming the weekly comparison-page refresh, which spends tokens weekly.
+5. Disk sat at 95 percent capacity today; about 4 GB of verified-regenerable
+   caches can be cleared on his word. Transcripts stay untouched.
 <!-- bm-human:end -->
