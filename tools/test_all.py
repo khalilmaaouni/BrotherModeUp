@@ -59,6 +59,7 @@ No em or en dashes anywhere in this file, its comments, or its output.
 import errno
 import hashlib
 import io
+import json
 import os
 import re
 import subprocess
@@ -876,6 +877,67 @@ def _write_artifact(artifacts, name, body):
                          % (name, exc))
 
 
+GATE_RECEIPT_RELPATH = os.path.join(".brothermode", "gate-receipt.json")
+
+
+def _gate_receipt_path(repo):
+    return os.path.join(repo, GATE_RECEIPT_RELPATH)
+
+
+def write_gate_receipt(repo, results, suites_total, wall, exit_code):
+    """Write the machine-readable gate receipt (RF-5) so pages, ledgers, and
+    handovers read a fact instead of hand-quoting the summary line beside a
+    hand-copied SHA. Written to repo/.brothermode/gate-receipt.json, which is
+    gitignored: the receipt must never land in the tracked tree, because a
+    dirty tracked tree is exactly what _worktree_dirt above refuses the gate
+    over.
+
+    FAILS OPEN, on purpose: git missing, a repo that is not a checkout, or a
+    full disk must warn on stderr and return, never raise and never change
+    the gate's exit code or verdict. The receipt is a convenience the
+    verdict must not depend on. Any failure also means NO receipt is
+    written at all: a partial or wrong receipt is worse than none, because a
+    reader trusts the file's shape without re-deriving the numbers."""
+    path = _gate_receipt_path(repo)
+    try:
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        sha_r = subprocess.run(
+            ["git", "-C", repo, "rev-parse", "HEAD"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=30, env=env)
+        if sha_r.returncode != 0:
+            raise RuntimeError("git rev-parse HEAD exited %d: %s"
+                               % (sha_r.returncode, sha_r.stderr.strip()))
+        status_r = subprocess.run(
+            ["git", "-C", repo, "status", "--porcelain"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=30, env=env)
+        if status_r.returncode != 0:
+            raise RuntimeError("git status --porcelain exited %d: %s"
+                               % (status_r.returncode, status_r.stderr.strip()))
+        receipt = {
+            "sha": sha_r.stdout.strip(),
+            "tree_dirty": bool(status_r.stdout.strip()),
+            "tests_total": sum(r[2] for r in results),
+            "suites_total": suites_total,
+            "skipped": sum(r[3] for r in results),
+            "wall_seconds": round(wall, 3),
+            "exit_code": exit_code,
+            "written_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        out_dir = os.path.dirname(path)
+        if not os.path.isdir(out_dir):
+            os.makedirs(out_dir)
+        tmp = path + ".tmp"
+        with io.open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        os.replace(tmp, path)
+    except Exception as exc:
+        sys.stderr.write(
+            "test_all: could not write the gate receipt (%s): %s. The "
+            "gate's verdict is unaffected.\n" % (path, exc))
+
+
 def _run_all(known, artifacts, timeout):
     sys.stdout.write(
         "test_all: %d suites, serially, one process each, %.0fs timeout each\n\n"
@@ -932,7 +994,9 @@ def _run_all(known, artifacts, timeout):
             ["%s  %s  %d tests  %d skipped  %.1fs  %s\n"
              % (("OK" if ok else "FAIL"), name, tests, skipped, elapsed, tail)
              for name, ok, tests, skipped, elapsed, tail in results]) + summary)
-    return 1 if failed else 0
+    verdict = 1 if failed else 0
+    write_gate_receipt(REPO, results, len(known), wall, verdict)
+    return verdict
 
 
 if __name__ == "__main__":
