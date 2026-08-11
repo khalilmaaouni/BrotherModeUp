@@ -235,6 +235,11 @@ def _store_inv():
     return bs.invocation("bm_store.py", os.path.join(HERE, "bm_store.py"))
 
 
+def _forecast_inv():
+    return bs.invocation("bm_forecast.py",
+                         os.path.join(HERE, "bm_forecast.py"))
+
+
 def _today():
     return time.strftime("%Y-%m-%d")
 
@@ -1225,9 +1230,9 @@ def _open_forecast_note(root):
         return None
     return ("this session recorded %d forecast(s) that never got an actual "
             "and are now more than 12 hours old: %s. Close them with "
-            "`python3 tools/bm_forecast.py actual --task <name> --minutes N`, "
-            "or the next estimate is guessed from nothing again."
-            % (len(tasks), ", ".join(tasks)))
+            "`%s actual --task <name> --minutes N`, or the next estimate is "
+            "guessed from nothing again."
+            % (len(tasks), ", ".join(tasks), _forecast_inv()))
 
 
 def cmd_zip(argv):
