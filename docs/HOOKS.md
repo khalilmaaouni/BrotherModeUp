@@ -75,7 +75,7 @@ However you install it, check it with:
 python3 scripts/doctor.py            # add --settings PATH for a non-default file
 ```
 
-Since 2026-08-01 (Loop 3) doctor runs ten checks, not one: the fence simulation
+Since 2026-08-01 (Loop 3) doctor runs eleven checks, not one: the fence simulation
 below, version identity, python3 and git availability, setup consent, vault
 writability, duplicate-install detection, project store health, hook wiring
 against the installation mode, the release checksum self-check, and settings

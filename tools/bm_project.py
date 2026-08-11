@@ -1561,33 +1561,51 @@ def cmd_export(argv):
     return 0
 
 
-_PURGE_FLAGS = ("project-id", "confirm", "out-json") + _ACTOR_FLAGS
+_PURGE_FLAGS = ("project-id", "confirm", "out-json", "dry-run") + _ACTOR_FLAGS
 
 
 def cmd_purge(argv):
     _pos, kv = _parse(argv, _PURGE_FLAGS, wants_value=(
         "project-id", "confirm") + _ACTOR_FLAGS)
-    usage = ("usage: purge --project-id ID --confirm ID "
+    # --confirm is required for a real purge and deliberately NOT required
+    # under --dry-run: the token stands between a founder and an
+    # irreversible deletion, and a dry run deletes nothing. Requiring it
+    # would train them to type the confirmation before seeing what it
+    # confirms. --project-id stays required either way, because a preview
+    # of "some project" is not a preview.
+    usage = ("usage: purge --project-id ID (--confirm ID | --dry-run) "
              "[--actor-type human|model] --actor-name NAME "
              "[--session-id SID] [--out-json]")
+    dry = bool(kv.get("dry-run"))
     project_id = _require(kv, "project-id", usage)
-    confirm = _require(kv, "confirm", usage)
+    confirm = kv.get("confirm", "") if dry else _require(kv, "confirm", usage)
     actor = _actor(kv, usage)
+    prefix = "[dry-run] " if dry else ""
     store = _store()
     try:
         # Store.purge_project does the real work, atomically, and is the
         # one place the confirmation check and the refusal reasons live
-        # (bad-confirmation, not-found): never restated here.
-        removed = store.purge_project(project_id, actor, confirm)
+        # (bad-confirmation, not-found): never restated here. Under
+        # dry_run it runs the identical transaction and rolls it back, so
+        # the counts below are the real purge's own, never a second
+        # implementation's guess at them.
+        removed = store.purge_project(project_id, actor, confirm,
+                                      dry_run=dry)
     finally:
         store.close()
     if kv.get("out-json"):
-        _print_json({"project_id": project_id, "removed": removed})
+        _print_json({"project_id": project_id, "removed": removed,
+                     "dry_run": dry})
         return 0
-    _out("purged project %s" % project_id)
-    _out("removed: %d task(s), %d dependency row(s), %d forecast(s), "
+    if dry:
+        _out("%swould purge project %s; nothing was removed"
+             % (prefix, project_id))
+    else:
+        _out("purged project %s" % project_id)
+    _out("%s%s: %d task(s), %d dependency row(s), %d forecast(s), "
          "%d alert(s), %d evidence row(s), and the project record itself"
-         % (removed["tasks"], removed["dependencies"], removed["forecasts"],
+         % (prefix, "would remove" if dry else "removed",
+            removed["tasks"], removed["dependencies"], removed["forecasts"],
             removed["alerts"], removed["evidence"]))
     # A6 fix (loop6 refuter findings): a task in another project can depend
     # on a task this purge just removed. That fallout is real but it is not
@@ -1595,21 +1613,29 @@ def cmd_purge(argv):
     # never folded into the "removed:" line above.
     cross = removed.get("cross_project_edges_removed") or []
     if cross:
-        _out("%d prerequisite link(s) in other projects also had to go, "
+        _out("%s%d prerequisite link(s) in other projects %s, "
              "because the work they pointed at no longer exists: %s"
-             % (len(cross), ", ".join(cross)))
+             % (prefix, len(cross),
+                "would also have to go" if dry else "also had to go",
+                ", ".join(cross)))
     # A7 fix: an alert id that could not be safely attributed to this
     # project alone was left untouched rather than deleted; say so plainly
     # rather than silently dropping it from the removed count.
     skipped = removed.get("alerts_skipped") or []
     if skipped:
-        _out("%d alert id(s) could not be safely attributed to this "
-             "project alone and were left untouched rather than deleted: %s"
-             % (len(skipped), ", ".join(skipped)))
-    _out("kept: the attribution trail (it now also carries one new entry "
-         "naming this purge), the vault, and any generated file already "
-         "on disk (CANVAS.md, DELIVERY-PACKET.md and the like); none of "
-         "those are rows this store owns.")
+        _out("%s%d alert id(s) could not be safely attributed to this "
+             "project alone and %s: %s"
+             % (prefix, len(skipped),
+                "would be left untouched rather than deleted" if dry
+                else "were left untouched rather than deleted",
+                ", ".join(skipped)))
+    _out("%skept: the attribution trail (%s), the vault, and any "
+         "generated file already on disk (CANVAS.md, DELIVERY-PACKET.md "
+         "and the like); none of those are rows this store owns."
+         % (prefix,
+            "unchanged, and no purge entry was added because nothing was "
+            "purged" if dry
+            else "it now also carries one new entry naming this purge"))
     return 0
 
 

@@ -251,7 +251,17 @@ class TestDoctorIsByteIdenticalToDirectScript(unittest.TestCase):
         self.assertEqual(wrapped.stdout, direct.stdout)
         payload = json.loads(wrapped.stdout)
         self.assertIn("checks", payload)
-        self.assertEqual(len(payload["checks"]), 10)
+        # Derived from doctor.py's own inventory, never hardcoded:
+        # this line said 10 and went stale the day an eleventh check
+        # shipped. The point of the assertion is that the wrapper
+        # forwards EVERY check, not that there are exactly ten.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "_doctor_for_count",
+            DOCTOR_PATH)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        self.assertEqual(len(payload["checks"]), len(mod.CHECK_TITLES))
 
     def test_doctor_reports_only_expected_failures_on_a_real_install(self):
         # The install-health guard, kept word for word from where it used
