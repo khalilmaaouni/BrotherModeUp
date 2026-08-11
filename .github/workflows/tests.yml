@@ -112,6 +112,12 @@ jobs:
       # legs alongside the other suites that arrived the same way.
       - name: Run the loop estimate ledger suite
         run: python3 tools/test_bm_ledger.py
+      # The baton ceremony suite (2026-08-11): the session handover tool.
+      # Stdlib only and filesystem only, same posture as the ledger suite
+      # above, and it redirects its own pack and zip destinations through
+      # environment variables so it never writes outside its temp root.
+      - name: Run the baton ceremony suite
+        run: python3 tools/test_bm_handover.py
       # The canonical schema suite, landed 2026-07-31. Stdlib only and
       # filesystem only, same posture as the ledger suite above.
       - name: Run the canonical schema suite

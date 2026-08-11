@@ -132,6 +132,24 @@ REGISTRY = {
     # (bs.ReadOnlyStore) instead; alert list already did (see its own
     # comment below), and this declaration is therefore now true rather
     # than aspirational.
+    # -- bm_handover.py -------------------------------------------------
+    # The baton ceremony (2026-08-11). Declared by the session that wrote the
+    # verbs, rather than guessed by the session that found them undeclared.
+    # skeleton writes pack pages inside the project through
+    # bm_store.write_generated_document, so it is a project write and nothing
+    # wider. zip is the one verb that leaves the project: it lands an archive
+    # in the handovers directory outside the tree, which is exactly what
+    # external_write means here, and it is why zip is the verb worth a second
+    # look in any review. detect and verify-close open the store read only and
+    # write nothing at all; verify-close returns a verdict through its exit
+    # code, which is not a write.
+    "bm_handover.py": {
+        "skeleton": PROJECT_WRITE,
+        "verify-close": PURE_READ,
+        "zip": EXTERNAL_WRITE,
+        "detect": PURE_READ,
+    },
+
     "bm_project.py": {
         "status": PURE_READ,
         "next": PURE_READ,
