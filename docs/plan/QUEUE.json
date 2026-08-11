@@ -1,0 +1,251 @@
+{
+  "schema": 1,
+  "_comment": "The machine-readable work queue. tools/bm_idle.py reads THIS file and nothing else to answer whether the machine is about to sit idle. Depth is the count of items in state 'queued'. Ordering is the array order: the next item to start is the first 'queued' item. An item is startable only if it needs no founder answer; anything that does carries state 'blocked' with a reason and is NOT counted toward depth, because a blocked item cannot save a night. Edit by hand or with bm_idle.py mark.",
+  "window": {
+    "label": "night of 2026-08-12",
+    "opened": "2026-08-12T01:30:00+09:00",
+    "hard_stop": "2026-08-12T07:00:00+09:00",
+    "unattended": true
+  },
+  "min_depth": 5,
+  "idle_window_minutes": 25,
+  "watch_paths": ["tools", "docs/plan", "docs/team", "docs/handover"],
+  "items": [
+    {
+      "id": "L1",
+      "title": "The aggressive replan and this queue",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 15,
+      "files": ["docs/plan/PLAN-2026-08-12-AGGRESSIVE.md", "docs/plan/QUEUE.json"],
+      "done_check": "python3 -c \"import json;json.load(open('docs/plan/QUEUE.json'))\""
+    },
+    {
+      "id": "L2",
+      "title": "Forecast telemetry tool, tests written first",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 35,
+      "files": ["tools/bm_forecast.py", "tools/test_bm_forecast.py"],
+      "done_check": "python3 tools/test_bm_forecast.py"
+    },
+    {
+      "id": "L3",
+      "title": "Idle check tool, tests written first",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": ["tools/bm_idle.py", "tools/test_bm_idle.py"],
+      "done_check": "python3 tools/test_bm_idle.py"
+    },
+    {
+      "id": "L4",
+      "title": "Register both tools in the gate, the write inventory and CI",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 15,
+      "files": ["tools/test_all.py", "tools/write_sites.json", ".github/workflows/tests.yml", "pyproject.toml"],
+      "done_check": "python3 tools/test_all.py --list 2>&1 | grep -c bm_forecast"
+    },
+    {
+      "id": "L5",
+      "title": "Tester package covering both products in one bundle",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 40,
+      "files": ["docs/team/TESTER-PACK.md", "docs/team/INSTALL-CARD.md"],
+      "done_check": "every command block in the pack was executed and its output quoted in docs/evidence/tester-pack/"
+    },
+    {
+      "id": "L6",
+      "title": "Progress page under the absolute structure, delivered not merely written",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": ["docs/plan/GANTT.html"],
+      "done_check": "python3 tools/bm_progress_check.py status"
+    },
+    {
+      "id": "L7",
+      "title": "Full battery at the final tree",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 13,
+      "files": [],
+      "done_check": "python3 tools/test_all.py"
+    },
+    {
+      "id": "L8",
+      "title": "Push, close pack, verify-close",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": ["docs/handover/2026-08-12-aggressive-replan"],
+      "done_check": "python3 tools/bm_handover.py verify-close --pack docs/handover/2026-08-12-aggressive-replan"
+    },
+    {
+      "id": "O1",
+      "title": "Memory architecture design document, two genuinely rejected alternatives",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": ["docs/design/MEMORY-ARCHITECTURE.md"],
+      "done_check": "a reader can name what was rejected and the condition that would flip the decision"
+    },
+    {
+      "id": "O2",
+      "title": "Toolkit broker design document: trust tiers and quarantine",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": ["docs/design/TOOLKIT-BROKER.md"],
+      "done_check": "same shape as O1"
+    },
+    {
+      "id": "O3",
+      "title": "Connector model design document and the per-connector gate",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": ["docs/design/CONNECTOR-MODEL.md"],
+      "done_check": "same shape as O1"
+    },
+    {
+      "id": "O4",
+      "title": "Zero-tax adoption: a fence claimed from one shell is parkable from another",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 35,
+      "files": ["tools/bm_store.py", "tools/test_bm_store.py"],
+      "done_check": "claim then park from two separate shell invocations, no refusal, regression test failing first"
+    },
+    {
+      "id": "O5",
+      "title": "Adversarial read of the first-day pack as somebody who has never used any of this",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 25,
+      "files": ["docs/evidence/tester-pack/ADVERSARIAL-READ.md"],
+      "done_check": "every step that assumes knowledge it never gave is listed with the missing knowledge named"
+    },
+    {
+      "id": "O6",
+      "title": "Re-probe the three defects found on 2026-08-11 against the released v3.2.0 tree",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": ["docs/evidence/v3.2.0/DEFECT-REPROBE.md"],
+      "done_check": "each defect carries a reproduction attempt and its verbatim result"
+    },
+    {
+      "id": "O7",
+      "title": "Documentation link sweep, every relative link resolved",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 15,
+      "files": [],
+      "done_check": "a script lists zero unresolved relative links across the docs tree"
+    },
+    {
+      "id": "O8",
+      "title": "Re-read docs/KNOWN-LIMITS.md against the current tree, file every limit now false or newly true",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": ["docs/KNOWN-LIMITS.md"],
+      "done_check": "every limit in the file either still reproduces or is marked resolved with the commit that resolved it"
+    },
+    {
+      "id": "O9",
+      "title": "The booklet under docs/book/, one release stale on the command surface",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 25,
+      "files": ["docs/book/brothermode-solo-builder-booklet.html"],
+      "done_check": "every command named in the booklet exists in commands/ or is removed"
+    },
+    {
+      "id": "O10",
+      "title": "Seed bm_forecast with every measurable historic estimate found in the plan docs",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 25,
+      "files": [".brothermode/forecasts.jsonl"],
+      "done_check": "python3 tools/bm_forecast.py calibrate reports n greater than 6"
+    },
+    {
+      "id": "O11",
+      "title": "BrotherSBE parity read: what BrotherMode enforces that BrotherSBE only states",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": ["docs/evidence/parity/SBE-PARITY-2026-08-12.md"],
+      "done_check": "each law names checked-by-tool or human, verified by opening the tool"
+    },
+    {
+      "id": "O12",
+      "title": "R1.1 outcome contract columns, per the long range WBS",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": ["brotherme/core/schema.py", "tools/bm_store.py", "tools/test_bm_store.py"],
+      "done_check": "the suite proves a record carries its outcome contract and refuses one without"
+    },
+    {
+      "id": "O13",
+      "title": "R1.2 criterion-linked verification, per the long range WBS",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": ["tools/bm_store.py", "tools/test_bm_store.py"],
+      "done_check": "a verification row cannot be filed without naming the criterion it satisfies"
+    },
+    {
+      "id": "O14",
+      "title": "Pick the oldest parking lot item, give it an objective or write down why it cannot have one",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 15,
+      "files": ["docs/plan/LONG-RANGE-PLAN-2026-08-11.md"],
+      "done_check": "the item either names its north star objective or carries a written reason it cannot"
+    },
+    {
+      "id": "O15",
+      "title": "Regenerate CHECKSUMS and prove doctor check 9 passes",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 10,
+      "files": ["CHECKSUMS.sha256"],
+      "done_check": "python3 scripts/doctor.py reports check 9 PASS"
+    },
+    {
+      "id": "O16",
+      "title": "Loop back to O6 and re-run the whole overflow tier. The queue does not end",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 0,
+      "files": [],
+      "done_check": "not applicable, this item exists so depth never reaches zero"
+    },
+    {
+      "id": "G1",
+      "title": "Cut v3.3.0",
+      "state": "blocked",
+      "blocked_reason": "a release is a founder gate. He is asleep. This never enters the queue and never counts toward depth",
+      "clock": "wall",
+      "forecast_minutes": 0,
+      "files": [],
+      "done_check": "founder says yes"
+    },
+    {
+      "id": "G2",
+      "title": "First cold tester install on somebody else's machine",
+      "state": "blocked",
+      "blocked_reason": "needs another person and their machine. Wall clock, cannot be compressed or started by an agent",
+      "clock": "wall",
+      "forecast_minutes": 0,
+      "files": [],
+      "done_check": "a tester reports the two version numbers from their own shell"
+    }
+  ]
+}
