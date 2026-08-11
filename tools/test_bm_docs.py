@@ -127,6 +127,14 @@ ACTIVE_DOCS = (
     # class as the install pages: a stale sentence here is read at three in
     # the morning by something that will act on it.
     os.path.join("docs", "CONTINUITY.md"),
+    # The combined-use page, added 2026-08-11 by founder decision. It is the
+    # page a second person on a team reads before they read anything else,
+    # and it makes claims about both products' command surfaces. A page that
+    # tells a newcomer which command to type is exactly the class this guard
+    # exists for: the fifteen command files and the guided skill were added
+    # for the same reason, after a stale sentence survived in the file no
+    # check could see.
+    os.path.join("docs", "WORKING-WITH-BROTHERSBE.md"),
 )
 
 # The three install pages. Every one of them must describe the same install.
