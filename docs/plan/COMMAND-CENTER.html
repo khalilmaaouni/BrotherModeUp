@@ -115,7 +115,8 @@ a{color:var(--bm-accent)}
 <p class="lede">Both products, the release in flight, and the team rollout on one page. Every box below either carries the output of a check that ran after the last edit, or it is not ticked.</p>
 
 <div class="stamp">
-refreshed 2026-08-12 00:32 JST &middot; session 31456097 holds the baton &middot; HEAD 54ff2c2 &middot; RELEASED v3.2.0 &middot; refresh cadence: every two hours until 09:00<br>
+refreshed 2026-08-12 02:00 JST &middot; session 4538d5df holds the baton &middot; HEAD 317564f plus uncommitted work &middot; RELEASED v3.2.0 &middot; SIBLING v3.1.0 &middot; refresh cadence: every closed loop, and never less than every two hours until 09:00<br>
+AHEAD OF SCHEDULE: five loops forecast at 135 minutes closed in about 30. Forecasting is now measured rather than guessed at 4.44x, and the queue was deepened rather than allowed to run out. Two other sessions are live in this repository.<br>
 TICK CONTRACT: a box ticks only when its done-check ran after the last edit and that output is quoted beside it. Percentages are counts of records, never impressions.
 </div>
 
@@ -156,6 +157,20 @@ TICK CONTRACT: a box ticks only when its done-check ran after the last edit and 
 <td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
 <tr><td class="lbl"><span class="rowname">Live install, backup first</span><span class="count">0 of 1, blocked, needs Khalil</span></td>
 <td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Aggressive replan, three horizons</span><span class="count">2 of 2</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar done"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Forecast calibration tool</span><span class="count">4 of 4</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar done"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Idle and queue depth check</span><span class="count">4 of 4</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar done"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Both wired into gate, inventory, CI</span><span class="count">4 of 4</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar done"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Tester pack, both products, checked</span><span class="count">3 of 3</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar done"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Full battery at the final tree</span><span class="count">0 of 1</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Accelerated overflow, 21 items deep</span><span class="count">0 of 21</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td><td class="cell"></td></tr>
 <tr><td class="lbl"><span class="rowname">Morning pack and close</span><span class="count">0 of 4</span></td>
 <td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td></tr>
 </table>
@@ -254,6 +269,64 @@ TICK CONTRACT: a box ticks only when its done-check ran after the last edit and 
 
 <h2>The ledger</h2>
 <p class="lede">Every box carries its proof. Open boxes carry the command that would tick them.</p>
+
+<h3>Phase R0d &middot; the aggressive replan and its two enforcing tools <span class="chip">13 of 16</span></h3>
+<p class="lede">Added 02:00 on 12 August by session 4538d5df, after the founder scored the previous plan 3 out of 10 for bad forecasting and for leaving a night with no depth behind it.</p>
+
+<div class="box tick"><div class="t">Forecast bias measured rather than argued about <span class="m">python3 tools/bm_forecast.py calibrate --clock agent --basis judged</span></div>
+<pre class="ev green">CALIBRATED clock=agent basis=judged n=4 median=4.44 min=3.75 max=5.33</pre></div>
+
+<div class="box tick"><div class="t">The tool refuses to invent a multiplier it has no evidence for <span class="m">apply against a log with two pairs</span></div>
+<pre class="ev green">NO-DATA: 2 usable pairs for clock=any basis=any, need 3     exit 2, and no number printed at all</pre></div>
+
+<div class="box tick"><div class="t">A judged estimate can now be corrected before it is stated <span class="m">python3 tools/bm_forecast.py apply --likely-minutes 60</span></div>
+<pre class="ev green">CALIBRATED-ESTIMATE input=60.0 likely=13.5 low=11.2 high=16.0 basis=judged clock=agent n=4</pre></div>
+
+<div class="box tick"><div class="t">Forecast suite green <span class="m">python3 tools/test_bm_forecast.py</span></div>
+<pre class="ev green">Ran 18 tests in 4.263s
+OK</pre></div>
+
+<div class="box tick"><div class="t">A queue of nothing but founder-gated items reports empty, not healthy <span class="m">bm_idle.py check against an all-blocked fixture</span></div>
+<pre class="ev green">QUEUE-EMPTY: 0 items queued, the machine has nothing to start (6 blocked, not counted)   exit 1</pre></div>
+
+<div class="box tick"><div class="t">A stalled unattended night is caught; an attended one is not accused <span class="m">bm_idle.py check, same fixture, two window settings</span></div>
+<pre class="ev green">IDLE: depth 3 but no watched path changed in 25 minutes    exit 1
+OK: depth 3, attended session                              exit 0</pre></div>
+
+<div class="box tick"><div class="t">A broken queue reads as could-not-tell, never as a pass <span class="m">bm_idle.py check against a corrupt state value</span></div>
+<pre class="ev green">NO-DATA: item X has an unknown state: almost-done          exit 2</pre></div>
+
+<div class="box tick"><div class="t">Idle suite green <span class="m">python3 tools/test_bm_idle.py</span></div>
+<pre class="ev green">Ran 16 tests in 0.556s
+OK</pre></div>
+
+<div class="box tick"><div class="t">Tonight's real depth, after reconciling with a concurrent session's work <span class="m">python3 tools/bm_idle.py depth --queue docs/plan/QUEUE.json</span></div>
+<pre class="ev green">DEPTH 21 min_depth=5 blocked=2 in_flight=0 done=8</pre></div>
+
+<div class="box tick"><div class="t">Both tools are in the local gate and in CI, checked against each other <span class="m">SUITES versus the workflow inventory</span></div>
+<pre class="ev green">in SUITES, missing from CI: []
+new tools present in CI: True True</pre></div>
+
+<div class="box tick"><div class="t">Effect classes declared and the purity suite agrees <span class="m">python3 tools/test_bm_effects.py</span></div>
+<pre class="ev green">Ran 10 tests in 8.571s
+OK</pre></div>
+
+<div class="box tick"><div class="t">The reviewed write inventory caught the new writer; reviewed line by line, not on a count <span class="m">python3 -m unittest tools.test_bm.TestPreWriteGate.test_no_unreviewed_write_sites</span></div>
+<pre class="ev green">Ran 1 test in 0.131s
+OK      bm_forecast.py 39 sites, exactly 2 real file writes; bm_idle.py 5 sites, none</pre></div>
+
+<div class="box tick"><div class="t">Two real defects in the tester install card, found and fixed <span class="m">git ls-remote --tags against both repositories</span></div>
+<pre class="ev green">it told every tester to run BrotherSBE v3.0.0; the released version is v3.1.0 at c48ac46b
+it promised two versions and gave install commands for only one of them</pre></div>
+
+<div class="box"><div class="t">Full battery green at the final tree <span class="m">python3 tools/test_all.py</span></div>
+<pre class="ev">13 minutes measured. Exit 0 required. Not yet run against this tree.</pre></div>
+
+<div class="box"><div class="t">Manifest regenerated after the last tracked edit <span class="m">sh scripts/checksums.sh CHECKSUMS.sha256 then python3 scripts/doctor.py</span></div>
+<pre class="ev">Doctor check 9 must read PASS. Not yet run against this tree.</pre></div>
+
+<div class="box"><div class="t">Close pack written and passing its own verifier <span class="m">python3 tools/bm_handover.py verify-close</span></div>
+<pre class="ev">Not yet written.</pre></div>
 
 <h3>Phase R0a &middot; decisions and defects <span class="chip">4 of 4</span></h3>
 
