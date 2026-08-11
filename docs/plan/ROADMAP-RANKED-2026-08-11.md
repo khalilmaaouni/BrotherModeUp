@@ -125,6 +125,29 @@ the benchmark shows the product is sound and adoption is limited by runtime
 choice rather than by the social tax, it goes straight to rank 2. The founder
 may simply overrule this; it is his priority and my ranking is advice.
 
+## Two items shrank when checked, and the pattern is worth more than either
+
+Twice on 2026-08-11 an item on this roadmap turned out to be already built,
+and both times the discovery came from checking rather than from planning.
+
+- Adoption L1, the self contained file, was called the blocker that everything
+  else waited on. The renderer already produced one: verified on a file it
+  actually wrote, 23510 bytes, no fetched images, styles, fonts or data. What
+  remained was documenting it and changing a delivery habit.
+- Adoption L5, the measurement, was planned as a counter to build. The store
+  already carries a views table recording every page render with its project,
+  time and actor. What remains is a reader over existing rows.
+
+THE PATTERN: this roadmap was written from what the product FELT like it was
+missing rather than from what it demonstrably lacked. Both corrections cost
+minutes to find and would have cost days to build. Every remaining item on this
+list should be checked the same way before it is started, and the check belongs
+in the first step of the loop rather than in a review afterwards.
+
+That also means the ranking above is less trustworthy than it reads. It is
+ordered by what each item would unblock IF the item is real, and two of eleven
+were not.
+
 ## Also open, small, and not worth a rank of their own
 
 - RF-3, prose fence retirement: the store is already the only fence surface.
