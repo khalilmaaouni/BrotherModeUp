@@ -166,5 +166,51 @@ None outstanding.
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-FILL-BY-HAND: what happened this session, and what is next.
+## What happened
+
+The founder arrived with one item: his team will use BrotherMode alongside
+BrotherSBE to deliver backend changes that front end teams consume, and
+nothing explained how the two fit together. Checked rather than assumed:
+README.md and SKILL.md mentioned the sibling product zero times, and the only
+cross-reference anywhere was one positioning sentence in the sibling's own
+teams guide.
+
+Three founder decisions were taken through question windows and are recorded
+as D7a, D7b and D7c in docs/plan/V3-FINAL-2026-08-12.md: generic only with no
+client and no person named, team use named on the front page with its unmet
+bar stated in the open, and the work folded into the existing docs lane rather
+than opening a third lane.
+
+He then instructed that tomorrow's release work start immediately. That
+replan is section 2b of the same plan: one writer instead of two builder
+agents (his standing rule is that subagents are not dispatched unless he asks),
+sequenced risk-first so the code slice leads, because the code slice is the
+only work with a pre-declared de-scope contingency and discovering that at the
+end of the night would leave no time to use it.
+
+Five pieces of work landed, each proven by its own suite run after its own
+last edit, and every one of those outputs is quoted in 06-CLOSE-REPORT.md:
+docs/WORKING-WITH-BROTHERSBE.md and the README routing line; the purge dry
+run; the data-locations doctor check; the verify skill; and the security page.
+
+Two things were repaired that nobody asked for. The install-trust check was
+failing, because the previous session left its handover pack untracked and
+scripts/verify-install.sh reported eight unexplained extra files with a
+planted-backdoor warning. And the gate recipe in this repo's own CLAUDE.md
+was capable of handing a session a previous session's exit code as its own
+verdict, which it did, once, tonight.
+
+## The battery, tools/test_all.py
+
+STATE AT THE TIME THIS PACK WAS WRITTEN: not run against tonight's code. The
+per-suite results above are per-suite results and nothing more.
+
+The session that runs it appends the verdict here, with its exit code and the
+quoted last lines. An empty space below this paragraph means it never ran.
+
+## What is next
+
+A1 then A2, in that order, per 04-NEXT-LOOPS-PRIORITIZED.md. A2 is the baton
+and it gates the version bump. Two founder decisions, D8 and D9, are open and
+are described in 06-CLOSE-REPORT.md.
 <!-- bm-human:end -->
