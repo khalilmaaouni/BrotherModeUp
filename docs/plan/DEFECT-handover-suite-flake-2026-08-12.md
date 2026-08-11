@@ -1,6 +1,7 @@
 # Defect: test_bm_handover.py failed once inside the gate and will not reproduce
 
-Status: CLOSED 2026-08-12 03:35 JST. It was never a flake.
+Status: CURRENT. The defect is CLOSED, fixed 2026-08-12 03:35 JST, and
+this page is the current record of it. It was never a flake.
 
 Found 2026-08-12 02:26 JST, at commit `6eb5d40`.
 
