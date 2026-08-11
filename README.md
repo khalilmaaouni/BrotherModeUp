@@ -25,6 +25,11 @@ account and no network. Produce it whenever you want with
 A real page measures about 22 kilobytes, so it travels anywhere a document
 travels. Nothing is hosted unless you choose to host it.
 
+The handover procedure is published as a plain document you can run with
+nothing installed: [docs/HANDOVER-BY-HAND.md](docs/HANDOVER-BY-HAND.md).
+Using it costs you nothing and tells us nothing, and it is worth having
+even if you never install anything here.
+
 ---
 
 # BrotherMode
