@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BrotherMode: the aggressive replan, night of 12 August</title>
+<style>
+:root{
+  --bm-page:#FFFFFF; --bm-paper:#F7F8F6; --bm-body:#1A1D21; --bm-muted:#575E68;
+  --bm-rule:#DDE2E0; --bm-accent:#0E7A6F; --bm-accent-tint:#E4EFED;
+  --bm-settled-ink:#00543A; --bm-settled-rule:#009E73; --bm-settled-tint:#E8F6F0;
+  --bm-needs-you-ink:#8C2D00; --bm-needs-you-rule:#D55E00; --bm-needs-you-tint:#FDEFE8;
+  --bm-at-risk-ink:#6B4400; --bm-at-risk-rule:#A06A00; --bm-at-risk-tint:#FFF6E5;
+  --bm-for-info-ink:#00436B; --bm-for-info-rule:#0072B2; --bm-for-info-tint:#EAF3FA;
+  --bm-idle-ink:#3F4650; --bm-idle-rule:#767B84; --bm-idle-tint:#F0F1F2;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:Seravek,"Gill Sans Nova",Ubuntu,Calibri,"DejaVu Sans",system-ui,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bm-page:#0E1216; --bm-paper:#141B22; --bm-body:#E8EBEE; --bm-muted:#9AA4AE;
+    --bm-rule:#2A343D; --bm-accent:#3AA893; --bm-accent-tint:#16302C;
+    --bm-settled-ink:#6FD3AE; --bm-settled-rule:#009E73; --bm-settled-tint:#12281F;
+    --bm-needs-you-ink:#FF9C63; --bm-needs-you-rule:#D55E00; --bm-needs-you-tint:#2E1810;
+    --bm-at-risk-ink:#E5B75C; --bm-at-risk-rule:#A06A00; --bm-at-risk-tint:#2A2212;
+    --bm-for-info-ink:#6FB8E8; --bm-for-info-rule:#0072B2; --bm-for-info-tint:#101F2C;
+    --bm-idle-ink:#98A1AB; --bm-idle-rule:#767B84; --bm-idle-tint:#1B2128;
+  }
+}
+:root[data-theme="dark"]{
+  --bm-page:#0E1216; --bm-paper:#141B22; --bm-body:#E8EBEE; --bm-muted:#9AA4AE;
+  --bm-rule:#2A343D; --bm-accent:#3AA893; --bm-accent-tint:#16302C;
+  --bm-settled-ink:#6FD3AE; --bm-settled-tint:#12281F;
+  --bm-needs-you-ink:#FF9C63; --bm-needs-you-tint:#2E1810;
+  --bm-at-risk-ink:#E5B75C; --bm-at-risk-tint:#2A2212;
+  --bm-for-info-ink:#6FB8E8; --bm-for-info-tint:#101F2C;
+  --bm-idle-ink:#98A1AB; --bm-idle-tint:#1B2128;
+}
+:root[data-theme="light"]{
+  --bm-page:#FFFFFF; --bm-paper:#F7F8F6; --bm-body:#1A1D21; --bm-muted:#575E68;
+  --bm-rule:#DDE2E0; --bm-accent:#0E7A6F; --bm-accent-tint:#E4EFED;
+  --bm-settled-ink:#00543A; --bm-settled-tint:#E8F6F0;
+  --bm-needs-you-ink:#8C2D00; --bm-needs-you-tint:#FDEFE8;
+  --bm-at-risk-ink:#6B4400; --bm-at-risk-tint:#FFF6E5;
+  --bm-for-info-ink:#00436B; --bm-for-info-tint:#EAF3FA;
+  --bm-idle-ink:#3F4650; --bm-idle-tint:#F0F1F2;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bm-page);color:var(--bm-body);font-family:var(--sans);
+  font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:32px 20px 80px}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--bm-accent);margin:0 0 10px}
+h1{font-family:var(--serif);font-size:clamp(30px,5vw,46px);line-height:1.1;margin:0 0 12px;font-weight:600}
+.stamp{font-family:var(--mono);font-size:12.5px;color:var(--bm-muted);border-left:3px solid var(--bm-accent);
+  padding:6px 0 6px 12px;margin:0 0 28px}
+h2{font-family:var(--serif);font-size:25px;margin:44px 0 6px;font-weight:600}
+h2 .n{font-family:var(--mono);font-size:13px;color:var(--bm-muted);font-weight:400;margin-left:8px}
+h3{font-family:var(--sans);font-size:16px;margin:24px 0 8px;font-weight:600}
+.lede{color:var(--bm-muted);margin:0 0 16px;max-width:76ch}
+.northstar{background:var(--bm-accent-tint);border:1px solid var(--bm-accent);border-radius:10px;
+  padding:18px 20px;margin:0 0 30px}
+.northstar .k{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--bm-accent);display:block;margin-bottom:6px}
+.northstar p{margin:0;font-family:var(--serif);font-size:19px;line-height:1.45}
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:14px;margin:0 0 12px}
+.card{background:var(--bm-paper);border:1px solid var(--bm-rule);border-radius:10px;padding:15px 16px}
+.card .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--bm-muted);display:block;margin-bottom:7px}
+.card p{margin:0 0 6px;font-size:14.5px;line-height:1.45}
+.card p:last-child{margin-bottom:0}
+.card.now{border-left:4px solid var(--bm-settled-rule)}
+.card.you{border-left:4px solid var(--bm-needs-you-rule)}
+.card.risk{border-left:4px solid var(--bm-at-risk-rule)}
+.card.fc{border-left:4px solid var(--bm-for-info-rule)}
+.big{font-family:var(--serif);font-size:27px;line-height:1.1;display:block;margin-bottom:4px}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--bm-rule);
+  border-radius:10px;background:var(--bm-paper);padding:14px}
+table.gantt{border-collapse:collapse;width:100%;min-width:840px;font-size:13px}
+table.gantt th{font-family:var(--mono);font-size:10.5px;font-weight:400;color:var(--bm-muted);
+  text-align:center;padding:0 0 8px;border-bottom:1px solid var(--bm-rule)}
+table.gantt th.lbl{text-align:left;width:290px;padding-left:2px}
+table.gantt td{padding:4px 0;border-bottom:1px solid var(--bm-rule)}
+table.gantt td.lbl{padding-right:14px;font-size:13.5px;line-height:1.35}
+table.gantt td.lbl .cnt{font-family:var(--mono);font-size:10.5px;color:var(--bm-muted);
+  background:var(--bm-idle-tint);border-radius:9px;padding:1px 7px;margin-right:7px}
+.bar{height:17px;border-radius:4px;position:relative}
+.bar.done{background:var(--bm-settled-rule)}
+.bar.sched{background:repeating-linear-gradient(45deg,var(--bm-accent) 0 4px,transparent 4px 8px);
+  border:1px solid var(--bm-accent);opacity:.85}
+.bar.est{background:var(--bm-accent);opacity:.16;border:1px dashed var(--bm-accent)}
+.bar.wall{background:repeating-linear-gradient(45deg,var(--bm-needs-you-rule) 0 4px,transparent 4px 8px);
+  border:1px solid var(--bm-needs-you-rule);opacity:.85}
+.key{display:flex;flex-wrap:wrap;gap:16px;font-family:var(--mono);font-size:11px;
+  color:var(--bm-muted);margin:12px 0 0;align-items:center}
+.key i{display:inline-block;width:22px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.decks{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.deck{border:1px solid var(--bm-rule);border-radius:10px;padding:16px 17px;background:var(--bm-paper)}
+.deck.you{border-left:4px solid var(--bm-needs-you-rule);background:var(--bm-needs-you-tint)}
+.deck.done{border-left:4px solid var(--bm-settled-rule);background:var(--bm-settled-tint)}
+.deck h4{margin:0 0 8px;font-size:15.5px;font-family:var(--sans);font-weight:600}
+.deck p{margin:0 0 8px;font-size:14px;line-height:1.5}
+.deck p:last-child{margin-bottom:0}
+.deck .tag{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+  display:inline-block;margin-bottom:7px}
+.deck.you .tag{color:var(--bm-needs-you-ink)}
+.deck.done .tag{color:var(--bm-settled-ink)}
+.alert{border:1px solid var(--bm-rule);border-left:4px solid var(--bm-at-risk-rule);
+  background:var(--bm-at-risk-tint);border-radius:10px;padding:15px 17px;margin:0 0 13px}
+.alert.info{border-left-color:var(--bm-for-info-rule);background:var(--bm-for-info-tint)}
+.alert.good{border-left-color:var(--bm-settled-rule);background:var(--bm-settled-tint)}
+.alert h4{margin:0 0 7px;font-size:15.5px;font-weight:600}
+.alert dl{margin:0;display:grid;grid-template-columns:88px 1fr;gap:4px 12px;font-size:14px}
+.alert dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--bm-muted);padding-top:3px}
+.alert dd{margin:0;line-height:1.5}
+.phase{margin:26px 0 0}
+.chip{font-family:var(--mono);font-size:11.5px;background:var(--bm-accent-tint);color:var(--bm-accent);
+  border:1px solid var(--bm-accent);border-radius:11px;padding:2px 9px;margin-left:9px;vertical-align:2px}
+ul.ledger{list-style:none;margin:10px 0 0;padding:0}
+ul.ledger li{border-bottom:1px solid var(--bm-rule);padding:11px 0 11px 30px;position:relative}
+ul.ledger li::before{position:absolute;left:0;top:10px;font-family:var(--mono);font-size:14px}
+ul.ledger li.tick::before{content:"[x]";color:var(--bm-settled-ink)}
+ul.ledger li.open::before{content:"[ ]";color:var(--bm-muted)}
+ul.ledger .t{font-size:14.5px;display:block;margin-bottom:5px}
+ul.ledger .ev{font-family:var(--mono);font-size:11.5px;color:var(--bm-muted);
+  background:var(--bm-idle-tint);border-radius:5px;padding:6px 9px;display:block;
+  white-space:pre-wrap;word-break:break-word;line-height:1.45}
+ul.ledger li.tick .ev{color:var(--bm-settled-ink);background:var(--bm-settled-tint)}
+footer{margin:56px 0 0;padding:20px 0 0;border-top:2px solid var(--bm-accent);font-size:13.5px;color:var(--bm-muted)}
+footer .contract{font-family:var(--serif);font-size:16.5px;color:var(--bm-body);margin:0 0 10px;max-width:74ch}
+code{font-family:var(--mono);font-size:.92em;background:var(--bm-idle-tint);padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="eyebrow">BrotherMode and BrotherSBE // delivery board</p>
+<h1>The aggressive replan, and the two tools that make it honest</h1>
+<p class="stamp">Refreshed 2026-08-12 01:52 JST by session 4538d5df (the night session, unattended).
+TICK CONTRACT: a box ticks only when its done-check ran after the last edit and that output is quoted beside it. Percentages count records, never impressions.</p>
+
+<div class="northstar">
+  <span class="k">North star</span>
+  <p>A real team, working real changes, through both tools, with every claim of done backed by a check that actually ran. Everything below either serves that or is parked.</p>
+</div>
+
+<h2>At a glance</h2>
+<div class="strip">
+  <div class="card now">
+    <span class="k">Now</span>
+    <span class="big">2 tools landed</span>
+    <p>Forecast calibration and the idle check are built, registered in the gate, and verified against hostile fixtures I wrote myself rather than the builders' own tests.</p>
+  </div>
+  <div class="card you">
+    <span class="k">Waiting on Khalil</span>
+    <span class="big">2 decisions</span>
+    <p>Which two people are this week's testers, and whether v3.3.0 cuts on Friday. Neither blocks tonight; both block the week.</p>
+  </div>
+  <div class="card risk">
+    <span class="k">Risk watch</span>
+    <span class="big">Cold install</span>
+    <p>Nobody has ever installed either product on a machine that did not already have it. That single unmeasured number is the largest uncertainty in the whole plan.</p>
+  </div>
+  <div class="card fc">
+    <span class="k">Forecast</span>
+    <span class="big">4.44x</span>
+    <p>Measured, not guessed: judged estimates run 4.44 times slow, spread 3.75 to 5.33 across n=4. A 60 minute instinct is worth 13.5 minutes.</p>
+  </div>
+</div>
+
+<h2>Short range <span class="n">tonight, 01:00 to 07:00 JST, one hour per column</span></h2>
+<p class="lede">Solid is finished and evidenced. Hatched petrol is scheduled agent work. Faint is the estimate range around it. Hatched orange is wall clock, which does not compress.</p>
+<div class="scroll">
+<table class="gantt">
+<thead><tr><th class="lbl">Loop</th><th>01</th><th>02</th><th>03</th><th>04</th><th>05</th><th>06</th><th>07</th></tr></thead>
+<tbody>
+<tr><td class="lbl"><span class="cnt">2/2</span>L1 Replan and machine-readable queue</td>
+  <td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">2/2</span>L2 Forecast calibration tool</td>
+  <td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">2/2</span>L3 Idle and queue depth check</td>
+  <td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">4/4</span>L4 Registered in gate, inventory, CI</td>
+  <td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">3/3</span>L5 Tester pack, both products</td>
+  <td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>L6 This board</td>
+  <td></td><td><div class="bar sched"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>L7 Full battery, 13 min measured</td>
+  <td></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/3</span>L8 Push, close pack, verify-close</td>
+  <td></td><td></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/21</span>L9 Overflow queue, 21 items deep</td>
+  <td></td><td></td><td></td><td><div class="bar sched"></div></td><td><div class="bar sched"></div></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td></tr>
+</tbody>
+</table>
+</div>
+<p class="key">
+  <span><i class="bar done"></i>done and evidenced</span>
+  <span><i class="bar sched"></i>scheduled, agent clock</span>
+  <span><i class="bar est"></i>estimate range</span>
+  <span><i class="bar wall"></i>wall clock, cannot compress</span>
+</p>
+
+<h2>Long range <span class="n">12 August to 30 September, re-cut under the two-clock model</span></h2>
+<p class="lede">Every window moved earlier because agent-clock work now divides by 4.44. What is left is mostly orange, and that is the finding: the code stopped being the constraint, so the schedule is now about how fast people can look at things.</p>
+<div class="scroll">
+<table class="gantt">
+<thead><tr><th class="lbl">Tranche</th><th>12 Aug</th><th>15 Aug</th><th>18 Aug</th><th>22 Aug</th><th>25 Aug</th><th>1 Sep</th><th>8 Sep</th><th>30 Sep</th></tr></thead>
+<tbody>
+<tr><td class="lbl"><span class="cnt">8/8</span>R0 v3.2.0 released and verified</td>
+  <td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">4/9</span>R1 PROVE, v3.3.0, about 6h agent clock</td>
+  <td><div class="bar done"></div></td><td><div class="bar sched"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/2</span>R1 gate: testers install cold, then Khalil cuts</td>
+  <td><div class="bar wall"></div></td><td><div class="bar wall"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/6</span>R2 TOOLKIT MVP, v3.4.0, about 10h agent clock</td>
+  <td></td><td></td><td><div class="bar sched"></div></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>R2 gate: trust decisions, one founder batch</td>
+  <td></td><td></td><td></td><td><div class="bar wall"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/5</span>R3 TRUST AND PILOT, v3.5.0, about 8h agent clock</td>
+  <td></td><td></td><td></td><td></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>R3 gate: the pilot week is a week</td>
+  <td></td><td></td><td></td><td></td><td><div class="bar wall"></div></td><td><div class="bar wall"></div></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>R4 EVIDENCE RERANK, continuous</td>
+  <td></td><td></td><td></td><td></td><td></td><td></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Decisions waiting on you <span class="n">2</span></h2>
+<div class="decks">
+  <div class="deck you">
+    <span class="tag">Blocks the week, not tonight</span>
+    <h4>Who are this week's two testers?</h4>
+    <p>The tester pack is written, checked and ready. It needs two people with machines that have never had either product, because that first hour is the number nothing in this plan currently knows.</p>
+    <p><strong>If you say nothing:</strong> the pack sits ready and the week's schedule slips by exactly as long as it waits. Nothing else is blocked.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Blocks Friday</span>
+    <h4>Does v3.3.0 cut on Friday 15 August?</h4>
+    <p>A release is a founder gate and always has been. The code for R1 is about six hours of agent clock and will be ready well before Friday.</p>
+    <p><strong>If you say nothing:</strong> nothing is cut. The work lands on main, tested and green, and waits. I will not tag without you.</p>
+  </div>
+</div>
+
+<h2>Risk management, insights and alerts <span class="n">4</span></h2>
+
+<div class="alert">
+  <h4>The first cold install has never been measured</h4>
+  <dl>
+    <dt>What</dt><dd>Neither product has ever been installed on a machine that did not already have it. The tags were verified to exist and match their remotes, and the local install is healthy, but <code>claude plugin marketplace add</code> against a clean machine is unproven.</dd>
+    <dt>Why</dt><dd>Every date in the week and long range rests on the tester loop starting Tuesday. If the first install fails, the whole week moves, and it moves in wall clock, which never catches up.</dd>
+    <dt>Action</dt><dd>Name two testers and send them the pack.</dd>
+    <dt>When</dt><dd>Tuesday morning. Every day it waits moves R1 by a day.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>The calibration is real but thin at n=4</h4>
+  <dl>
+    <dt>What</dt><dd>The 4.44x multiplier comes from four measured pairs. The spread is unusually tight, 3.75 to 5.33, which is reassuring, but four is four.</dd>
+    <dt>Why</dt><dd>A multiplier trusted too early is the same mistake as the guess it replaced, just with a decimal point. The tool refuses to speak below three pairs on purpose, but three is a floor, not a comfort.</dd>
+    <dt>Action</dt><dd>Nothing from you. Every loop from now records its forecast and its actual, so n grows on its own. Watch the number on this board rather than the estimates.</dd>
+    <dt>When</dt><dd>Revisit at the Monday review, when n should be past ten.</dd>
+  </dl>
+</div>
+
+<div class="alert info">
+  <h4>Another session was working this repository at the same time</h4>
+  <dl>
+    <dt>What</dt><dd>Between 01:21 and 01:44 a second session committed five times to main, landing four design documents. No collision: it touched no file any of my four fences covered.</dd>
+    <dt>Why</dt><dd>It is worth knowing because it worked straight off the queue file written at 01:25, which is the queue doing its job before the tool that reads it was even finished. It also means the machine ran two lanes tonight, not one.</dd>
+    <dt>Action</dt><dd>Nothing. The queue has been reconciled so finished items no longer count as depth.</dd>
+    <dt>When</dt><dd>Done at 01:50.</dd>
+  </dl>
+</div>
+
+<div class="alert good">
+  <h4>The queue can no longer quietly run dry</h4>
+  <dl>
+    <dt>What</dt><dd>Depth is 21 startable items against a floor of 5, and two founder-gated items are excluded from the count by design.</dd>
+    <dt>Why</dt><dd>Last night's plan had thirteen tasks, finished them in ninety minutes, and had nothing behind them. A blocked item cannot rescue a night, so the check refuses to count one.</dd>
+    <dt>Action</dt><dd>Nothing. It is mechanical now.</dd>
+    <dt>When</dt><dd>Live since 01:40.</dd>
+  </dl>
+</div>
+
+<h2>The ledger <span class="n">every box carries its proof</span></h2>
+
+<div class="phase">
+<h3>Phase 1: the plan itself <span class="chip">2/2</span></h3>
+<ul class="ledger">
+<li class="tick"><span class="t">The three-horizon replan exists, built on a two-clock model rather than an apology</span>
+<span class="ev">docs/plan/PLAN-2026-08-12-AGGRESSIVE.md, 216 lines, committed in the range 507ca05..317564f</span></li>
+<li class="tick"><span class="t">The queue is machine-readable, ordered, and every item is independently startable</span>
+<span class="ev">$ python3 tools/bm_idle.py depth --queue docs/plan/QUEUE.json
+DEPTH 21 min_depth=5 blocked=2 in_flight=0 done=8</span></li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Phase 2: forecasting, made mechanical <span class="chip">4/4</span></h3>
+<ul class="ledger">
+<li class="tick"><span class="t">The tool exists and its own suite passes</span>
+<span class="ev">$ python3 tools/test_bm_forecast.py
+Ran 18 tests in 4.263s
+OK</span></li>
+<li class="tick"><span class="t">It refuses to invent a multiplier below three pairs, at n=0, n=1 and n=2</span>
+<span class="ev">$ python3 tools/bm_forecast.py apply --likely-minutes 60 --log EMPTY
+NO-DATA: 0 usable pairs for clock=any basis=any, need 3   (exit 2, no number printed)
+$ ... after two pairs
+NO-DATA: 2 usable pairs for clock=any basis=any, need 3   (exit 2, no number printed)</span></li>
+<li class="tick"><span class="t">Calibrated from four real measured pairs, two historic and two from tonight</span>
+<span class="ev">$ python3 tools/bm_forecast.py calibrate --clock agent --basis judged
+CALIBRATED clock=agent basis=judged n=4 median=4.44 min=3.75 max=5.33</span></li>
+<li class="tick"><span class="t">A judged estimate can now be corrected instead of trusted</span>
+<span class="ev">$ python3 tools/bm_forecast.py apply --likely-minutes 60 --clock agent --basis judged
+CALIBRATED-ESTIMATE input=60.0 likely=13.5 low=11.2 high=16.0 basis=judged clock=agent n=4</span></li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Phase 3: the idle check <span class="chip">4/4</span></h3>
+<ul class="ledger">
+<li class="tick"><span class="t">The tool exists and its own suite passes</span>
+<span class="ev">$ python3 tools/test_bm_idle.py
+Ran 16 tests in 0.556s
+OK</span></li>
+<li class="tick"><span class="t">A queue of nothing but founder-gated items reports empty rather than healthy</span>
+<span class="ev">$ python3 tools/bm_idle.py check --queue all-blocked.json
+QUEUE-EMPTY: 0 items queued, the machine has nothing to start (6 blocked, not counted)   exit=1</span></li>
+<li class="tick"><span class="t">A stalled unattended night is caught, and an attended one is not accused</span>
+<span class="ev">$ ... window open, nothing touched for hours
+IDLE: depth 3 but no watched path changed in 25 minutes        exit=1
+$ ... same fixture, unattended false
+OK: depth 3, attended session                                   exit=0</span></li>
+<li class="tick"><span class="t">A broken queue file reads as could-not-tell, never as a pass</span>
+<span class="ev">$ python3 tools/bm_idle.py check --queue bad.json
+NO-DATA: item X has an unknown state: almost-done               exit=2</span></li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Phase 4: both tools wired into the delivery process <span class="chip">4/4</span></h3>
+<ul class="ledger">
+<li class="tick"><span class="t">Both suites are in the local gate and in CI, checked against each other</span>
+<span class="ev">in SUITES, missing from CI: []
+new tools present in CI: True True</span></li>
+<li class="tick"><span class="t">Every command declares an effect class, and the purity suite agrees</span>
+<span class="ev">$ python3 tools/test_bm_effects.py
+Ran 10 tests in 8.571s
+OK</span></li>
+<li class="tick"><span class="t">The reviewed write inventory caught the new writer, and was reviewed line by line</span>
+<span class="ev">$ python3 -m unittest tools.test_bm.TestPreWriteGate.test_no_unreviewed_write_sites
+Ran 1 test in 0.131s
+OK      (bm_forecast.py 39 sites, exactly 2 of them real file writes; bm_idle.py 5, none)</span></li>
+<li class="tick"><span class="t">The gate caught my own evidence file for a missing status line, and I fixed it rather than exempting it</span>
+<span class="ev">FAILED: dated document(s) that declare no status in the first 25 lines:
+docs/evidence/tester-pack/CHECKED-2026-08-12.md</span></li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Phase 5: the tester package <span class="chip">3/3</span></h3>
+<ul class="ledger">
+<li class="tick"><span class="t">Both released tags exist and match their remotes</span>
+<span class="ev">960bd4f83c574298d45ab27aff6bfb275a964192  refs/tags/v3.2.0   (BrotherMode)
+c48ac46b33e413c797786ceb67bcfe8e062bca8b  refs/tags/v3.1.0   (BrotherSBE)</span></li>
+<li class="tick"><span class="t">The install verifies itself and all eleven health checks pass</span>
+<span class="ev">verify-install: 853 file(s) match, 0 mismatched, 0 missing, 0 wrong type, 0 extra
+11 of 11 proven, 0 skipped, 0 failed.</span></li>
+<li class="tick"><span class="t">Two real defects found in the install card and fixed, not noted for later</span>
+<span class="ev">it told every tester to run BrotherSBE v3.0.0, superseded by v3.1.0
+it named two versions and gave install commands for only one of them</span></li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Phase 6: close the night <span class="chip">0/3</span></h3>
+<ul class="ledger">
+<li class="open"><span class="t">Full battery green at the final tree</span>
+<span class="ev">check: python3 tools/test_all.py   (13 minutes measured, exit 0 required)</span></li>
+<li class="open"><span class="t">Manifest regenerated after the last tracked edit, doctor check 9 green</span>
+<span class="ev">check: sh scripts/checksums.sh CHECKSUMS.sha256 then python3 scripts/doctor.py</span></li>
+<li class="open"><span class="t">Close pack written and passing its own verifier</span>
+<span class="ev">check: python3 tools/bm_handover.py verify-close --pack docs/handover/2026-08-12-aggressive-replan</span></li>
+</ul>
+</div>
+
+<h2>Decisions recorded <span class="n">3</span></h2>
+<div class="decks">
+  <div class="deck done">
+    <span class="tag">Taken 01:30</span>
+    <h4>Forecasts get a calibration tool, not a better guess</h4>
+    <p>Rejected: writing a stricter rule into the skill file. Rejected because this project's own founding law is that a rule in a prompt is not a control. A prose rule is exactly what failed last night.</p>
+    <p><strong>Would flip it:</strong> if the calibration stays below n=10 for two weeks, the sample is too thin to be worth the machinery and the honest move is to say so.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Taken 01:32</span>
+    <h4>The idle check is pure_read and has no mutating verb</h4>
+    <p>Rejected: giving it a <code>mark</code> command to update queue states. Rejected because a tool that writes must enter the reviewed write inventory, and the gain was convenience only.</p>
+    <p><strong>Would flip it:</strong> if editing the queue by hand turns out to be the reason states go stale.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Taken 01:38</span>
+    <h4>The tester pack skips the humanizer pass</h4>
+    <p>It is an operational runbook whose register must match the team docs beside it, not standalone founder prose. Recorded here because deciding not to do a standing step is itself a decision.</p>
+    <p><strong>Would flip it:</strong> a tester saying it reads like a machine wrote it.</p>
+  </div>
+</div>
+
+<footer>
+  <p class="contract">The tick contract: a box ticks only when its done-check ran after the last edit and that output is quoted beside it. Percentages are counts of records, never impressions. An unticked box means the check has not run, not that the work feels incomplete.</p>
+  <p>Refreshed 2026-08-12 01:52 JST by session 4538d5df. Derived from docs/plan/PLAN-2026-08-12-AGGRESSIVE.md and docs/plan/QUEUE.json. Tree at 317564f plus uncommitted work from this session.</p>
+</footer>
+
+</div>
+</body>
+</html>

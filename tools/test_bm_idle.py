@@ -1,0 +1,361 @@
+#!/usr/bin/env python3
+"""Regression tests for tools/bm_idle.py, the mechanical detector for the
+2026-08-11 planning defect: a plan whose completion leaves the machine idle
+is not finished being written. This suite proves the load-bearing rule
+(blocked items never count toward depth, because a blocked item cannot save
+a night), the four verdict-precedence gates of `check`, and that the tool
+never mistakes a crash for a pass.
+
+Every fixture is a tempfile.TemporaryDirectory(), never the real
+docs/plan/QUEUE.json. Clocks are fixed epoch integers passed via --now so no
+test depends on how fast the machine runs.
+
+Standard library only. Run: python3 tools/test_bm_idle.py
+"""
+import datetime
+import io
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+TOOL_PATH = os.path.join(HERE, "bm_idle.py")
+
+#: Fixed epoch instants. NOW is the reference "current" instant used by the
+#: check() fixtures below; HARD_STOP sits an hour after it so tests 7 to 9
+#: (which pass --now NOW) never trip the WINDOW-CLOSED gate by accident, and
+#: test 10 moves --now past HARD_STOP on purpose to trip it.
+NOW = 1755000000
+HARD_STOP = NOW + 3600
+RECENT_FILE = NOW - 60          # 1 minute before NOW: inside a 25 minute window
+STALE_FILE = NOW - 3600         # 60 minutes before NOW: outside a 25 minute window
+
+
+def iso(epoch):
+    return datetime.datetime.fromtimestamp(
+        epoch, tz=datetime.timezone.utc).isoformat()
+
+
+def run_cli(*args):
+    """Invoke the CLI as a real subprocess, with BROTHERMODE_ROOT scrubbed so
+    a variable set on the developer's own machine can never leak into a test
+    that expects an explicit --root to decide the outcome."""
+    env = dict(os.environ)
+    env.pop("BROTHERMODE_ROOT", None)
+    return subprocess.run(
+        [sys.executable, TOOL_PATH] + list(args),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        universal_newlines=True, cwd=ROOT, env=env)
+
+
+def write_queue(directory, obj, name="QUEUE.json"):
+    path = os.path.join(directory, name)
+    with io.open(path, "w", encoding="utf-8") as handle:
+        json.dump(obj, handle)
+    return path
+
+
+def write_text(directory, relpath, content="placeholder\n"):
+    path = os.path.join(directory, relpath)
+    parent = os.path.dirname(path)
+    if parent and not os.path.isdir(parent):
+        os.makedirs(parent)
+    with io.open(path, "w", encoding="utf-8") as handle:
+        handle.write(content)
+    return path
+
+
+def stamp(path, mtime):
+    os.utime(path, (mtime, mtime))
+
+
+def item(item_id, state, title=None, done_check=""):
+    return {
+        "id": item_id,
+        "title": title or ("title of %s" % item_id),
+        "state": state,
+        "done_check": done_check,
+    }
+
+
+def build_check_queue(min_depth=1, hard_stop_epoch=HARD_STOP,
+                       unattended=True, idle_window_minutes=25,
+                       watch_paths=("watched",), extra_items=None,
+                       with_window=True):
+    """A queue healthy enough to reach the window/idle gates of check():
+    two queued items, min_depth satisfied. Used by tests 7 to 10, which
+    each vary exactly one axis (recent vs stale file, attended vs not,
+    now vs hard stop) so a failure points at the one gate that broke."""
+    items = [item("Q1", "queued"), item("Q2", "queued")]
+    if extra_items:
+        items.extend(extra_items)
+    data = {
+        "schema": 1,
+        "min_depth": min_depth,
+        "idle_window_minutes": idle_window_minutes,
+        "watch_paths": list(watch_paths),
+        "items": items,
+    }
+    if with_window:
+        data["window"] = {
+            "hard_stop": iso(hard_stop_epoch),
+            "unattended": unattended,
+        }
+    return data
+
+
+class DepthTests(unittest.TestCase):
+    """Test 1: depth counts only 'queued'; blocked is excluded on purpose."""
+
+    def test_depth_counts_only_queued_and_excludes_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = {
+                "schema": 1,
+                "min_depth": 1,
+                "items": [
+                    item("Q1", "queued"), item("Q2", "queued"),
+                    item("Q3", "queued"),
+                    item("B1", "blocked"), item("B2", "blocked"),
+                ],
+            }
+            queue = write_queue(tmp, data)
+            result = run_cli("depth", "--queue", queue, "--root", tmp)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("DEPTH 3", result.stdout)
+        self.assertIn("blocked=2", result.stdout)
+
+
+class NoDataTests(unittest.TestCase):
+    """Tests 2, 3, 4: the file cannot be used, so the verdict is NEVER a
+    pass, no matter which verb was asked for."""
+
+    def test_unknown_state_value_is_no_data_and_names_the_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = {
+                "schema": 1,
+                "min_depth": 1,
+                "items": [item("X9", "weird")],
+            }
+            queue = write_queue(tmp, data)
+            result = run_cli("check", "--queue", queue, "--root", tmp)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertTrue(result.stdout.startswith("NO-DATA:"))
+        self.assertIn("X9", result.stdout)
+        self.assertIn("weird", result.stdout)
+
+    def test_missing_queue_file_is_no_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bogus = os.path.join(tmp, "does-not-exist.json")
+            result = run_cli("check", "--queue", bogus, "--root", tmp)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertTrue(result.stdout.startswith("NO-DATA:"))
+
+    def test_invalid_json_is_no_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = write_text(tmp, "QUEUE.json", "{ not json at all")
+            result = run_cli("check", "--queue", queue, "--root", tmp)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertTrue(result.stdout.startswith("NO-DATA:"))
+
+
+class QueueEmptyAndDepthLowTests(unittest.TestCase):
+    """Tests 5 and 6: the two exit-1 verdicts reachable before any window
+    logic runs. Test 5 in particular proves blocked items cannot rescue
+    depth back above zero."""
+
+    def test_zero_queued_is_queue_empty_even_with_several_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = {
+                "schema": 1,
+                "min_depth": 1,
+                "items": [
+                    item("B1", "blocked"), item("B2", "blocked"),
+                    item("B3", "blocked"), item("D1", "done"),
+                ],
+            }
+            queue = write_queue(tmp, data)
+            result = run_cli("check", "--queue", queue, "--root", tmp)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertTrue(result.stdout.startswith("QUEUE-EMPTY:"))
+        self.assertIn("3", result.stdout)  # blocked count named
+
+    def test_depth_below_min_depth_is_depth_low(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = {
+                "schema": 1,
+                "min_depth": 5,
+                "items": [item("Q1", "queued"), item("Q2", "queued"),
+                          item("Q3", "queued")],
+            }
+            queue = write_queue(tmp, data)
+            result = run_cli("check", "--queue", queue, "--root", tmp)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertTrue(result.stdout.startswith("DEPTH-LOW:"))
+        self.assertIn("3", result.stdout)
+        self.assertIn("5", result.stdout)
+
+
+class WindowAndIdleTests(unittest.TestCase):
+    """Tests 7 to 10: the window/idle gates, each isolating one axis at a
+    time against the shared build_check_queue() fixture."""
+
+    def test_ok_when_healthy_depth_and_file_touched_just_now(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            watched = write_text(tmp, "watched/note.txt")
+            stamp(watched, RECENT_FILE)
+            data = build_check_queue()
+            queue = write_queue(tmp, data)
+            result = run_cli("check", "--queue", queue, "--root", tmp,
+                              "--now", iso(NOW))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(result.stdout.startswith("OK:"),
+                         result.stdout)
+
+    def test_idle_when_healthy_depth_but_every_watched_file_is_stale(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            watched = write_text(tmp, "watched/note.txt")
+            stamp(watched, STALE_FILE)
+            data = build_check_queue(unattended=True)
+            queue = write_queue(tmp, data)
+            result = run_cli("check", "--queue", queue, "--root", tmp,
+                              "--now", iso(NOW))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertTrue(result.stdout.startswith("IDLE:"), result.stdout)
+
+    def test_attended_session_is_not_accused_of_idling(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            watched = write_text(tmp, "watched/note.txt")
+            stamp(watched, STALE_FILE)
+            data = build_check_queue(unattended=False)
+            queue = write_queue(tmp, data)
+            result = run_cli("check", "--queue", queue, "--root", tmp,
+                              "--now", iso(NOW))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(result.stdout.startswith("OK:"), result.stdout)
+
+    def test_window_closed_wins_over_idle_once_hard_stop_has_passed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            watched = write_text(tmp, "watched/note.txt")
+            stamp(watched, STALE_FILE)
+            data = build_check_queue(unattended=True)
+            queue = write_queue(tmp, data)
+            result = run_cli("check", "--queue", queue, "--root", tmp,
+                              "--now", iso(HARD_STOP + 10))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(result.stdout.startswith("WINDOW-CLOSED:"),
+                         result.stdout)
+
+
+class NextTests(unittest.TestCase):
+    """Tests 11 and 12: array-order selection and the all-done failure."""
+
+    def test_next_returns_first_queued_in_array_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = {
+                "schema": 1,
+                "min_depth": 1,
+                "items": [
+                    item("D1", "done", title="already finished"),
+                    item("Q1", "queued", title="first queued",
+                         done_check="python3 tools/test_x.py"),
+                    item("Q2", "queued", title="second queued"),
+                ],
+            }
+            queue = write_queue(tmp, data)
+            result = run_cli("next", "--queue", queue, "--root", tmp)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Q1", result.stdout.splitlines()[0])
+        self.assertNotIn("Q2", result.stdout.splitlines()[0])
+        self.assertIn("python3 tools/test_x.py", result.stdout)
+
+    def test_next_on_all_done_queue_is_no_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = {
+                "schema": 1,
+                "min_depth": 1,
+                "items": [item("D1", "done"), item("D2", "done")],
+            }
+            queue = write_queue(tmp, data)
+            result = run_cli("next", "--queue", queue, "--root", tmp)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertTrue(result.stdout.startswith("NO-DATA:"))
+        self.assertIn("nothing queued", result.stdout)
+
+
+class MissingWatchPathTests(unittest.TestCase):
+    """Test 13: a watch_paths entry that does not exist on disk is skipped
+    and named, never a crash."""
+
+    def test_missing_watch_path_is_skipped_and_named_not_a_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = build_check_queue(watch_paths=("does-not-exist",))
+            queue = write_queue(tmp, data)
+            result = run_cli("check", "--queue", queue, "--root", tmp,
+                              "--now", iso(NOW))
+        self.assertIn(result.returncode, (0, 1),
+                      "a missing watch path must never crash the tool: "
+                      + result.stdout + result.stderr)
+        self.assertIn("does-not-exist", result.stdout)
+
+
+class ListTests(unittest.TestCase):
+    """`list` verb: one line per item in array order, plus an empty-items
+    NO-DATA case that the other verbs do not share."""
+
+    def test_list_prints_one_line_per_item_in_array_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = {
+                "schema": 1,
+                "min_depth": 1,
+                "items": [item("Q1", "queued"), item("D1", "done")],
+            }
+            queue = write_queue(tmp, data)
+            result = run_cli("list", "--queue", queue, "--root", tmp)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertTrue(lines[0].startswith("queued Q1"), lines)
+        self.assertTrue(lines[1].startswith("done D1"), lines)
+
+    def test_empty_items_list_is_no_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = {"schema": 1, "min_depth": 1, "items": []}
+            queue = write_queue(tmp, data)
+            result = run_cli("list", "--queue", queue, "--root", tmp)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertTrue(result.stdout.startswith("NO-DATA:"))
+
+
+class PurityTests(unittest.TestCase):
+    """EFFECT CLASS pure_read is a hard requirement: the tool must write
+    NOTHING, ever, regardless of verdict or verb."""
+
+    def test_tree_is_byte_for_byte_unchanged_after_a_check_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            watched = write_text(tmp, "watched/note.txt")
+            stamp(watched, RECENT_FILE)
+            data = build_check_queue()
+            queue = write_queue(tmp, data)
+
+            def snapshot():
+                out = {}
+                for dirpath, dirnames, filenames in os.walk(tmp):
+                    dirnames.sort()
+                    for name in sorted(filenames):
+                        path = os.path.join(dirpath, name)
+                        out[os.path.relpath(path, tmp)] = os.path.getmtime(path)
+                return out
+
+            before = snapshot()
+            run_cli("check", "--queue", queue, "--root", tmp, "--now", iso(NOW))
+            after = snapshot()
+        self.assertEqual(before, after,
+                         "bm_idle.py changed the tree it inspected; this "
+                         "tool must be provably read-only")
+
+
+if __name__ == "__main__":
+    unittest.main()

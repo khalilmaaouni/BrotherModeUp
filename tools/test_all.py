@@ -186,6 +186,29 @@ SUITES = (
     # APOSTROPHE ANYWHERE IN THIS COMMENT, ON PURPOSE (see the file-level note
     # above).
     "test_bm_progress_check.py",
+    # The forecast calibration and closure check, added 2026-08-12 on a founder
+    # directive after every judgement-derived estimate in one night was wrong by
+    # four to five times in the SAME direction while the one estimate derived
+    # from a measured run was accurate. Nothing recorded forecast against
+    # actual, so the bias survived four estimates and would have survived
+    # forever. tools/bm_forecast.py records both, computes the correction from
+    # real history, and REFUSES to invent one below three usable pairs. This
+    # suite holds that refusal: the NO-DATA path at zero, one and two pairs is
+    # the load bearing behavior, because a tool that guesses a multiplier is
+    # worse than no tool at all. NO APOSTROPHE ANYWHERE IN THIS COMMENT, ON
+    # PURPOSE (see the file-level note above).
+    "test_bm_forecast.py",
+    # The idle and queue-depth check, added 2026-08-12 alongside the forecast
+    # suite above and for the same night. A plan of thirteen tasks finished in
+    # ninety minutes with nothing queued behind it, so an unattended night would
+    # have produced nothing for six of its eight hours. tools/bm_idle.py reads
+    # docs/plan/QUEUE.json and answers whether the machine is about to sit
+    # still. Its load bearing rule, held by this suite, is that a BLOCKED item
+    # never counts toward depth: an item nobody can start cannot rescue a night,
+    # and counting it would turn the check into exactly the false reassurance it
+    # exists to remove. Like the progress check above it is pure_read and its
+    # suite asserts that. NO APOSTROPHE ANYWHERE IN THIS COMMENT, ON PURPOSE.
+    "test_bm_idle.py",
     # The effect-class registry and its purity tests, added 2026-08-10. Every
     # public command declares one of five effect classes, and a command absent
     # from the registry is an error rather than a default, so a new command
