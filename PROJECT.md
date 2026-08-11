@@ -9,6 +9,10 @@ then record the answer here so it is never hunted again.
 - Repo remote: origin https://github.com/khalilmaaouni/BrotherModeUp.git (verified with git remote -v, 2026-08-10)
 - Published artifact URL: https://claude.ai/code/artifact/784c3ecc-e81d-45e1-af6e-b35c2127ebc0 (the progress page stable link, founder confirmed 2026-08-10)
 - Vault space: /Users/khalil.maaouni/Documents/Kay Vault/10-Projects/brothermode
+- Codex port spec (third-party, deliberately outside this public repo):
+  /Users/khalil.maaouni/Documents/ChatGPT/BrotherModeUp/CODEX_PORT_AND_HYBRID_HARNESS_IMPLEMENTATION_SPEC.md
+  The Lane CX documents in docs/program/codex-port/ cite it by filename only,
+  which is why the path is recorded here (2026-08-11).
 
 ## Key commands
 
