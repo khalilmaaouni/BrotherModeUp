@@ -9,26 +9,37 @@
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-P0. Finish the ecosystem comparison page (lane 2, fence 00b46883 open). The
-research file is docs/evidence/ecosystem/RESEARCH-2026-08-11.md when it lands.
-Founder decisions already ratified: it lives at docs/ECOSYSTEM.md linked from
-the README top, it names each competitor's win over BrotherMode explicitly, and
-a weekly scheduled agent keeps it fresh. Do not soften the honesty setting; it
-is the reason the page would be cited at all. EFFORT: half a day, MEDIUM-HIGH.
+The full ranking with reasoning is docs/plan/ROADMAP-RANKED-2026-08-11.md.
+Read its closing section first: two of its eleven items were not real, so check
+before you build.
 
-P1. SD2 sentinel, resumed from branch wip/sd2-sentinel-2026-08-11-stopped-
-session rather than restarted. 1145 insertions already exist. Founder decision
-needed first: resume or discard. EFFORT: 1 to 2 days from that branch,
-MEDIUM confidence.
+P0. FOUNDER DECISION, then act: resume SD2 from branch
+wip/sd2-sentinel-2026-08-11-stopped-session (1618 insertions preserved) or
+discard it. Everything about unattended autonomy waits behind this, because
+ratified decision 27 forbids unattended stretches until the stall sentinel
+proves itself, and the ceremony's opening half cannot be wired while that
+branch's claims are live. EFFORT from the branch: 1 to 2 days, MEDIUM.
 
-P2. Wire the ceremony's start half into the session-start hook, which needs
-tools/bm_sessionstart.sh and hooks/hooks.json, both free once SD2 resolves.
-EFFORT: half a day, MEDIUM-HIGH.
+P1. The ceremony's opening half, wired into the session-start hook, so a
+successor that forgets to check what a predecessor left gets a refusal rather
+than silence. Blocked only by P0. EFFORT: half a day, MEDIUM-HIGH.
 
-P3. BrotherSBE Loop 4, the four user journeys, which the predecessor named as
-its next real lane. Untouched today by the founder's own ordering.
+P2. The small reader over the views table answering the first two adoption
+thresholds, and reporting NOT DECIDABLE for the two that are not measurable.
+Much smaller than originally planned. EFFORT: a few hours, HIGH.
 
-STANDING RULES for every loop: fences first, RED first, quoted green after the
-last edit, no tracked edit while a gate runs, the board republished at every
+P3. Adoption L2, the largest behavioural change: a person's first contact is a
+finished page about their own work rather than a setup flow. Honour its kill
+criterion: if the page says nothing its owner did not already know, it dies.
+EFFORT: 1 to 2 days, MEDIUM.
+
+P4. The benchmark. It is the only item that closes the external proof gap, and
+that gap has been open for weeks. EFFORT: as ratified, MEDIUM-LOW confidence.
+
+Then: the generated command centre, the graph work, the Codex port. The last
+two dropped in the ranking and both departures carry flip conditions.
+
+STANDING RULES: fences first, RED first, quoted green after the last edit, no
+tracked edit while a gate runs, the board republished and DELIVERED at every
 close, and the refute step on anything whose failure would be silent.
 <!-- bm-human:end -->

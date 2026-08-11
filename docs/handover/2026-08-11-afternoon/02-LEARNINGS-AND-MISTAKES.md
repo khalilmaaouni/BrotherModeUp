@@ -8,31 +8,45 @@ No structural facts are generated for this page; the store has no concept of a m
 
 <!-- bm-human:begin -->
 THE LESSON OF THE DAY, paid for twice: a green suite proves the tests pass,
-never that the tool works. bm_handover.py had 13 passing tests and sixteen
-real defects, eight of them false passes, because the same agent wrote the
-tool and its tests and they shared one blind spot. One cheap adversarial
-dispatch found what the suite could not. The refute step is not ceremony.
+never that the tool works. The ceremony tool had 13 passing tests and sixteen
+real defects, eight of them false passes, because the same agent wrote the tool
+and its tests and they shared one blind spot. One cheap adversarial dispatch
+found what the suite could not.
 
-SECOND LESSON, same shape, smaller: a test that passes on its FIRST run
+THE SECOND LESSON, which cost less and will save more: CHECK WHETHER A THING
+EXISTS BEFORE BUILDING IT. Two roadmap items were already built. The one called
+"blocks everything else" was satisfied by the renderer already; verified on a
+file it actually wrote. The measurement item was planned as a counter, and the
+store already records every page render. Both found in minutes, both would have
+cost days.
+
+THE THIRD, subtle and worth keeping: a test that passes on its FIRST run
 against a defect you have already proven means the FIXTURE is wrong, not that
-the bug is gone. My first privacy test passed because its fixture contained an
-absolute path that the write funnel masks for an unrelated reason. Recalibrated
-to a plain hand-typed value, it went red immediately. The fix builder hit the
-identical trap on five of its own tests and caught it the same way.
+the bug is gone. Hit twice today, once by me and once by the fix builder, and
+caught both times by running the new test against the unfixed code.
 
 MISTAKES, mine, named:
-1. My commit 6be2b47 made main red for BOTH live sessions: four new verbs, none
-   declared in the effects registry. The other session found it and said so.
-   I reproduced it myself before accepting the claim, which is the only reason
-   the fix was right rather than fast.
-2. My first write to the reviewed write-sites manifest reformatted the whole
-   file (46 insertions for a one-line change). Reverted, redone surgically.
-3. I dispatched a research agent that spawned four sub-agents and ended its
-   turn twice without collecting them. Wasted time, no deliverable. A parent
-   that fans out and then stops is the same failure as a session that dies
-   without a handover, which is precisely what this ceremony exists to fix.
+1. My commit made main red for BOTH live sessions: four new verbs undeclared in
+   the effects registry. The other session found it. I reproduced it myself
+   before accepting the claim, which is the only reason the fix was right.
+2. I quoted a disk figure four times before checking which volume it measured.
+3. I called caches safe to clear before verifying they were regenerable.
+4. I told the founder I was blocked at 14 GiB when the battery had run fine at
+   16. Overclaiming a blocker is still overclaiming.
+5. My first write to a reviewed manifest reformatted the whole file for a
+   one-line change. Reverted, redone surgically.
+6. I briefed a builder to edit the wrong file, and only its refusal to guess
+   past its fence stopped the wrong work from happening.
+Three of these were caught by the drift checker rather than by me. That is
+worth knowing when judging how much to trust a status line from this session.
 
-WHAT WENT BEST, kept as practice: every subagent claim was verified by the
-orchestrator's own hand before it was believed, and that check caught a real
-privacy leak, a real registry break, and a reformatted file.
+WHAT WENT BEST, kept as practice:
+- Every subagent claim was verified by the orchestrator's own hand before being
+  believed. That caught a real privacy leak, a registry break, and a
+  reformatted file.
+- The ceremony refused its own author twice on its first real close, naming
+  three live locks by id. Exactly the false-pass class the review had repaired
+  that morning.
+- A key-shaped test fixture was caught by the push secret scan before reaching
+  a public repository, and de-keyed with the reason written beside the code.
 <!-- bm-human:end -->
