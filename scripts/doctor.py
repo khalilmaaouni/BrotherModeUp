@@ -501,6 +501,7 @@ CHECK_TITLES = collections.OrderedDict((
     ("mode_wiring", "hook wiring matches installation_mode"),
     ("checksums", "CHECKSUMS.sha256 self-check"),
     ("settings_json", "settings.json is valid JSON"),
+    ("data_locations", "where your data lives, in plain language"),
 ))
 
 
@@ -648,6 +649,51 @@ def check_vault(root):
                        % (_mask_home(vault_path), _mask_home(vault_path)))
     return _result("vault", STATUS_PASS,
                    "PASS: the vault at %s exists and is writable." % _mask_home(vault_path))
+
+
+def check_data_locations():
+    """V3 Final B2. Answers "where does my data live" without a founder
+    having to read an uninstaller to find out.
+
+    It is PASS always and by design, because it reports rather than judges:
+    there is no failing state for "your data is in these places". It is here
+    because a product that markets trust owes a plain answer to that
+    question in the same tool a user already runs, not buried in the
+    removal path.
+
+    The list is IMPORTED from scripts/uninstall.py rather than retyped, so
+    the page that tells you where your data is and the script that acts on
+    it can never disagree. It deletes nothing and reads nothing but the
+    environment.
+
+    The import is LAZY and inside this function on purpose. doctor.py is
+    copied next to setup.py alone for install rehearsals, and a module-level
+    import of a third script would crash the whole tool in that shape rather
+    than costing it one check. Where the shared definition genuinely cannot
+    be read, this check SKIPS and names why. It must never answer from a
+    second copy of the list held here: two copies is the drift importing it
+    was meant to prevent, and a stale answer to "where is my data" is worse
+    than an honest refusal to answer."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import uninstall as _uninstall
+    except ImportError as exc:
+        return _result(
+            "data_locations", STATUS_SKIP,
+            "SKIP: scripts/uninstall.py is not beside this file, and it "
+            "holds the one list of where your data lives (%s). Run this "
+            "from a full checkout to get the answer." % exc)
+    finally:
+        sys.path.pop(0)
+    # Mask the vault path BEFORE it is interpolated into a sentence.
+    # _mask_home works on a path, not on prose that happens to contain one,
+    # so masking the finished line leaves the home directory in the output
+    # while every other line in this tool has it hidden.
+    vault = os.environ.get("BROTHERMODE_VAULT")
+    lines = _uninstall.data_locations(_mask_home(vault) if vault else None)
+    return _result("data_locations", STATUS_PASS,
+                   "PASS: your data lives in these places, and nothing here "
+                   "touched any of them:\n    - %s" % "\n    - ".join(lines))
 
 
 def _plugin_name(root):
@@ -938,6 +984,7 @@ def run_all_checks(settings_path):
                    settings_for_scan, settings_err, settings_path, root),
         _run_check("checksums", check_checksums, root),
         _run_check("settings_json", check_settings_json, settings_path),
+        _run_check("data_locations", check_data_locations),
     ]
 
 

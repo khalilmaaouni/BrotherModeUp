@@ -236,7 +236,7 @@ install at the same time:
 python3 ~/.claude/skills/brothermode/scripts/doctor.py
 ```
 
-Doctor runs ten checks, each printing PASS, FAIL with a one-sentence fix, or
+Doctor runs eleven checks, each printing PASS, FAIL with a one-sentence fix, or
 SKIP with the reason nothing could be checked yet (SKIP is not a failure).
 Add `--json` instead of reading the plain text if a script needs to consume
 the result.
