@@ -177,9 +177,7 @@ section > .sub { color: var(--bm-muted); font-size: 13px; margin-bottom: 10px; }
 <header>
   <span class="eyebrow">BrotherMode Command Center</span>
   <h1>From intent to a verified, review-ready deliverable</h1>
-  <p class="stamp">Interim hand-kept page under the tick contract, absorbed by the generated PROJECT-VIEW at Loop CC step S7, then deleted (decision D-1).
-  Stamp: session <code>bm1-f4c8f68d1ce30dd72faab418</code>, <code>main</code> at <code>e50afbf</code>, loop-close refresh 2026-08-11 morning, v3.1.0 TAGGED.
-  Plan: <code>docs/plan/PROGRAM-PLAN-2026-08-10.md</code> as amended by <code>docs/plan/PROGRAM-PLAN-2026-08-11-RATIFIED.md</code></p>
+  <p class="stamp">Refreshed 2026-08-11 morning by session <code>bm1-f4c8f68d</code>, <code>main</code> at <code>3efb616</code>, v3.1.0 tagged. A box ticks only when its check ran after the last edit and its output is quoted beside it. Everything cut for length is kept in full at the foot.</p>
 </header>
 
 <section class="northstar">
@@ -192,7 +190,8 @@ section > .sub { color: var(--bm-muted); font-size: 13px; margin-bottom: 10px; }
   <div class="band changed">
     <h3>Since you last looked</h3>
     <ul>
-      <li>v3.1.0 IS TAGGED AND PUSHED: gate "test_all: 2966 tests across 31 suites, 5 skipped, 516.3s wall. ALL GREEN" exit 0 on the tagged commit e50afbf; HEAD equals upstream equals e50afbf; the tag resolves at origin; verify-install PASSED, 749 match, 0 extra</li>
+      <li>v3.1.0 IS TAGGED AND PUSHED. Gate ALL GREEN on the tagged commit, tag confirmed at origin, install check passed. <a href="#history">Full evidence at the foot</a></li>
+      <li>The gate now writes its own receipt, and a forbidden commit message dies at commit time. First two self-learning fixes, landed at 3efb616</li>
       <li>Thirty founder decisions ratified through the question windows and recorded with flip conditions: docs/decisions/RATIFIED-2026-08-11-morning.md</li>
       <li>Registry cleanup executed: nine dead provisional records adopted then cancelled with receipts; "bm_stall sweep: 0 finding(s)"; the overnight session parked its own ten fences at close</li>
       <li>SD2 sentinel designed and ratified: hooks plus launchd durability, five signals, tiered alerts, allow-listed auto-clear with receipts; spec at docs/superpowers/specs/2026-08-11-sd2-sentinel-design.md</li>
@@ -218,7 +217,7 @@ section > .sub { color: var(--bm-muted); font-size: 13px; margin-bottom: 10px; }
   <div class="band why">
     <h3>Why, the one narrative slot</h3>
     <ul>
-      <li>The founder ratified the plan and the tag in one sitting this morning. SD2 exists because the watchdog died with its session while stale fences bit seven times in a day; the self-learning lane exists so every mistake in the ledger becomes an enforced rule or an honest UNENFORCED entry, never a lesson paid twice.</li>
+      <li>The watchdog died with its own session while stale work bit seven times in a day. SD2 replaces it. The self-learning lane turns each recorded mistake into an enforced rule or an honest unenforced entry, so no lesson is paid twice.</li>
     </ul>
     <p class="note">This band is written by a person. When empty it says so.</p>
   </div>
@@ -304,11 +303,40 @@ section > .sub { color: var(--bm-muted); font-size: 13px; margin-bottom: 10px; }
     <tr><td class="tick on">✓</td><td>Registry cleanup: nine dead provisional records cleared with receipts</td><td class="mono">adopt then cancel per record; "bm_stall sweep: 0 finding(s)" after</td></tr>
     <tr><td class="tick on">✓</td><td>SD2 sentinel design ratified and filed</td><td class="mono">docs/superpowers/specs/2026-08-11-sd2-sentinel-design.md; decisions 2 to 7; docs suite "OK (skipped=1)"</td></tr>
     <tr><td class="tick off">☐</td><td>SD2 sentinel build: five signals RED first, kill-test, allow-listed auto-clear with receipts</td><td class="mono">done-checks in the spec; loop opens in Lane A</td></tr>
-    <tr><td class="tick off">☐</td><td>SL-quick: RF-1 and RF-5 LANDED, RF-2 and RF-4 remain</td><td class="mono">RF-5: test_all writes .brothermode/gate-receipt.json, fail-open, RED first then "Ran 10 tests ... OK"; RF-1: scripts/bm_commit_msg_hook.py refuses dashes and trailers at commit time, exits 0/1 verified live; PO recipes in CLAUDE.md; test_bm 290 OK, docs 226 OK<span class="ev">RF-2 (claim session default) and RF-4 (message catalog) close the bundle next</span></td></tr>
-    <tr><td class="tick on">✓</td><td>SD1 to SD6 active stall detector, LOOP CLOSED</td><td class="mono">RED first against the five real cases; stall 17 OK, effects 10 OK, test_bm 280 OK; "test_all: 2966 tests across 31 suites, 9 skipped, 442.9s wall. ALL GREEN" exit 0 at d7dc252<span class="ev">honest gaps in the module docstring: no session records a pid today; foreign-commit finding awaits a caller with both SHAs</span></td></tr>
+    <tr><td class="tick on">✓</td><td>SL-quick part 1: the gate receipt (RF-5) and the commit-message gate (RF-1)</td><td class="mono">RED first, then "Ran 10 tests ... OK"; test_bm 290 OK, docs 226 OK; hook exits 1 on a dash and 0 on a clean message, both run live; landed 3efb616<span class="ev">Full text and the hook's own first live catch at the foot &hellip;</span></td></tr>
+    <tr><td class="tick off">☐</td><td>SL-quick part 2: claim uses the right session name (RF-2), one message catalog (RF-4)</td><td class="mono">building now in an isolated copy; done-checks are the three suites it touches, each quoted before landing</td></tr>
+    <tr><td class="tick on">✓</td><td>SD1 to SD6 stall detector v1, LOOP CLOSED, and it earned its keep this morning</td><td class="mono">RED first against the five real cases; ALL GREEN at d7dc252. Live use 2026-08-11: found 28 real problems, all cleared, re-sweep prints "0 finding(s)"<span class="ev">Stated gaps and the full sweep story at the foot &hellip;</span></td></tr>
     <tr><td class="tick off">☐</td><td>CC command center convergence S1 to S7</td><td class="mono">DECIDED 04:3x: not opened tonight; 1.5 to 3 day size cannot close before 07:00, and a loop that cannot close does not open. First item after the tag</td></tr>
     <tr><td class="tick off">☐</td><td>G1 governor, V1 verifier, C1 convergence, B1 benchmark</td><td class="mono">done-checks in the plan, each an adversarial test</td></tr>
     <tr><td class="tick off">☐</td><td>CX phases 0 to 9, native Codex plugin and hybrid harness</td><td class="mono">phase gates verbatim from the spec; Phase 0 re-pins the baseline at d9d8003 or later</td></tr>
+  </table></div>
+</section>
+
+<section id="sd2">
+  <h2>The stall detector, and what replaces the watchdog</h2>
+  <p class="sub">Ratified this morning. The old guard lived inside a session and died with it; this one does not. Design: <code>docs/superpowers/specs/2026-08-11-sd2-sentinel-design.md</code>.</p>
+  <div class="tablewrap"><table>
+    <tr><th>What it watches</th><th>The scar that earned it</th><th>State</th></tr>
+    <tr><td>Work whose owner can no longer come back</td><td>Nineteen abandoned claims sat unnoticed until a person read the list by hand</td><td><span class="chip v">live</span> found and cleared 28 this morning</td></tr>
+    <tr><td>Work that quietly stopped while its owner is still alive</td><td>A session kept running and produced nothing for hours; nothing noticed</td><td><span class="chip a">to build</span></td></tr>
+    <tr><td>Spending with nothing to show for it</td><td>8 August: the meter climbed for ten hours while the code stood still</td><td><span class="chip a">to build</span></td></tr>
+    <tr><td>A test run that hangs or never reports</td><td>Four near-misses in one night, caught only because someone checked by hand</td><td><span class="chip a">to build</span></td></tr>
+    <tr><td>Its own survival</td><td>The watchdog died with its session and every restart was manual</td><td><span class="chip a">to build</span> a background job outside any session</td></tr>
+  </table></div>
+  <p class="sub" style="margin-top:8px;">What it may do on its own: clear work whose owner is provably gone, writing a receipt for every action. Everything else it reports and proposes, never runs. You hear about it three ways: always on this board, a desktop notice for the serious, your phone only for the critical.</p>
+</section>
+
+<section id="learning">
+  <h2>How this thing learns from its own mistakes</h2>
+  <p class="sub">Nineteen written-up incidents and a night's worth of learnings sit in the repo. The lane turns each one into something a machine checks, or an honest note saying nothing does.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Fix</th><th>The mistake behind it</th><th>What enforces it now</th></tr>
+    <tr><td>The gate writes its own receipt</td><td>Every page hand-copied test numbers next to a hand-copied commit, and once quoted the wrong one</td><td><span class="chip v">landed</span> the test runner writes the file</td></tr>
+    <tr><td>Forbidden commit messages die at commit time</td><td>A banned trailer reached a public commit and cost a rewrite of published history</td><td><span class="chip v">landed</span> a commit hook, which vetted its own landing commit</td></tr>
+    <tr><td>Claiming work uses the right session name</td><td>A first claim was refused as a stranger's, costing a recovery cycle</td><td><span class="chip p">building</span></td></tr>
+    <tr><td>One home for shared wording</td><td>The same sentence lived twice and drifted twice in one night, each time a red suite</td><td><span class="chip p">building</span></td></tr>
+    <tr><td>The mistake miner</td><td>Lessons are written by hand, so a repeat is only caught if someone remembers</td><td><span class="chip a">Wave 2</span> drafts rules for your approval, never self-approves</td></tr>
+    <tr><td>Rules ride every delegation</td><td>A helper cannot see this conversation, so a rule left out of its brief does not exist for it</td><td><span class="chip a">Wave 2</span></td></tr>
   </table></div>
 </section>
 
@@ -363,6 +391,18 @@ section > .sub { color: var(--bm-muted); font-size: 13px; margin-bottom: 10px; }
     <tr><td>A canary that cannot tell absent from broken reports the worst claim in the worst words</td><td class="mono">empty stdout of a hook that never ran read as a demonstrated defect; fixed by classifying on returncode, tests RED first</td></tr>
     <tr><td>Process slip, named: two lint tests were written one edit after their fix instead of RED first</td><td class="mono">recorded in R4-TRIAGE; they fail on revert, verified by reading not running</td></tr>
   </table></div>
+</section>
+
+<section id="history">
+  <h2>Full history, nothing removed</h2>
+  <p class="sub">The lines above are short by rule (300 characters for the stamp, 250 a card, 240 an evidence line). Every word they replaced is kept here, unedited. Newer entries go first; nothing already here is rewritten.</p>
+  <details style="margin:8px 0"><summary style="cursor:pointer;color:var(--bm-muted);font-size:13px">2026-08-11 morning: the release, the decisions, the cleanup, the first two learning fixes</summary>
+  <div style="font-size:13px;color:var(--bm-muted);padding:8px 0;overflow-wrap:anywhere">
+  <p><b>Release, in full.</b> v3.1.0 IS TAGGED AND PUSHED: gate "test_all: 2966 tests across 31 suites, 5 skipped, 516.3s wall. ALL GREEN" exit 0 on the tagged commit e50afbf; HEAD equals upstream equals e50afbf; ls-remote lists refs/tags/v3.1.0; verify-install PASSED, 749 file(s) match, 0 mismatched, 0 missing, 0 wrong type, 0 extra. The version agrees in five places (VERSION, pyproject.toml, plugin.json, marketplace.json, the pinned install target in bm_project_facts.py) and the pinned install command was updated in README, QUICKSTART, SETUP and RELEASE. The docs drift suite caught two dated documents of mine that declared no status, and one stale pinned tag in RELEASE.md, before any of it shipped.</p>
+  <p><b>The stall detector's first real day.</b> The morning sweep found 28 findings (19 abandoned claims, 9 never-promoted records), each printed with the exact command that would clear it and none executed by the tool itself. Nine were cleared here by adopt-then-cancel with a receipt each; the overnight session had parked its own ten as it closed. Re-sweep: "bm_stall sweep: 0 finding(s). No active fence, provisional record, or claim looks stale or contradictory right now." Stated gaps that remain in its own docstring: no session records a process id today, so liveness is judged from recorded activity age alone, and the foreign-commit check awaits a caller that passes both commit ids. A learning was paid for on the spot: the cancel verb refuses a record owned by another session, so adopt-then-cancel is the only recovery path, which matches the overnight session's own note from hours earlier.</p>
+  <p><b>SL-quick part 1, in full.</b> RF-5: tools/test_all.py now writes .brothermode/gate-receipt.json (commit id, whether the tree was dirty, test and suite counts, skipped, wall seconds, exit code, timestamp) into the ignored directory, never the tracked tree, because the gate itself refuses a run that dirties tracked files. It fails open on purpose: git missing, a non-checkout, or a full disk warns on stderr and never changes the verdict, proven by a test that runs it outside a repository. RED first, quoted by the builder: "AttributeError: module 'bm_test_all_under_test' has no attribute 'write_gate_receipt'". RF-1: scripts/bm_commit_msg_hook.py refuses an em dash, an en dash, or a Co-Authored-By line, naming the offending line number, exit 1; a clean message exits 0. Both verified live by the orchestrator, not only by the builder, and the hook was installed at .git/hooks/commit-msg and screened its own landing commit. The builder deviated once, deliberately and correctly: it registered the new script in the write-sites manifest, outside its allowed file list, because the repo's own pre-write gate demands an entry for any file that writes to an output channel; it read the loader first and reproduced the red before editing. Suites after the last edit: the two new test classes "Ran 10 tests in 0.318s OK", tools/test_bm.py "Ran 290 tests OK (skipped=1)", tools/test_bm_docs.py "OK (skipped=1)".</p>
+  <p><b>Decisions.</b> Thirty founder answers were taken through the question windows this morning and recorded with their flip conditions in docs/decisions/RATIFIED-2026-08-11-morning.md, committed at 2a41942. The two that changed a previous decision: the stall detector may now clear provably dead work automatically with a receipt (the earlier sweep-only decision's flip condition was met early by seven stale-work incidents in 24 hours), and self-learning became a lane of its own in Wave 1 rather than work folded into other loops.</p>
+  </div></details>
 </section>
 
 <footer>
