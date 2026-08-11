@@ -115,7 +115,7 @@ a{color:var(--bm-accent)}
 <p class="lede">Both products, the release in flight, and the team rollout on one page. Every box below either carries the output of a check that ran after the last edit, or it is not ticked.</p>
 
 <div class="stamp">
-refreshed 2026-08-12 00:02 JST &middot; session 31456097 holds the baton &middot; HEAD cecdbc7 &middot; refresh cadence: every two hours until 09:00<br>
+refreshed 2026-08-12 00:32 JST &middot; session 31456097 holds the baton &middot; HEAD 54ff2c2 &middot; RELEASED v3.2.0 &middot; refresh cadence: every two hours until 09:00<br>
 TICK CONTRACT: a box ticks only when its done-check ran after the last edit and that output is quoted beside it. Percentages are counts of records, never impressions.
 </div>
 
@@ -125,10 +125,10 @@ TICK CONTRACT: a box ticks only when its done-check ran after the last edit and 
 </div>
 
 <div class="strip">
-  <div class="card now"><div class="k">Now</div><p><b>Release prep committed at <code>cecdbc7</code>.</b> Version, manifests, install pages and the team pack all moved to 3.2.0 together. Next: cut the local tag, then run the full battery once on a clean tree.</p></div>
-  <div class="card you"><div class="k">Waiting on Khalil</div><p><b>One item, not blocking tonight.</b> Enable GitHub private vulnerability reporting, a settings click. SECURITY.md names it outstanding rather than claiming it is done.</p></div>
-  <div class="card risk"><div class="k">Risk watch</div><p><b>The battery has not run on tonight's code.</b> Four commits have landed since the last green verdict. Until it runs, nothing here may be read as release-ready.</p></div>
-  <div class="card fc"><div class="k">Forecast</div><p><b>Tag by 02:00, install rehearsed by 04:00</b>, 70 percent confidence. Assumes the battery passes first time; a second run costs about 15 minutes and still lands before the 08:00 stop.</p></div>
+  <div class="card now"><div class="k">Now</div><p><b>v3.2.0 is released and published.</b> Battery ALL GREEN at <code>54ff2c2</code>, tag pushed and confirmed to dereference to that same commit, release live and not a draft. A stranger's install was rehearsed in a throwaway config and passed.</p></div>
+  <div class="card you"><div class="k">Waiting on Khalil</div><p><b>Two items now.</b> Updating your own live install was blocked by a permission classifier, so it needs your hand. And GitHub private vulnerability reporting is still a settings click. Exact commands are in the ledger.</p></div>
+  <div class="card risk"><div class="k">Risk watch</div><p><b>Your machine still runs the old versions.</b> The live install is pinned at v3.1.0 and the sibling on your PATH is two majors behind at 1.0.0-rc.1. Everything published is correct; what you personally type is not yet.</p></div>
+  <div class="card fc"><div class="k">Forecast</div><p><b>Nothing left that an unattended session may safely do.</b> Remaining work is two install actions, both requiring your permission, about five minutes total. The 08:00 stop is no longer a constraint on the release.</p></div>
 </div>
 
 <h2>Short range: tonight to 09:00</h2>
@@ -146,15 +146,15 @@ TICK CONTRACT: a box ticks only when its done-check ran after the last edit and 
 <td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar done"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
 <tr><td class="lbl"><span class="rowname">This board</span><span class="count">1 of 1</span></td>
 <td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar done"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
-<tr><td class="lbl"><span class="rowname">Tag, then full battery once</span><span class="count">0 of 2</span></td>
-<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
-<tr><td class="lbl"><span class="rowname">Checksums and install trust</span><span class="count">0 of 1</span></td>
-<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
-<tr><td class="lbl"><span class="rowname">Push tag and publish release</span><span class="count">0 of 1, pre-authorised</span></td>
-<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar gate"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
-<tr><td class="lbl"><span class="rowname">Sibling reinstall to 3.0.0</span><span class="count">0 of 1</span></td>
+<tr><td class="lbl"><span class="rowname">Tag, then full battery once</span><span class="count">2 of 2</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar done"></div></td><td class="cell"><div class="bar done"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Checksums and install trust</span><span class="count">1 of 1</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar done"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Push tag and publish release</span><span class="count">1 of 1, released</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar done"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Sibling reinstall to 3.0.0</span><span class="count">0 of 1, needs Khalil</span></td>
 <td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
-<tr><td class="lbl"><span class="rowname">Live install, backup first</span><span class="count">0 of 1</span></td>
+<tr><td class="lbl"><span class="rowname">Live install, backup first</span><span class="count">0 of 1, blocked, needs Khalil</span></td>
 <td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
 <tr><td class="lbl"><span class="rowname">Morning pack and close</span><span class="count">0 of 4</span></td>
 <td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td></tr>
@@ -172,7 +172,7 @@ TICK CONTRACT: a box ticks only when its done-check ran after the last edit and 
 <div class="chart">
 <table class="g">
 <tr><th class="lbl">Tranche</th><th>W33</th><th>W34</th><th>W35</th><th>W36</th><th>W37</th><th>W38</th><th>W39</th><th>W40</th><th>W41</th><th>W42</th><th>W43</th><th>W44</th></tr>
-<tr><td class="lbl"><span class="rowname">R0 &middot; V3 Final ships</span><span class="count">9 of 13 tonight</span></td>
+<tr><td class="lbl"><span class="rowname">R0 &middot; V3 Final ships</span><span class="count">13 of 16, three are yours</span></td>
 <td class="cell"><div class="bar sched"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
 <tr><td class="lbl"><span class="rowname">Sprint 1 &middot; Phase 0 survives contact</span><span class="count">0 of 4</span></td>
 <td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
@@ -275,7 +275,7 @@ End to end: apply --new-record created 41dffd2f, doctor stayed at 0 failed. Comm
 the record, the owner and the exact takeover command; allowed an unclaimed path.
 No fix made, and that decision is recorded rather than left to be discovered.</pre></div>
 
-<h3>Phase R0b &middot; the release <span class="chip part">5 of 9</span></h3>
+<h3>Phase R0b &middot; the release <span class="chip">9 of 9</span></h3>
 
 <div class="box tick"><div class="t">Verify settled as a routing name, no folder <span class="m">python3 tools/test_bm_docs.py</span></div>
 <pre class="ev green">Ran 230 tests in 24.934s
@@ -299,34 +299,49 @@ Docs suite: 230 tests, 1 failure, and that failure is the tag not yet existing.<
 <pre class="ev green">docs/TEAM-ADOPTION.md, docs/team/INSTALL-CARD.md, docs/team/FIRST-DAY.md,
 docs/team/DAILY-NOTE-TEMPLATE.md. Ran 230 tests, only the tag assertion red.</pre></div>
 
-<div class="box open"><div class="t">Cut the local tag <span class="m">git tag -a v3.2.0 -m "V3 Final"</span></div>
-<pre class="ev">Not yet run. Local only, and reversible until pushed. It comes before the battery
-because one install assertion cannot pass until the tag exists.</pre></div>
+<div class="box tick"><div class="t">Tag cut on the commit that alone carries VERSION 3.2.0 <span class="m">git rev-list -n1 v3.2.0; git log -1 --format=%H -- VERSION</span></div>
+<pre class="ev green">both return 54ff2c28cd40b31de135c595e0328540ce7e9c17
+First attempt tagged the wrong commit: the manifest was split from the version
+bump across three commits, which docs/RELEASE.md step 3 forbids. Nothing was
+pushed, so the three were reshaped into one release-cut commit and re-tagged.</pre></div>
 
-<div class="box open"><div class="t">Full battery, once, on a clean tree <span class="m">rm -f "$TMPDIR/gate.exit" &amp;&amp; nohup ... tools/test_all.py</span></div>
-<pre class="ev">Not yet run. Ticks only on last line ALL GREEN with exit file 0, and the commit
-hash recorded beside it. Nothing tracked may be written while it runs.</pre></div>
+<div class="box tick"><div class="t">Manifest and install trust <span class="m">sh scripts/checksums.sh; python3 scripts/doctor.py; bash scripts/verify-install.sh</span></div>
+<pre class="ev green">checksums.sh: wrote 827 file hash(es) to CHECKSUMS.sha256
+11 of 11 proven, 0 skipped, 0 failed.
+verify-install: PASSED. Every entry the manifest names matches on disk, in
+content and in type, and no entry exists on disk that the manifest does not name.</pre></div>
 
-<div class="box open"><div class="t">Manifest and install trust <span class="m">git add -A; sh scripts/checksums.sh CHECKSUMS.sha256; python3 scripts/doctor.py; bash scripts/verify-install.sh</span></div>
-<pre class="ev">Not yet run. Ticks on doctor check 9 PASS and verify-install PASSED with 0 extra.
-git add comes first, because the manifest hashes tracked files only.</pre></div>
+<div class="box tick"><div class="t">Full battery, once, on a clean tree <span class="m">rm -f "$TMPDIR/gate.exit"; nohup ... tools/test_all.py</span></div>
+<pre class="ev green">test_all: 3021 tests across 32 suites, 5 skipped, 748.0s wall. ALL GREEN
+exit 0, at HEAD 54ff2c2, tree clean, HEAD unmoved when the verdict was read.
+Sentinel cleared before launch, so this is tonight's verdict and not a stale one.</pre></div>
 
-<div class="box open"><div class="t">Push the tag and publish the release <span class="m">git push origin v3.2.0; gh release create v3.2.0</span></div>
-<pre class="ev">Not yet run. Pre-authorised tonight by founder decision, and treated as not
-granted if anything is red at the ceiling or the deadline.</pre></div>
+<div class="box tick"><div class="t">Tag pushed and release published <span class="m">git ls-remote origin "refs/tags/v3.2.0^{}"; gh release view v3.2.0</span></div>
+<pre class="ev green">54ff2c28cd40b31de135c595e0328540ce7e9c17	refs/tags/v3.2.0^{}
+{"isDraft":false,"publishedAt":"2026-08-11T15:27:31Z","tagName":"v3.2.0"}
+Secret scan over the pushed range: zero matches. Dash scan: zero matches.
+https://github.com/khalilmaaouni/BrotherModeUp/releases/tag/v3.2.0</pre></div>
 
-<h3>Phase R0c &middot; proving the install <span class="chip none">0 of 3</span></h3>
+<h3>Phase R0c &middot; proving the install <span class="chip part">1 of 4, three are yours</span></h3>
 
-<div class="box open"><div class="t">Sibling reinstalled to 3.0.0 and its command confirmed <span class="m">which sbe; sbe --version</span></div>
-<pre class="ev">Not yet run. Ticks when the path on PATH matches 3.0.0 and the command an
-internal card names first actually runs.</pre></div>
+<div class="box tick"><div class="t">Throwaway install rehearsal <span class="m">sh scripts/release-smoke-install.sh</span></div>
+<pre class="ev green">release-smoke-install: PASSED: add, install (version 3.2.0, 6 hook groups), uninstall clean
+Ran inside a disposable CLAUDE_CONFIG_DIR, so this machine was never touched.
+This is the stranger's install proven end to end, which had never been done before.</pre></div>
 
-<div class="box open"><div class="t">Throwaway install rehearsal <span class="m">scripts/release-smoke-install.sh</span></div>
-<pre class="ev">Not yet run. Runs inside an isolated configuration, thrown away afterwards.</pre></div>
+<div class="box open"><div class="t">YOURS: update your own install to v3.2.0 <span class="m">cd ~/.claude/skills/brothermode &amp;&amp; git fetch --tags origin &amp;&amp; git checkout v3.2.0</span></div>
+<pre class="ev">BLOCKED, not failed. A permission classifier refused the write to your live
+setup and I did not work around it. Your install is a clean git clone pinned at
+v3.1.0 with zero local modifications, so this is a checkout and rolling back is
+`git checkout v3.1.0`. About thirty seconds.</pre></div>
 
-<div class="box open"><div class="t">Live install on the real machine, backup first <span class="m">snapshot ~/.claude, then install, then doctor</span></div>
-<pre class="ev">Not yet run. LAST step by sequencing, because installing mid-run would replace
-the hook files constraining this run, including the spend guard.</pre></div>
+<div class="box open"><div class="t">YOURS: bring the sibling on your PATH up to 3.0.0 <span class="m">which sbe; sbe --version</span></div>
+<pre class="ev">Confirmed stale, not missing: `sbe 1.0.0-rc.1` from a plugin cache, while the
+sibling has v3.0.0 released. At that tag it ships start, design, review, verify,
+learn and eleven more, so every command the loop names exists. Reinstall fixes it.</pre></div>
+
+<div class="box open"><div class="t">YOURS: enable GitHub private vulnerability reporting <span class="m">repository settings, one click</span></div>
+<pre class="ev">SECURITY.md names it as outstanding rather than claiming it is done. Two minutes.</pre></div>
 
 <h2>Decisions recorded</h2>
 <div class="dec">
@@ -339,7 +354,7 @@ the hook files constraining this run, including the spend guard.</pre></div>
 
 <footer>
 <p><b>TICK CONTRACT.</b> A box ticks only when its done-check ran after the last edit and that output is quoted beside it. Percentages are counts of records, never impressions. A check that cannot tell is never read as a pass.</p>
-<p>Refreshed 2026-08-12 00:02 JST by session 31456097, at HEAD <code>cecdbc7</code>. Next refresh within two hours. Derived from <code>docs/plan/OVERNIGHT-AND-ROADMAP-2026-08-12.md</code>, which is the authority for tonight's run.</p>
+<p>Refreshed 2026-08-12 00:32 JST by session 31456097, at HEAD <code>54ff2c2</code>, with v3.2.0 released. Next refresh within two hours. Derived from <code>docs/plan/OVERNIGHT-AND-ROADMAP-2026-08-12.md</code>, which is the authority for tonight's run.</p>
 </footer>
 
 </div>
