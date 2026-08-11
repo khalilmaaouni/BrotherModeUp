@@ -17975,6 +17975,108 @@ def _hook_derived_session_id(root):
         return None
 
 
+# The canonical harness session shape, 8-4-4-4-12 hex, which is what a
+# conversation id looks like and what a person copies when they reach for
+# "my session id". Anything else is left alone: see the NARROW ON PURPOSE
+# note inside _normalize_session_for_fence.
+_HARNESS_SESSION_RE = re.compile(
+    r"\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\Z")
+
+
+def _normalize_session_for_fence(explicit_session, derive):
+    """Convert the session id a person CAN see into the one the fence hook
+    actually compares against. Returns (session_id, note_or_None).
+
+    THE DEFECT, verified 2026-08-12 and written up in
+    docs/plan/DEFECT-session-identity-2026-08-12.md: three identifiers exist
+    and only one counts. The conversation uuid is what a person can see. An
+    omitted --session mints `cli-<hash>`. The hook compares against
+    `bm1-<hash>`, derived by bm_fence_hook.session_label(), and prints it
+    ONLY in a refusal. So both inputs a person can supply produce a claim the
+    hook rejects, and the way to learn the right id is to be refused first.
+    One session hit that four times in a night, on its own files.
+
+    _hook_derived_session_id() was supposed to cover this and cannot: it
+    reads BM_FENCE_SESSION_ID then CLAUDE_SESSION_ID, and neither is set in
+    the shell the CLI runs in. A guard that depends on a variable nobody sets
+    is not a guard.
+
+    This needs no variable, because the label is a pure function of the
+    harness id: session_label(root, "<conversation uuid>") returns exactly
+    what the hook reports for that session. So convert on the way in.
+
+    THREE THINGS THIS DELIBERATELY DOES NOT DO. It does not convert an
+    already-derived `bm1-` label or the CLI's own `cli-` id, because hashing
+    a hash produces an id nothing will ever match. It does not refuse a
+    mismatch, because claiming on another session's behalf is a real workflow
+    and this cannot tell it apart from a mistake. And it never invents an id:
+    if the derivation is unavailable or raises, the caller's own value passes
+    through unchanged, which is exactly today's behaviour."""
+    if not explicit_session:
+        return explicit_session, None
+    if explicit_session.startswith("bm1-") or explicit_session.startswith("cli-"):
+        return explicit_session, None
+    # NARROW ON PURPOSE. Converting every non-label string was the first
+    # attempt and it broke five CLI tests that legitimately pass short
+    # labels like "S1": those are not harness ids and hashing them would
+    # invent an identity nobody asked for. Only the canonical harness shape
+    # is converted, which is what a person actually copies when they reach
+    # for "my session id".
+    if not _HARNESS_SESSION_RE.match(explicit_session):
+        return explicit_session, None
+    try:
+        derived = derive(explicit_session)
+    except Exception:
+        return explicit_session, None
+    if not derived or derived == explicit_session:
+        return explicit_session, None
+    return derived, (
+        "bm_store: --session %s is a harness session id, and the fence hook "
+        "compares against the derived label %s. Claiming under %s so your own "
+        "next edit to these files is not refused as a foreign writer. Pass "
+        "the derived label directly to silence this line."
+        % (explicit_session, derived, derived))
+
+
+def _session_mismatch_note(explicit_session, derived_session):
+    """The warning a caller gets when their explicit --session is one the
+    write hook can never reproduce, while this process HAS a harness session
+    of its own.
+
+    Earned the hard way, 2026-08-12: a session claimed four fences using the
+    conversation identifier the surrounding tools hand you, and was then
+    refused by its own project's fence hook on every one of them, including
+    on its own README edit. The claim succeeds, the refusal arrives later,
+    and the person locked out is the one who just claimed it. Nothing in
+    either message connects the two.
+
+    WARNS, NEVER REFUSES. Claiming on behalf of another session is a real
+    workflow (an orchestrator fencing for a worker), and this function cannot
+    tell that apart from a mistake. What it can do is make the mistake
+    visible at the moment it is made rather than at the next edit, and carry
+    the exact flag to retype, since a warning that only describes a problem
+    leaves the reader to guess the remedy.
+
+    Returns None when there is nothing to say: the two agree, no harness
+    session exists to compare against, or no explicit session was passed (the
+    omitted case is already handled by _hook_derived_session_id)."""
+    if not explicit_session or not derived_session:
+        return None
+    if explicit_session == derived_session:
+        return None
+    return (
+        "bm_store: you passed --session %s, but this process's own harness "
+        "session derives to %s, which is what tools/bm_fence_hook.py will "
+        "compare against. The claim below is registered under the id you "
+        "passed, so YOUR OWN next edit to these files will be refused as a "
+        "foreign writer.\n"
+        "  If you meant to claim for yourself, re-run with: --session %s\n"
+        "  If you meant to claim on another session's behalf, this warning "
+        "is expected and nothing is wrong."
+        % (explicit_session, derived_session, derived_session))
+
+
 def cmd_init(argv):
     kv = _parse_kv(argv)
     _reject_unknown_flags("init", kv, ("acknowledge-quarantine",))
@@ -18062,8 +18164,22 @@ def cmd_claim(argv):
     # the hook module could not be loaded or asked) does this fall back to
     # _default_cli_session_id(), today's exact behaviour.
     explicit_session = " ".join(kv.get("session", []))
-    session_id = explicit_session or _hook_derived_session_id(root) \
+    # Convert a raw harness id into the label the fence hook compares
+    # against, BEFORE the claim lands, rather than letting the person find
+    # out at the next edit. See _normalize_session_for_fence.
+    _fh = _fence_hook()
+    explicit_session, _conv = _normalize_session_for_fence(
+        explicit_session,
+        (lambda s: _fh.session_label(root, s)) if _fh is not None
+        else (lambda s: None))
+    if _conv:
+        _warn(_conv)
+    derived_session = _hook_derived_session_id(root)
+    session_id = explicit_session or derived_session \
         or _default_cli_session_id()
+    _mismatch = _session_mismatch_note(explicit_session, derived_session)
+    if _mismatch:
+        _warn(_mismatch)
     tier = " ".join(kv["tier"]) if "tier" in kv else None
     check_cmd = " ".join(kv["check"]) if "check" in kv else None
     # Fix-round 4: only `init` creates a store; claim refuses 'no-store'.
