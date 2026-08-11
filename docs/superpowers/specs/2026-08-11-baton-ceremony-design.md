@@ -1,6 +1,6 @@
 # The Baton Ceremony: session handover as law, 2026-08-11
 
-Status: RATIFIED by the founder through seven question windows on 2026-08-11
+Status: CURRENT. Ratified by the founder through seven question windows on 2026-08-11
 (afternoon session, harness 53c70dcb). Design approved for build in the same
 round. No em or en dashes anywhere in this document.
 
