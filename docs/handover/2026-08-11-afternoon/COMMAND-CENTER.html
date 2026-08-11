@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BrotherMode Command Center</title>
+<style>
+:root {
+  --bm-accent: #0E7A6F;
+  --bm-accent-tint: #E4EFED;
+  --bm-at-risk-ink: #6B4400;
+  --bm-at-risk-rule: #A06A00;
+  --bm-at-risk-tint: #FFF6E5;
+  --bm-body: #1A1D21;
+  --bm-for-info-ink: #00436B;
+  --bm-for-info-rule: #0072B2;
+  --bm-for-info-tint: #EAF3FA;
+  --bm-idle-ink: #3F4650;
+  --bm-idle-rule: #767B84;
+  --bm-idle-tint: #F1F2F4;
+  --bm-muted: #575E68;
+  --bm-needs-you-ink: #8C2D00;
+  --bm-needs-you-rule: #D55E00;
+  --bm-needs-you-tint: #FDEFE8;
+  --bm-page: #FFFFFF;
+  --bm-paper: #F7F8F6;
+  --bm-settled-ink: #00543A;
+  --bm-settled-rule: #009E73;
+  --bm-settled-tint: #E8F6F0;
+  --bm-hair: rgba(0,0,0,.10);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bm-accent: #3AA893;
+    --bm-accent-tint: #10241F;
+    --bm-at-risk-ink: #F0B95A;
+    --bm-at-risk-rule: #E69F00;
+    --bm-at-risk-tint: #2A2110;
+    --bm-body: #E9ECF1;
+    --bm-for-info-ink: #7FC4F5;
+    --bm-for-info-rule: #56B4E9;
+    --bm-for-info-tint: #0F1E2A;
+    --bm-idle-ink: #A7AEB9;
+    --bm-idle-rule: #767B84;
+    --bm-idle-tint: #1E242C;
+    --bm-muted: #A7AEB9;
+    --bm-needs-you-ink: #FFA582;
+    --bm-needs-you-rule: #FF7A47;
+    --bm-needs-you-tint: #2A1710;
+    --bm-page: #12151A;
+    --bm-paper: #0C0F13;
+    --bm-settled-ink: #6FDDB8;
+    --bm-settled-rule: #00B383;
+    --bm-settled-tint: #0E241C;
+    --bm-hair: rgba(255,255,255,.12);
+  }
+}
+:root[data-theme="dark"] {
+  --bm-accent: #3AA893; --bm-accent-tint: #10241F;
+  --bm-at-risk-ink: #F0B95A; --bm-at-risk-rule: #E69F00; --bm-at-risk-tint: #2A2110;
+  --bm-body: #E9ECF1;
+  --bm-for-info-ink: #7FC4F5; --bm-for-info-rule: #56B4E9; --bm-for-info-tint: #0F1E2A;
+  --bm-idle-ink: #A7AEB9; --bm-idle-rule: #767B84; --bm-idle-tint: #1E242C;
+  --bm-muted: #A7AEB9;
+  --bm-needs-you-ink: #FFA582; --bm-needs-you-rule: #FF7A47; --bm-needs-you-tint: #2A1710;
+  --bm-page: #12151A; --bm-paper: #0C0F13;
+  --bm-settled-ink: #6FDDB8; --bm-settled-rule: #00B383; --bm-settled-tint: #0E241C;
+  --bm-hair: rgba(255,255,255,.12);
+}
+:root[data-theme="light"] {
+  --bm-accent: #0E7A6F; --bm-accent-tint: #E4EFED;
+  --bm-at-risk-ink: #6B4400; --bm-at-risk-rule: #A06A00; --bm-at-risk-tint: #FFF6E5;
+  --bm-body: #1A1D21;
+  --bm-for-info-ink: #00436B; --bm-for-info-rule: #0072B2; --bm-for-info-tint: #EAF3FA;
+  --bm-idle-ink: #3F4650; --bm-idle-rule: #767B84; --bm-idle-tint: #F1F2F4;
+  --bm-muted: #575E68;
+  --bm-needs-you-ink: #8C2D00; --bm-needs-you-rule: #D55E00; --bm-needs-you-tint: #FDEFE8;
+  --bm-page: #FFFFFF; --bm-paper: #F7F8F6;
+  --bm-settled-ink: #00543A; --bm-settled-rule: #009E73; --bm-settled-tint: #E8F6F0;
+  --bm-hair: rgba(0,0,0,.10);
+}
+* { box-sizing: border-box; margin: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--bm-paper); color: var(--bm-body);
+  font-family: "Seravek", "Avenir Next", -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px; line-height: 1.55; padding: 28px 20px 60px;
+}
+.wrap { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 26px; }
+h1, h2, h3 { font-family: "Iowan Old Style", "Palatino", Georgia, serif; text-wrap: balance; }
+h1 { font-size: 30px; line-height: 1.15; }
+h2 { font-size: 21px; margin-bottom: 4px; }
+h3 { font-size: 16px; }
+.mono, code {
+  font-family: "SF Mono", ui-monospace, "Menlo", monospace;
+  font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.eyebrow {
+  text-transform: uppercase; letter-spacing: .12em; font-size: 11px;
+  color: var(--bm-accent); font-weight: 600;
+}
+header .stamp { color: var(--bm-muted); font-size: 12.5px; margin-top: 8px; }
+header .stamp code { background: var(--bm-idle-tint); padding: 1px 5px; border-radius: 3px; }
+.northstar {
+  background: var(--bm-accent-tint); border-left: 3px solid var(--bm-accent);
+  padding: 14px 18px; font-family: "Iowan Old Style", "Palatino", Georgia, serif;
+  font-size: 17px; line-height: 1.45;
+}
+.northstar .eyebrow { display: block; margin-bottom: 4px; }
+
+/* strip */
+.strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.band { background: var(--bm-page); border: 1px solid var(--bm-hair); border-top: 3px solid var(--bm-idle-rule); padding: 13px 15px; }
+.band h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .1em; font-family: inherit; margin-bottom: 8px; color: var(--bm-muted); }
+.band ul { padding-left: 16px; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+.band.changed { border-top-color: var(--bm-settled-rule); }
+.band.needs { border-top-color: var(--bm-needs-you-rule); background: var(--bm-needs-you-tint); }
+.band.needs h3 { color: var(--bm-needs-you-ink); }
+.band.watch { border-top-color: var(--bm-at-risk-rule); background: var(--bm-at-risk-tint); }
+.band.watch h3 { color: var(--bm-at-risk-ink); }
+.band.why { border-top-color: var(--bm-for-info-rule); }
+.band .note { font-size: 11.5px; color: var(--bm-muted); margin-top: 8px; }
+
+/* personas */
+.cards3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
+.pcard { background: var(--bm-page); border: 1px solid var(--bm-hair); padding: 13px 15px; font-size: 13.5px; }
+.pcard h3 { margin-bottom: 5px; }
+.pcard .who { color: var(--bm-muted); font-size: 12.5px; margin-bottom: 7px; }
+
+/* timeline */
+.timeline { background: var(--bm-page); border: 1px solid var(--bm-hair); padding: 16px 18px; overflow-x: auto; }
+.tl-grid { display: grid; grid-template-columns: 190px 1fr; row-gap: 7px; min-width: 720px; }
+.tl-label { font-size: 12.5px; padding-right: 10px; align-self: center; }
+.tl-label .lane { color: var(--bm-muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; }
+.tl-track { position: relative; height: 22px; background:
+  repeating-linear-gradient(to right, transparent 0, transparent calc(100%/6 - 1px), var(--bm-hair) calc(100%/6 - 1px), var(--bm-hair) calc(100%/6)); }
+.tl-bar { position: absolute; top: 3px; height: 16px; border-radius: 2px; }
+.tl-bar.min { background: var(--bm-accent); opacity: .9; }
+.tl-bar.max { background: var(--bm-accent); opacity: .28; }
+.tl-bar.gate { background: var(--bm-needs-you-rule); width: 4px !important; border-radius: 0; }
+.tl-bar.done { background: var(--bm-settled-rule); }
+.tl-head { display: grid; grid-template-columns: 190px 1fr; margin-bottom: 8px; }
+.tl-weeks { display: grid; grid-template-columns: repeat(6, 1fr); font-size: 10.5px; color: var(--bm-muted); min-width: 0; }
+.tl-legend { font-size: 11.5px; color: var(--bm-muted); margin-top: 12px; }
+.tl-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+
+/* ledger */
+table { border-collapse: collapse; width: 100%; background: var(--bm-page); border: 1px solid var(--bm-hair); font-size: 13px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--bm-hair); vertical-align: top; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--bm-muted); }
+.tick { font-weight: 700; }
+.tick.on { color: var(--bm-settled-rule); }
+.tick.off { color: var(--bm-idle-rule); }
+td .ev { display: block; margin-top: 3px; color: var(--bm-muted); }
+.tablewrap { overflow-x: auto; }
+
+/* chips */
+.chip { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; padding: 1px 7px; border-radius: 9px; text-transform: uppercase; }
+.chip.v { background: var(--bm-settled-tint); color: var(--bm-settled-ink); }
+.chip.p { background: var(--bm-at-risk-tint); color: var(--bm-at-risk-ink); }
+.chip.a { background: var(--bm-needs-you-tint); color: var(--bm-needs-you-ink); }
+.chip.i { background: var(--bm-for-info-tint); color: var(--bm-for-info-ink); }
+
+/* decisions */
+.dcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.dcard { background: var(--bm-needs-you-tint); border: 1px solid var(--bm-needs-you-rule); padding: 13px 15px; font-size: 13.5px; }
+.dcard h3 { color: var(--bm-needs-you-ink); margin-bottom: 6px; }
+.dcard .rec { font-weight: 600; }
+
+footer { border-top: 1px solid var(--bm-hair); padding-top: 16px; font-size: 12px; color: var(--bm-muted); display: flex; flex-direction: column; gap: 8px; }
+section > .sub { color: var(--bm-muted); font-size: 13px; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">BrotherMode Command Center</span>
+  <h1>From intent to a verified, review-ready deliverable</h1>
+  <p class="stamp">Refreshed 2026-08-11 afternoon by session <code>53c70dcb</code> (Fable), <code>main</code> at <code>17b4fd2</code>, four commits unpushed. A box ticks only when its check ran after the last edit and its output is quoted beside it. Full texts at the foot.</p>
+</header>
+
+<section class="northstar">
+  <span class="eyebrow">North star</span>
+  From intent to a verified, review-ready deliverable with bounded autonomy, independent proof, and recoverable state.
+  <span style="display:block; font-family:'Seravek','Avenir Next',sans-serif; font-size:13px; color:var(--bm-muted); margin-top:6px;">Metric: VADR, verified autonomous delivery rate, with counter-metrics. External proof rung: still empty, and named so.</span>
+</section>
+
+<section class="strip">
+  <div class="band changed">
+    <h3>Since you last looked</h3>
+    <ul>
+      <li>THE BATON CEREMONY IS LAW: every session switch now closes with a pack, a zip and a verify, and opens by consuming them. Seven windows ratified it; spec committed at cb565d6. <a href="#history">Full text at the foot</a></li>
+      <li>Its tool (bm_handover.py: skeleton, verify-close, zip, detect) is being built RED first by a fenced builder; the rule is already binding machine wide via the global CLAUDE.md</li>
+      <li>The live install was refreshed from v3.0.0+16 to v3.1.0, byte verified; its two stray uncommitted files were preserved to a dated patch first, nothing lost</li>
+      <li>Predecessor leftovers cleared with receipts: two dead provisional records adopted then parked with handover text; store verify fell from 4 problems to 1</li>
+      <li>Earlier today: v3.1.0 tagged and pushed, thirty morning plus forty graph decisions ratified, SL-quick closed, SD2 designed with all five design gates green</li>
+    </ul>
+  </div>
+  <div class="band needs">
+    <h3>Needs you now</h3>
+    <ul>
+      <li>THE CEREMONY TOOL IS UNDER REPAIR: an adversarial review found 16 defects, 8 of them false passes, including a tool that deleted hand-written text. Nothing ships until they are fixed and proven</li>
+      <li>The SKILL.md amendment carrying the baton ceremony waits in the vault pending-amendments note; only you land constitution text</li>
+      <li>Your other session was stopped mid-build. Its 1145 lines of SD2 work are preserved on branch wip/sd2-sentinel-2026-08-11-stopped-session plus two files in the handovers folder; resuming it is your call</li>
+      <li>This public repository carries your private vault name in 17 tracked files and your home path in dozens; cleaning that is a force rewrite of published history, which is yours to decide</li>
+      <li>One store blemish needs your hand: a probe event (PROBE-DELETEME) in the BrotherSBE store has no sanctioned removal command; the drafted fix rides in the next pack</li>
+      <li>Three older stale provisional records (Aug 1 to 5) are proposed for parking, sweep-and-propose, one yes each</li>
+    </ul>
+    <p class="note">Decisions arrive as windows in chat; this page only lists them.</p>
+  </div>
+  <div class="band watch">
+    <h3>Watch</h3>
+    <ul>
+      <li>ORDER CHANGED TODAY: the founder put the baton ceremony first, then BrotherSBE Loop 4 user journeys; SD2 stays top of this repo's queue but its fence stays parked until a session takes it</li>
+      <li>No unattended stretches until SD2 catches a seeded stall end to end (decision 27); the watchdog gap stays open and named</li>
+      <li>Ceremony hook wiring is deferred: bm_sessionstart.sh and hooks.json sit under the parked SD2 fence; until SD2 lands, the start half relies on the ambient verify plus discipline</li>
+      <li>Cursor drop stays OUTSIDE the tree until the adapter-seam rework after CX Phase 1</li>
+    </ul>
+  </div>
+  <div class="band why">
+    <h3>Why, the one narrative slot</h3>
+    <ul>
+      <li>Sessions kept dying without a proper goodbye: packs were voluntary, leftovers piled up, and a 3 of 5 close rating only rose after the report was rewritten. The baton ceremony makes the goodbye and the greeting both mechanical, so nothing falls between two sessions again.</li>
+    </ul>
+    <p class="note">This band is written by a person. When empty it says so.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The personas this plan serves</h2>
+  <p class="sub">Every loop below names which of these needs it. An addition that serves none goes to the parking lot.</p>
+  <div class="cards3">
+    <div class="pcard">
+      <h3>P1, the non-engineer founder</h3>
+      <p class="who">Describes outcomes in plain words, judges by looking, does not read logs.</p>
+      <p>Needs autonomy that cannot run away, one recommended next action, this command center, and eventually a preview of the result rather than a diff.</p>
+    </div>
+    <div class="pcard">
+      <h3>P2, the solo builder</h3>
+      <p class="who">Capable, but no second engineer stands behind the agent.</p>
+      <p>Needs the tool to supply the reviewer: frozen acceptance criteria, independent verification, receipts newer than the last change, recovery without archaeology.</p>
+    </div>
+    <div class="pcard">
+      <h3>P3, the first-time outside builder</h3>
+      <p class="who">Installs it cold, on their runtime, with no coaching.</p>
+      <p>Needs one path (start, work, verify, deliver), honest runtime claims (Codex included), and first value without learning the machinery.</p>
+    </div>
+  </div>
+</section>
+
+<section class="timeline" id="timeline">
+  <h2>Lanes and loops</h2>
+  <p class="sub">Ranges with confidence, from the plan. Solid = minimum estimate, faint = up to maximum. Red slivers are founder gates. Grid weeks start 2026-08-11.</p>
+  <div class="tl-head"><div></div><div class="tl-weeks"><span>W1</span><span>W2</span><span>W3</span><span>W4</span><span>W5</span><span>W6</span></div></div>
+  <div class="tl-grid">
+    <div class="tl-label"><span class="lane">Front</span> R close v3.1.0, TAGGED</div>
+    <div class="tl-track"><div class="tl-bar done" style="left:0%; width:9.6%"></div></div>
+    <div class="tl-label"><span class="lane">Lane A</span> SD stall detector v1, CLOSED</div>
+    <div class="tl-track"><div class="tl-bar done" style="left:4.8%; width:4.8%"></div></div>
+    <div class="tl-label"><span class="lane">Front</span> Baton ceremony, handover law + tool</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:9.6%; width:2.4%"></div></div>
+    <div class="tl-label"><span class="lane">Lane A</span> SD2 sentinel (replaces the watchdog)</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:9.6%; width:7.2%"></div><div class="tl-bar max" style="left:16.8%; width:7.2%"></div></div>
+    <div class="tl-label"><span class="lane">Lane B</span> SL-quick, the rule fixes bundle</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:9.6%; width:4.8%"></div><div class="tl-bar max" style="left:14.4%; width:2.4%"></div></div>
+    <div class="tl-label"><span class="lane">Lane A</span> CC command center</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:24%; width:7.2%"></div><div class="tl-bar max" style="left:31.2%; width:7.2%"></div></div>
+    <div class="tl-label"><span class="lane">Lane A</span> G1 work governor</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:31.2%; width:9.5%"></div><div class="tl-bar max" style="left:40.7%; width:9.5%"></div></div>
+    <div class="tl-label"><span class="lane">Lane A</span> V1 contract + verifier</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:50.2%; width:9.5%"></div><div class="tl-bar max" style="left:59.7%; width:9.5%"></div></div>
+    <div class="tl-label"><span class="lane">Lane A</span> C1 convergence</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:69.2%; width:4.8%"></div><div class="tl-bar max" style="left:74%; width:4.8%"></div></div>
+    <div class="tl-label"><span class="lane">Lane A</span> B1 benchmark A</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:78.8%; width:9.5%"></div><div class="tl-bar max" style="left:88.3%; width:9.5%"></div></div>
+    <div class="tl-label"><span class="lane">Lane B</span> CX Codex port, phases 0 to 5</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:14.4%; width:19%"></div><div class="tl-bar max" style="left:33.4%; width:19%"></div></div>
+    <div class="tl-label"><span class="lane">Lane B</span> CX phases 6 to 9, hybrid harness</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:47.6%; width:23.8%"></div><div class="tl-bar max" style="left:71.4%; width:23.8%"></div><div class="tl-bar gate" style="left:95.2%"></div></div>
+    <div class="tl-label"><span class="lane">Lane B</span> CU Cursor compat, reworked through the adapter seam</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:71.4%; width:14.3%"></div><div class="tl-bar max" style="left:85.7%; width:9.5%"></div></div>
+  </div>
+  <p class="tl-legend"><span class="sw" style="background:var(--bm-accent)"></span>minimum estimate&nbsp;&nbsp;<span class="sw" style="background:var(--bm-accent); opacity:.28"></span>range to maximum&nbsp;&nbsp;<span class="sw" style="background:var(--bm-needs-you-rule)"></span>founder gate. Estimates are ranges with stated confidence, not commitments; CX carries the least trustworthy numbers in the plan.</p>
+</section>
+
+<section id="ledger">
+  <h2>Ledger</h2>
+  <p class="sub">A box ticks only when its done-check ran after the last edit and the output is quoted beside it. Everything else stays open.</p>
+  <div class="tablewrap"><table>
+    <tr><th></th><th>Item</th><th>Evidence</th></tr>
+    <tr><td class="tick on">✓</td><td>Loop 2, effect classes, suite green at HEAD</td><td class="mono">python3 tools/test_bm_effects.py: "Ran 10 tests ... OK" (21:36, at d9d8003)<span class="ev">registry tools/bm_effects.py:76, registered tools/test_all.py:201</span></td></tr>
+    <tr><td class="tick on">✓</td><td>Docs drift suite green at HEAD</td><td class="mono">python3 tools/test_bm_docs.py: "Ran 226 tests ... OK (skipped=5)"</td></tr>
+    <tr><td class="tick on">✓</td><td>Program plan filed, with loops and done-checks</td><td class="mono">docs/plan/PROGRAM-PLAN-2026-08-10.md, 18113 bytes; dash scan returned 0</td></tr>
+    <tr><td class="tick on">✓</td><td>Fence claimed for the two plan files</td><td class="mono">bm_store claim: lifecycle 11297a2439ac4ecaa360e29b2b8a1302, session bm1-4a167de5...</td></tr>
+    <tr><td class="tick on">✓</td><td>Competitor claims spot-checked against fetched pages</td><td class="mono">5 claims: 2 VERIFIED, 3 PARTLY; every verdict carries the URL opened</td></tr>
+    <tr><td class="tick on">✓</td><td>Repo advancement inventory, 12 capabilities</td><td class="mono">every row cites path:line or names the grep that returned nothing</td></tr>
+    <tr><td class="tick on">✓</td><td>Codex spec overlap map, collisions named</td><td class="mono">Phase 0 baseline stale; Phase 3 duplicates bm_effects and the canary</td></tr>
+    <tr><td class="tick on">✓</td><td>R1 full gate, re-pinned GREEN at 4f07473</td><td class="mono">"test_all: 2949 tests across 30 suites, 9 skipped, 378.9s wall. ALL GREEN", exit 0<span class="ev">sentinel read by this session; the earlier RED at 31430cf and its two paid dues are on the record above</span></td></tr>
+    <tr><td class="tick on">✓</td><td>R2 canary refute pass, strongest tier, and its fixes</td><td class="mono">HIGH and MEDIUM reproduced RED then fixed; controller suite "Ran 260 tests ... OK"<span class="ev">LOW published in R4-TRIAGE-2026-08-11.md</span></td></tr>
+    <tr><td class="tick on">✓</td><td>R3 cross-family audit, all four files, verbatim</td><td class="mono">12 findings on file; first NO-DATA attempt kept beside it, not overwritten</td></tr>
+    <tr><td class="tick on">✓</td><td>R4 triage ledger: every finding dispositioned</td><td class="mono">docs/evidence/v3.1.0/R4-TRIAGE-2026-08-11.md: 6 FIXED with suites quoted, 3 PUBLISHED, 11 OPEN owned by L2H<span class="ev">the OPEN rows are exactly what still holds the tag</span></td></tr>
+    <tr><td class="tick on">✓</td><td>L2H: all eleven effect-class findings closed</td><td class="mono">RED first naming the six offenders plus the token write; test_bm_effects OK and test_bm_project OK re-run by the orchestrator; full gate ALL GREEN at 27a9719</td></tr>
+    <tr><td class="tick on">✓</td><td>Public history trailer rewrite, founder-authorized</td><td class="mono">content byte-identical (git diff empty), force-with-lease, zero trailers at origin</td></tr>
+    <tr><td class="tick on">✓</td><td>Loop spec drafts G1 V1 C1 B1</td><td class="mono">docs/plan/loops/, 4 files, dash scans 0; morning review owed, drafts not accepted</td></tr>
+    <tr><td class="tick on">✓</td><td>Cursor drop triage</td><td class="mono">13 commands, 0 in the effect registry, checked with the repo's own discover_module; verdict REWORK THROUGH THE ADAPTER SEAM</td></tr>
+    <tr><td class="tick on">✓</td><td>R5 tag v3.1.0 CUT AND PUSHED, founder yes recorded 2026-08-11 morning</td><td class="mono">"test_all: 2966 tests across 31 suites, 5 skipped, 516.3s wall. ALL GREEN" exit 0 on e50afbf; HEAD == upstream == e50afbf; ls-remote lists refs/tags/v3.1.0; verify-install PASSED 749 match 0 extra</td></tr>
+    <tr><td class="tick on">✓</td><td>Thirty founder decisions ratified and recorded with flip conditions</td><td class="mono">docs/decisions/RATIFIED-2026-08-11-morning.md, committed at 2a41942; dash scan 0</td></tr>
+    <tr><td class="tick on">✓</td><td>Registry cleanup: nine dead provisional records cleared with receipts</td><td class="mono">adopt then cancel per record; "bm_stall sweep: 0 finding(s)" after</td></tr>
+    <tr><td class="tick on">✓</td><td>SD2 sentinel design ratified and filed</td><td class="mono">docs/superpowers/specs/2026-08-11-sd2-sentinel-design.md; decisions 2 to 7; docs suite "OK (skipped=1)"</td></tr>
+    <tr><td class="tick off">☐</td><td>SD2 sentinel build: five signals RED first, kill-test, allow-listed auto-clear with receipts</td><td class="mono">done-checks in the spec; fence e1e74722 parked, waiting for the session that takes it</td></tr>
+    <tr><td class="tick on">✓</td><td>Baton ceremony ratified and specced: session handover becomes a two-sided law</td><td class="mono">seven founder windows answered 2026-08-11; spec committed at cb565d6; dash scan: CLEAN<span class="ev">rule text live in the global CLAUDE.md brothermode section; SKILL.md amendment proposed, founder-owned</span></td></tr>
+    <tr><td class="tick on">✓</td><td>Install refreshed to v3.1.0, nothing lost</td><td class="mono">git checkout v3.1.0 (HEAD e50afbf); verify-install: content and type match, no extra entries<span class="ev">2 dirty files first saved to install-clone-uncommitted-2026-08-11.patch, 2410 bytes</span></td></tr>
+    <tr><td class="tick on">✓</td><td>Predecessor leftovers cleared in the BrotherSBE store, receipts kept</td><td class="mono">adopt then park 2d9cd7dd and 6f679941 with handover text; verify: 4 problems down to 1</td></tr>
+    <tr><td class="tick on">✓</td><td>bm_handover.py built RED first, and its own suite green</td><td class="mono">11 failures quoted before the tool existed, then "Ran 13 tests OK"; a session-id leak found by hand and fixed through the store's own withholding policy, calibrated by reinjecting the defect</td></tr>
+    <tr><td class="tick on">✓</td><td>Adversarial falsification pass: 16 findings, 8 false passes, every one executed not reasoned</td><td class="mono">docs/evidence/baton-ceremony/REFUTE-2026-08-11.md<span class="ev">a green suite proved the tests passed, never that the tool worked; the suite and the tool shared one author and one blind spot</span></td></tr>
+    <tr><td class="tick off">☐</td><td>Fix round for the 16 findings, RED first per finding</td><td class="mono">in flight on the cheap tier; done-check: more than 13 tests, all OK, plus the full gate</td></tr>
+    <tr><td class="tick on">✓</td><td>Four registries answered after the gate refused three times</td><td class="mono">effects REGISTRY, SUITES, the CI step, and pyproject py-modules; test_bm_effects 10 OK, test_bm_docs 226 OK, packaging test 10 OK</td></tr>
+    <tr><td class="tick on">✓</td><td>The stopped session's unfinished work preserved three ways</td><td class="mono">branch wip/sd2-sentinel-2026-08-11-stopped-session at fd953fd, 1618 insertions; plus a 69KB patch and its new file in the handovers folder</td></tr>
+    <tr><td class="tick off">☐</td><td>Ceremony first live run: this session closes itself with its own tool</td><td class="mono">done-check: verify-close PASS quoted at close</td></tr>
+    <tr><td class="tick on">✓</td><td>SL-quick part 1: the gate receipt (RF-5) and the commit-message gate (RF-1)</td><td class="mono">RED first, then "Ran 10 tests ... OK"; test_bm 290 OK, docs 226 OK; hook exits 1 on a dash and 0 on a clean message, both run live; landed 3efb616<span class="ev">Full text and the hook's own first live catch at the foot &hellip;</span></td></tr>
+    <tr><td class="tick on">✓</td><td>SL-quick part 2 LANDED: claims use the right session name (RF-2), one wording catalog (RF-4). The bundle is CLOSED</td><td class="mono">RED first both tasks; store 1026 OK, controller 260 OK, visual 84 OK; full gate "2977 tests across 31 suites ... ALL GREEN" exit 0 at 943c59a, read from the gate's own receipt file</td></tr>
+    <tr><td class="tick on">✓</td><td>Graph engineering roadmap ratified: forty founder answers, four new design laws, folds into existing loops</td><td class="mono">docs/plan/ROADMAP-2026-08-11-GRAPH-ENGINEERING.md and its decisions record; dash scans clean<span class="ev">north star unchanged; the spec's separate program, extra vocabulary and hand-drawn views were rejected with flip conditions</span></td></tr>
+    <tr><td class="tick on">✓</td><td>GE0 truth map FILED: 13 verdicts, 3 spot-checked by hand, 4 duplicate-risk warnings binding on Wave 2</td><td class="mono">docs/plan/GE0-TRUTH-MAP-2026-08-11.md at 17d8512; the tasks graph's dependency blindness re-confirmed at bm_project.py:944; packets and critical path largely exist already</td></tr>
+    <tr><td class="tick on">✓</td><td>SD1 to SD6 stall detector v1, LOOP CLOSED, and it earned its keep this morning</td><td class="mono">RED first against the five real cases; ALL GREEN at d7dc252. Live use 2026-08-11: found 28 real problems, all cleared, re-sweep prints "0 finding(s)"<span class="ev">Stated gaps and the full sweep story at the foot &hellip;</span></td></tr>
+    <tr><td class="tick off">☐</td><td>CC command center convergence S1 to S7</td><td class="mono">DECIDED 04:3x: not opened tonight; 1.5 to 3 day size cannot close before 07:00, and a loop that cannot close does not open. First item after the tag</td></tr>
+    <tr><td class="tick off">☐</td><td>G1 governor, V1 verifier, C1 convergence, B1 benchmark</td><td class="mono">done-checks in the plan, each an adversarial test</td></tr>
+    <tr><td class="tick off">☐</td><td>CX phases 0 to 9, native Codex plugin and hybrid harness</td><td class="mono">phase gates verbatim from the spec; Phase 0 re-pins the baseline at d9d8003 or later</td></tr>
+  </table></div>
+</section>
+
+<section id="sd2">
+  <h2>The stall detector, and what replaces the watchdog</h2>
+  <p class="sub">Ratified this morning. The old guard lived inside a session and died with it; this one does not. Design: <code>docs/superpowers/specs/2026-08-11-sd2-sentinel-design.md</code>.</p>
+  <div class="tablewrap"><table>
+    <tr><th>What it watches</th><th>The scar that earned it</th><th>State</th></tr>
+    <tr><td>Work whose owner can no longer come back</td><td>Nineteen abandoned claims sat unnoticed until a person read the list by hand</td><td><span class="chip v">live</span> found and cleared 28 this morning</td></tr>
+    <tr><td>Work that quietly stopped while its owner is still alive</td><td>A session kept running and produced nothing for hours; nothing noticed</td><td><span class="chip a">to build</span></td></tr>
+    <tr><td>Spending with nothing to show for it</td><td>8 August: the meter climbed for ten hours while the code stood still</td><td><span class="chip a">to build</span></td></tr>
+    <tr><td>A test run that hangs or never reports</td><td>Four near-misses in one night, caught only because someone checked by hand</td><td><span class="chip a">to build</span></td></tr>
+    <tr><td>Its own survival</td><td>The watchdog died with its session and every restart was manual</td><td><span class="chip a">to build</span> a background job outside any session</td></tr>
+  </table></div>
+  <p class="sub" style="margin-top:8px;">What it may do on its own: clear work whose owner is provably gone, writing a receipt for every action. Everything else it reports and proposes, never runs. You hear about it three ways: always on this board, a desktop notice for the serious, your phone only for the critical.</p>
+</section>
+
+<section id="learning">
+  <h2>How this thing learns from its own mistakes</h2>
+  <p class="sub">Nineteen written-up incidents and a night's worth of learnings sit in the repo. The lane turns each one into something a machine checks, or an honest note saying nothing does.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Fix</th><th>The mistake behind it</th><th>What enforces it now</th></tr>
+    <tr><td>The gate writes its own receipt</td><td>Every page hand-copied test numbers next to a hand-copied commit, and once quoted the wrong one</td><td><span class="chip v">landed</span> the test runner writes the file</td></tr>
+    <tr><td>Forbidden commit messages die at commit time</td><td>A banned trailer reached a public commit and cost a rewrite of published history</td><td><span class="chip v">landed</span> a commit hook, which vetted its own landing commit</td></tr>
+    <tr><td>Claiming work uses the right session name</td><td>A first claim was refused as a stranger's, costing a recovery cycle</td><td><span class="chip p">building</span></td></tr>
+    <tr><td>One home for shared wording</td><td>The same sentence lived twice and drifted twice in one night, each time a red suite</td><td><span class="chip p">building</span></td></tr>
+    <tr><td>The mistake miner</td><td>Lessons are written by hand, so a repeat is only caught if someone remembers</td><td><span class="chip a">Wave 2</span> drafts rules for your approval, never self-approves</td></tr>
+    <tr><td>Rules ride every delegation</td><td>A helper cannot see this conversation, so a rule left out of its brief does not exist for it</td><td><span class="chip a">Wave 2</span></td></tr>
+  </table></div>
+</section>
+
+<section id="gaps">
+  <h2>What is missing versus the competition, core only</h2>
+  <p class="sub">From the founder's 2026-08-10 teardown, spot-checked this session. A row exists only when a persona needs it as core. Chips state how well the competitor claim survived checking.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Core gap</th><th>Competitor pressure</th><th>Check</th><th>For</th><th>Our answer</th></tr>
+    <tr><td>Deliverable-scoped governor (budget, concurrency, retries, wall clock)</td><td>GSD worktree isolation real; its budget and heartbeat claims not substantiated on fetched pages</td><td><span class="chip p">partly</span></td><td>P1</td><td>G1 (our 8 Aug incident is the stronger reason)</td></tr>
+    <tr><td>Independent verification vs frozen acceptance</td><td>Superpowers two-stage review; our verifier is model-authored today</td><td><span class="chip i">brief</span></td><td>P2</td><td>V1</td></tr>
+    <tr><td>Convergence: findings become tasks, bounded</td><td>Spec Kit converge "appends them as new tasks"</td><td><span class="chip v">verified</span></td><td>P2</td><td>C1</td></tr>
+    <tr><td>Active stall and orphan recovery as product action</td><td>Cline checkpoints + kanban worktrees, split across two products</td><td><span class="chip p">partly</span></td><td>P1, P2</td><td>SD, new tonight</td></tr>
+    <tr><td>Native second runtime, honestly probed</td><td>Codex native plugin contract and mcp-server</td><td><span class="chip v">verified</span></td><td>P3</td><td>CX lane, founder priority</td></tr>
+    <tr><td>Preview: verify what the user sees</td><td>OpenHands and Cline browser surfaces; we have none (measured absent)</td><td><span class="chip i">brief</span></td><td>P1</td><td>P1 loop, after the core</td></tr>
+    <tr><td>First-run simplicity</td><td>OpenSpec one-screen model</td><td><span class="chip i">brief</span></td><td>P3</td><td>F1, informed by CX phase 2</td></tr>
+    <tr><td>External proof of outcomes</td><td>Nobody has it for us; the rung is empty and says so</td><td><span class="chip a">ours</span></td><td>all</td><td>B1 benchmark, then the pilot</td></tr>
+  </table></div>
+  <p class="sub" style="margin-top:8px;">Will not build, so sprawl argues with a written list: model provider, role catalog, hundreds of tools, container platform, generic vector memory, multi-user PM, autonomous production publish, self-edited safety contract.</p>
+</section>
+
+<section id="decisions">
+  <h2>Decisions on record</h2>
+  <p class="sub">2026-08-11 morning: thirty answers through the question windows, all thirty in docs/decisions/RATIFIED-2026-08-11-morning.md. The four that change course:</p>
+  <div class="dcards" style="margin-bottom:12px;">
+    <div class="dcard" style="background:var(--bm-settled-tint); border-color:var(--bm-settled-rule);"><h3 style="color:var(--bm-settled-ink);">A. The tag: YES, and it is done</h3><p>v3.1.0 cut and pushed the same morning, gate and evidence bound to e50afbf.</p></div>
+    <div class="dcard" style="background:var(--bm-settled-tint); border-color:var(--bm-settled-rule);"><h3 style="color:var(--bm-settled-ink);">B. SD2 replaces the watchdog</h3><p>Hybrid hooks plus launchd, five signals, tiered alerts, allow-listed auto-clear with receipts. Deliberately flips the sweep-only decision; the flip condition was met early by seven bites in 24 hours.</p></div>
+    <div class="dcard" style="background:var(--bm-settled-tint); border-color:var(--bm-settled-rule);"><h3 style="color:var(--bm-settled-ink);">C. Self-learning becomes a lane</h3><p>SL-quick fixes in Wave 1; the mistake miner drafts rules for founder approval in Wave 2; recall-at-dispatch makes learned rules ride every brief.</p></div>
+    <div class="dcard" style="background:var(--bm-settled-tint); border-color:var(--bm-settled-rule);"><h3 style="color:var(--bm-settled-ink);">D. The proof is VADR, published</h3><p>25-task benchmark, blind graded; cross-model verifier required at V1; pilots after CC and G1; the honest comparison page ships.</p></div>
+  </div>
+  <p class="sub">2026-08-10 night:</p>
+  <div class="dcards">
+    <div class="dcard" style="background:var(--bm-settled-tint); border-color:var(--bm-settled-rule);"><h3 style="color:var(--bm-settled-ink);">1. Plan ordering: APPROVED</h3><p>R alone first, then Lane A (SD, CC, G1, V1, C1, B1) against Lane B (CX). Founder chose the recommended option; alternatives considered: CX jumping the queue, reworked lanes.</p></div>
+    <div class="dcard" style="background:var(--bm-settled-tint); border-color:var(--bm-settled-rule);"><h3 style="color:var(--bm-settled-ink);">2. Stall detector: SWEEP AND PROPOSE</h3><p>Pure-read sweep, exact clearing command printed, never run. Auto-adopt rejected for day one; flip condition: a month of reports showing the same clearance accepted every time.</p></div>
+    <div class="dcard" style="background:var(--bm-settled-tint); border-color:var(--bm-settled-rule);"><h3 style="color:var(--bm-settled-ink);">3. Codex port: AFTER THE TAG</h3><p>Phase 0 pins the clean green committed baseline Loop R produces. Immediate worktree start rejected against a stale baseline.</p></div>
+    <div class="dcard" style="background:var(--bm-settled-tint); border-color:var(--bm-settled-rule);"><h3 style="color:var(--bm-settled-ink);">4. Trailer: FORCE-REWRITE EXECUTED</h3><p>Published Co-Authored-By trailer removed from public history, content proven byte-identical, backup ref kept. Leave-it option declined.</p></div>
+    <div class="dcard" style="background:var(--bm-settled-tint); border-color:var(--bm-settled-rule);"><h3 style="color:var(--bm-settled-ink);">5. Push policy: DIRECT TO MAIN</h3><p>Standing rule for this repo, recorded in the policy registry; every gate stays mandatory. Branch plus PR declined.</p></div>
+    <div class="dcard" style="background:var(--bm-settled-tint); border-color:var(--bm-settled-rule);"><h3 style="color:var(--bm-settled-ink);">6. Overnight: EXECUTE LANES AUTONOMOUSLY</h3><p>Supersedes the after-the-tag sequencing for the lanes themselves; the tag stays founder-gated. Cheap tiers, fences, 07:00 stop, quoted green before any push.</p></div>
+  </div>
+</section>
+
+<section id="learnings">
+  <h2>Learnings and mistakes tonight</h2>
+  <p class="sub">Each line carries its evidence. A quiet hour adds nothing rather than inventing something.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Learning or mistake</th><th>Evidence</th></tr>
+    <tr><td>A fence claim needs the session id the hook reports, not the harness id</td><td class="mono">my own first claim was refused; adopt then re-claim fixed it</td></tr>
+    <tr><td>A deliberate wording copy drifts the moment one side is edited; it bit twice tonight</td><td class="mono">bm_visual copy-equality test went RED on my canary rewording; same trap the colleague hit</td></tr>
+    <tr><td>A gate verdict binds to ONE SHA, and a tracked-file edit mid-gate poisons it</td><td class="mono">test_all adds a clean-checkout FAILURE at its end; bedtime refresh waited for the sentinel</td></tr>
+    <tr><td>verify-install EXTRA entries can be a live colleague's minutes-old work, not a backdoor</td><td class="mono">PROJECT.md and the audit evidence file, both ASCII prose, born during my commit</td></tr>
+    <tr><td>The secret scan pattern sk- matches the CSS token at-risk-ink: read matches before counts</td><td class="mono">11 hits, all --bm-at-risk-* variables</td></tr>
+    <tr><td>Stale fences from dead sessions bit a SEVENTH time in 24 hours</td><td class="mono">FENCE A2 refused a writer after being closed once above the wrong line; Loop SD exists for this</td></tr>
+    <tr><td>A canary that cannot tell absent from broken reports the worst claim in the worst words</td><td class="mono">empty stdout of a hook that never ran read as a demonstrated defect; fixed by classifying on returncode, tests RED first</td></tr>
+    <tr><td>Process slip, named: two lint tests were written one edit after their fix instead of RED first</td><td class="mono">recorded in R4-TRIAGE; they fail on revert, verified by reading not running</td></tr>
+  </table></div>
+</section>
+
+<section id="history">
+  <h2>Full history, nothing removed</h2>
+  <p class="sub">The lines above are short by rule (300 characters for the stamp, 250 a card, 240 an evidence line). Every word they replaced is kept here, unedited. Newer entries go first; nothing already here is rewritten.</p>
+  <details style="margin:8px 0"><summary style="cursor:pointer;color:var(--bm-muted);font-size:13px">2026-08-11 afternoon: the baton ceremony becomes law</summary>
+  <div style="font-size:13px;color:var(--bm-muted);padding:8px 0;overflow-wrap:anywhere">
+  <p><b>The rule, in one breath.</b> Every brothermode session switch runs a two-sided ceremony. CLOSE: refresh the pack (six narrative files plus close report plus command center), first line of the close report FINISHED or UNFINISHED, park every held record with handover text, commit the pack folder (the zip is packaging, never the only home), zip to the handovers folder, vault log current, then verify-close quoted; a FAIL means no closure claim. START: detect, read the newest pack, acknowledge handovers, adopt or park every dead-session leftover with receipts, open an own work record, state the baton line. Ratified through seven question windows; spec docs/superpowers/specs/2026-08-11-baton-ceremony-design.md at cb565d6; binding now via the global CLAUDE.md; the SKILL.md amendment is proposed in the vault pending-amendments note because the constitution is founder-owned.</p>
+  <p><b>Decisions recorded with the work.</b> SD2 stays parked except one manifest edit under the lawful adopt-edit-park path (flip: the founder orders SD2 built). Hook wiring deferred because its files sit under the SD2 fence (flip: SD2 lands or the files are freed). The install clone was updated by the documented path (git fetch --tags, git checkout v3.1.0) after its two uncommitted files were preserved to a dated patch; verify-install confirmed a byte match. Two dead provisional records in the BrotherSBE store were adopted then parked with handover text; the probe event PROBE-DELETEME has no sanctioned removal command, so the drafted command goes to the founder rather than being run by a model against a live store.</p>
+  </div></details>
+  <details style="margin:8px 0"><summary style="cursor:pointer;color:var(--bm-muted);font-size:13px">2026-08-11 morning: the release, the decisions, the cleanup, the first two learning fixes</summary>
+  <div style="font-size:13px;color:var(--bm-muted);padding:8px 0;overflow-wrap:anywhere">
+  <p><b>Release, in full.</b> v3.1.0 IS TAGGED AND PUSHED: gate "test_all: 2966 tests across 31 suites, 5 skipped, 516.3s wall. ALL GREEN" exit 0 on the tagged commit e50afbf; HEAD equals upstream equals e50afbf; ls-remote lists refs/tags/v3.1.0; verify-install PASSED, 749 file(s) match, 0 mismatched, 0 missing, 0 wrong type, 0 extra. The version agrees in five places (VERSION, pyproject.toml, plugin.json, marketplace.json, the pinned install target in bm_project_facts.py) and the pinned install command was updated in README, QUICKSTART, SETUP and RELEASE. The docs drift suite caught two dated documents of mine that declared no status, and one stale pinned tag in RELEASE.md, before any of it shipped.</p>
+  <p><b>The stall detector's first real day.</b> The morning sweep found 28 findings (19 abandoned claims, 9 never-promoted records), each printed with the exact command that would clear it and none executed by the tool itself. Nine were cleared here by adopt-then-cancel with a receipt each; the overnight session had parked its own ten as it closed. Re-sweep: "bm_stall sweep: 0 finding(s). No active fence, provisional record, or claim looks stale or contradictory right now." Stated gaps that remain in its own docstring: no session records a process id today, so liveness is judged from recorded activity age alone, and the foreign-commit check awaits a caller that passes both commit ids. A learning was paid for on the spot: the cancel verb refuses a record owned by another session, so adopt-then-cancel is the only recovery path, which matches the overnight session's own note from hours earlier.</p>
+  <p><b>SL-quick part 1, in full.</b> RF-5: tools/test_all.py now writes .brothermode/gate-receipt.json (commit id, whether the tree was dirty, test and suite counts, skipped, wall seconds, exit code, timestamp) into the ignored directory, never the tracked tree, because the gate itself refuses a run that dirties tracked files. It fails open on purpose: git missing, a non-checkout, or a full disk warns on stderr and never changes the verdict, proven by a test that runs it outside a repository. RED first, quoted by the builder: "AttributeError: module 'bm_test_all_under_test' has no attribute 'write_gate_receipt'". RF-1: scripts/bm_commit_msg_hook.py refuses an em dash, an en dash, or a Co-Authored-By line, naming the offending line number, exit 1; a clean message exits 0. Both verified live by the orchestrator, not only by the builder, and the hook was installed at .git/hooks/commit-msg and screened its own landing commit. The builder deviated once, deliberately and correctly: it registered the new script in the write-sites manifest, outside its allowed file list, because the repo's own pre-write gate demands an entry for any file that writes to an output channel; it read the loader first and reproduced the red before editing. Suites after the last edit: the two new test classes "Ran 10 tests in 0.318s OK", tools/test_bm.py "Ran 290 tests OK (skipped=1)", tools/test_bm_docs.py "OK (skipped=1)".</p>
+  <p><b>Decisions.</b> Thirty founder answers were taken through the question windows this morning and recorded with their flip conditions in docs/decisions/RATIFIED-2026-08-11-morning.md, committed at 2a41942. The two that changed a previous decision: the stall detector may now clear provably dead work automatically with a receipt (the earlier sweep-only decision's flip condition was met early by seven stale-work incidents in 24 hours), and self-learning became a lane of its own in Wave 1 rather than work folded into other loops.</p>
+  </div></details>
+</section>
+
+<footer>
+  <p><strong>Tick contract:</strong> a box ticks only when its done-check ran after the last edit and its output is quoted in the evidence line beside it. Percentages, where shown, are counts of records, never impressions.</p>
+  <p><strong>What this page does not know:</strong> whether Loop 4.5's check is inside the green docs suite; session liveness across sleeps (SD1's hard part); anything about competitors beyond the checked pages. It runs nothing and never will (decision D-3).</p>
+  <p>Maintained by hand under the progress page law until Loop CC S7 generates it from the store, at which point this file is deleted. One truth, one renderer.</p>
+</footer>
+
+</div>
+</body>
+</html>
