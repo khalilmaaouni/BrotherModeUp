@@ -221,6 +221,18 @@ WHAT SHIPPED, all green and pushed at dfc3d02:
 - docs/evidence/design-review/REFUTE-2026-08-12.md, an adversarial review of
   the four design documents another session landed tonight. Six blocking
   findings, four load-bearing citations re-verified by hand.
+- A real defect in this ceremony's own tool, found while closing. The zip
+  freshness check compared the archive's BYTES, and a zip entry header carries
+  each member's mtime, so a byte-identical re-save crossing an MS-DOS two
+  second boundary read as a changed pack. It had been failing about one gate
+  run in forty and was written up as a flake first. Fixed by comparing a
+  content fingerprint, with a deterministic regression test replacing the
+  probabilistic one.
+- A3: verify-close now FAILs when a forecast has sat open past twelve hours
+  with no actual against it. Until that line, the forecasting tool ran only
+  when somebody remembered, which is a rule rather than a control, and being
+  a rule rather than a control is exactly how the original bias survived four
+  estimates in one night.
 
 WHAT IS NOT DONE, and is the first thing to pick up:
 
