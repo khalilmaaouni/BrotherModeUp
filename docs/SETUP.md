@@ -276,7 +276,7 @@ python3 ~/.claude/skills/brothermode/scripts/doctor.py
 ```
 
 Run this any time you are unsure whether an install, an update, or a hand
-edit to `settings.json` left something broken. It runs ten checks, each
+edit to `settings.json` left something broken. It runs eleven checks, each
 printing `PASS`, `FAIL` with a one-sentence fix a non-engineer can follow, or
 `SKIP` with the reason nothing could be checked yet (`SKIP` is not a
 failure). Exit code 0 only when every check is `PASS` or `SKIP`. Add

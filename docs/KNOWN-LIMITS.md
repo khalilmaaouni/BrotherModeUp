@@ -925,7 +925,7 @@ cutting the next release tag at program end:
   verdict confirms the PreToolUse fence entry and nothing else: an
   install missing SessionEnd, Stop, PreCompact, PostToolUse and both
   Bash-audit groups (telemetry, autosave and the Loop 6 detection all
-  dead) still prints "All 10 checks passed". Widening the check to all
+  dead) still prints "All 11 checks passed". Widening the check to all
   seven groups is a post-freeze fix; until then, the mechanical
   cross-check is `python3 tools/test_install.py`, whose shape assertions
   do read all seven.

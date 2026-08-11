@@ -1545,6 +1545,23 @@ class StoreCorrupt(BMStoreError):
         self.quarantine_path = quarantine_path
 
 
+class _DryRunRollback(BMStoreError):
+    """Private sentinel, never raised out of this module and never caught by
+    a caller. purge_project(dry_run=True) raises it after the very last
+    statement of the real purge so that _transaction's own ROLLBACK path
+    runs, rather than a second, parallel "count what would go" reimplemented
+    beside the deletion.
+
+    The reason it is written this way instead of as a set of SELECT COUNT
+    queries: purge semantics are subtle in exactly the places a preview
+    would be read for. A dependency edge owned by ANOTHER project is removed
+    but reported separately, and an alert whose ownership is ambiguous is
+    deliberately left alone. A preview built from its own queries would
+    agree with the purge on the easy cases and disagree on precisely the
+    ones a founder runs a dry run to see. Rolling back the real thing cannot
+    drift from the real thing."""
+
+
 class HandoverLost(OwnershipRefused):
     """A transition asked for a handover and the store could not prove one
     exists for it after the write. Raised INSIDE transition()'s transaction,
@@ -12702,7 +12719,8 @@ class Store(object):
                 evidence_ref=run_dict.get("evidence_ref") or "")
         return run_dict["run_id"]
 
-    def purge_project(self, project_id, actor, confirmation_token):
+    def purge_project(self, project_id, actor, confirmation_token,
+                      dry_run=False):
         """Composite (WP-H, loop6 security-closure design, D-3): erase
         `project_id` and every row that belongs to it (its tasks, the
         dependencies rows naming one of those tasks on either side, its
@@ -12753,12 +12771,38 @@ class Store(object):
         `cross_project_edges_removed` (list of foreign task ids) and
         `alerts_skipped` (list of alert ids left untouched), so a caller
         can report exactly what left the store, and what could not be
-        safely attributed, without a second read."""
-        if confirmation_token != project_id:
+        safely attributed, without a second read.
+
+        dry_run=True (V3 Final, B1) runs every statement of the real purge
+        and then rolls the whole transaction back, returning the same counts
+        the real purge would have returned and leaving every row, including
+        the attribution trail, exactly as it was. It is READ-ONLY in effect,
+        never in mechanism: see _DryRunRollback for why a preview that
+        queried for itself would disagree with the purge on precisely the
+        edge cases a founder runs a preview to see.
+
+        The confirmation token is NOT required under dry_run, and that is a
+        deliberate decision rather than an oversight: the token exists to
+        stand between a founder and an irreversible deletion, and a dry run
+        deletes nothing. Demanding it would train a founder to type the
+        confirmation before they have seen what it confirms, which is the
+        opposite of what this flag is for."""
+        if not dry_run and confirmation_token != project_id:
             raise OwnershipRefused(
                 "bad-confirmation",
                 "confirmation token %r does not match project %r; "
                 "nothing was removed" % (confirmation_token, project_id))
+        preview = {}
+        try:
+            return self._purge_project_body(project_id, actor, dry_run,
+                                            preview)
+        except _DryRunRollback:
+            return preview
+
+    def _purge_project_body(self, project_id, actor, dry_run, preview):
+        """The one transaction both the real purge and its dry run share.
+        Split out only so the dry run's rollback sentinel has somewhere to
+        be caught; every statement below is the real purge's own."""
         with self._transaction():
             row = _exec(self, "SELECT project_id FROM projects "
                         "WHERE project_id=?", (project_id,)).fetchone()
@@ -12966,6 +13010,12 @@ class Store(object):
             _exec(self, "DELETE FROM projects WHERE project_id=?",
                   (project_id,))
             removed["projects"] = 1
+            if dry_run:
+                # Hand the counts out BEFORE the rollback discards them,
+                # then force _transaction's own ROLLBACK path. Nothing
+                # above this line has been committed yet.
+                preview.update(removed)
+                raise _DryRunRollback("dry run, rolling back")
         return removed
 
     # -- read accessors (D-2, loop2 mechanical commands design, 2026-08-01;
