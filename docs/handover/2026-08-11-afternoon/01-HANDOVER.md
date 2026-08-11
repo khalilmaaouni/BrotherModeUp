@@ -173,7 +173,7 @@ THE STOPPED SESSION, and where its work is. Session bm1-6ed31697 was building
 SD2 and the Codex port in this same tree when the founder stopped it, leaving
 1145 insertions uncommitted. Preserved three ways before anything else was
 touched: branch wip/sd2-sentinel-2026-08-11-stopped-session at fd953fd,
-a patch at BrotherModeUp-handovers/sd2-session-uncommitted-2026-08-11.patch,
+a patch at the handovers folder, sd2-session-uncommitted-2026-08-11.patch,
 and its new file sd2-session-bm_heartbeat-2026-08-11.py beside it. Whoever
 resumes SD2 starts from that branch.
 
