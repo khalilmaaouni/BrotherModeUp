@@ -149,6 +149,38 @@ bs = _load("bm_store")
 # applies: every bs.OwnershipRefused caught below is from THIS load,
 # never a second independent one.
 
+def _load_messages():
+    """bm_messages.py, cached in sys.modules rather than re-executed on
+    every call the way the generic _load() above deliberately is for
+    bm_store (that file's own "class-identity trap" note explains why a
+    FRESH bm_store load matters elsewhere in this project).
+
+    RF-4 needs the opposite property here: tools/bm_visual.py loads this
+    same file independently, by the same by-path technique, and its
+    REFUSAL_HELP entries must be the SAME objects this file's
+    UNATTENDED_REFUSAL_HELP holds, or tools/test_bm_visual.py's identity
+    check could never pass even when both files import correctly, since
+    two independent by-path loads of any module never produce `is`-equal
+    objects. Caching is safe here specifically because bm_messages.py is
+    constants only: no state a fresh reload would ever need to reset."""
+    cached = sys.modules.get("bm_messages")
+    if cached is not None:
+        return cached
+    spec = importlib.util.spec_from_file_location(
+        "bm_messages", os.path.join(HERE, "bm_messages.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    sys.modules["bm_messages"] = mod
+    return mod
+
+
+bm_msgs = _load_messages()
+# RF-4 (GAP-19): the founder-facing unattended-refusal wording lives in
+# tools/bm_messages.py, a constants-only module, exactly once. This file
+# assigns UNATTENDED_REFUSAL_HELP from it below instead of defining its own
+# dict, so tools/bm_visual.py's copy of the same entries can never drift
+# from this one: both surfaces now read the same object.
+
 
 def _out(msg=""):
     sys.stdout.write("%s\n" % msg)
@@ -4762,82 +4794,25 @@ UNATTENDED_FOREIGN_CLAIM = "unattended-foreign-claim"
 UNATTENDED_NO_SNAPSHOT = "unattended-no-snapshot"
 
 #: The exact remediation for the two fence conditions, as the founder would
-#: type it. Constants, not literals inside a sentence, because each is
-#: quoted in two places here and once again in docs/FULL-AUTO.md, and a
-#: drifted copy would send somebody to the wrong variable.
-UNATTENDED_FENCE_MODE_COMMAND = "export BM_FENCE_MODE=enforced"
-UNATTENDED_FENCE_STRICT_COMMAND = "export BM_FENCE_STRICT=1"
+#: type it. Sourced from tools/bm_messages.py (RF-4), the catalog these two
+#: constants now share with tools/bm_visual.py's rewrite, rather than
+#: defined here twice: each is quoted in two places here and once again in
+#: docs/FULL-AUTO.md, and a drifted copy would send somebody to the wrong
+#: variable.
+UNATTENDED_FENCE_MODE_COMMAND = bm_msgs.UNATTENDED_FENCE_MODE_COMMAND
+UNATTENDED_FENCE_STRICT_COMMAND = bm_msgs.UNATTENDED_FENCE_STRICT_COMMAND
 
 #: reason code -> (what we were doing, what is wrong, what to do next), the
 #: same three-part shape tools/bm_visual.py's REFUSAL_HELP uses, so a
-#: founder meets a sentence rather than a code. It lives HERE and not in
-#: bm_visual.py because that map is enumerated from tools/bm_store.py's own
-#: source, and these eight are the CONTROLLER's refusals, which that scanner
-#: cannot see. Naming them in bm_visual.py's map as well is a separate,
-#: named cross-writer ask, recorded rather than assumed.
-UNATTENDED_REFUSAL_HELP = {
-    UNATTENDED_NO_IDENTITY: (
-        "getting ready to run on its own, with nobody watching",
-        "the run has no stable name for itself, or its records could not "
-        "be read, so a second attempt could not tell that it was the same "
-        "run coming back",
-        "Give the run the same session name every time you start it, and "
-        "check that BrotherMode is set up in this folder."),
-    UNATTENDED_FENCE_ADVISORY: (
-        "checking that the file protection is really switched on",
-        "the protection is in advise-only mode, which means that when it "
-        "cannot check a write it lets the write through and prints a note "
-        "nobody is awake to read",
-        "Switch it to refusing mode in the same terminal you start the run "
-        "from, then start again: " + UNATTENDED_FENCE_MODE_COMMAND),
-    UNATTENDED_FENCE_NOT_STRICT: (
-        "checking that the file protection refuses unclaimed edits",
-        "edits to files no piece of work has claimed would be allowed "
-        "through, which is the shape an unwatched run's mistakes take most "
-        "often",
-        "Turn the stricter setting on in the same terminal you start the "
-        "run from, then start again: " + UNATTENDED_FENCE_STRICT_COMMAND),
-    UNATTENDED_FENCE_NOT_PROVEN: (
-        "checking that the write fence actually refuses a write, by "
-        "running it, not only that the settings meant to turn it on are "
-        "set",
-        "the fence hook's refusal could not be shown by actually running "
-        "it: either it ran and let a foreign Edit write through, or it "
-        "could not be run and checked here at all, and the detail line "
-        "below tells those two apart",
-        "read the detail line: if the hook ran and did not refuse, that "
-        "is a defect in tools/bm_fence_hook.py to fix before running "
-        "unattended; if it could not be run at all, fix that first. "
-        "Either way, this only checks the hook binary itself: it cannot "
-        "prove that the runtime you are about to run under actually "
-        "calls it on every write it makes."),
-    UNATTENDED_NO_REPOSITORY: (
-        "finding the version history this run could be undone from",
-        "this folder is not a tracked project, or it is not sitting on a "
-        "named branch, so there would be no way to put the files back",
-        "Run it from a tracked project on its own branch, and check that "
-        "branch out by name first."),
-    UNATTENDED_DIRTY_TREE: (
-        "checking that nothing unfinished is already in the way",
-        "files are already changed here, and an unwatched run on top of "
-        "them makes your work and its work impossible to tell apart "
-        "afterwards",
-        "Save or set aside what you were doing, or name each changed file "
-        "when you start so it is on record that you meant to leave it."),
-    UNATTENDED_FOREIGN_CLAIM: (
-        "checking that nobody else is holding the files this run will "
-        "write",
-        "another session already claimed one of them, and two writers over "
-        "one file is the failure this product exists to prevent",
-        "Wait for that session to finish, or have it hand the files over, "
-        "then start again."),
-    UNATTENDED_NO_SNAPSHOT: (
-        "taking the safety copy this run could be rewound to",
-        "the safety copy could not be taken, so there would be nothing to "
-        "rewind to if the run went wrong",
-        "Check that the project's version history is healthy, then start "
-        "again."),
-}
+#: founder meets a sentence rather than a code. RF-4 (GAP-19): sourced from
+#: tools/bm_messages.py rather than defined here, so tools/bm_visual.py's
+#: copy of these eight entries is the SAME object as this one and the two
+#: surfaces cannot drift apart. The reason-code CONSTANTS above stay
+#: defined in THIS file, unmoved: tools/test_bm_visual.py's scanner
+#: (_controller_reason_codes) discovers them by reading this file's own
+#: module-level source with ast, matching a literal string assignment, and
+#: moving them to bm_messages.py would blind that scanner.
+UNATTENDED_REFUSAL_HELP = bm_msgs.UNATTENDED_REFUSAL_HELP
 
 
 class UnattendedGitFacts(object):

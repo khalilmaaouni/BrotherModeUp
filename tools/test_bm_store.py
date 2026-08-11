@@ -780,6 +780,47 @@ class TestFixRoundGates(unittest.TestCase):
             self.assertIn("first process", objectives)
             self.assertNotIn("second process", objectives)
 
+    def test_rf2_omitted_session_resolves_to_hook_derived_label(self):
+        """RF-2 (docs/handover/2026-08-11-morning/03-RULES-AND-PROCESS-
+        FIXES.md): a claim that omits --session, with a harness session id
+        available the same way scripts/bm_shell.py and docs/HOOKS.md read
+        one for a CLI caller (CLAUDE_SESSION_ID), must claim under the SAME
+        bm1-<hash> label tools/bm_fence_hook.py would derive for that
+        session, not an unrelated cli-<uuid> the hook can never match.
+        That mismatch is the exact incident RF-2 records: a session's own
+        first claim refused as a foreign writer by its own fence hook.
+
+        RED before the fix: cmd_claim always minted _default_cli_session_id()
+        when --session was omitted, regardless of CLAUDE_SESSION_ID."""
+        with tempfile.TemporaryDirectory() as d:
+            r_init = _run_cli(["init"], d)
+            self.assertEqual(r_init.returncode, 0, r_init.stdout + r_init.stderr)
+            harness_id = "harness-session-rf2-abc123"
+            fence_hook = os.path.join(HERE, "bm_fence_hook.py")
+            r_label = subprocess.run(
+                [sys.executable, fence_hook, "session-label",
+                 "--session-id", harness_id],
+                cwd=d, capture_output=True, text=True)
+            self.assertEqual(r_label.returncode, 0,
+                             r_label.stdout + r_label.stderr)
+            expected_label = r_label.stdout.strip()
+            self.assertTrue(expected_label.startswith("bm1-"), expected_label)
+
+            r_claim = _run_cli(
+                ["claim", "thing", "--lifetime", "ephemeral",
+                 "--objective", "obj", "--files", "a.py"],
+                d, env={"CLAUDE_SESSION_ID": harness_id})
+            self.assertEqual(r_claim.returncode, 0,
+                             r_claim.stdout + r_claim.stderr)
+
+            r_dump = _run_cli(["dump", "--raw"], d)
+            self.assertEqual(r_dump.returncode, 0, r_dump.stdout + r_dump.stderr)
+            dumped = json.loads(r_dump.stdout)
+            session_ids = [r["session_id"] for r in dumped["records"]]
+            self.assertIn(expected_label, session_ids,
+                          "omitted --session must resolve to the hook-derived "
+                          "label %r, got %r" % (expected_label, session_ids))
+
     # -- GATE 4: every sqlite call carries the failure split ---------------
 
     def test_calibrated_gate4_exec_quarantines_on_database_error(self):

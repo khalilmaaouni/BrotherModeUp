@@ -4698,6 +4698,53 @@ def _learning():
     return _LEARNING_MOD
 
 
+_FENCE_HOOK_MOD = None
+_FENCE_HOOK_LOAD_ERROR = None
+
+
+def _fence_hook():
+    """Load bm_fence_hook.py from THIS file's directory, by path. Same
+    technique _learning() uses to load bm_learning.py, and for the same
+    reason: this module is loaded by path from several places, so a plain
+    `import bm_fence_hook` would depend on whichever sys.path the caller
+    happened to have.
+
+    RF-2 (docs/handover/2026-08-11-morning/03-RULES-AND-PROCESS-FIXES.md):
+    this is the one caller of bm_fence_hook.session_label() from inside
+    this file, used only to let an omitted `claim --session` resolve the
+    same hook-derived label tools/bm_fence_hook.py would compute for the
+    same harness session id, instead of an unrelated cli-<uuid> the hook
+    can never match (see _default_cli_session_id() and
+    _hook_derived_session_id()).
+
+    NO CYCLE: bm_fence_hook.py never imports bm_store.py at module scope,
+    only lazily inside its own functions (its own _load_store_module,
+    called from ensure_token/active_claims/canonical_target, never at
+    import time), so loading it here does not re-enter this file's own
+    module exec. Grepped both files for imports of each other before
+    writing this.
+
+    Cached after the first load; a load failure is remembered too (never
+    retried every call) and surfaces as None to every caller, which is
+    this function's whole failure contract: callers that cannot get a
+    hook-derived label fall back to today's exact behaviour."""
+    global _FENCE_HOOK_MOD, _FENCE_HOOK_LOAD_ERROR
+    if _FENCE_HOOK_MOD is not None or _FENCE_HOOK_LOAD_ERROR is not None:
+        return _FENCE_HOOK_MOD
+    try:
+        import importlib.util
+        here = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(here, "bm_fence_hook.py")
+        spec = importlib.util.spec_from_file_location(
+            "bm_fence_hook_for_store", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _FENCE_HOOK_MOD = mod
+    except Exception as e:
+        _FENCE_HOOK_LOAD_ERROR = repr(e)
+    return _FENCE_HOOK_MOD
+
+
 _SCHEMA_MOD = None
 
 
@@ -17831,6 +17878,44 @@ def _default_cli_session_id():
     return "cli-" + uuid.uuid4().hex
 
 
+def _hook_derived_session_id(root):
+    """RF-2: when `claim --session` is omitted, resolve the same id
+    source tools/bm_fence_hook.py uses, so the claim lands under the exact
+    bm1-<hash> label the fence hook will derive for this same harness
+    session, instead of an unrelated cli-<uuid> the hook can never match.
+
+    Earned by an incident where a session's own first fence claim was
+    refused as a foreign writer, because it carried a session id the
+    fence hook could never reproduce from the harness session it was
+    actually run under.
+
+    scripts/bm_shell.py and docs/HOOKS.md already establish where that
+    harness session id lives for a CLI caller: BM_FENCE_SESSION_ID, then
+    CLAUDE_SESSION_ID, in that order (bm_shell.py's own
+    `opts["session_id"] or os.environ.get("BM_FENCE_SESSION_ID", "") or
+    os.environ.get("CLAUDE_SESSION_ID", "")`, minus the --session-id flag
+    this function has no equivalent of since --session already exists on
+    `claim` and wins outright when the caller passes it). Mirrored here.
+
+    Returns the hook-derived PUBLIC label (bm1-<hash>) when a harness
+    session id is found in the environment and tools/bm_fence_hook.py
+    could be loaded and asked to derive it. Returns None otherwise (no
+    env var set, the hook module unavailable, or any error deriving the
+    label), and the caller falls back to _default_cli_session_id(),
+    today's exact behaviour, unchanged."""
+    harness_id = (os.environ.get("BM_FENCE_SESSION_ID", "")
+                  or os.environ.get("CLAUDE_SESSION_ID", "")).strip()
+    if not harness_id:
+        return None
+    fh = _fence_hook()
+    if fh is None:
+        return None
+    try:
+        return fh.session_label(root, harness_id)
+    except Exception:
+        return None
+
+
 def cmd_init(argv):
     kv = _parse_kv(argv)
     _reject_unknown_flags("init", kv, ("acknowledge-quarantine",))
@@ -17908,7 +17993,18 @@ def cmd_claim(argv):
         files = None
     owner = " ".join(kv["owner"]) if "owner" in kv else None
     # GATE 3: an omitted --session gets a fresh per-process id, never "".
-    session_id = " ".join(kv.get("session", [])) or _default_cli_session_id()
+    # RF-2: an explicit, non-empty --session always wins unchanged, exactly
+    # as before. When it is omitted (or passed empty, which already fell
+    # through to the default before this change), first try to resolve the
+    # same hook-derived label tools/bm_fence_hook.py would compute for this
+    # process's own harness session id, so a claim from this CLI is never
+    # refused by its own project's fence hook as a foreign writer. Only
+    # when nothing resolves (no BM_FENCE_SESSION_ID / CLAUDE_SESSION_ID, or
+    # the hook module could not be loaded or asked) does this fall back to
+    # _default_cli_session_id(), today's exact behaviour.
+    explicit_session = " ".join(kv.get("session", []))
+    session_id = explicit_session or _hook_derived_session_id(root) \
+        or _default_cli_session_id()
     tier = " ".join(kv["tier"]) if "tier" in kv else None
     check_cmd = " ".join(kv["check"]) if "check" in kv else None
     # Fix-round 4: only `init` creates a store; claim refuses 'no-store'.
