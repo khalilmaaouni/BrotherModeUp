@@ -477,6 +477,67 @@ def _zip_bytes(dirname, entries):
     return buf.getvalue()
 
 
+def _content_fingerprint(pairs):
+    """A fingerprint of (arcname, file bytes) pairs and NOTHING else.
+
+    Why this exists, and why hashing the zip's bytes was not enough. F9's
+    original fix moved the freshness check off the pack DIRECTORY's mtime
+    and onto the archive's bytes, on the reasoning that bytes are content
+    and mtimes are not. That is true of a plain file and false of a zip: a
+    zip entry header stores each member's modification time, so
+    `zf.write(path, ...)` bakes the file's mtime into the archive. An
+    editor or formatter re-saving a file with byte-identical content still
+    moves that mtime, and once it crosses one of the MS-DOS format's two
+    second boundaries the archive's bytes change with nothing to show for
+    it. The check then reported a pack as stale, which is exactly the
+    failure F9 set out to remove, just harder to catch because it only
+    fires inside a two second window.
+
+    Proven rather than reasoned, 2026-08-12: writing one file into a zip,
+    then calling os.utime to move its mtime forward two seconds with the
+    contents untouched, produced two different sha256 digests. It first
+    surfaced as an intermittent gate failure that would not reproduce in
+    five isolated runs, which is what a two second window looks like from
+    the outside.
+
+    So the comparison is done on this instead, which depends only on names
+    and contents. Sorted, so member order can never decide the answer.
+    """
+    h = hashlib.sha256()
+    for arcname, blob in sorted(pairs):
+        h.update(arcname.encode("utf-8"))
+        h.update(b"\0")
+        h.update(hashlib.sha256(blob).hexdigest().encode("ascii"))
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def _pack_content_fingerprint(dirname, entries):
+    """_content_fingerprint of what the archive SHOULD contain, read from
+    the pack directory on disk."""
+    pairs = []
+    for f, full in entries:
+        with open(full, "rb") as fh:
+            pairs.append(("%s/%s" % (dirname, f), fh.read()))
+    return _content_fingerprint(pairs)
+
+
+def _zip_content_fingerprint(zip_path):
+    """_content_fingerprint of what an EXISTING archive actually contains,
+    or None if it cannot be read as a zip at all.
+
+    None means could not tell, and every caller treats it as "rewrite" or
+    "stale" rather than as a match. A corrupt or truncated archive must
+    never be able to pass a freshness check by being unreadable.
+    """
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            return _content_fingerprint(
+                [(n, zf.read(n)) for n in zf.namelist()])
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Store reads. Every one goes through a public bm_store.py function:
 # ReadOnlyStore.dump() and bs.verify(). No SQL of this file's own.
@@ -1078,8 +1139,13 @@ def cmd_verify_close(argv):
     except bs.OwnershipRefused as e:
         _out_scrubbed("FAIL: %s" % e)
         return FAIL
-    current_hash = hashlib.sha256(_zip_bytes(dirname, entries)).hexdigest()
-    if current_hash != _sha256_file(zip_path):
+    # Compared by CONTENT, never by the archive's raw bytes: those carry
+    # each member's mtime, so a no-op re-save could report a fresh pack as
+    # stale. See _content_fingerprint. An unreadable archive fingerprints
+    # as None, which never equals a real pack, so a corrupt zip fails here
+    # rather than passing by being unparseable.
+    if _pack_content_fingerprint(dirname, entries) \
+            != _zip_content_fingerprint(zip_path):
         _out_scrubbed(
             "FAIL: the zip at %s does not match the pack's current "
             "content at %s; run `%s zip --pack %s` again"
@@ -1141,8 +1207,11 @@ def cmd_zip(argv):
     entries = _pack_files_for_zip(root, pack_dir)
     data = _zip_bytes(dirname, entries)
 
+    # Idempotence decided on content, not on the archive's bytes. Same
+    # reason as the freshness check in verify_close above.
     if os.path.isfile(zip_path) \
-            and hashlib.sha256(data).hexdigest() == _sha256_file(zip_path):
+            and _zip_content_fingerprint(zip_path) \
+            == _pack_content_fingerprint(dirname, entries):
         _out("zip unchanged: %s (%d file(s)), idempotent, not rewritten"
              % (zip_path, len(entries)))
         return 0

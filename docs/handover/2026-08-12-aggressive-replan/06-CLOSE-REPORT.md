@@ -53,8 +53,21 @@ WHAT WAS ASKED, AND WHETHER IT WAS DONE:
 NOT DONE, stated rather than left to be found:
 
 - The BrotherSBE commit. Deliberate, reasoned, and handed back with the patch.
-- The handover suite flake. Filed with evidence, not fixed, not dismissed, and
-  no test weakened to get the green.
+
+WHAT CHANGED AFTER THIS REPORT WAS FIRST WRITTEN, kept rather than rewritten
+because the sequence is the point: the report originally listed the
+test_bm_handover.py failure as a filed flake. It recurred on the next gate run,
+this time under --artifacts, which produced the assertion the earlier run had
+swallowed. It was never a flake. The zip freshness check compared the archive's
+BYTES, and a zip entry header carries each member's mtime, so a byte-identical
+re-save that crossed one of the MS-DOS format's two second boundaries read as a
+changed pack. Roughly one run in forty. Fixed by comparing a content
+fingerprint of (member name, member bytes) instead, with a deterministic
+regression test shown red before the fix and green after, plus a second test
+that a REAL content change is still caught. docs/plan/DEFECT-handover-suite-flake-2026-08-12.md
+carries the whole trail including the hypothesis that was wrong.
+- Nothing else. The suite failure first written up here as a flake turned out
+  to be a real bug and was fixed before this pack shipped; see below.
 
 UNVERIFIED, next to the claim rather than in a footnote:
 
