@@ -522,6 +522,78 @@ class TestVerifyClose(HandoverCase):
         self.assertEqual(0, code, out)
         self.assertIn("PASS", out)
 
+    def test_f9b_resave_across_a_two_second_boundary_is_still_unchanged(self):
+        """F9 again, made DETERMINISTIC (2026-08-12).
+
+        The test above re saves a file after a 0.05 second sleep and expects
+        "unchanged". It passed almost always and failed inside the gate
+        twice, refusing to reproduce in five isolated runs, which is what a
+        narrow timing window looks like from the outside.
+
+        The window: F9's fix compared the ARCHIVE'S BYTES rather than the
+        pack directory's mtime, on the reasoning that bytes are content. A
+        zip entry header stores each member's modification time, so
+        zf.write() bakes the file's mtime into those bytes. A no-op re save
+        moves that mtime, and once it crosses one of the MS DOS format's two
+        second boundaries the archive's bytes change with the content
+        untouched. A 0.05 second sleep crosses such a boundary about one
+        time in forty.
+
+        This test removes the dice: it sets the mtime forward by exactly two
+        seconds with os.utime, contents byte identical, which lands the
+        change in a different DOS timestamp EVERY time. Against the
+        byte-comparing implementation it fails on every run. It passes only
+        when the comparison ignores timestamps.
+        """
+        rec = self.claim("fence-f9b", session_id="closing-session")
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        code, _out, _err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code)
+        self.park(rec, session_id="closing-session")
+
+        target = os.path.join(pack_dir, "01-HANDOVER.md")
+        same_bytes = self.read(target)
+        self.write(target, same_bytes)
+        # Forward by a full two seconds: a different DOS timestamp with
+        # certainty, not with probability.
+        moved = os.stat(target).st_mtime + 2
+        os.utime(target, (moved, moved))
+
+        code, out, _err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code, out)
+        self.assertIn(
+            "unchanged", out.lower(),
+            "an mtime-only change rewrote the archive, so the freshness "
+            "check is comparing timestamps again rather than content: " + out)
+
+        code, out, _err = self.run_cli(
+            "verify-close", "--pack", pack_dir, "--session", "closing-session")
+        self.assertEqual(0, code, out)
+        self.assertIn("PASS", out)
+
+    def test_f9b_a_real_content_change_is_still_caught(self):
+        """The other half, and the one that matters more. Making the
+        freshness check ignore timestamps must not make it ignore CHANGES.
+        A pack file whose bytes actually differ has to be caught, or the
+        fix above would have turned a flaky check into a useless one."""
+        rec = self.claim("fence-f9c", session_id="closing-session")
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        code, _out, _err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code)
+        self.park(rec, session_id="closing-session")
+
+        target = os.path.join(pack_dir, "01-HANDOVER.md")
+        self.write(target, self.read(target) + "\none genuinely new line\n")
+
+        code, out, _err = self.run_cli(
+            "verify-close", "--pack", pack_dir, "--session", "closing-session")
+        self.assertEqual(
+            1, code,
+            "a real content change slipped past the freshness check: " + out)
+        self.assertIn("does not match", out)
+
     def test_f7_pack_subdirectory_refused_not_silently_dropped(self):
         """A2f: a subdirectory inside the pack (e.g. evidence/) used to be
         silently excluded from the zip, with no word said, and its edits

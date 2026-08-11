@@ -68,7 +68,22 @@ decimal point on it.
   would have shipped as permanent debt in the one place this project cares most
   about.
 
-- **A suite failed once in the gate and would not reproduce** in five isolated
-  runs, and did not recur on the next full run. Filed with its evidence rather
-  than dismissed, and explicitly NOT called fixed.
+- **The word "flake" nearly hid a real bug in the close ceremony itself.** A
+  suite failed once in a gate run, would not reproduce in five isolated runs,
+  and did not recur on the next. Everything pointed at noise. It was filed with
+  its evidence rather than dismissed, and explicitly not called fixed, which is
+  the only reason it got a second look when it recurred. It was a genuine
+  defect in the tool that gates every session close: the zip freshness check
+  compared the archive's BYTES, and a zip entry header carries each member's
+  mtime, so a byte-identical re-save crossing an MS-DOS two second boundary
+  read as a changed pack, about one run in forty. A previous finding, F9, had
+  already tried to fix this exact path and had moved it from directory mtime to
+  archive bytes, which is a real improvement that does not go far enough
+  because zip bytes are not content. Fixed here by comparing a content
+  fingerprint, with a deterministic test replacing the probabilistic one.
+
+  The transferable lesson is not about zips. It is that "will not reproduce"
+  is a description of the OBSERVATION, never a diagnosis, and the honest move
+  is to write it down with its evidence and leave it open, which costs almost
+  nothing and is what made the fix possible an hour later.
 <!-- bm-human:end -->
