@@ -8090,6 +8090,83 @@ class TestLoop7ApplicationLifecycle(unittest.TestCase):
                 "creating a work record left the generated view stale: %r"
                 % (problems,))
 
+    def test_an_explicit_session_the_hook_cannot_reproduce_is_called_out(self):
+        """ZERO-TAX ADOPTION. An explicit --session wins outright, which is
+        correct, but when this process HAS a harness session of its own and
+        the two disagree, the claim silently registers under an id the write
+        hook can never derive. The next edit to the claimed file is then
+        refused as a foreign writer, and the person who is locked out is the
+        one who just claimed it.
+
+        Hit four times in one night, including on a session's own README
+        edit. The way out (adopt, then park, with --adopt-from-live-session)
+        is documented nowhere a person would look while locked out. Warning
+        rather than refusing, because a deliberate cross-session claim is a
+        real workflow and this cannot tell the two apart."""
+        # Agrees: silent, because nothing is going to go wrong.
+        self.assertIsNone(bs._session_mismatch_note("bm1-abc", "bm1-abc"))
+        # No harness session to compare against: silent, unchanged behaviour.
+        self.assertIsNone(bs._session_mismatch_note("anything", None))
+        # No explicit session: the derivation already handles this path.
+        self.assertIsNone(bs._session_mismatch_note("", "bm1-abc"))
+        # Disagree: the caller must be told, and told what to type.
+        note = bs._session_mismatch_note("31456097-4efb", "bm1-abc")
+        self.assertIsNotNone(note)
+        self.assertIn("31456097-4efb", note)
+        self.assertIn("bm1-abc", note)
+        self.assertIn("--session bm1-abc", note,
+                      "the warning must carry the exact flag to retype, not "
+                      "merely describe the problem")
+
+    def test_a_raw_harness_session_becomes_the_label_the_hook_compares(self):
+        """THE zero-tax fix, and the reason is in docs/plan/DEFECT-session-identity-2026-08-12.md.
+
+        A person passes the session id they can actually see, the conversation
+        uuid. The write hook compares against a DERIVED label, bm1-<hash>,
+        which they cannot see until it has already refused them. So the
+        natural thing to type produced a claim that locked its own author out,
+        and the only way to learn the right id was to hit the refusal first.
+        Four times in one night, including on a session's own README edit.
+
+        The store can close this without any environment variable, because the
+        label is a pure function of the harness id. Convert on the way in, and
+        say so, because a silent conversion is its own trap.
+
+        Already-derived labels and the CLI's own minted ids pass through
+        untouched: converting those would hash a hash."""
+        derive = lambda s: "bm1-DERIVED(%s)" % s
+        real = "31456097-4efb-4470-aa61-5ff5e8b9afa7"
+
+        sid, note = bs._normalize_session_for_fence(real, derive)
+        self.assertEqual(sid, "bm1-DERIVED(%s)" % real)
+        self.assertIsNotNone(note, "a silent conversion is its own trap")
+        self.assertIn(real, note)
+        self.assertIn("bm1-DERIVED(%s)" % real, note)
+
+        # NARROW ON PURPOSE, and this case is why. A first version converted
+        # every non-label string and broke five CLI tests that legitimately
+        # pass short labels: those are not harness ids, and hashing them
+        # invents an identity nobody asked for. Only the canonical
+        # 8-4-4-4-12 shape converts.
+        for passthrough in ("bm1-abc123", "cli-deadbeef", "", "S1",
+                            "other-session-not-mine", "31456097-4efb"):
+            sid, note = bs._normalize_session_for_fence(passthrough, derive)
+            self.assertEqual(sid, passthrough,
+                             "%r must pass through untouched" % passthrough)
+            self.assertIsNone(note)
+
+        # Derivation unavailable: pass through rather than invent an id.
+        sid, note = bs._normalize_session_for_fence(real, lambda s: None)
+        self.assertEqual(sid, real)
+        self.assertIsNone(note)
+
+        # A derivation that raises must never take the command down with it.
+        def boom(_):
+            raise RuntimeError("hook module unavailable")
+        sid, note = bs._normalize_session_for_fence(real, boom)
+        self.assertEqual(sid, real)
+        self.assertIsNone(note)
+
     def test_recording_is_idempotent_per_task_rule_version_and_session(self):
         """A model that re-reads its rules mid-task has not applied them twice.
         Without this, every re-read inflates whatever the applications table is
