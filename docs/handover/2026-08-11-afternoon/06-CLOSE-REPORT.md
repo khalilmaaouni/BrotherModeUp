@@ -11,35 +11,28 @@ The notes block below MUST open with a line starting with the exact word FINISHE
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-UNFINISHED. The baton is at the adoption work: the first-contact change (a
-person's first experience being a finished page about their own work rather
-than a setup flow) and the private count of repeat requests. Neither is
-started.
+FINISHED. Every loop this session opened is closed, verified, and pushed.
+Nothing is half-edited, no agent is running, no gate is running, and all three
+fences it held are parked with evidence.
 
-Everything else this session took on IS finished and pushed to origin/main,
-verified each time by HEAD, upstream and ls-remote agreeing:
-- The baton ceremony: ratified, built RED first, adversarially reviewed, all
-  sixteen findings repaired, three of the worst reproduced by hand afterwards.
-- The comparison page, its research record, its refresh procedure, and a gate
-  that fails the build when it goes stale, calibrated by aging the date and by
-  faking a future one.
-- The handover procedure published as paper, usable with nothing installed.
-- The whole roadmap ranked, with two departures from the ratified order named
-  as departures and given flip conditions.
-- The front page now says who this is for and who should look elsewhere.
+What that does NOT mean: the roadmap is not finished, and five decisions wait
+on the founder. It means this session has no loose ends of its own.
 
-Nothing is half-edited. No agent is running. The only schedule armed is the
-watchdog cron, which must be deleted at close.
+VERIFIED AT CLOSE: main at 94db37b with HEAD, upstream and ls-remote agreeing
+and zero unpushed commits; full battery "3011 tests across 32 suites, 5
+skipped, 950.3s wall. ALL GREEN" exit 0; docs suite "Ran 230 tests OK
+(skipped=1)" after the last edit; this pack passed verify-close after being
+refused twice, once for a missing zip and once for three unparked records it
+named by id.
 
-FIVE THINGS WAIT ON THE FOUNDER, none blocking a successor:
-1. Resume or discard the stopped session's SD2 work (branch
-   wip/sd2-sentinel-2026-08-11-stopped-session, 1618 insertions preserved).
-2. The SKILL.md amendment carrying the ceremony.
-3. Whether the public repository carrying the private vault name in seventeen
-   files is worth a history rewrite.
-4. Arming the weekly comparison-page refresh, which spends tokens weekly.
-5. Disk: 11 GiB free, 95 percent capacity. A verified-safe 4 GB of regenerable
-   caches can be cleared on his word; his transcripts stay untouched.
+ONE SCHEDULE IS STILL ARMED: the watchdog cron, twice hourly. A successor
+should delete it or let it expire, and it stops all work by 07:00 by its own
+brief.
+
+WAITING ON THE FOUNDER, five items, none blocking a successor from working:
+SD2 resume or discard; the SKILL.md amendment; the vault name in published
+history; arming the weekly refresh; and about 4 GB of verified-regenerable
+caches on a machine that sat at 95 percent today.
 
 A successor runs detect first, reads this pack in order, and picks up at P0 in
 04-NEXT-LOOPS-PRIORITIZED.md.
