@@ -18,6 +18,7 @@ No em or en dashes anywhere in this file, its comments, or its output.
 
 import importlib.util
 import io
+import json
 import os
 import shutil
 import sys
@@ -567,6 +568,78 @@ class TestVerifyClose(HandoverCase):
             "an mtime-only change rewrote the archive, so the freshness "
             "check is comparing timestamps again rather than content: " + out)
 
+        code, out, _err = self.run_cli(
+            "verify-close", "--pack", pack_dir, "--session", "closing-session")
+        self.assertEqual(0, code, out)
+        self.assertIn("PASS", out)
+
+    def _write_forecast_log(self, lines):
+        """Put a forecast log where bm_forecast.resolve_log_path will find
+        it for this test's root."""
+        d = os.path.join(self.root, ".brothermode")
+        if not os.path.isdir(d):
+            os.makedirs(d)
+        p = os.path.join(d, "forecasts-log.jsonl")
+        with io.open(p, "w", encoding="utf-8") as fh:
+            for line in lines:
+                fh.write(json.dumps(line, sort_keys=True) + "\n")
+        return p
+
+    def _clean_close(self):
+        """A pack that would PASS on every check except the one under test."""
+        rec = self.claim("fence-fc", session_id="closing-session")
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        code, _o, _e = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code)
+        self.park(rec, session_id="closing-session")
+        return pack_dir
+
+    def test_a3_a_forecast_left_open_past_its_window_refuses_the_close(self):
+        """A3 (2026-08-12). The forecasting bias that scored this project a
+        3 out of 10 survived four estimates in one night for one reason:
+        nothing ever compared a forecast against what happened, because
+        nothing ever REQUIRED it. tools/bm_forecast.py records both, and a
+        tool that is only run when somebody remembers is a rule rather than
+        a control. This is the line that makes it a control."""
+        pack_dir = self._clean_close()
+        self._write_forecast_log([
+            {"kind": "forecast", "task": "never-closed", "clock": "agent",
+             "basis": "judged", "likely_minutes": 30.0,
+             "recorded_at": "2020-01-01T00:00:00Z"},
+        ])
+        code, out, _err = self.run_cli(
+            "verify-close", "--pack", pack_dir, "--session", "closing-session")
+        self.assertEqual(1, code, out)
+        self.assertIn("never-closed", out)
+        self.assertIn("never got an actual", out)
+
+    def test_a3_a_forecast_that_got_its_actual_does_not_block_the_close(self):
+        """The same log with the actual recorded must PASS. A gate that
+        cannot be satisfied is not a gate, it is a wall."""
+        pack_dir = self._clean_close()
+        self._write_forecast_log([
+            {"kind": "forecast", "task": "properly-closed", "clock": "agent",
+             "basis": "judged", "likely_minutes": 30.0,
+             "recorded_at": "2020-01-01T00:00:00Z"},
+            {"kind": "actual", "task": "properly-closed", "minutes": 8.0,
+             "recorded_at": "2020-01-01T00:30:00Z"},
+        ])
+        code, out, _err = self.run_cli(
+            "verify-close", "--pack", pack_dir, "--session", "closing-session")
+        self.assertEqual(0, code, out)
+        self.assertIn("PASS", out)
+
+    def test_a3_a_project_with_no_forecast_log_is_not_punished(self):
+        """The conservative half, and the one worth arguing about. A
+        repository that has never used the forecasting tool has no log at
+        all. Failing it would block every project this ceremony is meant to
+        serve, in order to enforce a tool they never adopted. So an absent
+        log passes, and bm_forecast.py's own check verb is where a project
+        that cares gates on could-not-tell."""
+        pack_dir = self._clean_close()
+        log = os.path.join(self.root, ".brothermode", "forecasts-log.jsonl")
+        self.assertFalse(os.path.exists(log))
         code, out, _err = self.run_cli(
             "verify-close", "--pack", pack_dir, "--session", "closing-session")
         self.assertEqual(0, code, out)

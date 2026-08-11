@@ -1176,8 +1176,58 @@ def cmd_verify_close(argv):
                      % (session, len(owned), names))
         return FAIL
 
+    # Check 5: no forecast this project made is still open past its window.
+    #
+    # Why this belongs in the CLOSE gate rather than beside the tool that
+    # records it. The forecasting bias that produced a 3 out of 10 survived
+    # four estimates in one night for one reason: nothing ever compared a
+    # forecast to what actually happened, because nothing ever required it.
+    # A tool that records both and is only run when somebody remembers is a
+    # rule, not a control. This is the line that makes it a control.
+    #
+    # Deliberately conservative in two ways. It FAILs only on a forecast
+    # open longer than the window (12 hours), so work legitimately in
+    # flight never blocks a close. And a project with no forecast log at
+    # all is NOT failed: that is a project that has not adopted the tool,
+    # not a project hiding something, and blocking it would punish every
+    # repository this ceremony is meant to serve. Both cases print their
+    # state rather than staying silent about it.
+    forecast_note = _open_forecast_note(root)
+    if forecast_note is not None:
+        _out_scrubbed("FAIL: %s" % forecast_note)
+        return FAIL
+
     _out_scrubbed("PASS: %s is ready to close." % pack_dir)
     return PASS
+
+
+def _open_forecast_note(root):
+    """The FAIL text when this project left a forecast open past its
+    window, or None when there is nothing to say.
+
+    None covers three genuinely different situations and treats them the
+    same on purpose: no forecast log at all, a log with nothing open, and a
+    log this function could not read. Only the middle one is a clean bill of
+    health. The other two are could-not-tell, and a close ceremony that
+    refused a session because it could not read an optional file would be a
+    worse failure than the one it is guarding against. bm_forecast.py's own
+    `check` verb is where a could-not-tell is reported as NO-DATA and where
+    a project that cares can gate on it.
+    """
+    try:
+        mod = _load("bm_forecast")
+        log_path, _reason = mod.resolve_log_path(None, root)
+        tasks, _note = mod.open_forecasts(
+            log_path, mod._now_iso(), 12.0)
+    except Exception:
+        return None
+    if not tasks:
+        return None
+    return ("this session recorded %d forecast(s) that never got an actual "
+            "and are now more than 12 hours old: %s. Close them with "
+            "`python3 tools/bm_forecast.py actual --task <name> --minutes N`, "
+            "or the next estimate is guessed from nothing again."
+            % (len(tasks), ", ".join(tasks)))
 
 
 def cmd_zip(argv):

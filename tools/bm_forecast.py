@@ -471,6 +471,55 @@ def cmd_apply(opts):
 # check
 # ---------------------------------------------------------------------------
 
+def open_forecasts(log_path, now_iso, max_open_hours):
+    """PUBLIC. The tasks whose forecast never got an actual and are now
+    older than `max_open_hours`, as a sorted list of task names.
+
+    Returns (tasks, note). `tasks` is None when the question cannot be
+    answered at all (no log, an unreadable log, an unparseable `now_iso`),
+    and `note` says why. None is NOT an empty list and callers must not
+    treat it as one: a missing log means could-not-tell, never all-clear.
+    An empty list with a note of None means the real answer is none open.
+
+    This exists so cmd_check below and tools/bm_handover.py's verify-close
+    share ONE implementation of what "an open forecast" means. The whole
+    reason the original forecasting bias survived four estimates in one
+    night is that nothing forced a forecast to be closed, so the rule that
+    closes them cannot itself be a second copy that can drift.
+    """
+    if not log_path or not os.path.exists(log_path):
+        return None, "no forecast log at %s" % (log_path or "(unresolved)")
+    records, malformed = _read_records(log_path)
+    if not records:
+        if malformed:
+            return None, ("log has %d line(s), all malformed" % malformed)
+        return None, "no records in the forecast log"
+    try:
+        now = _parse_iso(now_iso)
+    except Exception:
+        return None, "could not parse %r as ISO 8601" % now_iso
+
+    with_forecast, with_actual, ages = set(), set(), {}
+    for record in records:
+        task = record.get("task")
+        if task is None:
+            continue
+        if record.get("kind") == "forecast":
+            with_forecast.add(task)
+            try:
+                age = (now - _parse_iso(record.get("recorded_at"))
+                       ).total_seconds() / 3600.0
+            except Exception:
+                continue
+            if ages.get(task) is None or age > ages[task]:
+                ages[task] = age
+        elif record.get("kind") == "actual":
+            with_actual.add(task)
+
+    return (sorted(t for t in (with_forecast - with_actual)
+                   if ages.get(t, 0.0) > max_open_hours), None)
+
+
 def cmd_check(opts):
     log_path, reason = resolve_log_path(opts["log"], opts["root"])
     if log_path is None:
@@ -537,8 +586,13 @@ def cmd_check(opts):
         return 2
 
     open_tasks = sorted(tasks_with_forecast - tasks_with_actual)
-    breaching = [t for t in open_tasks
-                if open_ages.get(t, 0.0) > max_open_hours]
+    # Delegated so this verb and tools/bm_handover.py's verify-close cannot
+    # drift on what "open past the window" means. The counting above stays
+    # local because the REPORT line carries more than the verdict does.
+    breaching, _seam_note = open_forecasts(log_path, now_text, max_open_hours)
+    if breaching is None:
+        breaching = [t for t in open_tasks
+                     if open_ages.get(t, 0.0) > max_open_hours]
 
     oldest_open = max(
         [open_ages.get(t, 0.0) for t in open_tasks], default=0.0)
