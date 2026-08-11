@@ -224,6 +224,11 @@ SUITES = (
     # for the same reason as the docs suite: it is fast and it fails on one of
     # its own three laws rather than on timing.
     "test_bm_ledger.py",
+    # The baton ceremony (2026-08-11): the session handover tool, its pack
+    # skeleton, the close verifier, the zip and the successor detect. Placed
+    # beside the ledger suite for the same reason: stdlib only, fast, and it
+    # fails on its own contract rather than on timing.
+    "test_bm_handover.py",
     # The canonical protocol schema (Loop 0, 2026-07-31): fast, pure library
     # tests, and its drift test fails on a spec/code mismatch rather than on
     # timing, so it runs with the other cheap early suites.
