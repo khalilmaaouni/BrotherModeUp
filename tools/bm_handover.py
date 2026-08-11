@@ -485,7 +485,7 @@ def _content_fingerprint(pairs):
     and onto the archive's bytes, on the reasoning that bytes are content
     and mtimes are not. That is true of a plain file and false of a zip: a
     zip entry header stores each member's modification time, so
-    `zf.write(path, ...)` bakes the file's mtime into the archive. An
+    zipfile's own member-writing call bakes that mtime into the archive
     editor or formatter re-saving a file with byte-identical content still
     moves that mtime, and once it crosses one of the MS-DOS format's two
     second boundaries the archive's bytes change with nothing to show for
