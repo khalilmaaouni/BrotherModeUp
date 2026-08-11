@@ -28,7 +28,7 @@ No file editing of any kind happens on this path. You will not touch
 hand. The plugin brings its own automatic wiring with it.
 
 ```bash
-claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.0.0
+claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.1.0
 ```
 
 ```bash
@@ -40,7 +40,7 @@ brotherme`). The plugin identity changed at v3.0.0, so the old and new ids
 are different plugins to Claude Code and installing both leaves two hook
 chains wired at once.
 
-The `@v3.0.0` pins the marketplace add to the released tag, generated from
+The `@v3.1.0` pins the marketplace add to the released tag, generated from
 the same fact every other page reads (`python3 tools/bm_project_facts.py
 --field install_target_tag`), rather than the repository's moving default
 branch; `docs/RELEASE.md` step 2b makes re-pinning it an explicit release
@@ -107,7 +107,7 @@ page deliberately does not type that identity by hand: a typed version goes
 stale the day after it is written; `docs/RELEASE.md` explains why.
 
 ```bash
-git clone --branch v3.0.0 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v3.1.0 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 Expected: git prints a few lines ending in something like `Resolving deltas:

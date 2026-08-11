@@ -1,5 +1,34 @@
 # Changelog
 
+## 3.1.0, released 2026-08-11 (annotated tag v3.1.0, on the commit that alone carries VERSION 3.1.0 per rule 1)
+
+The truth-hardening release. One main branch, and every claim the tree
+makes about itself is now either machine-checked or published as a limit.
+
+- Effect classes: every public command declares one of five effect
+  classes in one registry (`tools/bm_effects.py`), and a gate proves every
+  `pure_read` command changes zero bytes. The eleven audit findings
+  against the registry were closed RED first.
+- The active stall detector (`tools/bm_stall.py`): a pure-read sweep over
+  fences, claims and provisional records that names dead owners and
+  prints the exact clearing command beside each finding, wired into
+  session start, never executing anything itself.
+- The live deny canary: unattended preflight now fires the real fence
+  hook and classifies on returncode, so an absent hook can no longer read
+  as a demonstrated defect.
+- The wall-clock lint (`tools/bm_lint_walltime.py`): absolute wall-time
+  assertions in tests are refused at CI, closing a defect class fixed
+  seven times in ten days, and the lint records unreadable files as
+  violations instead of exiting clean.
+- A machine-wide session cap hook and the continuity relay brake
+  (generation cap, spend gate, deadline), so successor chains cannot run
+  unbounded.
+- Truth repairs: the README single-writer claim narrowed to what the
+  shipped default performs, the phantom findings-ledger citation
+  corrected, install docs collapsed to one source of truth
+  (`tools/bm_project_facts.py`), and a cross-family read-only audit of
+  the four authority files filed verbatim with every finding triaged.
+
 ## 3.0.0, released 2026-08-08 (annotated tag v3.0.0, on the commit that alone carries VERSION 3.0.0 per rule 1)
 
 The identity release. BrotherMode is now one product name everywhere a
