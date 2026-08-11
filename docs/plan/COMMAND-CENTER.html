@@ -177,7 +177,7 @@ section > .sub { color: var(--bm-muted); font-size: 13px; margin-bottom: 10px; }
 <header>
   <span class="eyebrow">BrotherMode Command Center</span>
   <h1>From intent to a verified, review-ready deliverable</h1>
-  <p class="stamp">Refreshed 2026-08-11 afternoon by session <code>53c70dcb</code> (Fable), <code>main</code> at <code>cb565d6</code>, baton ceremony ratified, install refreshed to v3.1.0. A box ticks only when its check ran after the last edit and its output is quoted beside it. Full texts at the foot.</p>
+  <p class="stamp">Refreshed 2026-08-11 afternoon by session <code>53c70dcb</code> (Fable), <code>main</code> at <code>17b4fd2</code>, four commits unpushed. A box ticks only when its check ran after the last edit and its output is quoted beside it. Full texts at the foot.</p>
 </header>
 
 <section class="northstar">
@@ -200,7 +200,10 @@ section > .sub { color: var(--bm-muted); font-size: 13px; margin-bottom: 10px; }
   <div class="band needs">
     <h3>Needs you now</h3>
     <ul>
+      <li>THE CEREMONY TOOL IS UNDER REPAIR: an adversarial review found 16 defects, 8 of them false passes, including a tool that deleted hand-written text. Nothing ships until they are fixed and proven</li>
       <li>The SKILL.md amendment carrying the baton ceremony waits in the vault pending-amendments note; only you land constitution text</li>
+      <li>Your other session was stopped mid-build. Its 1145 lines of SD2 work are preserved on branch wip/sd2-sentinel-2026-08-11-stopped-session plus two files in the handovers folder; resuming it is your call</li>
+      <li>This public repository carries your private vault name in 17 tracked files and your home path in dozens; cleaning that is a force rewrite of published history, which is yours to decide</li>
       <li>One store blemish needs your hand: a probe event (PROBE-DELETEME) in the BrotherSBE store has no sanctioned removal command; the drafted fix rides in the next pack</li>
       <li>Three older stale provisional records (Aug 1 to 5) are proposed for parking, sweep-and-propose, one yes each</li>
     </ul>
@@ -309,7 +312,11 @@ section > .sub { color: var(--bm-muted); font-size: 13px; margin-bottom: 10px; }
     <tr><td class="tick on">✓</td><td>Baton ceremony ratified and specced: session handover becomes a two-sided law</td><td class="mono">seven founder windows answered 2026-08-11; spec committed at cb565d6; dash scan: CLEAN<span class="ev">rule text live in the global CLAUDE.md brothermode section; SKILL.md amendment proposed, founder-owned</span></td></tr>
     <tr><td class="tick on">✓</td><td>Install refreshed to v3.1.0, nothing lost</td><td class="mono">git checkout v3.1.0 (HEAD e50afbf); verify-install: content and type match, no extra entries<span class="ev">2 dirty files first saved to install-clone-uncommitted-2026-08-11.patch, 2410 bytes</span></td></tr>
     <tr><td class="tick on">✓</td><td>Predecessor leftovers cleared in the BrotherSBE store, receipts kept</td><td class="mono">adopt then park 2d9cd7dd and 6f679941 with handover text; verify: 4 problems down to 1</td></tr>
-    <tr><td class="tick off">☐</td><td>bm_handover.py: skeleton, verify-close, zip, detect; tests RED first</td><td class="mono">builder in flight in a worktree; done-check: python3 tools/test_bm_handover.py ends OK</td></tr>
+    <tr><td class="tick on">✓</td><td>bm_handover.py built RED first, and its own suite green</td><td class="mono">11 failures quoted before the tool existed, then "Ran 13 tests OK"; a session-id leak found by hand and fixed through the store's own withholding policy, calibrated by reinjecting the defect</td></tr>
+    <tr><td class="tick on">✓</td><td>Adversarial falsification pass: 16 findings, 8 false passes, every one executed not reasoned</td><td class="mono">docs/evidence/baton-ceremony/REFUTE-2026-08-11.md<span class="ev">a green suite proved the tests passed, never that the tool worked; the suite and the tool shared one author and one blind spot</span></td></tr>
+    <tr><td class="tick off">☐</td><td>Fix round for the 16 findings, RED first per finding</td><td class="mono">in flight on the cheap tier; done-check: more than 13 tests, all OK, plus the full gate</td></tr>
+    <tr><td class="tick on">✓</td><td>Four registries answered after the gate refused three times</td><td class="mono">effects REGISTRY, SUITES, the CI step, and pyproject py-modules; test_bm_effects 10 OK, test_bm_docs 226 OK, packaging test 10 OK</td></tr>
+    <tr><td class="tick on">✓</td><td>The stopped session's unfinished work preserved three ways</td><td class="mono">branch wip/sd2-sentinel-2026-08-11-stopped-session at fd953fd, 1618 insertions; plus a 69KB patch and its new file in the handovers folder</td></tr>
     <tr><td class="tick off">☐</td><td>Ceremony first live run: this session closes itself with its own tool</td><td class="mono">done-check: verify-close PASS quoted at close</td></tr>
     <tr><td class="tick on">✓</td><td>SL-quick part 1: the gate receipt (RF-5) and the commit-message gate (RF-1)</td><td class="mono">RED first, then "Ran 10 tests ... OK"; test_bm 290 OK, docs 226 OK; hook exits 1 on a dash and 0 on a clean message, both run live; landed 3efb616<span class="ev">Full text and the hook's own first live catch at the foot &hellip;</span></td></tr>
     <tr><td class="tick on">✓</td><td>SL-quick part 2 LANDED: claims use the right session name (RF-2), one wording catalog (RF-4). The bundle is CLOSED</td><td class="mono">RED first both tasks; store 1026 OK, controller 260 OK, visual 84 OK; full gate "2977 tests across 31 suites ... ALL GREEN" exit 0 at 943c59a, read from the gate's own receipt file</td></tr>
