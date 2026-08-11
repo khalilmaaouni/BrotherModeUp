@@ -1,0 +1,360 @@
+<title>BrotherMode Command Centre</title>
+<style>
+:root{
+  --bm-page:#FFFFFF; --bm-paper:#F7F8F6; --bm-body:#1A1D21; --bm-muted:#575E68;
+  --bm-accent:#0E7A6F; --bm-accent-tint:#E4EFED; --bm-hair:rgba(0,0,0,.10);
+  --bm-settled-ink:#00543A; --bm-settled-rule:#009E73; --bm-settled-tint:#E8F6F0;
+  --bm-needs-you-ink:#8C2D00; --bm-needs-you-rule:#D55E00; --bm-needs-you-tint:#FDEFE8;
+  --bm-at-risk-ink:#6B4400; --bm-at-risk-rule:#A06A00; --bm-at-risk-tint:#FFF6E5;
+  --bm-for-info-ink:#00436B; --bm-for-info-rule:#0072B2; --bm-for-info-tint:#EAF3FA;
+  --bm-idle-ink:#3F4650; --bm-idle-rule:#767B84; --bm-idle-tint:#F1F2F4;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bm-page:#0F1216; --bm-paper:#161A20; --bm-body:#E9ECF1; --bm-muted:#A6AEBA;
+    --bm-accent:#3AA893; --bm-accent-tint:#10241F; --bm-hair:rgba(255,255,255,.14);
+    --bm-settled-ink:#6FD3AE; --bm-settled-rule:#009E73; --bm-settled-tint:#0E241C;
+    --bm-needs-you-ink:#FF9B63; --bm-needs-you-rule:#D55E00; --bm-needs-you-tint:#2A1610;
+    --bm-at-risk-ink:#F0B95A; --bm-at-risk-rule:#E69F00; --bm-at-risk-tint:#2A2110;
+    --bm-for-info-ink:#7FC4F5; --bm-for-info-rule:#56B4E9; --bm-for-info-tint:#10202C;
+    --bm-idle-ink:#AFB6C0; --bm-idle-rule:#767B84; --bm-idle-tint:#1B1F25;
+  }
+}
+:root[data-theme="dark"]{
+  --bm-page:#0F1216; --bm-paper:#161A20; --bm-body:#E9ECF1; --bm-muted:#A6AEBA;
+  --bm-accent:#3AA893; --bm-accent-tint:#10241F; --bm-hair:rgba(255,255,255,.14);
+  --bm-settled-ink:#6FD3AE; --bm-settled-rule:#009E73; --bm-settled-tint:#0E241C;
+  --bm-needs-you-ink:#FF9B63; --bm-needs-you-rule:#D55E00; --bm-needs-you-tint:#2A1610;
+  --bm-at-risk-ink:#F0B95A; --bm-at-risk-rule:#E69F00; --bm-at-risk-tint:#2A2110;
+  --bm-for-info-ink:#7FC4F5; --bm-for-info-rule:#56B4E9; --bm-for-info-tint:#10202C;
+  --bm-idle-ink:#AFB6C0; --bm-idle-rule:#767B84; --bm-idle-tint:#1B1F25;
+}
+:root[data-theme="light"]{
+  --bm-page:#FFFFFF; --bm-paper:#F7F8F6; --bm-body:#1A1D21; --bm-muted:#575E68;
+  --bm-accent:#0E7A6F; --bm-accent-tint:#E4EFED; --bm-hair:rgba(0,0,0,.10);
+  --bm-settled-ink:#00543A; --bm-settled-rule:#009E73; --bm-settled-tint:#E8F6F0;
+  --bm-needs-you-ink:#8C2D00; --bm-needs-you-rule:#D55E00; --bm-needs-you-tint:#FDEFE8;
+  --bm-at-risk-ink:#6B4400; --bm-at-risk-rule:#A06A00; --bm-at-risk-tint:#FFF6E5;
+  --bm-for-info-ink:#00436B; --bm-for-info-rule:#0072B2; --bm-for-info-tint:#EAF3FA;
+  --bm-idle-ink:#3F4650; --bm-idle-rule:#767B84; --bm-idle-tint:#F1F2F4;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bm-page);color:var(--bm-body);
+  font-family:Seravek,"Gill Sans Nova",Ubuntu,Calibri,"DejaVu Sans",source-sans-pro,system-ui,sans-serif;
+  line-height:1.55;-webkit-text-size-adjust:100%}
+.wrap{max-width:1180px;margin:0 auto;padding:32px 20px 72px}
+h1,h2,h3{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;font-weight:600;line-height:1.15;margin:0}
+h1{font-size:clamp(30px,5vw,46px);letter-spacing:-.015em}
+h2{font-size:clamp(20px,2.6vw,26px);margin:44px 0 6px}
+h3{font-size:17px;margin:0 0 6px}
+.eyebrow{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--bm-accent);font-weight:700;margin:0 0 10px}
+.stamp{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:var(--bm-muted);
+  margin-top:12px;padding:10px 12px;background:var(--bm-paper);border:1px solid var(--bm-hair);border-radius:8px}
+.lede{color:var(--bm-muted);margin:10px 0 0;max-width:74ch}
+.northstar{margin:26px 0 0;padding:18px 20px;background:var(--bm-accent-tint);
+  border-left:4px solid var(--bm-accent);border-radius:0 10px 10px 0}
+.northstar .k{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--bm-accent);font-weight:700}
+.northstar p{margin:6px 0 0;font-size:18px}
+.strip{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));margin:26px 0 0}
+.card{background:var(--bm-paper);border:1px solid var(--bm-hair);border-radius:10px;padding:14px 16px}
+.card .k{font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--bm-muted)}
+.card p{margin:8px 0 0;font-size:14px}
+.card.now{border-left:4px solid var(--bm-accent)}
+.card.you{border-left:4px solid var(--bm-needs-you-rule);background:var(--bm-needs-you-tint)}
+.card.risk{border-left:4px solid var(--bm-at-risk-rule);background:var(--bm-at-risk-tint)}
+.card.fc{border-left:4px solid var(--bm-for-info-rule);background:var(--bm-for-info-tint)}
+.chart{margin:14px 0 0;border:1px solid var(--bm-hair);border-radius:10px;overflow-x:auto;background:var(--bm-paper)}
+table.g{border-collapse:collapse;width:100%;min-width:720px;font-size:13px}
+table.g th{font-weight:600;color:var(--bm-muted);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  padding:9px 6px;border-bottom:1px solid var(--bm-hair);text-align:center}
+table.g th.lbl{text-align:left;padding-left:14px;width:280px}
+table.g td{padding:0;border-bottom:1px solid var(--bm-hair);height:34px}
+table.g td.lbl{padding:6px 8px 6px 14px;vertical-align:middle}
+.rowname{display:block}
+.count{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--bm-muted)}
+.cell{position:relative;height:34px;border-left:1px dotted var(--bm-hair)}
+.bar{position:absolute;top:9px;height:16px;left:2px;right:2px;border-radius:3px}
+.done{background:var(--bm-settled-rule)}
+.sched{background:repeating-linear-gradient(45deg,var(--bm-accent) 0 5px,transparent 5px 10px);
+  border:1px solid var(--bm-accent)}
+.est{background:var(--bm-accent);opacity:.16}
+.gate{background:var(--bm-needs-you-rule)}
+.legend{display:flex;flex-wrap:wrap;gap:16px;padding:10px 14px;font-size:12px;color:var(--bm-muted);
+  border-top:1px solid var(--bm-hair)}
+.legend i{display:inline-block;width:22px;height:10px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.alert{border:1px solid var(--bm-hair);border-left:4px solid var(--bm-at-risk-rule);background:var(--bm-at-risk-tint);
+  border-radius:0 10px 10px 0;padding:14px 16px;margin:14px 0 0}
+.alert.you{border-left-color:var(--bm-needs-you-rule);background:var(--bm-needs-you-tint)}
+.alert.info{border-left-color:var(--bm-for-info-rule);background:var(--bm-for-info-tint)}
+.alert dl{margin:8px 0 0;display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;font-size:14px}
+.alert dt{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--bm-muted);font-weight:700;padding-top:3px}
+.alert dd{margin:0}
+.chip{display:inline-block;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;
+  padding:2px 9px;border-radius:999px;background:var(--bm-accent-tint);color:var(--bm-accent);
+  border:1px solid var(--bm-accent);margin-left:10px;vertical-align:middle}
+.chip.part{background:var(--bm-at-risk-tint);color:var(--bm-at-risk-ink);border-color:var(--bm-at-risk-rule)}
+.chip.none{background:var(--bm-idle-tint);color:var(--bm-idle-ink);border-color:var(--bm-idle-rule)}
+.box{border:1px solid var(--bm-hair);border-radius:10px;padding:12px 14px;margin:10px 0 0;background:var(--bm-paper)}
+.box.tick{border-left:4px solid var(--bm-settled-rule)}
+.box.open{border-left:4px solid var(--bm-idle-rule)}
+.box .t{font-weight:600;font-size:14px}
+.box .t .m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:var(--bm-muted);font-weight:400}
+pre.ev{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;margin:8px 0 0;padding:9px 11px;
+  background:var(--bm-page);border:1px solid var(--bm-hair);border-radius:6px;overflow-x:auto;white-space:pre-wrap;
+  word-break:break-word;color:var(--bm-muted)}
+pre.ev.green{color:var(--bm-settled-ink);border-color:var(--bm-settled-rule);background:var(--bm-settled-tint)}
+.dec{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin:14px 0 0}
+footer{margin:56px 0 0;padding:18px 0 0;border-top:1px solid var(--bm-hair);color:var(--bm-muted);font-size:13px}
+a{color:var(--bm-accent)}
+</style>
+
+<div class="wrap">
+
+<p class="eyebrow">BrotherMode programme &middot; command centre</p>
+<h1>Two products, one release night, and a team that installs at nine</h1>
+<p class="lede">Both products, the release in flight, and the team rollout on one page. Every box below either carries the output of a check that ran after the last edit, or it is not ticked.</p>
+
+<div class="stamp">
+refreshed 2026-08-12 00:32 JST &middot; session 31456097 holds the baton &middot; HEAD 54ff2c2 &middot; RELEASED v3.2.0 &middot; refresh cadence: every two hours until 09:00<br>
+TICK CONTRACT: a box ticks only when its done-check ran after the last edit and that output is quoted beside it. Percentages are counts of records, never impressions.
+</div>
+
+<div class="northstar">
+  <div class="k">North star</div>
+  <p>From intent to verified delivery. Work moves from a clear request to a result a second person can check, with context that survives sessions, handovers and reviewers.</p>
+</div>
+
+<div class="strip">
+  <div class="card now"><div class="k">Now</div><p><b>v3.2.0 is released and published.</b> Battery ALL GREEN at <code>54ff2c2</code>, tag pushed and confirmed to dereference to that same commit, release live and not a draft. A stranger's install was rehearsed in a throwaway config and passed.</p></div>
+  <div class="card you"><div class="k">Waiting on Khalil</div><p><b>Two items now.</b> Updating your own live install was blocked by a permission classifier, so it needs your hand. And GitHub private vulnerability reporting is still a settings click. Exact commands are in the ledger.</p></div>
+  <div class="card risk"><div class="k">Risk watch</div><p><b>Your machine still runs the old versions.</b> The live install is pinned at v3.1.0 and the sibling on your PATH is two majors behind at 1.0.0-rc.1. Everything published is correct; what you personally type is not yet.</p></div>
+  <div class="card fc"><div class="k">Forecast</div><p><b>Nothing left that an unattended session may safely do.</b> Remaining work is two install actions, both requiring your permission, about five minutes total. The 08:00 stop is no longer a constraint on the release.</p></div>
+</div>
+
+<h2>Short range: tonight to 09:00</h2>
+<p class="lede">Hour blocks. Solid means done with its output quoted in the ledger below. Hatched means scheduled. Faint means the estimate range. Orange is a founder gate.</p>
+<div class="chart">
+<table class="g">
+<tr><th class="lbl">Work</th><th>22</th><th>23</th><th>00</th><th>01</th><th>02</th><th>03</th><th>04</th><th>05</th><th>06</th><th>07</th><th>08</th><th>09</th></tr>
+<tr><td class="lbl"><span class="rowname">Decisions and plan</span><span class="count">2 of 2</span></td>
+<td class="cell"><div class="bar done"></div></td><td class="cell"><div class="bar done"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Defect fixes</span><span class="count">1 of 1, one did not reproduce</span></td>
+<td class="cell"></td><td class="cell"><div class="bar done"></div></td><td class="cell"><div class="bar done"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Verify ruling lands</span><span class="count">1 of 1</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar done"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Version, manifests, team pack</span><span class="count">5 of 5</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar done"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">This board</span><span class="count">1 of 1</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar done"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Tag, then full battery once</span><span class="count">2 of 2</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar done"></div></td><td class="cell"><div class="bar done"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Checksums and install trust</span><span class="count">1 of 1</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar done"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Push tag and publish release</span><span class="count">1 of 1, released</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar done"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Sibling reinstall to 3.0.0</span><span class="count">0 of 1, needs Khalil</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Live install, backup first</span><span class="count">0 of 1, blocked, needs Khalil</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Morning pack and close</span><span class="count">0 of 4</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td></tr>
+</table>
+<div class="legend">
+<span><i class="done"></i>done, output quoted</span>
+<span><i class="sched"></i>scheduled</span>
+<span><i class="est"></i>estimate range</span>
+<span><i class="gate"></i>founder gate, pre-authorised tonight</span>
+</div>
+</div>
+
+<h2>Long range: the quarter</h2>
+<p class="lede">Week blocks. Sprints turn on Mondays. A tranche is entered only when the previous exit test passes, never because a date arrived.</p>
+<div class="chart">
+<table class="g">
+<tr><th class="lbl">Tranche</th><th>W33</th><th>W34</th><th>W35</th><th>W36</th><th>W37</th><th>W38</th><th>W39</th><th>W40</th><th>W41</th><th>W42</th><th>W43</th><th>W44</th></tr>
+<tr><td class="lbl"><span class="rowname">R0 &middot; V3 Final ships</span><span class="count">13 of 16, three are yours</span></td>
+<td class="cell"><div class="bar sched"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Sprint 1 &middot; Phase 0 survives contact</span><span class="count">0 of 4</span></td>
+<td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Sprint 2 &middot; three real changes</span><span class="count">0 of 3</span></td>
+<td class="cell"></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Sprint 3 &middot; zero-tax adoption</span><span class="count">0 of 3</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">Sprint 4 &middot; the link becomes checkable</span><span class="count">0 of 2</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar sched"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">R2 &middot; toolkit, memory, connectors</span><span class="count">0 of 3, not designed</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar est"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td></tr>
+<tr><td class="lbl"><span class="rowname">R3 &middot; multi-repository records</span><span class="count">0 of 3, needs a migration story</span></td>
+<td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"></td><td class="cell"><div class="bar est"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"><div class="bar est"></div></td><td class="cell"><div class="bar est"></div></td></tr>
+</table>
+<div class="legend">
+<span><i class="sched"></i>scheduled</span>
+<span><i class="est"></i>estimate range, widens with distance</span>
+<span>R2 and R3 carry no committed dates on purpose: each is entered on an exit test, not a calendar.</span>
+</div>
+</div>
+
+<h2>Decisions waiting on Khalil</h2>
+<div class="dec">
+  <div class="card you"><div class="k">Not blocking tonight</div><h3>GitHub private vulnerability reporting</h3><p>A settings click on the repository. SECURITY.md currently names it as an outstanding action rather than claiming it is done, which is the honest state but not the finished one. Two minutes whenever you are next at the repository settings page.</p></div>
+  <div class="card fc"><div class="k">For Monday</div><h3>Approve the sprint ranking</h3><p>Sprint one through four are ranked with every item naming which objective it serves, and a parking lot for three items that could not. Approve or reorder at the Monday review.</p></div>
+</div>
+
+<h2>Risk management, insights and alerts</h2>
+
+<div class="alert">
+<h3>The battery verdict does not yet cover tonight's code</h3>
+<dl>
+<dt>What</dt><dd>The last ALL GREEN was at commit <code>61bd980</code>. Four commits have landed since, three of them carrying code or documentation changes.</dd>
+<dt>Why it matters</dt><dd>A green verdict binds to one commit hash and nothing else. Quoting it beside a newer commit is the exact mistake made on 10 August, and it makes a board look proven when it is not.</dd>
+<dt>Action</dt><dd>Run the full battery once, on a clean tree, writing no tracked file while it runs. Clear <code>$TMPDIR/gate.exit</code> before launching or a previous session's exit code is read as tonight's.</dd>
+<dt>When</dt><dd>Immediately after the local tag is cut, since one install assertion cannot pass until the tag exists.</dd>
+</dl>
+</div>
+
+<div class="alert">
+<h3>The session identity the write hook uses is not the one the tools hand you</h3>
+<dl>
+<dt>What</dt><dd>Claiming a fence with the conversation identifier locks this session out of its own files, because the hook compares against a different string. Hit four times tonight, including on this session's own README edit.</dd>
+<dt>Why it matters</dt><dd>This is a first-contact defect. A new person following the documentation can lock themselves out of a file they just claimed, and the only way out is an adopt-then-park sequence nothing tells them about.</dd>
+<dt>Action</dt><dd>Use the identifier printed in the refusal message, which is always the one the hook actually sees. Filed as a sprint one item to fix properly. Written into the first-day pack so nobody meets it unwarned.</dd>
+<dt>When</dt><dd>Documented tonight. Fixed in sprint one.</dd>
+</dl>
+</div>
+
+<div class="alert info">
+<h3>One of the three reported defects does not reproduce</h3>
+<dl>
+<dt>What</dt><dd>The handover described the write hook re-reading a historical log as a live registry. Probed directly: the hook reads the transactional store, denies a write to another session's claimed file with an exact actionable message, and allows an unclaimed path.</dd>
+<dt>Why it matters</dt><dd>Two of the three defects you ruled on tonight were real. This one was a stale description, and acting on it would have spent hours changing something that works.</dd>
+<dt>Action</dt><dd>No fix. Recorded here rather than discovered later in a summary, because deciding not to do something you chose is itself a decision.</dd>
+<dt>When</dt><dd>Closed.</dd>
+</dl>
+</div>
+
+<div class="alert">
+<h3>Three sibling versions live on one machine</h3>
+<dl>
+<dt>What</dt><dd>The marketplace reports <code>1.0.0-rc.38</code>, the skill reports <code>1.0.0-rc.2</code>, and the <code>sbe</code> binary on PATH comes from cache <code>1.0.0-rc.1</code>, while the sibling repository has <code>v3.0.0</code> released and tagged.</dd>
+<dt>Why it matters</dt><dd>The missing-command defect reported tonight is a stale install, not a missing feature. A teammate hitting this concludes the product is broken. It also means the install card must name a version and a way to confirm it.</dd>
+<dt>Action</dt><dd>Reinstall to 3.0.0 and confirm the command runs. The install card now tells every teammate to run <code>which sbe</code> and check the path matches.</dd>
+<dt>When</dt><dd>Scheduled for 04:00, after the main release is tagged.</dd>
+</dl>
+</div>
+
+<div class="alert you">
+<h3>Two of your own laws are overridden tonight, by your instruction</h3>
+<dl>
+<dt>What</dt><dd>The founder gate on tagging and publishing is pre-authorised for this one tag, and the unattended hard stop moves from 07:00 to 08:00 for this run only.</dd>
+<dt>Why it matters</dt><dd>The release gate is the single human checkpoint between a green test run and a published artefact, added after the 8 August runaway. Tonight it is absent.</dd>
+<dt>Action</dt><dd>What replaces it: the tag is cut only from a commit whose battery reported ALL GREEN with exit 0 on a clean tree, and the hash is recorded beside the verdict. If anything is red at the ceiling or the deadline, the authorisation is treated as not granted and nothing is tagged.</dd>
+<dt>When</dt><dd>Neither override renews. A future run asks again.</dd>
+</dl>
+</div>
+
+<h2>The ledger</h2>
+<p class="lede">Every box carries its proof. Open boxes carry the command that would tick them.</p>
+
+<h3>Phase R0a &middot; decisions and defects <span class="chip">4 of 4</span></h3>
+
+<div class="box tick"><div class="t">Thirty two founder decisions taken and written down <span class="m">before he slept</span></div>
+<pre class="ev green">docs/plan/OVERNIGHT-AND-ROADMAP-2026-08-12.md, committed 8d945a7
+Includes both overrides, each with what it costs and what would flip it.</pre></div>
+
+<div class="box tick"><div class="t">Baton open half: handover acknowledged <span class="m">python3 tools/bm_store.py handover-ack</span></div>
+<pre class="ev green">handover-ack: d406eabde3f54b7ea8ff6986082f39f7 acknowledged; it no longer renders into STATE.md.</pre></div>
+
+<div class="box tick"><div class="t">Defect: creating a record left the health check red <span class="m">python3 tools/test_bm_store.py &amp;&amp; python3 scripts/doctor.py</span></div>
+<pre class="ev green">Ran 1027 tests in 41.456s
+OK
+10 of 11 proven, 1 skipped, 0 failed.
+End to end: apply --new-record created 41dffd2f, doctor stayed at 0 failed. Committed 9f3c825.</pre></div>
+
+<div class="box tick"><div class="t">Defect: fence registry read as a live list <span class="m">probed with the hook itself</span></div>
+<pre class="ev green">DID NOT REPRODUCE. Hook denied a write to another session's claimed file naming
+the record, the owner and the exact takeover command; allowed an unclaimed path.
+No fix made, and that decision is recorded rather than left to be discovered.</pre></div>
+
+<h3>Phase R0b &middot; the release <span class="chip">9 of 9</span></h3>
+
+<div class="box tick"><div class="t">Verify settled as a routing name, no folder <span class="m">python3 tools/test_bm_docs.py</span></div>
+<pre class="ev green">Ran 230 tests in 24.934s
+OK (skipped=1)
+Both files carrying the blocked wording now carry the ruling. Committed 5e69cef.</pre></div>
+
+<div class="box tick"><div class="t">VERSION bumped to 3.2.0 <span class="m">cat VERSION</span></div>
+<pre class="ev green">3.2.0</pre></div>
+
+<div class="box tick"><div class="t">Changelog written against what actually shipped <span class="m">no line names a capability that does not exist</span></div>
+<pre class="ev green">Entry lists: the six-name surface with two names honestly marked unshipped, the
+purge dry run, the data locations check, the combined use guide, the team pack,
+and tonight's store fix. The verify skill is NOT listed, because it did not ship.</pre></div>
+
+<div class="box tick"><div class="t">Install pin bumped in the same change that cuts the tag <span class="m">python3 tools/bm_project_facts.py --field install_target_tag</span></div>
+<pre class="ev green">Swept together: VERSION, plugin.json, marketplace.json, pyproject.toml,
+README.md, QUICKSTART.md, RELEASE.md, SETUP.md. Committed cecdbc7.
+Docs suite: 230 tests, 1 failure, and that failure is the tag not yet existing.</pre></div>
+
+<div class="box tick"><div class="t">Team adoption pack written, generic, no organisation named <span class="m">python3 tools/test_bm_docs.py</span></div>
+<pre class="ev green">docs/TEAM-ADOPTION.md, docs/team/INSTALL-CARD.md, docs/team/FIRST-DAY.md,
+docs/team/DAILY-NOTE-TEMPLATE.md. Ran 230 tests, only the tag assertion red.</pre></div>
+
+<div class="box tick"><div class="t">Tag cut on the commit that alone carries VERSION 3.2.0 <span class="m">git rev-list -n1 v3.2.0; git log -1 --format=%H -- VERSION</span></div>
+<pre class="ev green">both return 54ff2c28cd40b31de135c595e0328540ce7e9c17
+First attempt tagged the wrong commit: the manifest was split from the version
+bump across three commits, which docs/RELEASE.md step 3 forbids. Nothing was
+pushed, so the three were reshaped into one release-cut commit and re-tagged.</pre></div>
+
+<div class="box tick"><div class="t">Manifest and install trust <span class="m">sh scripts/checksums.sh; python3 scripts/doctor.py; bash scripts/verify-install.sh</span></div>
+<pre class="ev green">checksums.sh: wrote 827 file hash(es) to CHECKSUMS.sha256
+11 of 11 proven, 0 skipped, 0 failed.
+verify-install: PASSED. Every entry the manifest names matches on disk, in
+content and in type, and no entry exists on disk that the manifest does not name.</pre></div>
+
+<div class="box tick"><div class="t">Full battery, once, on a clean tree <span class="m">rm -f "$TMPDIR/gate.exit"; nohup ... tools/test_all.py</span></div>
+<pre class="ev green">test_all: 3021 tests across 32 suites, 5 skipped, 748.0s wall. ALL GREEN
+exit 0, at HEAD 54ff2c2, tree clean, HEAD unmoved when the verdict was read.
+Sentinel cleared before launch, so this is tonight's verdict and not a stale one.</pre></div>
+
+<div class="box tick"><div class="t">Tag pushed and release published <span class="m">git ls-remote origin "refs/tags/v3.2.0^{}"; gh release view v3.2.0</span></div>
+<pre class="ev green">54ff2c28cd40b31de135c595e0328540ce7e9c17	refs/tags/v3.2.0^{}
+{"isDraft":false,"publishedAt":"2026-08-11T15:27:31Z","tagName":"v3.2.0"}
+Secret scan over the pushed range: zero matches. Dash scan: zero matches.
+https://github.com/khalilmaaouni/BrotherModeUp/releases/tag/v3.2.0</pre></div>
+
+<h3>Phase R0c &middot; proving the install <span class="chip part">1 of 4, three are yours</span></h3>
+
+<div class="box tick"><div class="t">Throwaway install rehearsal <span class="m">sh scripts/release-smoke-install.sh</span></div>
+<pre class="ev green">release-smoke-install: PASSED: add, install (version 3.2.0, 6 hook groups), uninstall clean
+Ran inside a disposable CLAUDE_CONFIG_DIR, so this machine was never touched.
+This is the stranger's install proven end to end, which had never been done before.</pre></div>
+
+<div class="box open"><div class="t">YOURS: update your own install to v3.2.0 <span class="m">cd ~/.claude/skills/brothermode &amp;&amp; git fetch --tags origin &amp;&amp; git checkout v3.2.0</span></div>
+<pre class="ev">BLOCKED, not failed. A permission classifier refused the write to your live
+setup and I did not work around it. Your install is a clean git clone pinned at
+v3.1.0 with zero local modifications, so this is a checkout and rolling back is
+`git checkout v3.1.0`. About thirty seconds.</pre></div>
+
+<div class="box open"><div class="t">YOURS: bring the sibling on your PATH up to 3.0.0 <span class="m">which sbe; sbe --version</span></div>
+<pre class="ev">Confirmed stale, not missing: `sbe 1.0.0-rc.1` from a plugin cache, while the
+sibling has v3.0.0 released. At that tag it ships start, design, review, verify,
+learn and eleven more, so every command the loop names exists. Reinstall fixes it.</pre></div>
+
+<div class="box open"><div class="t">YOURS: enable GitHub private vulnerability reporting <span class="m">repository settings, one click</span></div>
+<pre class="ev">SECURITY.md names it as outstanding rather than claiming it is done. Two minutes.</pre></div>
+
+<h2>Decisions recorded</h2>
+<div class="dec">
+  <div class="card"><div class="k">D12</div><h3>Verify keeps no folder</h3><p>A routing name over the review and deliver flow. Canonical count stays nine, ruling B5 untouched, brand identity file untouched. <b>Flips if</b> a real engine ever sits behind the name rather than a route.</p></div>
+  <div class="card"><div class="k">D13</div><h3>The security bar does not apply to an internal team</h3><p>Your own team on your own machines is not the public small-team persona the external review bar was written for. It stays in force for outside teams, and SECURITY.md states the absence in the open. <b>Flips if</b> the product is offered to a team you do not employ.</p></div>
+  <div class="card"><div class="k">D22</div><h3>The handover pack is what crosses between people</h3><p>Committed to the repository the work lives in. No shared database, no sync layer, no hosting. <b>Flips if</b> a team needs a live view across several repositories at once, which is the R3 tranche.</p></div>
+  <div class="card"><div class="k">D36</div><h3>Two records, one change identifier</h3><p>Each product keeps its own record and both name the same change, so they can be lined up by a command. <b>Flips if</b> the two schemas ever need to merge, which neither release plan permits today.</p></div>
+  <div class="card"><div class="k">Not done, on purpose</div><h3>The fence registry defect</h3><p>Ruled in scope tonight, then probed and found not to reproduce. Recorded at the moment the call was taken rather than surfacing later in a report. <b>Flips if</b> a case is found where the hook does read the historical log.</p></div>
+</div>
+
+<footer>
+<p><b>TICK CONTRACT.</b> A box ticks only when its done-check ran after the last edit and that output is quoted beside it. Percentages are counts of records, never impressions. A check that cannot tell is never read as a pass.</p>
+<p>Refreshed 2026-08-12 00:32 JST by session 31456097, at HEAD <code>54ff2c2</code>, with v3.2.0 released. Next refresh within two hours. Derived from <code>docs/plan/OVERNIGHT-AND-ROADMAP-2026-08-12.md</code>, which is the authority for tonight's run.</p>
+</footer>
+
+</div>
