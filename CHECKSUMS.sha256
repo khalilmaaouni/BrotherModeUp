@@ -137,6 +137,7 @@ cc9e60cbba78acf6dbfd53ed72eaf686f4b332decdfb9e5422756a7562ff9a25  docs/closure/s
 e9dd31c0f5ce131207a173c6f7dda8b1e49f050ee9be3925ba00bbadd8e193a1  docs/contributing/FIRST-CAPABILITY-TUTORIAL.md
 8c2a277f630c426d6830eef4c9b26257c88bacdff4f2668515d70bdc49cc4bc3  docs/craft/2026-08-02-craft-state-mapping.md
 8359ee44212f1b498105a21a40112a2e137e636df9972d1f86057c35705afabf  docs/craft/FABLE-PRODUCT-CRAFT-RESEARCH-REVIEW.md
+52efec2cce8260cceb802ac614d03d1f812172a6e5a322d828517929ad2a5153  docs/decisions/RATIFIED-2026-08-11-morning.md
 bb7f20ed2321dfbab1fb022a3c9b9a9f0b958feb46e75a9e3a0fa85ff365f3cf  docs/decisions/README.md
 6675b3066d1afa5cb225039b6d611ab53cd9efc759eeb8eb50a6017cde3b28ef  docs/decisions/V3-FREEZE-2026-08-07.md
 6e34e1b2c77cac4fcbd668e04a8848f4ed084cce22f29df050ad532164297628  docs/decisions/architecture-refutation-2026-08-07.md
@@ -223,6 +224,7 @@ fb077af1ecc57818afe805a89f0bed8ca2c8ae7b43fada309d4a4739261db392  docs/plan/ALER
 194a529584cbaf81166422d9ddd0fc8811e36401364ba2be8da943b5c4999177  docs/plan/LEARNINGS-2026-08-10-evening.md
 da292f3d0a2f63568887c7b68a8aeed41b23ddd7486207fa104529b8d1205174  docs/plan/NEXT-ACTIONS-2026-08-10.md
 3f5475246d030d3d00df62037e431b6167bd3219881313dead741b77a1b44743  docs/plan/PROGRAM-PLAN-2026-08-10.md
+525c448e893d84394d656a32411bfe947ff16d87ffa25e06656054a1dc850ffb  docs/plan/PROGRAM-PLAN-2026-08-11-RATIFIED.md
 b591664342d85a2785be091f3f2f6c628ded339248053f84078cd9c17de6fc49  docs/plan/RELEASE-v3.1.0-GANTT.html
 1a4c1aa7e3c258b86fb1df24d357c657b9a3e2a991b683a2f9d0420ef163d354  docs/plan/RELEASE-v3.1.0-PLAN.md
 603fbdfe0057ebddcbe36325c2cf9d0e36550aa8a1e7c71d1c2c3f672be09148  docs/plan/SESSION-STATE-2026-08-10-evening.md
@@ -594,6 +596,7 @@ f8cb48a3136b4f92d6f54672c6dd5d8ea86f2175151f3774612e36bbfea41244  docs/superpowe
 deb8b4605b08d95124646bfe9bc676bae1e20ba5cf5a19df97004a1c8aecc983  docs/superpowers/specs/2026-08-02-loop7-runtime-closure.md
 b9bee182a596f5e50d3bde01bb02febf66bda86fd73bb287ba4241af487294ba  docs/superpowers/specs/2026-08-02-memory-sentinel-phase1-design.md
 d3816fe934eef1aa74ff175c7e6b2467904acd5bd432f88bb6dc8ba3709a1c89  docs/superpowers/specs/2026-08-10-project-control-dashboard-design.md
+110395aa2ab05b1265081b6d6618c827f3749df86e8ba1cbde91664d968110ea  docs/superpowers/specs/2026-08-11-sd2-sentinel-design.md
 9ce0ff4a2923554dc617f4eb4a15956978d9bf90deb101fa2eaf6c55714d36bf  hooks/hooks.json
 261cb5a1b3c15add5bbf18d3578eb8de629562ab32d6952e050c939f61fce4a1  mcp/README.md
 c3b89d91b9c5b60ad3e974b99ad98d7eac6bb77ff52f99868f70f2231a81468e  mcp/bm_mcp_server.py
