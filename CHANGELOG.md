@@ -1,5 +1,34 @@
 # Changelog
 
+## 3.2.0, released 2026-08-12 (annotated tag v3.2.0, on the commit that alone carries VERSION 3.2.0 per rule 1)
+
+V3 Final. A repositioning release plus a surface cut plus two small
+lifecycle items, landed on an engine that does not change shape: no schema
+migration, no new command category, no new subsystem. The category is a
+verified delivery layer for AI agents.
+
+- The public command surface lands at six names, down from seven. `start`,
+  `status`, `deliver` and `doctor` work today. `verify` is a name for the
+  review and deliver flow that already exists, with no folder and no entry
+  point of its own, and the README says so rather than implying a command.
+  `toolkit` is named and not built, with no stub and no silently failing
+  entry point. Everything that left the public list keeps working exactly
+  as before: the documented surface shrank, the working surface did not.
+- `purge` gained a dry run, so you can see what would be removed before
+  anything is.
+- A plain-language answer to where your data lives, checked by `doctor`
+  rather than asserted in prose.
+- A guide to using this alongside its sibling product, which governs a
+  change as it passes between people while this one governs one person's
+  session.
+- A team adoption guide and a first-day pack, so a small engineering team
+  can install, run one governed change, and know what to write down.
+- Fixed: creating a work record through the store API left the generated
+  `STATE.md` view stale, which surfaced as `doctor` check 7 and
+  `test_brothermode_cli.py` both failing on somebody's first substantial
+  task. The refresh now belongs to the mutation rather than to whichever
+  caller happens to know it is owed. Found by running the product.
+
 ## 3.1.0, released 2026-08-11 (annotated tag v3.1.0, on the commit that alone carries VERSION 3.1.0 per rule 1)
 
 The truth-hardening release. One main branch, and every claim the tree
