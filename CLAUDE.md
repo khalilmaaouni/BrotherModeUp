@@ -11,10 +11,21 @@ backgrounding it as a harness task dies at exit 144 with no verdict
 (reproduced twice 2026-08-08). Detach and poll instead:
 
 ```
+rm -f "$TMPDIR/gate.exit"
 nohup bash -c 'python3 tools/test_all.py > "$TMPDIR/gate.log" 2>&1; echo $? > "$TMPDIR/gate.exit"' > /dev/null 2>&1 &
-for i in $(seq 1 56); do [ -f "$TMPDIR/gate.exit" ] && break; sleep 10; done
+for i in $(seq 1 80); do pgrep -f tools/test_all.py > /dev/null || break; sleep 10; done
 cat "$TMPDIR/gate.log"; cat "$TMPDIR/gate.exit"
 ```
+
+THE FIRST LINE IS LOAD-BEARING AND WAS MISSING UNTIL 2026-08-11 night.
+`$TMPDIR` survives between sessions, so the previous run's `gate.exit` is
+already on disk when the poll starts. Without clearing it the loop breaks on
+the first iteration and the session reads a stale exit code as its own
+verdict. Observed that night: the poll returned `gate exit: 0` after ten
+seconds while the log still read `running test_bm_docs.py`, and the real run
+finished nine minutes later at exit 1 with two failed suites. It fails toward
+green, which is the worst direction, so the sentinel is cleared before the
+launch and the wait is on the process rather than on the file.
 
 Never stop a running gate with `pkill -f` (can match another session's
 prompt). Kill by PID after printing the target.
