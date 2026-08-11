@@ -10,21 +10,21 @@ This page has no store-derived section: the vault lives outside this project's o
 
 <!-- bm-human:begin -->
 Session log: Kay Vault/10-Projects/brothermode/Sessions/
-2026-08-11-afternoon-baton-ceremony.md, seven dated blocks, checkpointed at
-each milestone rather than at close. Two context boundaries passed with
-nothing lost because of it.
+2026-08-11-afternoon-baton-ceremony.md, nine dated blocks, checkpointed at each
+milestone rather than at close. Several context boundaries passed with nothing
+lost because of it.
 
 Also written this session:
 - Kay Vault/10-Projects/brothersbe/Sessions/
-  2026-08-11-afternoon-successor-closure.md, what was closed on BrotherSBE's
-  behalf and what remains.
+  2026-08-11-afternoon-successor-closure.md
 - A new failure class: 40-Failures/
   a-raw-read-taken-for-a-comparison-becomes-a-written-page.md, indexed in the
   Failures-Index under verification and measurement.
-- Open-Items updated in BOTH project spaces, each with the founder-only items.
+- Open-Items updated in BOTH project spaces, each carrying its founder-only
+  items.
 - The pending-amendments note carries the ceremony's constitutional request.
 
 For the successor: read the session log's last three blocks, then this pack's
-01 and 04. Nothing in the vault duplicates what is in git; the vault carries
-the reasoning, git carries the artefacts.
+01 and 04. The vault carries the reasoning; git carries the artifacts; neither
+duplicates the other.
 <!-- bm-human:end -->
