@@ -135,6 +135,35 @@ def maybe_remove_consent_config(remove_consent_flag, dry):
     _out("consent: removed %s" % cfg_path)
 
 
+def data_locations(vault=None):
+    """The one list of every place BrotherMode's data lives, as printed
+    lines without their leading bullet.
+
+    Extracted from main() for V3 Final B2 so that `doctor` can answer "where
+    does my data live" from the SAME definition this uninstaller acts on. It
+    was previously typed inline here and nowhere else, which meant any second
+    page answering that question would be a transcription, correct on the day
+    it was written and silently wrong the first time a location changed.
+
+    `vault` is read from the environment by the caller, not here, so this
+    function stays pure and testable.
+    """
+    return [
+        "Your vault%s. Nothing in the uninstaller deletes a vault, with or "
+        "without a flag. Delete it yourself if you want it gone."
+        % (" (%s)" % vault if vault else
+           " (BROTHERMODE_VAULT is not set in this shell, so its path is "
+           "not known here)"),
+        "Per-project state in every repository you used it in: "
+        ".brothermode/ (the sqlite store), threads/, STATE.md and "
+        "STATE.md.bak*, the local autosave git refs "
+        "(git for-each-ref refs/brothermode), and the /.brothermode line in "
+        ".git/info/exclude. See README.md's Uninstall section for the exact "
+        "removal commands.",
+        "Any BROTHERMODE_* export you added to your shell profile.",
+    ]
+
+
 def strip_hooks(settings, target):
     """Return (new_settings, removed_count). Pure."""
     new = json.loads(json.dumps(settings))
@@ -329,17 +358,8 @@ def main(argv):
     vault = os.environ.get("BROTHERMODE_VAULT")
     _out("")
     _out("Untouched, deliberately:")
-    _out("  - Your vault%s. Nothing in this uninstaller deletes a vault, with "
-         "or without a flag. Delete it yourself if you want it gone."
-         % (" (%s)" % vault if vault else
-            " (BROTHERMODE_VAULT is not set in this shell, so its path is not "
-            "known here)"))
-    _out("  - Per-project state in every repository you used it in: "
-         ".brothermode/ (the sqlite store), threads/, STATE.md and STATE.md.bak*, "
-         "the local autosave git refs (git for-each-ref refs/brothermode), and "
-         "the /.brothermode line in .git/info/exclude. See README.md's Uninstall "
-         "section for the exact removal commands.")
-    _out("  - Any BROTHERMODE_* export you added to your shell profile.")
+    for line in data_locations(vault):
+        _out("  - %s" % line)
     _out("  - Plugin-managed hooks. If BrotherMode was also installed as a "
          "Claude Code plugin, that wiring is not this script's bookkeeping "
          "at all: run '/plugin uninstall %s' to remove it." % _plugin_name(target))

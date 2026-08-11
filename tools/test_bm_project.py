@@ -1339,6 +1339,64 @@ class TestExportAndPurge(unittest.TestCase):
             self.assertIn("confirm", r.stderr)
             self.assertEqual(_raw_dump(root), before)
 
+    def test_purge_dry_run_reports_the_real_counts_and_removes_nothing(self):
+        """V3 Final B1. The whole point of the flag is that its counts are
+        the REAL purge's counts, so this asserts both halves at once: the
+        store is byte-for-byte unchanged afterwards, AND the numbers match
+        what the real purge on the same fixture reports. A preview that
+        removed nothing but reported the wrong thing would pass a weaker
+        version of this test and be worse than useless, because a founder
+        reads it precisely when they are about to do something they cannot
+        undo."""
+        with tempfile.TemporaryDirectory() as root:
+            self._seeded_project(root)
+            before = _raw_dump(root)
+            r = _run(["purge", "--project-id", "proj1", "--dry-run"]
+                     + list(ACTOR) + ["--out-json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            payload = json.loads(r.stdout)
+            self.assertTrue(payload["dry_run"])
+            self.assertEqual(
+                _raw_dump(root), before,
+                "a dry run must leave every row, including the attribution "
+                "trail, exactly as it was")
+            # Now really purge the SAME fixture shape and compare. This is
+            # the assertion that a reimplemented preview would fail.
+            with tempfile.TemporaryDirectory() as root2:
+                self._seeded_project(root2)
+                r2 = _run(["purge", "--project-id", "proj1", "--confirm",
+                           "proj1"] + list(ACTOR) + ["--out-json"], root2)
+                self.assertEqual(r2.returncode, 0, r2.stderr)
+                self.assertEqual(
+                    payload["removed"], json.loads(r2.stdout)["removed"],
+                    "the dry run's counts must equal the real purge's own")
+
+    def test_purge_dry_run_needs_no_confirm_but_still_needs_a_project(self):
+        """The confirmation token guards an irreversible deletion, and a dry
+        run is not one, so --dry-run alone is enough. --project-id stays
+        required, because a preview of 'some project' is not a preview."""
+        with tempfile.TemporaryDirectory() as root:
+            self._seeded_project(root)
+            before = _raw_dump(root)
+            r = _run(["purge", "--dry-run"] + list(ACTOR), root)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("project-id", r.stderr)
+            self.assertEqual(_raw_dump(root), before)
+
+    def test_purge_dry_run_prints_the_dry_run_prefix_and_no_past_tense(self):
+        """Mirrors scripts/uninstall.py's own '[dry-run] ' prefix. The past
+        tense is the danger: 'removed: 2 task(s)' on a run that removed
+        nothing is the sentence a founder would act on."""
+        with tempfile.TemporaryDirectory() as root:
+            self._seeded_project(root)
+            r = _run(["purge", "--project-id", "proj1", "--dry-run"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("[dry-run] ", r.stdout)
+            self.assertIn("would remove", r.stdout)
+            self.assertIn("nothing was removed", r.stdout)
+            self.assertNotIn("purged project proj1", r.stdout)
+
     def test_purge_wrong_confirm_refuses_and_changes_nothing(self):
         with tempfile.TemporaryDirectory() as root:
             self._seeded_project(root)

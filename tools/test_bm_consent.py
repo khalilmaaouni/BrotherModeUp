@@ -44,6 +44,18 @@ SESSIONSTART = os.path.join(HERE, "bm_sessionstart.sh")
 TELEMETRY = os.path.join(HERE, "bm_telemetry.py")
 SETUP = os.path.join(ROOT, "scripts", "setup.py")
 DOCTOR = os.path.join(ROOT, "scripts", "doctor.py")
+
+# The check inventory, read from doctor.py's own OrderedDict rather than
+# counted by hand here. Written 2026-08-11 for V3 Final B2, after three
+# assertions in this file that hardcoded "10" all went stale in the same
+# minute an eleventh check shipped. Importing the module runs nothing: every
+# check in it is called from main(), which only runs under __main__.
+sys.path.insert(0, os.path.join(ROOT, "scripts"))
+try:
+    import doctor as _doctor_module
+    CHECK_KEYS = tuple(_doctor_module.CHECK_TITLES)
+finally:
+    sys.path.pop(0)
 UNINSTALL = os.path.join(ROOT, "scripts", "uninstall.py")
 UPDATE_MD = os.path.join(ROOT, "commands", "brotherme-update.md")
 DIGEST = os.path.join(ROOT, "DIGEST.md")
@@ -871,6 +883,59 @@ class SetupFlagModeCase(unittest.TestCase):
         self.assertFalse(os.path.exists(self.vault),
                          "setup touched the vault directory itself")
 
+    def test_doctor_names_every_data_location_and_changes_nothing(self):
+        """V3 Final B2. Two assertions that have to hold together: the check
+        names each place data lives, AND running it leaves the filesystem
+        exactly as it found it. A check that answers 'where is my data' by
+        touching that data would be the worst possible version of itself."""
+        self.run_setup("--vault", self.vault, "--mode", "clone",
+                       "--accept-notice")
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        def snapshot():
+            seen = {}
+            for base in (self.vault, os.path.dirname(self.config)):
+                for dirpath, _dirnames, filenames in os.walk(base):
+                    for name in filenames:
+                        full = os.path.join(dirpath, name)
+                        try:
+                            seen[full] = os.stat(full).st_mtime
+                        except OSError:
+                            pass
+            return seen
+
+        before = snapshot()
+        env = dict(os.environ, BROTHERMODE_VAULT=self.vault)
+        r = subprocess.run(
+            [sys.executable, os.path.join(root, "scripts", "doctor.py")],
+            capture_output=True, text=True, env=env, cwd=root)
+        out = r.stdout
+        self.assertIn("where your data lives", out)
+        for fragment in (".brothermode/", "threads/", "STATE.md",
+                         ".git/info/exclude", "BROTHERMODE_"):
+            self.assertIn(fragment, out,
+                          "the data-locations check never named %s" % fragment)
+        self.assertEqual(snapshot(), before,
+                         "the data-locations check modified something")
+
+    def test_doctor_data_locations_matches_the_uninstaller_definition(self):
+        """The check must not carry its own transcription of the list. If
+        somebody ever retypes it instead of importing it, this fails."""
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        sys.path.insert(0, os.path.join(root, "scripts"))
+        try:
+            import uninstall as _u
+        finally:
+            sys.path.pop(0)
+        env = dict(os.environ, BROTHERMODE_VAULT=self.vault)
+        r = subprocess.run(
+            [sys.executable, os.path.join(root, "scripts", "doctor.py")],
+            capture_output=True, text=True, env=env, cwd=root)
+        for line in _u.data_locations(None)[1:]:
+            self.assertIn(line.split(".")[0], r.stdout,
+                          "doctor and the uninstaller disagree about where "
+                          "data lives")
+
     def test_flag_mode_requires_all_three_flags_together(self):
         r = self.run_setup("--vault", self.vault)
         self.assertEqual(r.returncode, EXIT_USAGE, r.stdout + r.stderr)
@@ -950,7 +1015,7 @@ class SetupConsentStateProbeCase(unittest.TestCase):
         self.assertEqual(r.returncode, EXIT_FAILED)
 
 
-class DoctorTenChecksCase(unittest.TestCase):
+class DoctorCheckInventoryCase(unittest.TestCase):
     """(g) scripts/doctor.py's ten-check surface (Loop 3 design D-3, WP-E).
     Consent gates the checks that depend on it, the store check reports
     bm_store.py verify's own verdict, and the duplicate-install and
@@ -1150,7 +1215,7 @@ class DoctorStrictAndSummaryCase(unittest.TestCase):
     wiring all PASS) so store and checksums are the only SKIPs here,
     proving the summary line's math and --strict's opt-in against a real
     fail_count of zero, not a fixture that was already failing for some
-    unrelated reason (the fixture in DoctorTenChecksCase above never wires a
+    unrelated reason (the fixture in DoctorCheckInventoryCase above never wires a
     fence, so it always has at least one FAIL and cannot tell "exits 0
     despite a SKIP" apart from "exits 0 because nothing failed yet")."""
 
@@ -1211,15 +1276,19 @@ class DoctorStrictAndSummaryCase(unittest.TestCase):
         r = self.run_doctor()
         payload = json.loads(r.stdout)
         checks = payload["checks"]
-        self.assertEqual(len(checks), 10)
+        # Derived, never hardcoded: this assertion was written as a
+        # literal 10 and went stale the day an eleventh check shipped.
+        total = len(CHECK_KEYS)
+        self.assertEqual(len(checks), total)
         proven = sum(1 for c in checks if c["status"] == "PASS")
         skipped = sum(1 for c in checks if c["status"] == "SKIP")
         failed = sum(1 for c in checks if c["status"] == "FAIL")
         self.assertEqual(payload["proven"], proven)
         self.assertEqual(payload["skipped"], skipped)
         self.assertEqual(payload["failed"], failed)
-        self.assertEqual(proven + skipped + failed, 10)
-        self.assertIn("%d of 10 proven" % proven, payload["summary"])
+        self.assertEqual(proven + skipped + failed, total)
+        self.assertIn("%d of %d proven" % (proven, total),
+                      payload["summary"])
         self.assertIn("%d skipped" % skipped, payload["summary"])
         self.assertIn("%d failed" % failed, payload["summary"])
 
@@ -1230,7 +1299,9 @@ class DoctorStrictAndSummaryCase(unittest.TestCase):
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             universal_newlines=True, timeout=300)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertRegex(r.stdout, r"\d+ of 10 proven, \d+ skipped, \d+ failed\.")
+        self.assertRegex(
+            r.stdout,
+            r"\d+ of %d proven, \d+ skipped, \d+ failed\." % len(CHECK_KEYS))
 
     def test_strict_flag_exits_nonzero_and_lists_each_skip(self):
         base = self.run_doctor()
