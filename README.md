@@ -1,3 +1,7 @@
+Product authority: [PRODUCT-DIRECTION.md](PRODUCT-DIRECTION.md) (founder
+direction, 2026-08-11) defines what BrotherMode is, who it serves, and what it
+will not build. It supersedes conflicting product-scope guidance elsewhere.
+
 This page is for one person already running Claude Code who wants a plan
 agreed before anything is touched, one writer per file, and a check quoted
 before anything is called done, paid for with the cost of installing hooks and
