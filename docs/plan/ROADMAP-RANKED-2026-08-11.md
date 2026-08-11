@@ -148,6 +148,23 @@ That also means the ranking above is less trustworthy than it reads. It is
 ordered by what each item would unblock IF the item is real, and two of eleven
 were not.
 
+## A third item shrank, and this one to nothing
+
+The measurement reader was ranked as remaining work after the views table was
+found. Counting the rows removed it entirely for now: seven rows, one session,
+three actor names, spanning six days. Every threshold it could report would
+read NOT DECIDABLE, and a report that says nothing invites somebody to soften
+the thresholds until it says something.
+
+It is not deferred for effort. It is deferred because the instrument has
+nothing to measure until somebody outside this machine uses the product, which
+is a distribution problem rather than an engineering one. Build it when the
+table has something to read.
+
+Three of eleven items on this list, then, were either already built or not yet
+worth building. That is the strongest argument this document contains for
+checking before starting.
+
 ## Also open, small, and not worth a rank of their own
 
 - RF-3, prose fence retirement: the store is already the only fence surface.
