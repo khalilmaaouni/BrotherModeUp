@@ -19,7 +19,7 @@ Every subdirectory of this folder is one handover pack, named
 4. `03-RULES-AND-PROCESS-FIXES.md`: a rule or process fix this session's
    own mistakes surfaced, if any.
 5. `04-NEXT-LOOPS-PRIORITIZED.md`: the next loops, in priority order.
-6. `05-VAULT-AND-OBSIDIAN.md`: what changed in the Kay Vault, and its
+6. `05-VAULT-AND-OBSIDIAN.md`: what changed in the memory vault, and its
    session log entry.
 7. `06-CLOSE-REPORT.md`: opens with a line starting with the exact word
    FINISHED, or the exact word UNFINISHED and exactly where the baton
@@ -40,7 +40,7 @@ safe to regenerate; the human block survives regeneration byte for byte
 CLOSE, before a session ends: refresh the pack (`skeleton`), fill every
 `FILL-BY-HAND` slot by hand, park every record this session holds with a
 handover (`bm_store.py park ... --handover "<heading>"`), commit the pack
-folder, zip it (`bm_handover.py zip`), update the Kay Vault session log,
+folder, zip it (`bm_handover.py zip`), update the memory vault session log,
 then run `bm_handover.py verify-close` and quote its verdict. A FAIL means
 the ceremony is not done.
 
