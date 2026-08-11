@@ -48,6 +48,41 @@ prompt). Kill by PID after printing the target.
 - Push policy: direct to main. Every gate (secret scan, dash scan, green
   tests, command verification) stays mandatory.
 
+## The baton ceremony, both halves (ratified 2026-08-11)
+
+Every session in this repository opens and closes with it. Full rule in the
+founder's global CLAUDE.md; the paper version anyone can follow with nothing
+installed is docs/HANDOVER-BY-HAND.md.
+
+OPEN, before new work:
+
+    python3 tools/bm_handover.py detect
+
+Read what it reports: the newest pack and its age, unacknowledged handovers,
+and records whose owning session is dead, each with its clearing command. Then
+read the newest pack in docs/handover/ in its stated order, adopt or park what
+the predecessor left, and say what you adopted before starting.
+
+CLOSE, before the session ends:
+
+    python3 tools/bm_handover.py skeleton --slot <name>
+    # fill every FILL-BY-HAND slot by hand, then
+    python3 tools/bm_handover.py zip --pack docs/handover/<date>-<name>
+    python3 tools/bm_handover.py verify-close --pack docs/handover/<date>-<name>
+
+The close report's first line is FINISHED or UNFINISHED, one of two words,
+never a percentage. verify-close refuses a hollow pack, a missing status line,
+a stale zip, and any session still holding unparked records, naming them by id.
+
+IT WILL REFUSE YOU AND IT IS USUALLY RIGHT. On its first real close it refused
+its own author twice: once for a missing zip, once for three live claims. Park
+what it names and run it again rather than working around it.
+
+NOT ENFORCED, stated plainly: the opening half is discipline. Nothing refuses a
+session that skips detect, because wiring it needs hooks/hooks.json and
+tools/bm_sessionstart.sh, which are under another lane's claims. The closing
+half is enforced by verify-close only when somebody runs it.
+
 ## Key commands (from PROJECT.md)
 
 - Full gate: `BROTHERMODE_SESSION_CAP=99 python3 tools/test_all.py`
