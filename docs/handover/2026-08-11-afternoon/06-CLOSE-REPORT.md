@@ -11,23 +11,36 @@ The notes block below MUST open with a line starting with the exact word FINISHE
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-UNFINISHED. The baton is at the ecosystem comparison page, lane 2, whose
-research was still running when this pack was written.
+UNFINISHED. The baton is at the adoption work: the first-contact change (a
+person's first experience being a finished page about their own work rather
+than a setup flow) and the private count of repeat requests. Neither is
+started.
 
-Everything in lane 1, the baton ceremony, IS finished: ratified, built,
-adversarially reviewed, repaired against all sixteen findings, verified by
-hand, and committed. What remains of it is mechanical: the closing gate on the
-real checkout, and the push, both of which this session performs immediately
-after this page is written.
+Everything else this session took on IS finished and pushed to origin/main,
+verified each time by HEAD, upstream and ls-remote agreeing:
+- The baton ceremony: ratified, built RED first, adversarially reviewed, all
+  sixteen findings repaired, three of the worst reproduced by hand afterwards.
+- The comparison page, its research record, its refresh procedure, and a gate
+  that fails the build when it goes stale, calibrated by aging the date and by
+  faking a future one.
+- The handover procedure published as paper, usable with nothing installed.
+- The whole roadmap ranked, with two departures from the ratified order named
+  as departures and given flip conditions.
+- The front page now says who this is for and who should look elsewhere.
 
-Nothing is half-edited. No agent is mid-write. No schedule was armed. The
-stopped session's work is preserved three ways and named in 01-HANDOVER.md.
+Nothing is half-edited. No agent is running. The only schedule armed is the
+watchdog cron, which must be deleted at close.
 
-FOUR THINGS WAIT ON THE FOUNDER, none of them blocking a successor from
-working: the SKILL.md amendment, whether to resume SD2, whether the public
-repository carrying his private vault name in seventeen files is worth a
-history rewrite, and the ecosystem page once its research lands.
+FIVE THINGS WAIT ON THE FOUNDER, none blocking a successor:
+1. Resume or discard the stopped session's SD2 work (branch
+   wip/sd2-sentinel-2026-08-11-stopped-session, 1618 insertions preserved).
+2. The SKILL.md amendment carrying the ceremony.
+3. Whether the public repository carrying the private vault name in seventeen
+   files is worth a history rewrite.
+4. Arming the weekly comparison-page refresh, which spends tokens weekly.
+5. Disk: 11 GiB free, 95 percent capacity. A verified-safe 4 GB of regenerable
+   caches can be cleared on his word; his transcripts stay untouched.
 
-A successor should run detect first, read this pack in order, and pick up at
-P0 in 04-NEXT-LOOPS-PRIORITIZED.md.
+A successor runs detect first, reads this pack in order, and picks up at P0 in
+04-NEXT-LOOPS-PRIORITIZED.md.
 <!-- bm-human:end -->
