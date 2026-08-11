@@ -429,3 +429,9 @@ This page was last checked against primary sources on 2026-08-11. It is
 re-checked weekly; if you are reading this much later than that, treat the
 prices in particular as stale and verify them yourself before relying on
 them.
+
+The line below is the one a check reads, so it stays in this exact shape.
+Do not update it without running the pass in docs/ECOSYSTEM-REFRESH.md:
+a fresh date over stale content is worse than an honest old one.
+
+Last checked: 2026-08-11.
