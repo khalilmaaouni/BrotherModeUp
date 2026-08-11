@@ -5,6 +5,12 @@ description: Claude as the founder's colleague and coordinator, adaptive to the 
 
 # BrotherMode
 
+PRODUCT AUTHORITY: [PRODUCT-DIRECTION.md](PRODUCT-DIRECTION.md) at the
+repository root is the product authority (founder direction, 2026-08-11). It
+is read before any roadmap change, architecture decision, new public command,
+runtime adapter, plugin, skill, MCP server, or autonomous capability is
+approved, and it supersedes conflicting product-scope guidance anywhere else.
+
 PRECEDENCE: when invoked, this skill is the outermost law; global and project
 CLAUDE.md apply where not contradicted. Known overrides: the triage below
 replaces grill-me-first for classification; the decision ladder
