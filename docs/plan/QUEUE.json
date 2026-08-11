@@ -9,7 +9,12 @@
   },
   "min_depth": 5,
   "idle_window_minutes": 25,
-  "watch_paths": ["tools", "docs/plan", "docs/team", "docs/handover"],
+  "watch_paths": [
+    "tools",
+    "docs/plan",
+    "docs/team",
+    "docs/handover"
+  ],
   "items": [
     {
       "id": "L1",
@@ -17,58 +22,82 @@
       "state": "done",
       "clock": "agent",
       "forecast_minutes": 15,
-      "files": ["docs/plan/PLAN-2026-08-12-AGGRESSIVE.md", "docs/plan/QUEUE.json"],
+      "files": [
+        "docs/plan/PLAN-2026-08-12-AGGRESSIVE.md",
+        "docs/plan/QUEUE.json"
+      ],
       "done_check": "python3 -c \"import json;json.load(open('docs/plan/QUEUE.json'))\""
     },
     {
       "id": "L2",
       "title": "Forecast telemetry tool, tests written first",
-      "state": "queued",
+      "state": "done",
       "clock": "agent",
       "forecast_minutes": 35,
-      "files": ["tools/bm_forecast.py", "tools/test_bm_forecast.py"],
-      "done_check": "python3 tools/test_bm_forecast.py"
+      "files": [
+        "tools/bm_forecast.py",
+        "tools/test_bm_forecast.py"
+      ],
+      "done_check": "python3 tools/test_bm_forecast.py",
+      "closed_note": "landed and verified: 18 tests OK, adversarial NO-DATA probe at n=0,1,2 all refused"
     },
     {
       "id": "L3",
       "title": "Idle check tool, tests written first",
-      "state": "queued",
+      "state": "done",
       "clock": "agent",
       "forecast_minutes": 30,
-      "files": ["tools/bm_idle.py", "tools/test_bm_idle.py"],
-      "done_check": "python3 tools/test_bm_idle.py"
+      "files": [
+        "tools/bm_idle.py",
+        "tools/test_bm_idle.py"
+      ],
+      "done_check": "python3 tools/test_bm_idle.py",
+      "closed_note": "landed and verified: 16 tests OK, hostile fixtures fired QUEUE-EMPTY, IDLE, WINDOW-CLOSED, NO-DATA"
     },
     {
       "id": "L4",
       "title": "Register both tools in the gate, the write inventory and CI",
-      "state": "queued",
+      "state": "done",
       "clock": "agent",
       "forecast_minutes": 15,
-      "files": ["tools/test_all.py", "tools/write_sites.json", ".github/workflows/tests.yml", "pyproject.toml"],
-      "done_check": "python3 tools/test_all.py --list 2>&1 | grep -c bm_forecast"
+      "files": [
+        "tools/test_all.py",
+        "tools/write_sites.json",
+        ".github/workflows/tests.yml",
+        "pyproject.toml"
+      ],
+      "done_check": "python3 tools/test_all.py --list 2>&1 | grep -c bm_forecast",
+      "closed_note": "SUITES, bm_effects registry, write_sites inventory and CI workflow all updated; write-site gate green"
     },
     {
       "id": "L5",
       "title": "Tester package covering both products in one bundle",
-      "state": "queued",
+      "state": "done",
       "clock": "agent",
       "forecast_minutes": 40,
-      "files": ["docs/team/TESTER-PACK.md", "docs/team/INSTALL-CARD.md"],
-      "done_check": "every command block in the pack was executed and its output quoted in docs/evidence/tester-pack/"
+      "files": [
+        "docs/team/TESTER-PACK.md",
+        "docs/team/INSTALL-CARD.md"
+      ],
+      "done_check": "every command block in the pack was executed and its output quoted in docs/evidence/tester-pack/",
+      "closed_note": "tester pack, evidence file and a corrected install card landed"
     },
     {
       "id": "L6",
       "title": "Progress page under the absolute structure, delivered not merely written",
-      "state": "queued",
+      "state": "done",
       "clock": "agent",
       "forecast_minutes": 30,
-      "files": ["docs/plan/GANTT.html"],
-      "done_check": "python3 tools/bm_progress_check.py status"
+      "files": [
+        "docs/plan/GANTT.html"
+      ],
+      "done_check": "python3 tools/bm_progress_check.py status",
+      "closed_note": "docs/plan/GANTT.html delivered and bm_progress_check reports current, exit 0"
     },
     {
       "id": "L7",
       "title": "Full battery at the final tree",
-      "state": "queued",
+      "state": "in_flight",
       "clock": "agent",
       "forecast_minutes": 13,
       "files": [],
@@ -80,43 +109,57 @@
       "state": "queued",
       "clock": "agent",
       "forecast_minutes": 20,
-      "files": ["docs/handover/2026-08-12-aggressive-replan"],
+      "files": [
+        "docs/handover/2026-08-12-aggressive-replan"
+      ],
       "done_check": "python3 tools/bm_handover.py verify-close --pack docs/handover/2026-08-12-aggressive-replan"
     },
     {
       "id": "O1",
       "title": "Memory architecture design document, two genuinely rejected alternatives",
-      "state": "queued",
+      "state": "done",
       "clock": "agent",
       "forecast_minutes": 30,
-      "files": ["docs/design/MEMORY-ARCHITECTURE.md"],
-      "done_check": "a reader can name what was rejected and the condition that would flip the decision"
+      "files": [
+        "docs/design/MEMORY-ARCHITECTURE.md"
+      ],
+      "done_check": "a reader can name what was rejected and the condition that would flip the decision",
+      "closed_note": "done by a concurrent session at 2b93b98 as docs/design/MEMORY-ARCHITECTURE-2026-08-12.md"
     },
     {
       "id": "O2",
       "title": "Toolkit broker design document: trust tiers and quarantine",
-      "state": "queued",
+      "state": "done",
       "clock": "agent",
       "forecast_minutes": 30,
-      "files": ["docs/design/TOOLKIT-BROKER.md"],
-      "done_check": "same shape as O1"
+      "files": [
+        "docs/design/TOOLKIT-BROKER.md"
+      ],
+      "done_check": "same shape as O1",
+      "closed_note": "done by a concurrent session at 1851b13 as docs/design/TOOLKIT-BROKER-2026-08-12.md"
     },
     {
       "id": "O3",
       "title": "Connector model design document and the per-connector gate",
-      "state": "queued",
+      "state": "done",
       "clock": "agent",
       "forecast_minutes": 30,
-      "files": ["docs/design/CONNECTOR-MODEL.md"],
-      "done_check": "same shape as O1"
+      "files": [
+        "docs/design/CONNECTOR-MODEL.md"
+      ],
+      "done_check": "same shape as O1",
+      "closed_note": "done by a concurrent session at 66666c4 as docs/design/CONNECTOR-MODEL-2026-08-12.md"
     },
     {
       "id": "O4",
-      "title": "Zero-tax adoption: a fence claimed from one shell is parkable from another",
+      "title": "Zero-tax adoption: a fence claimed from one shell is parkable from another (the design landed at 8949ffd; this is the build)",
       "state": "queued",
       "clock": "agent",
       "forecast_minutes": 35,
-      "files": ["tools/bm_store.py", "tools/test_bm_store.py"],
+      "files": [
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
       "done_check": "claim then park from two separate shell invocations, no refusal, regression test failing first"
     },
     {
@@ -125,7 +168,9 @@
       "state": "queued",
       "clock": "agent",
       "forecast_minutes": 25,
-      "files": ["docs/evidence/tester-pack/ADVERSARIAL-READ.md"],
+      "files": [
+        "docs/evidence/tester-pack/ADVERSARIAL-READ.md"
+      ],
       "done_check": "every step that assumes knowledge it never gave is listed with the missing knowledge named"
     },
     {
@@ -134,7 +179,9 @@
       "state": "queued",
       "clock": "agent",
       "forecast_minutes": 20,
-      "files": ["docs/evidence/v3.2.0/DEFECT-REPROBE.md"],
+      "files": [
+        "docs/evidence/v3.2.0/DEFECT-REPROBE.md"
+      ],
       "done_check": "each defect carries a reproduction attempt and its verbatim result"
     },
     {
@@ -152,7 +199,9 @@
       "state": "queued",
       "clock": "agent",
       "forecast_minutes": 20,
-      "files": ["docs/KNOWN-LIMITS.md"],
+      "files": [
+        "docs/KNOWN-LIMITS.md"
+      ],
       "done_check": "every limit in the file either still reproduces or is marked resolved with the commit that resolved it"
     },
     {
@@ -161,7 +210,9 @@
       "state": "queued",
       "clock": "agent",
       "forecast_minutes": 25,
-      "files": ["docs/book/brothermode-solo-builder-booklet.html"],
+      "files": [
+        "docs/book/brothermode-solo-builder-booklet.html"
+      ],
       "done_check": "every command named in the booklet exists in commands/ or is removed"
     },
     {
@@ -170,7 +221,9 @@
       "state": "queued",
       "clock": "agent",
       "forecast_minutes": 25,
-      "files": [".brothermode/forecasts.jsonl"],
+      "files": [
+        ".brothermode/forecasts.jsonl"
+      ],
       "done_check": "python3 tools/bm_forecast.py calibrate reports n greater than 6"
     },
     {
@@ -179,7 +232,9 @@
       "state": "queued",
       "clock": "agent",
       "forecast_minutes": 30,
-      "files": ["docs/evidence/parity/SBE-PARITY-2026-08-12.md"],
+      "files": [
+        "docs/evidence/parity/SBE-PARITY-2026-08-12.md"
+      ],
       "done_check": "each law names checked-by-tool or human, verified by opening the tool"
     },
     {
@@ -188,7 +243,11 @@
       "state": "queued",
       "clock": "agent",
       "forecast_minutes": 45,
-      "files": ["brotherme/core/schema.py", "tools/bm_store.py", "tools/test_bm_store.py"],
+      "files": [
+        "brotherme/core/schema.py",
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
       "done_check": "the suite proves a record carries its outcome contract and refuses one without"
     },
     {
@@ -197,7 +256,10 @@
       "state": "queued",
       "clock": "agent",
       "forecast_minutes": 45,
-      "files": ["tools/bm_store.py", "tools/test_bm_store.py"],
+      "files": [
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
       "done_check": "a verification row cannot be filed without naming the criterion it satisfies"
     },
     {
@@ -206,7 +268,9 @@
       "state": "queued",
       "clock": "agent",
       "forecast_minutes": 15,
-      "files": ["docs/plan/LONG-RANGE-PLAN-2026-08-11.md"],
+      "files": [
+        "docs/plan/LONG-RANGE-PLAN-2026-08-11.md"
+      ],
       "done_check": "the item either names its north star objective or carries a written reason it cannot"
     },
     {
@@ -215,7 +279,9 @@
       "state": "queued",
       "clock": "agent",
       "forecast_minutes": 10,
-      "files": ["CHECKSUMS.sha256"],
+      "files": [
+        "CHECKSUMS.sha256"
+      ],
       "done_check": "python3 scripts/doctor.py reports check 9 PASS"
     },
     {
@@ -246,6 +312,134 @@
       "forecast_minutes": 0,
       "files": [],
       "done_check": "a tester reports the two version numbers from their own shell"
+    },
+    {
+      "id": "O17",
+      "title": "Pin BrotherSBE README install to a tag, matching BrotherMode's pinned form",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 10,
+      "files": [
+        "../BrotherSBE/README.md"
+      ],
+      "done_check": "the README install block reads khalilmaaouni/BrotherSBE@v3.1.0"
+    },
+    {
+      "id": "O18",
+      "title": "bm_forecast.py refuses --help on every verb; file and fix, the project has this exact precedent",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 15,
+      "files": [
+        "tools/bm_forecast.py",
+        "tools/test_bm_forecast.py"
+      ],
+      "done_check": "python3 tools/bm_forecast.py record --help prints usage and exits 0"
+    },
+    {
+      "id": "O19",
+      "title": "Wire bm_idle.py check into tools/bm_sessionstart.sh so the verdict arrives unasked",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": [
+        "tools/bm_sessionstart.sh"
+      ],
+      "done_check": "a session start prints the idle verdict line the way it already prints the progress-page one"
+    },
+    {
+      "id": "O20",
+      "title": "Record actuals for L6, L7 and L8 so the calibration sample grows past n=4",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 5,
+      "files": [
+        ".brothermode/forecasts-log.jsonl"
+      ],
+      "done_check": "python3 tools/bm_forecast.py calibrate --clock agent --basis judged reports n greater than 6"
+    },
+    {
+      "id": "O21",
+      "title": "Read the four design documents the concurrent session wrote and refute one claim in each",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 35,
+      "files": [
+        "docs/evidence/design-review/REFUTE-2026-08-12.md"
+      ],
+      "done_check": "each of the four carries either a named broken claim or the words COULD NOT BREAK with the attack that was run"
+    },
+    {
+      "id": "A1",
+      "title": "R1.1 pulled forward: outcome contract columns on the record",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "brotherme/core/schema.py",
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "the suite proves a record refuses to close without its outcome contract"
+    },
+    {
+      "id": "A2",
+      "title": "R1.3 pulled forward: wire the ceremony opening half so detect runs unasked at session start",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "tools/bm_sessionstart.sh",
+        "hooks/hooks.json"
+      ],
+      "done_check": "a fresh session prints the detect verdict without anybody typing it"
+    },
+    {
+      "id": "A3",
+      "title": "Wire bm_forecast.py check into verify-close so a session cannot close on an unclosed forecast",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 25,
+      "files": [
+        "tools/bm_handover.py",
+        "tools/test_bm_handover.py"
+      ],
+      "done_check": "verify-close refuses a pack whose session left a forecast open past the window"
+    },
+    {
+      "id": "A4",
+      "title": "Put the calibration number on the session start line, beside the progress-page verdict",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": [
+        "tools/bm_sessionstart.sh"
+      ],
+      "done_check": "session start prints the current multiplier and n, or NO-DATA when the sample is thin"
+    },
+    {
+      "id": "A5",
+      "title": "R1.5 pulled forward: retire the prose fence claims that no file enforces",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 35,
+      "files": [
+        "docs/KNOWN-LIMITS.md",
+        "SKILL.md"
+      ],
+      "done_check": "every fence claim in the docs names its enforcing file or is marked UNENFORCED"
+    },
+    {
+      "id": "A6",
+      "title": "Teach bm_idle.py to read the forecast log so IDLE can cite what should have been in flight",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "tools/bm_idle.py",
+        "tools/test_bm_idle.py"
+      ],
+      "done_check": "the IDLE verdict names the open forecast whose actual never arrived"
     }
   ]
 }

@@ -466,6 +466,40 @@ REGISTRY = {
         "status": PURE_READ,
     },
 
+    # -- bm_forecast.py -------------------------------------------------
+    # Added 2026-08-12. Four of its six verbs read the append-only
+    # forecast log and decide; two append exactly one line each through
+    # the single `_append_record` helper, which is the only write site in
+    # the file and opens with O_APPEND at mode 0600. record and actual are
+    # therefore ledger_write, the same class bm_project.py `forecast add`
+    # already carries: an append to a project-local record of what was
+    # decided, touching one file inside .brothermode and nothing else, no
+    # store, no network, no subprocess. calibrate, apply, check and list
+    # open that same file read-only and change no bytes.
+    "bm_forecast.py": {
+        "record": LEDGER_WRITE,
+        "actual": LEDGER_WRITE,
+        "calibrate": PURE_READ,
+        "apply": PURE_READ,
+        "check": PURE_READ,
+        "list": PURE_READ,
+    },
+
+    # -- bm_idle.py -----------------------------------------------------
+    # Added 2026-08-12. Its own module docstring states "EFFECT CLASS:
+    # pure_read ... writes NOT ONE BYTE anywhere, ever", and it was built
+    # that way deliberately: a mutating verb would have put it in the
+    # reviewed write-site inventory for no gain, since a human or a model
+    # edits docs/plan/QUEUE.json directly. It borrows bm_store.resolve_root
+    # for --root resolution only and never constructs a Store, because
+    # constructing one is itself a write.
+    "bm_idle.py": {
+        "check": PURE_READ,
+        "depth": PURE_READ,
+        "next": PURE_READ,
+        "list": PURE_READ,
+    },
+
     # -- bm_stall.py ----------------------------------------------------
     # Loop SD (docs/plan/PROGRAM-PLAN-2026-08-10.md, section "Loop SD"):
     # the active stall/dead-owner/orphan sweep. Its own module docstring

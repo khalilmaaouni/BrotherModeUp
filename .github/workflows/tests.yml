@@ -176,6 +176,19 @@ jobs:
       # would be writing constantly and invisibly.
       - name: Run the progress-page check calibration suite
         run: python3 tools/test_bm_progress_check.py
+      # The forecast calibration suite, added 2026-08-12. Its load bearing
+      # tests are the refusals: at zero, one and two usable forecast-versus-
+      # actual pairs the tool must print NO-DATA and no multiplier at all.
+      # A forecasting tool that guesses a correction factor is worse than
+      # none, because the guess arrives wearing the authority of a number.
+      - name: Run the forecast calibration suite
+        run: python3 tools/test_bm_forecast.py
+      # The idle and queue-depth suite, added 2026-08-12. Its load bearing
+      # test is that a BLOCKED queue item never counts toward depth, so a
+      # queue of nothing but founder-gated items reports QUEUE-EMPTY rather
+      # than a healthy depth. An item nobody can start cannot rescue a night.
+      - name: Run the idle and queue-depth suite
+        run: python3 tools/test_bm_idle.py
       # The effect-class registry and its purity tests, added 2026-08-10. It
       # proves that a command declared pure_read changes zero bytes, and the
       # test that actually bites runs against a store one schema version

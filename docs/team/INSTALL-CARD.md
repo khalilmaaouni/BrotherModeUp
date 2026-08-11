@@ -10,16 +10,21 @@ same two versions and writes both numbers down.
 | Tool | Version | What it governs |
 |---|---|---|
 | BrotherMode | `v3.2.0` | one person's session |
-| BrotherSBE | `v3.0.0` | one change's passage between people |
+| BrotherSBE | `v3.1.0` | one change's passage between people |
 
 They version independently on purpose. Write down both.
+
+Both tags were checked against their remotes on 2026-08-12: BrotherMode
+`v3.2.0` resolves to `960bd4f8` and BrotherSBE `v3.1.0` to `c48ac46b`, local
+and remote agreeing in each case. The evidence is
+[docs/evidence/tester-pack/CHECKED-2026-08-12.md](../evidence/tester-pack/CHECKED-2026-08-12.md).
 
 ## Install
 
 Requirements: Claude Code (CLI or desktop) with skills enabled, Python 3.9 or
 newer using only the standard library, and git. Nothing to pip install.
 
-Two plain shell commands, pasted into any terminal once:
+**BrotherMode**, two plain shell commands, pasted into any terminal once:
 
 ```bash
 claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.2.0
@@ -29,11 +34,26 @@ claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.2.0
 claude plugin install brothermode@brothermode-marketplace
 ```
 
-The `@v3.2.0` pins the marketplace to the released tag rather than a moving
-branch, so everybody gets the same thing.
+**BrotherSBE**, the same two shapes against its own repository:
+
+```bash
+claude plugin marketplace add khalilmaaouni/BrotherSBE@v3.1.0
+```
+
+```bash
+claude plugin install brothersbe@brothersbe
+```
+
+The `@v3.2.0` and `@v3.1.0` pin each marketplace to a released tag rather than
+a moving branch, so everybody gets the same thing. BrotherSBE's own README
+still documents the unpinned form; pin it here anyway, because a pilot in
+which two people are on different commits of the same tool cannot tell a bug
+from a version difference.
 
 The full copy-pasteable walkthrough with the expected output of every command
-is [docs/QUICKSTART.md](../QUICKSTART.md).
+is [docs/QUICKSTART.md](../QUICKSTART.md). If you are one of this week's
+testers, start instead at [TESTER-PACK.md](TESTER-PACK.md), which sequences
+both products and tells you what to send back.
 
 ## Confirm it worked
 
