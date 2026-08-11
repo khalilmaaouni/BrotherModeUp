@@ -135,7 +135,7 @@ trusted.
 | `status` | Works |
 | `deliver` | Works |
 | `doctor` | Works |
-| `verify` | NOT SHIPPED. A routing name over the review and deliver flow that already exists, introducing no new engine. Blocked on a founder ruling: ruling B5 of [docs/decisions/V3-FREEZE-2026-08-07.md](docs/decisions/V3-FREEZE-2026-08-07.md) pins the canonical skill count at nine, and giving verify a folder of its own makes ten. Ask for a review meanwhile and you reach the same flow. |
+| `verify` | A NAME FOR A FLOW, NOT AN ENTRY POINT. Settled by ruling on 2026-08-11: verify stays a routing name over the review and deliver flow that already exists, with no folder of its own, so the canonical skill count stays at nine and ruling B5 of [docs/decisions/V3-FREEZE-2026-08-07.md](docs/decisions/V3-FREEZE-2026-08-07.md) is untouched. Ask for a review and you reach exactly the flow this name describes. There is no `/brothermode:verify` command and there will not be one. |
 | `toolkit` | NOT BUILT. It arrives with the Toolkit release. No stub ships, no placeholder folder, no entry point that fails quietly. |
 
 **Nothing was removed or deprecated.** `next`, `review`, `view` and `help`

@@ -1,8 +1,10 @@
 # Overnight delivery, roadmap, and horizon, with collaboration
 
-Written 2026-08-11 night. Status: CURRENT, and this file is the authority for
-tonight's run. It supersedes the schedule in `V3-FINAL-2026-08-12.md` and
-inherits everything else from it unchanged.
+Status: CURRENT
+
+Written 2026-08-11 night. This file is the authority for tonight's run. It
+supersedes the schedule in `V3-FINAL-2026-08-12.md` and inherits everything
+else from it unchanged.
 
 Owner: Khalil Maaouni. Written to disk deliberately, at the moment the
 conversation holding it grew long, so that a session rollover cannot destroy
