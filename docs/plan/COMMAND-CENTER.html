@@ -250,7 +250,7 @@ section > .sub { color: var(--bm-muted); font-size: 13px; margin-bottom: 10px; }
 </section>
 
 <section class="timeline" id="timeline">
-  <h2>Lanes and loops</h2>
+  <h2>The whole programme, week by week</h2>
   <p class="sub">Ranges with confidence, from the plan. Solid = minimum estimate, faint = up to maximum. Red slivers are founder gates. Grid weeks start 2026-08-11.</p>
   <div class="tl-head"><div></div><div class="tl-weeks"><span>W1</span><span>W2</span><span>W3</span><span>W4</span><span>W5</span><span>W6</span></div></div>
   <div class="tl-grid">
@@ -282,6 +282,39 @@ section > .sub { color: var(--bm-muted); font-size: 13px; margin-bottom: 10px; }
     <div class="tl-track"><div class="tl-bar min" style="left:71.4%; width:14.3%"></div><div class="tl-bar max" style="left:85.7%; width:9.5%"></div></div>
   </div>
   <p class="tl-legend"><span class="sw" style="background:var(--bm-accent)"></span>minimum estimate&nbsp;&nbsp;<span class="sw" style="background:var(--bm-accent); opacity:.28"></span>range to maximum&nbsp;&nbsp;<span class="sw" style="background:var(--bm-needs-you-rule)"></span>founder gate. Estimates are ranges with stated confidence, not commitments; CX carries the least trustworthy numbers in the plan.</p>
+</section>
+
+<section class="timeline" id="today">
+  <h2>Today, hour by hour: the accelerated pace</h2>
+  <p class="sub">The same contract as the programme view above, at a different zoom. Every bar is a loop that actually ran on 2026-08-11, placed by the clock, green when its done-check was quoted after the last edit. Grid runs 09:00 to 21:00 local. This view is rebuilt at every loop close, not projected.</p>
+  <div class="tl-head"><div></div><div class="tl-weeks" style="grid-template-columns:repeat(6,1fr)"><span>09h</span><span>11h</span><span>13h</span><span>15h</span><span>17h</span><span>19h</span></div></div>
+  <div class="tl-grid">
+    <div class="tl-label"><span class="lane">Front</span> Handover pack consumed, predecessor closed</div>
+    <div class="tl-track"><div class="tl-bar done" style="left:16%; width:6%"></div></div>
+    <div class="tl-label"><span class="lane">Front</span> Ceremony ratified, 7 windows</div>
+    <div class="tl-track"><div class="tl-bar done" style="left:22%; width:5%"></div></div>
+    <div class="tl-label"><span class="lane">Lane A</span> Tool built RED first, 13 tests</div>
+    <div class="tl-track"><div class="tl-bar done" style="left:27%; width:8%"></div></div>
+    <div class="tl-label"><span class="lane">Lane A</span> Falsification pass, 16 findings</div>
+    <div class="tl-track"><div class="tl-bar done" style="left:35%; width:9%"></div></div>
+    <div class="tl-label"><span class="lane">Lane A</span> Fix round, 34 tests, verified by hand</div>
+    <div class="tl-track"><div class="tl-bar done" style="left:44%; width:14%"></div></div>
+    <div class="tl-label"><span class="lane">Lane A</span> Four registries, three gate refusals</div>
+    <div class="tl-track"><div class="tl-bar done" style="left:52%; width:8%"></div></div>
+    <div class="tl-label"><span class="lane">Front</span> Stopped session's work preserved</div>
+    <div class="tl-track"><div class="tl-bar done" style="left:58%; width:3%"></div></div>
+    <div class="tl-label"><span class="lane">Lane A</span> Full gate green, then pushed</div>
+    <div class="tl-track"><div class="tl-bar done" style="left:61%; width:11%"></div><div class="tl-bar gate" style="left:72%"></div></div>
+    <div class="tl-label"><span class="lane">Lane B</span> Ecosystem research, six tools sourced</div>
+    <div class="tl-track"><div class="tl-bar done" style="left:63%; width:9%"></div></div>
+    <div class="tl-label"><span class="lane">Lane B</span> Comparison page written</div>
+    <div class="tl-track"><div class="tl-bar done" style="left:72%; width:5%"></div></div>
+    <div class="tl-label"><span class="lane">Lane B</span> Adoption loops drafted</div>
+    <div class="tl-track"><div class="tl-bar done" style="left:74%; width:4%"></div></div>
+    <div class="tl-label"><span class="lane">Front</span> Watchdog armed, close and pack</div>
+    <div class="tl-track"><div class="tl-bar min" style="left:78%; width:6%"></div></div>
+  </div>
+  <p class="tl-legend"><span class="sw" style="background:var(--bm-settled-rule)"></span>closed with its check quoted&nbsp;&nbsp;<span class="sw" style="background:var(--bm-accent)"></span>open&nbsp;&nbsp;<span class="sw" style="background:var(--bm-needs-you-rule)"></span>founder gate. Twelve loops in one day is the accelerated pace, and it held only because each one closed before the next opened. The two red things it produced, a broken shared build and a key-shaped test fixture, were both caught by a machine rather than by memory.</p>
 </section>
 
 <section id="ledger">
