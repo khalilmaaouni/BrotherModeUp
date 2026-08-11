@@ -1545,23 +1545,6 @@ class StoreCorrupt(BMStoreError):
         self.quarantine_path = quarantine_path
 
 
-class _DryRunRollback(BMStoreError):
-    """Private sentinel, never raised out of this module and never caught by
-    a caller. purge_project(dry_run=True) raises it after the very last
-    statement of the real purge so that _transaction's own ROLLBACK path
-    runs, rather than a second, parallel "count what would go" reimplemented
-    beside the deletion.
-
-    The reason it is written this way instead of as a set of SELECT COUNT
-    queries: purge semantics are subtle in exactly the places a preview
-    would be read for. A dependency edge owned by ANOTHER project is removed
-    but reported separately, and an alert whose ownership is ambiguous is
-    deliberately left alone. A preview built from its own queries would
-    agree with the purge on the easy cases and disagree on precisely the
-    ones a founder runs a dry run to see. Rolling back the real thing cannot
-    drift from the real thing."""
-
-
 class HandoverLost(OwnershipRefused):
     """A transition asked for a handover and the store could not prove one
     exists for it after the write. Raised INSIDE transition()'s transaction,
@@ -7521,8 +7504,24 @@ class Store(object):
         return False
 
     @contextlib.contextmanager
-    def _transaction(self):
-        """BEGIN IMMEDIATE takes SQLite's write lock up front, before any
+    def _transaction(self, rollback=False):
+        """rollback=True ends a SUCCESSFUL block with ROLLBACK instead of
+        COMMIT, which is how a dry run executes the real statements and keeps
+        none of them. Added for V3 Final B1 (purge --dry-run). It is an
+        opt-in parameter with a false default, so every existing caller
+        commits exactly as before.
+
+        Deliberately a parameter here rather than a sentinel exception raised
+        by the caller: an exception would have needed the statements to move
+        into a helper function, and three structural guards in
+        tools/test_bm_store.py identify the sanctioned deletion path BY THE
+        ENCLOSING FUNCTION'S NAME and assert they "exempt purge_project
+        alone". Moving those DELETEs one function away turned them into
+        unsanctioned mutations of append-only tables, which is precisely what
+        those guards exist to catch. They were right, so the mechanism
+        changed rather than the guards.
+
+        BEGIN IMMEDIATE takes SQLite's write lock up front, before any
         table is touched, rather than only at the first write statement:
         that closes the classic read-then-upgrade race where two writers
         both pass a check and then both write. BEGIN and COMMIT route
@@ -7548,7 +7547,7 @@ class Store(object):
                     pass
             raise
         else:
-            _exec(self, "COMMIT")
+            _exec(self, "ROLLBACK" if rollback else "COMMIT")
 
     # ------------------------------------------------------------------
     # Correction learning (Loop 2). Every mutation below is transactional and
@@ -12777,9 +12776,14 @@ class Store(object):
         and then rolls the whole transaction back, returning the same counts
         the real purge would have returned and leaving every row, including
         the attribution trail, exactly as it was. It is READ-ONLY in effect,
-        never in mechanism: see _DryRunRollback for why a preview that
-        queried for itself would disagree with the purge on precisely the
-        edge cases a founder runs a preview to see.
+        never in mechanism, and that is the whole design. Purge semantics are
+        subtle in exactly the places a preview gets read: a dependency edge
+        owned by ANOTHER project is removed but reported separately, and an
+        alert whose ownership is ambiguous is deliberately left alone. A
+        preview built from its own SELECT COUNT queries would agree with the
+        purge on the easy cases and disagree on precisely the ones a founder
+        runs a preview to see. Running the real statements and discarding
+        them cannot drift from the real thing.
 
         The confirmation token is NOT required under dry_run, and that is a
         deliberate decision rather than an oversight: the token exists to
@@ -12792,18 +12796,7 @@ class Store(object):
                 "bad-confirmation",
                 "confirmation token %r does not match project %r; "
                 "nothing was removed" % (confirmation_token, project_id))
-        preview = {}
-        try:
-            return self._purge_project_body(project_id, actor, dry_run,
-                                            preview)
-        except _DryRunRollback:
-            return preview
-
-    def _purge_project_body(self, project_id, actor, dry_run, preview):
-        """The one transaction both the real purge and its dry run share.
-        Split out only so the dry run's rollback sentinel has somewhere to
-        be caught; every statement below is the real purge's own."""
-        with self._transaction():
+        with self._transaction(rollback=dry_run):
             row = _exec(self, "SELECT project_id FROM projects "
                         "WHERE project_id=?", (project_id,)).fetchone()
             if row is None:
@@ -13010,12 +13003,10 @@ class Store(object):
             _exec(self, "DELETE FROM projects WHERE project_id=?",
                   (project_id,))
             removed["projects"] = 1
-            if dry_run:
-                # Hand the counts out BEFORE the rollback discards them,
-                # then force _transaction's own ROLLBACK path. Nothing
-                # above this line has been committed yet.
-                preview.update(removed)
-                raise _DryRunRollback("dry run, rolling back")
+        # Under dry_run the block above ended in ROLLBACK, so every count in
+        # `removed` describes rows that are all still there. That is the
+        # point: the numbers are the real purge's own, computed by the real
+        # statements, and kept by nothing.
         return removed
 
     # -- read accessors (D-2, loop2 mechanical commands design, 2026-08-01;
