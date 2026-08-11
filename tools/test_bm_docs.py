@@ -25,6 +25,7 @@ Standard library only. Python 3.9. Reads files, writes none.
 No em or en dashes anywhere in this file or its output.
 """
 import contextlib
+import datetime
 import hashlib
 import importlib.util
 import io
@@ -5519,6 +5520,72 @@ class TestNoDashes(unittest.TestCase):
                     offenders.append("%s:%d" % (rel, i))
         self.assertEqual(offenders, [], "em or en dash found at %s"
                          % ", ".join(offenders))
+
+
+class TestTheComparisonPageDoesNotRotSilently(unittest.TestCase):
+    """docs/ECOSYSTEM.md states prices, licences and product names belonging to
+    other people. All of it decays, and one of the six tools it covers had
+    already been deprecated and replaced under a nearly similar name before the
+    page was first written.
+
+    WHY THIS IS A TEST AND NOT A REMINDER. The refresh procedure
+    (docs/ECOSYSTEM-REFRESH.md) is a discipline, and the founder's standing law
+    is that a rule no file enforces is written down as UNENFORCED or not
+    written at all. This file is that enforcement.
+
+    WHY THIRTY DAYS AND NOT SEVEN. The intended cadence is weekly, but a check
+    that fails after one missed week is a tripwire: it turns every unrelated
+    piece of work into a documentation errand and teaches people to bypass the
+    suite. Thirty days means three missed refreshes before anything blocks,
+    which is a real backstop rather than a nuisance. The number is a judgement,
+    not a measurement, and it should move if the record shows it is wrong.
+
+    This check FAILS WITH THE PASSAGE OF TIME, deliberately and uniquely in
+    this suite. That is the point: staleness is the defect."""
+
+    MAX_AGE_DAYS = 30
+    STAMP = re.compile(r"^Last checked:\s*(\d{4})-(\d{2})-(\d{2})\s*\.?\s*$",
+                       re.MULTILINE)
+
+    def _stamp_date(self, rel):
+        path = os.path.join(ROOT, rel)
+        self.assertTrue(os.path.exists(path), "%s is missing" % rel)
+        with io.open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        m = self.STAMP.search(text)
+        self.assertIsNotNone(
+            m, "%s carries no 'Last checked: YYYY-MM-DD' line. That line is "
+               "how a reader judges for themselves how stale the page is, so "
+               "a page without one is worse than a page with an old one."
+               % rel)
+        return datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+
+    def test_the_comparison_page_carries_a_last_checked_date(self):
+        self._stamp_date("docs/ECOSYSTEM.md")
+
+    def test_the_refresh_procedure_carries_one_too(self):
+        self._stamp_date("docs/ECOSYSTEM-REFRESH.md")
+
+    def test_the_comparison_page_has_been_checked_recently_enough(self):
+        stamped = self._stamp_date("docs/ECOSYSTEM.md")
+        age = (datetime.date.today() - stamped).days
+        self.assertLessEqual(
+            age, self.MAX_AGE_DAYS,
+            "docs/ECOSYSTEM.md was last checked %d days ago, over the %d day "
+            "limit. It states other people's prices, licences and product "
+            "names, and every one of those decays. Run the pass in "
+            "docs/ECOSYSTEM-REFRESH.md, then update its Last checked line. Do "
+            "not update the line without running the pass: a fresh date over "
+            "stale content is worse than an honest old date."
+            % (age, self.MAX_AGE_DAYS))
+
+    def test_a_future_date_is_refused(self):
+        """A stamp cannot be in the future. Guards the failure where somebody
+        satisfies the check by typing tomorrow rather than by doing the work."""
+        stamped = self._stamp_date("docs/ECOSYSTEM.md")
+        self.assertLessEqual(
+            stamped, datetime.date.today(),
+            "docs/ECOSYSTEM.md claims it was last checked in the future")
 
 
 if __name__ == "__main__":
