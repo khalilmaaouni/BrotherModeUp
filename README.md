@@ -15,6 +15,16 @@ single-writer discipline that the plan-then-verify guarantees above depend on.
 Where a genuine multi-person need exists, a team coordination tool is the
 honest answer, not this one.
 
+Everything it shows you is a file you own. The page of where a project stands
+is written as one self contained HTML file with nothing fetched from anywhere:
+open it by double clicking, mail it, or paste it into your own wiki, with no
+account and no network. Produce it whenever you want with
+
+    python3 tools/bm_view.py render --project-id <your-project> --out page.html --actor-name "<you>"
+
+A real page measures about 22 kilobytes, so it travels anywhere a document
+travels. Nothing is hosted unless you choose to host it.
+
 ---
 
 # BrotherMode
