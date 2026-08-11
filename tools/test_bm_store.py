@@ -8055,6 +8055,41 @@ class TestLoop7ApplicationLifecycle(unittest.TestCase):
                 self.assertEqual(apps[0]["disposition"], "unknown")
                 self.assertEqual(apps[0]["scope_match"], "global")
 
+    def test_creating_a_record_leaves_the_generated_view_consistent(self):
+        """Found by running the product, never by a test. This method is the
+        ONE ownership mutation reachable from another tool (bm_learn.py's
+        `apply --new-record`), and it made a record ACTIVE without
+        regenerating STATE.md. The six mutating commands in this module's own
+        CLI all call _refresh_state_view; a caller outside this module had no
+        way to know it owed that. The user-visible cost was doctor check 7 and
+        test_brothermode_cli.py both going red on somebody's FIRST
+        substantial task, which is the worst possible moment to look broken.
+
+        The assertion is verify()'s own verdict rather than a second reading
+        of STATE.md: the invariant belongs to the store, so the store is what
+        gets asked whether it holds."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._rule(store)
+                # A REAL project already has a rendered view; the defect is
+                # that one goes STALE, not that one is missing. Rendering
+                # first is what makes this test fail for the actual reason
+                # rather than for a fresh directory having no STATE.md, which
+                # is a different and much weaker condition.
+                bs.write_state_view(d)
+                self.assertTrue(os.path.isfile(os.path.join(d, "STATE.md")))
+                res = store.record_learning_applications(
+                    "writing an executive update", session_id="S1",
+                    new_record_name="somebodys-first-task",
+                    require_record_identity=True)
+                self.assertTrue(res["new_record_uuid"])
+                self.assertEqual(res["record_error"], "")
+            problems = bs.verify(d)
+            self.assertEqual(
+                problems, [],
+                "creating a work record left the generated view stale: %r"
+                % (problems,))
+
     def test_recording_is_idempotent_per_task_rule_version_and_session(self):
         """A model that re-reads its rules mid-task has not applied them twice.
         Without this, every re-read inflates whatever the applications table is

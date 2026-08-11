@@ -10475,6 +10475,24 @@ class Store(object):
             # are gone with the transaction and stay at 0.
             out["already_recorded"] = already
             out["already_linked_records"] = sorted(elsewhere)
+        # THE VIEW OWES ITSELF TO THE MUTATION, not to the caller. This method
+        # is the only ownership mutation reachable from OUTSIDE this module
+        # (bm_learn.py's `apply --new-record`), and it made a record ACTIVE
+        # while leaving STATE.md without it. verify()'s own invariant then
+        # reported a problem, which reached a person as doctor check 7 and
+        # test_brothermode_cli.py both failing on their FIRST substantial
+        # task. The six mutating commands in this module's CLI have always
+        # called _refresh_state_view; an external caller had no way to know it
+        # owed the same, and requiring it to know would leave the next caller
+        # to rediscover this. Found by running the product, 2026-08-11.
+        #
+        # ADVISORY, for the reason _refresh_state_view itself states: the
+        # record has already committed by the time this runs, so a failed view
+        # refresh must never read as though the record creation failed. The
+        # error path is excluded because a rolled-back transaction left no
+        # active record for the view to be missing.
+        if out.get("new_record_uuid") and not out.get("record_error"):
+            _refresh_state_view(self.root)
         return out
 
     def get_learning_application(self, prefix):
