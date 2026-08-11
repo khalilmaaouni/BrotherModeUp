@@ -202,11 +202,36 @@ verdict, which it did, once, tonight.
 
 ## The battery, tools/test_all.py
 
-STATE AT THE TIME THIS PACK WAS WRITTEN: not run against tonight's code. The
-per-suite results above are per-suite results and nothing more.
+RAN, and it changed this pack. Verdict, on a clean tree at commit 5b7c52e,
+HEAD confirmed unmoved afterwards:
 
-The session that runs it appends the verdict here, with its exit code and the
-quoted last lines. An empty space below this paragraph means it never ran.
+    test_all: 3020 tests across 32 suites, 5 skipped, 886.9s wall. ALL GREEN
+    exit 0
+
+That verdict binds to 5b7c52e and to nothing else.
+
+IT TOOK TWO ATTEMPTS AND THE FIRST ONE MATTERED. At 64bc8d1 the battery
+failed, exit 1, two suites: test_bm_store.py (3 failures) and
+test_bm_e2e_pins.py (1). Neither had shown up in any targeted suite, and both
+were real.
+
+The store failures: three structural guards enforce that only purge_project
+may DELETE from append-only tables, and they identify the sanctioned code by
+the enclosing function's NAME. B1's first implementation moved those
+statements into a helper, which turned them into unsanctioned mutations. The
+guards were right. The fix was to change the mechanism, not the guards: the
+transaction context manager now takes rollback=True, so the dry run stays
+inside purge_project and no allowlist widened. That guard's own fixture
+asserts it must "exempt purge_project alone", so widening it would have
+contradicted the test's stated intent.
+
+The pins failure: creating skills/verify/ made the canonical skill list ten
+where a pin says nine, and that pin enforces a ratified founder ruling. See
+the B3 block in docs/plan/V3-FINAL-2026-08-12.md. B3 was backed out and is
+now a founder decision.
+
+The lesson worth carrying: per-suite green is not battery green, and both of
+these were invisible until the battery ran.
 
 ## What is next
 
