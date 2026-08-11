@@ -1,6 +1,9 @@
 # BrotherMode roadmap
 
-Status: CURRENT as of 2026-08-04.
+Status: CURRENT as of 2026-08-04. Product authority since 2026-08-11:
+[PRODUCT-DIRECTION.md](../PRODUCT-DIRECTION.md) at the repository root. No
+item enters active development without passing its entry test (section 13.1
+there), and it supersedes conflicting product-scope guidance in this page.
 
 This page says how far every claim this project makes has actually been
 checked, what is being worked toward next, and what is deliberately not on the
