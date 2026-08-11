@@ -14,6 +14,13 @@ The notes block below MUST open with a line starting with the exact word FINISHE
 UNFINISHED. The baton lies at A2, the six-name public surface, which is
 untouched. A1 (README repositioning) is also untouched.
 
+BATTERY VERDICT, added after this block was first written: the full battery
+ran on a clean tree at commit 5b7c52e and reported "test_all: 3020 tests
+across 32 suites, 5 skipped, 886.9s wall. ALL GREEN", exit 0. It took two
+attempts; the first failed at exit 1 with two real defects, both described in
+01-HANDOVER.md. B3 was backed out between the two runs and is now a founder
+decision, so the list below is FOUR landed items, not five.
+
 READ THIS QUALIFIER BEFORE THE LIST BELOW. Every item marked green below was
 proven by its OWN targeted suite, run after its own last edit, and those
 outputs are quoted. The FULL BATTERY (tools/test_all.py, this project's G1
@@ -33,14 +40,16 @@ GREEN PER SUITE, battery pending, each check run after its own last edit:
   "OK", exit 0.
 - B2 data-locations check. Check: python3 tools/test_bm_consent.py,
   "Ran 44 tests", "OK", exit 0.
-- B3 verify skill. Check: python3 tools/test_bm_docs.py exit 0, plus the
-  heading-shape diff against skills/review/SKILL.md, empty.
 - A3 SECURITY.md. Check: python3 tools/test_bm_docs.py exit 0, dash scan
   exit 1 (no matches).
 
 NOT DONE, and none of it is blocked by anything except time:
 
 - A1 README repositioning. Untouched. One file.
+- B3 verify skill. WRITTEN, then BACKED OUT. It collides with ratified ruling
+  B5, which pins nine canonical skills; creating skills/verify/ makes ten.
+  Content preserved in git at 7c2e244. Founder decision needed, and the
+  cheaper option is recommended in the plan's B3 block.
 - A2 the six-name public surface across seventeen files. Untouched, and it is
   the reason this pack says UNFINISHED. It gates G3, because the changelog
   entry for 3.2.0 claims that surface.
