@@ -44,9 +44,13 @@ even if you never install anything here.
 
 # BrotherMode
 
-**Claude Code for serious work: memory, guardrails, and proof.**
+**A verified delivery layer for AI agents.**
 
-From goal to verified delivery.
+The reliability layer for serious Claude Code work.
+
+From intent to verified delivery.
+
+Resume the work. Control the execution. Prove the result.
 
 Describe the outcome. BrotherMode keeps the decisions, the ownership of every
 file, and the evidence intact from the first sentence to the delivery packet.
@@ -54,9 +58,54 @@ file, and the evidence intact from the first sentence to the delivery packet.
 The long-term vision is an autonomous product team. That is stated here as the
 direction, not as the claim: what is proven today is the memory, the
 guardrails and the proof, each with its evidence in the register below. The
-founder chose this narrower headline on 2026-08-07, over keeping the broader
-one, precisely because three independent reviews said the broader one ran
-ahead of the evidence.
+founder chose a narrower headline on 2026-08-07, over keeping the broader one,
+precisely because three independent reviews said the broader one ran ahead of
+the evidence. The four lines above are the 2026-08-11 wording of that same
+narrower claim, and they are copy rather than a new capability: every
+capability they gesture at already has its own row and its own evidence in the
+register below, and none of them was added to say this.
+
+## Who this is for
+
+**A technical solo founder, a senior solo builder, or a maintainer using AI
+agents on serious multi-session work.** In plain terms: you are accountable
+for the final result, you already use Claude Code or another serious coding
+agent, your work spans many files and more than one sitting, you sometimes run
+more than one agent at once, and you have already been burned by context loss,
+stale evidence, rework, or two workers editing the same file. You know Git and
+a terminal, you would rather have dependable delivery than the fastest first
+draft, and you want the records to live on your own disk where you can read
+them.
+
+The job it exists to do, in the founder's own words: let me delegate serious
+work to AI without repeatedly explaining the project, losing decisions,
+colliding with another worker, or accepting a false claim of completion.
+
+**Who it is NOT for**, stated plainly because disqualifying the wrong user is
+a product strength rather than a marketing failure: anyone who wants an
+instant website or app with no code; anyone making a one-line reversible edit;
+anyone unwilling to use Git or a terminal; a team wanting shared accounts,
+role-based access, approvals and enterprise project management; a buyer
+shopping for the best model, editor or cloud coding runtime; anyone wanting
+GitHub-native background delegation with no local environment; anyone
+expecting full operating-system containment; anyone expecting autonomous
+production deployment with no human gate; and a team that only needs a
+planning methodology or a test-driven workflow.
+
+## Which runtimes this actually works on
+
+**Claude Code is the one verified runtime.** Everything this page promises was
+measured there.
+
+BrotherMode also ships instruction files for Generic AGENTS.md, OpenAI Codex
+CLI, GitHub Copilot, Google Antigravity, Qwen Code, iFlow CLI, Cursor and
+Gemini CLI. Read [docs/RUNTIMES.md](docs/RUNTIMES.md) before relying on any of
+them, and take that table's own words rather than a stronger summary of them.
+Two things it says that matter more than the rest: every non-Claude answer in
+its BrotherMode-hooks column is UNVERIFIED except one, and UNVERIFIED there
+means do not wire it, because a fence that fails open while looking installed
+is worse than no fence at all. The one measured exception is OpenAI Codex CLI,
+and what was measured is a NO rather than a yes.
 
 BrotherMode is a Claude Code plugin: a written set of working rules plus a
 small toolchain of Python and shell scripts. You install it once, and from then
