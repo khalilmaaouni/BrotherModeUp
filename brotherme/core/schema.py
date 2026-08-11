@@ -247,11 +247,24 @@ class Project(_Shape):
         "project_id", "name", "goal", "user_outcome", "project_type",
         "primary_persona", "experience_level", "status", "phase",
         "scope_in", "scope_out", "success_criteria", "assumptions",
-        "unknowns", "risks", "created_at", "updated_at",
+        "unknowns", "risks", "kill_criteria", "non_goals",
+        "created_at", "updated_at",
     )
     REQUIRED = ("project_id", "name", "created_at", "updated_at")
+    # kill_criteria and non_goals joined this shape at schema 19 (R1.1,
+    # 2026-08-12). They are here rather than handled beside it on purpose.
+    # The store's own contract is that this file holds THE shape, and the
+    # first implementation carried them around it: popped out of the dict
+    # before Project(**d) so the shape would not refuse them as unknown
+    # kwargs, then re-added to LIST_FIELDS locally on the read path. That
+    # worked and was tested, and it was still the wrong place, because a
+    # field the canonical shape does not know about is a field every future
+    # reader has to be told about separately. Adding them here is the whole
+    # fix; the local compensations in bm_store.py came out in the same
+    # change.
     LIST_FIELDS = ("scope_in", "scope_out", "success_criteria",
-                   "assumptions", "unknowns", "risks")
+                   "assumptions", "unknowns", "risks",
+                   "kill_criteria", "non_goals")
 
 
 class Forecast(_Shape):

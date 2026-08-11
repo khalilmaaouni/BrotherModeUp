@@ -516,6 +516,22 @@ def render_canvas(store, project_id):
     lines.append("## Main risks")
     lines.append(_fmt_list(project.get("risks")))
     lines.append("")
+    # Schema 19 (R1.1, 2026-08-12). These render beside risks rather than in
+    # some later section because they answer the two questions a reader of a
+    # risk list asks next: what would make it right to STOP, and what did we
+    # decide this is deliberately NOT. PRODUCT-DIRECTION.md section 5.1 names
+    # both as things a project's outcome contract must own, and until schema
+    # 19 neither could be recorded at all. _fmt_list renders an empty list as
+    # its own "not stated" line, so a project that has not filled these in
+    # says so plainly instead of the section vanishing, which is the whole
+    # point: an absent kill criterion is a fact about the project, not a
+    # formatting detail.
+    lines.append("## What would make it right to stop")
+    lines.append(_fmt_list(project.get("kill_criteria")))
+    lines.append("")
+    lines.append("## Deliberately not doing")
+    lines.append(_fmt_list(project.get("non_goals")))
+    lines.append("")
     lines.append("## Tasks by state")
     by_state = _tasks_by_state(store, project_id, raw=True)
     for state in S.STATES:
@@ -606,6 +622,7 @@ _START_FLAGS = (
     "project-id", "name", "goal", "user-outcome", "project-type",
     "primary-persona", "experience-level", "status", "phase", "scope-in",
     "scope-out", "success-criteria", "assumptions", "unknowns", "risks",
+    "kill-criteria", "non-goals",
     "json", "out-json", "allow-second") + _ACTOR_FLAGS
 
 
@@ -615,6 +632,7 @@ def _start_usage():
             "[--experience-level E] [--status S] [--phase PH] "
             "[--scope-in a,b] [--scope-out a,b] [--success-criteria a,b] "
             "[--assumptions a,b] [--unknowns a,b] [--risks a,b] "
+            "[--kill-criteria a,b] [--non-goals a,b] "
             "[--json PATH] [--actor-type human|model] --actor-name NAME "
             "[--session-id SID] [--out-json] [--allow-second]")
 
@@ -693,7 +711,8 @@ def cmd_start(argv):
         "project-id", "name", "goal", "user-outcome", "project-type",
         "primary-persona", "experience-level", "status", "phase",
         "scope-in", "scope-out", "success-criteria", "assumptions",
-        "unknowns", "risks", "json") + _ACTOR_FLAGS)
+        "unknowns", "risks", "kill-criteria", "non-goals", "json")
+        + _ACTOR_FLAGS)
     usage = _start_usage()
     project_id = _require(kv, "project-id", usage)
     name = _require(kv, "name", usage)
@@ -726,7 +745,8 @@ def cmd_start(argv):
             ("scope-in", "scope_in"), ("scope-out", "scope_out"),
             ("success-criteria", "success_criteria"),
             ("assumptions", "assumptions"), ("unknowns", "unknowns"),
-            ("risks", "risks")):
+            ("risks", "risks"), ("kill-criteria", "kill_criteria"),
+            ("non-goals", "non_goals")):
         if kv.get(flag):
             project[field] = _csv(kv[flag])
     store = _store()

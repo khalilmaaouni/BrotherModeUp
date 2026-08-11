@@ -38,6 +38,25 @@ python3 "$DIR/tools/bm_progress_check.py" status 2>/dev/null || true
 # Stall sweep (Loop SD): pure read, prints stale fences and dead owners with
 # their exact clearing command. Fail-open like the progress check above.
 python3 "$DIR/tools/bm_stall.py" sweep 2>/dev/null || true
+# BATON CEREMONY OPENING HALF (R1.3). CLAUDE.md's baton ceremony section
+# calls `bm_handover.py detect` the START half every session runs before new
+# work; until this line it depended entirely on somebody remembering by
+# hand. This surfaces its verdict here: the newest pack and its age, any
+# unacknowledged handover, and any record whose owning session is dead, each
+# with its own clearing command. bm_handover.py's own cmd_detect promises
+# exit 0 always (its own header comment says so, and it turns every read
+# failure it knows about into a stated NO-DATA line rather than a crash), so
+# a non-zero exit or empty output here means something UNEXPECTED happened
+# (python3 missing, the file moved). This script's own contract at the top
+# is MUST always exit 0, so that case degrades to one short line, never a
+# traceback, and never a non-zero exit that would break the hook.
+DETECT_OUT="$(python3 "$DIR/tools/bm_handover.py" detect 2>/dev/null)"
+DETECT_STATUS=$?
+if [ "$DETECT_STATUS" -eq 0 ] && [ -n "$DETECT_OUT" ]; then
+  printf '%s\n' "$DETECT_OUT"
+else
+  echo "baton ceremony check (bm_handover.py detect) could not run this session; run it by hand, see CLAUDE.md baton ceremony section"
+fi
 python3 "$DIR/tools/bm_telemetry.py" check-update 2>/dev/null
 # If this session resumed from a compaction, point it at the autosave.
 printf '%s' "$PAYLOAD" | python3 "$DIR/tools/bm_telemetry.py" compact-hint 2>/dev/null

@@ -78,7 +78,7 @@ import sys
 import unicodedata
 import uuid
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
@@ -2204,13 +2204,22 @@ _TABLES_V17 = _TABLES_V16 + _TABLES_VIEW
 # alias rather than a copy, so the two can never drift apart by editing.
 _TABLES_V18 = _TABLES_V17
 
+# Schema 19 (R1.1, outcome contract columns, PRODUCT-DIRECTION.md section
+# 5.1) adds TWO columns, not a table: projects.kill_criteria and
+# projects.non_goals. Same reasoning as schema 18's own entry just above:
+# the tuple is identical to schema 18's, and it still gets its own name and
+# its own entry for the reason every schema above got one. The map answers
+# "which tables must exist at version N", which schema 19 does not change.
+# An alias rather than a copy, so the two can never drift apart by editing.
+_TABLES_V19 = _TABLES_V18
+
 _TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3,
                       4: _TABLES_V4, 5: _TABLES_V5, 6: _TABLES_V6,
                       7: _TABLES_V7, 8: _TABLES_V8, 9: _TABLES_V9,
                       10: _TABLES_V10, 11: _TABLES_V11, 12: _TABLES_V12,
                       13: _TABLES_V13, 14: _TABLES_V14, 15: _TABLES_V15,
                       16: _TABLES_V16, 17: _TABLES_V17,
-                      18: _TABLES_V18}
+                      18: _TABLES_V18, 19: _TABLES_V19}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -2738,6 +2747,41 @@ _NOTES_V8_COLUMN = ("anchor_line_hash", "TEXT NOT NULL DEFAULT ''")
 # unphased, rather than filing them under whichever phase happens to be
 # current, which would be a guess the founder never made.
 _TASKS_V18_COLUMN = ("phase", "TEXT NOT NULL DEFAULT ''")
+
+# Schema 19 (R1.1, outcome contract columns). TWO additive columns on
+# projects: kill_criteria and non_goals.
+#
+# WHY THEY EXIST. PRODUCT-DIRECTION.md section 5.1 names ten things the
+# outcome contract must own; projects already carried goal, scope_in,
+# scope_out, success_criteria and risks, but had nowhere to record "what
+# would make us stop" or "what we are deliberately not doing", so a
+# project's outcome contract could not record either even though the
+# product direction names both by name.
+#
+# SAME SHAPE AS risks, on purpose. Each is a JSON list stored as TEXT,
+# default '[]', exactly the pattern scope_in/scope_out/success_criteria/
+# assumptions/unknowns/risks already use: the shape owns the list, the
+# column is only its wire form on disk. risks itself is UNTOUCHED, neither
+# column reshapes it.
+#
+# DEFAULT '[]'. An empty list means "not recorded" (every project written
+# before schema 19, and every one created without the flag afterwards),
+# the same rule _TASKS_V18_COLUMN and _NOTES_V8_COLUMN state for their own
+# defaults: nothing here is backfilled or guessed from goal, scope_out or
+# risks.
+_PROJECTS_V19_COLUMNS = (
+    ("kill_criteria", "TEXT NOT NULL DEFAULT '[]'"),
+    ("non_goals", "TEXT NOT NULL DEFAULT '[]'"),
+)
+
+# There is deliberately no second tuple of just these names here. The first
+# cut of R1.1 had one, because Project.LIST_FIELDS did not yet carry the two
+# fields and the read accessors had to append them by hand before decoding.
+# Project.LIST_FIELDS carries both since the same change, so get_project and
+# list_projects decode them like every other JSON list column on the row,
+# with no help from this module. _PROJECTS_V19_COLUMNS above survives on its
+# own merit: _migrate_18_to_19 iterates it to issue its guarded ALTER TABLE
+# statements.
 
 # Schema 10 (LOOP 3, 2026-07-30): two columns added to learning_applications,
 # not a widened shown_to_model. shown_to_model's own CHECK(shown_to_model IN
@@ -4629,6 +4673,40 @@ def _migrate_17_to_18(conn):
         conn.execute("ALTER TABLE tasks ADD COLUMN %s %s" % (name, decl))
 
 
+def _migrate_18_to_19(conn):
+    """Schema 18 to 19 (R1.1, outcome contract columns): add
+    projects.kill_criteria and projects.non_goals. ADDITIVE ONLY.
+
+    Two ALTER TABLE ADD COLUMN statements, each with a NOT NULL DEFAULT of
+    '[]', which SQLite performs without rewriting a row and which cannot
+    lose data: every existing project keeps every field it had and arrives
+    with an empty kill_criteria and an empty non_goals, reported as "not
+    recorded" rather than guessed.
+
+    GUARDED ON PRAGMA table_info rather than assumed absent, for the same
+    reason _migrate_9_to_10 guards its own two-column ALTER: this step
+    also runs from _ensure_schema for a brand new store, where the
+    columns may already be there, and ADD COLUMN on an existing name is a
+    hard sqlite3 error that would refuse to open a fresh store.
+
+    Same contract as every migration before it: it runs inside the
+    caller's BEGIN EXCLUSIVE, so it must never commit, roll back, or open
+    a transaction of its own.
+
+    What it deliberately does NOT do: it does not touch the `risks`
+    column, and it does not infer a kill criterion or a non-goal for a
+    single existing project from goal, scope_out or risks. A project
+    written before this loop never recorded either, and an empty list
+    says exactly that, the same rule _TASKS_V18_COLUMN's docstring states
+    for an unphased task."""
+    have = {r[1] for r in
+            conn.execute("PRAGMA table_info(projects)").fetchall()}
+    for name, decl in _PROJECTS_V19_COLUMNS:
+        if name not in have:
+            conn.execute("ALTER TABLE projects ADD COLUMN %s %s"
+                         % (name, decl))
+
+
 _MIGRATIONS = {
     1: _migrate_1_to_2,
     2: _migrate_2_to_3,
@@ -4647,6 +4725,7 @@ _MIGRATIONS = {
     15: _migrate_15_to_16,
     16: _migrate_16_to_17,
     17: _migrate_17_to_18,
+    18: _migrate_18_to_19,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -6669,6 +6748,16 @@ class Store(object):
             # this call is safe on a store that was just created with the
             # views table already present.
             _migrate_16_to_17(self.conn)
+        if SCHEMA_VERSION >= 19:
+            # Same rule again. _migrate_18_to_19 checks PRAGMA table_info
+            # before its ALTER TABLE precisely so this call is safe on a
+            # store that was just created with the columns already
+            # present. Schema 18 needed no entry here (tasks.phase already
+            # lives in _LOOP1_DDL's own CREATE TABLE text); this one does,
+            # because projects.kill_criteria and .non_goals are added by
+            # this migration alone, the same way schema 8's
+            # notes.anchor_line_hash is.
+            _migrate_18_to_19(self.conn)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -12382,17 +12471,33 @@ class Store(object):
         column project_dict names, never merged field-by-field: a caller
         that sends a partial payload gets a row that visibly reflects only
         what it actually sent, not a stale mix of two calls pretending to
-        be one."""
+        be one.
+
+        kill_criteria and non_goals (schema 19, R1.1) are ordinary members of
+        the canonical shape and are handled here exactly like risks: no
+        popping, no local validation, no special case. The first cut of R1.1
+        did carry them around schema.Project, because that loop's file list
+        did not include brotherme/core/schema.py and _Shape.__init__
+        hard-refuses any keyword outside FIELDS. That compensation was
+        removed in the same change that added them to Project.FIELDS and
+        Project.LIST_FIELDS and to the spec document's YAML block, which is
+        the only place a field is allowed to be defined. Recorded here rather
+        than quietly deleted because the shape of the mistake is worth
+        keeping: a field the canonical shape does not know about is a field
+        every future reader has to be told about separately."""
         S = _schema()
         project = S.Project(**project_dict).validate()
+        kill_criteria = getattr(project, "kill_criteria", None)
+        non_goals = getattr(project, "non_goals", None)
         with self._transaction():
             _exec(self,
                   "INSERT INTO projects (project_id, name, goal, "
                   "user_outcome, project_type, primary_persona, "
                   "experience_level, status, phase, scope_in, scope_out, "
                   "success_criteria, assumptions, unknowns, risks, "
+                  "kill_criteria, non_goals, "
                   "created_at, updated_at) "
-                  "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                   "ON CONFLICT(project_id) DO UPDATE SET "
                   "name=excluded.name, goal=excluded.goal, "
                   "user_outcome=excluded.user_outcome, "
@@ -12404,6 +12509,8 @@ class Store(object):
                   "success_criteria=excluded.success_criteria, "
                   "assumptions=excluded.assumptions, "
                   "unknowns=excluded.unknowns, risks=excluded.risks, "
+                  "kill_criteria=excluded.kill_criteria, "
+                  "non_goals=excluded.non_goals, "
                   "updated_at=excluded.updated_at",
                   (project.project_id, project.name, project.goal or "",
                    project.user_outcome or "", project.project_type or "",
@@ -12416,6 +12523,8 @@ class Store(object):
                    json.dumps(project.assumptions or []),
                    json.dumps(project.unknowns or []),
                    json.dumps(project.risks or []),
+                   json.dumps(kill_criteria or []),
+                   json.dumps(non_goals or []),
                    project.created_at, project.updated_at))
             self._write_attribution(project.project_id, None,
                                      "project.upserted", actor,
@@ -13082,8 +13191,9 @@ class Store(object):
             "SELECT * FROM projects ORDER BY created_at ASC, "
             "project_id ASC").fetchall()
         S = _schema()
+        list_fields = S.Project.LIST_FIELDS
         return [_export_row(self.conn, "projects", dict(r),
-                             S.Project.LIST_FIELDS, raw=raw) for r in rows
+                             list_fields, raw=raw) for r in rows
                 if include_system
                 or r["project_id"] not in SYSTEM_PROJECT_IDS]
 
