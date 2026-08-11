@@ -19,12 +19,19 @@ half-applied and no record is left held.
 THE VERIFYING COMMAND, run after the last edit to tracked code:
 
     $ python3 tools/test_all.py --artifacts "$TMPDIR/gate-artifacts"
-    test_all: 3080 tests across 34 suites, 5 skipped, 685.9s wall. ALL GREEN
+    test_all: 3085 tests across 34 suites, 5 skipped, 714.8s wall. ALL GREEN
 
-Exit 0, at dfc3d02, working tree clean. Pushed and verified three ways: local
-HEAD, upstream ref and `git ls-remote` all read dfc3d02. Manifest regenerated
+Exit 0, at 1ed3683, working tree clean. Pushed and verified three ways: local
+HEAD, upstream ref and `git ls-remote` all read 1ed3683. Manifest regenerated
 after the last tracked edit and doctor check 9 actually RAN rather than
-skipping: "PASS: all 865 file(s) listed in CHECKSUMS.sha256 match."
+skipping: "PASS: all 873 file(s) listed in CHECKSUMS.sha256 match."
+
+The battery ran seven times tonight. Three of those runs were red, and every
+red one was caught by a gate rather than by review: an omission from the
+packaging manifest, a status line a documentation check would not accept, a
+write-site count inflated by prose quoting a write call, a refusal naming a
+repo-relative path, and one genuine defect in this ceremony's own zip
+freshness check. None was worked around and no test was weakened.
 
 WHAT WAS ASKED, AND WHETHER IT WAS DONE:
 

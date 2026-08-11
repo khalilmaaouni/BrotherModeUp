@@ -138,7 +138,7 @@ code{font-family:var(--mono);font-size:.92em;background:var(--bm-idle-tint);padd
 
 <p class="eyebrow">BrotherMode and BrotherSBE // delivery board</p>
 <h1>The aggressive replan, and the two tools that make it honest</h1>
-<p class="stamp">Refreshed 2026-08-12 03:50 JST by session 4538d5df. GREEN AND PUSHED at 9a354b9: 3082 tests, 34 suites, 665.0s, exit 0, clean tree, remote verified three ways.
+<p class="stamp">Refreshed 2026-08-12 04:35 JST by session 4538d5df. GREEN AND PUSHED at 1ed3683: 3085 tests, 34 suites, 714.8s, exit 0, clean tree, remote verified three ways. Seven battery runs tonight, three red, every red one caught by a gate rather than by review.
 TICK CONTRACT: a box ticks only when its done-check ran after the last edit and that output is quoted beside it. Percentages count records, never impressions.</p>
 
 <div class="northstar">
@@ -432,6 +432,24 @@ OK      (44 before: one test that it reaches detect, one that it still exits 0 w
 "NO-DATA: no BrotherMode project root found", which is detect WORKING.
 The assertion list was incomplete, not the implementation. Fixed, with the reason
 written into the test so the next reader does not repeat the question.</span></li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Phase 8: the forecasting tool became a control <span class="chip">3/3</span></h3>
+<ul class="ledger">
+<li class="tick"><span class="t">A forecast left open past its window now refuses the session close</span>
+<span class="ev">$ python3 tools/bm_handover.py verify-close ...
+FAIL: this session recorded 1 forecast(s) that never got an actual and are now
+more than 12 hours old: never-closed. Close them with `... actual --task <name> --minutes N`</span></li>
+<li class="tick"><span class="t">A closed forecast does not block, and a project that never adopted the tool is not punished</span>
+<span class="ev">three tests, not one: the failure fires, a recorded actual passes,
+and a repository with no forecast log at all passes. A gate that cannot be
+satisfied is not a gate, it is a wall.</span></li>
+<li class="tick"><span class="t">Two callers, one definition of what open means</span>
+<span class="ev">bm_forecast.py gained one public function, open_forecasts, and its own
+check verb delegates its verdict to it. A second copy of that rule would be
+free to drift, and drift in this exact rule is how the problem lasted a night.</span></li>
 </ul>
 </div>
 
