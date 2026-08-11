@@ -116,7 +116,7 @@ DEFAULT_HUMAN = {
     "04-NEXT-LOOPS-PRIORITIZED.md": (
         FILL_BY_HAND + ": the next loops, in priority order."),
     "05-VAULT-AND-OBSIDIAN.md": (
-        FILL_BY_HAND + ": what changed in the Kay Vault this session, and "
+        FILL_BY_HAND + ": what changed in the memory vault this session, and "
         "its session log entry."),
     "06-CLOSE-REPORT.md": (
         FILL_BY_HAND + ": replace this whole block. The FIRST LINE must "
@@ -547,7 +547,7 @@ def _struct_04(ctx):
 
 def _struct_05(ctx):
     return [
-        "Update the Kay Vault session log to the close moment (rule step "
+        "Update the memory vault session log to the close moment (rule step "
         "6): record what changed, what was learned, and what is open.",
         "", "This page has no store-derived section: the vault lives "
         "outside this project's own store.", ""]

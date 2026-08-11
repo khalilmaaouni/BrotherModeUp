@@ -59,7 +59,7 @@ The CLOSE half. Before a brothermode session ends, in this order:
    never the only home (ratified precedent, commit 6db52b2).
 5. Zip the pack: `python3 tools/bm_handover.py zip`, landing in
    ~/Documents/BrotherModeUp-handovers/ with a date and slot name.
-6. Update the Kay Vault session log to the close moment.
+6. Update the memory vault session log to the close moment.
 7. Run `python3 tools/bm_handover.py verify-close` and quote its verdict. A
    FAIL means the ceremony is not done; the session does not claim closure.
 
