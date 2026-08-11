@@ -1,0 +1,46 @@
+diff --git a/README.md b/README.md
+index 2db5902..410c37b 100644
+--- a/README.md
++++ b/README.md
+@@ -37,10 +37,16 @@ with BrotherSBE still owning the evidence and the record.
+ Install BrotherSBE:
+ 
+ ```bash
+-claude plugin marketplace add khalilmaaouni/BrotherSBE
++claude plugin marketplace add khalilmaaouni/BrotherSBE@v3.1.0
+ claude plugin install brothersbe@brothersbe
+ ```
+ 
++The `@v3.1.0` pins the marketplace to the released tag rather than to a moving
++branch. Leave it off and two people installing on different days get different
++commits, which makes a bug and a version difference look identical. That
++matters most during a pilot, when comparing what different people hit is the
++entire point.
++
+ Open Claude Code inside your project and run:
+ 
+ ```text
+diff --git a/TESTERS.md b/TESTERS.md
+index 04c0529..8d191bd 100644
+--- a/TESTERS.md
++++ b/TESTERS.md
+@@ -30,13 +30,18 @@ In your terminal, two commands (this is the only terminal step in the whole
+ protocol):
+ 
+ ```bash
+-claude plugin marketplace add khalilmaaouni/BrotherSBE
++claude plugin marketplace add khalilmaaouni/BrotherSBE@v3.1.0
+ ```
+ 
+ ```bash
+ claude plugin install brothersbe@brothersbe
+ ```
+ 
++The `@v3.1.0` is not optional for a tester. It pins you to the released tag
++instead of to whatever is on the branch today, so that when two of you report
++different behaviour we can tell a real bug from the two of you simply running
++different commits. The sibling tool pins the same way, at `@v3.2.0`.
++
+ Then open Claude Code in any project, or in an empty folder if you would
+ rather not touch real work. Everything from here happens in that session.
+ 
