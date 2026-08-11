@@ -9,5 +9,38 @@ This page has no store-derived section: the vault lives outside this project's o
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-FILL-BY-HAND: what changed in the memory vault this session, and its session log entry.
+NOT WRITTEN AT THE TIME THIS PACK WAS SEALED, and stated plainly rather than
+left as an implied yes. No vault session log entry was written for this
+session, and no vault file was created or modified by it. The vault at
+BROTHERMODE_VAULT was read at session start through the injected memory block
+and was otherwise untouched.
+
+That is a gap against the standing memory protocol, which asks for a session
+log in the project's Sessions folder, an Overview and Open-Items refresh, and
+a failures entry for anything costly or repeatable. It is recorded here so the
+next session can close it rather than assume it was done.
+
+WHAT BELONGS IN THAT ENTRY WHEN IT IS WRITTEN, so nothing has to be
+reconstructed from the transcript:
+
+- Failures index, one entry, costly and repeatable: the PO-1 gate poll read a
+  previous session's $TMPDIR/gate.exit as its own verdict and reported exit 0
+  ten seconds into a run that finished nine minutes later at exit 1 with two
+  failed suites. It fails toward green. Fixed in this repo's CLAUDE.md at
+  c4c8f70. Repeatable on any machine where $TMPDIR survives between sessions,
+  which is the normal case on macOS.
+- Failures index, one entry, costly: writing a tracked file while
+  tools/test_all.py runs makes it refuse to report green even when all 32
+  suites pass. Cost one full 20-minute re-run tonight.
+- Finding: BrotherMode is driven inside Claude Code and has no shell command,
+  while its sibling is a terminal CLI. This is the first thing a new team
+  member gets wrong and it now has a page,
+  docs/WORKING-WITH-BROTHERSBE.md.
+- Finding: a backend API contract change proposed tier T0 from the sibling's
+  impact command, with every file UNMEASURED and a NO-DATA verdict. Honest
+  output, dangerous to a skim reader.
+- Open item: founder decisions D8 (external security review) and D9 (whether
+  two first-five-minutes defects land in this release) are unanswered.
+- Open item: A2, the six-name public surface, is the baton and gates the
+  3.2.0 version bump.
 <!-- bm-human:end -->
