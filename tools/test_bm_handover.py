@@ -59,7 +59,8 @@ class HandoverCase(unittest.TestCase):
     BROTHERMODE_ROOT and BROTHERMODE_HANDOVERS_DIR pointed there so nothing
     here can reach a real project or a real founder home directory."""
 
-    ENV_KEYS = ("BROTHERMODE_ROOT", "BROTHERMODE_HANDOVERS_DIR")
+    ENV_KEYS = ("BROTHERMODE_ROOT", "BROTHERMODE_HANDOVERS_DIR",
+                "BM_FENCE_SESSION_ID", "CLAUDE_SESSION_ID")
 
     def setUp(self):
         self.assertIsNotNone(
@@ -282,6 +283,376 @@ class TestVerifyClose(HandoverCase):
         self.assertNotEqual(0, code)
         self.assertIn("NO-DATA", out)
         self.assertNotIn("PASS", out)
+
+    # -- REFUTE-2026-08-11.md findings, one RED test per finding id --------
+
+    def test_f1_prescribed_invocation_with_no_session_still_checks_ownership(self):
+        """A2a, the headline finding. Section 3 step 7's own prescribed
+        command is `verify-close` with no --session at all; that used to
+        skip check 4 outright and PASS over a live unparked record. Now it
+        falls back to the store's own notion of the current session
+        (BM_FENCE_SESSION_ID, the same env var bm_store.py's own CLI
+        session resolution reads first)."""
+        os.environ["BM_FENCE_SESSION_ID"] = "closing-session"
+        rec = self.claim("fence-alpha", session_id="closing-session")
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        code, _out, _err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code)
+        code, out, _err = self.run_cli("verify-close", "--pack", pack_dir)
+        self.assertEqual(1, code, out)
+        self.assertIn("FAIL", out)
+        self.assertIn(rec.lifecycle_uuid[:8], out)
+
+    def test_f1_no_session_determinable_is_no_data_never_pass(self):
+        """The other half of F1's fix: when neither --session nor either
+        env var can name a session, the ownership check cannot run at
+        all, and the verdict must be NO-DATA, never a silent PASS."""
+        os.environ.pop("BM_FENCE_SESSION_ID", None)
+        os.environ.pop("CLAUDE_SESSION_ID", None)
+        self.claim("fence-alpha", session_id="closing-session")
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        code, _out, _err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code)
+        code, out, _err = self.run_cli("verify-close", "--pack", pack_dir)
+        self.assertNotEqual(0, code, out)
+        self.assertIn("NO-DATA", out)
+        self.assertNotIn("PASS", out)
+
+    def test_f6_adopted_state_is_also_unparked_and_owned(self):
+        """A2b: with --session given, the old check filtered state=="active"
+        only. An "adopted" record is equally unparked and equally owned
+        by the session that adopted it, and must FAIL too."""
+        rec = self.claim("fence-alpha", session_id="closing-session")
+        self.store.transition(
+            rec.lifecycle_uuid, rec.version, "adopted",
+            session_id="closing-session", note="adopted by test")
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        code, _out, _err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code)
+        code, out, _err = self.run_cli(
+            "verify-close", "--pack", pack_dir, "--session", "closing-session")
+        self.assertEqual(1, code, out)
+        self.assertIn("FAIL", out)
+        self.assertIn(rec.lifecycle_uuid[:8], out)
+
+    def test_f2_all_six_narrative_files_zero_bytes_fails(self):
+        """A1c2: truncating every narrative file to zero bytes removed the
+        FILL-BY-HAND substring the old scan looked for, so it PASSed. An
+        empty file must FAIL."""
+        self.claim("fence-alpha")
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        for name in bh.PACK_FILES:
+            if name == "06-CLOSE-REPORT.md":
+                continue
+            self.write(os.path.join(pack_dir, name), "")
+        code, out, _err = self.run_cli("verify-close", "--pack", pack_dir)
+        self.assertEqual(1, code, out)
+        self.assertIn("FAIL", out)
+        self.assertIn("empty", out.lower())
+
+    def test_f3_deleted_human_block_and_markers_fails(self):
+        """A1a: deleting the whole human block, markers included, leaves
+        no FILL-BY-HAND substring for the old scan to find. A file with no
+        human block at all must FAIL, not be read as clean."""
+        self.claim("fence-alpha")
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        target = os.path.join(pack_dir, "00-READ-ME-FIRST.md")
+        text = self.read(target)
+        pre, _, rest = text.partition(bs.HUMAN_BLOCK_BEGIN)
+        _mid, _sep, post = rest.partition(bs.HUMAN_BLOCK_END)
+        self.write(target, pre + post)
+        code, out, _err = self.run_cli("verify-close", "--pack", pack_dir)
+        self.assertEqual(1, code, out)
+        self.assertIn("FAIL", out)
+        self.assertIn("00-READ-ME-FIRST.md", out)
+
+    def test_f3_human_block_emptied_to_whitespace_fails(self):
+        """A1b: a block emptied to whitespace only carries no FILL-BY-HAND
+        substring either, so it also used to PASS."""
+        self.claim("fence-alpha")
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        target = os.path.join(pack_dir, "01-HANDOVER.md")
+        self.fill_human_block(target, "   \n   \n")
+        code, out, _err = self.run_cli("verify-close", "--pack", pack_dir)
+        self.assertEqual(1, code, out)
+        self.assertIn("FAIL", out)
+        self.assertIn("01-HANDOVER.md", out)
+
+    def test_f15_lowercase_fill_by_hand_still_fails(self):
+        """A1e: a block left saying lowercase "fill-by-hand" used to PASS
+        because the scan was case sensitive. The marker scan is now case
+        insensitive."""
+        self.claim("fence-alpha")
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        target = os.path.join(pack_dir, "03-RULES-AND-PROCESS-FIXES.md")
+        self.fill_human_block(target, "fill-by-hand: not actually filled in.")
+        code, out, _err = self.run_cli("verify-close", "--pack", pack_dir)
+        self.assertEqual(1, code, out)
+        self.assertIn("FAIL", out)
+        self.assertIn("03-RULES-AND-PROCESS-FIXES.md", out)
+
+    def _status_line_case(self, status_line):
+        """Fill and zip a pack whose ONLY defect is the close report's
+        status line, and with no session ever claimed: isolates check 2
+        from checks 3 (zip freshness, satisfied because the zip is made
+        AFTER this exact content) and 4 (no record exists to own), so a
+        FAIL can only come from the status line check itself, never from
+        an unrelated confound coincidentally producing the same exit
+        code (the mistake an earlier draft of this test made: the OLD
+        code's check 3 FAILed for "no zip", which happened to match the
+        expected exit code even though check 2's own defect was never
+        exercised)."""
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir, status_line=status_line)
+        code, _out, _err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code)
+        return pack_dir
+
+    def test_f10_finished_inside_code_fence_fails(self):
+        """A1f: a close report whose block is a code fence wrapping the
+        word FINISHED used to PASS, because the scan matched the word
+        ANYWHERE in the file. It must now FAIL: the status line has to be
+        the block's own first non-empty line."""
+        pack_dir = self._status_line_case("```\nFINISHED\n```")
+        code, out, _err = self.run_cli("verify-close", "--pack", pack_dir)
+        self.assertEqual(1, code, out)
+        self.assertIn("FAIL", out)
+
+    def test_f10_finished_buried_mid_file_fails(self):
+        """A1g: FINISHED buried on the fourth line under other prose used
+        to PASS for the same reason."""
+        pack_dir = self._status_line_case(
+            "Some notes first.\nMore notes.\nStill more.\n"
+            "FINISHED: buried, not the opening line.")
+        code, out, _err = self.run_cli("verify-close", "--pack", pack_dir)
+        self.assertEqual(1, code, out)
+        self.assertIn("FAIL", out)
+
+    def test_f10_finishedness_prefix_is_not_a_whole_word_match(self):
+        """A1j: "FINISHEDNESS is a myth..." used to PASS on a prefix
+        match. The match must be whole word."""
+        pack_dir = self._status_line_case(
+            "FINISHEDNESS is a myth and we quit early")
+        code, out, _err = self.run_cli("verify-close", "--pack", pack_dir)
+        self.assertEqual(1, code, out)
+        self.assertIn("FAIL", out)
+
+    def test_f5_r2b_pack_files_replaced_with_symlinks_to_decoy_fails(self):
+        """R2b: every pack file deleted and replaced with a symlink to one
+        decoy file outside the project, reading a fake FINISHED status.
+        verify-close applied no containment and PASSed."""
+        self.claim("fence-alpha")
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        code, _out, _err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code)
+        decoy = os.path.join(self.tmp, "decoy.md")
+        self.write(decoy, "%s\n%s\nFINISHED: nothing to see here.\n%s\n"
+                          % (bs.HUMAN_BLOCK_BEGIN, "", bs.HUMAN_BLOCK_END))
+        for name in bh.PACK_FILES:
+            target = os.path.join(pack_dir, name)
+            os.remove(target)
+            os.symlink(decoy, target)
+        code, out, _err = self.run_cli("verify-close", "--pack", pack_dir)
+        self.assertNotEqual(0, code, out)
+        self.assertNotIn("PASS", out)
+        self.assertIn("symlink", out.lower(),
+                      "expected the containment gate's own refusal "
+                      "message, naming the symlink, not some other "
+                      "check FAILing to coincidentally match")
+
+    def test_f13_zip_pack_arbitrary_absolute_directory_refused(self):
+        """A6d: `zip --pack <any absolute dir>` used to package an
+        unrelated directory, secrets included, into the founder's own
+        handovers archive with no containment check at all."""
+        outside = os.path.join(self.tmp, "fake-dot-ssh")
+        os.makedirs(outside)
+        self.write(os.path.join(outside, "id_rsa"), "not a real key\n")
+        code, out, err = self.run_cli("zip", "--pack", outside)
+        self.assertNotEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+        self.assertFalse(os.path.isdir(self.handovers_dir)
+                         and os.listdir(self.handovers_dir),
+                         "a zip was written despite the pack being outside "
+                         "the project")
+
+    def test_f13_zip_pack_project_root_refused(self):
+        """A6e: `zip --pack <project root>` used to package the whole
+        project, secrets.env included, with no containment check."""
+        self.write(os.path.join(self.root, "secrets.env"),
+                   "ANTHROPIC_API_KEY=sk-ant-verysecret\n")
+        code, out, err = self.run_cli("zip", "--pack", self.root)
+        self.assertNotEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+
+    def test_f9_same_content_resave_does_not_deadlock_the_ceremony(self):
+        """R2d: zip an unchanged pack, then re save a pack file with
+        BYTE-IDENTICAL content (an editor or formatter no-op save). The
+        old mtime based freshness check FAILed forever with a remedy
+        (re run zip) that could never clear it, because zip's own
+        idempotence branch left the existing zip's mtime untouched. The
+        freshness check is now content based, so this must PASS."""
+        rec = self.claim("fence-alpha", session_id="closing-session")
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        code, _out, _err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code)
+        self.park(rec, session_id="closing-session")
+        # Re save one pack file with the exact same bytes it already had,
+        # the way an editor's "save" or a formatter's no-op pass would.
+        target = os.path.join(pack_dir, "01-HANDOVER.md")
+        same_bytes = self.read(target)
+        time.sleep(0.05)
+        self.write(target, same_bytes)
+        code, out, _err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code, out)
+        self.assertIn("unchanged", out.lower())
+        code, out, _err = self.run_cli(
+            "verify-close", "--pack", pack_dir, "--session", "closing-session")
+        self.assertEqual(0, code, out)
+        self.assertIn("PASS", out)
+
+    def test_f7_pack_subdirectory_refused_not_silently_dropped(self):
+        """A2f: a subdirectory inside the pack (e.g. evidence/) used to be
+        silently excluded from the zip, with no word said, and its edits
+        never moved the pack's tracked freshness either."""
+        self.claim("fence-alpha")
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        code, _out, _err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code)
+        evidence_dir = os.path.join(pack_dir, "evidence")
+        os.makedirs(evidence_dir)
+        self.write(os.path.join(evidence_dir, "gate-receipt.json"), "{}")
+        code, out, err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertNotEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+        code, out, _err = self.run_cli("verify-close", "--pack", pack_dir)
+        self.assertNotEqual(0, code)
+        self.assertNotIn("PASS", out)
+
+    def test_f11_command_center_copy_is_checked_by_verify_close(self):
+        """R2a: the pack is missing the command center copy the project
+        has at generation time (deleted after skeleton ran); verify-close
+        used to iterate only the seven PACK_FILES and never notice."""
+        cc_dir = os.path.join(self.root, "docs", "plan")
+        os.makedirs(cc_dir)
+        self.write(os.path.join(cc_dir, "COMMAND-CENTER.html"),
+                   "<html>command center</html>")
+        self.claim("fence-alpha")
+        pack_dir = self._fresh_pack()
+        cc_in_pack = os.path.join(pack_dir, "COMMAND-CENTER.html")
+        self.assertTrue(os.path.isfile(cc_in_pack),
+                        "the command center copy was not included even "
+                        "though the project has one at generation time")
+        self.fill_pack(pack_dir)
+        os.remove(cc_in_pack)
+        code, out, _err = self.run_cli("verify-close", "--pack", pack_dir)
+        self.assertEqual(1, code, out)
+        self.assertIn("FAIL", out)
+        self.assertIn("COMMAND-CENTER.html", out)
+
+    def test_f11_command_center_page_and_stdout_agree_on_first_run(self):
+        """Secondary F11 bug, found by hand: 00-READ-ME-FIRST.md used to
+        say "no copy is included" (it checked the pack's DESTINATION,
+        which does not have the file yet on a first run) while stdout said
+        "command center copy: included" and the copy WAS written moments
+        later. Both must agree, because they now share one source of
+        truth (whether the project's own command center exists)."""
+        cc_dir = os.path.join(self.root, "docs", "plan")
+        os.makedirs(cc_dir)
+        self.write(os.path.join(cc_dir, "COMMAND-CENTER.html"),
+                   "<html>command center</html>")
+        self.claim("fence-alpha")
+        out_dir = os.path.join(self.root, "docs", "handover", "pack1")
+        code, out, err = self.run_cli(
+            "skeleton", "--out", "docs/handover/pack1", "--date",
+            "2026-08-11", "--slot", "pack1")
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+        self.assertIn("command center copy: included", out)
+        read_me = self.read(os.path.join(out_dir, "00-READ-ME-FIRST.md"))
+        self.assertNotIn("no copy is included", read_me,
+                         "00-READ-ME-FIRST.md contradicts stdout: it says "
+                         "no copy is included while stdout says included "
+                         "and the file IS in the pack")
+        self.assertIn("is included as", read_me)
+
+    def test_f4_decision_and_handover_text_withheld_from_page_and_stdout(self):
+        """A5: decisions.text, decisions.topic and handovers.heading are
+        withheld by bs.export_column's own central policy, yet used to be
+        written verbatim to a committed pack page and to detect's stdout,
+        exactly the class of leak already fixed once for session ids."""
+        founder_text = "whether to tell investors about the runway"
+        founder_heading = "Baton: the deal is unsigned, we are out of cash"
+        rec = self.claim("fence-alpha", session_id="closing-session")
+        self.store.decide(rec.lifecycle_uuid, rec.version, founder_text,
+                          "Khalil decided to drop the account.")
+        self.store.transition(
+            rec.lifecycle_uuid, rec.version + 1, "parked",
+            session_id="closing-session", note="parked by test",
+            handover_heading=founder_heading)
+        out_dir = os.path.join(self.root, "docs", "handover", "pack1")
+        code, out, err = self.run_cli(
+            "skeleton", "--out", "docs/handover/pack1", "--date",
+            "2026-08-11", "--slot", "pack1")
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+        page = self.read(os.path.join(out_dir, "01-HANDOVER.md"))
+        self.assertNotIn(founder_text, page)
+        self.assertNotIn(founder_heading, page)
+        code, detect_out, _err = self.run_cli("detect")
+        self.assertEqual(0, code)
+        self.assertNotIn(founder_heading, detect_out)
+
+    def test_f12_detect_survives_an_unreadable_pack_directory(self):
+        """A4c: detect used to exit 1 with an uncaught PermissionError
+        traceback when a pack directory could not be listed. Section 4:
+        detect is read only, exit 0 always."""
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.skipTest("running as root: permission bits are not "
+                          "enforced, so this fixture cannot reproduce "
+                          "the defect")
+        self.claim("fence-alpha")
+        pack_dir = self._fresh_pack()
+        os.chmod(pack_dir, 0o000)
+        try:
+            code, out, err = self.run_cli("detect")
+        finally:
+            os.chmod(pack_dir, 0o700)
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+
+    def test_f14_absolute_paths_masked_in_verify_close_stdout(self):
+        """A5, secondary: verify-close's own stdout used to carry the
+        founder's real absolute filesystem layout unmasked, even though
+        the ceremony asks a session to quote this line into a session log
+        or a committed pack page."""
+        rec = self.claim("fence-alpha", session_id="closing-session")
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        self.run_cli("zip", "--pack", pack_dir)
+        self.park(rec, session_id="closing-session")
+        code, out, _err = self.run_cli(
+            "verify-close", "--pack", pack_dir, "--session", "closing-session")
+        self.assertEqual(0, code, out)
+        self.assertNotIn(self.tmp, out)
+        self.assertIn(bs.PATH_WITHHELD_MARKER, out)
+
+    def test_f16_absolute_out_is_refused_not_silently_reinterpreted(self):
+        """A6b: `skeleton --out /tmp/abs-out-evil` used to be silently
+        reinterpreted as relative to the project root instead of refused,
+        so the caller's typo landed somewhere they never named."""
+        self.claim("fence-alpha")
+        code, out, err = self.run_cli(
+            "skeleton", "--out", "/tmp/abs-out-evil", "--date",
+            "2026-08-11", "--slot", "pack1")
+        self.assertNotEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+        self.assertFalse(
+            os.path.isdir(os.path.join(self.root, "tmp", "abs-out-evil")),
+            "the absolute --out was silently reinterpreted as relative")
+        self.assertFalse(os.path.isdir("/tmp/abs-out-evil"))
 
 
 # ---------------------------------------------------------------------------
