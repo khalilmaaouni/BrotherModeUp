@@ -46,7 +46,14 @@ decimal point on it.
    Also my specification. It is precisely the false reassurance the tool
    exists to remove.
 
-5. **`pgrep -fl claude` dumped about forty thousand characters** of Electron
+5. **My refusal text told packaged installs to run a path they do not have.**
+   The new close check names the command that clears it, and I wrote it as
+   `python3 tools/bm_forecast.py`. There is no tools/ directory in a pipx, uv
+   or pip install. The file already had two helpers that resolve the right
+   spelling for the reader's actual layout, and I used neither. Caught by a
+   sweep over every user-facing string in the shipping surface, not by review.
+
+6. **`pgrep -fl claude` dumped about forty thousand characters** of Electron
    argv into my context for an answer that needed one line. The existing memory
    note on this machine actually RECOMMENDED `pgrep -fl` as the safe listing
    step; it has been corrected. Agent argv carries the whole prompt, which

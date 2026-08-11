@@ -255,12 +255,12 @@ b766b4747673d6ffcd64f191fb38e1e17671005b39feec2718a04ecde6b781a9  docs/handover/
 8f50417a44e0368fd5f1a4a472b579bbbbda6527faf0d91c16556352cf77480b  docs/handover/2026-08-11-v3-final-night/07-OVERNIGHT-AND-HORIZON.md
 4b77362a6550b1222e8bb8c02a944a64d3bb83a1a52702bf0dde7b804d1b7c24  docs/handover/2026-08-11-v3-final-night/COMMAND-CENTER.html
 0ec7f888d1305a93c7a964364451565bafb4f68df1b9ad85128821ae1182262a  docs/handover/2026-08-12-aggressive-replan/00-READ-ME-FIRST.md
-5d39e4bbec71306b5aec9409101acf518e2ac5481e45d490dad37afb3c9943c0  docs/handover/2026-08-12-aggressive-replan/01-HANDOVER.md
-9fe86eddcaf68f963646ce8b99c56919e22960a5bf0cea9ef681243b6170b18a  docs/handover/2026-08-12-aggressive-replan/02-LEARNINGS-AND-MISTAKES.md
+42277a4ee716bf5cec72a6102244de17b91a89faecff00406a91b225ba842e18  docs/handover/2026-08-12-aggressive-replan/01-HANDOVER.md
+24354b628bda9090be0d20d109f1157d2bc231d47ca51bf267f9ffd786dcb614  docs/handover/2026-08-12-aggressive-replan/02-LEARNINGS-AND-MISTAKES.md
 2fdcdce761b272491d7ff0a80c4f78c07254a4e451c1cc522f9aeb6397bf80de  docs/handover/2026-08-12-aggressive-replan/03-RULES-AND-PROCESS-FIXES.md
 32131ea956caeb350e6dde9635bb58e608d6463a3e6cf6cce97c1ed3c87e37c4  docs/handover/2026-08-12-aggressive-replan/04-NEXT-LOOPS-PRIORITIZED.md
 b239979cf5eac7c8db62d19558cf8d240dbdb5a174d9598e13ea9d8e620aa12b  docs/handover/2026-08-12-aggressive-replan/05-VAULT-AND-OBSIDIAN.md
-082ad152f8aa289285e6d83cde2669dd1228584dac20fbb1804d9b4382539da2  docs/handover/2026-08-12-aggressive-replan/06-CLOSE-REPORT.md
+eefa3742a26c7b7795cb0c7ae2675325598bea7034016bfa18b3bb4fbbc8d20a  docs/handover/2026-08-12-aggressive-replan/06-CLOSE-REPORT.md
 104727ea0db0a6a8577e9d8a258531af8dee80ec6cee5ca67e41fcc34898c4fb  docs/handover/2026-08-12-aggressive-replan/COMMAND-CENTER.html
 66302d4f8e175a0006f6f60aaa48630a8044f4d9a32e1ca4784cb2c07fbbd80b  docs/handover/2026-08-12-replan-and-forecasting-learning/00-READ-ME-FIRST.md
 da23af169c17edc93f847f9eacb819a0c3d897bcec585e0afcccf66804d5d432  docs/handover/2026-08-12-replan-and-forecasting-learning/01-HANDOVER.md
@@ -311,7 +311,7 @@ fb077af1ecc57818afe805a89f0bed8ca2c8ae7b43fada309d4a4739261db392  docs/plan/ALER
 104727ea0db0a6a8577e9d8a258531af8dee80ec6cee5ca67e41fcc34898c4fb  docs/plan/COMMAND-CENTER.html
 cff168020d01e65edec1b974f946f494be1b5134c9561bab44ef047cba99bd82  docs/plan/DEFECT-handover-suite-flake-2026-08-12.md
 aa0d7596134bd016691c53da3f46f6a8acab12ae3b1cc262d791ce58256c39c4  docs/plan/DEFECT-session-identity-2026-08-12.md
-6a616b6d72cff723faf58e58c866637b3a169141939d3cf17e0026940acfe28d  docs/plan/GANTT.html
+a4c507eb6c91997241bac026ff0b86cb59e53755e8dd2c3f6509ead1d31b6934  docs/plan/GANTT.html
 483b1a5b4f8e3de69512085288474e6ff9510dfbd529ad563f7fcb67f0464ea6  docs/plan/GE0-TRUTH-MAP-2026-08-11.md
 0b5344c14e15b895166a201db8256b74c0591c5425ec81932aa9e1d46647aa1b  docs/plan/HANDOVER-2026-08-10-evening.md
 194a529584cbaf81166422d9ddd0fc8811e36401364ba2be8da943b5c4999177  docs/plan/LEARNINGS-2026-08-10-evening.md
