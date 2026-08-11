@@ -558,6 +558,7 @@ c7247d8d9b5210cd0a360b99b2e06fea1b752fbeeaf6b89018080e65bed7fd2e  docs/runtimes/
 2ef41440317c40bd33382c3f928216b0ba98aa5720e9942b21a341b391fbb3c3  docs/runtimes/generic.AGENTS.md
 a169a2d3775e4700533e0cc9a06e06f6bebd4f0174cb29b5eb945cabd2e81ffe  docs/runtimes/iflow.IFLOW.md
 d1132d22ecba494e64ea424fe6569a3f9907de87aafe8e56268253dd5b25f9c1  docs/runtimes/qwen.QWEN.md
+2397d03d51d0d7ab31066a07d53bad5bdd302e89717b68b9316248a5a0767fd9  docs/sbe/sd2-sentinel/00-intake.json
 cdaf1beea29055bb6ea6decc241c055fbd740a479758adea24b3453ecc8a9e96  docs/specs/canonical-project-protocol.md
 413729bd4a0a39124af9395544340141334c946c1ebd4d5a7cd3e185328aaecb  docs/superpowers/plans/2026-07-25-thread-mode-synergy.md
 8c26efcde658f27f4ae7fb43d1907547ca748e39224250901a644b69f72f92c1  docs/superpowers/plans/2026-07-28-correction-learning-source-plan.md
