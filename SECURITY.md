@@ -1,10 +1,51 @@
 # Security
 
+## Supported versions
+
+| Version | Status |
+|---|---|
+| 3.2.x | Supported. Security fixes land here. |
+| Everything earlier | Best effort only. No security backports are promised. |
+
+"Best effort" is meant literally rather than as a softener: an older line gets
+a fix if the fix happens to apply cleanly and somebody has reason to do it, and
+otherwise the answer is to upgrade. A single maintainer cannot honestly promise
+more than that, and promising it anyway is how a support commitment becomes
+something a reader relies on and does not get.
+
 ## Reporting a vulnerability
 
-Open a GitHub issue describing the problem and how to reproduce it. If the issue
-would expose someone's data by being public, say so in one line without the
-details and ask for a private channel first.
+**If the problem would expose anyone's data by being described in public, do
+not open a public issue.** Use GitHub's private vulnerability reporting on this
+repository (the Security tab, "Report a vulnerability"), which opens a private
+thread visible only to the maintainer.
+
+If private reporting is not available to you for any reason, open a public
+issue that says only that you have a security report and gives no details, and
+ask for a private channel. A one-line placeholder discloses nothing; a full
+reproduction in a public issue discloses everything, to everyone, immediately
+and permanently.
+
+For anything that could NOT expose data by being public (a hardening
+suggestion, a missing check, a documentation error about the data flow), a
+normal public issue is the right place and is genuinely welcome.
+
+**FOUNDER ACTION, not done by this release and not doable in code.** Enabling
+private vulnerability reporting is a setting in this repository's own GitHub
+configuration, under Settings, Advanced Security. No commit can turn it on. It
+is listed here as an outstanding action rather than described as if it were
+already true, because a security page that names a reporting channel which does
+not actually exist is worse than one that names none: it sends somebody who
+found a real problem into a dead end and leaves them assuming they were heard.
+Until that switch is on, the fallback paragraph above is the live path.
+
+**NOT DONE, stated because it gates who should use this.** No external security
+review has been carried out. The threat model below is the maintainer's own
+account of what this software defends and what it does not, written in good
+faith and never independently audited. Everything in it is checkable against
+the code, and none of it has been checked by anyone without an interest in the
+answer. Weigh it accordingly, particularly if you are deciding whether a team
+rather than an individual should adopt this.
 
 ## What this software does with your data
 
@@ -509,8 +550,17 @@ differ materially from consumer plans.
 
 ## Verifying what you installed
 
-This repository is unsigned and has no releases. If your organization requires
-pinning, clone at a specific commit and record the hash:
+CORRECTED 2026-08-11: this section used to say "this repository is unsigned and
+has no releases". The first half is still true and the second half stopped
+being true. Annotated tags exist (`git tag --list` shows the 3.x line), and
+GitHub releases exist. The sentence is corrected here rather than quietly
+edited, because a reader deciding how to pin a version was being told there was
+nothing to pin to.
+
+What is accurate today: releases and annotated tags exist, and none of them is
+cryptographically signed. A tag proves which commit a release names; it proves
+nothing about who created it. If your organization requires pinning, pin to a
+tag or a commit and record the hash:
 
 ```bash
 git -C ~/.claude/skills/brothermode rev-parse HEAD
