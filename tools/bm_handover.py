@@ -1,0 +1,864 @@
+#!/usr/bin/env python3
+"""bm_handover.py: the baton ceremony tool.
+
+WHAT THIS IS FOR
+  docs/superpowers/specs/2026-08-11-baton-ceremony-design.md, section 4.
+  Sessions die; work must not. This tool is the CLOSE half's skeleton and
+  verdict, and the START half's first read: it generates a traceable pack of
+  narrative files pre filled from the store, checks that a filled pack is
+  actually ready to close, zips it for the founder's own archive, and (on a
+  fresh session) reports what the store already knows about leftovers from
+  a session that never got to close cleanly.
+
+Four commands:
+  skeleton [--out DIR] [--slot NAME] [--date YYYY-MM-DD]
+      Writes the pack folder (default docs/handover/<date>-<slot>/, slot
+      default "session") with the seven files this pack always carries,
+      structural sections pre filled from the store, and one FILL-BY-HAND
+      human block per file. Re running over a filled pack changes no human
+      byte (I10): see read_existing_human_block / render_page.
+  verify-close [--pack DIR] [--session ID]
+      The mechanical checklist: no surviving FILL-BY-HAND marker, a
+      FINISHED or UNFINISHED line in the close report, a zip at least as
+      new as the pack, and (with --session) no active record still held by
+      that session. NO-DATA when there is no store or no pack to judge.
+      PASS only when every check clears; exit 0 only on PASS.
+  zip [--pack DIR]
+      Packages the pack folder to
+      ~/Documents/BrotherModeUp-handovers/BrotherMode-Handover-<date>-<slot>
+      .zip (the directory name doubles as <date>-<slot>). Idempotent by
+      content: an unchanged pack says so rather than rewriting the file.
+  detect
+      Read only: the newest pack and zip with their ages, unacknowledged
+      handovers (from the store), and dead-owner leftovers (from
+      tools/bm_stall.py's own sweep). Exit 0 always; an empty estate is
+      stated, never silent.
+
+WHAT THIS DOES NOT DO
+  It never writes the store. Every store mutation the ceremony needs (park,
+  handover-ack) stays in bm_store.py, exactly where the rule (section 3)
+  already sends the founder. Every store READ here goes through a public
+  bm_store.py or bm_stall.py function: ReadOnlyStore.dump(), bs.verify(),
+  and bm_stall.sweep(). No SQL of this file's own, no network, no
+  subprocess.
+
+Python 3.9, standard library only.
+
+No em or en dashes anywhere in this file, its comments, or its output.
+"""
+
+import hashlib
+import importlib.util
+import io
+import os
+import re
+import shutil
+import sys
+import time
+import zipfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _load(name):
+    """Load a sibling module by PATH, the same technique tools/bm_packs.py
+    and tools/bm_stall.py use: this file is invoked from an arbitrary
+    working directory and must not depend on whatever sys.path the caller
+    happened to have."""
+    spec = importlib.util.spec_from_file_location(
+        name, os.path.join(HERE, name + ".py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+bs = _load("bm_store")
+
+HUMAN_BEGIN = bs.HUMAN_BLOCK_BEGIN
+HUMAN_END = bs.HUMAN_BLOCK_END
+
+FILL_BY_HAND = "FILL-BY-HAND"
+
+SLOT_DEFAULT = "session"
+
+PACK_FILES = (
+    "00-READ-ME-FIRST.md",
+    "01-HANDOVER.md",
+    "02-LEARNINGS-AND-MISTAKES.md",
+    "03-RULES-AND-PROCESS-FIXES.md",
+    "04-NEXT-LOOPS-PRIORITIZED.md",
+    "05-VAULT-AND-OBSIDIAN.md",
+    "06-CLOSE-REPORT.md",
+)
+
+PAGE_TITLES = {
+    "00-READ-ME-FIRST.md": "Read me first",
+    "01-HANDOVER.md": "Handover",
+    "02-LEARNINGS-AND-MISTAKES.md": "Learnings and mistakes",
+    "03-RULES-AND-PROCESS-FIXES.md": "Rules and process fixes",
+    "04-NEXT-LOOPS-PRIORITIZED.md": "Next loops, prioritized",
+    "05-VAULT-AND-OBSIDIAN.md": "Vault and Obsidian",
+    "06-CLOSE-REPORT.md": "Close report",
+}
+
+DEFAULT_HUMAN = {
+    "00-READ-ME-FIRST.md": (
+        FILL_BY_HAND + ": anything else the next session should know "
+        "before reading further."),
+    "01-HANDOVER.md": (
+        FILL_BY_HAND + ": what happened this session, and what is next."),
+    "02-LEARNINGS-AND-MISTAKES.md": (
+        FILL_BY_HAND + ": learnings, mistakes, and near misses from this "
+        "session."),
+    "03-RULES-AND-PROCESS-FIXES.md": (
+        FILL_BY_HAND + ": a rule or process fix this session's own mistakes "
+        "surfaced, if any."),
+    "04-NEXT-LOOPS-PRIORITIZED.md": (
+        FILL_BY_HAND + ": the next loops, in priority order."),
+    "05-VAULT-AND-OBSIDIAN.md": (
+        FILL_BY_HAND + ": what changed in the Kay Vault this session, and "
+        "its session log entry."),
+    "06-CLOSE-REPORT.md": (
+        FILL_BY_HAND + ": replace this whole block. The FIRST LINE must "
+        "start with the exact word FINISHED, or the exact word UNFINISHED "
+        "followed by exactly where the baton lies."),
+}
+
+COMMAND_CENTER_REL = ("docs", "plan", "COMMAND-CENTER.html")
+COMMAND_CENTER_NAME = "COMMAND-CENTER.html"
+
+GENERATED_NOTE = (
+    "<!-- GENERATED by tools/bm_handover.py. Regenerate rather than "
+    "hand-edit, except inside the human markers, which are preserved "
+    "verbatim. -->")
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+PASS, FAIL, NODATA = 0, 1, 2
+
+
+# ---------------------------------------------------------------------------
+# Small shared helpers.
+# ---------------------------------------------------------------------------
+
+def _out(msg=""):
+    sys.stdout.write("%s\n" % msg)
+
+
+def _err(msg):
+    sys.stderr.write("%s\n" % msg)
+
+
+def _parse(argv, known, wants_value=()):
+    """Flags into (positional, kv), refusing anything unrecognized. The
+    same shape tools/bm_packs.py's _parse uses, minus the repeatable-flag
+    case this tool never needs."""
+    positional, kv, i = [], {}, 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok.startswith("--"):
+            name = tok[2:]
+            if name not in known:
+                _err("bm_handover: unrecognized flag --%s (recognized: %s)"
+                     % (name, ", ".join("--" + k for k in sorted(known))))
+                sys.exit(2)
+            if name in wants_value:
+                if i + 1 >= len(argv):
+                    _err("bm_handover: --%s needs a value" % name)
+                    sys.exit(2)
+                kv[name] = argv[i + 1]
+                i += 2
+                continue
+            kv[name] = True
+            i += 1
+            continue
+        positional.append(tok)
+        i += 1
+    return positional, kv
+
+
+def _root():
+    root, _source = bs.require_root()
+    return root
+
+
+def _inv():
+    return bs.invocation("bm_handover.py", os.path.join(HERE, "bm_handover.py"))
+
+
+def _store_inv():
+    return bs.invocation("bm_store.py", os.path.join(HERE, "bm_store.py"))
+
+
+def _today():
+    return time.strftime("%Y-%m-%d")
+
+
+def _handovers_dir():
+    """~/Documents/BrotherModeUp-handovers, or BROTHERMODE_HANDOVERS_DIR
+    when set. Read at CALL time, not at import time, so a test that sets
+    the env var after loading this module (the ordinary case for a module
+    loaded once and reused across a suite) still redirects every command
+    that writes here. Mirrors the BROTHERMODE_VAULT idiom tools/
+    bm_autosave.py, tools/bm_telemetry.py and tools/bm_ledger.py already
+    use for the same reason: a real founder path must never be the only
+    spelling a test can reach."""
+    return os.environ.get("BROTHERMODE_HANDOVERS_DIR",
+                          os.path.expanduser("~/Documents/BrotherModeUp-handovers"))
+
+
+def _scrub(value):
+    """The same two-function funnel tools/bm_stall.py's own _scrub applies:
+    redact_text for secret shapes, mask_absolute_paths for the founder's
+    filesystem layout. Every store-derived string this file writes to a
+    pack page or prints goes through here first."""
+    return bs.mask_absolute_paths(bs.redact_text(value or ""))
+
+
+def _fmt_age(seconds):
+    seconds = max(0.0, seconds)
+    if seconds < 60:
+        return "%ds" % int(seconds)
+    minutes = seconds / 60.0
+    if minutes < 60:
+        return "%.0fm" % minutes
+    hours = minutes / 60.0
+    if hours < 48:
+        return "%.1fh" % hours
+    return "%.1fd" % (hours / 24.0)
+
+
+def _dir_mtime(pack_dir):
+    """The freshest mtime among the pack's own files. A plain directory
+    mtime does not move when an existing file inside it is REWRITTEN in
+    place (only when an entry is added or removed), and filling in a
+    narrative slot is exactly that: the same seven files, rewritten. The
+    freshness check in verify-close needs to see that edit."""
+    times = [os.path.getmtime(pack_dir)]
+    for name in os.listdir(pack_dir):
+        full = os.path.join(pack_dir, name)
+        if os.path.isfile(full):
+            times.append(os.path.getmtime(full))
+    return max(times)
+
+
+def _pack_dirname(date, slot):
+    return "%s-%s" % (date, slot)
+
+
+def _find_newest_pack(root):
+    handover_root = bs.safe_project_path(root, "docs", "handover")
+    if not os.path.isdir(handover_root):
+        return None
+    candidates = [os.path.join(handover_root, n)
+                 for n in os.listdir(handover_root)
+                 if os.path.isdir(os.path.join(handover_root, n))]
+    if not candidates:
+        return None
+    candidates.sort(key=_dir_mtime, reverse=True)
+    return candidates[0]
+
+
+def _find_newest_zip():
+    d = _handovers_dir()
+    if not os.path.isdir(d):
+        return None
+    candidates = [os.path.join(d, n) for n in os.listdir(d)
+                 if n.startswith("BrotherMode-Handover-") and n.endswith(".zip")
+                 and os.path.isfile(os.path.join(d, n))]
+    if not candidates:
+        return None
+    candidates.sort(key=os.path.getmtime, reverse=True)
+    return candidates[0]
+
+
+def _zip_path_for(dirname):
+    return os.path.join(_handovers_dir(), "BrotherMode-Handover-%s.zip" % dirname)
+
+
+def _sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Store reads. Every one goes through a public bm_store.py function:
+# ReadOnlyStore.dump() and bs.verify(). No SQL of this file's own.
+# ---------------------------------------------------------------------------
+
+def _open_read_only(root):
+    """(store, None) or (None, the OwnershipRefused it raised). Never lets
+    an unreadable or absent store crash a caller: every command that needs
+    NO-DATA semantics (verify-close, detect) can act on the second value
+    directly."""
+    try:
+        return bs.ReadOnlyStore(root), None
+    except bs.OwnershipRefused as e:
+        return None, e
+
+
+def _gather(root):
+    """(data, None) or (None, the refusal). `data` carries exactly the
+    structural, already-scrubbed facts a pack page or a verify-close check
+    needs: records (fences), their claimed paths, unacknowledged handovers,
+    decisions, and the store's own verify() problems. Every free-text field
+    (record names, claim paths, handover headings, decision text) is
+    scrubbed with _scrub before it leaves this function, whether it is
+    about to be written to a generated file or only compared in memory: a
+    pack page is exactly the kind of ungated diagnostic surface _scrub
+    exists for."""
+    store, refusal = _open_read_only(root)
+    if store is None:
+        return None, refusal
+    try:
+        dump = store.dump(raw=True)
+    finally:
+        store.close()
+
+    records = []
+    for r in dump.get("records", []):
+        records.append({
+            "lifecycle_uuid": r["lifecycle_uuid"],
+            "name": _scrub(r.get("name")),
+            "state": r.get("state"),
+            # TWO FIELDS, ON PURPOSE, and the pair is the whole point of
+            # reading this store raw. `session_id` is the real value, and it
+            # exists so verify-close's ownership test can compare against
+            # what the store actually holds: the default redacted dump
+            # withholds a session id that does not match this codebase's own
+            # generated-id shapes, so a comparison against it would silently
+            # match nothing. `session_display` is what any PAGE prints,
+            # because a pack page is committed to git and zipped into a
+            # handover, and the store classifies a session id as founder text
+            # precisely because it could be anything. Renderers use the
+            # display field; only comparisons touch the raw one.
+            #
+            # The display value comes from bs.export_column, the store's OWN
+            # central withholding policy, rather than from _scrub or from any
+            # rule restated here: _scrub covers secret shapes and absolute
+            # paths, and a plain hand-typed id is neither, so it went straight
+            # onto the page. Asking the control that already owns this
+            # decision is also what keeps a second copy of the policy from
+            # drifting away from the first.
+            "session_id": r.get("session_id") or "",
+            "session_display": _scrub(
+                bs.export_column("records", "session_id",
+                                 r.get("session_id"))) or "",
+            "version": r.get("version"),
+            "created_at": r.get("created_at"),
+            "updated_at": r.get("updated_at"),
+        })
+    records.sort(key=lambda r: (r["name"], r["lifecycle_uuid"]))
+
+    claims_by_uuid = {}
+    for c in dump.get("claims", []):
+        claims_by_uuid.setdefault(c["lifecycle_uuid"], []).append(
+            _scrub(c.get("path")))
+
+    handovers = []
+    for h in dump.get("handovers", []):
+        if h.get("delivered_at"):
+            continue
+        handovers.append({
+            "handover_uuid": h["handover_uuid"],
+            "lifecycle_uuid": h["lifecycle_uuid"],
+            "created_at": h.get("created_at"),
+            "heading": _scrub(h.get("heading")),
+        })
+    handovers.sort(key=lambda h: h["created_at"] or "")
+
+    decisions = []
+    for d in dump.get("decisions", []):
+        decisions.append({
+            "lifecycle_uuid": d["lifecycle_uuid"],
+            "created_at": d.get("created_at"),
+            "topic": _scrub(d.get("topic")),
+            "text": _scrub(d.get("text")),
+        })
+    decisions.sort(key=lambda d: d["created_at"] or "")
+
+    try:
+        verify_problems = [_scrub(p) for p in bs.verify(root)]
+    except bs.BMStoreError as e:
+        verify_problems = ["verify() could not run: %s" % e]
+
+    return {"records": records, "claims_by_uuid": claims_by_uuid,
+            "handovers": handovers, "decisions": decisions,
+            "verify_problems": verify_problems}, None
+
+
+# ---------------------------------------------------------------------------
+# Pack rendering. One human block per page (I10): read_existing_human_block
+# recovers what a person already typed, render_page carries it through
+# verbatim on every regeneration.
+# ---------------------------------------------------------------------------
+
+def read_existing_human_block(path):
+    """The text of the ONE human block a page carries, or None when the
+    file does not exist yet or carries no block. Tolerant of an
+    unterminated block (runs to EOF rather than being discarded), the same
+    reasoning tools/bm_packs.py's read_existing applies: guessing "no human
+    text here" is the guess that destroys it."""
+    if not os.path.isfile(path):
+        return None
+    with io.open(path, encoding="utf-8", errors="replace") as fh:
+        text = fh.read()
+    inside = False
+    buf = []
+    found = False
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if stripped == HUMAN_BEGIN and not inside:
+            inside = True
+            buf = []
+            found = True
+            continue
+        if stripped == HUMAN_END and inside:
+            inside = False
+            return "\n".join(buf)
+        if inside:
+            buf.append(line)
+    if found and inside:
+        return "\n".join(buf)
+    return None
+
+
+def _find_ledger_dir(root):
+    """The bm_lead.py handover-pack directory (Handover/ or
+    Handover-<project>/), if one has already been generated, so 00 can
+    point at it instead of duplicating it (spec section 5)."""
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return None
+    for name in sorted(names):
+        if (name == "Handover" or name.startswith("Handover-")) \
+                and os.path.isdir(os.path.join(root, name)):
+            return name
+    return None
+
+
+def _struct_00(ctx):
+    lines = ["Read this pack in this order: %s." % ", ".join(PACK_FILES), ""]
+    ledger_dir = _find_ledger_dir(ctx["root"])
+    if ledger_dir:
+        lines.append(
+            "The seven generated ledger pages from `bm_lead.py "
+            "handover-pack` already live at `%s/`; read those first for "
+            "the project-level situation, decisions, risks, calibrations, "
+            "learnings, timeline and handbacks. This pack does not "
+            "duplicate them." % ledger_dir)
+    else:
+        lines.append(
+            "No `bm_lead.py handover-pack` ledger directory was found "
+            "under the project root (Handover/ or Handover-<project>/). "
+            "Generate one with `%s handover-pack --project-id <ID>` if "
+            "this project uses bm_lead.py."
+            % bs.invocation("bm_lead.py", os.path.join(HERE, "bm_lead.py")))
+    lines.append("")
+    cc_path = os.path.join(ctx["pack_dir"], COMMAND_CENTER_NAME)
+    if os.path.isfile(cc_path):
+        lines.append("A copy of `%s`, from the moment this pack was "
+                     "generated, is included as `%s`."
+                     % ("/".join(COMMAND_CENTER_REL), COMMAND_CENTER_NAME))
+    else:
+        lines.append("No `%s` was found in the project at generation time, "
+                     "so no copy is included."
+                     % "/".join(COMMAND_CENTER_REL))
+    lines.append("")
+    return lines
+
+
+def _struct_01(ctx):
+    data = ctx["data"]
+    lines = ["## Records (fences) as of generation", ""]
+    if not data["records"]:
+        lines.append("No records exist in the store.")
+    for r in data["records"]:
+        claims = data["claims_by_uuid"].get(r["lifecycle_uuid"], [])
+        lines.append(
+            "- `%s` (%s) state=%s session=%s version=%s%s"
+            % (r["name"], r["lifecycle_uuid"][:8], r["state"],
+               r["session_display"] or "(none)", r["version"],
+               (": " + ", ".join(claims)) if claims else ""))
+    lines.append("")
+    lines.append("## Decisions recorded")
+    lines.append("")
+    if not data["decisions"]:
+        lines.append("None recorded.")
+    for d in data["decisions"]:
+        lines.append("- `%s` %s: %s (%s)"
+                     % (d["lifecycle_uuid"][:8], d["created_at"], d["topic"],
+                        d["text"]))
+    lines.append("")
+    lines.append("## Unacknowledged handovers")
+    lines.append("")
+    if not data["handovers"]:
+        lines.append("None outstanding.")
+    for h in data["handovers"]:
+        lines.append(
+            "- `%s` lifecycle %s at %s: %s"
+            % (h["handover_uuid"][:8], h["lifecycle_uuid"][:8],
+               h["created_at"], h["heading"] or "(no heading)"))
+        lines.append("  clear with: %s handover-ack --handover %s"
+                     % (_store_inv(), h["handover_uuid"]))
+    lines.append("")
+    return lines
+
+
+def _struct_02(ctx):
+    return ["No structural facts are generated for this page; the store "
+           "has no concept of a mistake, only of records, decisions and "
+           "handovers. Everything here is written by hand.", ""]
+
+
+def _struct_03(ctx):
+    data = ctx["data"]
+    lines = ["## bm_store.py verify() problems at generation time", ""]
+    if not data["verify_problems"]:
+        lines.append("None. If a process fix belongs here anyway, it is "
+                     "one this session found some other way; write it in "
+                     "below.")
+    else:
+        for p in data["verify_problems"]:
+            lines.append("- %s" % p)
+    lines.append("")
+    return lines
+
+
+def _struct_04(ctx):
+    data = ctx["data"]
+    lines = ["## Candidates already recorded by the store", ""]
+    if not data["handovers"]:
+        lines.append("No unacknowledged handover exists to seed a next "
+                     "loop from; the priority order below is entirely by "
+                     "hand.")
+    else:
+        for h in data["handovers"]:
+            lines.append("- follow up on handover `%s`: %s"
+                         % (h["handover_uuid"][:8],
+                            h["heading"] or "(no heading)"))
+    lines.append("")
+    return lines
+
+
+def _struct_05(ctx):
+    return [
+        "Update the Kay Vault session log to the close moment (rule step "
+        "6): record what changed, what was learned, and what is open.",
+        "", "This page has no store-derived section: the vault lives "
+        "outside this project's own store.", ""]
+
+
+def _struct_06(ctx):
+    data = ctx["data"]
+    lines = ["## bm_store.py verify() output at generation time", ""]
+    if not data["verify_problems"]:
+        lines.append("healthy, 0 problem(s).")
+    else:
+        lines.append("%d problem(s):" % len(data["verify_problems"]))
+        for p in data["verify_problems"]:
+            lines.append("- %s" % p)
+    lines.append("")
+    lines.append(
+        "The notes block below MUST open with a line starting with the "
+        "exact word FINISHED, or the exact word UNFINISHED (and, if "
+        "UNFINISHED, exactly where the baton lies). verify-close checks "
+        "for it and refuses to close without it.")
+    lines.append("")
+    return lines
+
+
+STRUCT_BUILDERS = {
+    "00-READ-ME-FIRST.md": _struct_00,
+    "01-HANDOVER.md": _struct_01,
+    "02-LEARNINGS-AND-MISTAKES.md": _struct_02,
+    "03-RULES-AND-PROCESS-FIXES.md": _struct_03,
+    "04-NEXT-LOOPS-PRIORITIZED.md": _struct_04,
+    "05-VAULT-AND-OBSIDIAN.md": _struct_05,
+    "06-CLOSE-REPORT.md": _struct_06,
+}
+
+
+def render_page(name, ctx, prior_block):
+    """One pack page: a generated header, its structural section built
+    from the store, and exactly one human block, carrying `prior_block`
+    through verbatim when one was already there (I10), or the file's
+    default FILL-BY-HAND text otherwise."""
+    lines = [GENERATED_NOTE, "", "# %s" % PAGE_TITLES[name], ""]
+    lines.extend(STRUCT_BUILDERS[name](ctx))
+    lines.append("## Notes (human, preserved verbatim on regeneration)")
+    lines.append("")
+    body = prior_block if prior_block is not None else DEFAULT_HUMAN[name]
+    lines.append(HUMAN_BEGIN)
+    lines.extend(body.split("\n"))
+    lines.append(HUMAN_END)
+    lines.append("")
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Commands.
+# ---------------------------------------------------------------------------
+
+def cmd_skeleton(argv):
+    _pos, kv = _parse(argv, {"out", "slot", "date"},
+                      wants_value=("out", "slot", "date"))
+    root = _root()
+    date = kv.get("date") or _today()
+    if not _DATE_RE.match(date):
+        _err("bm_handover: --date must be YYYY-MM-DD, got %r" % date)
+        return 2
+    slot = kv.get("slot") or SLOT_DEFAULT
+    if kv.get("out"):
+        parts = [p for p in kv["out"].strip("/").split("/") if p]
+        pack_dir = bs.safe_project_path(root, *parts)
+    else:
+        pack_dir = bs.safe_project_path(
+            root, "docs", "handover", _pack_dirname(date, slot))
+    data, refusal = _gather(root)
+    if data is None:
+        raise refusal
+    if not os.path.isdir(pack_dir):
+        os.makedirs(pack_dir)
+    ctx = {"root": root, "pack_dir": pack_dir, "data": data}
+    written = []
+    for name in PACK_FILES:
+        path = os.path.join(pack_dir, name)
+        prior = read_existing_human_block(path)
+        text = render_page(name, ctx, prior)
+        bs.write_generated_document(path, text)
+        written.append(name)
+    cc_src = bs.safe_project_path(root, *COMMAND_CENTER_REL)
+    copied_cc = os.path.isfile(cc_src)
+    if copied_cc:
+        shutil.copy2(cc_src, os.path.join(pack_dir, COMMAND_CENTER_NAME))
+    rel = os.path.relpath(pack_dir, root)
+    _out("wrote pack %s" % rel)
+    _out("  %d file(s): %s" % (len(written), ", ".join(written)))
+    _out("  command center copy: %s"
+         % ("included" if copied_cc else "not found at %s, skipped"
+                                         % "/".join(COMMAND_CENTER_REL)))
+    return 0
+
+
+def cmd_verify_close(argv):
+    _pos, kv = _parse(argv, {"pack", "session"},
+                      wants_value=("pack", "session"))
+    try:
+        root = _root()
+    except bs.OwnershipRefused as e:
+        _out("NO-DATA: %s" % e)
+        return NODATA
+
+    pack_dir = os.path.abspath(kv["pack"]) if kv.get("pack") \
+        else _find_newest_pack(root)
+    if not pack_dir or not os.path.isdir(pack_dir):
+        _out("NO-DATA: no handover pack found under docs/handover (pass "
+             "--pack DIR, or run `%s skeleton` first)" % _inv())
+        return NODATA
+
+    data, refusal = _gather(root)
+    if data is None:
+        _out("NO-DATA: %s" % refusal)
+        return NODATA
+
+    # Check 1: no surviving FILL-BY-HAND marker, in any of the 7 files.
+    for name in PACK_FILES:
+        path = os.path.join(pack_dir, name)
+        if not os.path.isfile(path):
+            _out("FAIL: %s is missing from the pack at %s" % (name, pack_dir))
+            return FAIL
+        with io.open(path, encoding="utf-8", errors="replace") as fh:
+            for lineno, line in enumerate(fh, 1):
+                if FILL_BY_HAND in line:
+                    _out("FAIL: %s:%d still contains %s"
+                         % (name, lineno, FILL_BY_HAND))
+                    return FAIL
+
+    # Check 2: the close report opens with FINISHED or UNFINISHED.
+    close_path = os.path.join(pack_dir, "06-CLOSE-REPORT.md")
+    with io.open(close_path, encoding="utf-8", errors="replace") as fh:
+        close_lines = fh.read().split("\n")
+    if not any(line.strip().startswith("FINISHED")
+              or line.strip().startswith("UNFINISHED")
+              for line in close_lines):
+        _out("FAIL: 06-CLOSE-REPORT.md has no line starting with the exact "
+             "word FINISHED or the exact word UNFINISHED")
+        return FAIL
+
+    # Check 3: a zip exists for this pack and is at least as new as it.
+    dirname = os.path.basename(pack_dir.rstrip("/"))
+    zip_path = _zip_path_for(dirname)
+    if not os.path.isfile(zip_path):
+        _out("FAIL: no zip found for this pack at %s; run `%s zip --pack "
+             "%s`" % (zip_path, _inv(), pack_dir))
+        return FAIL
+    if os.path.getmtime(zip_path) < _dir_mtime(pack_dir):
+        _out("FAIL: the zip at %s is older than the pack at %s; run `%s "
+             "zip --pack %s` again" % (zip_path, pack_dir, _inv(), pack_dir))
+        return FAIL
+
+    # Check 4: the given session owns no active record still.
+    session = kv.get("session") or ""
+    if session:
+        owned = [r for r in data["records"]
+                if r["state"] == "active" and r["session_id"] == session]
+        if owned:
+            names = ", ".join(
+                "%s (%s)" % (r["name"], r["lifecycle_uuid"][:8])
+                for r in owned)
+            _out("FAIL: session %s still owns %d unparked record(s): %s"
+                 % (session, len(owned), names))
+            return FAIL
+
+    _out("PASS: %s is ready to close." % pack_dir)
+    return PASS
+
+
+def cmd_zip(argv):
+    _pos, kv = _parse(argv, {"pack"}, wants_value=("pack",))
+    root = _root()
+    pack_dir = os.path.abspath(kv["pack"]) if kv.get("pack") \
+        else _find_newest_pack(root)
+    if not pack_dir or not os.path.isdir(pack_dir):
+        _err("bm_handover: no pack found (pass --pack DIR, or run `%s "
+             "skeleton` first)" % _inv())
+        return 2
+
+    dirname = os.path.basename(pack_dir.rstrip("/"))
+    zip_path = _zip_path_for(dirname)
+    zdir = os.path.dirname(zip_path)
+    if not os.path.isdir(zdir):
+        os.makedirs(zdir)
+
+    files = sorted(f for f in os.listdir(pack_dir)
+                   if os.path.isfile(os.path.join(pack_dir, f)))
+    tmp_path = zip_path + ".tmp-%d" % os.getpid()
+    with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in files:
+            zf.write(os.path.join(pack_dir, f),
+                     arcname="%s/%s" % (dirname, f))
+
+    if os.path.isfile(zip_path) \
+            and _sha256_file(tmp_path) == _sha256_file(zip_path):
+        os.remove(tmp_path)
+        _out("zip unchanged: %s (%d file(s)), idempotent, not rewritten"
+             % (zip_path, len(files)))
+        return 0
+
+    os.replace(tmp_path, zip_path)
+    _out("wrote %s (%d file(s))" % (zip_path, len(files)))
+    return 0
+
+
+def cmd_detect(argv):
+    _parse(argv, set())
+    try:
+        root = _root()
+    except bs.OwnershipRefused as e:
+        _out("NO-DATA: %s" % e)
+        return 0
+
+    lines = []
+    newest_pack = _find_newest_pack(root)
+    if newest_pack:
+        lines.append("newest pack: %s (%s old)"
+                     % (newest_pack, _fmt_age(time.time() - _dir_mtime(newest_pack))))
+    else:
+        lines.append("NO-DATA: no handover pack exists yet under "
+                     "docs/handover; run `%s skeleton`" % _inv())
+
+    newest_zip = _find_newest_zip()
+    if newest_zip:
+        lines.append("newest zip: %s (%s old)"
+                     % (newest_zip,
+                        _fmt_age(time.time() - os.path.getmtime(newest_zip))))
+    else:
+        lines.append("NO-DATA: no handover zip exists yet at %s"
+                     % _handovers_dir())
+
+    data, refusal = _gather(root)
+    if data is None:
+        lines.append("NO-DATA: could not read the store (%s)" % refusal)
+    else:
+        if data["handovers"]:
+            lines.append("unacknowledged handovers: %d" % len(data["handovers"]))
+            for h in data["handovers"]:
+                lines.append(
+                    "  - `%s` lifecycle %s at %s: %s"
+                    % (h["handover_uuid"][:8], h["lifecycle_uuid"][:8],
+                       h["created_at"], h["heading"] or "(no heading)"))
+                lines.append("    clear with: %s handover-ack --handover %s"
+                             % (_store_inv(), h["handover_uuid"]))
+        else:
+            lines.append("unacknowledged handovers: none")
+
+        stall, findings = None, None
+        try:
+            stall = _load("bm_stall")
+        except Exception as e:
+            lines.append("NO-DATA: could not load tools/bm_stall.py (%s)"
+                         % e)
+        if stall is not None:
+            store, sweep_refusal = _open_read_only(root)
+            if store is None:
+                lines.append("NO-DATA: could not sweep for dead-owner "
+                             "leftovers (%s)" % sweep_refusal)
+            else:
+                try:
+                    findings = stall.sweep(bs, store)
+                finally:
+                    store.close()
+        if findings is not None:
+            if findings:
+                lines.append("dead-owner leftovers: %d" % len(findings))
+                for f in findings:
+                    lines.append("  - [%s/%s] %s"
+                                 % (f["severity"], f["kind"],
+                                    f["name"] or "(unnamed)"))
+                    lines.append("    %s" % f["message"])
+                    for action in f["actions"]:
+                        lines.append("    -> %s" % action["command"])
+            else:
+                lines.append("dead-owner leftovers: none")
+
+    for line in lines:
+        _out(line)
+    return 0
+
+
+COMMANDS = {"skeleton": cmd_skeleton, "verify-close": cmd_verify_close,
+           "zip": cmd_zip, "detect": cmd_detect}
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        _out(__doc__.strip())
+        _out("")
+        _out("commands: %s" % ", ".join(sorted(COMMANDS)))
+        return 0
+    cmd = argv[0]
+    if cmd not in COMMANDS:
+        _err("bm_handover: unknown command %r (known: %s)"
+             % (cmd, ", ".join(sorted(COMMANDS))))
+        return 2
+    try:
+        return COMMANDS[cmd](argv[1:])
+    except bs.OwnershipRefused as e:
+        _err("refused (%s): %s" % (e.reason, e))
+        return 2
+    except bs.BMStoreError as e:
+        _err("bm_handover: %s" % e)
+        return 2
+
+
+def cli():
+    sys.exit(main(sys.argv[1:]))
+
+
+if __name__ == "__main__":
+    cli()
