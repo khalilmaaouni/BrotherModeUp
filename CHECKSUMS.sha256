@@ -559,6 +559,12 @@ c7247d8d9b5210cd0a360b99b2e06fea1b752fbeeaf6b89018080e65bed7fd2e  docs/runtimes/
 a169a2d3775e4700533e0cc9a06e06f6bebd4f0174cb29b5eb945cabd2e81ffe  docs/runtimes/iflow.IFLOW.md
 d1132d22ecba494e64ea424fe6569a3f9907de87aafe8e56268253dd5b25f9c1  docs/runtimes/qwen.QWEN.md
 2397d03d51d0d7ab31066a07d53bad5bdd302e89717b68b9316248a5a0767fd9  docs/sbe/sd2-sentinel/00-intake.json
+43b53b17465b168efaaa12d777d1a01be5b4f7e99bcd28f7d110457b41d5d4b3  docs/sbe/sd2-sentinel/01-purpose.md
+2e33523d2131145cf6b0ba38ce8bf66a1cdf80e5cc0b5baf31fecb745e7dc0c0  docs/sbe/sd2-sentinel/02-process.md
+e092110c2cccd171e5d7466a71d4f78205bf79e32a84d49c290f669acee5c986  docs/sbe/sd2-sentinel/03-adr.md
+44abde5b31ad659665e58713190343a302834cb9865f3bc188eb4dd0b898e6f7  docs/sbe/sd2-sentinel/05-data-model.md
+306f663a6dc18e607fcf7ea6e3172b86f8acf53849664d90b2dc10cf7dab461d  docs/sbe/sd2-sentinel/06-diagrams.md
+8bcb608e05002a144b57f1040577109da41b480144dce154fb8bd093e395cdfd  docs/sbe/sd2-sentinel/07-verification.md
 cdaf1beea29055bb6ea6decc241c055fbd740a479758adea24b3453ecc8a9e96  docs/specs/canonical-project-protocol.md
 413729bd4a0a39124af9395544340141334c946c1ebd4d5a7cd3e185328aaecb  docs/superpowers/plans/2026-07-25-thread-mode-synergy.md
 8c26efcde658f27f4ae7fb43d1907547ca748e39224250901a644b69f72f92c1  docs/superpowers/plans/2026-07-28-correction-learning-source-plan.md
