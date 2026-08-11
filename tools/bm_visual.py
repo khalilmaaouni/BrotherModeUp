@@ -60,6 +60,7 @@ import datetime
 import importlib.util
 import os
 import re
+import sys
 import xml.sax.saxutils as saxutils
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -89,6 +90,35 @@ bl = _load("bm_lead")
 # every store-derived string passes through before it reaches a document.
 # Same import tools/bm_docs.py makes, for the same reason.
 L = _load("bm_learning")
+# bm_messages is the RF-4 (GAP-19) catalog for founder-facing strings more
+# than one renderer needs word for word: constants only, no I/O, no
+# subprocess, no writes, so loading it here carries none of the cost that
+# loading tools/bm_controller.py directly would (see REFUSAL_HELP below).
+#
+# Loaded through _load_messages(), not the generic _load() above: this
+# file and tools/bm_controller.py each load bm_messages.py independently,
+# and the generic _load() re-executes a module fresh on every call (the
+# same "class-identity trap" tools/bm_project.py documents for bm_store),
+# so two independent plain _load("bm_messages") calls would never produce
+# `is`-equal objects even though both come from the same source file.
+# tools/test_bm_visual.py's RF-4 identity check needs them to be the SAME
+# object, so both this file and tools/bm_controller.py cache the load in
+# sys.modules under the one key "bm_messages" and reuse whichever loaded
+# first. Safe to cache, unlike bm_store: this module is constants only, no
+# state a fresh reload would ever need to reset.
+def _load_messages():
+    cached = sys.modules.get("bm_messages")
+    if cached is not None:
+        return cached
+    spec = importlib.util.spec_from_file_location(
+        "bm_messages", os.path.join(HERE, "bm_messages.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    sys.modules["bm_messages"] = mod
+    return mod
+
+
+M = _load_messages()
 
 
 # ---------------------------------------------------------------------------
@@ -2894,83 +2924,6 @@ REFUSAL_HELP = {
         "a damaged copy was set aside earlier and nobody has said what to "
         "do about it",
         "Ask me what was set aside and I will explain the options."),
-    # The seven below are the UNATTENDED preflight's, and they are a COPY
-    # of tools/bm_controller.py's UNATTENDED_REFUSAL_HELP, word for word,
-    # never a second rewrite of the same seven conditions. Two rewrites
-    # would mean one founder meeting two different answers for one
-    # refusal, so tools/test_bm_visual.py asserts this copy equals that
-    # original and fails on any drift.
-    #
-    # WHY A COPY AND NOT AN IMPORT: bm_controller is one of the two
-    # shipping modules allowed to import subprocess, and tools/bm_view.py
-    # loads THIS file to render a page, so sharing the map by import would
-    # pull subprocess into the render path. The copy is what keeps that
-    # path free of it.
-    "unattended-dirty-tree": (
-        "checking that nothing unfinished is already in the way",
-        "files are already changed here, and an unwatched run on top of "
-        "them makes your work and its work impossible to tell apart "
-        "afterwards",
-        "Save or set aside what you were doing, or name each changed file "
-        "when you start so it is on record that you meant to leave it."),
-    "unattended-fence-advisory": (
-        "checking that the file protection is really switched on",
-        "the protection is in advise-only mode, which means that when it "
-        "cannot check a write it lets the write through and prints a note "
-        "nobody is awake to read",
-        "Switch it to refusing mode in the same terminal you start the "
-        "run from, then start again: export BM_FENCE_MODE=enforced"),
-    "unattended-fence-not-strict": (
-        "checking that the file protection refuses unclaimed edits",
-        "edits to files no piece of work has claimed would be allowed "
-        "through, which is the shape an unwatched run's mistakes take "
-        "most often",
-        "Turn the stricter setting on in the same terminal you start the "
-        "run from, then start again: export BM_FENCE_STRICT=1"),
-    # Added 2026-08-10 with the live deny canary, the eighth unattended
-    # precondition. The two entries above prove the SETTINGS meant to turn the
-    # fence on are set; this one proves the hook actually REFUSES, by running
-    # it. The wording deliberately stops at the hook: it cannot prove the
-    # runtime will call it, which is exactly the Codex gap, and claiming
-    # otherwise here would be the defect the canary exists to close.
-    "unattended-fence-not-proven": (
-        "checking that the write fence actually refuses a write, by running "
-        "it, not only that the settings meant to turn it on are set",
-        "the fence hook's refusal could not be shown by actually running it: "
-        "either it ran and let a foreign Edit write through, or it "
-        "could not be run and checked here at all, and the detail line "
-        "below tells those two apart",
-        "read the detail line: if the hook ran and did not refuse, that is a "
-        "defect in tools/bm_fence_hook.py to fix before running unattended; "
-        "if it could not be run at all, fix that first. Either way, this only "
-        "checks the hook binary itself: it cannot prove that the runtime you "
-        "are about to run under actually calls it on every write it makes."),
-    "unattended-foreign-claim": (
-        "checking that nobody else is holding the files this run will "
-        "write",
-        "another session already claimed one of them, and two writers "
-        "over one file is the failure this product exists to prevent",
-        "Wait for that session to finish, or have it hand the files over, "
-        "then start again."),
-    "unattended-no-identity": (
-        "getting ready to run on its own, with nobody watching",
-        "the run has no stable name for itself, or its records could not "
-        "be read, so a second attempt could not tell that it was the same "
-        "run coming back",
-        "Give the run the same session name every time you start it, and "
-        "check that BrotherMode is set up in this folder."),
-    "unattended-no-repository": (
-        "finding the version history this run could be undone from",
-        "this folder is not a tracked project, or it is not sitting on a "
-        "named branch, so there would be no way to put the files back",
-        "Run it from a tracked project on its own branch, and check that "
-        "branch out by name first."),
-    "unattended-no-snapshot": (
-        "taking the safety copy this run could be rewound to",
-        "the safety copy could not be taken, so there would be nothing to "
-        "rewind to if the run went wrong",
-        "Check that the project's version history is healthy, then start "
-        "again."),
     "unit-id-taken": (
         "planning a step",
         "another step already has that name in this run",
@@ -3033,6 +2986,23 @@ REFUSAL_HELP = {
         "own text",
         "Put the markers back, or ask me to write the file fresh."),
 }
+
+# RF-4 (GAP-19): the UNATTENDED preflight's entries are folded in from
+# tools/bm_messages.py's shared catalog, the same object
+# tools/bm_controller.py's own UNATTENDED_REFUSAL_HELP is assigned from,
+# rather than retyped here. dict.update copies the VALUE REFERENCES, so
+# REFUSAL_HELP[code] for each of these codes is the identical tuple object
+# bm_controller.py's own map holds, not a second one that merely reads the
+# same today. tools/test_bm_visual.py asserts that identity and fails on
+# any drift.
+#
+# WHY THE CATALOG AND NOT AN IMPORT OF bm_controller.py DIRECTLY: the
+# controller is one of the two shipping modules allowed to import
+# subprocess, and tools/bm_view.py loads THIS file to render a page, so
+# sharing the map by importing bm_controller.py would pull subprocess into
+# the render path. tools/bm_messages.py owns nothing but string constants,
+# so loading it here costs nothing of the sort.
+REFUSAL_HELP.update(M.UNATTENDED_REFUSAL_HELP)
 
 # The five parts of a failure block, in order. Part 5 is the ONLY place a
 # raw log may ever appear, in any surface: it is pull, not push, and the
