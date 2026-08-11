@@ -6,52 +6,28 @@
 <title>BrotherMode Command Center</title>
 <style>
 :root {
-  --bm-accent: #0E7A6F;
-  --bm-accent-tint: #E4EFED;
-  --bm-at-risk-ink: #6B4400;
-  --bm-at-risk-rule: #A06A00;
-  --bm-at-risk-tint: #FFF6E5;
+  --bm-accent: #0E7A6F; --bm-accent-tint: #E4EFED;
+  --bm-at-risk-ink: #6B4400; --bm-at-risk-rule: #A06A00; --bm-at-risk-tint: #FFF6E5;
   --bm-body: #1A1D21;
-  --bm-for-info-ink: #00436B;
-  --bm-for-info-rule: #0072B2;
-  --bm-for-info-tint: #EAF3FA;
-  --bm-idle-ink: #3F4650;
-  --bm-idle-rule: #767B84;
-  --bm-idle-tint: #F1F2F4;
+  --bm-for-info-ink: #00436B; --bm-for-info-rule: #0072B2; --bm-for-info-tint: #EAF3FA;
+  --bm-idle-ink: #3F4650; --bm-idle-rule: #767B84; --bm-idle-tint: #F1F2F4;
   --bm-muted: #575E68;
-  --bm-needs-you-ink: #8C2D00;
-  --bm-needs-you-rule: #D55E00;
-  --bm-needs-you-tint: #FDEFE8;
-  --bm-page: #FFFFFF;
-  --bm-paper: #F7F8F6;
-  --bm-settled-ink: #00543A;
-  --bm-settled-rule: #009E73;
-  --bm-settled-tint: #E8F6F0;
+  --bm-needs-you-ink: #8C2D00; --bm-needs-you-rule: #D55E00; --bm-needs-you-tint: #FDEFE8;
+  --bm-page: #FFFFFF; --bm-paper: #F7F8F6;
+  --bm-settled-ink: #00543A; --bm-settled-rule: #009E73; --bm-settled-tint: #E8F6F0;
   --bm-hair: rgba(0,0,0,.10);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bm-accent: #3AA893;
-    --bm-accent-tint: #10241F;
-    --bm-at-risk-ink: #F0B95A;
-    --bm-at-risk-rule: #E69F00;
-    --bm-at-risk-tint: #2A2110;
+    --bm-accent: #3AA893; --bm-accent-tint: #10241F;
+    --bm-at-risk-ink: #F0B95A; --bm-at-risk-rule: #E69F00; --bm-at-risk-tint: #2A2110;
     --bm-body: #E9ECF1;
-    --bm-for-info-ink: #7FC4F5;
-    --bm-for-info-rule: #56B4E9;
-    --bm-for-info-tint: #0F1E2A;
-    --bm-idle-ink: #A7AEB9;
-    --bm-idle-rule: #767B84;
-    --bm-idle-tint: #1E242C;
+    --bm-for-info-ink: #7FC4F5; --bm-for-info-rule: #56B4E9; --bm-for-info-tint: #0F1E2A;
+    --bm-idle-ink: #A7AEB9; --bm-idle-rule: #767B84; --bm-idle-tint: #1E242C;
     --bm-muted: #A7AEB9;
-    --bm-needs-you-ink: #FFA582;
-    --bm-needs-you-rule: #FF7A47;
-    --bm-needs-you-tint: #2A1710;
-    --bm-page: #12151A;
-    --bm-paper: #0C0F13;
-    --bm-settled-ink: #6FDDB8;
-    --bm-settled-rule: #00B383;
-    --bm-settled-tint: #0E241C;
+    --bm-needs-you-ink: #FFA582; --bm-needs-you-rule: #FF7A47; --bm-needs-you-tint: #2A1710;
+    --bm-page: #12151A; --bm-paper: #0C0F13;
+    --bm-settled-ink: #6FDDB8; --bm-settled-rule: #00B383; --bm-settled-tint: #0E241C;
     --bm-hair: rgba(255,255,255,.12);
   }
 }
@@ -86,229 +62,417 @@ body {
   font-family: "Seravek", "Avenir Next", -apple-system, "Segoe UI", sans-serif;
   font-size: 15px; line-height: 1.55; padding: 28px 20px 60px;
 }
-.wrap { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 26px; }
+.wrap { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 30px; }
 h1, h2, h3 { font-family: "Iowan Old Style", "Palatino", Georgia, serif; text-wrap: balance; }
-h1 { font-size: 30px; line-height: 1.15; }
-h2 { font-size: 21px; margin-bottom: 4px; }
-h3 { font-size: 16px; }
-.mono, code {
-  font-family: "SF Mono", ui-monospace, "Menlo", monospace;
-  font-size: 12px; font-variant-numeric: tabular-nums;
-}
-.eyebrow {
-  text-transform: uppercase; letter-spacing: .12em; font-size: 11px;
-  color: var(--bm-accent); font-weight: 600;
-}
-header .pos { font-size: 16px; color: var(--bm-body); margin-top: 6px; font-family: "Iowan Old Style", "Palatino", Georgia, serif; }
-header .authority { color: var(--bm-muted); font-size: 12.5px; margin-top: 6px; }
-header .authority code { background: var(--bm-idle-tint); padding: 1px 5px; border-radius: 3px; }
-header .stamp { color: var(--bm-muted); font-size: 12.5px; margin-top: 8px; }
-header .stamp code { background: var(--bm-idle-tint); padding: 1px 5px; border-radius: 3px; }
-.northstar {
-  background: var(--bm-accent-tint); border-left: 3px solid var(--bm-accent);
-  padding: 14px 18px; font-family: "Iowan Old Style", "Palatino", Georgia, serif;
-  font-size: 17px; line-height: 1.45;
-}
-.northstar .eyebrow { display: block; margin-bottom: 4px; }
-.northstar .bignum { font-size: 40px; font-weight: 700; color: var(--bm-accent); font-family: "Iowan Old Style", "Palatino", Georgia, serif; }
-.northstar .guardrails { display: block; font-family: "Seravek", "Avenir Next", sans-serif; font-size: 13px; color: var(--bm-muted); margin-top: 8px; }
+h1 { font-size: 40px; line-height: 1.05; letter-spacing: .01em; }
+h2 { font-size: 20px; }
+h2 .secno { color: var(--bm-accent); font-size: 12px; vertical-align: super; margin-right: 6px; font-family: "SF Mono", ui-monospace, monospace; }
+.mono, code { font-family: "SF Mono", ui-monospace, "Menlo", monospace; font-size: 12px; font-variant-numeric: tabular-nums; }
+.eyebrow { text-transform: uppercase; letter-spacing: .14em; font-size: 11px; color: var(--bm-needs-you-rule); font-weight: 600; }
+header .stamp { color: var(--bm-muted); font-size: 12.5px; margin-top: 10px; max-width: 760px; }
+.northstar { background: var(--bm-accent-tint); border-left: 3px solid var(--bm-accent); padding: 14px 18px; max-width: 860px; }
+.northstar .nseyebrow { text-transform: uppercase; letter-spacing: .12em; font-size: 11px; color: var(--bm-accent); font-weight: 600; display: block; margin-bottom: 4px; }
+.northstar p { font-family: "Iowan Old Style", "Palatino", Georgia, serif; font-size: 16.5px; line-height: 1.45; }
+.northstar .sub { font-family: "Seravek", "Avenir Next", sans-serif; font-size: 12.5px; color: var(--bm-muted); margin-top: 6px; }
 
-/* strip */
-.strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
-.band { background: var(--bm-page); border: 1px solid var(--bm-hair); border-top: 3px solid var(--bm-idle-rule); padding: 13px 15px; }
-.band h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .1em; font-family: inherit; margin-bottom: 8px; color: var(--bm-muted); }
-.band ul { padding-left: 16px; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
-.band.changed { border-top-color: var(--bm-settled-rule); }
-.band.needs { border-top-color: var(--bm-needs-you-rule); background: var(--bm-needs-you-tint); }
-.band.needs h3 { color: var(--bm-needs-you-ink); }
-.band.watch { border-top-color: var(--bm-at-risk-rule); background: var(--bm-at-risk-tint); }
-.band.watch h3 { color: var(--bm-at-risk-ink); }
-.band.why { border-top-color: var(--bm-for-info-rule); }
-.band .note { font-size: 11.5px; color: var(--bm-muted); margin-top: 8px; }
+/* glance strip */
+.glance { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.gcard { background: var(--bm-page); border: 1px solid var(--bm-hair); border-top: 3px solid var(--bm-idle-rule); padding: 13px 15px; font-size: 13.5px; }
+.gcard .glabel { font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; display: block; margin-bottom: 7px; }
+.gcard.now { border-top-color: var(--bm-settled-rule); background: var(--bm-settled-tint); } .gcard.now .glabel { color: var(--bm-settled-ink); }
+.gcard.you { border-top-color: var(--bm-at-risk-rule); } .gcard.you .glabel { color: var(--bm-at-risk-ink); }
+.gcard.risk { border-top-color: var(--bm-needs-you-rule); background: var(--bm-needs-you-tint); } .gcard.risk .glabel { color: var(--bm-needs-you-ink); }
+.gcard.fc { border-top-color: var(--bm-for-info-rule); } .gcard.fc .glabel { color: var(--bm-for-info-ink); }
 
-/* timeline */
-.timeline { background: var(--bm-page); border: 1px solid var(--bm-hair); padding: 16px 18px; overflow-x: auto; }
-.tl-grid { display: grid; grid-template-columns: 240px 1fr; row-gap: 10px; min-width: 720px; }
-.tl-label { font-size: 12.5px; padding-right: 10px; align-self: center; }
-.tl-label .lane { color: var(--bm-muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; }
-.tl-label .theme { display: block; color: var(--bm-muted); font-size: 11px; margin-top: 2px; }
-.tl-label .status-open { color: var(--bm-needs-you-ink); font-weight: 700; }
-.tl-track { position: relative; height: 22px; background:
+/* gantt */
+.gantt { background: var(--bm-page); border: 1px solid var(--bm-hair); padding: 16px 18px; overflow-x: auto; }
+.gantt .sub { color: var(--bm-muted); font-size: 12.5px; margin: 4px 0 12px; }
+.g-head { display: grid; grid-template-columns: 250px 1fr; margin-bottom: 8px; min-width: 740px; }
+.g-cols { display: grid; font-size: 10.5px; color: var(--bm-muted); text-transform: uppercase; letter-spacing: .06em; }
+.g-grid { display: grid; grid-template-columns: 250px 1fr; row-gap: 9px; min-width: 740px; }
+.g-label { font-size: 12.5px; padding-right: 10px; align-self: center; display: flex; align-items: baseline; gap: 7px; }
+.g-count { font-family: "SF Mono", ui-monospace, monospace; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 8px; background: var(--bm-idle-tint); color: var(--bm-idle-ink); white-space: nowrap; }
+.g-count.full { background: var(--bm-settled-tint); color: var(--bm-settled-ink); }
+.g-count.part { background: var(--bm-at-risk-tint); color: var(--bm-at-risk-ink); }
+.g-track { position: relative; height: 20px; background:
+  repeating-linear-gradient(to right, transparent 0, transparent calc(100%/8 - 1px), var(--bm-hair) calc(100%/8 - 1px), var(--bm-hair) calc(100%/8)); }
+.g-track.c6 { background:
   repeating-linear-gradient(to right, transparent 0, transparent calc(100%/6 - 1px), var(--bm-hair) calc(100%/6 - 1px), var(--bm-hair) calc(100%/6)); }
-.tl-bar { position: absolute; top: 3px; height: 16px; border-radius: 2px; }
-.tl-bar.min { background: var(--bm-accent); opacity: .9; }
-.tl-bar.max { background: var(--bm-accent); opacity: .28; }
-.tl-bar.gate { background: var(--bm-needs-you-rule); width: 4px !important; border-radius: 0; }
-.tl-bar.done { background: var(--bm-settled-rule); }
-.tl-head { display: grid; grid-template-columns: 240px 1fr; margin-bottom: 8px; }
-.tl-weeks { display: grid; grid-template-columns: repeat(6, 1fr); font-size: 10.5px; color: var(--bm-muted); min-width: 0; }
-.tl-legend { font-size: 11.5px; color: var(--bm-muted); margin-top: 12px; }
-.tl-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+.g-bar { position: absolute; top: 3px; height: 14px; border-radius: 2px; }
+.g-bar.done { background: var(--bm-settled-rule); }
+.g-bar.sched { background: repeating-linear-gradient(135deg, var(--bm-accent) 0 4px, transparent 4px 8px); opacity: .75; }
+.g-bar.range { background: var(--bm-accent); opacity: .22; }
+.g-bar.gate { background: var(--bm-needs-you-rule); width: 4px !important; border-radius: 0; top: 0; height: 20px; }
+.g-legend { font-size: 11.5px; color: var(--bm-muted); margin-top: 12px; }
+.g-legend .sw { display: inline-block; width: 12px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+
+/* decisions waiting */
+.dwait { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
+.dw { background: var(--bm-page); border: 1px solid var(--bm-hair); border-left: 3px solid var(--bm-needs-you-rule); padding: 12px 15px; font-size: 13px; }
+.dw .dweyebrow { font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--bm-needs-you-ink); font-weight: 700; display: block; margin-bottom: 6px; }
+
+/* risks insights alerts */
+.ria { display: flex; flex-direction: column; gap: 10px; }
+.riarow { background: var(--bm-page); border: 1px solid var(--bm-hair); padding: 12px 15px; font-size: 13.5px; display: grid; grid-template-columns: 92px 1fr; gap: 12px; }
+.riarow .chip { align-self: start; justify-self: start; }
+.riarow b { font-weight: 650; }
+.riarow .act { display: block; margin-top: 4px; color: var(--bm-body); }
+.riarow .act .when { color: var(--bm-muted); }
+.chip { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .07em; padding: 2px 8px; border-radius: 9px; text-transform: uppercase; white-space: nowrap; }
+.chip.risk { background: var(--bm-needs-you-tint); color: var(--bm-needs-you-ink); border: 1px solid var(--bm-needs-you-rule); }
+.chip.alert { background: var(--bm-at-risk-tint); color: var(--bm-at-risk-ink); border: 1px solid var(--bm-at-risk-rule); }
+.chip.insight { background: var(--bm-for-info-tint); color: var(--bm-for-info-ink); border: 1px solid var(--bm-for-info-rule); }
+.chip.gatec { background: var(--bm-needs-you-tint); color: var(--bm-needs-you-ink); }
 
 /* ledger */
-table { border-collapse: collapse; width: 100%; background: var(--bm-page); border: 1px solid var(--bm-hair); font-size: 13px; }
-th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--bm-hair); vertical-align: top; }
-th { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--bm-muted); }
-.tick { font-weight: 700; }
-.tick.on { color: var(--bm-settled-rule); }
-.tick.off { color: var(--bm-idle-rule); }
-td .ev { display: block; margin-top: 3px; color: var(--bm-muted); }
-.tablewrap { overflow-x: auto; }
-.tranche-h { margin-top: 4px; }
-.tranche-h .sub { color: var(--bm-muted); font-size: 12.5px; margin-bottom: 6px; }
+.phase { background: var(--bm-page); border: 1px solid var(--bm-hair); }
+.phase + .phase { margin-top: 12px; }
+.ph-head { display: flex; align-items: baseline; gap: 10px; padding: 11px 15px; border-bottom: 1px solid var(--bm-hair); background: var(--bm-idle-tint); }
+.ph-head h3 { font-size: 15px; }
+.ph-head .when { margin-left: auto; font-size: 11.5px; color: var(--bm-muted); white-space: nowrap; }
+.ph-rows { display: flex; flex-direction: column; }
+.lrow { display: grid; grid-template-columns: 26px 1fr; gap: 8px; padding: 10px 15px; border-bottom: 1px solid var(--bm-hair); font-size: 13.5px; }
+.lrow:last-child { border-bottom: 0; }
+.lrow .box { font-size: 14px; line-height: 1.3; }
+.lrow .box.on { color: var(--bm-settled-rule); font-weight: 700; }
+.lrow .box.off { color: var(--bm-idle-rule); }
+.lrow .chk { display: block; margin-top: 3px; font-family: "SF Mono", ui-monospace, monospace; font-size: 11.5px; color: var(--bm-muted); }
+.lrow.done .chk { color: var(--bm-settled-ink); }
 
-/* chips */
-.chip { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; padding: 1px 7px; border-radius: 9px; text-transform: uppercase; }
-.chip.v { background: var(--bm-settled-tint); color: var(--bm-settled-ink); }
-.chip.p { background: var(--bm-at-risk-tint); color: var(--bm-at-risk-ink); }
-.chip.a { background: var(--bm-needs-you-tint); color: var(--bm-needs-you-ink); }
-.chip.i { background: var(--bm-for-info-tint); color: var(--bm-for-info-ink); }
-
-/* decisions / alerts */
-.dcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
-.dcard { background: var(--bm-needs-you-tint); border: 1px solid var(--bm-needs-you-rule); padding: 13px 15px; font-size: 13.5px; }
-.dcard h3 { color: var(--bm-needs-you-ink); margin-bottom: 6px; }
-.dcard .rec { font-weight: 600; }
+/* decisions recorded */
+.drec { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.dr { background: var(--bm-accent-tint); border: 1px solid var(--bm-hair); padding: 12px 15px; font-size: 13px; }
+.dr .dreyebrow { font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--bm-accent); font-weight: 700; display: block; margin-bottom: 5px; }
 
 footer { border-top: 1px solid var(--bm-hair); padding-top: 16px; font-size: 12px; color: var(--bm-muted); display: flex; flex-direction: column; gap: 8px; }
-section > .sub { color: var(--bm-muted); font-size: 13px; margin-bottom: 10px; }
+section > .sub { color: var(--bm-muted); font-size: 13px; margin: 4px 0 12px; }
 </style>
 </head>
 <body>
 <div class="wrap">
 
 <header>
-  <span class="eyebrow">BrotherMode Command Center</span>
-  <h1>BrotherMode Command Center</h1>
-  <p class="pos">The reliability layer for serious Claude Code work. From intent to verified delivery.</p>
-  <p class="authority">Product authority: <code>PRODUCT-DIRECTION.md</code> is the product authority (founder direction 2026-08-11).</p>
-  <p class="stamp">Baton: session <code>eefa5a904569c730d8</code> (v3-refocus), 2026-08-11. A box ticks only when its check ran after the last edit and its output is quoted beside it.</p>
+  <span class="eyebrow">&#10022; BrotherMode &middot; Product and Delivery &middot; Progress</span>
+  <h1>V3 FINAL</h1>
+  <p class="stamp">Refreshed 2026-08-11 (evening) by session eefa5a42. A box ticks
+  only when its done-check ran after the last edit and the output is quoted in
+  the evidence line beside it. Percentages are counts of records, never
+  impressions. This is the ONE progress page for BrotherMode. Authority:
+  PRODUCT-DIRECTION.md at the repository root.</p>
 </header>
 
 <section class="northstar">
-  <span class="eyebrow">North star</span>
-  <span class="bignum">0</span> Confirmed External Verified Deliveries per Week.
-  <span class="guardrails">Stated plainly: zero external users so far. The pilot in R3 is what changes this number. Guardrails watched alongside it, not traded against it: reopen rate, lost-state incidents, recovery success, false refusals, time to first value.</span>
+  <span class="nseyebrow">North star</span>
+  <p>Confirmed External Verified Deliveries per Week. Every serious AI-assisted
+  task ends in a resumable, review-ready, evidence-backed delivery. The
+  reliability layer for serious Claude Code work: from intent to verified
+  delivery.</p>
+  <p class="sub">Current value: 0. Zero external users so far, stated plainly;
+  the pilot in tranche R3 is what moves this number. Guardrails watched beside
+  it, never traded against it: reopen rate, lost-state incidents, recovery
+  success, false refusals, time to first value.</p>
 </section>
 
-<section class="timeline" id="timeline">
-  <h2>Five tranches: 2026-08-12 to 2026-09-05, then open ended</h2>
-  <p class="sub">Day granularity for tomorrow's tag, week granularity after that. Solid bar is the tranche window. Grid columns are approximate week markers, not tranche boundaries.</p>
-  <div class="tl-head"><div></div><div class="tl-weeks"><span>Aug 12</span><span>Aug 13 to 16</span><span>Aug 17 to 23</span><span>Aug 24 to 30</span><span>Aug 31 to Sep 6</span><span>Sep 7 onward</span></div></div>
-  <div class="tl-grid">
-    <div class="tl-label"><span class="lane">R0</span> v3.2.0, V3 Final <span class="status-open">OPEN</span><span class="theme">Reposition and ship. 2026-08-12, tomorrow.</span></div>
-    <div class="tl-track"><div class="tl-bar min" style="left:0%; width:3.57%"></div></div>
-    <div class="tl-label"><span class="lane">R1</span> v3.3.0, Prove<span class="theme">Criterion-linked verification and recovery. 2026-08-13 to 2026-08-16.</span></div>
-    <div class="tl-track"><div class="tl-bar min" style="left:3.57%; width:14.29%"></div></div>
-    <div class="tl-label"><span class="lane">R2</span> v3.4.0, Toolkit MVP<span class="theme">Find, Trust, Compose, Prove, Learn. 2026-08-17 to 2026-08-26.</span></div>
-    <div class="tl-track"><div class="tl-bar min" style="left:17.86%; width:35.71%"></div></div>
-    <div class="tl-label"><span class="lane">R3</span> v3.5.0, Trust and Pilot<span class="theme">Lifecycle completion and 5 external users. 2026-08-27 to 2026-09-05.</span></div>
-    <div class="tl-track"><div class="tl-bar min" style="left:53.57%; width:35.71%"></div></div>
-    <div class="tl-label"><span class="lane">R4</span> Evidence Rerank<span class="theme">Rerank on evidence. 2026-09-06 onward, open ended.</span></div>
-    <div class="tl-track"><div class="tl-bar max" style="left:89.29%; width:10.71%"></div></div>
+<section>
+  <h2><span class="secno">01</span>TODAY AT A GLANCE</h2>
+  <div class="glance">
+    <div class="gcard now"><span class="glabel">Now</span>
+      Refocus complete: product authority committed, 23 items reclassified,
+      tomorrow's release fully scoped, long-range tranches planned. Pushed at
+      10b917f, full battery 3015 tests ALL GREEN, board rebuilt to the
+      mandated structure.</div>
+    <div class="gcard you"><span class="glabel">Waiting on Khalil</span>
+      Six decisions (about two question rounds): the v3.2.0 go and tag, SD2
+      resume or discard, the private vulnerability reporting click, the vault
+      name in public history, weekly refresh arming, cache clearance. Cards in
+      section 04.</div>
+    <div class="gcard risk"><span class="glabel">Risk watch</span>
+      Tomorrow's README rewrite is test-pinned: the docs suite asserts its
+      claims and a generated block sits inside it. The code slice runs at the
+      optimistic end of its estimate. Both risks carry pre-declared actions in
+      section 05.</div>
+    <div class="gcard fc"><span class="glabel">Forecast</span>
+      V3 Final ships tomorrow 2026-08-12. Lane A 3.5 to 6 hours, lane B 3.25
+      to 6 hours, two builders in parallel, MEDIUM confidence. The date holds
+      even if the code slice de-scopes; the tag waits for Khalil regardless.</div>
   </div>
-  <p class="tl-legend"><span class="sw" style="background:var(--bm-accent)"></span>tranche window&nbsp;&nbsp;<span class="sw" style="background:var(--bm-accent); opacity:.28"></span>open ended, no fixed close&nbsp;&nbsp;R0 carries the founder gate for the v3.2.0 tag itself.</p>
 </section>
 
-<section id="ledger">
-  <h2>Task ledger</h2>
-  <p class="sub">A box ticks only when its done-check ran after the last edit and the output is quoted beside it. Every row below is open unless marked otherwise. Percentages are counts of records, never impressions.</p>
-
-  <div class="tranche-h"><h3>Ticked today, 2026-08-11</h3></div>
-  <div class="tablewrap"><table>
-    <tr><th></th><th>Item</th><th>Evidence</th></tr>
-    <tr><td class="tick on">&check;</td><td>Product authority committed</td><td class="mono">PRODUCT-DIRECTION.md at root, linked from SKILL.md, README.md, docs/ROADMAP.md.<span class="ev">Evidence: python3 tools/test_bm_docs.py after the last edit: "Ran 230 tests in 27.349s OK (skipped=1)", exit 0, 2026-08-11.</span></td></tr>
-    <tr><td class="tick on">&check;</td><td>Roadmap reclassified</td><td class="mono">docs/plan/RECLASSIFICATION-2026-08-11.md, 23 items, three researcher sweeps with file evidence.</td></tr>
-    <tr><td class="tick on">&check;</td><td>Dead leftovers cleared</td><td class="mono">5 handovers acked, 3 stale fences adopted and parked or cancelled, verified via bm_store outputs 2026-08-11.</td></tr>
-  </table></div>
-
-  <div class="tranche-h"><h3>R0, v3.2.0 V3 Final</h3><p class="sub">2026-08-12. G4 is the founder gate: nothing in this tranche ships past it without a yes.</p></div>
-  <div class="tablewrap"><table>
-    <tr><th></th><th>Item</th><th>Done check</th></tr>
-    <tr><td class="tick off">&#9744;</td><td>A1: README repositioning</td><td class="mono">grep -q "reliability layer" README.md</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>A2: six command surface docs</td><td class="mono">python3 tools/test_bm_docs.py exit 0</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>A3: SECURITY.md versions and reporting</td><td class="mono">python3 tools/test_bm_docs.py exit 0</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>B1: purge dry run</td><td class="mono">python3 tools/test_bm_project.py exit 0</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>B2: data locations command</td><td class="mono">python3 tools/test_bm_consent.py exit 0</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>B3: verify skill</td><td class="mono">python3 tools/test_bm_docs.py exit 0 plus heading-shape diff vs skills/review</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>G1: full battery</td><td class="mono">python3 tools/test_all.py, PO-1 detach pattern, ALL GREEN quoted</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>G2: checksums</td><td class="mono">sh scripts/checksums.sh CHECKSUMS.sha256, doctor checksums check PASS</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>G3: version and push</td><td class="mono">VERSION reads 3.2.0, push through gates, HEAD equals upstream after. No tag here.</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>G4: founder tag and release <span class="chip a">FOUNDER GATE</span></td><td class="mono">annotated tag v3.2.0 and gh release: the founder's own click or explicit yes, never an agent action</td></tr>
-  </table></div>
-
-  <div class="tranche-h"><h3>R1, v3.3.0 Prove</h3><p class="sub">2026-08-13 to 2026-08-16. R1.4 carries the founder gate: the SD2 branch call has to be made before this tranche can wire the ceremony's open half.</p></div>
-  <div class="tablewrap"><table>
-    <tr><th></th><th>Item</th><th>Done check</th></tr>
-    <tr><td class="tick off">&#9744;</td><td>R1.1: outcome columns</td><td class="mono">ledger and store schema carry an outcome column, checked with the tool that reads the store</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>R1.2: criterion linked verification</td><td class="mono">a verifier run cites the frozen acceptance criterion it checked, not a free text summary</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>R1.3: ceremony open half wired</td><td class="mono">python3 tools/bm_handover.py detect fires from hooks.json without manual invocation</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>R1.4: SD2 sentinel <span class="chip a">FOUNDER GATE</span></td><td class="mono">founder rules resume the preserved branch or discard it; resume recommended, then the build suite runs green</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>R1.5: prose fence retirement</td><td class="mono">grep for live prose fence markers returns empty, fence hook tests green</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>R1.6: surface consolidation</td><td class="mono">the documented six command surface matches the actual command count, counted not assumed</td></tr>
-  </table></div>
-
-  <div class="tranche-h"><h3>R2, v3.4.0 Toolkit MVP</h3><p class="sub">2026-08-17 to 2026-08-26. Six stages: Find, Trust, Compose, Prove, Learn.</p></div>
-  <div class="tablewrap"><table>
-    <tr><th></th><th>Item</th><th>Done check</th></tr>
-    <tr><td class="tick off">&#9744;</td><td>R2.1: inventory</td><td class="mono">the toolkit inventory command lists every discovered tool with its source, run and read by hand</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>R2.2: trust inspection</td><td class="mono">an inspection report exists per candidate tool before it can be proposed</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>R2.3: proposal and allowlisted install</td><td class="mono">install only proceeds from an allowlist entry the founder approved, refusal path tested</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>R2.4: receipts</td><td class="mono">every install and removal writes a receipt file, checked to exist after the action</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>R2.5: cleanup</td><td class="mono">a removal command leaves no trace, verified by a second inventory run after</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>R2.6: capability memory, learn stage</td><td class="mono">a second run of the same task recalls the prior capability record instead of rediscovering it</td></tr>
-  </table></div>
-
-  <div class="tranche-h"><h3>R3, v3.5.0 Trust and Pilot</h3><p class="sub">2026-08-27 to 2026-09-05. This is where the north star's zero is meant to move.</p></div>
-  <div class="tablewrap"><table>
-    <tr><th></th><th>Item</th><th>Done check</th></tr>
-    <tr><td class="tick off">&#9744;</td><td>R3.1: lifecycle completion</td><td class="mono">every stage from intent to delivered artifact has a named owner and a written handoff</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>R3.2: founder decisions batch</td><td class="mono">a ratified decisions file exists for this tranche with flip conditions per item</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>R3.3: pilot protocol and 5 users</td><td class="mono">5 external users onboarded under the written pilot protocol, named and dated</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>R3.4: L2 status page first contact</td><td class="mono">a pilot user's first session reaches the status page without being walked through it</td></tr>
-    <tr><td class="tick off">&#9744;</td><td>R3.5: CEVD and W counters</td><td class="mono">the Confirmed External Verified Deliveries per Week counter reads a nonzero value from real pilot activity</td></tr>
-  </table></div>
-
-  <div class="tranche-h"><h3>R4, Evidence Rerank</h3><p class="sub">2026-09-06 onward. Open ended by design: this tranche runs on what the pilot proves, not a calendar.</p></div>
-  <div class="tablewrap"><table>
-    <tr><th></th><th>Item</th><th>Done check</th></tr>
-    <tr><td class="tick off">&#9744;</td><td>R4.1: the rerank document itself</td><td class="mono">content not decided before pilot evidence exists, by design; R4's first and only planned deliverable is the rerank table in the shape of RECLASSIFICATION-2026-08-11.md. Eligible after it: L5 reader, benchmark (optional), executor adapters on their flip condition, V1 verifier.</td></tr>
-  </table></div>
+<section class="gantt">
+  <h2><span class="secno">02</span>TOMORROW IN HOUR BLOCKS &middot; SHORT RANGE</h2>
+  <p class="sub">v3.2.0, V3 Final, 2026-08-12. Two lanes in parallel, gate lane
+  after. Columns are working hour blocks; they firm up as boxes tick. Every row
+  counter is a count of ledger records in section 06.</p>
+  <div class="g-head"><div></div><div class="g-cols" style="grid-template-columns:repeat(8,1fr)"><span>H1</span><span>H2</span><span>H3</span><span>H4</span><span>H5</span><span>H6</span><span>H7</span><span>H8</span></div></div>
+  <div class="g-grid">
+    <div class="g-label"><span class="g-count">0/1</span> A1 README repositioning</div>
+    <div class="g-track"><div class="g-bar sched" style="left:0%; width:25%"></div></div>
+    <div class="g-label"><span class="g-count">0/1</span> A2 Six-command surface docs</div>
+    <div class="g-track"><div class="g-bar sched" style="left:25%; width:37.5%"></div></div>
+    <div class="g-label"><span class="g-count">0/1</span> A3 SECURITY.md versions and reporting</div>
+    <div class="g-track"><div class="g-bar sched" style="left:62.5%; width:12.5%"></div></div>
+    <div class="g-label"><span class="g-count">0/1</span> B1 Purge dry-run plus test</div>
+    <div class="g-track"><div class="g-bar sched" style="left:0%; width:37.5%"></div></div>
+    <div class="g-label"><span class="g-count">0/1</span> B2 Data locations check plus test</div>
+    <div class="g-track"><div class="g-bar sched" style="left:37.5%; width:25%"></div></div>
+    <div class="g-label"><span class="g-count">0/1</span> B3 Verify skill, routing only</div>
+    <div class="g-track"><div class="g-bar sched" style="left:62.5%; width:12.5%"></div></div>
+    <div class="g-label"><span class="g-count">0/1</span> G1 Full battery, PO-1 pattern</div>
+    <div class="g-track"><div class="g-bar sched" style="left:75%; width:12.5%"></div></div>
+    <div class="g-label"><span class="g-count">0/1</span> G2 Checksums after git add</div>
+    <div class="g-track"><div class="g-bar sched" style="left:87.5%; width:6.25%"></div></div>
+    <div class="g-label"><span class="g-count">0/1</span> G3 Version, changelog, push</div>
+    <div class="g-track"><div class="g-bar sched" style="left:87.5%; width:12.5%"></div></div>
+    <div class="g-label"><span class="g-count">0/1</span> G4 Founder tag and release</div>
+    <div class="g-track"><div class="g-bar range" style="left:93.75%; width:6.25%"></div><div class="g-bar gate" style="left:93.75%"></div></div>
+  </div>
+  <p class="g-legend"><span class="sw" style="background:var(--bm-settled-rule)"></span>done portion&nbsp;&nbsp;<span class="sw" style="background:repeating-linear-gradient(135deg, var(--bm-accent) 0 4px, transparent 4px 8px)"></span>scheduled&nbsp;&nbsp;<span class="sw" style="background:var(--bm-accent); opacity:.22"></span>estimate range&nbsp;&nbsp;<span class="sw" style="background:var(--bm-needs-you-rule)"></span>founder gate. If B1 or B2 stays red after two attempts it moves to R1 and lane A ships alone; the date holds.</p>
 </section>
 
-<section class="strip">
-  <div class="band needs">
-    <h3>Decisions waiting, founder</h3>
-    <ul>
-      <li>1. v3.2.0 tag tomorrow, the publish release floor</li>
-      <li>2. SD2: resume the preserved branch or discard it (R1.4); resume recommended</li>
-      <li>3. Enable GitHub private vulnerability reporting, a repo settings click (R0, A3)</li>
-      <li>4. Vault name showing in public history, before the pilot</li>
-      <li>5. Weekly ecosystem refresh arming, a weekly token spend</li>
-      <li>6. About 4 GB of regenerable caches sit clearable, disk at 95 percent</li>
-    </ul>
-    <p class="note">Decisions arrive as windows in chat; this page only lists them.</p>
+<section class="gantt">
+  <h2><span class="secno">03</span>THE PROGRAM BY TRANCHE &middot; LONG RANGE</h2>
+  <p class="sub">Each tranche is a stable, founder-gated release. The next opens
+  only after the previous tag. Counters count the ledger records in section 06.
+  Plan: docs/plan/LONG-RANGE-PLAN-2026-08-11.md.</p>
+  <div class="g-head"><div></div><div class="g-cols" style="grid-template-columns:repeat(6,1fr)"><span>Aug 12</span><span>Aug 13 to 16</span><span>Aug 17 to 23</span><span>Aug 24 to 30</span><span>Aug 31 to Sep 5</span><span>Sep 6 on</span></div></div>
+  <div class="g-grid">
+    <div class="g-label"><span class="g-count full">3/3</span> Prep: refocus, plans, board (2026-08-11)</div>
+    <div class="g-track c6"><div class="g-bar done" style="left:0%; width:4%"></div></div>
+    <div class="g-label"><span class="g-count">0/10</span> R0 v3.2.0 V3 Final: reposition and ship</div>
+    <div class="g-track c6"><div class="g-bar sched" style="left:0%; width:16.67%"></div><div class="g-bar gate" style="left:15.5%"></div></div>
+    <div class="g-label"><span class="g-count">0/6</span> R1 v3.3.0 Prove: criterion-linked verification, recovery</div>
+    <div class="g-track c6"><div class="g-bar sched" style="left:16.67%; width:16.67%"></div><div class="g-bar gate" style="left:32.2%"></div></div>
+    <div class="g-label"><span class="g-count">0/6</span> R2 v3.4.0 Toolkit MVP: Find, Trust, Compose, Prove, Learn</div>
+    <div class="g-track c6"><div class="g-bar sched" style="left:33.33%; width:25%"></div><div class="g-bar range" style="left:58.33%; width:8.33%"></div><div class="g-bar gate" style="left:65.5%"></div></div>
+    <div class="g-label"><span class="g-count">0/5</span> R3 v3.5.0 Trust and Pilot: lifecycle done, 5 external users</div>
+    <div class="g-track c6"><div class="g-bar sched" style="left:66.67%; width:16.67%"></div><div class="g-bar gate" style="left:82.3%"></div></div>
+    <div class="g-label"><span class="g-count">0/1</span> R4 Evidence Rerank: open ended by design</div>
+    <div class="g-track c6"><div class="g-bar range" style="left:83.33%; width:16.67%"></div></div>
   </div>
-  <div class="band watch">
-    <h3>Watch</h3>
-    <ul>
-      <li>Ecosystem page 30 day staleness gate</li>
-      <li>No unattended stretches until SD2 proves itself, ratified decision 27</li>
-      <li>Spend guard ceiling, 800k per session</li>
-    </ul>
+  <p class="g-legend"><span class="sw" style="background:var(--bm-settled-rule)"></span>done portion&nbsp;&nbsp;<span class="sw" style="background:repeating-linear-gradient(135deg, var(--bm-accent) 0 4px, transparent 4px 8px)"></span>scheduled&nbsp;&nbsp;<span class="sw" style="background:var(--bm-accent); opacity:.22"></span>estimate range or open ended&nbsp;&nbsp;<span class="sw" style="background:var(--bm-needs-you-rule)"></span>founder release gate. Four lanes govern all of it: core delivery path, Toolkit, trust and lifecycle, pilot and measurement. Two implementation lanes max at any time.</p>
+</section>
+
+<section>
+  <h2><span class="secno">04</span>DECISIONS WAITING ON KHALIL</h2>
+  <p class="sub">Decisions arrive as question windows in chat; this page lists them so none is lost.</p>
+  <div class="dwait">
+    <div class="dw"><span class="dweyebrow">Release go</span>
+      v3.2.0 tag and GitHub release tomorrow (gate G4). Your click or your
+      explicit yes; the exact commands are drafted in the release plan. Needed
+      by tomorrow evening.</div>
+    <div class="dw"><span class="dweyebrow">SD2 sentinel</span>
+      Resume the preserved branch (1618 insertions, recommended) or discard
+      it. Blocks R1.4 and every unattended stretch until answered.</div>
+    <div class="dw"><span class="dweyebrow">Security reporting</span>
+      Enable GitHub private vulnerability reporting: one click in the repo
+      settings. Rides with tomorrow's SECURITY.md task A3.</div>
+    <div class="dw"><span class="dweyebrow">Vault name in history</span>
+      17 tracked files carry the private vault name. Rewrite published history
+      or accept it. Decide before the pilot opens (R3).</div>
+    <div class="dw"><span class="dweyebrow">Weekly refresh</span>
+      Arm the comparison-page weekly refresh. Costs tokens weekly, which is
+      why it waits for your yes. Due in R3, or when the staleness gate warns.</div>
+    <div class="dw"><span class="dweyebrow">Machine headroom</span>
+      About 4 GB of verified-regenerable caches clearable on your word; disk
+      sat at 95 percent. Best cleared before R2's build-heavy work.</div>
   </div>
-  <div class="band changed">
-    <h3>Stalls</h3>
-    <ul>
-      <li>None open as of 2026-08-11 evening. All dead owner leftovers were cleared this session.</li>
-    </ul>
+</section>
+
+<section>
+  <h2><span class="secno">05</span>RISK MANAGEMENT, INSIGHTS AND ALERTS</h2>
+  <p class="sub">Every item explained: what it is, why it matters, the action to
+  take and when. This section exists so the right action happens at the right
+  time, not after the fact.</p>
+  <div class="ria">
+    <div class="riarow"><span class="chip risk">Risk</span><div>
+      <b>The README rewrite is test-pinned.</b> About 12 docs-suite predicates
+      iterate every active document, and a generated capability block sits
+      inside README itself. Why it matters: an overclaiming rewrite turns the
+      suite red on ship day, and a hand edit inside the generated markers makes
+      the suite lie silently.
+      <span class="act">Action: narrow wording until green, never delete or
+      weaken an assertion, regenerate the block only through its generator.
+      <span class="when">When: during A1 and A2, tomorrow morning.</span></span></div></div>
+    <div class="riarow"><span class="chip risk">Risk</span><div>
+      <b>The one-day code slice runs at the optimistic end.</b> B1 and B2 fit
+      tomorrow only if nothing goes red. Why it matters: a red slice under time
+      pressure is how gates get weakened.
+      <span class="act">Action: pre-declared de-scope, decided now and not
+      under pressure: after two red attempts, B1 and B2 move to R1 and lane A
+      ships alone. The date holds, no gate weakens.
+      <span class="when">When: mid-afternoon tomorrow, before G1.</span></span></div></div>
+    <div class="riarow"><span class="chip alert">Alert</span><div>
+      <b>No unattended runs until the sentinel proves itself.</b> Ratified
+      decision 27 blocks unattended stretches until a seeded stall is caught
+      end to end. Why it matters: the 8 August runaway spent ten hours with
+      nothing to show.
+      <span class="act">Action: every loop runs attended until R1.4's kill test
+      passes; the SD2 decision comes first.
+      <span class="when">When: standing, until R1 closes.</span></span></div></div>
+    <div class="riarow"><span class="chip alert">Alert</span><div>
+      <b>The comparison page has a 30-day staleness gate.</b> The build FAILs
+      when the page passes 30 days unchecked. Why it matters: a stale
+      comparison damages credibility silently, then blocks a release loudly.
+      <span class="act">Action: your yes on the weekly refresh, or one manual
+      refresh before the deadline.
+      <span class="when">When: due by 2026-09-10, or at the gate's first warning.</span></span></div></div>
+    <div class="riarow"><span class="chip alert">Alert</span><div>
+      <b>Disk and spend headroom are both thin.</b> Disk sat at 95 percent;
+      the spend guard hard-stops a session at 800k output tokens. Why it
+      matters: R2's toolkit builds and the full battery need both, and a
+      hard stop mid-loop loses momentum, never work.
+      <span class="act">Action: clear the 4 GB on your word before R2; watch
+      the meter at the 500k soft stop in long sessions.
+      <span class="when">When: before 2026-08-17.</span></span></div></div>
+    <div class="riarow"><span class="chip insight">Insight</span><div>
+      <b>Check before build keeps paying.</b> Three of eleven ranked roadmap
+      items turned out already built or empty when someone looked. Why it
+      matters: minutes of checking prevented days of duplicate work, twice in
+      one day.
+      <span class="act">Action: every loop opens with an already-built check;
+      it is written into each tranche's first step.
+      <span class="when">When: every loop, standing.</span></span></div></div>
+    <div class="riarow"><span class="chip insight">Insight</span><div>
+      <b>Two fence systems disagreed today.</b> A dead session's prose fence
+      blocked README while the store fence allowed it: two parsers of one
+      truth, drifting silently. Why it matters: this is the exact failure
+      class that once cost hours.
+      <span class="act">Action: R1.5 retires prose fences so the store is the
+      only fence surface; until then any refusal is investigated, never worked
+      around.
+      <span class="when">When: R1.</span></span></div></div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="secno">06</span>THE LEDGER &middot; EVERY BOX, ITS PROOF</h2>
+  <p class="sub">A box ticks only when its done-check ran after the last edit
+  and the output is quoted beside it. Open boxes show the check that will earn
+  the tick. The counters here are the same counters on both charts above.</p>
+
+  <div class="phase">
+    <div class="ph-head"><span class="g-count full">3/3</span><h3>Prep: refocus, plans, board</h3><span class="when">closed 2026-08-11</span></div>
+    <div class="ph-rows">
+      <div class="lrow done"><span class="box on">&check;</span><div>Product authority committed and linked (PRODUCT-DIRECTION.md, SKILL.md, README.md, docs/ROADMAP.md)
+        <span class="chk">python3 tools/test_bm_docs.py after the last edit: "Ran 230 tests in 27.349s OK (skipped=1)", exit 0</span></div></div>
+      <div class="lrow done"><span class="box on">&check;</span><div>Roadmap reclassified and both plans written, then adversarially reviewed: 12 findings, all repaired before commit
+        <span class="chk">full battery on 10b917f: "test_all: 3015 tests across 32 suites, 5 skipped, 561.6s wall. ALL GREEN", exit 0; pushed, HEAD == upstream == ls-remote</span></div></div>
+      <div class="lrow done"><span class="box on">&check;</span><div>Baton adopted clean: 5 handovers acknowledged, 3 dead fences cleared with receipts, SD2 work preserved untouched
+        <span class="chk">bm_store adopt, park, cancel outputs quoted in the vault session log, 2026-08-11</span></div></div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="ph-head"><span class="g-count">0/10</span><h3>R0 &middot; v3.2.0 V3 Final: reposition and ship</h3><span class="when">tomorrow 2026-08-12</span></div>
+    <div class="ph-rows">
+      <div class="lrow"><span class="box off">&#9744;</span><div>A1 README leads with category, launch line, tagline, persona, anti-personas, runtime labels
+        <span class="chk">check: python3 tools/test_bm_docs.py exit 0, dash scan on changed lines empty</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>A2 Public surface documented as six commands with real status each; deprecation line on all 15 legacy shims
+        <span class="chk">check: python3 tools/test_bm_docs.py exit 0</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>A3 SECURITY.md supported versions and private reporting; the repo-settings click named as Khalil's own
+        <span class="chk">check: python3 tools/test_bm_docs.py exit 0</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>B1 Purge --dry-run prints what would go, removes nothing, test proves it
+        <span class="chk">check: python3 tools/test_bm_project.py exit 0</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>B2 Data locations surfaced through doctor without running uninstall, test proves no filesystem change
+        <span class="chk">check: python3 tools/test_bm_consent.py exit 0</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>B3 Verify skill as thin routing over the existing review and deliver flows, no new engine
+        <span class="chk">check: python3 tools/test_bm_docs.py exit 0 plus heading-shape diff vs skills/review/SKILL.md</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>G1 Full battery on the release commit
+        <span class="chk">check: python3 tools/test_all.py via the PO-1 detach pattern, ALL GREEN line quoted with exit 0</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>G2 Checksums regenerated after git add, integrity check passing
+        <span class="chk">check: sh scripts/checksums.sh CHECKSUMS.sha256, then scripts/doctor.py checksums PASS</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>G3 VERSION 3.2.0, CHANGELOG entry, pushed through the gates. No tag in this box.
+        <span class="chk">check: cat VERSION reads 3.2.0; secret scan, dash scan, HEAD == upstream all quoted</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>G4 Founder tag and release <span class="chip gatec">Founder gate</span>
+        <span class="chk">check: gh release view v3.2.0 shows published; annotated tag matches git rev-parse v3.2.0. Khalil's click or explicit yes, never an agent action.</span></div></div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="ph-head"><span class="g-count">0/6</span><h3>R1 &middot; v3.3.0 Prove: criterion-linked verification and recovery</h3><span class="when">2026-08-13 to 16</span></div>
+    <div class="ph-rows">
+      <div class="lrow"><span class="box off">&#9744;</span><div>R1.1 Outcome contract columns: kill_criteria and non_goals on the projects table, rendered in CANVAS.md
+        <span class="chk">check: targeted store and project suites green, named from the SUITES registry</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>R1.2 Acceptance criteria get ids, evidence links per criterion, delivery packet prints checked, not checked, remaining
+        <span class="chk">check: packet test names each criterion beside its evidence state; full gate green</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>R1.3 Ceremony opening half wired into session start
+        <span class="chk">check: new test proves a session that skips detect is told so</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>R1.4 SD2 sentinel from the preserved branch <span class="chip gatec">Founder gate first</span>
+        <span class="chk">check: seeded-stall kill test passes end to end, quoted after the merge</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>R1.5 Prose fence retirement: the store becomes the only fence surface
+        <span class="chk">check: grep for live prose fence markers returns empty; fence hook tests green</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>R1.6 Physical surface consolidation: shims retired, booklet caught up
+        <span class="chk">check: docs suite green with no dangling pointer</span></div></div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="ph-head"><span class="g-count">0/6</span><h3>R2 &middot; v3.4.0 Toolkit MVP: Find, Trust, Compose, Prove, Learn</h3><span class="when">2026-08-17 to 26</span></div>
+    <div class="ph-rows">
+      <div class="lrow"><span class="box off">&#9744;</span><div>R2.1 Inventory of installed skills, plugins, MCP servers, CLIs with source and version where knowable
+        <span class="chk">check: inventory command output read by hand; kill criterion: over one week, cut to Claude Code surfaces and record the cut</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>R2.2 Trust inspection record per capability, printed before any proposal
+        <span class="chk">check: every field populated or explicitly unknown for one real capability</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>R2.3 Minimal proposal plus allowlisted install: pinned, local scope, one visible approval, rollback recorded first
+        <span class="chk">check: one real task completes through an approved toolkit</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>R2.4 Receipts: executor, versions, artifacts, claimed result, verification, omissions, in one row a packet can read
+        <span class="chk">check: receipt row for a real toolkit-assisted task, read back</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>R2.5 Cleanup: every install this tranche made is reversed or its retention justified in writing
+        <span class="chk">check: reversal command run once per install, confirmed</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>R2.6 Capability memory: prior outcomes visibly influence the next selection, no core rule file changes
+        <span class="chk">check: second same-type task ranks the proven capability first; core rule diff empty</span></div></div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="ph-head"><span class="g-count">0/5</span><h3>R3 &middot; v3.5.0 Trust and Pilot: lifecycle done, five external users</h3><span class="when">2026-08-27 to Sep 5</span></div>
+    <div class="ph-rows">
+      <div class="lrow"><span class="box off">&#9744;</span><div>R3.1 Lifecycle completion: purge proof documented, private reporting enabled, synthetic paths only
+        <span class="chk">check: grep for personal paths in public examples returns empty; who clicked reporting, and when, on record</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>R3.2 Founder decisions batch: vault name, weekly refresh, both recorded with the actual answer
+        <span class="chk">check: both decisions on record, spend stated before the yes</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>R3.3 Pilot protocol: five qualified users, six required tasks as a per-user checklist, support channel named
+        <span class="chk">check: docs/pilot/ holds the protocol; five users named or in active recruitment</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>R3.4 First contact is a status page about their own work; kill criterion kept verbatim
+        <span class="chk">check: run against one real external repo; if it says nothing new, record the kill and stop</span></div></div>
+      <div class="lrow"><span class="box off">&#9744;</span><div>R3.5 CEVD/W counted from real, non-founder rows only; no dashboard before rows
+        <span class="chk">check: counter output for the pilot period, zero-row guardrails say so plainly</span></div></div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="ph-head"><span class="g-count">0/1</span><h3>R4 &middot; Evidence Rerank</h3><span class="when">2026-09-06 onward, open ended</span></div>
+    <div class="ph-rows">
+      <div class="lrow"><span class="box off">&#9744;</span><div>The rerank document itself, in the shape of the reclassification table, from five real users' evidence. Eligible after it: L5 reader, benchmark (optional), Codex and Cursor executor adapters on their flip condition, V1 cross-model verifier.
+        <span class="chk">check: rerank table filed with what blocked deliveries, what users bypassed, what they asked for</span></div></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="secno">07</span>DECISIONS RECORDED &middot; 2026-08-11</h2>
+  <div class="drec">
+    <div class="dr"><span class="dreyebrow">D1 Tomorrow's scope</span>Repositioning plus surface docs plus small lifecycle code only. No schema migration in one day against a 3015-test suite. Scope may shrink, never grow; the date does not move.</div>
+    <div class="dr"><span class="dreyebrow">D2 Surface cut method</span>Six commands at the documentation level tomorrow; physical shim removal in R1. Toolkit is never stubbed; it arrives with its engine in R2.</div>
+    <div class="dr"><span class="dreyebrow">D3 Benchmark behind pilot</span>The harness is built; the run waits behind the pilot per the direction's own P5. Flip: recruitment stalls beyond two weeks.</div>
+    <div class="dr"><span class="dreyebrow">D4 Runtime freeze</span>Codex and Cursor come through the Toolkit as compatible executors. No verified-runtime port until an outside adopter asks. Khalil may overrule.</div>
+    <div class="dr"><span class="dreyebrow">D5 Board stays handmade</span>The generated board goes to the parking lot; external proof outranks internal elegance. Flip: two consecutive board drift incidents.</div>
+    <div class="dr"><span class="dreyebrow">D6 Data locations moved to R0</span>Pulled forward from R3: the text already exists in uninstall, and the trust release should answer where data lives. Found by the adversarial review.</div>
+    <div class="dr"><span class="dreyebrow">D7 Board structure absolute</span>Khalil's order after a 1/5: this page follows the finalization-page structure exactly, two Gantts with counters, risks and alerts explained. Recorded as law in the global rules.</div>
   </div>
 </section>
 
 <footer>
-  <p><strong>Tick contract:</strong> a box ticks ONLY when its done-check ran after the last edit and its output is quoted in the evidence line beside it. Percentages are counts of records, never impressions.</p>
-  <p><strong>Baton:</strong> session <code>eefa5a904569c730d8</code> (v3-refocus), 2026-08-11.</p>
-  <p><strong>The four lane law:</strong> core path, Toolkit, trust, pilot. Two implementation lanes at most, at any time.</p>
+  <p>The tick contract: a box ticks ONLY when its done-check ran after the last
+  edit and the output is quoted in the evidence line beside it. Percentages are
+  counts of records, never impressions.</p>
+  <p>This page derives from PRODUCT-DIRECTION.md (the product authority and
+  north star), docs/plan/V3-FINAL-2026-08-12.md (short range) and
+  docs/plan/LONG-RANGE-PLAN-2026-08-11.md (long range). It refreshes at every
+  closed loop and republishes to the one stable link. Four lanes: core
+  delivery path, Toolkit, trust and lifecycle, pilot and measurement; two
+  implementation lanes max at any time.</p>
+  <p>Baton: session eefa5a42 (v3-refocus), 2026-08-11.</p>
 </footer>
 
 </div>
