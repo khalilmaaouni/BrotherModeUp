@@ -989,27 +989,50 @@ class TestEveryRefusalIsRewritten(VisualCase):
                                  "sentence" % code)
 
     def test_the_unattended_rewrites_are_the_controllers_own_words(self):
-        """The seven controller entries in REFUSAL_HELP are a COPY, so the
-        copy is checked against the original rather than trusted.
+        """RF-4 (GAP-19): the controller entries in REFUSAL_HELP are no
+        longer a hand-typed COPY checked for equality against the
+        original; both tools/bm_controller.py's UNATTENDED_REFUSAL_HELP
+        and tools/bm_visual.py's REFUSAL_HELP entries for these codes are
+        sourced from the single catalog in tools/bm_messages.py, so this
+        asserts IDENTITY, not equality. A wording change made in one place
+        cannot drift from the other because there is only one object: two
+        independently retyped literals could satisfy an == check today and
+        still diverge tomorrow, which is the exact incident RF-4 records
+        (the wording drifted twice in one night). `is` cannot be satisfied
+        that way.
 
-        WHY A COPY AND NOT AN IMPORT. tools/bm_visual.py may not import
-        tools/bm_controller.py to share that map: the controller is one of
-        the two shipping modules allowed to import subprocess, and
-        tools/bm_view.py loads bm_visual to render a page, so sharing by
-        import would pull subprocess into the render path. This equality is
-        what that copy costs.
+        WHY THE CATALOG AND NOT A DIRECT IMPORT OF bm_controller.py.
+        tools/bm_visual.py may not import tools/bm_controller.py: the
+        controller is one of the two shipping modules allowed to import
+        subprocess, and tools/bm_view.py loads bm_visual to render a page,
+        so sharing by import would pull subprocess into the render path.
+        tools/bm_messages.py is constants-only (no I/O, no subprocess, no
+        writes), so either side can load it at no such cost.
 
         The controller is loaded HERE rather than beside bv at the top, and
         only for its text constants: every store and every exception class
         in this file still comes from bv.bs, which is the rule this file's
-        own docstring states."""
+        own docstring states.
+
+        NOT an independent `_load("bm_messages")` here: the generic _load()
+        both this file and tools/bm_controller.py use always re-executes a
+        module fresh (deliberately, for bm_store; see the class-identity
+        trap tools/bm_project.py documents), so a THIRD independent load of
+        bm_messages.py would produce a THIRD object, never `is`-equal to
+        either surface's own copy regardless of whether the production
+        wiring is right. tools/bm_controller.py and tools/bm_visual.py
+        instead cache their own bm_messages load in sys.modules under one
+        key and reuse whichever loaded first (bv, loaded at this test
+        file's own module level, loads first), so bc's own
+        UNATTENDED_REFUSAL_HELP and bv's own REFUSAL_HELP entries are
+        already backed by the identical object without this test loading
+        anything a third time."""
         bc = _load("bm_controller")
         for code in sorted(_controller_reason_codes()):
-            self.assertEqual(bv.REFUSAL_HELP[code],
-                             bc.UNATTENDED_REFUSAL_HELP[code],
-                             "%s reads differently in the two surfaces, so "
-                             "one founder would meet two different answers "
-                             "for one refusal" % (code,))
+            self.assertIs(bv.REFUSAL_HELP[code], bc.UNATTENDED_REFUSAL_HELP[code],
+                          "%s comes from a different object in the two "
+                          "surfaces, so a future edit to one could still "
+                          "drift from the other" % (code,))
 
     def test_the_failure_block_has_five_parts_and_exactly_one_expander(self):
         block = bv.failure_block("path-escape",
