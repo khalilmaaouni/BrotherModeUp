@@ -5110,6 +5110,158 @@ class TestLoopP9NoSuiteMutatesThisCheckout(unittest.TestCase):
         self.assertEqual(offenders, [],
                          "these lines move a file aside inside the checkout: %s"
                          % offenders)
+
+
+class TestRf5GateReceiptIsWrittenAndFailsOpen(unittest.TestCase):
+    """RF-5 (docs/handover/2026-08-11-morning/03-RULES-AND-PROCESS-FIXES.md,
+    founder decision 12): the gate writes a machine-readable receipt to
+    .brothermode/gate-receipt.json instead of every page and handover
+    hand-quoting the summary line beside a hand-copied SHA."""
+
+    def _init_repo(self, root):
+        for cmd in (["git", "init", "-q", "."],
+                   ["git", "config", "user.email", "t@example.com"],
+                   ["git", "config", "user.name", "t"]):
+            subprocess.run(cmd, cwd=root, check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        with io.open(os.path.join(root, "f.txt"), "w", encoding="utf-8") as fh:
+            fh.write("x\n")
+        subprocess.run(["git", "add", "-A"], cwd=root, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=root, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, check=True,
+                           stdout=subprocess.PIPE, universal_newlines=True)
+        return r.stdout.strip()
+
+    def _receipt_path(self, root):
+        return os.path.join(root, ".brothermode", "gate-receipt.json")
+
+    def test_receipt_fields_match_a_clean_repo(self):
+        with tempfile.TemporaryDirectory() as root:
+            sha = self._init_repo(root)
+            results = [("test_bm_docs.py", True, 12, 1, 0.5, "OK"),
+                       ("test_bm_store.py", True, 30, 0, 1.5, "OK")]
+            ta.write_gate_receipt(root, results, 2, 2.0, 0)
+            with io.open(self._receipt_path(root), encoding="utf-8") as fh:
+                receipt = json.load(fh)
+            self.assertEqual(receipt["sha"], sha)
+            self.assertIs(receipt["tree_dirty"], False)
+            self.assertEqual(receipt["tests_total"], 42)
+            self.assertEqual(receipt["suites_total"], 2)
+            self.assertEqual(receipt["skipped"], 1)
+            self.assertEqual(receipt["exit_code"], 0)
+            self.assertAlmostEqual(receipt["wall_seconds"], 2.0)
+            self.assertRegex(receipt["written_at"],
+                             r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
+    def test_a_dirty_tree_is_reported_true(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._init_repo(root)
+            with io.open(os.path.join(root, "f.txt"), "a", encoding="utf-8") as fh:
+                fh.write("y\n")
+            ta.write_gate_receipt(root, [], 0, 0.1, 1)
+            with io.open(self._receipt_path(root), encoding="utf-8") as fh:
+                receipt = json.load(fh)
+            self.assertIs(receipt["tree_dirty"], True)
+            self.assertEqual(receipt["exit_code"], 1)
+
+    def test_a_non_git_directory_fails_open_and_writes_nothing(self):
+        # Fail open (the RF-5 spec): git missing or the directory not being a
+        # checkout must warn and never raise, and must never leave a partial
+        # or wrong receipt behind.
+        with tempfile.TemporaryDirectory() as root:
+            ta.write_gate_receipt(root, [], 0, 0.1, 0)
+            self.assertFalse(
+                os.path.exists(self._receipt_path(root)),
+                "a git failure must not produce a partial receipt")
+
+    def test_the_receipt_directory_is_gitignored(self):
+        text = _read(os.path.join(HERE, "..", ".gitignore"))
+        self.assertIn(".brothermode/", text,
+                     "the receipt directory must stay out of the tracked tree")
+
+
+# scripts/bm_commit_msg_hook.py as a module object, same shape used for
+# bm_telemetry, bm_store, bm_threads and bm_learn above: a pure-function test
+# drives check_message() directly, in-process, and a behavioral test drives
+# the real CLI as a subprocess the way a real git commit-msg hook would.
+_commit_hook_spec = importlib.util.spec_from_file_location(
+    "bm_commit_msg_hook",
+    os.path.join(HERE, "..", "scripts", "bm_commit_msg_hook.py"))
+commit_hook = importlib.util.module_from_spec(_commit_hook_spec)
+_commit_hook_spec.loader.exec_module(commit_hook)
+
+
+class TestRf1CommitMsgHookRefusesForbiddenMessages(unittest.TestCase):
+    """RF-1 (docs/handover/2026-08-11-morning/03-RULES-AND-PROCESS-FIXES.md,
+    founder decision 12): scripts/bm_commit_msg_hook.py refuses a commit
+    message this repo's recorded policy forbids BEFORE the commit lands: no
+    Co-Authored-By trailer, ever (repos.md, founder decision 2026-08-10:
+    "No Claude co-author trailer in this repo, founder rule: only Khalil
+    Maaouni as creator"), plus the standing no-em/no-en-dash rule.
+
+    NO NEW SUITES ENTRY: scripts/*.py scripts do not get their own
+    tools/test_*.py file in this repo (doctor.py's own subprocess tests live
+    inline in tools/test_bm_consent.py, not in a test_doctor.py; grep
+    confirms no test_doctor.py exists). Adding a new SUITES entry here would
+    need a matching step in .github/workflows/tests.yml, or test_all.py's
+    own CI inventory check (_inventory_gate, read before writing this) would
+    REFUSE the whole gate on the very next run. So these tests live in the
+    already-registered, already-CI-wired tools/test_bm.py instead, the same
+    placement doctor.py's own tests use."""
+
+    HOOK = os.path.join(HERE, "..", "scripts", "bm_commit_msg_hook.py")
+
+    def _write(self, text):
+        d = tempfile.mkdtemp(prefix="bm-commit-msg-")
+        self.addCleanup(shutil.rmtree, d, True)
+        path = os.path.join(d, "MSG")
+        with io.open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        return path
+
+    def _run(self, args):
+        return subprocess.run([sys.executable, self.HOOK] + args,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              universal_newlines=True)
+
+    def test_a_clean_message_exits_zero(self):
+        path = self._write("a clean commit message\n")
+        r = self._run([path])
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_an_em_dash_exits_one_and_names_the_line(self):
+        path = self._write("first line ok\na line with an em dash \u2014 in it\n")
+        r = self._run([path])
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("line 2", r.stderr)
+        self.assertIn("em dash", r.stderr)
+
+    def test_an_en_dash_exits_one_and_names_the_line(self):
+        path = self._write("a line with an en dash \u2013 in it\n")
+        r = self._run([path])
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("line 1", r.stderr)
+        self.assertIn("en dash", r.stderr)
+
+    def test_a_co_authored_by_trailer_exits_one(self):
+        path = self._write("a message\n\nCo-Authored-By: Someone <x@example.com>\n")
+        r = self._run([path])
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("Co-Authored-By", r.stderr)
+        self.assertIn("line 3", r.stderr)
+
+    def test_missing_argument_exits_two(self):
+        r = self._run([])
+        self.assertEqual(r.returncode, 2)
+
+    def test_check_message_is_a_pure_function_used_directly(self):
+        self.assertIsNone(commit_hook.check_message("clean\n"))
+        self.assertIsNotNone(
+            commit_hook.check_message("a bad \u2014 dash\n"))
+
+
 class TestLoop11McpCopyFirstIsAutomated(unittest.TestCase):
     """LOOP 11 workstream C. The MCP server's copy-first design (snapshot the
     project, read the COPY, delete the copy) was argued in a long docstring
