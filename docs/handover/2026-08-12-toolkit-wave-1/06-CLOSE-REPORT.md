@@ -21,23 +21,19 @@ overclaim this pack spends most of its pages correcting.
 WHAT IS FINISHED AND VERIFIED, with the command that proved it:
 
     $ python3 tools/test_all.py --artifacts "$TMPDIR/gate-artifacts"
-    test_all: 3136 tests across 35 suites, 5 skipped, 770.6s wall. 1 SUITE(S) FAILED
+    test_all: 3136 tests across 35 suites, 5 skipped, 670.5s wall. ALL GREEN
 
-Read that honestly. Thirty four suites green, one red, and the red one is the
-release-truth check reporting that the v3.2.0 tag and the VERSION file name
-different commits. This session touched neither, proven by
-`git diff --name-only 5e5fe7c..cab847d | grep -c "^VERSION$"` returning 0.
-History was rewritten under this session by another one. Filed with three
-options at docs/plan/DEFECT-tag-version-disagreement-2026-08-12.md; retagging a
-published release is a founder decision and was not taken here.
+Exit 0 at 2002bc8, tree clean. Doctor 11 of 11. Pushed and verified: local and
+remote both read 2002bc8, and the annotated tag v3.2.1 dereferences to
+2002bc84 on both sides.
 
-An earlier point in this session DID reach ALL GREEN and was pushed:
-
-    test_all: 3130 tests across 35 suites, 5 skipped, 748.1s wall. ALL GREEN
-    exit 0 at e0341cb, doctor 11 of 11
-
-The ceremony work that followed it is covered by its own suites, all green:
-tools/test_bm_handover.py 45, tools/test_bm_consent.py 46.
+That run had been red on one check of thirty five for most of this session:
+the v3.2.0 tag and the VERSION file named different commits, after another
+session rewrote history while this one worked. The founder took the
+recommendation rather than the workaround: cut v3.2.1 so the two agree, leave
+the published v3.2.0 tag unmoved for anyone already pinned to it. The check
+that caught it now passes for the right reason rather than because it was
+silenced.
 
 Landed this session: the Toolkit plan and its 35 recorded decisions; TK1
 inventory (8 marketplaces, 69 plugins, 37 skills, 12 MCP servers on this
