@@ -2,10 +2,10 @@
   "schema": 1,
   "_comment": "The machine-readable work queue. tools/bm_idle.py reads THIS file and nothing else to answer whether the machine is about to sit idle. Depth is the count of items in state 'queued'. Ordering is the array order: the next item to start is the first 'queued' item. An item is startable only if it needs no founder answer; anything that does carries state 'blocked' with a reason and is NOT counted toward depth, because a blocked item cannot save a night. Edit by hand or with bm_idle.py mark.",
   "window": {
-    "label": "night of 2026-08-12",
-    "opened": "2026-08-12T01:30:00+09:00",
-    "hard_stop": "2026-08-12T07:00:00+09:00",
-    "unattended": true
+    "label": "toolkit focus, week of 2026-08-12",
+    "opened": "2026-08-12T09:00:00+09:00",
+    "hard_stop": "2026-08-15T18:00:00+09:00",
+    "unattended": false
   },
   "min_depth": 5,
   "idle_window_minutes": 25,
@@ -17,152 +17,129 @@
   ],
   "items": [
     {
-      "id": "L1",
-      "title": "The aggressive replan and this queue",
-      "state": "done",
+      "id": "TK1",
+      "title": "T1 Inventory: bm_toolkit.py inventory, builds on claude plugin details, adds skills, settings layers, CLIs, cross-plugin view",
+      "state": "queued",
       "clock": "agent",
-      "forecast_minutes": 15,
+      "forecast_minutes": 150,
       "files": [
-        "docs/plan/PLAN-2026-08-12-AGGRESSIVE.md",
-        "docs/plan/QUEUE.json"
+        "tools/bm_toolkit.py",
+        "tools/test_bm_toolkit.py"
       ],
-      "done_check": "python3 -c \"import json;json.load(open('docs/plan/QUEUE.json'))\""
+      "done_check": "python3 tools/bm_toolkit.py inventory run against this machine, output quoted"
     },
     {
-      "id": "L2",
-      "title": "Forecast telemetry tool, tests written first",
-      "state": "done",
+      "id": "TK2",
+      "title": "T2 Conflict detection with severity data file; fixtures: 7 Stop hooks, 10 PreToolUse layers, dual brothersbe versions; includes the hookify ordering experiment",
+      "state": "queued",
       "clock": "agent",
-      "forecast_minutes": 35,
+      "forecast_minutes": 150,
       "files": [
-        "tools/bm_forecast.py",
-        "tools/test_bm_forecast.py"
+        "tools/bm_toolkit.py",
+        "tools/toolkit_conflict_classes.json",
+        "tools/test_bm_toolkit.py"
       ],
-      "done_check": "python3 tools/test_bm_forecast.py",
-      "closed_note": "landed and verified: 18 tests OK, adversarial NO-DATA probe at n=0,1,2 all refused"
+      "done_check": "python3 tools/bm_toolkit.py conflicts finds the known fixtures by itself; NO-DATA on unreadable surface"
     },
     {
-      "id": "L3",
-      "title": "Idle check tool, tests written first",
-      "state": "done",
+      "id": "TK3",
+      "title": "T3 Capability records with static DECLARED reach derived from artifacts",
+      "state": "queued",
       "clock": "agent",
-      "forecast_minutes": 30,
+      "forecast_minutes": 120,
       "files": [
-        "tools/bm_idle.py",
-        "tools/test_bm_idle.py"
+        "tools/bm_toolkit.py",
+        "tools/bm_store.py",
+        "tools/test_bm_toolkit.py"
       ],
-      "done_check": "python3 tools/test_bm_idle.py",
-      "closed_note": "landed and verified: 16 tests OK, hostile fixtures fired QUEUE-EMPTY, IDLE, WINDOW-CLOSED, NO-DATA"
+      "done_check": "a hand-asserted record is visibly marked; derived records name their source files"
     },
     {
-      "id": "L4",
-      "title": "Register both tools in the gate, the write inventory and CI",
-      "state": "done",
+      "id": "TK4",
+      "title": "T4 Routing table plus route command; BMAD route DISABLED until footprint confirmed",
+      "state": "queued",
       "clock": "agent",
-      "forecast_minutes": 15,
+      "forecast_minutes": 120,
       "files": [
+        "tools/toolkit_routes.json",
+        "tools/bm_toolkit.py"
+      ],
+      "done_check": "route command names capability, reason, degrade path when absent"
+    },
+    {
+      "id": "TK5",
+      "title": "T5 Receipts: nine fields, NO-DATA path for unverifiable output, store rows",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 150,
+      "files": [
+        "tools/bm_store.py",
+        "tools/bm_toolkit.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "suite proves the nine-field receipt and the NO-DATA path"
+    },
+    {
+      "id": "TK6",
+      "title": "T6 The five-step pipeline on O4, real cargo, one evidence packet",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 240,
+      "files": [
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "pipeline completes; receipt per external step; O4 done-check green: claim then park from two shells"
+    },
+    {
+      "id": "TK7",
+      "title": "T7 Retention proposals from receipts, founder ratifies",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "tools/bm_toolkit.py"
+      ],
+      "done_check": "retention command proposes per capability used in TK6"
+    },
+    {
+      "id": "TK8",
+      "title": "T8 Doctor and gate integration, five-registry sweep per PF-3",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "scripts/doctor.py",
         "tools/test_all.py",
-        "tools/write_sites.json",
         ".github/workflows/tests.yml",
+        "tools/write_sites.json",
         "pyproject.toml"
       ],
-      "done_check": "python3 tools/test_all.py --list 2>&1 | grep -c bm_forecast",
-      "closed_note": "SUITES, bm_effects registry, write_sites inventory and CI workflow all updated; write-site gate green"
+      "done_check": "doctor reports undeclared use and conflicts; suite in gate and CI"
     },
     {
-      "id": "L5",
-      "title": "Tester package covering both products in one bundle",
-      "state": "done",
-      "clock": "agent",
-      "forecast_minutes": 40,
-      "files": [
-        "docs/team/TESTER-PACK.md",
-        "docs/team/INSTALL-CARD.md"
-      ],
-      "done_check": "every command block in the pack was executed and its output quoted in docs/evidence/tester-pack/",
-      "closed_note": "tester pack, evidence file and a corrected install card landed"
-    },
-    {
-      "id": "L6",
-      "title": "Progress page under the absolute structure, delivered not merely written",
-      "state": "done",
-      "clock": "agent",
-      "forecast_minutes": 30,
-      "files": [
-        "docs/plan/GANTT.html"
-      ],
-      "done_check": "python3 tools/bm_progress_check.py status",
-      "closed_note": "docs/plan/GANTT.html delivered and bm_progress_check reports current, exit 0"
-    },
-    {
-      "id": "L7",
-      "title": "Full battery at the final tree",
-      "state": "done",
-      "clock": "agent",
-      "forecast_minutes": 13,
-      "files": [],
-      "done_check": "python3 tools/test_all.py",
-      "closed_note": "gate ran twice: first exit 1 on my own pyproject omission plus a dirty tree, both fixed; second exit 1 on a test_bm_handover flake that will not reproduce in 5 isolated runs, filed as DEFECT-handover-suite-flake-2026-08-12.md"
-    },
-    {
-      "id": "L8",
-      "title": "Push, close pack, verify-close",
-      "state": "done",
+      "id": "TK9",
+      "title": "BMAD footprint follow-up: repo-tree read, enable or reject its route",
+      "state": "queued",
       "clock": "agent",
       "forecast_minutes": 20,
       "files": [
-        "docs/handover/2026-08-12-aggressive-replan"
+        "tools/toolkit_routes.json"
       ],
-      "done_check": "python3 tools/bm_handover.py verify-close --pack docs/handover/2026-08-12-aggressive-replan",
-      "closed_note": "pack written, all 6 by-hand slots filled, zipped, verify-close PASS after parking 8 records; pushed at dfc3d02"
-    },
-    {
-      "id": "O1",
-      "title": "Memory architecture design document, two genuinely rejected alternatives",
-      "state": "done",
-      "clock": "agent",
-      "forecast_minutes": 30,
-      "files": [
-        "docs/design/MEMORY-ARCHITECTURE.md"
-      ],
-      "done_check": "a reader can name what was rejected and the condition that would flip the decision",
-      "closed_note": "done by a concurrent session at 2b93b98 as docs/design/MEMORY-ARCHITECTURE-2026-08-12.md"
-    },
-    {
-      "id": "O2",
-      "title": "Toolkit broker design document: trust tiers and quarantine",
-      "state": "done",
-      "clock": "agent",
-      "forecast_minutes": 30,
-      "files": [
-        "docs/design/TOOLKIT-BROKER.md"
-      ],
-      "done_check": "same shape as O1",
-      "closed_note": "done by a concurrent session at 1851b13 as docs/design/TOOLKIT-BROKER-2026-08-12.md"
-    },
-    {
-      "id": "O3",
-      "title": "Connector model design document and the per-connector gate",
-      "state": "done",
-      "clock": "agent",
-      "forecast_minutes": 30,
-      "files": [
-        "docs/design/CONNECTOR-MODEL.md"
-      ],
-      "done_check": "same shape as O1",
-      "closed_note": "done by a concurrent session at 66666c4 as docs/design/CONNECTOR-MODEL-2026-08-12.md"
+      "done_check": "the route is enabled with the footprint named, or rejected with the reason"
     },
     {
       "id": "O4",
       "title": "Zero-tax adoption: a fence claimed from one shell is parkable from another (the design landed at 8949ffd; this is the build)",
-      "state": "queued",
+      "state": "blocked",
       "clock": "agent",
       "forecast_minutes": 35,
       "files": [
         "tools/bm_store.py",
         "tools/test_bm_store.py"
       ],
-      "done_check": "claim then park from two separate shell invocations, no refusal, regression test failing first"
+      "done_check": "claim then park from two separate shell invocations, no refusal, regression test failing first",
+      "blocked_reason": "reserved as TK6 pipeline cargo per decision 26; runs INSIDE the toolkit E2E, not standalone"
     },
     {
       "id": "O5",
@@ -316,18 +293,6 @@
       "done_check": "a tester reports the two version numbers from their own shell"
     },
     {
-      "id": "O17",
-      "title": "Pin BrotherSBE README install to a tag, matching BrotherMode's pinned form",
-      "state": "done",
-      "clock": "agent",
-      "forecast_minutes": 10,
-      "files": [
-        "../BrotherSBE/README.md"
-      ],
-      "done_check": "the README install block reads khalilmaaouni/BrotherSBE@v3.1.0",
-      "closed_note": "BrotherSBE README.md and TESTERS.md both pinned to @v3.1.0, matching BrotherMode's pinned form"
-    },
-    {
       "id": "O18",
       "title": "bm_forecast.py refuses --help on every verb; file and fix, the project has this exact precedent",
       "state": "queued",
@@ -360,6 +325,211 @@
         ".brothermode/forecasts-log.jsonl"
       ],
       "done_check": "python3 tools/bm_forecast.py calibrate --clock agent --basis judged reports n greater than 6"
+    },
+    {
+      "id": "A4",
+      "title": "Put the calibration number on the session start line, beside the progress-page verdict",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": [
+        "tools/bm_sessionstart.sh"
+      ],
+      "done_check": "session start prints the current multiplier and n, or NO-DATA when the sample is thin"
+    },
+    {
+      "id": "A5",
+      "title": "R1.5 pulled forward: retire the prose fence claims that no file enforces",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 35,
+      "files": [
+        "docs/KNOWN-LIMITS.md",
+        "SKILL.md"
+      ],
+      "done_check": "every fence claim in the docs names its enforcing file or is marked UNENFORCED"
+    },
+    {
+      "id": "A6",
+      "title": "Teach bm_idle.py to read the forecast log so IDLE can cite what should have been in flight",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "tools/bm_idle.py",
+        "tools/test_bm_idle.py"
+      ],
+      "done_check": "the IDLE verdict names the open forecast whose actual never arrived"
+    },
+    {
+      "id": "A9",
+      "title": "Give the memory design its missing third alternative: extend learning_rules, argued against properly",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "docs/design/MEMORY-ARCHITECTURE-2026-08-12.md"
+      ],
+      "done_check": "the document contests the design that actually competes with it, per REFUTE-2026-08-12.md finding 1"
+    },
+    {
+      "id": "A10",
+      "title": "Resolve the intake-versus-intent contradiction between the one-change doc and TEAM-ADOPTION.md",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": [
+        "docs/design/ONE-CHANGE-IDENTIFIER-2026-08-12.md"
+      ],
+      "done_check": "the default minter agrees with the published nine-step order, or the order is changed on purpose"
+    },
+    {
+      "id": "L1",
+      "title": "The aggressive replan and this queue",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 15,
+      "files": [
+        "docs/plan/PLAN-2026-08-12-AGGRESSIVE.md",
+        "docs/plan/QUEUE.json"
+      ],
+      "done_check": "python3 -c \"import json;json.load(open('docs/plan/QUEUE.json'))\""
+    },
+    {
+      "id": "L2",
+      "title": "Forecast telemetry tool, tests written first",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 35,
+      "files": [
+        "tools/bm_forecast.py",
+        "tools/test_bm_forecast.py"
+      ],
+      "done_check": "python3 tools/test_bm_forecast.py",
+      "closed_note": "landed and verified: 18 tests OK, adversarial NO-DATA probe at n=0,1,2 all refused"
+    },
+    {
+      "id": "L3",
+      "title": "Idle check tool, tests written first",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "tools/bm_idle.py",
+        "tools/test_bm_idle.py"
+      ],
+      "done_check": "python3 tools/test_bm_idle.py",
+      "closed_note": "landed and verified: 16 tests OK, hostile fixtures fired QUEUE-EMPTY, IDLE, WINDOW-CLOSED, NO-DATA"
+    },
+    {
+      "id": "L4",
+      "title": "Register both tools in the gate, the write inventory and CI",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 15,
+      "files": [
+        "tools/test_all.py",
+        "tools/write_sites.json",
+        ".github/workflows/tests.yml",
+        "pyproject.toml"
+      ],
+      "done_check": "python3 tools/test_all.py --list 2>&1 | grep -c bm_forecast",
+      "closed_note": "SUITES, bm_effects registry, write_sites inventory and CI workflow all updated; write-site gate green"
+    },
+    {
+      "id": "L5",
+      "title": "Tester package covering both products in one bundle",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 40,
+      "files": [
+        "docs/team/TESTER-PACK.md",
+        "docs/team/INSTALL-CARD.md"
+      ],
+      "done_check": "every command block in the pack was executed and its output quoted in docs/evidence/tester-pack/",
+      "closed_note": "tester pack, evidence file and a corrected install card landed"
+    },
+    {
+      "id": "L6",
+      "title": "Progress page under the absolute structure, delivered not merely written",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "docs/plan/GANTT.html"
+      ],
+      "done_check": "python3 tools/bm_progress_check.py status",
+      "closed_note": "docs/plan/GANTT.html delivered and bm_progress_check reports current, exit 0"
+    },
+    {
+      "id": "L7",
+      "title": "Full battery at the final tree",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 13,
+      "files": [],
+      "done_check": "python3 tools/test_all.py",
+      "closed_note": "gate ran twice: first exit 1 on my own pyproject omission plus a dirty tree, both fixed; second exit 1 on a test_bm_handover flake that will not reproduce in 5 isolated runs, filed as DEFECT-handover-suite-flake-2026-08-12.md"
+    },
+    {
+      "id": "L8",
+      "title": "Push, close pack, verify-close",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": [
+        "docs/handover/2026-08-12-aggressive-replan"
+      ],
+      "done_check": "python3 tools/bm_handover.py verify-close --pack docs/handover/2026-08-12-aggressive-replan",
+      "closed_note": "pack written, all 6 by-hand slots filled, zipped, verify-close PASS after parking 8 records; pushed at dfc3d02"
+    },
+    {
+      "id": "O1",
+      "title": "Memory architecture design document, two genuinely rejected alternatives",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "docs/design/MEMORY-ARCHITECTURE.md"
+      ],
+      "done_check": "a reader can name what was rejected and the condition that would flip the decision",
+      "closed_note": "done by a concurrent session at 2b93b98 as docs/design/MEMORY-ARCHITECTURE-2026-08-12.md"
+    },
+    {
+      "id": "O2",
+      "title": "Toolkit broker design document: trust tiers and quarantine",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "docs/design/TOOLKIT-BROKER.md"
+      ],
+      "done_check": "same shape as O1",
+      "closed_note": "done by a concurrent session at 1851b13 as docs/design/TOOLKIT-BROKER-2026-08-12.md"
+    },
+    {
+      "id": "O3",
+      "title": "Connector model design document and the per-connector gate",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "docs/design/CONNECTOR-MODEL.md"
+      ],
+      "done_check": "same shape as O1",
+      "closed_note": "done by a concurrent session at 66666c4 as docs/design/CONNECTOR-MODEL-2026-08-12.md"
+    },
+    {
+      "id": "O17",
+      "title": "Pin BrotherSBE README install to a tag, matching BrotherMode's pinned form",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 10,
+      "files": [
+        "../BrotherSBE/README.md"
+      ],
+      "done_check": "the README install block reads khalilmaaouni/BrotherSBE@v3.1.0",
+      "closed_note": "BrotherSBE README.md and TESTERS.md both pinned to @v3.1.0, matching BrotherMode's pinned form"
     },
     {
       "id": "O21",
@@ -414,41 +584,6 @@
       "closed_note": "verify-close FAILs on a forecast open past 12h; one shared implementation via bm_forecast.open_forecasts; 3 tests including the no-log case"
     },
     {
-      "id": "A4",
-      "title": "Put the calibration number on the session start line, beside the progress-page verdict",
-      "state": "queued",
-      "clock": "agent",
-      "forecast_minutes": 20,
-      "files": [
-        "tools/bm_sessionstart.sh"
-      ],
-      "done_check": "session start prints the current multiplier and n, or NO-DATA when the sample is thin"
-    },
-    {
-      "id": "A5",
-      "title": "R1.5 pulled forward: retire the prose fence claims that no file enforces",
-      "state": "queued",
-      "clock": "agent",
-      "forecast_minutes": 35,
-      "files": [
-        "docs/KNOWN-LIMITS.md",
-        "SKILL.md"
-      ],
-      "done_check": "every fence claim in the docs names its enforcing file or is marked UNENFORCED"
-    },
-    {
-      "id": "A6",
-      "title": "Teach bm_idle.py to read the forecast log so IDLE can cite what should have been in flight",
-      "state": "queued",
-      "clock": "agent",
-      "forecast_minutes": 30,
-      "files": [
-        "tools/bm_idle.py",
-        "tools/test_bm_idle.py"
-      ],
-      "done_check": "the IDLE verdict names the open forecast whose actual never arrived"
-    },
-    {
       "id": "A7",
       "title": "Re-run the battery with --artifacts to catch the handover flake's real assertion if it recurs",
       "state": "done",
@@ -469,28 +604,6 @@
       ],
       "done_check": "either the leak is proven and fixed with a failing-first test, or ruled out in writing",
       "closed_note": "the BROTHERMODE_ROOT restore-leak hypothesis was RULED OUT in writing; the real cause was mtime embedded in zip entry headers"
-    },
-    {
-      "id": "A9",
-      "title": "Give the memory design its missing third alternative: extend learning_rules, argued against properly",
-      "state": "queued",
-      "clock": "agent",
-      "forecast_minutes": 30,
-      "files": [
-        "docs/design/MEMORY-ARCHITECTURE-2026-08-12.md"
-      ],
-      "done_check": "the document contests the design that actually competes with it, per REFUTE-2026-08-12.md finding 1"
-    },
-    {
-      "id": "A10",
-      "title": "Resolve the intake-versus-intent contradiction between the one-change doc and TEAM-ADOPTION.md",
-      "state": "queued",
-      "clock": "agent",
-      "forecast_minutes": 20,
-      "files": [
-        "docs/design/ONE-CHANGE-IDENTIFIER-2026-08-12.md"
-      ],
-      "done_check": "the default minter agrees with the published nine-step order, or the order is changed on purpose"
     }
   ]
 }
