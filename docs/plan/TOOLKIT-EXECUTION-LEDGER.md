@@ -42,8 +42,8 @@ No cheap-lane model ever verifies its own work or another agent's.
 
 | # | Task | Tier | Budget | Actual spend | Forecast | Actual time | Verified by | Result |
 |---|---|---|---|---|---|---|---|---|
-| 1 | TK1 inventory: `tools/bm_toolkit.py` inventory and json verbs over plugins, skills, hooks, MCP servers, settings layers | sonnet, worktree | 80k out | **150k, 88% OVER** | 150 min raw, upper 240 | 6 min agent, ~25 min including orchestrator verification | orchestrator re-ran the suite, both verbs on the real machine, and three hostile fixtures | LANDED, gate pending |
-| 2 | TK5a receipts: nine-field `capability_receipts` table plus criterion-linked evidence, schema 19 to 20 | sonnet, worktree | 90k out | **278k, 208% OVER** | 180 min raw, upper 300 | 19 min agent, ~35 min including orchestrator verification | orchestrator re-ran both suites and wrote four refusal probes | LANDED, gate pending |
+| 1 | TK1 inventory: `tools/bm_toolkit.py` inventory and json verbs over plugins, skills, hooks, MCP servers, settings layers | sonnet, worktree | 80k out | **150k, 88% OVER** | 150 min raw, upper 240 | 6 min agent, ~25 min including orchestrator verification | orchestrator re-ran the suite, both verbs on the real machine, and three hostile fixtures | LANDED, GREEN, PUSHED |
+| 2 | TK5a receipts: nine-field `capability_receipts` table plus criterion-linked evidence, schema 19 to 20 | sonnet, worktree | 90k out | **278k, 208% OVER** | 180 min raw, upper 300 | 19 min agent, ~35 min including orchestrator verification | orchestrator re-ran both suites and wrote four refusal probes | LANDED, GREEN, PUSHED |
 | 3 | TK2 data: `tools/toolkit_conflict_classes.json`, ten classes with founder-editable severities | orchestrator, no dispatch | n/a | n/a | 20 min | 14 min | structure validated by command; no reader exists yet | WRITTEN, NOT CLOSED |
 
 ### Dispatch 3, why it was not delegated
@@ -212,3 +212,37 @@ What changes for the next dispatch, and it is a scope rule rather than a
 number: one table OR one command surface OR one registry sweep per dispatch,
 never a set of them joined by "plus". The ceiling stays in the brief as
 guidance, honestly labelled as guidance.
+
+## Wave 1 closed, 2026-08-12
+
+    $ python3 tools/test_all.py --artifacts "$TMPDIR/gate-artifacts"
+    test_all: 3130 tests across 35 suites, 5 skipped, 748.1s wall. ALL GREEN
+
+Exit 0 at e0341cb, tree clean, pushed and verified three ways. Doctor 11 of 11.
+
+Three gate runs were needed and all three red verdicts were real:
+
+1. An apostrophe inside a SUITES comment whose own text reads NO APOSTROPHE
+   ANYWHERE IN THIS COMMENT, ON PURPOSE. The fact loader parses quoted spans
+   with a plain quote-to-quote regex, so it swallowed real suite names. I had
+   copied the warning and violated it in the same comment.
+2. Three new refusal reason codes with no founder-facing rewrite. The visual
+   surface refuses that by law, and it was right to: the exact refusals probed
+   an hour earlier would have reached a person as raw machine codes.
+3. Doctor check 7 red because the live store was a schema behind the code.
+   NOT a defect: doctor is read-only, so it refuses and explains rather than
+   migrating behind the founder. Recorded as decision 35 rather than patched.
+
+Two of the three were mine, not the builders'.
+
+## What wave 2 changes, from what wave 1 measured
+
+The scope rule, replacing the ceiling that enforced nothing: one table OR one
+command surface OR one registry sweep per dispatch, never a set joined by
+"plus". Both wave-1 briefs broke that and both blew their budget in
+proportion to how badly.
+
+Next dispatch is TK2, conflict detection, and it is deliberately ONE thing:
+read the inventory json and the conflict-classes file, emit verdicts. Its
+severity data and its fixtures already exist, which is most of what made the
+wave-1 briefs sprawl.
