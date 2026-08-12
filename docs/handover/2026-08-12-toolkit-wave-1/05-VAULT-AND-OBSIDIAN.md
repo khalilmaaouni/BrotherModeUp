@@ -22,10 +22,32 @@ actually reopen.
 - never-pkill-by-pattern.md, CORRECTED: it used to recommend `pgrep -fl`,
   which is the command that flooded a context window.
 
+**NEW durable memories, written at close:**
+- `verify-across-the-install-boundary.md`. The repo is not the runtime. Claude
+  Code executes ~/.claude/skills/brothermode, its own clone, so a hook proven
+  in the repository may run nowhere. One line detects it:
+  `cmp ~/.claude/skills/brothermode/tools/bm_sessionstart.sh tools/bm_sessionstart.sh`
+- `handover-ceremony-is-a-control.md`. What `owed` asks, why the signal is
+  committedness rather than recency, and what it cannot see.
+
+Both indexed in MEMORY.md, which is now 18 files.
+
 **Learnings captured for founder approval, none self-approved:**
-2e9c5ff4 two-clock estimates, c089523e three times the queued work,
-9a05c9bb attack a subagent delta before trusting it, 534ae091 forecast raw
-when the shape is unknown.
+Eight candidates pending. The four from the overnight half: 2e9c5ff4 two-clock
+estimates, c089523e three times the queued work, 9a05c9bb attack a subagent
+delta before trusting it, 534ae091 forecast raw when the shape is unknown.
+
+The two that matter most, captured at close because they were nearly lost as
+prose:
+- `73201564` when claiming a hook, check or gate is active, verify it in the
+  copy the runtime EXECUTES, not the repository, and quote the command that
+  crossed that boundary.
+- `01766feb` when an independent review reports a finding against work already
+  called done, re-verify it yourself with a command, and treat a confirmed one
+  as evidence the original verification was too shallow rather than bad luck.
+
+Approve or reject with `python3 tools/bm_learn.py approve <id>` after granting
+a token. Nothing changes until you do.
 
 **Standing direction from decision 23:** the Obsidian vault is the memory
 backbone, to be strengthened with agent-memory database capabilities, semantic
