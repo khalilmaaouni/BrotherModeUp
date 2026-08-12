@@ -690,6 +690,37 @@ class TestVerifyClose(HandoverCase):
         self.assertIn("OWED", out)
         self.assertIn("NO close pack exists", out)
 
+    def test_owed_clears_once_the_zip_lands_after_the_commit(self):
+        """Found by this verb on its own first real run against the real
+        repository, which is the only reason it is a test rather than a
+        defect somebody meets later.
+
+        The ceremony's order is write the pack, commit it, zip it, verify.
+        `git commit` does not touch the pack files, so the ref is ALWAYS
+        newer than the pack directory afterwards, and a check comparing only
+        those two would report OWED forever no matter how diligently anybody
+        closed. A gate that cannot be satisfied is not a gate. The zip is the
+        artifact that lands last, so the comparison takes whichever of the
+        two is newer."""
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        os.utime(pack_dir, (1000, 1000))
+        self._fake_git(commit_mtime=2000)
+        code, out, _err = self.run_cli("owed")
+        self.assertEqual(1, code, "before the zip it must still be OWED: " + out)
+
+        code, _o, _e = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code)
+        zip_path = bh._zip_path_for(os.path.basename(pack_dir.rstrip("/")))
+        os.utime(zip_path, (3000, 3000))
+
+        code, out, _err = self.run_cli("owed")
+        self.assertEqual(
+            0, code,
+            "a pack zipped AFTER the commit is a closed session and must "
+            "clear, or the check can never be satisfied: " + out)
+        self.assertIn("CURRENT", out)
+
     def test_owed_is_no_data_on_a_detached_head_never_a_pass(self):
         """A checkout whose ref cannot be read cannot be judged. NO-DATA is
         the honest answer and it must never be silently treated as CURRENT,

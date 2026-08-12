@@ -1439,12 +1439,27 @@ def cmd_owed(argv):
              "FILL-BY-HAND block, zip it, then `%s verify-close`."
              % (_inv(), _inv()))
         return FAIL
+    # The closing act is the ZIP, not the pack directory, and that is not a
+    # detail. Found by this verb on its own first real run: a pack is written,
+    # then committed, and `git commit` does not touch the pack files, so the
+    # ref is always newer than the directory and the check would read OWED
+    # forever no matter how diligently somebody closed. The ceremony's real
+    # order is write, commit, zip, verify-close, so the zip is the artifact
+    # that lands last. Take whichever of the two is newer: the directory
+    # alone would never clear, and the zip alone would miss a pack that was
+    # refreshed but not re-zipped.
     try:
         pack_at = os.path.getmtime(pack_dir)
     except Exception as exc:
         _out("NO-DATA: the newest pack exists but could not be read (%s: %s)"
              % (type(exc).__name__, exc))
         return NODATA
+    try:
+        zip_path = _zip_path_for(os.path.basename(pack_dir.rstrip("/")))
+        if os.path.isfile(zip_path):
+            pack_at = max(pack_at, os.path.getmtime(zip_path))
+    except Exception:
+        pass
     if commit_at > pack_at:
         _out_scrubbed(
             "OWED: this checkout has committed since the newest close pack "
