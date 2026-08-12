@@ -9,15 +9,25 @@ same two versions and writes both numbers down.
 
 | Tool | Version | What it governs |
 |---|---|---|
-| BrotherMode | `v3.2.0` | one person's session |
+| BrotherMode | `v3.2.1` | one person's session |
 | BrotherSBE | `v3.1.0` | one change's passage between people |
 
 They version independently on purpose. Write down both.
 
-Both tags were checked against their remotes on 2026-08-12: BrotherMode
-`v3.2.0` resolves to `960bd4f8` and BrotherSBE `v3.1.0` to `c48ac46b`, local
-and remote agreeing in each case. The evidence is
+BrotherSBE `v3.1.0` was checked against its remote on 2026-08-12 and resolves
+to `c48ac46b`, local and remote agreeing. The evidence is
 [docs/evidence/tester-pack/CHECKED-2026-08-12.md](../evidence/tester-pack/CHECKED-2026-08-12.md).
+
+BrotherMode `v3.2.1` is cut in the same change as this line, and its SHA is
+therefore NOT quoted here: a number written before the tag exists would be a
+guess wearing the shape of evidence. Check it yourself with
+`git ls-remote --tags origin | grep v3.2.1` before sending this card to
+anybody. Why 3.2.1 rather than 3.2.0: another session rewrote history and the
+`v3.2.0` tag ended up pointing at a commit that is no longer the one setting
+VERSION, so the two disagreed about which commit was the release. Moving a
+published tag was rejected; cutting the next number was not.
+[docs/plan/DEFECT-tag-version-disagreement-2026-08-12.md](../plan/DEFECT-tag-version-disagreement-2026-08-12.md)
+carries the whole decision.
 
 ## Install
 
@@ -27,7 +37,7 @@ newer using only the standard library, and git. Nothing to pip install.
 **BrotherMode**, two plain shell commands, pasted into any terminal once:
 
 ```bash
-claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.2.0
+claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.2.1
 ```
 
 ```bash
@@ -44,7 +54,7 @@ claude plugin marketplace add khalilmaaouni/BrotherSBE@v3.1.0
 claude plugin install brothersbe@brothersbe
 ```
 
-The `@v3.2.0` and `@v3.1.0` pin each marketplace to a released tag rather than
+The `@v3.2.1` and `@v3.1.0` pin each marketplace to a released tag rather than
 a moving branch, so everybody gets the same thing. BrotherSBE's own README
 still documents the unpinned form; pin it here anyway, because a pilot in
 which two people are on different commits of the same tool cannot tell a bug

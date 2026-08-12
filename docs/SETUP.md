@@ -35,7 +35,7 @@ Code's own plugin manager, proven end to end by
 terminal.
 
 ```bash
-claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.2.0
+claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.2.1
 claude plugin install brothermode@brothermode-marketplace
 ```
 
@@ -44,7 +44,7 @@ brotherme`). The plugin identity changed at v3.0.0, so the old and new ids
 are different plugins to Claude Code and installing both leaves two hook
 chains wired at once.
 
-`@v3.2.0` pins the marketplace add itself to the released tag rather than
+`@v3.2.1` pins the marketplace add itself to the released tag rather than
 the repository's moving default branch, generated from the same fact the
 pinned clone below reads (`python3 tools/bm_project_facts.py --field
 install_target_tag`); `docs/RELEASE.md` step 2b makes re-pinning it an
@@ -73,7 +73,7 @@ desktop browser, which this project has not separately verified.
 THE PINNED CLONE, for auditors and immutable-snapshot installs:
 
 ```bash
-git clone --branch v3.2.0 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v3.2.1 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 The path matters: Claude Code discovers skills under `~/.claude/skills/`, and the session-start script resolves its own location, so the clone is the installation. Verify:
