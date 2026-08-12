@@ -57,6 +57,21 @@ if [ "$DETECT_STATUS" -eq 0 ] && [ -n "$DETECT_OUT" ]; then
 else
   echo "baton ceremony check (bm_handover.py detect) could not run this session; run it by hand, see CLAUDE.md baton ceremony section"
 fi
+# CLOSE-PACK OWED (2026-08-12). The founder had to ask for a handover pack
+# four separate times and scored the fourth 1 out of 5, a major failure. The
+# ceremony closing half was enforced by verify-close, which only ever runs
+# when somebody chooses to run it, so nothing ever observed a session that did
+# work and wrote no pack. This is that observation. It runs HERE rather than
+# on the Stop event for a reason worth keeping: bm_handover.py declares no
+# consent gate, and a hook-wired module without one is refused by the consent
+# suite, correctly. This script has already passed the consent door by the
+# time it reaches this line, so the check inherits that gate instead of
+# needing its own. It also means the message lands where the baton ceremony
+# already puts its other half: a session OPENS being told the previous one
+# left no handover, which is the person who can still do something about it.
+# Silent when nothing is owed, because a nag that fires every session stops
+# being read. Fail-open like every check above it.
+python3 "$DIR/tools/bm_handover.py" owed 2>/dev/null | grep -v '^CURRENT' || true
 python3 "$DIR/tools/bm_telemetry.py" check-update 2>/dev/null
 # If this session resumed from a compaction, point it at the autosave.
 printf '%s' "$PAYLOAD" | python3 "$DIR/tools/bm_telemetry.py" compact-hint 2>/dev/null
