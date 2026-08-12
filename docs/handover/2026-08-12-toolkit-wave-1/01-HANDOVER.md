@@ -20,7 +20,8 @@
 - `bench-l12-harness` (2edd932c) state=complete session=[WITHHELD: 22 chars of founder text] version=2: scripts/benchmark_comparative.py, docs/BENCHMARK-COMPARATIVE.md
 - `canary-honesty-fix` (efa16379) state=parked session=[WITHHELD: 28 chars of founder text] version=2: tools/bm_controller.py, tools/test_bm_controller.py
 - `category-ownership-program` (0ded7b6e) state=parked session=[WITHHELD: 28 chars of founder text] version=2: docs/program/category-ownership/PROGRAM-2026-08-11.md, docs/program/category-ownership/EXECUTION-LEDGER.md
-- `close-ceremony--prov-a5e17b59` (a5e17b59) state=active session=d79520aa-92de-4f0e-b679-2ca215511a9c version=1
+- `ceremony-review-fixes` (e150655b) state=parked session=[WITHHELD: 28 chars of founder text] version=2: tools/bm_handover.py, tools/test_bm_handover.py
+- `close-ceremony--prov-a5e17b59` (a5e17b59) state=parked session=d79520aa-92de-4f0e-b679-2ca215511a9c version=2
 - `closure-final-2026-08-04--prov-cc74ba2f` (cc74ba2f) state=adopted session=7f294e7a-c46b-4932-8f58-312eae6cb23a version=2
 - `codex-audit-split` (00ef12f0) state=parked session=[WITHHELD: 28 chars of founder text] version=3: docs/evidence/v3.1.0/codex-audit-split-2026-08-10-night.md, docs/evidence/v3.1.0/R4-TRIAGE-2026-08-11.md
 - `codex-disclosure-l06` (20b0544b) state=complete session=[WITHHELD: 22 chars of founder text] version=3: docs/RUNTIMES.md, docs/KNOWN-LIMITS.md, SECURITY.md, README.md, skills/brotherme/SKILL.md, docs/HOW-IT-WORKS.md, capabilities.status.json, tools/bm_runtimes.py
@@ -48,6 +49,7 @@
 - `first-rank-loops-0-6` (3bd7d41d) state=complete session=[WITHHELD: 23 chars of founder text] version=2
 - `forecast-telemetry` (ffae6426) state=parked session=[WITHHELD: 28 chars of founder text] version=2: tools/bm_forecast.py, tools/test_bm_forecast.py
 - `gtm-overnight-automation--prov-055142a3` (055142a3) state=adopted session=[WITHHELD: 28 chars of founder text] version=2
+- `handover-close-control` (bf5ef759) state=parked session=[WITHHELD: 28 chars of founder text] version=2: tools/bm_handover.py, tools/test_bm_handover.py, hooks/hooks.json
 - `handover-pack-2026-08-06--prov-bd12ed7c` (bd12ed7c) state=adopted session=7f294e7a-c46b-4932-8f58-312eae6cb23a version=2
 - `handover-review-watchdog-fix-2026-08-06--prov-10415ec0` (10415ec0) state=adopted session=7f294e7a-c46b-4932-8f58-312eae6cb23a version=2
 - `help-artifact-and-explainer-v2--prov-9c807b77` (9c807b77) state=adopted session=7f294e7a-c46b-4932-8f58-312eae6cb23a version=2
@@ -109,7 +111,7 @@
 - `night-progress-template` (df4bdc25) state=complete session=[WITHHELD: 8 chars of founder text] version=2: project-template/PROGRESS.html, references/status-view.md, project-template/README.md
 - `night-queue-and-board` (500e030b) state=parked session=[WITHHELD: 28 chars of founder text] version=2: docs/plan/QUEUE.json, docs/plan/GANTT.html
 - `omit-session-probe` (32c531a9) state=complete session=[WITHHELD: 28 chars of founder text] version=4: docs/plan/PROBE-TARGET.md
-- `overnight-2026-08-12-team-version--prov-08e95ec5` (08e95ec5) state=active session=d79520aa-92de-4f0e-b679-2ca215511a9c version=1
+- `overnight-2026-08-12-team-version--prov-08e95ec5` (08e95ec5) state=parked session=d79520aa-92de-4f0e-b679-2ca215511a9c version=2
 - `overnight-v3-2-0-and-team-rollout--prov-042f0ebd` (042f0ebd) state=parked session=31456097-4efb-4470-aa61-5ff5e8b9afa7 version=2
 - `p1-fence-core--prov-e89eb5f5` (e89eb5f5) state=adopted session=[WITHHELD: 28 chars of founder text] version=2
 - `p5-progress-view` (03f77033) state=complete session=[WITHHELD: 21 chars of founder text] version=3: tools/bm_visual.py, tools/bm_view.py, tools/test_bm_visual.py, tools/test_bm_view.py, tools/bm_store.py, tools/test_bm_store.py, brotherme/core/schema.py, tools/write_sites.json, tools/bm_project.py, tools/test_bm_project.py
@@ -162,7 +164,7 @@
 - `tk5a-receipt-schema` (f1b66204) state=parked session=[WITHHELD: 28 chars of founder text] version=2: brotherme/core/schema.py, tools/bm_store.py, tools/test_bm_store.py, docs/specs/canonical-project-protocol.md
 - `tk5b-refusal-rewrites` (44809aa3) state=parked session=[WITHHELD: 28 chars of founder text] version=2: tools/bm_visual.py
 - `toolkit-broker-replan--prov-b714f8e8` (b714f8e8) state=active session=4538d5df-9464-4c58-bf7c-760e170f37a2 version=1
-- `toolkit-replan` (019b6008) state=active session=[WITHHELD: 28 chars of founder text] version=36: docs/plan/TOOLKIT-PLAN-2026-08-12.md, docs/plan/COMMAND-CENTER.html, docs/plan/QUEUE.json
+- `toolkit-replan` (019b6008) state=parked session=[WITHHELD: 28 chars of founder text] version=37: docs/plan/TOOLKIT-PLAN-2026-08-12.md, docs/plan/COMMAND-CENTER.html, docs/plan/QUEUE.json
 - `unit-u-phase2-store-edges` (5e6b663b) state=parked session=[WITHHELD: 28 chars of founder text] version=3: tools/bm_store.py, tools/test_bm_store.py
 - `unit-u-phase3-install-truth` (f689425b) state=complete session=[WITHHELD: 28 chars of founder text] version=4: README.md, docs/QUICKSTART.md, docs/SETUP.md, tools/test_bm_docs.py
 - `unit-u1-land-tool` (c2442509) state=complete session=53c70dcb-1acd-429a-9fd6-3bc840ab018e version=2: tools/bm_handover.py, tools/test_bm_handover.py, docs/handover/README.md
@@ -260,6 +262,12 @@
   clear with: python3 [PATH WITHHELD] handover-ack --handover aea4c84df4bb4a51b2d143c3fe24afb6
 - `505d7762` lifecycle db35c519 at 2026-08-12T01:28:01Z: [WITHHELD: 135 chars of founder text]
   clear with: python3 [PATH WITHHELD] handover-ack --handover 505d776243e7445fb869a6fb9dacd191
+- `15e73f77` lifecycle bf5ef759 at 2026-08-12T02:20:59Z: [WITHHELD: 253 chars of founder text]
+  clear with: python3 [PATH WITHHELD] handover-ack --handover 15e73f77003f4e0f9a1040f887570b83
+- `fbfdf70c` lifecycle 019b6008 at 2026-08-12T02:20:59Z: [WITHHELD: 373 chars of founder text]
+  clear with: python3 [PATH WITHHELD] handover-ack --handover fbfdf70ccef24ec1b0a0452cfcc04537
+- `34f7b6c4` lifecycle e150655b at 2026-08-12T02:58:50Z: [WITHHELD: 51 chars of founder text]
+  clear with: python3 [PATH WITHHELD] handover-ack --handover 34f7b6c4180e40e9bb558e6925c4580e
 
 ## Notes (human, preserved verbatim on regeneration)
 

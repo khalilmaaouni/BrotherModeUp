@@ -21,6 +21,38 @@ a session ending without a pack. That is the definition of an unenforced rule
 in this project's own vocabulary, and the fix is in
 03-RULES-AND-PROCESS-FIXES.md, as a control rather than a promise.
 
+## The BrotherSBE audit, and what it broke
+
+The founder asked for the ceremony to be reviewed end to end before moving on.
+Two read-only reviewers ran against it and found blocking defects in work that
+had been reported as done an hour earlier. Every one was real.
+
+1. **The control ran in zero sessions.** Claude Code executes
+   ~/.claude/skills/brothermode, its own clone. The repository was edited. The
+   running file contained zero occurrences of `owed` while it was being
+   described as wired. `cmp` said DIFFERENT. This is the failure that undoes
+   all the others: a control in a file nothing runs is not a control.
+2. **The mtime signal broke four ways.** Blind on a packed-ref repository,
+   which is every fresh clone. Cleared by anything touching the zip, including
+   a file Finder writes. Read CURRENT for work committed on another branch.
+   And on a CORRECTLY closed session it read OWED forever, because this
+   project commits last, so the final commit is always newer than the pack it
+   contains.
+3. **verify-close PASSed on a one-character human block**, and on a close
+   report copied verbatim from a different session on a different day. All its
+   checks are structural: they prove a marker was deleted, not that a handover
+   was written.
+4. **--session accepted any string.** `--session audit-fake-session` made the
+   ownership check vacuous, because a session the store never saw owns nothing
+   unparked. Defeated by a typo.
+
+Fixes 1, 2 and 4 landed. Fix 3 is partly unfixable and what remains is filed.
+
+The lesson, which is not about handovers: I verified a control by running it,
+and running it proved the CODE worked. It did not prove the code was the code
+that runs. Between the two sits an install, and nothing in my verification
+crossed it.
+
 ## Measurements worth carrying forward
 
 Forecast calibration, n=14, median 2.24 fast, spread 0.66 to 25.00. The
