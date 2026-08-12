@@ -262,6 +262,14 @@ b766b4747673d6ffcd64f191fb38e1e17671005b39feec2718a04ecde6b781a9  docs/handover/
 b239979cf5eac7c8db62d19558cf8d240dbdb5a174d9598e13ea9d8e620aa12b  docs/handover/2026-08-12-aggressive-replan/05-VAULT-AND-OBSIDIAN.md
 eefa3742a26c7b7795cb0c7ae2675325598bea7034016bfa18b3bb4fbbc8d20a  docs/handover/2026-08-12-aggressive-replan/06-CLOSE-REPORT.md
 104727ea0db0a6a8577e9d8a258531af8dee80ec6cee5ca67e41fcc34898c4fb  docs/handover/2026-08-12-aggressive-replan/COMMAND-CENTER.html
+2f28ee60954d8ce4bc0bff94d6f75f048a83144f965366c38665ce33e65f85c6  docs/handover/2026-08-12-brothersbe-triumvirate/00-READ-ME-FIRST.md
+1a2cd36d02fb51c975b9c72b8bfac47c4a49c9b0941aee304be8e05589cbb4fd  docs/handover/2026-08-12-brothersbe-triumvirate/01-HANDOVER.md
+b1d43ba5bf2339fbeff0ed30c9d4cb3f30c88884e68dc969bff8c87f7faf916c  docs/handover/2026-08-12-brothersbe-triumvirate/02-LEARNINGS-AND-MISTAKES.md
+cb073bc9da04fd8655ade2456e4fdc80034a0b286c7ad744a13733148ceaae4b  docs/handover/2026-08-12-brothersbe-triumvirate/03-RULES-AND-PROCESS-FIXES.md
+00f969c2b2161a4b2e9208f7706ce5ce5906f500cc1e301aaf203a9b04b5f177  docs/handover/2026-08-12-brothersbe-triumvirate/04-NEXT-LOOPS-PRIORITIZED.md
+b7c1414e7c05b2a76e9a29830d01270e00c0943ae2746395082281e18eae6e58  docs/handover/2026-08-12-brothersbe-triumvirate/05-VAULT-AND-OBSIDIAN.md
+a06906ee8df98429a57ecf51db6fa0514e3b27c39a3c82375e1907cc747a9535  docs/handover/2026-08-12-brothersbe-triumvirate/06-CLOSE-REPORT.md
+f23f82d6b133c1224a3b16c4c76278b291026be003df813a01e61d4d05ef32c6  docs/handover/2026-08-12-brothersbe-triumvirate/COMMAND-CENTER.html
 66302d4f8e175a0006f6f60aaa48630a8044f4d9a32e1ca4784cb2c07fbbd80b  docs/handover/2026-08-12-replan-and-forecasting-learning/00-READ-ME-FIRST.md
 da23af169c17edc93f847f9eacb819a0c3d897bcec585e0afcccf66804d5d432  docs/handover/2026-08-12-replan-and-forecasting-learning/01-HANDOVER.md
 0f3cd59411ee8052f4822d1dac54a7ef1225495e6c422f05be4c650cdccd7d3a  docs/handover/2026-08-12-replan-and-forecasting-learning/02-LEARNINGS-AND-MISTAKES.md
@@ -270,6 +278,14 @@ aa4ecbfade0331dd96de9490f8489fadfad58439467167244286a1afce8db42b  docs/handover/
 95d3b59eb87808052da65921196ac63073f5685658944c1273dd98c913b9b13b  docs/handover/2026-08-12-replan-and-forecasting-learning/05-VAULT-AND-OBSIDIAN.md
 acebd0f78a54799a9a340154c84c92addf262c82d032eaf0c45887b07eb5993d  docs/handover/2026-08-12-replan-and-forecasting-learning/06-CLOSE-REPORT.md
 fd6db52f47368aa0f5f6e186a5f39e0230fa3ec4799f282b3bcbbc5a6bf0db5e  docs/handover/2026-08-12-replan-and-forecasting-learning/COMMAND-CENTER.html
+25413b1e4e84717a60482b4925539ffb1050e54c72edb02ca65784cf2052c416  docs/handover/2026-08-12-toolkit-wave-1/00-READ-ME-FIRST.md
+37605e5a61751f6ef5972fc32a2823c7a8f7b607de3b4e6cdd6bfad14ba89365  docs/handover/2026-08-12-toolkit-wave-1/01-HANDOVER.md
+fb196cba54dec37b0c5cad0fe1c87d7b9483016939bc259f4785b4ad9b8653e4  docs/handover/2026-08-12-toolkit-wave-1/02-LEARNINGS-AND-MISTAKES.md
+53bc9b026221d5fea436d41ae0db29fe1d507ac905fa9f99a34885b0b289806d  docs/handover/2026-08-12-toolkit-wave-1/03-RULES-AND-PROCESS-FIXES.md
+fa4708f3d28d8238c6ea179673f3bf24c6e591e4d9b2ba610e1151e11dd97110  docs/handover/2026-08-12-toolkit-wave-1/04-NEXT-LOOPS-PRIORITIZED.md
+d5ec19ae2041f095cd5200633f58f29875e1d2b0930e3e5063bf822d84ed6760  docs/handover/2026-08-12-toolkit-wave-1/05-VAULT-AND-OBSIDIAN.md
+97ebf93aadaac9537b80c5e179e250bb4e50435e5e8f74d4ae70750f1567b05a  docs/handover/2026-08-12-toolkit-wave-1/06-CLOSE-REPORT.md
+f23f82d6b133c1224a3b16c4c76278b291026be003df813a01e61d4d05ef32c6  docs/handover/2026-08-12-toolkit-wave-1/COMMAND-CENTER.html
 34f962950173327e06f90c5f301219c2694f1613aec856ad1754ea196823b4e4  docs/handover/2026-08-12-v3-2-0-released/00-READ-ME-FIRST.md
 74645383e374bf465d0d106dac6a38049bfd0f414eafa376ab80a6da4eff92e4  docs/handover/2026-08-12-v3-2-0-released/01-HANDOVER.md
 a042461b888aa4bd8537b3afafe3be518159e21d95472f36628dc6b1c1f290c1  docs/handover/2026-08-12-v3-2-0-released/02-LEARNINGS-AND-MISTAKES.md
@@ -715,7 +731,7 @@ f8bff45c6c2fe996e56406b555a7f6e53c5eb55fe169332ec5384a49b8b82807  docs/superpowe
 24c903d6e811b5e5e708a0db215fdf787cc1d40c67accdc02c6778e40616b28c  docs/team/FIRST-DAY.md
 d6a5e20856b8559e9b6e55acf52be345f29fb1d7619b466e9205c0bb8852f393  docs/team/INSTALL-CARD.md
 454364ee2a0526717ee4107f77b32c9a6355124b6e83a063e55f19e67cc7f21f  docs/team/TESTER-PACK.md
-9ce0ff4a2923554dc617f4eb4a15956978d9bf90deb101fa2eaf6c55714d36bf  hooks/hooks.json
+1370abf61ee6baeb64903b8d589505e033ec576170fd76b734d1db74e7175191  hooks/hooks.json
 261cb5a1b3c15add5bbf18d3578eb8de629562ab32d6952e050c939f61fce4a1  mcp/README.md
 c3b89d91b9c5b60ad3e974b99ad98d7eac6bb77ff52f99868f70f2231a81468e  mcp/bm_mcp_server.py
 e04da994c68eb8c589d7059fef5f9414cfab352c711f883d5aa742d11d294b3a  product.identity.json
@@ -802,7 +818,7 @@ f8bcdec9ce0f93331e936f1c7e976b487343d814f8ba2e58477e417786973453  tools/bm_docs_
 e91b6db5ad3512c31de513b63ab2d9ac40cf6952ce7b32adf3a885c5791e26e4  tools/bm_effects.py
 b0749ece24ed853ba040da932c9403d49b2d881100205fe0494055d93a64975a  tools/bm_fence_hook.py
 0271253f51f04641147f98ff7af72b353ee549c2e749aeaaf0852046d27b97ce  tools/bm_forecast.py
-9f43f42a6d48248f3bfafeb3ffb269619192df89979597d8164c4d15003fc101  tools/bm_handover.py
+edfb518e3a83abc329d9615e63b90312debf210f46fa2f06998cafabc6e45c73  tools/bm_handover.py
 62b8fa3414144401be6b168ad28608c7bab2e66f561edbe1c31742e6278e87fd  tools/bm_hookbench.py
 a5c6a0ea84c6d2b0e602bafaada37aaa0c4e4eb03e08f81a1e54c639c0d1f257  tools/bm_idle.py
 5aba296cbaf93c361c4dfe14de418d906b0baa6f5193e57a70c5631dc12c32c2  tools/bm_lead.py
@@ -842,7 +858,7 @@ cf44d3f677bf27417e250fdb97bf28283ab3c2dd8c58c81b43d9a76bd1f4b91e  tools/test_bm_
 05784387ef7017a8f79924c6a43fc14a011a7e703dfa5675bff80d85b179b5e7  tools/test_bm_effects.py
 9ac190499b64381170308ef5bee688dc44238f688e2ed949dcf0c93eb6d3c2ca  tools/test_bm_fence_hook.py
 97a8642b67b1628d8484377965cd2b5628757e91e46226b7d4c0f940e2b24d05  tools/test_bm_forecast.py
-d2714ffc4b772be157515511c531a194e6d1855d55752e656c7413e245fcb46b  tools/test_bm_handover.py
+7bb8ba63ca77b6d8dbc3a9712a3af5fdf3fcc8f620f9595aa92a8c4e7b011dd0  tools/test_bm_handover.py
 638d81c77d8f93926d1558561c666fe710c3fe7c1739980d5ddc142d01f38256  tools/test_bm_hookbench.py
 4a57895594dbdec9c74f6b66af135f8b913e09c70ac50a84b1f7f7da83b54bef  tools/test_bm_hookperf.py
 b4f4a220041ca2f5331949f7a5609264a44687a4bf5e5bc88b883a2c915d90e7  tools/test_bm_idle.py
