@@ -148,25 +148,100 @@ half, and the MVP ships the static half completely.**
   is wrong, and the UNENFORCED sentence from the broker design carries over
   verbatim.
 
-## 5. Absorb or route: the north-star line
+## 5. Absorb or coordinate: four criteria and the native floor
 
-Capabilities that ARE controlled delivery get absorbed into core. Everything
-else gets routed, forever, because the moat is the record, not the method.
+Refined 2026-08-12 on the founder's direction: BrotherMode must not be fully
+dependent on external hooks and skills for anything essential. The line is
+drawn by four criteria, and a capability is absorbed into core only when it
+meets ALL FOUR:
 
-**Absorb (core, this program):** capability inventory; conflict detection;
-capability identity and versioning; evidence receipts; retention memory.
+1. **Sufficient when minimal.** A thin native version genuinely covers the
+   spine's need; we are not rebuilding a whole product badly.
+2. **Differentiating.** Owning it strengthens the moat rather than
+   duplicating a commodity.
+3. **North-star-close.** It IS controlled delivery, not a method of doing
+   work.
+4. **Necessary.** Delivery would STOP without it on a machine where the
+   external capability is absent or broken.
 
-**Route (never absorb):** TDD implementation (Superpowers); planning
-elaboration (BMAD, GSD, Compound Engineering class); code review (Anthropic
-Code Review); security guidance; historical recall (claude-mem class);
-research (Perplexity, Exa); design and media (design plugins, Figma, Canva,
-Higgsfield); hook generation (Hookify).
+**The native floor law, which makes decision 11 honest.** Decision 11 says an
+absent capability degrades to core with the gap named in the receipt. That
+promise is only true if a native floor EXISTS for every spine step. So: every
+step of the controlled-delivery spine carries a native floor that BrotherMode
+owns outright; routed capabilities are UPGRADES on top of the floor, never
+dependencies under it. Where a floor is missing, a thin one is built; where
+an external tool would only duplicate the floor, it is coordinated, not
+absorbed.
 
-**Out of scope until the connector model matures (R4+):** out-of-harness
+### The spine, step by step
+
+| Spine step | Native floor, owned | Routed upgrade | Floor status |
+|---|---|---|---|
+| Outcome record and acceptance criteria | store: goal, scope, success criteria, kill_criteria, non_goals | BMAD or Compound Engineering product elaboration | EXISTS, schema 19 |
+| Plan shape | bm_project tasks with acceptance checks; the plan law: files plus done-checks | GSD phase planning, superpowers writing-plans | EXISTS, minimal on purpose |
+| Implementation method | test-first law plus the gate battery; no native TDD engine | Superpowers TDD | FLOOR IS DISCIPLINE PLUS GATES; the engine is deliberately not built (decision 22) |
+| Verification | the done-check rerun after the last edit; test_all; verify-close | NEVER ROUTED | EXISTS, the sole closing authority (decision 10) |
+| Review | falsification-only review brief, PO-5: attacks executed, COULD NOT BREAK or findings | Anthropic Code Review | EXISTS as discipline; BORROWED into a named core artifact in T6 |
+| Security floor | secret scan, dash scan, write-site inventory, effect classes | Security Guidance depth | EXISTS |
+| Evidence and delivery | nine-field receipts plus the delivery packet | NEVER ROUTED | BUILD, T5 |
+| Criterion-linked verification | every check names the acceptance criterion it satisfies | none | BORROWED from GSD's essence; R1.2 is PULLED INTO this arc as part of T5, because it is the receipt's backbone |
+| Memory | the store for delivery state; the Obsidian vault for knowledge | claude-mem-class recall, read-only | EXISTS; strengthened per decision 23 as its own program |
+| Forecast and queue depth | bm_forecast, bm_idle | none | EXISTS since 12 August |
+| The capability layer itself | inventory, conflicts, routing, retention | NEVER ROUTED; the broker is never external | BUILD, T1 to T8 |
+
+### What we borrow: essences, not code
+
+Four external ideas are close enough to the north star that their ESSENCE
+becomes core, while the tools themselves remain coordinated:
+
+- **From GSD:** machine-verifiable acceptance criteria per task. Absorbed as
+  criterion-linked verification, folded into T5.
+- **From Compound Engineering:** the compounding learning loop, where each
+  delivery's lessons feed the next plan. Already native as bm_learn plus the
+  vault; T7's retention receipts now feed it, closing the loop.
+- **From superpowers:** verification before completion. Already this
+  project's founding law; named here so the debt is acknowledged.
+- **From claude-mem:** episodic session memory. Absorbed as direction into
+  the vault agent-memory program (decision 23), never as their hook stack.
+
+### What we coordinate, never absorb
+
+TDD engines; planning elaboration (BMAD, GSD, Compound Engineering, arc);
+review depth (Anthropic Code Review); security depth (Security Guidance);
+research (Perplexity, Exa, Agent-Search); design and media (design plugins,
+Figma, Canva, Higgsfield); hook generation (Hookify).
+
+**Strictly last, behind the connector model (decision 24):** out-of-harness
 executors: Cline, OpenHands, Cursor CLI. Each is a separately versioned
-surface with its own auth failure modes, which is exactly why the connector
-design exists. Bringing them in early would put uncontrolled executors
-inside a product whose one promise is control.
+surface with its own auth failure modes. Bringing them in early would put
+uncontrolled executors inside a product whose one promise is control.
+
+## 5a. The family, and why the Toolkit is invisible
+
+Three siblings, one spine, one capability layer:
+
+- **BrotherMode:** one person's session becomes a controlled delivery.
+- **BrotherSBE:** one change's passage between people becomes assured.
+- **BrotherDS**, the future data sibling (its exact scope is the founder's
+  to define): the same spine over data work, where BrotherSBE's number and
+  migration gates (pinned snapshots, second derivations, reconciliation)
+  already prefigure what its floor will need.
+
+The Toolkit is the SHARED layer underneath all three: one inventory, one
+conflict map, one receipt schema, one retention memory. A sibling consumes
+the layer; no sibling reimplements it. When BrotherDS arrives, it inherits
+routing, receipts and retention on day one instead of rebuilding them.
+
+**The invisibility principle.** In the normal working loop the user never
+runs a toolkit command and never learns broker vocabulary. Routing happens
+inside start, next and review; receipts appear inside the delivery packet;
+conflicts surface through doctor, the way a stale manifest already does;
+retention proposals appear at review cadence. The Toolkit's entire
+user-facing surface is three moments: a doctor finding, a packet appendix,
+and a retention review. Zero new ceremony in the daily path, which is what
+"seamless" means concretely enough to test: if a first-day user has to learn
+one new command for the toolkit to work for them, this principle is broken
+and that is a defect.
 
 ## 5b. The research findings, folded in
 

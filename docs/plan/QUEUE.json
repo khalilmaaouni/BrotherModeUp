@@ -68,16 +68,17 @@
     },
     {
       "id": "TK5",
-      "title": "T5 Receipts: nine fields, NO-DATA path for unverifiable output, store rows",
+      "title": "T5 Receipts: nine fields, NO-DATA path, plus criterion-linked verification (R1.2 pulled into this arc per decision 32, the receipt backbone)",
       "state": "queued",
       "clock": "agent",
-      "forecast_minutes": 150,
+      "forecast_minutes": 210,
       "files": [
+        "brotherme/core/schema.py",
         "tools/bm_store.py",
         "tools/bm_toolkit.py",
         "tools/test_bm_store.py"
       ],
-      "done_check": "suite proves the nine-field receipt and the NO-DATA path"
+      "done_check": "suite proves the nine-field receipt, the NO-DATA path, and that a verification row cannot be filed without naming its criterion"
     },
     {
       "id": "TK6",
@@ -89,7 +90,7 @@
         "tools/bm_store.py",
         "tools/test_bm_store.py"
       ],
-      "done_check": "pipeline completes; receipt per external step; O4 done-check green: claim then park from two shells"
+      "done_check": "pipeline completes; receipt per external step; the review step uses the named core falsification brief when Code Review is absent; O4 done-check green: claim then park from two shells"
     },
     {
       "id": "TK7",
