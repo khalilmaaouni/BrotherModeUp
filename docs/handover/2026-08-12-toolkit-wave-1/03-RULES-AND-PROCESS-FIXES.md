@@ -36,10 +36,20 @@ than the last commit is evidence somebody closed. Neither depends on anybody
 remembering. It reads git's own on-disk files rather than running git, because
 this module promises no subprocess.
 
-WIRED INTO hooks/hooks.json ON THE Stop EVENT, appended to the existing chain,
-fail-open with `|| true` so it can never break a session. That is what makes
-it a control: it now runs when a session tries to stop, whether or not anyone
+WIRED INTO tools/bm_sessionstart.sh, fail-open, silent when nothing is owed.
+That is what makes it a control: it runs on its own, whether or not anyone
 chose to run it.
+
+It was first wired onto the Stop event and that was WRONG, caught within
+minutes by six suites. A module wired into hooks.json must declare a consent
+gate or be classified exempt with a reason, and bm_handover.py does neither;
+putting it on a hook path was the same class of mistake as this project's two
+Critical pre-consent writes. The session-start script has already passed the
+consent door by the time it reaches that line, so the check inherits that gate
+instead of needing one. It is also the better place on the merits: it sits
+beside the ceremony's other opening-half read, and a session that OPENS being
+told the previous one left no handover is being told by the person who can
+still act on it.
 
 Proven by attack before it was wired, all four verdicts fired against hand-
 built fixtures, and by four tests in tools/test_bm_handover.py (43 green). The
