@@ -170,6 +170,13 @@ _STATUS_LINE_RE = re.compile(r"^(FINISHED|UNFINISHED)\b")
 
 PASS, FAIL, NODATA = 0, 1, 2
 
+#: Returned by _pack_paths_not_in_git when the project is not a git
+#: repository at all. A distinct object rather than None or an empty list,
+#: because the three answers are genuinely different: NOT_A_GIT_REPO means
+#: the question does not apply, None means it could not be answered, and an
+#: empty list means it was answered and everything is committed.
+NOT_A_GIT_REPO = object()
+
 
 # ---------------------------------------------------------------------------
 # Small shared helpers.
@@ -1171,6 +1178,22 @@ def cmd_verify_close(argv):
             "the unparked-records check cannot run without knowing which "
             "session is closing. Pass --session explicitly.")
         return NODATA
+    # An audit broke this check with `--session audit-fake-session`: a session
+    # id the store has never seen owns no records, therefore owns no unparked
+    # records, therefore passes. The check the founder relies on was defeated
+    # by a typo. A session that appears nowhere in the store is not a clean
+    # session, it is an unanswerable question, so it is NO-DATA rather than
+    # PASS. The one legitimate case, a brand new session that never claimed
+    # anything, is exactly the case with no pack to close either.
+    known = {r["session_id"] for r in data["records"] if r.get("session_id")}
+    if session not in known:
+        _out_scrubbed(
+            "NO-DATA: session %r owns no record in this store, so the "
+            "unparked-records check cannot say anything about it. Either the "
+            "id is mistyped or this session never claimed anything. Pass the "
+            "id the session actually claimed under; `%s detect` prints the "
+            "live ones." % (session, _inv()))
+        return NODATA
     owned = [r for r in data["records"]
             if r["state"] in UNPARKED_STATES and r["session_id"] == session]
     if owned:
@@ -1202,8 +1225,67 @@ def cmd_verify_close(argv):
         _out_scrubbed("FAIL: %s" % forecast_note)
         return FAIL
 
+    # Check 6: the pack is IN GIT. Found by an independent review, and it is
+    # the founder's own failure mode rather than a hypothetical: a session can
+    # write a pack, zip it, and collect PASS while the pack sits untracked on
+    # disk. If that checkout is a worktree that gets cleaned, or the machine
+    # is rebuilt, the handover the ceremony just certified is gone. A pack
+    # nobody committed is not a handover; it is a local file.
+    untracked = _pack_paths_not_in_git(root, pack_dir)
+    if untracked is NOT_A_GIT_REPO:
+        untracked = []
+    if untracked is None:
+        _out_scrubbed(
+            "NO-DATA: the git index could not be read, so whether this pack "
+            "is committed cannot be established. That is not a pass: run "
+            "`git status` yourself before trusting this pack to survive.")
+        return NODATA
+    if untracked:
+        _out_scrubbed(
+            "FAIL: %d pack file(s) are not in git: %s. A pack nobody "
+            "committed is a local file, not a handover, and it dies with the "
+            "checkout. Run `git add %s` and commit before closing."
+            % (len(untracked), ", ".join(untracked[:5]), pack_dir))
+        return FAIL
+
     _out_scrubbed("PASS: %s is ready to close." % pack_dir)
     return PASS
+
+
+def _pack_paths_not_in_git(root, pack_dir):
+    """Pack files git does not have, as a sorted list, or None for could
+    not tell.
+
+    None is never an empty list and callers must not treat it as one: an
+    index this cannot parse means the question is unanswered, and reporting
+    "nothing untracked" would be the fail-open shape this project already
+    has a finding about. Reads the index through bm_store's own pure-Python
+    parser rather than running git, because this module promises no
+    subprocess anywhere.
+    """
+    gitdir = os.path.join(root, ".git")
+    index_path = os.path.join(gitdir, "index")
+    if not os.path.isdir(gitdir):
+        # NOT APPLICABLE, which is a third state and not the same as could
+        # not tell. A project that is not a git repository cannot be asked
+        # whether its files are committed, and answering NO-DATA there would
+        # block every such project from ever closing a session. Conflating
+        # the two broke six existing tests on the first run of this check,
+        # every one of them a legitimate temp root with no git in it, and
+        # that is why the distinction is written down rather than assumed.
+        return NOT_A_GIT_REPO
+    tracked = bs._git_index_tracked_paths(index_path)
+    if tracked is None:
+        return None
+    missing = []
+    for name in sorted(os.listdir(pack_dir)):
+        full = os.path.join(pack_dir, name)
+        if not os.path.isfile(full):
+            continue
+        rel = os.path.relpath(full, root).replace(os.sep, "/")
+        if rel not in tracked:
+            missing.append(rel)
+    return missing
 
 
 def _open_forecast_note(root):
@@ -1387,9 +1469,22 @@ def _last_commit_time(root):
             return None
         ref = head.split(":", 1)[1].strip()
         ref_path = os.path.join(root, ".git", *ref.split("/"))
-        if not os.path.isfile(ref_path):
-            return None
-        return os.path.getmtime(ref_path)
+        if os.path.isfile(ref_path):
+            return os.path.getmtime(ref_path)
+        # A PACKED ref, which is what a fresh clone looks like and what any
+        # repository looks like after `git gc`. Found by attacking this verb
+        # rather than by reading it: with refs packed there is no loose file,
+        # so the branch mtime does not exist and this returned None, meaning
+        # the control was BLIND on exactly the machine where a first session
+        # is most likely to skip the ceremony. It failed safe (NO-DATA, never
+        # a false CURRENT), which is why it was survivable, and blind is still
+        # blind. COMMIT_EDITMSG is written by every `git commit` regardless of
+        # how refs are stored; measured on this repository, its mtime matched
+        # `git log -1` to the minute.
+        editmsg = os.path.join(root, ".git", "COMMIT_EDITMSG")
+        if os.path.isfile(editmsg):
+            return os.path.getmtime(editmsg)
+        return None
     except Exception:
         return None
 
@@ -1398,78 +1493,77 @@ def cmd_owed(argv):
     """Is a close pack owed right now?
 
     WHY THIS VERB EXISTS, stated plainly because it is a correction. The
-    ceremony's closing half was enforced by verify-close, and verify-close
-    only ever runs when somebody chooses to run it. Nothing observed a
-    session that did real work and wrote no pack. The founder had to ask
-    for the pack four separate times before this was built, and scored it
-    1 out of 5 the fourth time. A rule nothing checks is not a control,
-    which is this project's own founding law, applied here to the
-    ceremony that carries every other session forward.
+    ceremony closing half was enforced by verify-close, and verify-close only
+    ever runs when somebody chooses to run it. Nothing observed a session that
+    did real work and wrote no pack. The founder had to ask four separate
+    times and scored the fourth 1 out of 5.
 
-    The signal is mechanical and needs no cooperation from the session
-    being checked: a pack is OWED when this checkout has committed since
-    the newest pack was written. Commits are the evidence that work
-    happened; a pack newer than the last commit is evidence somebody
-    closed. Neither depends on anybody remembering.
+    THE SIGNAL IS COMMITTEDNESS, NOT RECENCY, and that is the second design.
+    The first compared the git ref mtime against the pack directory, and an
+    independent audit broke it in four ways within the hour: it went permanently
+    blind on a packed-ref repository, which is the shape of every fresh clone;
+    it cleared when anything touched the zip, including a file Finder writes
+    into the pack directory; it read CURRENT for work committed on another
+    branch; and worst, on a correctly closed session it read OWED forever,
+    because this project's own rule regenerates CHECKSUMS.sha256 and commits
+    LAST, so the final commit is always newer than the pack it contains. A nag
+    that fires after every correct close is the noise this check must not
+    become.
+
+    So the question it asks now is the one that actually matters and has no
+    false positives: IS THE NEWEST PACK IN GIT? A pack nobody committed dies
+    with the checkout, and that is the founder's failure verbatim.
 
     Four verdicts:
 
-      OWED        commits are newer than the newest pack        exit 1
-      OWED        no pack exists at all and commits do          exit 1
-      CURRENT     the newest pack is newer than the last commit exit 0
-      NO-DATA     no git ref, no handover dir, or unreadable    exit 2
+      OWED      no pack exists at all in a git repository          exit 1
+      OWED      the newest pack has files git does not have        exit 1
+      CURRENT   every file of the newest pack is committed         exit 0
+      NO-DATA   no root, or a git index that cannot be parsed      exit 2
 
-    NO-DATA is never a pass and never a failure: a checkout with no git
-    ref cannot be judged, and saying so is the honest answer.
+    WHAT IT DOES NOT DETECT, stated rather than left to be discovered: work
+    committed AFTER the pack was committed. Answering that needs the commit
+    graph, and reading the graph needs git as a subprocess, which this module
+    promises nowhere to use. A session that closes properly and then keeps
+    working will read CURRENT until it writes a new pack. That is a real gap
+    and it is smaller than the one it replaces, because the failure it does
+    catch is the one that actually happened four times.
     """
     _parse(argv, set())
     root = _root()
     if not root:
         _out("NO-DATA: no project root resolved, so nothing can be judged")
         return NODATA
-    commit_at = _last_commit_time(root)
-    if commit_at is None:
-        _out("NO-DATA: could not read this checkout's git ref, so whether "
-             "work has happened since the last pack cannot be judged")
-        return NODATA
     pack_dir = _find_newest_pack(root)
     if pack_dir is None:
-        _out("OWED: this checkout has commits and NO close pack exists at "
-             "all. Run `%s skeleton --slot <name>`, fill every "
-             "FILL-BY-HAND block, zip it, then `%s verify-close`."
-             % (_inv(), _inv()))
+        if not os.path.isdir(os.path.join(root, ".git")):
+            _out("NO-DATA: no close pack exists and this is not a git "
+                 "repository, so whether one is owed cannot be judged")
+            return NODATA
+        _out("OWED: no close pack exists in this checkout at all. Run `%s "
+             "skeleton --slot <name>`, fill every FILL-BY-HAND block, `%s "
+             "zip`, then `%s verify-close`."
+             % (_inv(), _inv(), _inv()))
         return FAIL
-    # The closing act is the ZIP, not the pack directory, and that is not a
-    # detail. Found by this verb on its own first real run: a pack is written,
-    # then committed, and `git commit` does not touch the pack files, so the
-    # ref is always newer than the directory and the check would read OWED
-    # forever no matter how diligently somebody closed. The ceremony's real
-    # order is write, commit, zip, verify-close, so the zip is the artifact
-    # that lands last. Take whichever of the two is newer: the directory
-    # alone would never clear, and the zip alone would miss a pack that was
-    # refreshed but not re-zipped.
-    try:
-        pack_at = os.path.getmtime(pack_dir)
-    except Exception as exc:
-        _out("NO-DATA: the newest pack exists but could not be read (%s: %s)"
-             % (type(exc).__name__, exc))
+    untracked = _pack_paths_not_in_git(root, pack_dir)
+    if untracked is NOT_A_GIT_REPO:
+        _out_scrubbed("NO-DATA: %s is not a git repository, so whether the "
+                      "newest pack is committed cannot be judged" % root)
         return NODATA
-    try:
-        zip_path = _zip_path_for(os.path.basename(pack_dir.rstrip("/")))
-        if os.path.isfile(zip_path):
-            pack_at = max(pack_at, os.path.getmtime(zip_path))
-    except Exception:
-        pass
-    if commit_at > pack_at:
+    if untracked is None:
+        _out_scrubbed("NO-DATA: the git index could not be parsed, so whether "
+                      "the newest pack is committed cannot be judged. That is "
+                      "not a pass: run `git status` yourself.")
+        return NODATA
+    if untracked:
         _out_scrubbed(
-            "OWED: this checkout has committed since the newest close pack "
-            "was written (%s). The work since then has no handover. Refresh "
-            "it with `%s skeleton --slot <name>`, fill every FILL-BY-HAND "
-            "block, `%s zip`, then `%s verify-close`."
-            % (pack_dir, _inv(), _inv(), _inv()))
+            "OWED: the newest close pack (%s) has %d file(s) git does not "
+            "have: %s. A pack nobody committed dies with the checkout. Run "
+            "`git add %s` and commit."
+            % (pack_dir, len(untracked), ", ".join(untracked[:3]), pack_dir))
         return FAIL
-    _out_scrubbed("CURRENT: the newest close pack (%s) is newer than the "
-                  "last commit on this branch." % pack_dir)
+    _out_scrubbed("CURRENT: every file of the newest close pack (%s) is "
+                  "committed." % pack_dir)
     return PASS
 
 
