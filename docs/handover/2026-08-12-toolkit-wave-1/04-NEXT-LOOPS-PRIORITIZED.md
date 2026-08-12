@@ -20,10 +20,30 @@
 - follow up on handover `210f2cf1`: [WITHHELD: 192 chars of founder text]
 - follow up on handover `aea4c84d`: [WITHHELD: 203 chars of founder text]
 - follow up on handover `505d7762`: [WITHHELD: 135 chars of founder text]
+- follow up on handover `15e73f77`: [WITHHELD: 253 chars of founder text]
+- follow up on handover `fbfdf70c`: [WITHHELD: 373 chars of founder text]
+- follow up on handover `34f7b6c4`: [WITHHELD: 51 chars of founder text]
 
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
+**0. FIRST, AND IT IS THE FOUNDER'S CALL, NOT YOURS.** The v3.2.0 tag and the
+VERSION file disagree about which commit is the release, so the gate is red on
+one check of thirty five. Read
+docs/plan/DEFECT-tag-version-disagreement-2026-08-12.md. Three options with a
+recommendation (cut v3.2.1) are written there. Do not retag anything without
+him: that tag is what the install card, the tester pack and both product
+install commands pin to.
+
+**0b. Verify the running install actually has the ceremony control.** Claude
+Code executes ~/.claude/skills/brothermode, its own clone, NOT this
+repository. Check with:
+
+    cmp ~/.claude/skills/brothermode/tools/bm_sessionstart.sh tools/bm_sessionstart.sh
+
+If they differ, the control is not running no matter what any document says.
+That is how it was found the first time.
+
 Machine-readable version: docs/plan/QUEUE.json, depth 29.
 Run `python3 tools/bm_idle.py next` and it prints the top item with its check.
 
