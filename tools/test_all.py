@@ -209,7 +209,7 @@ SUITES = (
     # exists to remove. Like the progress check above it is pure_read and its
     # suite asserts that. NO APOSTROPHE ANYWHERE IN THIS COMMENT, ON PURPOSE.
     "test_bm_idle.py",
-    # The Toolkit's first verb, added 2026-08-12. bm_toolkit.py inventories
+    # The first Toolkit verb, added 2026-08-12. bm_toolkit.py inventories
     # every capability the runtime can see: marketplaces, plugins and their
     # versions, hook events, skills, MCP servers and settings layers. The
     # load bearing behavior this suite holds is the difference between a
