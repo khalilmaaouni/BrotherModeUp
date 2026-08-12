@@ -21,6 +21,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -657,78 +658,136 @@ class TestVerifyClose(HandoverCase):
         os.utime(ref, (commit_mtime, commit_mtime))
         return ref
 
-    def test_owed_fires_when_commits_are_newer_than_the_newest_pack(self):
-        """The correction this verb exists for. The ceremony closing half
-        was enforced by verify-close, and verify-close only runs when
-        somebody chooses to run it, so nothing ever observed a session that
-        did work and wrote no pack. The founder had to ask four times. This
-        is the check that makes it a control rather than a promise."""
+    def _real_git_repo(self, add_paths=()):
+        """A REAL git repository at self.root, with `add_paths` staged.
+
+        A real index rather than a hand-built one, deliberately: the check
+        under test parses git's own binary index format in pure Python, and
+        a fixture that fakes that format tests the fixture. The first draft
+        of this test did fake it, the parser correctly refused to read it,
+        and the test failed for a reason that had nothing to do with the
+        behaviour it was written to pin."""
+        env = dict(os.environ)
+        env["GIT_CONFIG_NOSYSTEM"] = "1"
+        env["HOME"] = self.tmp
+        def git(*args):
+            return subprocess.run(("git",) + args, cwd=self.root, env=env,
+                                  stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, timeout=30)
+        git("init", "-q")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "t")
+        # The store refuses to open inside a git repository that does not
+        # ignore .brothermode, because the raw store carries founder text in
+        # cleartext and would be one `git add -A` from being committed. That
+        # refusal is correct and this fixture satisfies it the way the real
+        # product does, by writing the exclude rule, rather than by setting
+        # the skip flag and testing a shape no user runs.
+        exclude = os.path.join(self.root, ".git", "info", "exclude")
+        if not os.path.isdir(os.path.dirname(exclude)):
+            os.makedirs(os.path.dirname(exclude))
+        with io.open(exclude, "a", encoding="utf-8") as fh:
+            fh.write("\n.brothermode\n")
+        for rel in add_paths:
+            git("add", rel)
+        return git
+
+    def test_verify_close_refuses_a_session_id_the_store_never_saw(self):
+        """An independent audit defeated the ownership check with
+        `--session audit-fake-session`. A session id the store has never seen
+        owns no records, therefore owns no UNPARKED records, therefore passed.
+        The check the founder relies on was defeated by a typo. Unanswerable
+        is not clean."""
+        rec = self.claim("fence-typo", session_id="real-session")
         pack_dir = self._fresh_pack()
         self.fill_pack(pack_dir)
-        os.utime(pack_dir, (1000, 1000))
-        self._fake_git(commit_mtime=2000)
+        code, _o, _e = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code)
+        code, out, _err = self.run_cli(
+            "verify-close", "--pack", pack_dir, "--session", "not-a-real-session")
+        self.assertEqual(
+            2, code,
+            "an unknown session id must be NO-DATA, never a pass: " + out)
+        self.assertTrue(out.startswith("NO-DATA:"), out)
+        # And the real one still behaves: it owns an unparked record, so FAIL.
+        code, out, _err = self.run_cli(
+            "verify-close", "--pack", pack_dir, "--session", "real-session")
+        self.assertEqual(1, code, out)
+        self.assertIn("unparked", out)
+        self.park(rec, session_id="real-session")
+
+    def test_owed_fires_when_the_newest_pack_is_not_committed(self):
+        """The founder's failure verbatim: a pack written, zipped, and never
+        committed dies with the checkout. The first design of this verb
+        compared mtimes and an audit broke it four ways in an hour, including
+        reading OWED forever after a CORRECT close, because this project
+        commits last. Committedness has no such false positive."""
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        self._real_git_repo()            # real repo, nothing staged
         code, out, _err = self.run_cli("owed")
         self.assertEqual(1, code, out)
         self.assertIn("OWED", out)
+        self.assertIn("git does not have", out)
 
-    def test_owed_is_current_when_the_pack_is_newer_than_the_last_commit(self):
-        """A gate that cannot be satisfied is a wall, not a gate."""
+    def test_owed_is_current_once_the_pack_is_staged(self):
+        """A gate that cannot be satisfied is a wall. Once the pack is in
+        git's index it is safe from losing the checkout, which is the whole
+        question this verb asks."""
         pack_dir = self._fresh_pack()
         self.fill_pack(pack_dir)
-        self._fake_git(commit_mtime=1000)
-        os.utime(pack_dir, (2000, 2000))
+        rel = os.path.relpath(pack_dir, self.root)
+        self._real_git_repo(add_paths=(rel,))
         code, out, _err = self.run_cli("owed")
         self.assertEqual(0, code, out)
         self.assertIn("CURRENT", out)
 
-    def test_owed_fires_when_no_pack_exists_at_all(self):
-        """The first session in a checkout is exactly when a pack is most
-        likely to be skipped and most needed."""
-        self._fake_git(commit_mtime=2000)
-        code, out, _err = self.run_cli("owed")
-        self.assertEqual(1, code, out)
-        self.assertIn("OWED", out)
-        self.assertIn("NO close pack exists", out)
-
-    def test_owed_clears_once_the_zip_lands_after_the_commit(self):
-        """Found by this verb on its own first real run against the real
-        repository, which is the only reason it is a test rather than a
-        defect somebody meets later.
-
-        The ceremony's order is write the pack, commit it, zip it, verify.
-        `git commit` does not touch the pack files, so the ref is ALWAYS
-        newer than the pack directory afterwards, and a check comparing only
-        those two would report OWED forever no matter how diligently anybody
-        closed. A gate that cannot be satisfied is not a gate. The zip is the
-        artifact that lands last, so the comparison takes whichever of the
-        two is newer."""
+    def test_owed_is_no_data_outside_a_git_repository_never_a_pass(self):
+        """A project not under git cannot be asked whether its files are
+        committed. NO-DATA is the honest answer; reporting CURRENT would be
+        a check that reassures precisely where it cannot see."""
         pack_dir = self._fresh_pack()
         self.fill_pack(pack_dir)
-        os.utime(pack_dir, (1000, 1000))
-        self._fake_git(commit_mtime=2000)
         code, out, _err = self.run_cli("owed")
-        self.assertEqual(1, code, "before the zip it must still be OWED: " + out)
+        self.assertEqual(2, code, out)
+        self.assertTrue(out.startswith("NO-DATA:"), out)
 
+    def test_verify_close_refuses_a_pack_git_does_not_have(self):
+        """The founder's own failure mode, found by an independent review
+        rather than by this file's author.
+
+        A session can write a pack, zip it, and collect PASS while the pack
+        sits untracked on disk. If that checkout is a worktree somebody
+        cleans up, or the machine is rebuilt, the handover the ceremony just
+        certified is gone. A pack nobody committed is a local file, not a
+        handover."""
+        rec = self.claim("fence-git", session_id="closing-session")
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
         code, _o, _e = self.run_cli("zip", "--pack", pack_dir)
         self.assertEqual(0, code)
-        zip_path = bh._zip_path_for(os.path.basename(pack_dir.rstrip("/")))
-        os.utime(zip_path, (3000, 3000))
+        self.park(rec, session_id="closing-session")
+        self._real_git_repo()         # a real repo with nothing staged
+        code, out, _err = self.run_cli(
+            "verify-close", "--pack", pack_dir, "--session", "closing-session")
+        self.assertEqual(1, code, out)
+        self.assertIn("not in git", out)
 
-        code, out, _err = self.run_cli("owed")
-        self.assertEqual(
-            0, code,
-            "a pack zipped AFTER the commit is a closed session and must "
-            "clear, or the check can never be satisfied: " + out)
-        self.assertIn("CURRENT", out)
-
-    def test_owed_is_no_data_on_a_detached_head_never_a_pass(self):
-        """A checkout whose ref cannot be read cannot be judged. NO-DATA is
-        the honest answer and it must never be silently treated as CURRENT,
-        which would be a check that reassures precisely when it is blind."""
+    def test_verify_close_is_no_data_when_the_index_cannot_be_read(self):
+        """Could-not-tell is never a pass. An index this cannot parse means
+        the question is unanswered, and reporting nothing-untracked would be
+        the fail-open shape this project already has a finding about."""
+        rec = self.claim("fence-git2", session_id="closing-session")
         pack_dir = self._fresh_pack()
         self.fill_pack(pack_dir)
-        self._fake_git(commit_mtime=2000, head="a" * 40)
-        code, out, _err = self.run_cli("owed")
+        code, _o, _e = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code)
+        self.park(rec, session_id="closing-session")
+        self._real_git_repo()
+        gd = os.path.join(self.root, ".git")
+        self.write(os.path.join(gd, "index"), "this is not a git index")
+        code, out, _err = self.run_cli(
+            "verify-close", "--pack", pack_dir, "--session", "closing-session")
         self.assertEqual(2, code, out)
         self.assertTrue(out.startswith("NO-DATA:"), out)
 
