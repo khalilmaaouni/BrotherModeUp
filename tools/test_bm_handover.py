@@ -645,6 +645,62 @@ class TestVerifyClose(HandoverCase):
         self.assertEqual(0, code, out)
         self.assertIn("PASS", out)
 
+    def _fake_git(self, commit_mtime, head="ref: refs/heads/main"):
+        """A minimal .git that cmd_owed can read: HEAD naming a ref, and the
+        ref file whose mtime stands in for the last commit."""
+        gd = os.path.join(self.root, ".git", "refs", "heads")
+        if not os.path.isdir(gd):
+            os.makedirs(gd)
+        self.write(os.path.join(self.root, ".git", "HEAD"), head + "\n")
+        ref = os.path.join(gd, "main")
+        self.write(ref, "0" * 40 + "\n")
+        os.utime(ref, (commit_mtime, commit_mtime))
+        return ref
+
+    def test_owed_fires_when_commits_are_newer_than_the_newest_pack(self):
+        """The correction this verb exists for. The ceremony closing half
+        was enforced by verify-close, and verify-close only runs when
+        somebody chooses to run it, so nothing ever observed a session that
+        did work and wrote no pack. The founder had to ask four times. This
+        is the check that makes it a control rather than a promise."""
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        os.utime(pack_dir, (1000, 1000))
+        self._fake_git(commit_mtime=2000)
+        code, out, _err = self.run_cli("owed")
+        self.assertEqual(1, code, out)
+        self.assertIn("OWED", out)
+
+    def test_owed_is_current_when_the_pack_is_newer_than_the_last_commit(self):
+        """A gate that cannot be satisfied is a wall, not a gate."""
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        self._fake_git(commit_mtime=1000)
+        os.utime(pack_dir, (2000, 2000))
+        code, out, _err = self.run_cli("owed")
+        self.assertEqual(0, code, out)
+        self.assertIn("CURRENT", out)
+
+    def test_owed_fires_when_no_pack_exists_at_all(self):
+        """The first session in a checkout is exactly when a pack is most
+        likely to be skipped and most needed."""
+        self._fake_git(commit_mtime=2000)
+        code, out, _err = self.run_cli("owed")
+        self.assertEqual(1, code, out)
+        self.assertIn("OWED", out)
+        self.assertIn("NO close pack exists", out)
+
+    def test_owed_is_no_data_on_a_detached_head_never_a_pass(self):
+        """A checkout whose ref cannot be read cannot be judged. NO-DATA is
+        the honest answer and it must never be silently treated as CURRENT,
+        which would be a check that reassures precisely when it is blind."""
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        self._fake_git(commit_mtime=2000, head="a" * 40)
+        code, out, _err = self.run_cli("owed")
+        self.assertEqual(2, code, out)
+        self.assertTrue(out.startswith("NO-DATA:"), out)
+
     def test_f9b_a_real_content_change_is_still_caught(self):
         """The other half, and the one that matters more. Making the
         freshness check ignore timestamps must not make it ignore CHANGES.

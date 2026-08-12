@@ -1367,8 +1367,99 @@ def cmd_detect(argv):
     return 0
 
 
+def _last_commit_time(root):
+    """The mtime of the git ref this checkout is on, which moves on every
+    commit, or None when it cannot be read.
+
+    Read from git's own on-disk files rather than by running git. This
+    module promises no subprocess anywhere, and bm_store.py already
+    establishes the pattern of parsing .git files directly for exactly
+    that reason. .git/HEAD names the ref; the ref file's mtime is the
+    moment of the last commit on this branch. A detached HEAD, a packed
+    ref, or an unreadable file all return None, which every caller treats
+    as could-not-tell rather than as nothing-to-do.
+    """
+    try:
+        head_path = os.path.join(root, ".git", "HEAD")
+        with io.open(head_path, encoding="utf-8") as fh:
+            head = fh.read().strip()
+        if not head.startswith("ref:"):
+            return None
+        ref = head.split(":", 1)[1].strip()
+        ref_path = os.path.join(root, ".git", *ref.split("/"))
+        if not os.path.isfile(ref_path):
+            return None
+        return os.path.getmtime(ref_path)
+    except Exception:
+        return None
+
+
+def cmd_owed(argv):
+    """Is a close pack owed right now?
+
+    WHY THIS VERB EXISTS, stated plainly because it is a correction. The
+    ceremony's closing half was enforced by verify-close, and verify-close
+    only ever runs when somebody chooses to run it. Nothing observed a
+    session that did real work and wrote no pack. The founder had to ask
+    for the pack four separate times before this was built, and scored it
+    1 out of 5 the fourth time. A rule nothing checks is not a control,
+    which is this project's own founding law, applied here to the
+    ceremony that carries every other session forward.
+
+    The signal is mechanical and needs no cooperation from the session
+    being checked: a pack is OWED when this checkout has committed since
+    the newest pack was written. Commits are the evidence that work
+    happened; a pack newer than the last commit is evidence somebody
+    closed. Neither depends on anybody remembering.
+
+    Four verdicts:
+
+      OWED        commits are newer than the newest pack        exit 1
+      OWED        no pack exists at all and commits do          exit 1
+      CURRENT     the newest pack is newer than the last commit exit 0
+      NO-DATA     no git ref, no handover dir, or unreadable    exit 2
+
+    NO-DATA is never a pass and never a failure: a checkout with no git
+    ref cannot be judged, and saying so is the honest answer.
+    """
+    _parse(argv, set())
+    root = _root()
+    if not root:
+        _out("NO-DATA: no project root resolved, so nothing can be judged")
+        return NODATA
+    commit_at = _last_commit_time(root)
+    if commit_at is None:
+        _out("NO-DATA: could not read this checkout's git ref, so whether "
+             "work has happened since the last pack cannot be judged")
+        return NODATA
+    pack_dir = _find_newest_pack(root)
+    if pack_dir is None:
+        _out("OWED: this checkout has commits and NO close pack exists at "
+             "all. Run `%s skeleton --slot <name>`, fill every "
+             "FILL-BY-HAND block, zip it, then `%s verify-close`."
+             % (_inv(), _inv()))
+        return FAIL
+    try:
+        pack_at = os.path.getmtime(pack_dir)
+    except Exception as exc:
+        _out("NO-DATA: the newest pack exists but could not be read (%s: %s)"
+             % (type(exc).__name__, exc))
+        return NODATA
+    if commit_at > pack_at:
+        _out_scrubbed(
+            "OWED: this checkout has committed since the newest close pack "
+            "was written (%s). The work since then has no handover. Refresh "
+            "it with `%s skeleton --slot <name>`, fill every FILL-BY-HAND "
+            "block, `%s zip`, then `%s verify-close`."
+            % (pack_dir, _inv(), _inv(), _inv()))
+        return FAIL
+    _out_scrubbed("CURRENT: the newest close pack (%s) is newer than the "
+                  "last commit on this branch." % pack_dir)
+    return PASS
+
+
 COMMANDS = {"skeleton": cmd_skeleton, "verify-close": cmd_verify_close,
-           "zip": cmd_zip, "detect": cmd_detect}
+           "zip": cmd_zip, "detect": cmd_detect, "owed": cmd_owed}
 
 
 def main(argv):
