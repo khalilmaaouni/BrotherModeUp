@@ -209,6 +209,16 @@ SUITES = (
     # exists to remove. Like the progress check above it is pure_read and its
     # suite asserts that. NO APOSTROPHE ANYWHERE IN THIS COMMENT, ON PURPOSE.
     "test_bm_idle.py",
+    # The Toolkit's first verb, added 2026-08-12. bm_toolkit.py inventories
+    # every capability the runtime can see: marketplaces, plugins and their
+    # versions, hook events, skills, MCP servers and settings layers. The
+    # load bearing behavior this suite holds is the difference between a
+    # plugin reported NOT ENABLED and a plugin whose enabled state could not
+    # be read at all, false versus null, because collapsing those two is how
+    # a conflict report becomes confidently wrong. Like the two suites above
+    # it the tool is pure_read and its suite asserts that. NO APOSTROPHE
+    # ANYWHERE IN THIS COMMENT, ON PURPOSE (see the file-level note above).
+    "test_bm_toolkit.py",
     # The effect-class registry and its purity tests, added 2026-08-10. Every
     # public command declares one of five effect classes, and a command absent
     # from the registry is an error rather than a default, so a new command

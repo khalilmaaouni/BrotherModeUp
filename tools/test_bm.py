@@ -5760,6 +5760,18 @@ class TestP17PackagingManifestMatchesTheRepository(unittest.TestCase):
             "shipping tool at runtime."),
         "WEEKLY-REVIEW.md": (
             "a human checklist. Documentation, not runtime input."),
+        "toolkit_conflict_classes.json": (
+            "the founder-editable OVERRIDE for the Toolkit's conflict "
+            "classes and their severities. It stays behind on purpose "
+            "(decision 34, 2026-08-12): the shipped defaults live in "
+            "bm_toolkit.py as a module constant, so a packaged install "
+            "always has working classes, and this file only overrides them "
+            "where it exists. Carrying it as package data instead would "
+            "mean a flat top-level module reaching for a data file that "
+            "include-package-data = false drops, which is how a packaged "
+            "toolkit would end up silently classless. Severity is a "
+            "judgement about how one team works, so the override path is "
+            "the point of the file, not the defaults."),
     }
 
     #: name -> why it must reach an installed user. Empty today, on purpose:
