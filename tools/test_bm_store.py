@@ -1069,6 +1069,24 @@ class TestFixRoundGates(unittest.TestCase):
                                  "store aside, and the PRAGMA table_info "
                                  "probe beside it is schema introspection "
                                  "rather than data access",
+            "_migrate_19_to_20": "a schema migration step, run INSIDE the "
+                                 "caller's BEGIN EXCLUSIVE (TK5a, F4 "
+                                 "capability receipts plus R1.2 "
+                                 "criterion-linked verification). Four "
+                                 "bare calls, all deliberate: the CREATE "
+                                 "TABLE and CREATE INDEX statements take "
+                                 "the same exemption and same reason as "
+                                 "_migrate_16_to_17 above (a CREATE TABLE "
+                                 "failing mid-migration must roll the "
+                                 "caller's transaction back, not move the "
+                                 "founder's store aside), and the PRAGMA "
+                                 "table_info probe plus its guarded ALTER "
+                                 "TABLE ADD COLUMN take the same exemption "
+                                 "and same reason as _migrate_18_to_19 "
+                                 "just above it. Written on 2026-08-12 "
+                                 "because this guard caught the new "
+                                 "migration, which is the guard working "
+                                 "exactly as every entry above it records",
         }
         with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
             source = f.read()
@@ -11455,10 +11473,21 @@ class TestLoop11ExportWithholdingPolicy(unittest.TestCase):
         way and for the same reason as its project-level twin one line
         above it, which is already here. `--phase` is free text with no
         ENUMS entry, and the twin is on this list precisely because a
-        founder once typed a client codename into it."""
+        founder once typed a client codename into it.
+
+        V3 (TK5a, schema 20) adds three: capability_receipts.
+        capability_name, .capability_version and .executor_identity.
+        Decided for the same reason as runtime_runs.runtime, the closest
+        existing column of the same kind: a caller-supplied label with no
+        ENUMS entry, legible because withholding it would make a
+        capability receipt dump useless for the one question it exists to
+        answer."""
         self.assertEqual(sorted(bs._DUMP_SCRUB_ONLY_COLUMNS),
                           [("alerts", "category"),
                            ("attribution", "event_type"),
+                           ("capability_receipts", "capability_name"),
+                           ("capability_receipts", "capability_version"),
+                           ("capability_receipts", "executor_identity"),
                            ("claims", "path"),
                            ("evidence", "kind"),
                            ("evidence", "subject_type"),
@@ -14775,6 +14804,16 @@ def _alert(aid="alert1", **kw):
 def _evidence(eid="ev1", subject_id="task1", **kw):
     d = {"evidence_id": eid, "subject_type": "task",
          "subject_id": subject_id, "created_at": "2026-08-01T00:00:00Z"}
+    d.update(kw)
+    return d
+
+
+def _capability_receipt(rid="rcpt1", pid="proj1", **kw):
+    d = {"receipt_id": rid, "project_id": pid,
+         "capability_name": "some-plugin",
+         "task_description": "do the thing",
+         "verification_state": "verified",
+         "created_at": "2026-08-01T00:00:00Z"}
     d.update(kw)
     return d
 
@@ -22785,6 +22824,485 @@ class TestSchema19OutcomeContractColumns(unittest.TestCase):
         self.assertEqual(bs._TABLES_BY_VERSION[18], bs._TABLES_V18)
         self.assertEqual(bs._TABLES_V19, bs._TABLES_V18)
         self.assertEqual(bs._TABLES_BY_VERSION[19], bs._TABLES_V19)
+
+
+class TestSchema20CapabilityReceipts(unittest.TestCase):
+    """Schema 19 to 20 (TK5a, F4 capability receipts plus R1.2
+    criterion-linked verification, docs/plan/TOOLKIT-PLAN-2026-08-12.md
+    sections 3 and 5): ONE new table (capability_receipts, the nine-field
+    normalization of what an external capability did) plus ONE additive
+    column on the existing evidence table (criterion_id, naming which
+    acceptance_checks entry a piece of evidence satisfies). ADDITIVE
+    ONLY, and proven against a REAL schema-19 store (a genuine store,
+    opened and written to, then reverted), never hand-written DDL, the
+    same discipline TestSchema17IsAdditive and
+    TestSchema19OutcomeContractColumns already use for their own table
+    and column additions."""
+
+    def _schema19_store(self, d):
+        """A real store with a real, populated project, task and evidence
+        row, stripped back to the schema-19 shape: no capability_receipts
+        table, and evidence with no criterion_id column. Column list and
+        every value are read from a genuine store's own evidence row
+        rather than hand typed, the same technique _schema18_store uses
+        for projects.kill_criteria/non_goals, so the fixture cannot
+        silently drift from what this code actually writes. The recreated
+        evidence table and its index are copied verbatim from _LOOP1_DDL
+        and _LOOP1_INDEX_DDL, which this loop left otherwise untouched."""
+        with bs.Store(d) as store:
+            store.upsert_project(_project(), _actor())
+            store.create_task(
+                _task("task1", acceptance_checks=["grep returns empty"]),
+                _actor())
+            store.add_evidence(
+                _evidence("ev1", subject_id="task1", kind="test",
+                          note="ran the grep"),
+                "proj1", _actor())
+        path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        try:
+            keep = [dict(r) for r in conn.execute("SELECT * FROM evidence")]
+            self.assertTrue(keep, "the fixture must carry a real evidence row")
+            cols = [c for c in keep[0] if c != "criterion_id"]
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("DROP TABLE IF EXISTS capability_receipts")
+            conn.execute("DROP TABLE evidence")
+            conn.execute("""
+                CREATE TABLE evidence (
+                  evidence_id TEXT PRIMARY KEY,
+                  subject_type TEXT NOT NULL,
+                  subject_id TEXT NOT NULL,
+                  kind TEXT NOT NULL DEFAULT '',
+                  ref TEXT NOT NULL DEFAULT '',
+                  note TEXT NOT NULL DEFAULT '',
+                  created_at TEXT NOT NULL
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS evidence_subject_idx "
+                "ON evidence(subject_type, subject_id)")
+            for row in keep:
+                conn.execute(
+                    "INSERT INTO evidence (%s) VALUES (%s)"
+                    % (",".join(cols), ",".join("?" * len(cols))),
+                    tuple(row[c] for c in cols))
+            conn.execute(
+                "UPDATE meta SET value='19' WHERE key='schema_version'")
+            conn.execute("COMMIT")
+        finally:
+            conn.close()
+        return path
+
+    def _tables(self, path):
+        conn = sqlite3.connect(path)
+        try:
+            return {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            conn.close()
+
+    def _table_info(self, path, table):
+        conn = sqlite3.connect(path)
+        try:
+            return [tuple(r) for r in
+                    conn.execute("PRAGMA table_info(%s)" % table)]
+        finally:
+            conn.close()
+
+    def _evidence_columns(self, path):
+        return {c[1] for c in self._table_info(path, "evidence")}
+
+    def _row_count(self, path, table):
+        conn = sqlite3.connect(path)
+        try:
+            return conn.execute(
+                "SELECT COUNT(*) FROM %s" % table).fetchone()[0]
+        finally:
+            conn.close()
+
+    # -- schema plumbing --------------------------------------------------
+
+    def test_schema_version_moves_from_19_to_20(self):
+        self.assertGreaterEqual(
+            bs.SCHEMA_VERSION, 20,
+            "TK5a: SCHEMA_VERSION moved from 19 to at least 20")
+
+    def test_the_migrations_table_has_an_entry_for_schema_19(self):
+        self.assertIn(19, bs._MIGRATIONS)
+        self.assertIs(bs._MIGRATIONS[19], bs._migrate_19_to_20)
+
+    def test_a_brand_new_store_has_the_receipts_table_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d):
+                pass
+            path = os.path.join(d, bs.STORE_DIRNAME, bs.STORE_FILENAME)
+            found = self._tables(path)
+            self.assertIn("capability_receipts", found)
+            cols = {c[1] for c in self._table_info(path, "capability_receipts")}
+            self.assertEqual(
+                cols,
+                {"receipt_id", "project_id", "task_id", "capability_name",
+                 "capability_version", "executor_identity",
+                 "task_description", "inputs", "permissions_declared",
+                 "claimed_output", "changed_artifacts", "raw_evidence",
+                 "verification_state", "verification_evidence",
+                 "omissions", "created_at"},
+                "capability_receipts must have exactly the nine-field shape")
+            self.assertEqual(self._row_count(path, "capability_receipts"), 0,
+                             "no backfill, created empty")
+
+    def test_a_brand_new_store_has_the_evidence_criterion_id_column(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                have = {r[1] for r in store.conn.execute(
+                    "PRAGMA table_info(evidence)").fetchall()}
+                self.assertIn("criterion_id", have)
+
+    def test_the_fixture_really_is_missing_the_table_and_the_column(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema19_store(d)
+            self.assertNotIn("capability_receipts", self._tables(path))
+            self.assertNotIn("criterion_id", self._evidence_columns(path))
+
+    def test_an_existing_schema19_database_still_opens_and_migrates(self):
+        """The hard requirement: a database created before this loop must
+        still open, and must migrate rather than be quarantined."""
+        with tempfile.TemporaryDirectory() as d:
+            path = self._schema19_store(d)
+            with bs.Store(d) as store:
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT value FROM meta WHERE key='schema_version'"
+                    ).fetchone()["value"], str(bs.SCHEMA_VERSION))
+            self.assertIn("capability_receipts", self._tables(path))
+            self.assertIn("criterion_id", self._evidence_columns(path))
+            self.assertEqual(
+                glob.glob(os.path.join(d, bs.STORE_DIRNAME, "*quarantine*")),
+                [], "a healthy schema-19 store must MIGRATE, never be "
+                    "quarantined")
+
+    def test_the_migration_keeps_every_project_task_and_evidence_field(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._schema19_store(d)
+            with bs.Store(d) as store:
+                project = store.get_project("proj1", raw=True)
+                task = store.get_task("task1", raw=True)
+                rows = store.list_evidence("task", "task1", raw=True)
+            self.assertEqual(project["name"], "Project One")
+            self.assertEqual(task["acceptance_checks"],
+                             ["grep returns empty"])
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["evidence_id"], "ev1")
+            self.assertEqual(rows[0]["note"], "ran the grep")
+            self.assertEqual(
+                rows[0]["criterion_id"], "",
+                "an evidence row filed before schema 20 must arrive with "
+                "NO criterion link. A backfilled one would claim a review "
+                "was done that was never recorded.")
+
+    def test_the_migration_is_idempotent_against_a_schema19_fixture(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._schema19_store(d)
+            with bs.Store(d):
+                pass
+            with bs.Store(d) as store:
+                self.assertEqual(len(store.list_projects()), 1)
+
+    def test_the_migration_is_safe_to_run_twice(self):
+        """The guard, exercised directly: running the step twice must not
+        raise, because CREATE TABLE IF NOT EXISTS and a guarded ALTER
+        TABLE are both idempotent, and _ensure_schema runs this against
+        fresh stores too."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                bs._migrate_19_to_20(store.conn)
+                bs._migrate_19_to_20(store.conn)
+                have = {r[1] for r in store.conn.execute(
+                    "PRAGMA table_info(evidence)").fetchall()}
+                self.assertIn("criterion_id", have)
+
+    def test_the_fresh_and_migrated_paths_produce_identical_table_info(self):
+        with tempfile.TemporaryDirectory() as fresh_dir, \
+                tempfile.TemporaryDirectory() as old_dir:
+            with bs.Store(fresh_dir):
+                pass
+            fresh_path = os.path.join(fresh_dir, bs.STORE_DIRNAME,
+                                      bs.STORE_FILENAME)
+            self._schema19_store(old_dir)
+            with bs.Store(old_dir):
+                pass
+            migrated_path = os.path.join(old_dir, bs.STORE_DIRNAME,
+                                         bs.STORE_FILENAME)
+            self.assertEqual(
+                self._table_info(fresh_path, "capability_receipts"),
+                self._table_info(migrated_path, "capability_receipts"))
+            self.assertEqual(self._evidence_columns(fresh_path),
+                             self._evidence_columns(migrated_path))
+
+    def test_the_schema19_table_list_is_unchanged(self):
+        """A schema-19 store must still be verified against schema 19's
+        OWN table list before it is migrated, so the new table may not
+        leak backwards into _TABLES_BY_VERSION[19]."""
+        self.assertEqual(bs._TABLES_BY_VERSION[19], bs._TABLES_V19)
+        self.assertNotIn("capability_receipts", bs._TABLES_BY_VERSION[19])
+        self.assertIn("capability_receipts", bs._TABLES_BY_VERSION[20])
+        self.assertEqual(bs._TABLES_V20,
+                         bs._TABLES_V19 + bs._TABLES_CAPABILITY)
+
+    # -- add_capability_receipt / list_capability_receipts ----------------
+
+    def test_a_capability_receipt_round_trips(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.create_task(_task("task1"), _actor())
+                rid = store.add_capability_receipt(
+                    _capability_receipt(
+                        task_id="task1", capability_name="some-plugin",
+                        capability_version="1.2.3",
+                        executor_identity="claude-code",
+                        inputs=["a.py"], permissions_declared=["read:repo"],
+                        claimed_output="fixed the bug",
+                        changed_artifacts=["a.py"],
+                        raw_evidence="stdout: ok",
+                        verification_state="verified",
+                        verification_evidence="pytest: 3 passed",
+                        omissions=["did not run lint"]),
+                    _actor())
+                self.assertEqual(rid, "rcpt1")
+                rows = store.list_capability_receipts("proj1", raw=True)
+                self.assertEqual(len(rows), 1)
+                row = rows[0]
+                self.assertEqual(row["receipt_id"], "rcpt1")
+                self.assertEqual(row["task_id"], "task1")
+                self.assertEqual(row["capability_version"], "1.2.3")
+                self.assertEqual(row["inputs"], ["a.py"])
+                self.assertEqual(row["permissions_declared"], ["read:repo"])
+                self.assertEqual(row["changed_artifacts"], ["a.py"])
+                self.assertEqual(row["omissions"], ["did not run lint"])
+                self.assertEqual(row["verification_state"], "verified")
+
+    def test_capability_version_defaults_to_empty_when_unknowable(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.add_capability_receipt(_capability_receipt(), _actor())
+                row = store.list_capability_receipts("proj1", raw=True)[0]
+                self.assertEqual(row["capability_version"], "")
+                self.assertEqual(row["task_id"], None)
+
+    def test_no_data_is_a_first_class_verification_state(self):
+        """The honesty property: a capability that returned prose with
+        nothing runnable gets a receipt whose verification_state is
+        'no_data', accepted exactly like 'verified' or 'failed', never
+        rejected and never silently upgraded."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.add_capability_receipt(
+                    _capability_receipt(verification_state="no_data"),
+                    _actor())
+                row = store.list_capability_receipts("proj1", raw=True)[0]
+                self.assertEqual(row["verification_state"], "no_data")
+
+    def test_an_unknown_verification_state_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.add_capability_receipt(
+                        _capability_receipt(verification_state="probably"),
+                        _actor())
+                self.assertIn("verification_state", str(ctx.exception))
+                self.assertEqual(store.list_capability_receipts("proj1"), [])
+
+    def test_a_missing_required_field_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                d2 = _capability_receipt()
+                del d2["capability_name"]
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.add_capability_receipt(d2, _actor())
+                self.assertIn("capability_name", str(ctx.exception))
+
+    def test_a_receipt_for_an_unknown_project_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.add_capability_receipt(
+                        _capability_receipt(pid="ghost"), _actor())
+                self.assertEqual(ctx.exception.reason, "not-found")
+
+    def test_a_receipt_naming_a_task_from_another_project_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project("proj1"), _actor())
+                store.upsert_project(_project("proj2"), _actor())
+                store.create_task(_task("task-in-2", pid="proj2"), _actor())
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.add_capability_receipt(
+                        _capability_receipt(pid="proj1",
+                                            task_id="task-in-2"),
+                        _actor())
+                self.assertEqual(ctx.exception.reason, "project-mismatch")
+                self.assertEqual(store.list_capability_receipts("proj1"), [])
+
+    def test_list_capability_receipts_is_oldest_first_and_filterable(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.create_task(_task("t1"), _actor())
+                store.create_task(_task("t2"), _actor())
+                store.add_capability_receipt(
+                    _capability_receipt("r1", capability_name="plugin-a",
+                                        task_id="t1",
+                                        created_at="2026-08-01T00:00:00Z"),
+                    _actor())
+                store.add_capability_receipt(
+                    _capability_receipt("r2", capability_name="plugin-b",
+                                        task_id="t2",
+                                        created_at="2026-08-02T00:00:00Z"),
+                    _actor())
+                all_rows = store.list_capability_receipts("proj1", raw=True)
+                self.assertEqual([r["receipt_id"] for r in all_rows],
+                                 ["r1", "r2"])
+                by_task = store.list_capability_receipts(
+                    "proj1", task_id="t2", raw=True)
+                self.assertEqual([r["receipt_id"] for r in by_task], ["r2"])
+                by_name = store.list_capability_receipts(
+                    "proj1", capability_name="plugin-a", raw=True)
+                self.assertEqual([r["receipt_id"] for r in by_name], ["r1"])
+
+    def test_a_read_only_handle_can_list_capability_receipts(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.add_capability_receipt(_capability_receipt(), _actor())
+            with bs.ReadOnlyStore(d) as ro:
+                rows = ro.list_capability_receipts("proj1", raw=True)
+            self.assertEqual([r["receipt_id"] for r in rows], ["rcpt1"])
+
+    def test_capability_receipt_prose_is_withheld_by_default(self):
+        """Default-deny (GATE C): task_description, claimed_output and
+        the rest of the receipt's prose fields are founder/capability
+        content, not identifiers, so an ordinary dump withholds them
+        exactly like task.title or evidence.note already are."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.add_capability_receipt(
+                    _capability_receipt(claimed_output="fixed it"), _actor())
+                row = store.list_capability_receipts("proj1", raw=False)[0]
+                self.assertTrue(
+                    str(row["claimed_output"]).startswith("[WITHHELD"))
+                self.assertTrue(
+                    str(row["task_description"]).startswith("[WITHHELD"))
+                # identifiers and the schema-constrained enum stay legible
+                self.assertEqual(row["receipt_id"], "rcpt1")
+                self.assertEqual(row["verification_state"], "verified")
+
+    # -- evidence.criterion_id (R1.2) --------------------------------------
+
+    def test_evidence_can_link_to_a_real_criterion(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.create_task(
+                    _task("task1", acceptance_checks=["grep returns empty"]),
+                    _actor())
+                S = bs._schema()
+                cid = S.criterion_id_for_check("grep returns empty")
+                store.add_evidence(
+                    _evidence("ev1", subject_id="task1",
+                              criterion_id=cid), "proj1", _actor())
+                row = store.list_evidence("task", "task1", raw=True)[0]
+                self.assertEqual(row["criterion_id"], cid)
+
+    def test_evidence_left_unlinked_has_an_empty_criterion_id(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.create_task(
+                    _task("task1", acceptance_checks=["grep returns empty"]),
+                    _actor())
+                store.add_evidence(_evidence("ev1", subject_id="task1"),
+                                   "proj1", _actor())
+                row = store.list_evidence("task", "task1", raw=True)[0]
+                self.assertEqual(row["criterion_id"], "")
+
+    def test_a_criterion_id_matching_no_check_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.create_task(
+                    _task("task1", acceptance_checks=["grep returns empty"]),
+                    _actor())
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.add_evidence(
+                        _evidence("ev1", subject_id="task1",
+                                  criterion_id="not-a-real-id"),
+                        "proj1", _actor())
+                self.assertEqual(ctx.exception.reason, "bad-criterion")
+                self.assertEqual(store.list_evidence("task", "task1"), [])
+
+    def test_a_criterion_id_on_a_project_subject_is_refused(self):
+        """A Project has no acceptance_checks to link to, so a
+        project-subject row claiming a criterion is refused rather than
+        silently treated as unlinked."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.add_evidence(
+                        _evidence("ev1", subject_type="project",
+                                  subject_id="proj1",
+                                  criterion_id="anything"),
+                        "proj1", _actor())
+                self.assertEqual(ctx.exception.reason, "bad-criterion")
+
+    def test_criterion_id_is_stable_for_the_same_check_text(self):
+        S = bs._schema()
+        self.assertEqual(S.criterion_id_for_check("grep returns empty"),
+                         S.criterion_id_for_check("grep returns empty"))
+        self.assertNotEqual(S.criterion_id_for_check("grep returns empty"),
+                            S.criterion_id_for_check("pytest passes"))
+
+    def test_list_evidence_filters_by_criterion_id(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                store.create_task(
+                    _task("task1",
+                          acceptance_checks=["check a", "check b"]),
+                    _actor())
+                S = bs._schema()
+                cid_a = S.criterion_id_for_check("check a")
+                store.add_evidence(
+                    _evidence("ev-a", subject_id="task1", criterion_id=cid_a),
+                    "proj1", _actor())
+                store.add_evidence(
+                    _evidence("ev-unlinked", subject_id="task1"),
+                    "proj1", _actor())
+                linked = store.list_evidence("task", "task1",
+                                              criterion_id=cid_a, raw=True)
+                self.assertEqual([r["evidence_id"] for r in linked], ["ev-a"])
+                unlinked = store.list_evidence("task", "task1",
+                                               criterion_id="", raw=True)
+                self.assertEqual([r["evidence_id"] for r in unlinked],
+                                 ["ev-unlinked"])
+                everything = store.list_evidence("task", "task1", raw=True)
+                self.assertEqual(len(everything), 2)
+
+    def test_evidence_criterion_id_is_structurally_safe_not_scrubbed(self):
+        """criterion_id is a computed twelve-character hex id, the same
+        shape as evidence_id and subject_id beside it, never founder-typed
+        free text, so it belongs on the safe list rather than the
+        scrub-only one."""
+        self.assertIn(("evidence", "criterion_id"), bs._DUMP_SAFE_COLUMNS)
+        self.assertNotIn(("evidence", "criterion_id"),
+                         bs._DUMP_SCRUB_ONLY_COLUMNS)
 
 
 class TestSystemProjectsAreNotFounderWork(unittest.TestCase):

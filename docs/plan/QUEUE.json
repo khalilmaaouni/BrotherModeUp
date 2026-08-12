@@ -17,16 +17,41 @@
   ],
   "items": [
     {
+      "id": "TK10",
+      "title": "purge_project leaves orphaned capability_receipts rows; disclosed by the TK5a builder, deliberately out of its scope",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "purging a project removes its capability_receipts, proven by a test written failing first; the exact-dict-shape removed map and dry-run semantics still hold"
+    },
+    {
+      "id": "TK11",
+      "title": "CLI surface for receipts: bm_project.py add and list capability receipts, plus an evidence criterion_id flag",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 40,
+      "files": [
+        "tools/bm_project.py",
+        "tools/test_bm_project.py"
+      ],
+      "done_check": "a receipt can be filed and listed from the command line without touching the store directly"
+    },
+    {
       "id": "TK1",
       "title": "T1 Inventory: bm_toolkit.py inventory, builds on claude plugin details, adds skills, settings layers, CLIs, cross-plugin view",
-      "state": "queued",
+      "state": "done",
       "clock": "agent",
       "forecast_minutes": 150,
       "files": [
         "tools/bm_toolkit.py",
         "tools/test_bm_toolkit.py"
       ],
-      "done_check": "python3 tools/bm_toolkit.py inventory run against this machine, output quoted"
+      "done_check": "python3 tools/bm_toolkit.py inventory run against this machine, output quoted",
+      "closed_note": "landed at d382ca5; 17 tests, three hostile fixtures, five registries; real machine reports 8 marketplaces, 69 plugins, 37 skills, 12 MCP servers"
     },
     {
       "id": "TK2",
@@ -69,7 +94,7 @@
     {
       "id": "TK5",
       "title": "T5 Receipts: nine fields, NO-DATA path, plus criterion-linked verification (R1.2 pulled into this arc per decision 32, the receipt backbone)",
-      "state": "queued",
+      "state": "in_flight",
       "clock": "agent",
       "forecast_minutes": 210,
       "files": [
@@ -78,7 +103,8 @@
         "tools/bm_toolkit.py",
         "tools/test_bm_store.py"
       ],
-      "done_check": "suite proves the nine-field receipt, the NO-DATA path, and that a verification row cannot be filed without naming its criterion"
+      "done_check": "suite proves the nine-field receipt, the NO-DATA path, and that a verification row cannot be filed without naming its criterion",
+      "closed_note": "TK5a storage half landed: schema 20, capability_receipts, criterion links, 1075 store tests. CLI surface and packet rendering remain."
     },
     {
       "id": "TK6",

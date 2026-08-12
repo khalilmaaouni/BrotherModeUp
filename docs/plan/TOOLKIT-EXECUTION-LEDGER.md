@@ -43,7 +43,7 @@ No cheap-lane model ever verifies its own work or another agent's.
 | # | Task | Tier | Budget | Actual spend | Forecast | Actual time | Verified by | Result |
 |---|---|---|---|---|---|---|---|---|
 | 1 | TK1 inventory: `tools/bm_toolkit.py` inventory and json verbs over plugins, skills, hooks, MCP servers, settings layers | sonnet, worktree | 80k out | **150k, 88% OVER** | 150 min raw, upper 240 | 6 min agent, ~25 min including orchestrator verification | orchestrator re-ran the suite, both verbs on the real machine, and three hostile fixtures | LANDED, gate pending |
-| 2 | TK5a receipts: nine-field `capability_receipts` table plus criterion-linked evidence, schema 19 to 20 | sonnet, worktree | 90k out | pending | 180 min raw, upper 300 | pending | orchestrator re-runs both suites plus an old-database migration check | IN FLIGHT |
+| 2 | TK5a receipts: nine-field `capability_receipts` table plus criterion-linked evidence, schema 19 to 20 | sonnet, worktree | 90k out | **278k, 208% OVER** | 180 min raw, upper 300 | 19 min agent, ~35 min including orchestrator verification | orchestrator re-ran both suites and wrote four refusal probes | LANDED, gate pending |
 | 3 | TK2 data: `tools/toolkit_conflict_classes.json`, ten classes with founder-editable severities | orchestrator, no dispatch | n/a | n/a | 20 min | 14 min | structure validated by command; no reader exists yet | WRITTEN, NOT CLOSED |
 
 ### Dispatch 3, why it was not delegated
@@ -151,3 +151,64 @@ guidance and stop calling them budgets, or narrow the briefs so the work
 cannot expand (this one asked for eight surfaces, an exact JSON schema and
 eleven tests in one dispatch, which is three loops of work wearing one name).
 The second is the more likely real cause.
+
+
+### TK5a, verified 2026-08-12
+
+Both suites re-run by the orchestrator in the main tree:
+
+    $ python3 tools/test_bm_store.py
+    Ran 1075 tests in 40.271s     (1047 before, so +28 on this loop)
+    OK
+    $ python3 tools/test_bm_schema.py
+    Ran 20 tests in 0.001s
+    OK
+
+Four refusal probes written by the orchestrator against a real store, because
+the honesty property of a receipt is what it REFUSES, not what it stores:
+
+    invented verification_state "passed"   refused (OwnershipRefused)
+    empty verification_state ""            refused
+    missing capability_name                refused
+    verification_state "no_data"           ACCEPTED as a first-class value
+    all nine receipt fields present on read: True
+
+The fourth is the one that matters. A capability that returned prose with
+nothing runnable has to be recordable, or the schema would quietly push every
+unverifiable step toward a state that overclaims.
+
+**Disclosed gap, filed rather than fixed.** The builder reported that
+`purge_project` does not delete `capability_receipts` rows, so purging a
+project leaves orphaned receipts. It deliberately left that alone: that method
+has exact-dict-shape tests and dry-run semantics, and widening it inside a
+scoped schema change was the wrong risk. Queued as TK10 with a failing-first
+test required. Recorded here because a gap somebody disclosed is worth more
+than a gap somebody fixed quietly and got wrong.
+
+## The budget finding, now with two data points
+
+| Dispatch | Ceiling | Spent | Over by |
+|---|---|---|---|
+| TK1 inventory | 80k | 150k | 88 percent |
+| TK5a receipts | 90k | 278k | 208 percent |
+
+Both dispatches blew their stated ceiling and neither was stopped, because
+**nothing enforces a ceiling written in a brief.** This project already has
+the law: a rule is not a control unless a file enforces it and a command
+proves it fired. The ledger's own rule 2, "every dispatch declares a token
+ceiling before it starts", is therefore currently a stated discipline and is
+labelled UNENFORCED here rather than left to read as a control.
+
+The second data point changes the diagnosis. TK5a was the larger overrun and
+also the broadest brief: a new table with fourteen columns, a migration, two
+service methods, an extension to an existing accessor, redaction
+classification, and a proven old-database migration test, all in one dispatch.
+TK1 was the same shape of mistake at smaller scale: eight surfaces, an exact
+JSON schema and eleven required tests. The pattern in both is scope, not
+appetite. A brief that contains three loops of work will spend three loops of
+budget however small a number is written at the top of it.
+
+What changes for the next dispatch, and it is a scope rule rather than a
+number: one table OR one command surface OR one registry sweep per dispatch,
+never a set of them joined by "plus". The ceiling stays in the brief as
+guidance, honestly labelled as guidance.
