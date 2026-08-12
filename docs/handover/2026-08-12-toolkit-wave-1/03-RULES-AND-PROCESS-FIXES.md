@@ -47,6 +47,15 @@ NO-DATA test is the load bearing one: a checkout whose ref cannot be read must
 never be silently reported CURRENT, which would be a check that reassures
 precisely when it is blind.
 
+FOUND BY THE VERB ON ITS OWN FIRST REAL RUN, and worth more than the feature:
+comparing the pack directory against the git ref reported OWED forever. The
+ceremony's order is write the pack, commit it, zip it, verify, and `git commit`
+does not touch the pack files, so the ref is always newer afterwards. A gate
+that cannot be satisfied is a wall. The comparison now takes whichever is
+later, the pack directory or its zip, since the zip is the artifact that lands
+last. A regression test pins it, because the failure mode is a check that
+nags eternally and therefore gets ignored, which is worse than no check.
+
 WHAT IT STILL DOES NOT DO, stated plainly: it warns, it does not refuse. No
 hook can force a session to write prose. It removes the excuse of not having
 noticed; it cannot remove the choice. If a fifth failure happens after this,
