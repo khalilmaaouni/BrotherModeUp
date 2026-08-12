@@ -132,6 +132,7 @@ py-modules = [
     "bm_messages",
     "bm_forecast",
     "bm_idle",
+    "bm_toolkit",
 ]
 # brotherme/core/schema.py is library code tools/bm_store.py loads by path
 # (see _schema() there); without this the wheel/sdist never contain it and
