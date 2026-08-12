@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_telemetry.py\" stop-warn; printf %s \"$p\" | python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_lead.py\" watchdog --tick; printf %s \"$p\" | python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_view.py\" render --if-stale; printf %s \"$p\" | python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_view.py\" alert --tick; python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_handover.py\" owed 2>/dev/null || true'",
+            "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_telemetry.py\" stop-warn; printf %s \"$p\" | python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_lead.py\" watchdog --tick; printf %s \"$p\" | python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_view.py\" render --if-stale; printf %s \"$p\" | python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_view.py\" alert --tick'",
             "timeout": 30,
             "statusMessage": "Checking for unfinished work"
           }

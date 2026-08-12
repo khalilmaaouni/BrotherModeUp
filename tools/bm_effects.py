@@ -143,7 +143,12 @@ REGISTRY = {
     # look in any review. detect and verify-close open the store read only and
     # write nothing at all; verify-close returns a verdict through its exit
     # code, which is not a write.
+    # owed (2026-08-12): pure_read like detect. It reads .git/HEAD and the
+    # branch ref file, lists docs/handover, and stats a zip. It opens no
+    # store and writes nothing, which is why it can run inside a session
+    # start line that has already passed the consent door.
     "bm_handover.py": {
+        "owed": PURE_READ,
         "skeleton": PROJECT_WRITE,
         "verify-close": PURE_READ,
         "zip": EXTERNAL_WRITE,
