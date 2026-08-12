@@ -14,15 +14,21 @@ A copy of `docs/plan/COMMAND-CENTER.html`, from the moment this pack was generat
 START HERE, THEN docs/plan/TOOLKIT-PLAN-2026-08-12.md. That plan is the
 program; everything else in this pack supports it.
 
-STATE at close: 34 of 35 suites green, 3136 tests. ONE suite is red and it
-is NOT from this session's work: the v3.2.0 tag and the VERSION file disagree
-about which commit is the release, because history was rewritten under this
-session by another one. It is filed with three options and a recommendation at
-docs/plan/DEFECT-tag-version-disagreement-2026-08-12.md and it needs YOUR
-decision, not a fix. Until it is decided, `tools/test_all.py` exits 1 on that
-one check and any session requiring ALL GREEN before pushing must know why.
+STATE at close: ALL GREEN. 3136 tests across 35 suites, exit 0, tree clean,
+pushed at 2002bc8 and verified three ways. Doctor 11 of 11.
 
-READ THAT FILE SECOND, right after this one.
+THE VERSION IS NOW v3.2.1, not v3.2.0. The tag is cut, pushed, and
+dereferences to the same commit locally and on the remote. Every install
+command, the install card and the tester pack pin to it. v3.2.0 remains valid
+and unmoved for anyone already on it.
+
+Why the cut happened, because it was not a feature release: another session rewrote history while this one worked, so the release-cut
+commit acquired a new identity while the v3.2.0 tag kept pointing at the old
+object. The tag and VERSION named different commits and the release-truth
+check went red, correctly. The founder chose the recommended option: cut the
+next number rather than move a published tag. Done, green, pushed.
+docs/plan/DEFECT-tag-version-disagreement-2026-08-12.md carries the reasoning
+and the two rejected options.
 
 Earlier state, still true: Full gate 3130 tests across 35 suites,
 exit 0, tree clean, remote verified three ways, doctor 11 of 11. Nothing is
